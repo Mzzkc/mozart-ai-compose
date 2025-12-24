@@ -9,7 +9,7 @@ import random
 import time
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 from rich.console import Console
 
@@ -64,10 +64,10 @@ class JobRunner:
         config: JobConfig,
         backend: Backend,
         state_backend: StateBackend,
-        console: Optional[Console] = None,
-        outcome_store: Optional[OutcomeStore] = None,
-        escalation_handler: Optional[EscalationHandler] = None,
-        judgment_client: Optional[JudgmentClient] = None,
+        console: Console | None = None,
+        outcome_store: OutcomeStore | None = None,
+        escalation_handler: EscalationHandler | None = None,
+        judgment_client: JudgmentClient | None = None,
     ) -> None:
         """Initialize job runner.
 
@@ -95,7 +95,7 @@ class JobRunner:
             config.rate_limit.detection_patterns
         )
 
-    async def run(self, start_batch: Optional[int] = None) -> CheckpointState:
+    async def run(self, start_batch: int | None = None) -> CheckpointState:
         """Run the job from start or resume point.
 
         Args:
@@ -132,7 +132,7 @@ class JobRunner:
         return state
 
     async def _initialize_state(
-        self, start_batch: Optional[int]
+        self, start_batch: int | None
     ) -> CheckpointState:
         """Initialize or load job state.
 

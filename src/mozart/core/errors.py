@@ -6,7 +6,6 @@ Categorizes errors to determine appropriate retry behavior.
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
 
 
 class ErrorCategory(str, Enum):
@@ -40,10 +39,10 @@ class ClassifiedError:
 
     category: ErrorCategory
     message: str
-    original_error: Optional[Exception] = None
-    exit_code: Optional[int] = None
+    original_error: Exception | None = None
+    exit_code: int | None = None
     retriable: bool = True
-    suggested_wait_seconds: Optional[float] = None
+    suggested_wait_seconds: float | None = None
 
     @property
     def is_rate_limit(self) -> bool:
@@ -63,9 +62,9 @@ class ErrorClassifier:
 
     def __init__(
         self,
-        rate_limit_patterns: Optional[list[str]] = None,
-        auth_patterns: Optional[list[str]] = None,
-        network_patterns: Optional[list[str]] = None,
+        rate_limit_patterns: list[str] | None = None,
+        auth_patterns: list[str] | None = None,
+        network_patterns: list[str] | None = None,
     ):
         """Initialize classifier with detection patterns.
 
@@ -119,8 +118,8 @@ class ErrorClassifier:
         self,
         stdout: str = "",
         stderr: str = "",
-        exit_code: Optional[int] = None,
-        exception: Optional[Exception] = None,
+        exit_code: int | None = None,
+        exception: Exception | None = None,
     ) -> ClassifiedError:
         """Classify an error based on output and exit code.
 
@@ -211,7 +210,7 @@ class ErrorClassifier:
             retriable=False,
         )
 
-    def _matches_any(self, text: str, patterns: list[re.Pattern]) -> bool:
+    def _matches_any(self, text: str, patterns: list[re.Pattern[str]]) -> bool:
         """Check if text matches any of the patterns."""
         return any(p.search(text) for p in patterns)
 

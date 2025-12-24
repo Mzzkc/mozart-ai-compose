@@ -6,14 +6,11 @@ auto-completion prompts for partial batch recovery.
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Any
 
 import jinja2
 
-from mozart.core.config import PromptConfig, ValidationRule
-
-# Forward reference for type hints
-from typing import TYPE_CHECKING
+from mozart.core.config import PromptConfig
 
 if TYPE_CHECKING:
     from mozart.execution.validation import ValidationResult
@@ -29,7 +26,7 @@ class BatchContext:
     end_item: int
     workspace: Path
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for template rendering."""
         return {
             "batch_num": self.batch_num,
@@ -69,7 +66,7 @@ class PromptBuilder:
     def __init__(
         self,
         config: PromptConfig,
-        jinja_env: Optional[jinja2.Environment] = None,
+        jinja_env: jinja2.Environment | None = None,
     ) -> None:
         """Initialize prompt builder.
 
@@ -187,13 +184,15 @@ class PromptBuilder:
         # Truncate original prompt if very long
         original_context = ctx.original_prompt
         if len(original_context) > 3000:
-            original_context = original_context[:3000] + "\n\n[... original prompt truncated for brevity ...]"
+            truncation_msg = "\n\n[... original prompt truncated for brevity ...]"
+            original_context = original_context[:3000] + truncation_msg
 
         completion_prompt = f"""## COMPLETION MODE - Batch {ctx.batch_num}
 
 This is completion attempt {ctx.completion_attempt} of {ctx.max_completion_attempts}.
 
-A previous execution of this batch partially completed. Your job is to finish ONLY the incomplete items.
+A previous execution of this batch partially completed. Your job is to \
+finish ONLY the incomplete items.
 
 ### ALREADY COMPLETED (DO NOT REDO)
 The following outputs were successfully created and validated:
@@ -288,7 +287,7 @@ Focus on completing the missing items. Do not start over from scratch."""
                 lines.append(f"  - [MISSING] {desc}")
                 if expanded_path:
                     lines.append(f"    Expected file: {expanded_path}")
-                    lines.append(f"    Action: Create this file with the required content")
+                    lines.append("    Action: Create this file with the required content")
 
             elif rule.type == "file_modified":
                 lines.append(f"  - [NOT UPDATED] {desc}")
@@ -304,10 +303,12 @@ Focus on completing the missing items. Do not start over from scratch."""
                         "    Action: You MUST append/write new content to this file."
                     )
                     lines.append(
-                        "    Reason: The file's modification time must change for validation to pass."
+                        "    Reason: The file's modification time must change "
+                        "for validation to pass."
                     )
                     lines.append(
-                        "    Hint: Read the file, then write back with additions for this batch's findings."
+                        "    Hint: Read the file, then write back with "
+                        "additions for this batch's findings."
                     )
 
             elif rule.type == "content_contains":
@@ -316,7 +317,7 @@ Focus on completing the missing items. Do not start over from scratch."""
                     lines.append(f"    Required text: {rule.pattern}")
                 if expanded_path:
                     lines.append(f"    In file: {expanded_path}")
-                lines.append(f"    Action: Add the required content to the file")
+                lines.append("    Action: Add the required content to the file")
 
             elif rule.type == "content_regex":
                 lines.append(f"  - [PATTERN NOT MATCHED] {desc}")
@@ -324,7 +325,7 @@ Focus on completing the missing items. Do not start over from scratch."""
                     lines.append(f"    Required pattern: {rule.pattern}")
                 if expanded_path:
                     lines.append(f"    In file: {expanded_path}")
-                lines.append(f"    Action: Ensure file content matches the pattern")
+                lines.append("    Action: Ensure file content matches the pattern")
 
         return "\n".join(lines)
 

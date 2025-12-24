@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
 from mozart.core.config import ValidationRule
 
@@ -20,9 +20,9 @@ class ValidationResult:
 
     rule: ValidationRule
     passed: bool
-    actual_value: Optional[str] = None
-    expected_value: Optional[str] = None
-    error_message: Optional[str] = None
+    actual_value: str | None = None
+    expected_value: str | None = None
+    error_message: str | None = None
     checked_at: datetime = field(default_factory=datetime.utcnow)
     check_duration_ms: float = 0.0
     # Learning metadata (Phase 1: Learning Foundation)
@@ -31,7 +31,7 @@ class ValidationResult:
     confidence_factors: dict[str, float] = field(default_factory=dict)
     """Factors affecting confidence, e.g., {'file_age': 0.9, 'pattern_specificity': 0.8}."""
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to serializable dictionary."""
         return {
             "rule_type": self.rule.type,
@@ -126,7 +126,7 @@ class BatchValidationResult:
         """Get results that failed."""
         return [r for r in self.results if not r.passed]
 
-    def to_dict_list(self) -> list[dict]:
+    def to_dict_list(self) -> list[dict[str, Any]]:
         """Convert all results to serializable list."""
         return [r.to_dict() for r in self.results]
 
@@ -174,7 +174,7 @@ class FileModificationTracker:
         original_mtime = self._mtimes.get(path_str, 0.0)
         return current_mtime > original_mtime
 
-    def get_original_mtime(self, path: Path) -> Optional[float]:
+    def get_original_mtime(self, path: Path) -> float | None:
         """Get the original mtime from snapshot."""
         path_str = str(path.resolve())
         return self._mtimes.get(path_str)
@@ -191,7 +191,7 @@ class ValidationEngine:
     validation methods.
     """
 
-    def __init__(self, workspace: Path, batch_context: dict) -> None:
+    def __init__(self, workspace: Path, batch_context: dict[str, Any]) -> None:
         """Initialize validation engine.
 
         Args:

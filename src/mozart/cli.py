@@ -11,15 +11,14 @@ Commands:
 
 import asyncio
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from mozart import __version__
+from mozart.core.config import JobConfig
 
 app = typer.Typer(
     name="mozart",
@@ -65,7 +64,7 @@ def run(
         "-n",
         help="Show what would be executed without running",
     ),
-    start_batch: Optional[int] = typer.Option(
+    start_batch: int | None = typer.Option(
         None,
         "--start-batch",
         "-s",
@@ -79,7 +78,7 @@ def run(
         config = JobConfig.from_yaml(config_file)
     except Exception as e:
         console.print(f"[red]Error loading config:[/red] {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     console.print(Panel(
         f"[bold]{config.name}[/bold]\n"
@@ -101,7 +100,7 @@ def run(
     asyncio.run(_run_job(config, start_batch))
 
 
-async def _run_job(config, start_batch: Optional[int]) -> None:
+async def _run_job(config: JobConfig, start_batch: int | None) -> None:
     """Run the job asynchronously using the JobRunner."""
     from mozart.backends.base import Backend
     from mozart.backends.claude_cli import ClaudeCliBackend
@@ -165,10 +164,10 @@ async def _run_job(config, start_batch: Optional[int]) -> None:
 
     except FatalError as e:
         console.print(f"[red]Fatal error: {e}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
 
-def _show_dry_run(config) -> None:
+def _show_dry_run(config: JobConfig) -> None:
     """Show what would be executed in dry run mode."""
     table = Table(title="Batch Plan")
     table.add_column("Batch", style="cyan")
@@ -189,7 +188,7 @@ def _show_dry_run(config) -> None:
 
 @app.command()
 def status(
-    job_id: Optional[str] = typer.Argument(
+    job_id: str | None = typer.Argument(
         None,
         help="Job ID to check (shows all if not specified)",
     ),
@@ -236,7 +235,7 @@ def validate(
         console.print(f"  Notifications: {len(config.notifications)}")
     except Exception as e:
         console.print(f"[red]Invalid configuration:[/red] {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
 
 @app.command()

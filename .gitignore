@@ -34,7 +34,7 @@ env/
 *~
 
 # Mozart artifacts
-self-dev-workspace/*.txt
+self-dev-workspace/
 *.log
 
 # State files (keep structure, ignore contents)

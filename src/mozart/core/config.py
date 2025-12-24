@@ -4,17 +4,19 @@ Defines Pydantic models for loading and validating YAML job configurations.
 """
 
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 
 class RetryConfig(BaseModel):
     """Configuration for retry behavior including partial completion recovery."""
 
     max_retries: int = Field(default=3, ge=0, description="Maximum retry attempts per batch")
-    base_delay_seconds: float = Field(default=10.0, gt=0, description="Initial delay between retries")
+    base_delay_seconds: float = Field(
+        default=10.0, gt=0, description="Initial delay between retries"
+    )
     max_delay_seconds: float = Field(default=3600.0, gt=0, description="Maximum delay (1 hour)")
     exponential_base: float = Field(default=2.0, gt=1, description="Exponential backoff multiplier")
     jitter: bool = Field(default=True, description="Add randomness to delays")
@@ -52,7 +54,7 @@ class LearningConfig(BaseModel):
         default="json",
         description="Backend for storing learning outcomes",
     )
-    outcome_store_path: Optional[Path] = Field(
+    outcome_store_path: Path | None = Field(
         default=None,
         description="Path for outcome store (default: workspace/.mozart-outcomes.json)",
     )
@@ -97,9 +99,11 @@ class ValidationRule(BaseModel):
     """A single validation rule for checking batch outputs."""
 
     type: Literal["file_exists", "file_modified", "content_contains", "content_regex"]
-    path: Optional[str] = Field(default=None, description="File path (supports {batch_num}, {workspace})")
-    pattern: Optional[str] = Field(default=None, description="Pattern for content matching")
-    description: Optional[str] = Field(default=None, description="Human-readable description")
+    path: str | None = Field(
+        default=None, description="File path (supports {batch_num}, {workspace})"
+    )
+    pattern: str | None = Field(default=None, description="Pattern for content matching")
+    description: str | None = Field(default=None, description="Human-readable description")
 
 
 class NotificationConfig(BaseModel):
@@ -115,7 +119,9 @@ class NotificationConfig(BaseModel):
         "job_failed",
         "job_paused",
     ]] = Field(default=["job_complete", "job_failed"])
-    config: dict = Field(default_factory=dict, description="Channel-specific configuration")
+    config: dict[str, Any] = Field(
+        default_factory=dict, description="Channel-specific configuration"
+    )
 
 
 class RecursiveLightConfig(BaseModel):
@@ -129,7 +135,7 @@ class RecursiveLightConfig(BaseModel):
         default="http://localhost:8080",
         description="Base URL for the Recursive Light API server",
     )
-    user_id: Optional[str] = Field(
+    user_id: str | None = Field(
         default=None,
         description="Unique identifier for this Mozart instance (generates UUID if not set)",
     )
@@ -153,11 +159,11 @@ class BackendConfig(BaseModel):
         default=True,
         description="Pass --dangerously-skip-permissions to claude CLI",
     )
-    output_format: Optional[Literal["json", "text", "stream-json"]] = Field(
+    output_format: Literal["json", "text", "stream-json"] | None = Field(
         default=None,
         description="Output format for claude CLI",
     )
-    working_directory: Optional[Path] = Field(
+    working_directory: Path | None = Field(
         default=None,
         description="Working directory for claude CLI execution",
     )
@@ -202,30 +208,30 @@ class BatchConfig(BaseModel):
 class PromptConfig(BaseModel):
     """Configuration for prompt templating."""
 
-    template: Optional[str] = Field(
+    template: str | None = Field(
         default=None,
         description="Inline Jinja2 template",
     )
-    template_file: Optional[Path] = Field(
+    template_file: Path | None = Field(
         default=None,
         description="Path to external .j2 template file",
     )
-    variables: dict = Field(
+    variables: dict[str, Any] = Field(
         default_factory=dict,
         description="Static variables available in template",
     )
-    stakes: Optional[str] = Field(
+    stakes: str | None = Field(
         default=None,
         description="Motivational stakes section to append",
     )
-    thinking_method: Optional[str] = Field(
+    thinking_method: str | None = Field(
         default=None,
         description="Thinking methodology to inject into prompt",
     )
 
     @field_validator("template", "template_file")
     @classmethod
-    def at_least_one_template(cls, v: Optional[str | Path], info) -> Optional[str | Path]:
+    def at_least_one_template(cls, v: str | Path | None, info: ValidationInfo) -> str | Path | None:
         """Ensure at least one template source is provided (validated at model level)."""
         return v
 
@@ -234,7 +240,7 @@ class JobConfig(BaseModel):
     """Complete configuration for an orchestration job."""
 
     name: str = Field(description="Unique job name")
-    description: Optional[str] = Field(default=None, description="Human-readable description")
+    description: str | None = Field(default=None, description="Human-readable description")
     workspace: Path = Field(default=Path("./workspace"), description="Output directory")
 
     backend: BackendConfig = Field(default_factory=BackendConfig)
@@ -252,7 +258,7 @@ class JobConfig(BaseModel):
         default="sqlite",
         description="State storage backend",
     )
-    state_path: Optional[Path] = Field(
+    state_path: Path | None = Field(
         default=None,
         description="Path for state storage (default: workspace/.mozart-state)",
     )

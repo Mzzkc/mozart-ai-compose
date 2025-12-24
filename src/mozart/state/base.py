@@ -1,7 +1,6 @@
 """Abstract base for state backends."""
 
 from abc import ABC, abstractmethod
-from typing import Optional
 
 from mozart.core.checkpoint import BatchStatus, CheckpointState
 
@@ -13,7 +12,7 @@ class StateBackend(ABC):
     """
 
     @abstractmethod
-    async def load(self, job_id: str) -> Optional[CheckpointState]:
+    async def load(self, job_id: str) -> CheckpointState | None:
         """Load state for a job.
 
         Args:
@@ -55,7 +54,7 @@ class StateBackend(ABC):
         ...
 
     @abstractmethod
-    async def get_next_batch(self, job_id: str) -> Optional[int]:
+    async def get_next_batch(self, job_id: str) -> int | None:
         """Get the next batch to process for a job.
 
         Args:
@@ -72,7 +71,7 @@ class StateBackend(ABC):
         job_id: str,
         batch_num: int,
         status: BatchStatus,
-        error_message: Optional[str] = None,
+        error_message: str | None = None,
     ) -> None:
         """Update status of a specific batch.
 
@@ -89,7 +88,7 @@ class StateBackend(ABC):
         job_id: str,
         workspace: str,
         artifact_pattern: str,
-    ) -> Optional[int]:
+    ) -> int | None:
         """Infer last completed batch from artifact files.
 
         Fallback when state file is missing - checks for output files.

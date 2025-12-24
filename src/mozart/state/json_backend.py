@@ -7,7 +7,6 @@ approach in the original bash script.
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from mozart.core.checkpoint import BatchStatus, CheckpointState
 from mozart.state.base import StateBackend
@@ -35,7 +34,7 @@ class JsonStateBackend(StateBackend):
         safe_id = "".join(c if c.isalnum() or c in "-_" else "_" for c in job_id)
         return self.state_dir / f"{safe_id}.json"
 
-    async def load(self, job_id: str) -> Optional[CheckpointState]:
+    async def load(self, job_id: str) -> CheckpointState | None:
         """Load state from JSON file."""
         state_file = self._get_state_file(job_id)
         if not state_file.exists():
@@ -88,7 +87,7 @@ class JsonStateBackend(StateBackend):
                     continue
         return sorted(states, key=lambda s: s.updated_at, reverse=True)
 
-    async def get_next_batch(self, job_id: str) -> Optional[int]:
+    async def get_next_batch(self, job_id: str) -> int | None:
         """Get next batch from state."""
         state = await self.load(job_id)
         if state is None:
@@ -100,7 +99,7 @@ class JsonStateBackend(StateBackend):
         job_id: str,
         batch_num: int,
         status: BatchStatus,
-        error_message: Optional[str] = None,
+        error_message: str | None = None,
     ) -> None:
         """Update batch status in state."""
         state = await self.load(job_id)

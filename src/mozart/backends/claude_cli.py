@@ -14,7 +14,6 @@ import re
 import shutil
 import time
 from pathlib import Path
-from typing import Optional
 
 from mozart.backends.base import Backend, ExecutionResult
 from mozart.core.config import BackendConfig
@@ -30,8 +29,8 @@ class ClaudeCliBackend(Backend):
     def __init__(
         self,
         skip_permissions: bool = True,
-        output_format: Optional[str] = None,
-        working_directory: Optional[Path] = None,
+        output_format: str | None = None,
+        working_directory: Path | None = None,
         timeout_seconds: float = 1800.0,  # 30 minute default
     ):
         """Initialize CLI backend.
@@ -105,7 +104,7 @@ class ClaudeCliBackend(Backend):
                     process.communicate(),
                     timeout=self.timeout_seconds,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 process.kill()
                 await process.wait()
                 duration = time.monotonic() - start_time

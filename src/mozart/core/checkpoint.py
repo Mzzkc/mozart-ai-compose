@@ -5,7 +5,7 @@ Defines the state that gets persisted between runs for resumable orchestration.
 
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -36,14 +36,14 @@ class BatchState(BaseModel):
 
     batch_num: int
     status: BatchStatus = BatchStatus.PENDING
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
     attempt_count: int = 0
-    exit_code: Optional[int] = None
-    error_message: Optional[str] = None
-    error_category: Optional[str] = None
-    validation_passed: Optional[bool] = None
-    validation_details: Optional[list[dict]] = None
+    exit_code: int | None = None
+    error_message: str | None = None
+    error_category: str | None = None
+    validation_passed: bool | None = None
+    validation_details: list[dict[str, Any]] | None = None
 
     # Partial completion tracking
     completion_attempts: int = Field(
@@ -58,21 +58,21 @@ class BatchState(BaseModel):
         default_factory=list,
         description="Descriptions of validations that failed",
     )
-    last_pass_percentage: Optional[float] = Field(
+    last_pass_percentage: float | None = Field(
         default=None,
         description="Last validation pass percentage",
     )
-    execution_mode: Optional[str] = Field(
+    execution_mode: str | None = Field(
         default=None,
         description="Last execution mode: normal, completion, or retry",
     )
 
     # Learning metadata (Phase 1: Learning Foundation)
-    outcome_data: Optional[dict] = Field(
+    outcome_data: dict[str, Any] | None = Field(
         default=None,
         description="Structured outcome data for learning and pattern recognition",
     )
-    confidence_score: Optional[float] = Field(
+    confidence_score: float | None = Field(
         default=None,
         ge=0.0,
         le=1.0,
@@ -90,9 +90,12 @@ class BatchState(BaseModel):
         default=False,
         description="Whether batch succeeded on first attempt (no retries/completion)",
     )
-    outcome_category: Optional[str] = Field(
+    outcome_category: str | None = Field(
         default=None,
-        description="Outcome classification: success_first_try, success_completion, success_retry, failed_exhausted, failed_fatal",
+        description=(
+            "Outcome classification: success_first_try, success_completion, "
+            "success_retry, failed_exhausted, failed_fatal"
+        ),
     )
 
 
@@ -106,30 +109,32 @@ class CheckpointState(BaseModel):
     # Job identification
     job_id: str = Field(description="Unique ID for this job run")
     job_name: str = Field(description="Name from job config")
-    config_hash: Optional[str] = Field(default=None, description="Hash of config for change detection")
+    config_hash: str | None = Field(default=None, description="Hash of config for change detection")
 
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
     # Progress tracking
     total_batches: int
-    last_completed_batch: int = Field(default=0, description="Last successfully completed batch number")
-    current_batch: Optional[int] = Field(default=None, description="Currently processing batch")
+    last_completed_batch: int = Field(
+        default=0, description="Last successfully completed batch number"
+    )
+    current_batch: int | None = Field(default=None, description="Currently processing batch")
     status: JobStatus = JobStatus.PENDING
 
     # Batch-level state
     batches: dict[int, BatchState] = Field(default_factory=dict)
 
     # Execution metadata
-    pid: Optional[int] = Field(default=None, description="Process ID of running orchestrator")
-    error_message: Optional[str] = None
+    pid: int | None = Field(default=None, description="Process ID of running orchestrator")
+    error_message: str | None = None
     total_retry_count: int = Field(default=0, description="Total retries across all batches")
     rate_limit_waits: int = Field(default=0, description="Number of rate limit waits")
 
-    def get_next_batch(self) -> Optional[int]:
+    def get_next_batch(self) -> int | None:
         """Determine the next batch to process.
 
         Returns None if all batches are complete.
@@ -146,7 +151,9 @@ class CheckpointState(BaseModel):
         # Find next pending batch after last completed
         for batch_num in range(self.last_completed_batch + 1, self.total_batches + 1):
             batch_state = self.batches.get(batch_num)
-            if batch_state is None or batch_state.status in (BatchStatus.PENDING, BatchStatus.FAILED):
+            if batch_state is None:
+                return batch_num
+            if batch_state.status in (BatchStatus.PENDING, BatchStatus.FAILED):
                 return batch_num
 
         return None
@@ -169,7 +176,7 @@ class CheckpointState(BaseModel):
         self,
         batch_num: int,
         validation_passed: bool = True,
-        validation_details: Optional[list[dict]] = None,
+        validation_details: list[dict[str, Any]] | None = None,
     ) -> None:
         """Mark a batch as completed."""
         self.updated_at = datetime.utcnow()
@@ -193,8 +200,8 @@ class CheckpointState(BaseModel):
         self,
         batch_num: int,
         error_message: str,
-        error_category: Optional[str] = None,
-        exit_code: Optional[int] = None,
+        error_category: str | None = None,
+        exit_code: int | None = None,
     ) -> None:
         """Mark a batch as failed."""
         self.updated_at = datetime.utcnow()
