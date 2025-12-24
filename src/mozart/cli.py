@@ -103,7 +103,9 @@ def run(
 
 async def _run_job(config, start_batch: Optional[int]) -> None:
     """Run the job asynchronously using the JobRunner."""
+    from mozart.backends.base import Backend
     from mozart.backends.claude_cli import ClaudeCliBackend
+    from mozart.backends.recursive_light import RecursiveLightBackend
     from mozart.execution.runner import FatalError, JobRunner
     from mozart.learning.outcomes import JsonOutcomeStore
     from mozart.state.json_backend import JsonStateBackend
@@ -113,7 +115,22 @@ async def _run_job(config, start_batch: Optional[int]) -> None:
 
     # Setup backends
     state_backend = JsonStateBackend(config.workspace)
-    backend = ClaudeCliBackend.from_config(config.backend)
+
+    # Create appropriate backend based on type
+    backend: Backend
+    if config.backend.type == "recursive_light":
+        rl_config = config.backend.recursive_light
+        backend = RecursiveLightBackend(
+            rl_endpoint=rl_config.endpoint,
+            user_id=rl_config.user_id,
+            timeout=rl_config.timeout,
+        )
+        console.print(
+            f"[dim]Using Recursive Light backend at {rl_config.endpoint}[/dim]"
+        )
+    else:
+        # Default to ClaudeCliBackend (claude_cli, anthropic_api)
+        backend = ClaudeCliBackend.from_config(config.backend)
 
     # Setup outcome store for learning if enabled
     outcome_store = None

@@ -118,12 +118,34 @@ class NotificationConfig(BaseModel):
     config: dict = Field(default_factory=dict, description="Channel-specific configuration")
 
 
+class RecursiveLightConfig(BaseModel):
+    """Configuration for Recursive Light HTTP API backend (Phase 3).
+
+    Enables TDF-aligned processing through the Recursive Light Framework
+    with dual-LLM confidence scoring and domain activations.
+    """
+
+    endpoint: str = Field(
+        default="http://localhost:8080",
+        description="Base URL for the Recursive Light API server",
+    )
+    user_id: Optional[str] = Field(
+        default=None,
+        description="Unique identifier for this Mozart instance (generates UUID if not set)",
+    )
+    timeout: float = Field(
+        default=30.0,
+        gt=0,
+        description="Request timeout in seconds for RL API calls",
+    )
+
+
 class BackendConfig(BaseModel):
     """Configuration for the Claude execution backend."""
 
-    type: Literal["claude_cli", "anthropic_api"] = Field(
+    type: Literal["claude_cli", "anthropic_api", "recursive_light"] = Field(
         default="claude_cli",
-        description="Backend type: claude_cli (subprocess) or anthropic_api (direct)",
+        description="Backend type: claude_cli, anthropic_api, or recursive_light",
     )
 
     # CLI-specific options
@@ -156,6 +178,12 @@ class BackendConfig(BaseModel):
     )
     max_tokens: int = Field(default=8192, ge=1, description="Maximum tokens for API response")
     temperature: float = Field(default=0.7, ge=0, le=1, description="Sampling temperature")
+
+    # Recursive Light options
+    recursive_light: RecursiveLightConfig = Field(
+        default_factory=RecursiveLightConfig,
+        description="Configuration for Recursive Light backend (when type='recursive_light')",
+    )
 
 
 class BatchConfig(BaseModel):

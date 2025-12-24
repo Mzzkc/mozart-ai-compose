@@ -1,0 +1,144 @@
+{
+  "outcomes": [
+    {
+      "batch_id": "mozart-phase3-bridge_batch_1",
+      "job_id": "mozart-phase3-bridge",
+      "validation_results": [
+        {
+          "rule_type": "file_exists",
+          "description": "Task result file created",
+          "path": "{workspace}/phase3-task{batch_num}-result.txt",
+          "pattern": null,
+          "passed": true,
+          "actual_value": "self-dev-workspace/phase3-task1-result.txt",
+          "expected_value": "self-dev-workspace/phase3-task1-result.txt",
+          "error_message": null,
+          "checked_at": "2025-12-24T10:29:00.367520",
+          "check_duration_ms": 0.08837200221023522,
+          "confidence": 1.0,
+          "confidence_factors": {}
+        },
+        {
+          "rule_type": "content_contains",
+          "description": "Task marked as complete",
+          "path": "{workspace}/phase3-task{batch_num}-result.txt",
+          "pattern": "IMPLEMENTATION_COMPLETE: yes",
+          "passed": true,
+          "actual_value": "contains=True",
+          "expected_value": "IMPLEMENTATION_COMPLETE: yes",
+          "error_message": null,
+          "checked_at": "2025-12-24T10:29:00.367607",
+          "check_duration_ms": 0.08457700096187182,
+          "confidence": 1.0,
+          "confidence_factors": {}
+        },
+        {
+          "rule_type": "content_contains",
+          "description": "Tests pass",
+          "path": "{workspace}/phase3-task{batch_num}-result.txt",
+          "pattern": "TESTS_PASS: yes",
+          "passed": true,
+          "actual_value": "contains=True",
+          "expected_value": "TESTS_PASS: yes",
+          "error_message": null,
+          "checked_at": "2025-12-24T10:29:00.367672",
+          "check_duration_ms": 0.06411199865397066,
+          "confidence": 1.0,
+          "confidence_factors": {}
+        },
+        {
+          "rule_type": "content_contains",
+          "description": "Type checking passes",
+          "path": "{workspace}/phase3-task{batch_num}-result.txt",
+          "pattern": "TYPES_PASS: yes",
+          "passed": true,
+          "actual_value": "contains=True",
+          "expected_value": "TYPES_PASS: yes",
+          "error_message": null,
+          "checked_at": "2025-12-24T10:29:00.367702",
+          "check_duration_ms": 0.028062000637874007,
+          "confidence": 1.0,
+          "confidence_factors": {}
+        }
+      ],
+      "execution_duration": 290.61269990000073,
+      "retry_count": 0,
+      "completion_mode_used": false,
+      "final_status": "completed",
+      "validation_pass_rate": 100.0,
+      "first_attempt_success": false,
+      "patterns_detected": [],
+      "timestamp": "2025-12-24T10:29:00.368445"
+    },
+    {
+      "batch_id": "mozart-phase3-bridge_batch_2",
+      "job_id": "mozart-phase3-bridge",
+      "validation_results": [
+        {
+          "rule_type": "file_exists",
+          "description": "Task result file created",
+          "path": "{workspace}/phase3-task{batch_num}-result.txt",
+          "pattern": null,
+          "passed": true,
+          "actual_value": "self-dev-workspace/phase3-task2-result.txt",
+          "expected_value": "self-dev-workspace/phase3-task2-result.txt",
+          "error_message": null,
+          "checked_at": "2025-12-24T10:33:55.610611",
+          "check_duration_ms": 0.2845429989974946,
+          "confidence": 1.0,
+          "confidence_factors": {}
+        },
+        {
+          "rule_type": "content_contains",
+          "description": "Task marked as complete",
+          "path": "{workspace}/phase3-task{batch_num}-result.txt",
+          "pattern": "IMPLEMENTATION_COMPLETE: yes",
+          "passed": true,
+          "actual_value": "contains=True",
+          "expected_value": "IMPLEMENTATION_COMPLETE: yes",
+          "error_message": null,
+          "checked_at": "2025-12-24T10:33:55.610860",
+          "check_duration_ms": 0.2335399985895492,
+          "confidence": 1.0,
+          "confidence_factors": {}
+        },
+        {
+          "rule_type": "content_contains",
+          "description": "Tests pass",
+          "path": "{workspace}/phase3-task{batch_num}-result.txt",
+          "pattern": "TESTS_PASS: yes",
+          "passed": true,
+          "actual_value": "contains=True",
+          "expected_value": "TESTS_PASS: yes",
+          "error_message": null,
+          "checked_at": "2025-12-24T10:33:55.610918",
+          "check_duration_ms": 0.05492999844136648,
+          "confidence": 1.0,
+          "confidence_factors": {}
+        },
+        {
+          "rule_type": "content_contains",
+          "description": "Type checking passes",
+          "path": "{workspace}/phase3-task{batch_num}-result.txt",
+          "pattern": "TYPES_PASS: yes",
+          "passed": true,
+          "actual_value": "contains=True",
+          "expected_value": "TYPES_PASS: yes",
+          "error_message": null,
+          "checked_at": "2025-12-24T10:33:55.610965",
+          "check_duration_ms": 0.0464550030301325,
+          "confidence": 1.0,
+          "confidence_factors": {}
+        }
+      ],
+      "execution_duration": 280.6952816039993,
+      "retry_count": 0,
+      "completion_mode_used": false,
+      "final_status": "completed",
+      "validation_pass_rate": 100.0,
+      "first_attempt_success": false,
+      "patterns_detected": [],
+      "timestamp": "2025-12-24T10:33:55.612643"
+    }
+  ]
+}

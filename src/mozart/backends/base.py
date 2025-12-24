@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
+from typing import Any
 
 
 @dataclass
@@ -35,18 +35,31 @@ class ExecutionResult:
     rate_limited: bool = False
     """Whether rate limiting was detected."""
 
-    error_type: Optional[str] = None
+    error_type: str | None = None
     """Classified error type if failed."""
 
-    error_message: Optional[str] = None
+    error_message: str | None = None
     """Human-readable error message."""
 
     # Metadata
-    model: Optional[str] = None
+    model: str | None = None
     """Model used for execution."""
 
-    tokens_used: Optional[int] = None
+    tokens_used: int | None = None
     """Tokens consumed (API backend only)."""
+
+    # Recursive Light metadata (Phase 3 Language Bridge)
+    confidence_score: float | None = None
+    """RL confidence score (0.0-1.0) from dual-LLM processing."""
+
+    domain_activations: dict[str, float] | None = None
+    """RL domain activation levels (COMP, SCI, CULT, EXP)."""
+
+    boundary_states: dict[str, dict[str, Any]] | None = None
+    """RL boundary states between domains (permeability, resonance)."""
+
+    quality_conditions: dict[str, float] | None = None
+    """RL quality condition assessments (coherence, relevance, etc.)."""
 
     @property
     def output(self) -> str:
