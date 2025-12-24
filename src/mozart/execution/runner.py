@@ -9,7 +9,7 @@ import random
 import time
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 from rich.console import Console
 
@@ -19,6 +19,7 @@ from mozart.core.config import JobConfig
 from mozart.core.errors import ClassifiedError, ErrorClassifier
 from mozart.execution.escalation import EscalationContext, EscalationHandler, EscalationResponse
 from mozart.execution.validation import BatchValidationResult, ValidationEngine
+from mozart.learning.judgment import JudgmentClient, JudgmentQuery, JudgmentResponse
 from mozart.learning.outcomes import BatchOutcome, OutcomeStore
 from mozart.prompts.templating import BatchContext, CompletionContext, PromptBuilder
 from mozart.state.base import StateBackend
@@ -66,6 +67,7 @@ class JobRunner:
         console: Optional[Console] = None,
         outcome_store: Optional[OutcomeStore] = None,
         escalation_handler: Optional[EscalationHandler] = None,
+        judgment_client: Optional[JudgmentClient] = None,
     ) -> None:
         """Initialize job runner.
 
@@ -77,6 +79,9 @@ class JobRunner:
             outcome_store: Optional outcome store for learning (Phase 1).
             escalation_handler: Optional escalation handler for low-confidence
                 decisions (Phase 2). If not provided, escalation is disabled.
+            judgment_client: Optional judgment client for Recursive Light
+                integration (Phase 4). Provides TDF-aligned execution decisions.
+                If not provided, falls back to local _decide_next_action().
         """
         self.config = config
         self.backend = backend
@@ -84,6 +89,7 @@ class JobRunner:
         self.console = console or Console()
         self.outcome_store = outcome_store
         self.escalation_handler = escalation_handler
+        self.judgment_client = judgment_client
         self.prompt_builder = PromptBuilder(config.prompt)
         self.error_classifier = ErrorClassifier.from_config(
             config.rate_limit.detection_patterns
@@ -195,6 +201,9 @@ class JobRunner:
         max_retries = self.config.retry.max_retries
         max_completion = self.config.retry.max_completion_attempts
 
+        # Track execution history for judgment (Phase 4)
+        execution_history: list[ExecutionResult] = []
+
         # Build original prompt
         original_prompt = self.prompt_builder.build_batch_prompt(batch_context)
         current_prompt = original_prompt
@@ -215,6 +224,9 @@ class JobRunner:
                 f"[blue]Batch {batch_num}: {current_mode.value} execution[/blue]"
             )
             result = await self.backend.execute(current_prompt)
+
+            # Track execution result for judgment (Phase 4)
+            execution_history.append(result)
 
             if not result.success:
                 # Execution failed (not validation failure)
@@ -308,15 +320,31 @@ class JobRunner:
                 )
                 return
 
-            # Some validations failed - use adaptive decision logic
-            next_mode, decision_reason = self._decide_next_action(
-                validation_result, normal_attempts, completion_attempts
+            # Some validations failed - use judgment-based decision logic (Phase 4)
+            next_mode, decision_reason, prompt_modifications = await self._decide_with_judgment(
+                batch_num=batch_num,
+                validation_result=validation_result,
+                execution_history=execution_history,
+                normal_attempts=normal_attempts,
+                completion_attempts=completion_attempts,
             )
             pass_pct = validation_result.pass_percentage
 
             self.console.print(
                 f"[dim]Batch {batch_num}: Decision: {next_mode.value} - {decision_reason}[/dim]"
             )
+
+            # Apply prompt modifications from judgment if provided
+            if prompt_modifications and next_mode == BatchExecutionMode.RETRY:
+                # Join modifications into additional instructions
+                modification_text = "\n".join(prompt_modifications)
+                current_prompt = (
+                    original_prompt + "\n\n---\nJudgment modifications:\n" + modification_text
+                )
+                self.console.print(
+                    f"[blue]Batch {batch_num}: Applying {len(prompt_modifications)} "
+                    f"prompt modifications from judgment[/blue]"
+                )
 
             if next_mode == BatchExecutionMode.COMPLETION:
                 # COMPLETION MODE: High/medium confidence with majority passed
@@ -688,6 +716,177 @@ class JobRunner:
                 f"medium confidence ({confidence:.2f}) with {pass_pct:.0f}% passed, "
                 f"full retry needed",
             )
+
+    async def _decide_with_judgment(
+        self,
+        batch_num: int,
+        validation_result: BatchValidationResult,
+        execution_history: list[ExecutionResult],
+        normal_attempts: int,
+        completion_attempts: int,
+    ) -> tuple[BatchExecutionMode, str, list[str] | None]:
+        """Decide next action using Recursive Light judgment if available.
+
+        Consults the judgment_client (Recursive Light) for TDF-aligned decisions.
+        Falls back to local _decide_next_action() if no judgment client is configured
+        or if the judgment client encounters errors.
+
+        Args:
+            batch_num: Current batch number.
+            validation_result: Results from validation engine with confidence scores.
+            execution_history: List of ExecutionResults from previous attempts.
+            normal_attempts: Number of retry attempts already made.
+            completion_attempts: Number of completion mode attempts already made.
+
+        Returns:
+            Tuple of (BatchExecutionMode, reason string, optional prompt_modifications).
+            The prompt_modifications list is provided if judgment recommends it.
+        """
+        # Fall back to local decision if no judgment client
+        if self.judgment_client is None:
+            mode, reason = self._decide_next_action(
+                validation_result, normal_attempts, completion_attempts
+            )
+            return mode, reason, None
+
+        # Build JudgmentQuery from current state
+        query = self._build_judgment_query(
+            batch_num=batch_num,
+            validation_result=validation_result,
+            execution_history=execution_history,
+            normal_attempts=normal_attempts,
+        )
+
+        try:
+            # Get judgment from Recursive Light
+            response = await self.judgment_client.get_judgment(query)
+
+            # Log any patterns learned
+            if response.patterns_learned:
+                for pattern in response.patterns_learned:
+                    self.console.print(
+                        f"[dim]Batch {batch_num}: Pattern learned: {pattern}[/dim]"
+                    )
+
+            # Map JudgmentResponse.recommended_action to BatchExecutionMode
+            mode = self._map_judgment_to_mode(response, completion_attempts)
+            reason = f"RL judgment ({response.confidence:.2f}): {response.reasoning}"
+
+            return mode, reason, response.prompt_modifications
+
+        except Exception as e:
+            # On any error, fall back to local decision
+            self.console.print(
+                f"[yellow]Batch {batch_num}: Judgment client error: {e}, "
+                f"falling back to local decision[/yellow]"
+            )
+            mode, reason = self._decide_next_action(
+                validation_result, normal_attempts, completion_attempts
+            )
+            return mode, reason + " (judgment fallback)", None
+
+    def _build_judgment_query(
+        self,
+        batch_num: int,
+        validation_result: BatchValidationResult,
+        execution_history: list[ExecutionResult],
+        normal_attempts: int,
+    ) -> JudgmentQuery:
+        """Build a JudgmentQuery from current execution state.
+
+        Args:
+            batch_num: Current batch number.
+            validation_result: Validation results with confidence.
+            execution_history: Previous execution results for this batch.
+            normal_attempts: Number of retry attempts made.
+
+        Returns:
+            JudgmentQuery populated with current state.
+        """
+        # Extract error patterns from execution history
+        error_patterns: list[str] = []
+        for result in execution_history:
+            if not result.success and result.stderr:
+                # Extract first line as pattern identifier
+                first_line = result.stderr.split("\n")[0][:100]
+                if first_line and first_line not in error_patterns:
+                    error_patterns.append(first_line)
+
+        # Serialize execution history for query
+        history_dicts: list[dict[str, Any]] = []
+        for result in execution_history:
+            history_dicts.append({
+                "success": result.success,
+                "exit_code": result.exit_code,
+                "duration_seconds": result.duration_seconds,
+                "has_stdout": bool(result.stdout),
+                "has_stderr": bool(result.stderr),
+            })
+
+        # Get similar outcomes from outcome store if available
+        similar_outcomes: list[dict[str, Any]] = []
+        # Note: Async call to outcome_store.query_similar() could be added here
+        # For now, leave empty - future enhancement
+
+        return JudgmentQuery(
+            job_id=self.config.name,
+            batch_num=batch_num,
+            validation_results=validation_result.to_dict_list(),
+            execution_history=history_dicts,
+            error_patterns=error_patterns,
+            retry_count=normal_attempts,
+            confidence=validation_result.aggregate_confidence,
+            similar_outcomes=similar_outcomes,
+        )
+
+    def _map_judgment_to_mode(
+        self,
+        response: JudgmentResponse,
+        completion_attempts: int,
+    ) -> BatchExecutionMode:
+        """Map JudgmentResponse.recommended_action to BatchExecutionMode.
+
+        Args:
+            response: JudgmentResponse from Recursive Light.
+            completion_attempts: Number of completion attempts already made.
+
+        Returns:
+            BatchExecutionMode corresponding to the recommended action.
+
+        Raises:
+            FatalError: If action is 'abort'.
+        """
+        action = response.recommended_action
+        max_completion = self.config.retry.max_completion_attempts
+
+        if action == "proceed":
+            # Proceed means validation passed - this shouldn't happen in decision flow
+            # but handle gracefully by treating as completion success
+            return BatchExecutionMode.NORMAL
+
+        elif action == "retry":
+            return BatchExecutionMode.RETRY
+
+        elif action == "completion":
+            # Check if we have completion attempts left
+            if completion_attempts < max_completion:
+                return BatchExecutionMode.COMPLETION
+            else:
+                # Exhausted completion attempts, fall back to retry
+                return BatchExecutionMode.RETRY
+
+        elif action == "escalate":
+            return BatchExecutionMode.ESCALATE
+
+        elif action == "abort":
+            # Abort raises FatalError to stop the job
+            raise FatalError(
+                f"RL judgment recommends abort: {response.reasoning}"
+            )
+
+        else:
+            # Unknown action - fall back to retry
+            return BatchExecutionMode.RETRY
 
     async def _handle_escalation(
         self,
