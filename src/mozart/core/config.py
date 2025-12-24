@@ -38,6 +38,42 @@ class RetryConfig(BaseModel):
     )
 
 
+class LearningConfig(BaseModel):
+    """Configuration for learning and outcome tracking (Phase 2).
+
+    Controls outcome recording, confidence thresholds, and escalation behavior.
+    """
+
+    enabled: bool = Field(
+        default=True,
+        description="Enable learning and outcome recording",
+    )
+    outcome_store_type: Literal["json", "sqlite"] = Field(
+        default="json",
+        description="Backend for storing learning outcomes",
+    )
+    outcome_store_path: Optional[Path] = Field(
+        default=None,
+        description="Path for outcome store (default: workspace/.mozart-outcomes.json)",
+    )
+    min_confidence_threshold: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Confidence below this triggers escalation (if enabled)",
+    )
+    high_confidence_threshold: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Confidence above this uses completion mode for partial failures",
+    )
+    escalation_enabled: bool = Field(
+        default=False,
+        description="Enable escalation for low-confidence decisions (requires handler)",
+    )
+
+
 class RateLimitConfig(BaseModel):
     """Configuration for rate limit detection and handling."""
 
@@ -179,6 +215,7 @@ class JobConfig(BaseModel):
 
     retry: RetryConfig = Field(default_factory=RetryConfig)
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
+    learning: LearningConfig = Field(default_factory=LearningConfig)
 
     validations: list[ValidationRule] = Field(default_factory=list)
     notifications: list[NotificationConfig] = Field(default_factory=list)
@@ -218,3 +255,11 @@ class JobConfig(BaseModel):
         if self.state_backend == "json":
             return self.workspace / ".mozart-state.json"
         return self.workspace / ".mozart-state.db"
+
+    def get_outcome_store_path(self) -> Path:
+        """Get the resolved outcome store path for learning."""
+        if self.learning.outcome_store_path:
+            return self.learning.outcome_store_path
+        if self.learning.outcome_store_type == "json":
+            return self.workspace / ".mozart-outcomes.json"
+        return self.workspace / ".mozart-outcomes.db"

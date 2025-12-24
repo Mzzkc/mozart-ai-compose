@@ -105,6 +105,7 @@ async def _run_job(config, start_batch: Optional[int]) -> None:
     """Run the job asynchronously using the JobRunner."""
     from mozart.backends.claude_cli import ClaudeCliBackend
     from mozart.execution.runner import FatalError, JobRunner
+    from mozart.learning.outcomes import JsonOutcomeStore
     from mozart.state.json_backend import JsonStateBackend
 
     # Ensure workspace exists
@@ -114,12 +115,24 @@ async def _run_job(config, start_batch: Optional[int]) -> None:
     state_backend = JsonStateBackend(config.workspace)
     backend = ClaudeCliBackend.from_config(config.backend)
 
-    # Create runner with partial completion support
+    # Setup outcome store for learning if enabled
+    outcome_store = None
+    if config.learning.enabled:
+        outcome_store_path = config.get_outcome_store_path()
+        if config.learning.outcome_store_type == "json":
+            outcome_store = JsonOutcomeStore(outcome_store_path)
+        # Future: add SqliteOutcomeStore when implemented
+        console.print(
+            f"[dim]Learning enabled: outcomes will be stored at {outcome_store_path}[/dim]"
+        )
+
+    # Create runner with partial completion support and learning
     runner = JobRunner(
         config=config,
         backend=backend,
         state_backend=state_backend,
         console=console,
+        outcome_store=outcome_store,
     )
 
     try:

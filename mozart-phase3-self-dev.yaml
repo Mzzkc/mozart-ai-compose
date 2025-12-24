@@ -1,0 +1,178 @@
+# Mozart Phase 3 Self-Development: Language Bridge (HTTP API)
+# Mozart connects to Recursive Light via HTTP for judgment
+
+name: "mozart-phase3-bridge"
+description: "Mozart implements HTTP bridge to Recursive Light"
+
+workspace: "./self-dev-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  working_directory: "/home/emzi/Projects/mozart-ai-compose"
+  timeout_seconds: 1800
+
+batch:
+  size: 1
+  total_items: 2  # 2 Phase 3 tasks (Mozart side only)
+  start_item: 1
+
+prompt:
+  template: |
+    Let's begin a new session. Begin by using the session start skill.
+    Embody the TDF in all decisions at every turn throughout this session.
+
+    You are implementing Mozart's Phase 3 (Language Bridge - HTTP API).
+    Phase 1 (Learning) and Phase 2 (Confidence) are COMPLETE.
+
+    STEP 1: READ THESE SKILL FILES FIRST:
+    {% for skill in skill_files %}
+    - {{ skill }}
+    {% endfor %}
+
+    STEP 2: READ PROJECT CONTEXT:
+    {% for ctx in context_files %}
+    - {{ ctx }}
+    {% endfor %}
+
+    {% set task = tasks[batch_num - 1] %}
+    CURRENT STATUS:
+    - Working on Task {{ batch_num }} of {{ total_batches }}: {{ task.name }}
+
+    STEP 3: READ REFERENCE FILES:
+    {% for ref in task.reference_files %}
+    - {{ ref }}
+    {% endfor %}
+
+    REQUIREMENTS:
+    {{ task.requirements }}
+
+    STEP 4: IMPLEMENT AND VALIDATE:
+    ```bash
+    cd /home/emzi/Projects/mozart-ai-compose
+    source .venv/bin/activate
+    pytest tests/ -v > {{ workspace }}/pytest-phase3.txt 2>&1
+    mypy src/ > {{ workspace }}/mypy-phase3.txt 2>&1
+    ruff check src/ > {{ workspace }}/ruff-phase3.txt 2>&1
+    ```
+
+    STEP 5: WRITE OUTPUT MARKERS to {{ workspace }}/phase3-task{{ batch_num }}-result.txt:
+    - TASK_NAME: {{ task.name }}
+    - FILES_CREATED: [list paths]
+    - FILES_MODIFIED: [list paths]
+    - TESTS_PASS: yes/no
+    - TYPES_PASS: yes/no
+    - LINT_PASS: yes/no
+    - IMPLEMENTATION_COMPLETE: yes/no
+
+    {{ stakes }}
+    {{ thinking_method }}
+
+  variables:
+    skill_files:
+      - /home/emzi/.claude/skills/session-startup-protocol.md
+      - /home/emzi/.claude/skills/tetrahedral-decision-framework.md
+    context_files:
+      - STATUS.md
+      - memory-bank/activeContext.md
+    tasks:
+      - name: "Create RecursiveLightBackend"
+        requirements: |
+          Create: src/mozart/backends/recursive_light.py
+
+          Implement RecursiveLightBackend class that:
+          1. Inherits from Backend protocol (see base.py)
+          2. Uses httpx.AsyncClient for HTTP requests
+          3. Connects to Recursive Light API endpoint
+
+          Constructor parameters:
+          - rl_endpoint: str = "http://localhost:8080"
+          - user_id: Optional[str] = None (generates UUID if None)
+          - timeout: float = 30.0
+
+          Methods:
+          - async execute(prompt: str) -> ExecutionResult
+            POST to {endpoint}/api/process with {"user_id": ..., "message": prompt}
+            Parse response for: response text, confidence, domains, boundaries
+            Return ExecutionResult with RL metadata populated
+
+          - async health_check() -> bool
+            GET {endpoint}/health or similar
+
+          Also extend ExecutionResult in base.py with optional RL fields:
+          - confidence_score: Optional[float] = None
+          - domain_activations: Optional[dict[str, float]] = None
+          - boundary_states: Optional[dict[str, dict]] = None
+          - quality_conditions: Optional[dict[str, float]] = None
+
+          Handle connection errors gracefully (return failed ExecutionResult).
+        reference_files:
+          - src/mozart/backends/base.py
+          - src/mozart/backends/claude_cli.py
+          - src/mozart/execution/runner.py
+
+      - name: "Add RecursiveLight backend option to config and CLI"
+        requirements: |
+          Modify: src/mozart/core/config.py
+          - Add "recursive_light" to BackendType enum
+          - Add RecursiveLightConfig model with endpoint, user_id, timeout fields
+          - Update BackendConfig to support recursive_light type
+
+          Modify: src/mozart/cli.py
+          - Import RecursiveLightBackend
+          - In run command, handle backend.type == "recursive_light"
+          - Create RecursiveLightBackend with config settings
+          - Pass to JobRunner
+
+          Update: src/mozart/backends/__init__.py
+          - Export RecursiveLightBackend
+        reference_files:
+          - src/mozart/core/config.py
+          - src/mozart/cli.py
+          - src/mozart/backends/__init__.py
+          - src/mozart/backends/recursive_light.py
+
+  stakes: |
+    STAKES:
+    - Complete implementation with passing tests = 1T$ tip
+    - Incomplete, failing tests, or missing markers = fed to wolves
+
+  thinking_method: |
+    Apply TDF domains:
+    - COMP: HTTP client patterns, async/await, error handling
+    - SCI: Test API responses, validate types
+    - CULT: Match existing backend patterns (claude_cli.py)
+    - EXP: Graceful degradation when RL unavailable
+
+validations:
+  - type: file_exists
+    path: "{workspace}/phase3-task{batch_num}-result.txt"
+    description: "Task result file created"
+
+  - type: content_contains
+    path: "{workspace}/phase3-task{batch_num}-result.txt"
+    pattern: "IMPLEMENTATION_COMPLETE: yes"
+    description: "Task marked as complete"
+
+  - type: content_contains
+    path: "{workspace}/phase3-task{batch_num}-result.txt"
+    pattern: "TESTS_PASS: yes"
+    description: "Tests pass"
+
+  - type: content_contains
+    path: "{workspace}/phase3-task{batch_num}-result.txt"
+    pattern: "TYPES_PASS: yes"
+    description: "Type checking passes"
+
+retry:
+  max_retries: 3
+  max_completion_attempts: 2
+  completion_threshold_percent: 50.0
+  base_delay_seconds: 10
+
+rate_limit:
+  wait_minutes: 60
+  max_waits: 10
+
+state_backend: json
+pause_between_batches_seconds: 5

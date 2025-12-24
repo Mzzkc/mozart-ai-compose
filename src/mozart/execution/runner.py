@@ -17,6 +17,7 @@ from mozart.backends.base import Backend, ExecutionResult
 from mozart.core.checkpoint import BatchStatus, CheckpointState, JobStatus
 from mozart.core.config import JobConfig
 from mozart.core.errors import ClassifiedError, ErrorClassifier
+from mozart.execution.escalation import EscalationContext, EscalationHandler, EscalationResponse
 from mozart.execution.validation import BatchValidationResult, ValidationEngine
 from mozart.learning.outcomes import BatchOutcome, OutcomeStore
 from mozart.prompts.templating import BatchContext, CompletionContext, PromptBuilder
@@ -34,6 +35,9 @@ class BatchExecutionMode(str, Enum):
 
     RETRY = "retry"
     """Full retry after completion mode exhausted or minority passed."""
+
+    ESCALATE = "escalate"
+    """Escalation mode - low confidence requires external decision."""
 
 
 class FatalError(Exception):
@@ -61,6 +65,7 @@ class JobRunner:
         state_backend: StateBackend,
         console: Optional[Console] = None,
         outcome_store: Optional[OutcomeStore] = None,
+        escalation_handler: Optional[EscalationHandler] = None,
     ) -> None:
         """Initialize job runner.
 
@@ -70,12 +75,15 @@ class JobRunner:
             state_backend: State persistence backend.
             console: Rich console for output (optional).
             outcome_store: Optional outcome store for learning (Phase 1).
+            escalation_handler: Optional escalation handler for low-confidence
+                decisions (Phase 2). If not provided, escalation is disabled.
         """
         self.config = config
         self.backend = backend
         self.state_backend = state_backend
         self.console = console or Console()
         self.outcome_store = outcome_store
+        self.escalation_handler = escalation_handler
         self.prompt_builder = PromptBuilder(config.prompt)
         self.error_classifier = ErrorClassifier.from_config(
             config.rate_limit.detection_patterns
@@ -186,7 +194,6 @@ class JobRunner:
         completion_attempts = 0
         max_retries = self.config.retry.max_retries
         max_completion = self.config.retry.max_completion_attempts
-        completion_threshold = self.config.retry.completion_threshold_percent
 
         # Build original prompt
         original_prompt = self.prompt_builder.build_batch_prompt(batch_context)
@@ -301,74 +308,150 @@ class JobRunner:
                 )
                 return
 
-            # Some validations failed - decide next action
+            # Some validations failed - use adaptive decision logic
+            next_mode, decision_reason = self._decide_next_action(
+                validation_result, normal_attempts, completion_attempts
+            )
             pass_pct = validation_result.pass_percentage
 
-            if pass_pct > completion_threshold and current_mode != BatchExecutionMode.RETRY:
-                # COMPLETION MODE: Majority passed, try completion prompt
-                if completion_attempts < max_completion:
-                    completion_attempts += 1
-                    batch_state.completion_attempts = completion_attempts
-                    current_mode = BatchExecutionMode.COMPLETION
-
-                    # Pass ValidationResult objects (not just rules) to get expanded paths
-                    completion_ctx = CompletionContext(
-                        batch_num=batch_num,
-                        total_batches=state.total_batches,
-                        passed_validations=validation_result.get_passed_results(),
-                        failed_validations=validation_result.get_failed_results(),
-                        completion_attempt=completion_attempts,
-                        max_completion_attempts=max_completion,
-                        original_prompt=original_prompt,
-                        workspace=self.config.workspace,
-                    )
-                    current_prompt = self.prompt_builder.build_completion_prompt(
-                        completion_ctx
-                    )
-
-                    self.console.print(
-                        f"[yellow]Batch {batch_num}: Entering completion mode "
-                        f"({validation_result.passed_count}/{len(validation_result.results)} passed, "
-                        f"{pass_pct:.0f}%). Attempt {completion_attempts}/{max_completion}[/yellow]"
-                    )
-
-                    await asyncio.sleep(self.config.retry.completion_delay_seconds)
-                    continue
-                else:
-                    # Completion attempts exhausted - fall back to retry
-                    self.console.print(
-                        f"[yellow]Batch {batch_num}: Completion attempts exhausted, "
-                        f"falling back to full retry[/yellow]"
-                    )
-                    current_mode = BatchExecutionMode.RETRY
-                    current_prompt = original_prompt
-                    # Don't reset completion_attempts - track total
-                    # Fall through to retry logic below
-
-            # RETRY MODE: Minority passed or completion exhausted
-            normal_attempts += 1
-            if normal_attempts >= max_retries:
-                state.mark_batch_failed(
-                    batch_num,
-                    f"Validation failed after {max_retries} retries and "
-                    f"{completion_attempts} completion attempts "
-                    f"({validation_result.failed_count} validations still failing)",
-                    "validation",
-                )
-                await self.state_backend.save(state)
-                raise FatalError(
-                    f"Batch {batch_num} exhausted all retry options "
-                    f"({validation_result.failed_count} validations failing)"
-                )
-
             self.console.print(
-                f"[red]Batch {batch_num}: {validation_result.failed_count} validations failed "
-                f"({pass_pct:.0f}% passed). Full retry {normal_attempts}/{max_retries}[/red]"
+                f"[dim]Batch {batch_num}: Decision: {next_mode.value} - {decision_reason}[/dim]"
             )
 
-            current_mode = BatchExecutionMode.RETRY
-            current_prompt = original_prompt
-            await asyncio.sleep(self._get_retry_delay(normal_attempts))
+            if next_mode == BatchExecutionMode.COMPLETION:
+                # COMPLETION MODE: High/medium confidence with majority passed
+                completion_attempts += 1
+                batch_state.completion_attempts = completion_attempts
+                current_mode = BatchExecutionMode.COMPLETION
+
+                # Pass ValidationResult objects (not just rules) to get expanded paths
+                completion_ctx = CompletionContext(
+                    batch_num=batch_num,
+                    total_batches=state.total_batches,
+                    passed_validations=validation_result.get_passed_results(),
+                    failed_validations=validation_result.get_failed_results(),
+                    completion_attempt=completion_attempts,
+                    max_completion_attempts=max_completion,
+                    original_prompt=original_prompt,
+                    workspace=self.config.workspace,
+                )
+                current_prompt = self.prompt_builder.build_completion_prompt(
+                    completion_ctx
+                )
+
+                self.console.print(
+                    f"[yellow]Batch {batch_num}: Entering completion mode "
+                    f"({validation_result.passed_count}/{len(validation_result.results)} passed, "
+                    f"{pass_pct:.0f}%). Attempt {completion_attempts}/{max_completion}[/yellow]"
+                )
+
+                await asyncio.sleep(self.config.retry.completion_delay_seconds)
+                continue
+
+            elif next_mode == BatchExecutionMode.ESCALATE:
+                # ESCALATE MODE: Low confidence requires external decision
+                # Track error history for escalation context
+                error_history: list[str] = []
+                if batch_state.error_message:
+                    error_history.append(batch_state.error_message)
+
+                response = await self._handle_escalation(
+                    state=state,
+                    batch_num=batch_num,
+                    validation_result=validation_result,
+                    current_prompt=current_prompt,
+                    error_history=error_history,
+                    normal_attempts=normal_attempts,
+                )
+
+                # Apply escalation response
+                if response.action == "retry":
+                    normal_attempts += 1
+                    if normal_attempts >= max_retries:
+                        state.mark_batch_failed(
+                            batch_num,
+                            f"Escalation retry exhausted after {max_retries} attempts",
+                            "escalation",
+                        )
+                        await self.state_backend.save(state)
+                        raise FatalError(
+                            f"Batch {batch_num} exhausted retries after escalation"
+                        )
+                    current_mode = BatchExecutionMode.RETRY
+                    current_prompt = original_prompt
+                    await asyncio.sleep(self._get_retry_delay(normal_attempts))
+                    continue
+
+                elif response.action == "skip":
+                    # Skip this batch and move to next
+                    state.mark_batch_completed(
+                        batch_num,
+                        validation_passed=False,
+                        validation_details=validation_result.to_dict_list(),
+                    )
+                    batch_state = state.batches[batch_num]
+                    batch_state.outcome_category = "skipped_by_escalation"
+                    await self.state_backend.save(state)
+                    self.console.print(
+                        f"[yellow]Batch {batch_num}: Skipped via escalation[/yellow]"
+                    )
+                    return
+
+                elif response.action == "abort":
+                    state.mark_batch_failed(
+                        batch_num,
+                        "Aborted via escalation",
+                        "escalation",
+                    )
+                    await self.state_backend.save(state)
+                    raise FatalError(
+                        f"Batch {batch_num}: Job aborted via escalation"
+                    )
+
+                elif response.action == "modify_prompt":
+                    if response.modified_prompt is None:
+                        # Fall back to retry if no modified prompt provided
+                        self.console.print(
+                            f"[yellow]Batch {batch_num}: No modified prompt provided, "
+                            f"falling back to retry[/yellow]"
+                        )
+                        normal_attempts += 1
+                        current_mode = BatchExecutionMode.RETRY
+                        current_prompt = original_prompt
+                    else:
+                        current_mode = BatchExecutionMode.RETRY
+                        current_prompt = response.modified_prompt
+                        self.console.print(
+                            f"[blue]Batch {batch_num}: Retrying with modified prompt[/blue]"
+                        )
+                    await asyncio.sleep(self._get_retry_delay(normal_attempts))
+                    continue
+
+            else:
+                # RETRY MODE: Fall through to full retry
+                normal_attempts += 1
+                if normal_attempts >= max_retries:
+                    state.mark_batch_failed(
+                        batch_num,
+                        f"Validation failed after {max_retries} retries and "
+                        f"{completion_attempts} completion attempts "
+                        f"({validation_result.failed_count} validations still failing)",
+                        "validation",
+                    )
+                    await self.state_backend.save(state)
+                    raise FatalError(
+                        f"Batch {batch_num} exhausted all retry options "
+                        f"({validation_result.failed_count} validations failing)"
+                    )
+
+                self.console.print(
+                    f"[red]Batch {batch_num}: {validation_result.failed_count} validations failed "
+                    f"({pass_pct:.0f}% passed). Full retry {normal_attempts}/{max_retries}[/red]"
+                )
+
+                current_mode = BatchExecutionMode.RETRY
+                current_prompt = original_prompt
+                await asyncio.sleep(self._get_retry_delay(normal_attempts))
 
     def _build_batch_context(self, batch_num: int) -> BatchContext:
         """Build batch context for template expansion.
@@ -524,3 +607,149 @@ class JobRunner:
         )
 
         await self.outcome_store.record(outcome)
+
+    def _decide_next_action(
+        self,
+        validation_result: BatchValidationResult,
+        normal_attempts: int,
+        completion_attempts: int,
+    ) -> tuple[BatchExecutionMode, str]:
+        """Decide the next action based on confidence and pass percentage.
+
+        This method implements adaptive retry strategy using validation confidence
+        and pass percentage to decide between COMPLETION, RETRY, or ESCALATE modes.
+
+        Decision logic:
+        - If confidence > high_threshold AND pass_pct > threshold: COMPLETION mode
+        - If confidence < min_threshold: ESCALATE if handler exists, else RETRY
+        - Otherwise: Use existing logic (RETRY or COMPLETION based on pass_pct)
+
+        Args:
+            validation_result: Results from validation engine with confidence scores.
+            normal_attempts: Number of retry attempts already made.
+            completion_attempts: Number of completion mode attempts already made.
+
+        Returns:
+            Tuple of (BatchExecutionMode, reason string explaining the decision).
+        """
+        confidence = validation_result.aggregate_confidence
+        pass_pct = validation_result.pass_percentage
+        completion_threshold = self.config.retry.completion_threshold_percent
+        max_completion = self.config.retry.max_completion_attempts
+
+        # Get thresholds from learning config
+        high_threshold = self.config.learning.high_confidence_threshold
+        min_threshold = self.config.learning.min_confidence_threshold
+
+        # High confidence + majority passed -> completion mode (focused approach)
+        if confidence > high_threshold and pass_pct > completion_threshold:
+            if completion_attempts < max_completion:
+                return (
+                    BatchExecutionMode.COMPLETION,
+                    f"high confidence ({confidence:.2f}) with {pass_pct:.0f}% passed, "
+                    f"attempting focused completion",
+                )
+            else:
+                # Completion attempts exhausted, fall back to retry
+                return (
+                    BatchExecutionMode.RETRY,
+                    f"completion attempts exhausted ({completion_attempts}/{max_completion}), "
+                    f"falling back to full retry",
+                )
+
+        # Low confidence -> escalate if enabled and handler available, else retry
+        if confidence < min_threshold:
+            escalation_available = (
+                self.config.learning.escalation_enabled
+                and self.escalation_handler is not None
+            )
+            if escalation_available:
+                return (
+                    BatchExecutionMode.ESCALATE,
+                    f"low confidence ({confidence:.2f}) requires escalation",
+                )
+            else:
+                return (
+                    BatchExecutionMode.RETRY,
+                    f"low confidence ({confidence:.2f}) but escalation not available, "
+                    f"attempting retry",
+                )
+
+        # Medium confidence zone: use pass percentage to decide
+        if pass_pct > completion_threshold and completion_attempts < max_completion:
+            return (
+                BatchExecutionMode.COMPLETION,
+                f"medium confidence ({confidence:.2f}) with {pass_pct:.0f}% passed, "
+                f"attempting completion mode",
+            )
+        else:
+            return (
+                BatchExecutionMode.RETRY,
+                f"medium confidence ({confidence:.2f}) with {pass_pct:.0f}% passed, "
+                f"full retry needed",
+            )
+
+    async def _handle_escalation(
+        self,
+        state: CheckpointState,
+        batch_num: int,
+        validation_result: BatchValidationResult,
+        current_prompt: str,
+        error_history: list[str],
+        normal_attempts: int,
+    ) -> EscalationResponse:
+        """Handle escalation for low-confidence batch decisions.
+
+        Builds escalation context and invokes the escalation handler
+        to get a decision on how to proceed.
+
+        Args:
+            state: Current job state.
+            batch_num: Batch number being processed.
+            validation_result: Validation results from the batch.
+            current_prompt: The prompt that was used for execution.
+            error_history: List of previous error messages.
+            normal_attempts: Number of retry attempts already made.
+
+        Returns:
+            EscalationResponse with the action to take.
+
+        Raises:
+            FatalError: If no escalation handler is configured.
+        """
+        if self.escalation_handler is None:
+            raise FatalError(
+                f"Batch {batch_num}: Escalation requested but no handler configured"
+            )
+
+        batch_state = state.batches.get(batch_num)
+        if batch_state is None:
+            raise FatalError(f"Batch {batch_num}: No batch state found for escalation")
+
+        # Build escalation context
+        context = EscalationContext(
+            job_id=state.job_id,
+            batch_num=batch_num,
+            validation_results=validation_result.to_dict_list(),
+            confidence=validation_result.aggregate_confidence,
+            retry_count=normal_attempts,
+            error_history=error_history,
+            prompt_used=current_prompt,
+            output_summary=batch_state.error_message or "",
+        )
+
+        self.console.print(
+            f"[yellow]Batch {batch_num}: Escalating due to low confidence "
+            f"({context.confidence:.1%})[/yellow]"
+        )
+
+        # Get response from escalation handler
+        response = await self.escalation_handler.escalate(context)
+
+        self.console.print(
+            f"[blue]Batch {batch_num}: Escalation response: {response.action}[/blue]"
+        )
+        if response.guidance:
+            self.console.print(f"[dim]Guidance: {response.guidance}[/dim]")
+
+        return response

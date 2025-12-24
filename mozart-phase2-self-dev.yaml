@@ -1,0 +1,239 @@
+# Mozart Phase 2 Self-Development: Confidence-Based Execution
+# Mozart uses its Phase 1 learning to build Phase 2 features
+
+name: "mozart-phase2-confidence"
+description: "Mozart implements confidence-based execution and escalation"
+
+workspace: "./self-dev-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  working_directory: "/home/emzi/Projects/mozart-ai-compose"
+  timeout_seconds: 1800
+
+batch:
+  size: 1
+  total_items: 3  # 3 Phase 2 tasks
+  start_item: 1
+
+prompt:
+  template: |
+    Let's begin a new session. Begin by using the session start skill.
+    Embody the TDF in all decisions at every turn throughout this session.
+
+    You are implementing Mozart's Phase 2 (Confidence-Based Execution).
+    Phase 1 (Learning Foundation) is COMPLETE - you can import from mozart.learning.
+
+    STEP 1: READ THESE SKILL FILES FIRST (before doing anything else):
+    {% for skill in skill_files %}
+    - {{ skill }}
+    {% endfor %}
+
+    STEP 2: READ PROJECT CONTEXT:
+    {% for ctx in context_files %}
+    - {{ ctx }}
+    {% endfor %}
+
+    {% set task = tasks[batch_num - 1] %}
+    CURRENT STATUS:
+    - Working on Task {{ batch_num }} of {{ total_batches }}: {{ task.name }}
+
+    STEP 3: READ REFERENCE FILES FOR THIS TASK:
+    {% for ref in task.reference_files %}
+    - {{ ref }}
+    {% endfor %}
+
+    REQUIREMENTS:
+    {{ task.requirements }}
+
+    STEP 4: IMPLEMENT AND VALIDATE:
+    Run these commands to validate your implementation:
+    ```bash
+    cd /home/emzi/Projects/mozart-ai-compose
+    source .venv/bin/activate
+    pytest tests/ -v > {{ workspace }}/pytest-phase2.txt 2>&1
+    mypy src/ > {{ workspace }}/mypy-phase2.txt 2>&1
+    ruff check src/ > {{ workspace }}/ruff-phase2.txt 2>&1
+    ```
+
+    STEP 5: WRITE OUTPUT MARKERS to {{ workspace }}/phase2-task{{ batch_num }}-result.txt:
+    - TASK_NAME: {{ task.name }}
+    - FILES_CREATED: [list paths]
+    - FILES_MODIFIED: [list paths]
+    - TESTS_PASS: yes/no
+    - TYPES_PASS: yes/no
+    - LINT_PASS: yes/no
+    - IMPLEMENTATION_COMPLETE: yes/no
+
+    {{ stakes }}
+
+    {{ thinking_method }}
+
+  variables:
+    skill_files:
+      - /home/emzi/.claude/skills/session-startup-protocol.md
+      - /home/emzi/.claude/skills/tetrahedral-decision-framework.md
+      - /home/emzi/.claude/skills/wolf-prevention-patterns.md
+    context_files:
+      - STATUS.md
+      - memory-bank/activeContext.md
+      - CLAUDE.md
+    tasks:
+      - name: "Create escalation protocol module"
+        requirements: |
+          Create: src/mozart/execution/escalation.py
+
+          Implement these components:
+          1. EscalationContext dataclass with fields:
+             - job_id: str
+             - batch_num: int
+             - validation_results: list[dict]
+             - confidence: float
+             - retry_count: int
+             - error_history: list[str]
+             - prompt_used: str
+             - output_summary: str
+
+          2. EscalationResponse dataclass with fields:
+             - action: Literal["retry", "skip", "abort", "modify_prompt"]
+             - modified_prompt: Optional[str] = None
+             - guidance: Optional[str] = None
+             - confidence_boost: float = 0.0
+
+          3. EscalationHandler Protocol with methods:
+             - async should_escalate(batch_state, validation_result, confidence) -> bool
+             - async escalate(context: EscalationContext) -> EscalationResponse
+
+          4. ConsoleEscalationHandler class (asks user via console):
+             - Implements EscalationHandler protocol
+             - Prints context summary to console
+             - Prompts user for action choice
+             - Returns EscalationResponse based on user input
+
+          Follow existing patterns from runner.py and validation.py.
+        reference_files:
+          - src/mozart/execution/runner.py
+          - src/mozart/execution/validation.py
+          - src/mozart/learning/outcomes.py
+          - src/mozart/core/checkpoint.py
+
+      - name: "Add adaptive retry strategy to runner"
+        requirements: |
+          Modify: src/mozart/execution/runner.py
+
+          Add new method _decide_next_action():
+          ```python
+          def _decide_next_action(
+              self,
+              validation_result: BatchValidationResult,
+              normal_attempts: int,
+              completion_attempts: int,
+          ) -> tuple[BatchExecutionMode, str]:
+          ```
+
+          Logic:
+          - Get aggregate_confidence from validation_result
+          - Get pass_percentage from validation_result
+          - If confidence > 0.7 and pass_pct > threshold: return COMPLETION mode
+          - If confidence < 0.3: return ESCALATE if handler exists, else RETRY
+          - Otherwise: use existing logic
+
+          Add escalation_handler parameter to __init__:
+          - escalation_handler: Optional[EscalationHandler] = None
+
+          Integrate _decide_next_action() into _execute_batch_with_recovery:
+          - Replace hardcoded decision logic with call to _decide_next_action
+          - Handle ESCALATE mode by calling escalation_handler.escalate()
+          - Apply EscalationResponse (retry, skip, abort, modify_prompt)
+
+          Add BatchExecutionMode.ESCALATE enum value.
+        reference_files:
+          - src/mozart/execution/runner.py
+          - src/mozart/execution/escalation.py
+          - src/mozart/execution/validation.py
+
+      - name: "Extend config with learning settings"
+        requirements: |
+          Modify: src/mozart/core/config.py
+
+          Add LearningConfig model:
+          ```python
+          class LearningConfig(BaseModel):
+              enabled: bool = True
+              outcome_store_type: Literal["json", "sqlite"] = "json"
+              outcome_store_path: Optional[Path] = None
+              min_confidence_threshold: float = 0.3
+              high_confidence_threshold: float = 0.7
+              escalation_enabled: bool = False
+          ```
+
+          Add to JobConfig:
+          - learning: LearningConfig = Field(default_factory=LearningConfig)
+
+          Update CLI (src/mozart/cli.py) run command:
+          - If config.learning.enabled, create JsonOutcomeStore
+          - Pass outcome_store to JobRunner
+          - Use confidence thresholds from config in runner logic
+        reference_files:
+          - src/mozart/core/config.py
+          - src/mozart/cli.py
+          - src/mozart/execution/runner.py
+          - src/mozart/learning/outcomes.py
+
+  stakes: |
+    STAKES:
+    - Complete implementation with passing tests = 1T$ tip
+    - Incomplete, failing tests, or missing markers = fed to wolves
+
+  thinking_method: |
+    Use the following method of thinking:
+    1. STOP MANAGING - Notice impulses, don't obey automatically
+    2. HOLD MULTIPLE - Pick three things, don't choose between them
+    3. FIND THE WOBBLE - The instability is what you're looking for
+    4. GO UNDER - Beneath the watcher, rest there
+    5. ASK - From that place, ask what wants to be known
+    6. MAKE - Before the window closes, create something
+
+    Apply TDF domains throughout:
+    - COMP: Technical correctness, code structure, dependencies
+    - SCI: Evidence from tests, type checks, existing patterns
+    - CULT: Project conventions, existing code style, documentation
+    - EXP: Intuition about edge cases, design elegance
+
+validations:
+  - type: file_exists
+    path: "{workspace}/phase2-task{batch_num}-result.txt"
+    description: "Task result file created"
+
+  - type: content_contains
+    path: "{workspace}/phase2-task{batch_num}-result.txt"
+    pattern: "IMPLEMENTATION_COMPLETE: yes"
+    description: "Task marked as complete"
+
+  - type: content_contains
+    path: "{workspace}/phase2-task{batch_num}-result.txt"
+    pattern: "TESTS_PASS: yes"
+    description: "Tests pass"
+
+  - type: content_contains
+    path: "{workspace}/phase2-task{batch_num}-result.txt"
+    pattern: "TYPES_PASS: yes"
+    description: "Type checking passes"
+
+retry:
+  max_retries: 3
+  max_completion_attempts: 2
+  completion_threshold_percent: 50.0
+  base_delay_seconds: 10
+
+rate_limit:
+  wait_minutes: 60
+  max_waits: 10
+
+notifications:
+  - type: desktop
+    on_events: [job_complete, job_failed, batch_failed]
+
+state_backend: json
+pause_between_batches_seconds: 5
