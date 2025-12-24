@@ -25,6 +25,11 @@ class ValidationResult:
     error_message: Optional[str] = None
     checked_at: datetime = field(default_factory=datetime.utcnow)
     check_duration_ms: float = 0.0
+    # Learning metadata (Phase 1: Learning Foundation)
+    confidence: float = 1.0
+    """Confidence in this validation result (0.0-1.0). Default 1.0 = fully confident."""
+    confidence_factors: dict[str, float] = field(default_factory=dict)
+    """Factors affecting confidence, e.g., {'file_age': 0.9, 'pattern_specificity': 0.8}."""
 
     def to_dict(self) -> dict:
         """Convert to serializable dictionary."""
@@ -39,6 +44,8 @@ class ValidationResult:
             "error_message": self.error_message,
             "checked_at": self.checked_at.isoformat(),
             "check_duration_ms": self.check_duration_ms,
+            "confidence": self.confidence,
+            "confidence_factors": self.confidence_factors,
         }
 
 
@@ -75,6 +82,33 @@ class BatchValidationResult:
     def majority_passed(self) -> bool:
         """Returns True if >50% of validations passed."""
         return self.pass_percentage > 50.0
+
+    @property
+    def aggregate_confidence(self) -> float:
+        """Calculate weighted aggregate confidence across all validation results.
+
+        Weighting strategy:
+        - Passed validations contribute their full confidence
+        - Failed validations contribute their confidence with a penalty
+        - Empty results return 1.0 (no evidence = assume confident)
+
+        Returns:
+            Weighted average confidence (0.0-1.0).
+        """
+        if not self.results:
+            return 1.0
+
+        # Weight passed validations higher (pass=1.0, fail=0.5)
+        # This reflects that successful validations are more informative
+        total_weight = 0.0
+        weighted_sum = 0.0
+
+        for result in self.results:
+            weight = 1.0 if result.passed else 0.5
+            weighted_sum += result.confidence * weight
+            total_weight += weight
+
+        return weighted_sum / total_weight if total_weight > 0 else 1.0
 
     def get_passed_rules(self) -> list[ValidationRule]:
         """Get rules that passed."""

@@ -6,8 +6,9 @@ automatic completion prompt generation for partial failures.
 
 import asyncio
 import random
+import time
+from datetime import datetime
 from enum import Enum
-from pathlib import Path
 from typing import Optional
 
 from rich.console import Console
@@ -17,6 +18,7 @@ from mozart.core.checkpoint import BatchStatus, CheckpointState, JobStatus
 from mozart.core.config import JobConfig
 from mozart.core.errors import ClassifiedError, ErrorClassifier
 from mozart.execution.validation import BatchValidationResult, ValidationEngine
+from mozart.learning.outcomes import BatchOutcome, OutcomeStore
 from mozart.prompts.templating import BatchContext, CompletionContext, PromptBuilder
 from mozart.state.base import StateBackend
 
@@ -58,6 +60,7 @@ class JobRunner:
         backend: Backend,
         state_backend: StateBackend,
         console: Optional[Console] = None,
+        outcome_store: Optional[OutcomeStore] = None,
     ) -> None:
         """Initialize job runner.
 
@@ -66,11 +69,13 @@ class JobRunner:
             backend: Claude execution backend.
             state_backend: State persistence backend.
             console: Rich console for output (optional).
+            outcome_store: Optional outcome store for learning (Phase 1).
         """
         self.config = config
         self.backend = backend
         self.state_backend = state_backend
         self.console = console or Console()
+        self.outcome_store = outcome_store
         self.prompt_builder = PromptBuilder(config.prompt)
         self.error_classifier = ErrorClassifier.from_config(
             config.rate_limit.detection_patterns
@@ -166,6 +171,9 @@ class JobRunner:
         Raises:
             FatalError: If all retries exhausted or fatal error encountered.
         """
+        # Track execution timing for learning
+        execution_start_time = time.monotonic()
+
         # Build batch context
         batch_context = self._build_batch_context(batch_num)
         validation_engine = ValidationEngine(
@@ -251,11 +259,41 @@ class JobRunner:
 
             if validation_result.all_passed:
                 # SUCCESS - all validations passed
+                execution_duration = time.monotonic() - execution_start_time
+
+                # Determine outcome category based on execution path
+                first_attempt_success = (normal_attempts == 1 and completion_attempts == 0)
+                if first_attempt_success:
+                    outcome_category = "success_first_try"
+                elif completion_attempts > 0:
+                    outcome_category = "success_completion"
+                else:
+                    outcome_category = "success_retry"
+
+                # Populate BatchState learning fields
+                batch_state = state.batches[batch_num]
+                batch_state.first_attempt_success = first_attempt_success
+                batch_state.outcome_category = outcome_category
+                batch_state.confidence_score = validation_result.pass_percentage / 100.0
+
                 state.mark_batch_completed(
                     batch_num,
                     validation_passed=True,
                     validation_details=validation_result.to_dict_list(),
                 )
+
+                # Record outcome for learning if store is available
+                await self._record_batch_outcome(
+                    batch_num=batch_num,
+                    job_id=state.job_id,
+                    validation_result=validation_result,
+                    execution_duration=execution_duration,
+                    normal_attempts=normal_attempts,
+                    completion_attempts=completion_attempts,
+                    first_attempt_success=first_attempt_success,
+                    final_status=BatchStatus.COMPLETED,
+                )
+
                 await self.state_backend.save(state)
                 self.console.print(
                     f"[green]Batch {batch_num}: All {len(validation_result.results)} "
@@ -444,3 +482,45 @@ class JobRunner:
         if not await self.backend.health_check():
             raise FatalError("Backend health check failed after rate limit wait")
         self.console.print("[green]Health check passed, resuming...[/green]")
+
+    async def _record_batch_outcome(
+        self,
+        batch_num: int,
+        job_id: str,
+        validation_result: BatchValidationResult,
+        execution_duration: float,
+        normal_attempts: int,
+        completion_attempts: int,
+        first_attempt_success: bool,
+        final_status: BatchStatus,
+    ) -> None:
+        """Record batch outcome for learning if outcome store is available.
+
+        Args:
+            batch_num: Batch number that completed.
+            job_id: Job identifier.
+            validation_result: Validation results from the batch.
+            execution_duration: Total execution time in seconds.
+            normal_attempts: Number of normal/retry attempts.
+            completion_attempts: Number of completion mode attempts.
+            first_attempt_success: Whether batch succeeded on first attempt.
+            final_status: Final batch status.
+        """
+        if self.outcome_store is None:
+            return
+
+        outcome = BatchOutcome(
+            batch_id=f"{job_id}_batch_{batch_num}",
+            job_id=job_id,
+            validation_results=validation_result.to_dict_list(),
+            execution_duration=execution_duration,
+            retry_count=normal_attempts - 1 if normal_attempts > 0 else 0,
+            completion_mode_used=completion_attempts > 0,
+            final_status=final_status,
+            validation_pass_rate=validation_result.pass_percentage,
+            first_attempt_success=first_attempt_success,
+            patterns_detected=[],  # Future: pattern detection logic
+            timestamp=datetime.utcnow(),
+        )
+
+        await self.outcome_store.record(outcome)
