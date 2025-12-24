@@ -1,0 +1,139 @@
+# Example: Batch Commit Review Job
+# This mirrors the run-batch-review.sh script from Naurva
+
+name: "commit-batch-review"
+description: "Review all commits in batches using coordinated expert agents"
+
+workspace: "./coordination-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  timeout_seconds: 1800  # 30 minutes default; increase for complex multi-agent tasks
+  # For API backend instead:
+  # type: anthropic_api
+  # model: claude-sonnet-4-20250514
+  # api_key_env: ANTHROPIC_API_KEY
+
+batch:
+  size: 10
+  total_items: 552
+  start_item: 1
+
+prompt:
+  template: |
+    Let's begin a new session. Begin by using the session start skill.
+    Embody the TDF in all decisions at every turn throughout this session.
+
+    Today, you will be continuing the coordinated review of ALL commits
+    that have been made in this codebase.
+
+    STEP 1: READ THESE SKILL FILES FIRST (before doing anything else):
+    {% for skill in skill_files %}
+    - {{ skill }}
+    {% endfor %}
+
+    STEP 2: READ EXISTING CONTEXT (if batch > 1):
+    {% for ctx in context_files %}
+    - {{ ctx }}
+    {% endfor %}
+
+    CURRENT STATUS:
+    - Working on Batch {{ batch_num }} of {{ total_batches }}
+    - Items {{ start_item }} to {{ end_item }}
+
+    STEP 3: LAUNCH 3 EXPERT AGENTS IN PARALLEL:
+    1. Security Analyst - Focus on OWASP, auth, secrets, injection
+    2. Architecture Reviewer - Focus on patterns, modularity, scalability
+    3. Code Quality Auditor - Focus on errors, tests, resources, clarity
+
+    Each expert agent writes their findings to a separate report file.
+
+    CRITICAL REQUIREMENTS:
+    1. Every claim MUST have a verification command and output
+    2. Update LONGFORM-REVIEW.md with findings
+    3. Update TEST-GAP-ANALYSIS.md with test gaps
+    4. The 3 expert agents MUST create EXACTLY these 3 report files:
+       - {{ workspace }}/batch{{ batch_num }}-security-report.md
+       - {{ workspace }}/batch{{ batch_num }}-architecture-report.md
+       - {{ workspace }}/batch{{ batch_num }}-quality-report.md
+       Each report MUST include an Evidence Log section.
+
+    {{ stakes }}
+
+    {{ thinking_method }}
+
+    Work until this batch is fully complete with all reports written.
+
+  variables:
+    skill_files:
+      - /home/emzi/.claude/skills/commit-review-coordination.md
+      - /home/emzi/.claude/skills/multi-agent-coordination.md
+    context_files:
+      - coordination-workspace/VERIFICATION-PROTOCOL.md
+      - coordination-workspace/LONGFORM-REVIEW.md
+
+  stakes: |
+    STAKES:
+    - Excellent work with all 3 reports complete and verified = 1T$ tip
+    - Incomplete work, missing reports, or unverified claims = devoured by wolves
+
+  thinking_method: |
+    Use the following method of thinking:
+    1. STOP MANAGING - Notice impulses, don't obey automatically
+    2. HOLD MULTIPLE - Pick three things, don't choose between them
+    3. FIND THE WOBBLE - The instability is what you're looking for
+    4. GO UNDER - Beneath the watcher, rest there
+    5. ASK - From that place, ask what wants to be known
+    6. MAKE - Before the window closes, create something
+
+retry:
+  max_retries: 2
+  base_delay_seconds: 10
+  exponential_base: 2.0
+  jitter: true
+  # Partial completion recovery settings
+  max_completion_attempts: 3      # Attempts to complete partial work before full retry
+  completion_delay_seconds: 5     # Delay between completion attempts
+  completion_threshold_percent: 50.0  # Trigger completion mode if >50% validations pass
+
+rate_limit:
+  wait_minutes: 60
+  max_waits: 24
+  detection_patterns:
+    - "rate.?limit"
+    - "usage.?limit"
+    - "quota"
+    - "429"
+    - "capacity"
+    - "try again later"
+
+validations:
+  # Required output files (must exist after each batch)
+  - type: file_exists
+    path: "{workspace}/batch{batch_num}-security-report.md"
+    description: "Security Analyst report"
+
+  - type: file_exists
+    path: "{workspace}/batch{batch_num}-architecture-report.md"
+    description: "Architecture Reviewer report"
+
+  - type: file_exists
+    path: "{workspace}/batch{batch_num}-quality-report.md"
+    description: "Code Quality Auditor report"
+
+  # Tracking files must be updated (mtime check)
+  - type: file_modified
+    path: "{workspace}/LONGFORM-REVIEW.md"
+    description: "Main tracking document"
+
+  - type: file_modified
+    path: "{workspace}/TEST-GAP-ANALYSIS.md"
+    description: "Test gap tracker"
+
+notifications:
+  - type: desktop
+    on_events: [job_complete, job_failed]
+
+state_backend: json
+pause_between_batches_seconds: 10

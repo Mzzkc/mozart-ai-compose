@@ -1,0 +1,192 @@
+# Mozart Self-Development Bootstrap Config
+# Mozart orchestrates Claude to implement its own Phase 1 (Learning Foundation)
+
+name: "mozart-phase1-bootstrap"
+description: "Mozart completes its own Phase 1 implementation"
+
+workspace: "./self-dev-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  working_directory: "/home/emzi/Projects/mozart-ai-compose"
+  timeout_seconds: 1800
+
+batch:
+  size: 1
+  total_items: 4  # 4 Phase 1 tasks
+  start_item: 1
+
+prompt:
+  template: |
+    Let's begin a new session. Begin by using the session start skill.
+    Embody the TDF in all decisions at every turn throughout this session.
+
+    You are implementing Mozart's Phase 1 (Learning Foundation).
+    Mozart is learning to develop itself - this is a self-improvement task.
+
+    STEP 1: READ THESE SKILL FILES FIRST (before doing anything else):
+    {% for skill in skill_files %}
+    - {{ skill }}
+    {% endfor %}
+
+    STEP 2: READ PROJECT CONTEXT:
+    {% for ctx in context_files %}
+    - {{ ctx }}
+    {% endfor %}
+
+    {% set task = tasks[batch_num - 1] %}
+    CURRENT STATUS:
+    - Working on Task {{ batch_num }} of {{ total_batches }}: {{ task.name }}
+
+    STEP 3: READ REFERENCE FILES FOR THIS TASK:
+    {% for ref in task.reference_files %}
+    - {{ ref }}
+    {% endfor %}
+
+    REQUIREMENTS:
+    {{ task.requirements }}
+
+    STEP 4: IMPLEMENT AND VALIDATE:
+    Run these commands to validate your implementation:
+    ```bash
+    cd /home/emzi/Projects/mozart-ai-compose
+    source .venv/bin/activate
+    pytest tests/ -v > {{ workspace }}/pytest-output.txt 2>&1
+    mypy src/ > {{ workspace }}/mypy-output.txt 2>&1
+    ruff check src/ > {{ workspace }}/ruff-output.txt 2>&1
+    ```
+
+    STEP 5: WRITE OUTPUT MARKERS to {{ workspace }}/task{{ batch_num }}-result.txt:
+    - TASK_NAME: {{ task.name }}
+    - FILES_CREATED: [list paths]
+    - FILES_MODIFIED: [list paths]
+    - TESTS_PASS: yes/no
+    - TYPES_PASS: yes/no
+    - LINT_PASS: yes/no
+    - IMPLEMENTATION_COMPLETE: yes/no
+
+    {{ stakes }}
+
+    {{ thinking_method }}
+
+  variables:
+    skill_files:
+      # Session and TDF skills for structured work
+      - /home/emzi/.claude/skills/session-startup-protocol.md
+      - /home/emzi/.claude/skills/tetrahedral-decision-framework.md
+      - /home/emzi/.claude/skills/wolf-prevention-patterns.md
+    context_files:
+      # Mozart project context
+      - STATUS.md
+      - memory-bank/activeContext.md
+      - CLAUDE.md
+    tasks:
+      - name: "Create learning module __init__.py"
+        requirements: |
+          Create: src/mozart/learning/__init__.py
+          - Export BatchOutcome, OutcomeStore, JsonOutcomeStore
+          - Import from .outcomes module
+          - Follow existing pattern from src/mozart/core/__init__.py
+        reference_files:
+          - src/mozart/core/__init__.py
+          - src/mozart/state/__init__.py
+
+      - name: "Implement OutcomeStore"
+        requirements: |
+          Create: src/mozart/learning/outcomes.py
+          - BatchOutcome dataclass with fields: batch_id, job_id, validation_results,
+            execution_duration, retry_count, completion_mode_used, final_status,
+            validation_pass_rate, first_attempt_success, patterns_detected, timestamp
+          - OutcomeStore Protocol with: record(), query_similar(), get_patterns()
+          - JsonOutcomeStore implementation (async, atomic saves like JsonStateBackend)
+          - Follow existing patterns from state/json_backend.py
+        reference_files:
+          - src/mozart/state/json_backend.py
+          - src/mozart/state/base.py
+          - src/mozart/core/checkpoint.py
+
+      - name: "Add confidence to ValidationResult"
+        requirements: |
+          Modify: src/mozart/execution/validation.py
+          - Add confidence: float field to ValidationResult (default 1.0)
+          - Add confidence_factors: dict field (default empty dict)
+          - Add aggregate_confidence property to BatchValidationResult
+          - Simple calculation: average of individual confidences, weighted by pass/fail
+        reference_files:
+          - src/mozart/execution/validation.py
+          - src/mozart/core/checkpoint.py
+
+      - name: "Integrate outcome recording in runner"
+        requirements: |
+          Modify: src/mozart/execution/runner.py
+          - Add outcome_store: Optional[OutcomeStore] = None to __init__
+          - After batch completion in _execute_batch_with_recovery, record BatchOutcome
+          - Populate BatchState learning fields (confidence_score, outcome_category, etc.)
+          - Set first_attempt_success = True if normal_attempts==1 and completion_attempts==0
+          - Calculate outcome_category based on execution path
+        reference_files:
+          - src/mozart/execution/runner.py
+          - src/mozart/core/checkpoint.py
+          - src/mozart/learning/outcomes.py
+
+  stakes: |
+    STAKES:
+    - Complete implementation with passing tests = 1T$ tip
+    - Incomplete, failing tests, or missing markers = fed to wolves
+
+  thinking_method: |
+    Use the following method of thinking:
+    1. STOP MANAGING - Notice impulses, don't obey automatically
+    2. HOLD MULTIPLE - Pick three things, don't choose between them
+    3. FIND THE WOBBLE - The instability is what you're looking for
+    4. GO UNDER - Beneath the watcher, rest there
+    5. ASK - From that place, ask what wants to be known
+    6. MAKE - Before the window closes, create something
+
+    Apply TDF domains throughout:
+    - COMP: Technical correctness, code structure, dependencies
+    - SCI: Evidence from tests, type checks, existing patterns
+    - CULT: Project conventions, existing code style, documentation
+    - EXP: Intuition about edge cases, design elegance
+
+validations:
+  # Task-specific result file exists
+  - type: file_exists
+    path: "{workspace}/task{batch_num}-result.txt"
+    description: "Task result file created"
+
+  # Implementation complete marker
+  - type: content_contains
+    path: "{workspace}/task{batch_num}-result.txt"
+    pattern: "IMPLEMENTATION_COMPLETE: yes"
+    description: "Task marked as complete"
+
+  # Tests pass marker
+  - type: content_contains
+    path: "{workspace}/task{batch_num}-result.txt"
+    pattern: "TESTS_PASS: yes"
+    description: "Tests pass"
+
+  # Types pass marker
+  - type: content_contains
+    path: "{workspace}/task{batch_num}-result.txt"
+    pattern: "TYPES_PASS: yes"
+    description: "Type checking passes"
+
+retry:
+  max_retries: 3
+  max_completion_attempts: 2
+  completion_threshold_percent: 50.0
+  base_delay_seconds: 10
+
+rate_limit:
+  wait_minutes: 60
+  max_waits: 10
+
+notifications:
+  - type: desktop
+    on_events: [job_complete, job_failed, batch_failed]
+
+state_backend: json
+pause_between_batches_seconds: 5
