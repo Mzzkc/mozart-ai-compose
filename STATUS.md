@@ -16,7 +16,9 @@
 | JSON State Backend | ✅ Done | Atomic saves, list/load/save |
 | Claude CLI Backend | ✅ Done | Async subprocess, rate limit detection |
 | CLI | ✅ Done | 6 commands, Rich output, learning integration |
-| Validation Framework | ✅ Done | 4 validation types + confidence scoring |
+| Validation Framework | ✅ Done | 5 validation types + confidence scoring + command_succeeds |
+| Test Suite | ✅ Done | 56 pytest tests covering core modules |
+| QC Tooling | ✅ Done | Self-QC config, mypy clean, ruff clean |
 | Runner Loop | ✅ Done | Partial completion + judgment integration |
 | **Learning Foundation** | ✅ Phase 1 | BatchOutcome, OutcomeStore, JsonOutcomeStore |
 | **Confidence Execution** | ✅ Phase 2 | Adaptive retry, EscalationHandler, ConsoleEscalation |
@@ -80,6 +82,31 @@
 
 ---
 
+## Session 2025-12-25 Summary
+
+### Quality Control Infrastructure
+Added comprehensive QC capabilities to Mozart:
+- **56 pytest tests** covering config, checkpoint, and validation modules
+- **Type safety**: All mypy errors resolved (13 → 0)
+- **Code style**: All ruff issues resolved (86 → 0)
+- **New validation type**: `command_succeeds` for running shell commands
+- **Self-QC config**: Mozart can now validate its own codebase
+
+### New Files Created
+- `tests/conftest.py` - Test fixtures
+- `tests/test_config.py` - 17 tests for config models
+- `tests/test_checkpoint.py` - 19 tests for state models
+- `tests/test_validation.py` - 20 tests for validation engine
+- `mozart-self-qc.yaml` - Self-QC configuration
+
+### Key Changes
+- Added `command_succeeds` validation type with subprocess execution
+- Added `command` and `working_directory` fields to ValidationRule
+- Fixed all type annotations (dict → dict[str, Any])
+- Fixed all style issues (Optional → |, unused imports, line length)
+
+---
+
 ## Session 2025-12-24 Summary
 
 ### MILESTONE: Mozart Self-Development Success
@@ -129,4 +156,4 @@ mozart run <yaml>          # Execute job
 
 ---
 
-*Last Updated: 2025-12-24*
+*Last Updated: 2025-12-25*
