@@ -1,0 +1,125 @@
+# Mozart Self-QC Configuration
+#
+# This config allows Mozart to run quality control checks on itself.
+# It validates code quality, type safety, and test coverage.
+#
+# Usage:
+#   mozart run mozart-self-qc.yaml --dry-run  # Preview checks
+#   mozart run mozart-self-qc.yaml            # Run QC checks
+
+name: "mozart-self-qc"
+description: "Quality control checks for Mozart's own codebase"
+
+workspace: "./self-dev-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  working_directory: "/home/emzi/Projects/mozart-ai-compose"
+  timeout_seconds: 600
+
+batch:
+  size: 1
+  total_items: 1  # Single batch with all QC checks
+  start_item: 1
+
+prompt:
+  template: |
+    You are running quality control checks on the Mozart AI Compose codebase.
+
+    WORKSPACE: {{ workspace }}
+    PROJECT: /home/emzi/Projects/mozart-ai-compose
+
+    ## Your Tasks
+
+    1. **Activate the virtual environment:**
+       ```bash
+       source .venv/bin/activate
+       ```
+
+    2. **Run the test suite:**
+       ```bash
+       pytest tests/ -v
+       ```
+
+    3. **Run type checking:**
+       ```bash
+       mypy src/
+       ```
+
+    4. **Run linting:**
+       ```bash
+       ruff check src/
+       ```
+
+    5. **Create a QC report:**
+       Write a summary to {{ workspace }}/qc-report.txt with:
+       - PYTEST_PASS: yes/no (with pass/fail counts)
+       - MYPY_PASS: yes/no (with error count)
+       - RUFF_PASS: yes/no (with error count)
+       - QC_COMPLETE: yes
+
+    {{ stakes }}
+
+  stakes: |
+    STAKES:
+    - All checks pass = excellent work!
+    - Any failures = document what failed and why
+
+validations:
+  # QC report was created
+  - type: file_exists
+    path: "{workspace}/qc-report.txt"
+    description: "QC report file created"
+
+  # All checks passed
+  - type: content_contains
+    path: "{workspace}/qc-report.txt"
+    pattern: "PYTEST_PASS: yes"
+    description: "Tests pass"
+
+  - type: content_contains
+    path: "{workspace}/qc-report.txt"
+    pattern: "MYPY_PASS: yes"
+    description: "Type checking passes"
+
+  - type: content_contains
+    path: "{workspace}/qc-report.txt"
+    pattern: "RUFF_PASS: yes"
+    description: "Linting passes"
+
+  - type: content_contains
+    path: "{workspace}/qc-report.txt"
+    pattern: "QC_COMPLETE: yes"
+    description: "QC marked complete"
+
+  # Direct command validations (using new command_succeeds type)
+  - type: command_succeeds
+    command: "source .venv/bin/activate && pytest tests/ -q"
+    working_directory: "/home/emzi/Projects/mozart-ai-compose"
+    description: "pytest runs successfully"
+
+  - type: command_succeeds
+    command: "source .venv/bin/activate && mypy src/"
+    working_directory: "/home/emzi/Projects/mozart-ai-compose"
+    description: "mypy runs successfully"
+
+  - type: command_succeeds
+    command: "source .venv/bin/activate && ruff check src/"
+    working_directory: "/home/emzi/Projects/mozart-ai-compose"
+    description: "ruff runs successfully"
+
+retry:
+  max_retries: 2
+  max_completion_attempts: 1
+  base_delay_seconds: 5
+
+rate_limit:
+  wait_minutes: 60
+  max_waits: 5
+
+learning:
+  enabled: true
+  outcome_store_type: json
+  min_confidence_threshold: 0.5
+  high_confidence_threshold: 0.9

@@ -5,6 +5,7 @@ for partial completion recovery.
 """
 
 import re
+import subprocess
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -275,6 +276,8 @@ class ValidationEngine:
                 result = self._check_content_contains(rule)
             elif rule.type == "content_regex":
                 result = self._check_content_regex(rule)
+            elif rule.type == "command_succeeds":
+                result = self._check_command_succeeds(rule)
             else:
                 result = ValidationResult(
                     rule=rule,
@@ -463,3 +466,77 @@ class ValidationEngine:
             expected_value=rule.pattern,
             error_message=None if match else f"Regex not matched in {path}: {rule.pattern}",
         )
+
+    def _check_command_succeeds(self, rule: ValidationRule) -> ValidationResult:
+        """Check if a shell command succeeds (exit code 0).
+
+        This is useful for running quality control tools like:
+        - pytest: `pytest tests/ -q`
+        - mypy: `mypy src/`
+        - ruff: `ruff check src/`
+
+        Args:
+            rule: Validation rule with command to execute.
+
+        Returns:
+            ValidationResult indicating if command succeeded.
+        """
+        if not rule.command:
+            return ValidationResult(
+                rule=rule,
+                passed=False,
+                error_message="command_succeeds rule requires 'command' field",
+            )
+
+        # Determine working directory
+        cwd = (
+            self.expand_path(rule.working_directory)
+            if rule.working_directory
+            else self.workspace
+        )
+
+        try:
+            result = subprocess.run(
+                rule.command,
+                shell=True,
+                cwd=str(cwd),
+                capture_output=True,
+                text=True,
+                timeout=300,  # 5 minute timeout
+            )
+
+            success = result.returncode == 0
+
+            # Build output summary (truncate if very long)
+            output = result.stdout + result.stderr
+            if len(output) > 500:
+                output_summary = output[:500] + f"\n... ({len(output)} chars total)"
+            else:
+                output_summary = output
+
+            return ValidationResult(
+                rule=rule,
+                passed=success,
+                actual_value=f"exit_code={result.returncode}",
+                expected_value="exit_code=0",
+                error_message=None if success else f"Command failed: {output_summary}",
+                confidence=1.0 if success else 0.8,  # Slightly lower confidence on failure
+                confidence_factors={
+                    "exit_code": 1.0 if success else 0.5,
+                },
+            )
+
+        except subprocess.TimeoutExpired:
+            return ValidationResult(
+                rule=rule,
+                passed=False,
+                expected_value="exit_code=0",
+                error_message="Command timed out after 300 seconds",
+            )
+        except Exception as e:
+            return ValidationResult(
+                rule=rule,
+                passed=False,
+                expected_value="exit_code=0",
+                error_message=f"Command execution error: {e}",
+            )

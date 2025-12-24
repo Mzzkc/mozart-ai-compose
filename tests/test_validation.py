@@ -274,3 +274,53 @@ class TestValidationEngine:
         assert len(batch_result.get_passed_results()) == 2
         assert len(batch_result.get_failed_results()) == 1
         assert batch_result.pass_percentage == pytest.approx(66.67, rel=0.01)
+
+    def test_command_succeeds_pass(self, temp_workspace: Path):
+        """Test command_succeeds validation passes when command succeeds."""
+        rule = ValidationRule(
+            type="command_succeeds",
+            command="echo 'hello'",
+            description="Echo command",
+        )
+        engine = ValidationEngine(
+            workspace=temp_workspace,
+            batch_context={"batch_num": 1, "workspace": str(temp_workspace)},
+        )
+        batch_result = engine.run_validations([rule])
+        assert batch_result.results[0].passed is True
+        assert batch_result.results[0].actual_value == "exit_code=0"
+
+    def test_command_succeeds_fail(self, temp_workspace: Path):
+        """Test command_succeeds validation fails when command fails."""
+        rule = ValidationRule(
+            type="command_succeeds",
+            command="exit 1",
+            description="Failing command",
+        )
+        engine = ValidationEngine(
+            workspace=temp_workspace,
+            batch_context={"batch_num": 1, "workspace": str(temp_workspace)},
+        )
+        batch_result = engine.run_validations([rule])
+        assert batch_result.results[0].passed is False
+        assert batch_result.results[0].actual_value == "exit_code=1"
+
+    def test_command_succeeds_with_working_directory(self, temp_workspace: Path):
+        """Test command_succeeds uses specified working directory."""
+        # Create a subdirectory
+        subdir = temp_workspace / "subdir"
+        subdir.mkdir()
+        (subdir / "marker.txt").write_text("found")
+
+        rule = ValidationRule(
+            type="command_succeeds",
+            command="cat marker.txt",
+            working_directory=str(subdir),
+            description="Cat in subdir",
+        )
+        engine = ValidationEngine(
+            workspace=temp_workspace,
+            batch_context={"batch_num": 1, "workspace": str(temp_workspace)},
+        )
+        batch_result = engine.run_validations([rule])
+        assert batch_result.results[0].passed is True

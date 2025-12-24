@@ -98,12 +98,26 @@ class RateLimitConfig(BaseModel):
 class ValidationRule(BaseModel):
     """A single validation rule for checking batch outputs."""
 
-    type: Literal["file_exists", "file_modified", "content_contains", "content_regex"]
+    type: Literal[
+        "file_exists",
+        "file_modified",
+        "content_contains",
+        "content_regex",
+        "command_succeeds",
+    ]
     path: str | None = Field(
         default=None, description="File path (supports {batch_num}, {workspace})"
     )
     pattern: str | None = Field(default=None, description="Pattern for content matching")
     description: str | None = Field(default=None, description="Human-readable description")
+    command: str | None = Field(
+        default=None,
+        description="Shell command to run (for command_succeeds type)",
+    )
+    working_directory: str | None = Field(
+        default=None,
+        description="Working directory for command (defaults to workspace)",
+    )
 
 
 class NotificationConfig(BaseModel):
