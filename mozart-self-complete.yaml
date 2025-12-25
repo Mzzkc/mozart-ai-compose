@@ -109,6 +109,13 @@ prompt:
     GAPS_IDENTIFIED: [count]
     ```
 
+    STEP 5: Commit the gap analysis (optional but recommended)
+    ```bash
+    cd /home/emzi/Projects/mozart-ai-compose
+    git add {{ workspace }}/01-gap-analysis.md {{ workspace }}/batch1-result.md 2>/dev/null || true
+    git commit -m "docs(self-complete): Gap analysis - batch 1 of meta-orchestration" 2>/dev/null || true
+    ```
+
     {% elif batch_num == 2 %}
     ============================================================
     PHASE 2: MULTI-AGENT BRAINSTORM (Batch 2 of {{ total_batches }})
@@ -194,6 +201,13 @@ prompt:
     IDEAS_GENERATED: [count]
     ```
 
+    STEP 5: Commit the brainstorm (optional but recommended)
+    ```bash
+    cd /home/emzi/Projects/mozart-ai-compose
+    git add {{ workspace }}/02-brainstorm.md {{ workspace }}/batch2-result.md 2>/dev/null || true
+    git commit -m "docs(self-complete): Feature brainstorm - batch 2 of meta-orchestration" 2>/dev/null || true
+    ```
+
     {% elif batch_num == 3 %}
     ============================================================
     PHASE 3: CONSOLIDATION & PLANNING (Batch 3 of {{ total_batches }})
@@ -276,6 +290,14 @@ prompt:
     TASKS_PLANNED: 9
     ```
 
+    STEP 5: Commit the implementation plan (recommended before implementation phase)
+    ```bash
+    cd /home/emzi/Projects/mozart-ai-compose
+    git add {{ workspace }}/03-implementation-plan.md {{ workspace }}/batch3-result.md 2>/dev/null || true
+    git add {{ workspace }}/01-gap-analysis.md {{ workspace }}/02-brainstorm.md 2>/dev/null || true
+    git commit -m "docs(self-complete): Implementation plan - planning phase complete" 2>/dev/null || true
+    ```
+
     {% else %}
     ============================================================
     PHASE 4: IMPLEMENTATION (Batch {{ batch_num }} of {{ total_batches }})
@@ -337,6 +359,30 @@ prompt:
     ## Notes
     [any issues, decisions made, or follow-up needed]
     ```
+
+    STEP 7: Commit your work (IMPORTANT - do this after validation passes)
+    ```bash
+    cd /home/emzi/Projects/mozart-ai-compose
+    git add -A
+    git commit -m "$(cat <<'COMMIT_EOF'
+    feat(task{{ task_num }}): [TASK_NAME from plan] - Mozart self-completion batch {{ batch_num }}
+
+    [Brief description of what was implemented]
+
+    Files:
+    - [list key files created/modified]
+
+    Tests: [X] new tests added
+
+    🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+    Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+    COMMIT_EOF
+    )"
+    ```
+
+    NOTE: Replace [TASK_NAME] and [descriptions] with actual values from your implementation.
+    The commit ensures work is saved incrementally and can be reviewed per-task.
     {% endif %}
 
     {{ stakes }}
