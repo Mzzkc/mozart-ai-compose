@@ -8,12 +8,17 @@ Phase 3: Language Bridge implementation.
 
 import time
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 
 from mozart.backends.base import Backend, ExecutionResult
+
+
+def _utc_now() -> datetime:
+    """Return current UTC time as timezone-aware datetime."""
+    return datetime.now(UTC)
 
 
 class RecursiveLightBackend(Backend):
@@ -93,7 +98,7 @@ class RecursiveLightBackend(Backend):
             error handling (not raising exceptions).
         """
         start_time = time.monotonic()
-        started_at = datetime.utcnow()
+        started_at = _utc_now()
 
         try:
             client = await self._get_client()

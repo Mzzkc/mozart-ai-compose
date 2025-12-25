@@ -5,11 +5,16 @@ approach in the original bash script.
 """
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from mozart.core.checkpoint import BatchStatus, CheckpointState
 from mozart.state.base import StateBackend
+
+
+def _utc_now() -> datetime:
+    """Return current UTC time as timezone-aware datetime."""
+    return datetime.now(UTC)
 
 
 class JsonStateBackend(StateBackend):
@@ -52,7 +57,7 @@ class JsonStateBackend(StateBackend):
 
     async def save(self, state: CheckpointState) -> None:
         """Save state to JSON file."""
-        state.updated_at = datetime.utcnow()
+        state.updated_at = _utc_now()
         state_file = self._get_state_file(state.job_id)
 
         # Write atomically using temp file + rename

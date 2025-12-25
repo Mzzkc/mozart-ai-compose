@@ -1,0 +1,312 @@
+# Mozart Phase 5 Self-Development: Missing README Features
+# Mozart implements promised features that are not yet implemented
+
+name: "mozart-phase5-missing-features"
+description: "Mozart implements missing features: Anthropic API backend, Notifications, SQLite backend"
+
+workspace: "./self-dev-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  working_directory: "/home/emzi/Projects/mozart-ai-compose"
+  timeout_seconds: 1800
+
+batch:
+  size: 1
+  total_items: 5  # 5 Phase 5 tasks
+  start_item: 1
+
+prompt:
+  template: |
+    Let's begin a new session. Begin by using the session start skill.
+    Embody the TDF in all decisions at every turn throughout this session.
+
+    You are implementing Mozart's Phase 5 (Missing README Features).
+    Phases 1-4 are COMPLETE. Mozart is functional but missing promised features.
+
+    STEP 1: READ SKILL FILES:
+    {% for skill in skill_files %}
+    - {{ skill }}
+    {% endfor %}
+
+    STEP 2: READ PROJECT CONTEXT:
+    {% for ctx in context_files %}
+    - {{ ctx }}
+    {% endfor %}
+
+    {% set task = tasks[batch_num - 1] %}
+    CURRENT STATUS:
+    - Working on Task {{ batch_num }} of {{ total_batches }}: {{ task.name }}
+
+    STEP 3: READ REFERENCE FILES:
+    {% for ref in task.reference_files %}
+    - {{ ref }}
+    {% endfor %}
+
+    REQUIREMENTS:
+    {{ task.requirements }}
+
+    STEP 4: IMPLEMENT AND VALIDATE:
+    ```bash
+    cd /home/emzi/Projects/mozart-ai-compose
+    source .venv/bin/activate
+    pytest tests/ -v > {{ workspace }}/pytest-phase5.txt 2>&1 || true
+    mypy src/ > {{ workspace }}/mypy-phase5.txt 2>&1 || true
+    ruff check src/ > {{ workspace }}/ruff-phase5.txt 2>&1 || true
+    ```
+
+    STEP 5: WRITE OUTPUT MARKERS to {{ workspace }}/phase5-task{{ batch_num }}-result.txt:
+    - TASK_NAME: {{ task.name }}
+    - FILES_CREATED: [list paths]
+    - FILES_MODIFIED: [list paths]
+    - TESTS_PASS: yes/no
+    - TYPES_PASS: yes/no
+    - LINT_PASS: yes/no
+    - IMPLEMENTATION_COMPLETE: yes/no
+
+    {{ stakes }}
+    {{ thinking_method }}
+
+  variables:
+    skill_files:
+      - /home/emzi/.claude/skills/session-startup-protocol.md
+      - /home/emzi/.claude/skills/tetrahedral-decision-framework.md
+    context_files:
+      - STATUS.md
+      - memory-bank/activeContext.md
+      - README.md
+    tasks:
+      - name: "Anthropic API Backend"
+        requirements: |
+          Create: src/mozart/backends/anthropic_api.py
+
+          The README promises an anthropic_api backend type. Implement it.
+
+          1. Import anthropic (add to pyproject.toml if needed)
+
+          2. AnthropicApiConfig dataclass (already in config.py, extend if needed):
+             - model: str = "claude-sonnet-4-20250514"
+             - api_key_env: str = "ANTHROPIC_API_KEY"
+             - max_tokens: int = 8192
+             - temperature: float = 0.7
+
+          3. AnthropicApiBackend(ExecutionBackend):
+             - __init__(config: AnthropicApiConfig)
+             - async execute(prompt: str) -> ExecutionResult
+               Uses anthropic.AsyncAnthropic client
+               Handle API errors gracefully
+               Detect rate limits from API responses
+
+          4. Update backends/__init__.py to export AnthropicApiBackend
+
+          5. Update cli.py to instantiate AnthropicApiBackend when type is anthropic_api
+
+          6. Add tests in tests/test_backends.py (mock the API calls)
+        reference_files:
+          - src/mozart/backends/base.py
+          - src/mozart/backends/claude_cli.py
+          - src/mozart/core/config.py
+          - pyproject.toml
+
+      - name: "Notifications Framework and Desktop Notifications"
+        requirements: |
+          Create: src/mozart/notifications/base.py
+          Create: src/mozart/notifications/desktop.py
+
+          The README promises notifications (desktop, Slack, webhook).
+
+          1. NotificationEvent enum:
+             - job_complete, job_failed, batch_complete, batch_failed
+             - rate_limit_detected, job_paused, job_resumed
+
+          2. NotificationConfig dataclass:
+             - type: Literal["desktop", "slack", "webhook"]
+             - on_events: list[NotificationEvent]
+             - config: dict[str, Any] = field(default_factory=dict)
+
+          3. Notifier protocol (abstract base):
+             - async send(event: NotificationEvent, context: dict) -> bool
+
+          4. DesktopNotifier(Notifier):
+             - Uses plyer for cross-platform desktop notifications
+             - Add plyer to pyproject.toml optional dependencies [notifications]
+             - Graceful fallback if plyer not installed
+
+          5. NotificationManager:
+             - __init__(notifiers: list[Notifier])
+             - async notify(event: NotificationEvent, context: dict)
+             - Sends to all notifiers registered for that event
+
+          6. Update core/config.py to include NotificationConfig in JobConfig
+
+          7. Add tests in tests/test_notifications.py
+        reference_files:
+          - src/mozart/notifications/__init__.py
+          - src/mozart/core/config.py
+          - pyproject.toml
+
+      - name: "Slack and Webhook Notifications"
+        requirements: |
+          Create: src/mozart/notifications/slack.py
+          Create: src/mozart/notifications/webhook.py
+
+          1. SlackNotifier(Notifier):
+             - Uses httpx.AsyncClient
+             - webhook_url from config (or env var webhook_url_env)
+             - channel from config
+             - Format messages nicely with batch/job context
+             - Handle errors gracefully
+
+          2. WebhookNotifier(Notifier):
+             - POST JSON to configurable URL
+             - Include event type and full context
+             - Configurable headers (for auth tokens)
+             - Timeout and retry handling
+
+          3. Update notifications/__init__.py to export all notifiers
+
+          4. Update cli.py to create NotificationManager from config
+             - Integrate notifications into JobRunner or CLI callbacks
+
+          5. Add tests for Slack and Webhook notifiers (mock HTTP calls)
+        reference_files:
+          - src/mozart/notifications/base.py
+          - src/mozart/notifications/desktop.py
+          - src/mozart/cli.py
+
+      - name: "SQLite State Backend"
+        requirements: |
+          Create: src/mozart/state/sqlite_backend.py
+
+          The README mentions SQLite state backend for dashboard queries.
+
+          1. SQLiteStateBackend(StateBackend):
+             - __init__(db_path: str | Path)
+             - Uses aiosqlite for async SQLite access
+             - Add aiosqlite to pyproject.toml
+
+          2. Database schema:
+             CREATE TABLE jobs (
+               id TEXT PRIMARY KEY,
+               name TEXT,
+               description TEXT,
+               status TEXT,
+               total_batches INTEGER,
+               created_at TEXT,
+               updated_at TEXT,
+               completed_at TEXT,
+               config_snapshot TEXT  -- JSON blob
+             );
+
+             CREATE TABLE batches (
+               job_id TEXT,
+               batch_num INTEGER,
+               status TEXT,
+               attempt_count INTEGER,
+               error_message TEXT,
+               started_at TEXT,
+               completed_at TEXT,
+               PRIMARY KEY (job_id, batch_num),
+               FOREIGN KEY (job_id) REFERENCES jobs(id)
+             );
+
+             CREATE TABLE execution_history (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               job_id TEXT,
+               batch_num INTEGER,
+               attempt_num INTEGER,
+               prompt TEXT,
+               output TEXT,
+               exit_code INTEGER,
+               duration_seconds REAL,
+               executed_at TEXT,
+               FOREIGN KEY (job_id) REFERENCES jobs(id)
+             );
+
+          3. Implement all StateBackend abstract methods:
+             - load, save, delete, list_jobs
+             - get_next_batch, mark_batch_status
+
+          4. Add migration support (version table, schema upgrades)
+
+          5. Update state/__init__.py to export SQLiteStateBackend
+
+          6. Add tests in tests/test_sqlite_backend.py
+        reference_files:
+          - src/mozart/state/base.py
+          - src/mozart/state/json_backend.py
+          - pyproject.toml
+
+      - name: "Fix Deprecation Warnings"
+        requirements: |
+          Fix all datetime.utcnow() deprecation warnings throughout the codebase.
+
+          The pytest output shows 116 deprecation warnings about:
+          "datetime.datetime.utcnow() is deprecated"
+
+          Solution: Replace datetime.utcnow() with datetime.now(timezone.utc)
+
+          Files to check and fix:
+          - src/mozart/core/checkpoint.py (multiple occurrences)
+          - src/mozart/execution/validation.py
+          - Any other files using utcnow()
+
+          1. Add `from datetime import timezone` where needed
+          2. Replace all `datetime.utcnow()` with `datetime.now(timezone.utc)`
+          3. Run pytest and verify warnings are gone
+          4. Run mypy to ensure no type errors introduced
+        reference_files:
+          - src/mozart/core/checkpoint.py
+          - src/mozart/execution/validation.py
+
+  stakes: |
+    STAKES:
+    - Complete implementation with passing tests = 1T$ tip
+    - Incomplete, failing tests, or missing markers = fed to wolves
+
+  thinking_method: |
+    Apply TDF domains:
+    - COMP: Protocol design, async patterns, error handling
+    - SCI: Test all code paths, validate edge cases
+    - CULT: Follow existing Mozart patterns and conventions
+    - EXP: Design for graceful degradation and extensibility
+
+validations:
+  - type: file_exists
+    path: "{workspace}/phase5-task{batch_num}-result.txt"
+    description: "Task result file created"
+
+  - type: content_contains
+    path: "{workspace}/phase5-task{batch_num}-result.txt"
+    pattern: "IMPLEMENTATION_COMPLETE: yes"
+    description: "Task marked as complete"
+
+  - type: content_contains
+    path: "{workspace}/phase5-task{batch_num}-result.txt"
+    pattern: "TESTS_PASS: yes"
+    description: "Tests pass"
+
+  - type: content_contains
+    path: "{workspace}/phase5-task{batch_num}-result.txt"
+    pattern: "TYPES_PASS: yes"
+    description: "Type checking passes"
+
+retry:
+  max_retries: 3
+  max_completion_attempts: 2
+  completion_threshold_percent: 50.0
+  base_delay_seconds: 10
+
+rate_limit:
+  wait_minutes: 60
+  max_waits: 10
+
+learning:
+  enabled: true
+  outcome_store_type: json
+  min_confidence_threshold: 0.3
+  high_confidence_threshold: 0.7
+
+state_backend: json
+pause_between_batches_seconds: 5
