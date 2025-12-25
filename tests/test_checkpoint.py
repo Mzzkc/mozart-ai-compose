@@ -247,3 +247,92 @@ class TestCheckpointStateSerialization:
         assert loaded.job_id == state.job_id
         assert loaded.last_completed_batch == 1
         assert loaded.batches[1].status == BatchStatus.COMPLETED
+
+
+class TestConfigSnapshot:
+    """Tests for config_snapshot functionality (Task 3: Config Storage)."""
+
+    def test_config_snapshot_field_exists(self):
+        """Test that config_snapshot field is available on CheckpointState."""
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test",
+            total_batches=2,
+        )
+        assert state.config_snapshot is None
+        assert state.config_path is None
+
+    def test_config_snapshot_can_store_dict(self):
+        """Test that config_snapshot can store a config dictionary."""
+        config_data = {
+            "name": "test-job",
+            "workspace": "/tmp/workspace",
+            "batch": {"size": 5, "total_items": 10},
+            "prompt": {"template": "Process item {{batch_num}}"},
+        }
+
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test",
+            total_batches=2,
+            config_snapshot=config_data,
+            config_path="/path/to/config.yaml",
+        )
+
+        assert state.config_snapshot == config_data
+        assert state.config_path == "/path/to/config.yaml"
+
+    def test_config_snapshot_serializes_to_json(self):
+        """Test that config_snapshot survives JSON serialization."""
+        config_data = {
+            "name": "test-job",
+            "workspace": "/tmp/workspace",
+            "batch": {"size": 5, "total_items": 10},
+            "prompt": {"template": "Process item {{batch_num}}"},
+            "retry": {"max_retries": 3, "base_delay_seconds": 10.0},
+        }
+
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test",
+            total_batches=2,
+            config_snapshot=config_data,
+            config_path="/path/to/config.yaml",
+        )
+
+        # Serialize to dict (JSON mode)
+        data = state.model_dump(mode="json")
+        assert "config_snapshot" in data
+        assert data["config_snapshot"]["name"] == "test-job"
+        assert data["config_path"] == "/path/to/config.yaml"
+
+        # Deserialize back
+        loaded = CheckpointState.model_validate(data)
+        assert loaded.config_snapshot == config_data
+        assert loaded.config_path == "/path/to/config.yaml"
+
+    def test_config_snapshot_allows_nested_structures(self):
+        """Test that complex nested config structures are preserved."""
+        config_data = {
+            "name": "complex-job",
+            "validations": [
+                {"type": "file_exists", "path": "{{workspace}}/output.txt"},
+                {"type": "content_contains", "path": "log.txt", "pattern": "SUCCESS"},
+            ],
+            "notifications": [
+                {"type": "slack", "config": {"channel": "#builds"}},
+            ],
+        }
+
+        state = CheckpointState(
+            job_id="complex-job",
+            job_name="Complex",
+            total_batches=3,
+            config_snapshot=config_data,
+        )
+
+        data = state.model_dump(mode="json")
+        loaded = CheckpointState.model_validate(data)
+
+        assert len(loaded.config_snapshot["validations"]) == 2
+        assert loaded.config_snapshot["notifications"][0]["type"] == "slack"

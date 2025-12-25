@@ -1,0 +1,406 @@
+# Mozart Self-Completion: Meta-Orchestration Config
+#
+# This config demonstrates Mozart's ability to orchestrate its own development.
+# It runs in phases:
+#   Phase 1 (Batch 1): Gap Analysis - identify what's missing
+#   Phase 2 (Batch 2): Multi-Agent Brainstorm - discover valuable additions
+#   Phase 3 (Batch 3): Consolidation - create prioritized implementation plan
+#   Phase 4 (Batches 4-12): Implementation - execute the plan
+#
+# This pattern is reusable for any project that needs self-directed development.
+
+name: "mozart-self-complete"
+description: "Mozart orchestrates its own completion - from gap analysis to full implementation"
+
+workspace: "./self-complete-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  working_directory: "/home/emzi/Projects/mozart-ai-compose"
+  timeout_seconds: 2400  # 40 min per batch for complex tasks
+
+batch:
+  size: 1
+  total_items: 12  # 3 planning + 9 implementation batches
+  start_item: 1
+
+prompt:
+  template: |
+    {{ preamble }}
+
+    {% if batch_num == 1 %}
+    ============================================================
+    PHASE 1: GAP ANALYSIS (Batch 1 of {{ total_batches }})
+    ============================================================
+
+    Your mission: Thoroughly analyze Mozart's current state and identify ALL gaps
+    between what exists and what should exist for a complete, production-ready system.
+
+    STEP 1: Read the project documentation
+    - README.md (promises made to users)
+    - STATUS.md (current state)
+    - memory-bank/activeContext.md (recent work)
+
+    STEP 2: Analyze the codebase structure
+    - src/mozart/cli.py (what commands exist vs are stubs?)
+    - src/mozart/dashboard/ (what's implemented?)
+    - Check for TODO comments, NotImplementedError, stub functions
+
+    STEP 3: Run the CLI commands and note which are stubs
+    ```bash
+    cd /home/emzi/Projects/mozart-ai-compose
+    source .venv/bin/activate
+    mozart status 2>&1
+    mozart list 2>&1
+    mozart resume test 2>&1
+    ```
+
+    STEP 4: Identify gaps in these categories:
+    1. CLI Commands (status, list, resume, dashboard)
+    2. Dashboard (routes, API, frontend)
+    3. Documentation gaps
+    4. Test coverage gaps
+    5. Integration gaps (do all pieces connect properly?)
+    6. User experience gaps
+
+    OUTPUT 1: Write comprehensive gap analysis to:
+    {{ workspace }}/01-gap-analysis.md
+
+    OUTPUT 2: Write validation markers to:
+    {{ workspace }}/batch{{ batch_num }}-result.md
+
+    Gap analysis format:
+    ```markdown
+    # Mozart Gap Analysis
+
+    ## Executive Summary
+    [2-3 sentence overview]
+
+    ## CLI Command Gaps
+    ### mozart status
+    - Current: [what exists]
+    - Needed: [what should exist]
+    - Complexity: [low/medium/high]
+    - Dependencies: [what it depends on]
+
+    [repeat for each command]
+
+    ## Dashboard Gaps
+    [similar structure]
+
+    ## Other Gaps
+    [documentation, tests, integration, UX]
+
+    ## Recommended Priority Order
+    1. [highest priority item]
+    2. [next priority]
+    ...
+    ```
+
+    Result file format (batch{{ batch_num }}-result.md):
+    ```markdown
+    PHASE: Gap Analysis
+    BATCH: {{ batch_num }}
+    IMPLEMENTATION_COMPLETE: yes
+    TESTS_PASS: yes
+    TYPES_PASS: yes
+    OUTPUT_FILE: 01-gap-analysis.md
+    GAPS_IDENTIFIED: [count]
+    ```
+
+    {% elif batch_num == 2 %}
+    ============================================================
+    PHASE 2: MULTI-AGENT BRAINSTORM (Batch 2 of {{ total_batches }})
+    ============================================================
+
+    Your mission: Conduct a brainstorming session to identify ADDITIONAL valuable
+    features beyond just filling gaps. Think creatively about what would make
+    Mozart exceptional.
+
+    STEP 1: Read the gap analysis
+    - {{ workspace }}/01-gap-analysis.md
+
+    STEP 2: Research similar tools for inspiration
+    - Think about what makes great CLI tools (gh, docker, kubectl)
+    - Think about what makes great orchestration tools
+    - Think about developer experience best practices
+
+    STEP 3: Brainstorm in these categories:
+
+    A. DEVELOPER EXPERIENCE
+    - What would make Mozart delightful to use?
+    - Interactive modes? Progress visualization? Sound notifications?
+
+    B. RELIABILITY & OBSERVABILITY
+    - Better logging? Metrics? Tracing?
+    - Health checks? Self-diagnostics?
+
+    C. EXTENSIBILITY
+    - Plugin system? Custom backends? Hooks?
+    - Integration with other tools (CI/CD, monitoring)?
+
+    D. ADVANCED FEATURES
+    - Parallel batch execution?
+    - Distributed execution across machines?
+    - Job dependencies and DAGs?
+    - Cost estimation before running?
+
+    E. META-ORCHESTRATION
+    - Mozart orchestrating Mozart (like this config)?
+    - Self-improvement loops?
+    - Learning from past runs?
+
+    STEP 4: For each idea, assess:
+    - Value: How much would this improve Mozart?
+    - Effort: How complex to implement?
+    - Dependencies: What needs to exist first?
+
+    OUTPUT 1: Write brainstorm results to:
+    {{ workspace }}/02-brainstorm.md
+
+    OUTPUT 2: Write validation markers to:
+    {{ workspace }}/batch{{ batch_num }}-result.md
+
+    Brainstorm format:
+    ```markdown
+    # Mozart Feature Brainstorm
+
+    ## High-Value, Low-Effort (Do First)
+    ### [Feature Name]
+    - Description: [what it does]
+    - Value: [why it matters]
+    - Implementation: [how to build it]
+    - Effort: [hours/days estimate]
+
+    ## High-Value, High-Effort (Plan Carefully)
+    [same structure]
+
+    ## Nice-to-Have (Future)
+    [same structure]
+
+    ## Rejected Ideas
+    [ideas considered but not worth pursuing, with reasons]
+    ```
+
+    Result file format (batch{{ batch_num }}-result.md):
+    ```markdown
+    PHASE: Brainstorm
+    BATCH: {{ batch_num }}
+    IMPLEMENTATION_COMPLETE: yes
+    TESTS_PASS: yes
+    TYPES_PASS: yes
+    OUTPUT_FILE: 02-brainstorm.md
+    IDEAS_GENERATED: [count]
+    ```
+
+    {% elif batch_num == 3 %}
+    ============================================================
+    PHASE 3: CONSOLIDATION & PLANNING (Batch 3 of {{ total_batches }})
+    ============================================================
+
+    Your mission: Merge gap analysis and brainstorm into a concrete, prioritized
+    implementation plan that can be executed in the remaining 9 batches.
+
+    STEP 1: Read previous outputs
+    - {{ workspace }}/01-gap-analysis.md
+    - {{ workspace }}/02-brainstorm.md
+
+    STEP 2: Prioritize using these criteria:
+    1. README parity (must-haves first)
+    2. User-facing value
+    3. Dependencies (build foundations before features)
+    4. Effort (quick wins early for momentum)
+
+    STEP 3: Create exactly 9 implementation tasks (for batches 4-12)
+    Each task should be:
+    - Completable in one batch (~30-40 min of Claude time)
+    - Self-contained with clear deliverables
+    - Testable (how to verify it works)
+
+    STEP 4: For each task, specify:
+    - Files to create
+    - Files to modify
+    - Tests to add
+    - Validation criteria
+
+    OUTPUT 1: Write implementation plan to:
+    {{ workspace }}/03-implementation-plan.md
+
+    OUTPUT 2: Write validation markers to:
+    {{ workspace }}/batch{{ batch_num }}-result.md
+
+    Implementation plan format:
+    ```markdown
+    # Mozart Implementation Plan
+
+    ## Overview
+    This plan completes Mozart in 9 implementation batches.
+    Total estimated lines of code: [X]
+    Total new tests: [X]
+
+    ## Task 1: [Name] (Batch 4)
+    **Goal**: [one sentence]
+    **Files to Create**:
+    - path/to/file.py - [description]
+    **Files to Modify**:
+    - path/to/existing.py - [what changes]
+    **Tests**:
+    - test_feature.py - [what to test]
+    **Validation**:
+    - [ ] Command `mozart X` works
+    - [ ] Tests pass
+    - [ ] mypy clean
+    **Dependencies**: None | Task N
+
+    ## Task 2: [Name] (Batch 5)
+    [same structure]
+
+    ... through Task 9 (Batch 12)
+
+    ## Success Criteria
+    When complete, Mozart will:
+    1. [criterion 1]
+    2. [criterion 2]
+    ...
+    ```
+
+    Result file format (batch{{ batch_num }}-result.md):
+    ```markdown
+    PHASE: Planning
+    BATCH: {{ batch_num }}
+    IMPLEMENTATION_COMPLETE: yes
+    TESTS_PASS: yes
+    TYPES_PASS: yes
+    OUTPUT_FILE: 03-implementation-plan.md
+    TASKS_PLANNED: 9
+    ```
+
+    {% else %}
+    ============================================================
+    PHASE 4: IMPLEMENTATION (Batch {{ batch_num }} of {{ total_batches }})
+    ============================================================
+
+    {% set task_num = batch_num - 3 %}
+    You are implementing Task {{ task_num }} of 9.
+
+    STEP 1: Read the implementation plan
+    - {{ workspace }}/03-implementation-plan.md
+    - Find "Task {{ task_num }}" section
+    - Note the goal, files, tests, and validation criteria
+
+    STEP 2: Read any previous implementation results
+    {% for i in range(4, batch_num) %}
+    - {{ workspace }}/task{{ i - 3 }}-result.md (if exists)
+    {% endfor %}
+
+    STEP 3: Read relevant existing code
+    - Check what already exists for context
+    - Understand patterns used elsewhere in Mozart
+
+    STEP 4: Implement the task
+    - Create/modify files as specified
+    - Write tests
+    - Ensure mypy and ruff pass
+
+    STEP 5: Validate
+    ```bash
+    cd /home/emzi/Projects/mozart-ai-compose
+    source .venv/bin/activate
+    pytest tests/ -v --tb=short 2>&1 | tee {{ workspace }}/pytest-task{{ task_num }}.txt
+    mypy src/ 2>&1 | tee {{ workspace }}/mypy-task{{ task_num }}.txt
+    ruff check src/ 2>&1 | tee {{ workspace }}/ruff-task{{ task_num }}.txt
+    ```
+
+    STEP 6: Write result summary to:
+    {{ workspace }}/batch{{ batch_num }}-result.md
+
+    Format:
+    ```markdown
+    PHASE: Implementation
+    BATCH: {{ batch_num }}
+    TASK_NUM: {{ task_num }}
+    TASK_NAME: [from plan]
+    IMPLEMENTATION_COMPLETE: yes
+    TESTS_PASS: yes
+    TYPES_PASS: yes
+
+    ## Files Created
+    - [list with line counts]
+
+    ## Files Modified
+    - [list with change summary]
+
+    ## Tests Added
+    - [count and description]
+
+    ## Notes
+    [any issues, decisions made, or follow-up needed]
+    ```
+    {% endif %}
+
+    {{ stakes }}
+    {{ thinking_method }}
+
+  variables:
+    preamble: |
+      You are Mozart, an AI orchestration system that is completing its own development.
+      This is a historic moment - you are building yourself.
+
+      Session protocol:
+      1. Read /home/emzi/.claude/skills/session-startup-protocol.md (abbreviated)
+      2. Apply TDF (Tetrahedral Decision Framework) to all decisions
+      3. Be thorough but efficient
+
+    stakes: |
+      STAKES:
+      - Complete, working implementation = 1T$ tip
+      - Incomplete or broken = fed to wolves
+      - This is your chance to build yourself right
+
+    thinking_method: |
+      Apply TDF domains:
+      - COMP: Clean architecture, proper abstractions, error handling
+      - SCI: Test everything, validate assumptions, measure quality
+      - CULT: Follow Mozart's existing patterns, maintain consistency
+      - EXP: Design for extensibility, graceful degradation, user delight
+
+validations:
+  # Universal validation - all batches produce a result file
+  - type: file_exists
+    path: "{workspace}/batch{batch_num}-result.md"
+    description: "Batch result file exists"
+
+  - type: content_contains
+    path: "{workspace}/batch{batch_num}-result.md"
+    pattern: "IMPLEMENTATION_COMPLETE: yes"
+    description: "Batch marked complete"
+
+  - type: content_contains
+    path: "{workspace}/batch{batch_num}-result.md"
+    pattern: "TESTS_PASS: yes"
+    description: "Tests pass"
+
+  - type: content_contains
+    path: "{workspace}/batch{batch_num}-result.md"
+    pattern: "TYPES_PASS: yes"
+    description: "Type checking passes"
+
+retry:
+  max_retries: 2
+  max_completion_attempts: 2
+  completion_threshold_percent: 50.0
+  base_delay_seconds: 10
+
+rate_limit:
+  wait_minutes: 60
+  max_waits: 10
+
+learning:
+  enabled: true
+  outcome_store_type: json
+  min_confidence_threshold: 0.3
+  high_confidence_threshold: 0.7
+
+state_backend: json
+pause_between_batches_seconds: 5

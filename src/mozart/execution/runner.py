@@ -6,8 +6,12 @@ automatic completion prompt generation for partial failures.
 
 import asyncio
 import random
+import signal
+import sys
 import time
-from datetime import datetime
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -23,6 +27,103 @@ from mozart.learning.judgment import JudgmentClient, JudgmentQuery, JudgmentResp
 from mozart.learning.outcomes import BatchOutcome, OutcomeStore
 from mozart.prompts.templating import BatchContext, CompletionContext, PromptBuilder
 from mozart.state.base import StateBackend
+
+
+def _utc_now() -> datetime:
+    """Return current UTC time as timezone-aware datetime."""
+    return datetime.now(UTC)
+
+
+@dataclass
+class RunSummary:
+    """Summary of a completed job run.
+
+    Tracks key metrics for display at job completion:
+    - Total execution time
+    - Batch success/failure counts
+    - Validation pass rate
+    - Retry statistics
+    """
+
+    job_id: str
+    job_name: str
+    total_batches: int
+    completed_batches: int = 0
+    failed_batches: int = 0
+    skipped_batches: int = 0
+    total_duration_seconds: float = 0.0
+    total_retries: int = 0
+    total_completion_attempts: int = 0
+    rate_limit_waits: int = 0
+    validation_pass_count: int = 0
+    validation_fail_count: int = 0
+    first_attempt_successes: int = 0
+    final_status: JobStatus = field(default=JobStatus.PENDING)
+
+    @property
+    def success_rate(self) -> float:
+        """Calculate batch success rate as percentage."""
+        if self.total_batches == 0:
+            return 0.0
+        return (self.completed_batches / self.total_batches) * 100
+
+    @property
+    def validation_pass_rate(self) -> float:
+        """Calculate validation pass rate as percentage."""
+        total = self.validation_pass_count + self.validation_fail_count
+        if total == 0:
+            return 100.0  # No validations = 100% pass
+        return (self.validation_pass_count / total) * 100
+
+    @property
+    def first_attempt_rate(self) -> float:
+        """Calculate first-attempt success rate as percentage."""
+        if self.completed_batches == 0:
+            return 0.0
+        return (self.first_attempt_successes / self.completed_batches) * 100
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert summary to dictionary for JSON output."""
+        return {
+            "job_id": self.job_id,
+            "job_name": self.job_name,
+            "status": self.final_status.value,
+            "duration_seconds": round(self.total_duration_seconds, 2),
+            "duration_formatted": self._format_duration(self.total_duration_seconds),
+            "batches": {
+                "total": self.total_batches,
+                "completed": self.completed_batches,
+                "failed": self.failed_batches,
+                "skipped": self.skipped_batches,
+                "success_rate": round(self.success_rate, 1),
+            },
+            "validation": {
+                "passed": self.validation_pass_count,
+                "failed": self.validation_fail_count,
+                "pass_rate": round(self.validation_pass_rate, 1),
+            },
+            "execution": {
+                "total_retries": self.total_retries,
+                "completion_attempts": self.total_completion_attempts,
+                "rate_limit_waits": self.rate_limit_waits,
+                "first_attempt_successes": self.first_attempt_successes,
+                "first_attempt_rate": round(self.first_attempt_rate, 1),
+            },
+        }
+
+    @staticmethod
+    def _format_duration(seconds: float) -> str:
+        """Format duration in human-readable form."""
+        if seconds < 60:
+            return f"{seconds:.1f}s"
+        elif seconds < 3600:
+            minutes = int(seconds // 60)
+            secs = int(seconds % 60)
+            return f"{minutes}m {secs}s"
+        else:
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            return f"{hours}h {minutes}m"
 
 
 class BatchExecutionMode(str, Enum):
@@ -43,6 +144,15 @@ class BatchExecutionMode(str, Enum):
 
 class FatalError(Exception):
     """Non-recoverable error that should stop the job."""
+
+    pass
+
+
+class GracefulShutdownError(Exception):
+    """Raised when Ctrl+C is pressed to trigger graceful shutdown.
+
+    This exception is caught by the runner to save state before exiting.
+    """
 
     pass
 
@@ -68,6 +178,7 @@ class JobRunner:
         outcome_store: OutcomeStore | None = None,
         escalation_handler: EscalationHandler | None = None,
         judgment_client: JudgmentClient | None = None,
+        progress_callback: Callable[[int, int, float | None], None] | None = None,
     ) -> None:
         """Initialize job runner.
 
@@ -82,6 +193,9 @@ class JobRunner:
             judgment_client: Optional judgment client for Recursive Light
                 integration (Phase 4). Provides TDF-aligned execution decisions.
                 If not provided, falls back to local _decide_next_action().
+            progress_callback: Optional callback for progress updates. Called with
+                (completed_batches, total_batches, eta_seconds). Used by CLI for
+                progress bar updates.
         """
         self.config = config
         self.backend = backend
@@ -90,54 +204,251 @@ class JobRunner:
         self.outcome_store = outcome_store
         self.escalation_handler = escalation_handler
         self.judgment_client = judgment_client
+        self.progress_callback = progress_callback
         self.prompt_builder = PromptBuilder(config.prompt)
         self.error_classifier = ErrorClassifier.from_config(
             config.rate_limit.detection_patterns
         )
 
-    async def run(self, start_batch: int | None = None) -> CheckpointState:
+        # Graceful shutdown state
+        self._shutdown_requested = False
+        self._current_state: CheckpointState | None = None
+        self._batch_times: list[float] = []  # Track batch durations for ETA
+
+        # Summary tracking for run statistics
+        self._summary: RunSummary | None = None
+        self._run_start_time: float = 0.0
+
+    async def run(
+        self,
+        start_batch: int | None = None,
+        config_path: str | None = None,
+    ) -> tuple[CheckpointState, RunSummary]:
         """Run the job from start or resume point.
 
         Args:
             start_batch: Optional batch number to start from (overrides state).
+            config_path: Optional path to the original config file (for resume).
 
         Returns:
-            Final CheckpointState after job completion or failure.
+            Tuple of (CheckpointState, RunSummary) with final job state and
+            execution statistics.
 
         Raises:
             FatalError: If an unrecoverable error occurs.
+            GracefulShutdownError: If Ctrl+C was pressed and job was paused.
         """
-        state = await self._initialize_state(start_batch)
+        # Initialize timing and summary tracking
+        self._run_start_time = time.monotonic()
+        state = await self._initialize_state(start_batch, config_path)
+        self._current_state = state
 
-        next_batch = state.get_next_batch()
-        while next_batch is not None and next_batch <= state.total_batches:
-            try:
-                await self._execute_batch_with_recovery(state, next_batch)
-            except FatalError as e:
-                state.mark_job_failed(str(e))
-                await self.state_backend.save(state)
-                raise
+        # Initialize run summary
+        self._summary = RunSummary(
+            job_id=state.job_id,
+            job_name=state.job_name,
+            total_batches=state.total_batches,
+        )
 
-            # Pause between batches
-            if next_batch < state.total_batches:
-                await asyncio.sleep(self.config.pause_between_batches_seconds)
+        # Install signal handlers for graceful shutdown
+        self._install_signal_handlers()
 
+        try:
             next_batch = state.get_next_batch()
+            while next_batch is not None and next_batch <= state.total_batches:
+                # Check for shutdown request before starting batch
+                if self._shutdown_requested:
+                    await self._handle_graceful_shutdown(state)
 
-        # Mark job complete if we processed all batches
-        if state.status == JobStatus.RUNNING:
-            state.status = JobStatus.COMPLETED
-            await self.state_backend.save(state)
+                batch_start = time.monotonic()
 
-        return state
+                try:
+                    await self._execute_batch_with_recovery(state, next_batch)
+                except FatalError as e:
+                    state.mark_job_failed(str(e))
+                    await self.state_backend.save(state)
+                    # Update summary with failure before raising
+                    self._finalize_summary(state)
+                    raise
+
+                # Track batch timing for ETA calculation
+                batch_duration = time.monotonic() - batch_start
+                self._batch_times.append(batch_duration)
+
+                # Update progress callback
+                self._update_progress(state)
+
+                # Pause between batches
+                if next_batch < state.total_batches:
+                    await self._interruptible_sleep(
+                        self.config.pause_between_batches_seconds
+                    )
+
+                next_batch = state.get_next_batch()
+
+            # Mark job complete if we processed all batches
+            if state.status == JobStatus.RUNNING:
+                state.status = JobStatus.COMPLETED
+                await self.state_backend.save(state)
+
+            # Finalize summary
+            self._finalize_summary(state)
+
+            return state, self._summary
+        finally:
+            # Remove signal handlers
+            self._remove_signal_handlers()
+
+    def _finalize_summary(self, state: CheckpointState) -> None:
+        """Finalize run summary with statistics from completed job.
+
+        Args:
+            state: Final job state to extract statistics from.
+        """
+        if self._summary is None:
+            return
+
+        # Calculate total duration
+        self._summary.total_duration_seconds = time.monotonic() - self._run_start_time
+        self._summary.final_status = state.status
+
+        # Aggregate batch statistics
+        for batch_state in state.batches.values():
+            if batch_state.status == BatchStatus.COMPLETED:
+                self._summary.completed_batches += 1
+                if batch_state.first_attempt_success:
+                    self._summary.first_attempt_successes += 1
+                # Track completion attempts
+                if batch_state.completion_attempts:
+                    self._summary.total_completion_attempts += batch_state.completion_attempts
+            elif batch_state.status == BatchStatus.FAILED:
+                self._summary.failed_batches += 1
+            elif batch_state.status == BatchStatus.SKIPPED:
+                self._summary.skipped_batches += 1
+
+            # Track retries (attempts - 1)
+            if batch_state.attempt_count > 1:
+                self._summary.total_retries += batch_state.attempt_count - 1
+
+            # Track validation results
+            if batch_state.validation_passed is True:
+                self._summary.validation_pass_count += 1
+            elif batch_state.validation_passed is False:
+                self._summary.validation_fail_count += 1
+
+        # Copy rate limit waits from state
+        self._summary.rate_limit_waits = state.rate_limit_waits
+
+    def get_summary(self) -> RunSummary | None:
+        """Get the current run summary.
+
+        Returns:
+            RunSummary if a run has been executed, None otherwise.
+        """
+        return self._summary
+
+    def _install_signal_handlers(self) -> None:
+        """Install signal handlers for graceful shutdown.
+
+        On Unix, uses SIGINT handler. On Windows, we rely on KeyboardInterrupt.
+        """
+        if sys.platform != "win32":
+            try:
+                loop = asyncio.get_running_loop()
+                loop.add_signal_handler(
+                    signal.SIGINT,
+                    self._signal_handler,
+                )
+            except (RuntimeError, NotImplementedError):
+                # Running in a thread or platform doesn't support signals
+                pass
+
+    def _remove_signal_handlers(self) -> None:
+        """Remove signal handlers."""
+        if sys.platform != "win32":
+            try:
+                loop = asyncio.get_running_loop()
+                loop.remove_signal_handler(signal.SIGINT)
+            except (RuntimeError, NotImplementedError, ValueError):
+                # Not running or no handler installed
+                pass
+
+    def _signal_handler(self) -> None:
+        """Handle SIGINT by setting shutdown flag."""
+        if not self._shutdown_requested:
+            self._shutdown_requested = True
+            self.console.print(
+                "\n[yellow]Ctrl+C received. Finishing current batch and saving state...[/yellow]"
+            )
+
+    async def _handle_graceful_shutdown(self, state: CheckpointState) -> None:
+        """Handle graceful shutdown by saving state and raising GracefulShutdown.
+
+        Args:
+            state: Current job state to save.
+
+        Raises:
+            GracefulShutdownError: Always raised after saving state.
+        """
+        state.status = JobStatus.PAUSED
+        await self.state_backend.save(state)
+
+        # Show resume hint
+        self.console.print(
+            f"\n[green]State saved.[/green] Job paused at batch "
+            f"{state.last_completed_batch + 1}/{state.total_batches}."
+        )
+        self.console.print(
+            f"\n[bold]To resume:[/bold] mozart resume {state.job_id}"
+        )
+
+        raise GracefulShutdownError(f"Job {state.job_id} paused by user request")
+
+    async def _interruptible_sleep(self, seconds: float) -> None:
+        """Sleep that can be interrupted by shutdown request.
+
+        Args:
+            seconds: Time to sleep in seconds.
+        """
+        # Sleep in small increments to check for shutdown
+        increment = min(0.5, seconds)
+        elapsed = 0.0
+
+        while elapsed < seconds and not self._shutdown_requested:
+            await asyncio.sleep(increment)
+            elapsed += increment
+
+    def _update_progress(self, state: CheckpointState) -> None:
+        """Update progress callback with current state.
+
+        Args:
+            state: Current job state.
+        """
+        if self.progress_callback is None:
+            return
+
+        # Calculate ETA based on average batch time
+        eta: float | None = None
+        if self._batch_times:
+            avg_time = sum(self._batch_times) / len(self._batch_times)
+            remaining_batches = state.total_batches - state.last_completed_batch
+            eta = avg_time * remaining_batches
+
+        self.progress_callback(
+            state.last_completed_batch,
+            state.total_batches,
+            eta,
+        )
 
     async def _initialize_state(
-        self, start_batch: int | None
+        self, start_batch: int | None,
+        config_path: str | None = None,
     ) -> CheckpointState:
         """Initialize or load job state.
 
         Args:
             start_batch: Optional override for starting batch.
+            config_path: Optional path to the original config file.
 
         Returns:
             CheckpointState ready for execution.
@@ -146,10 +457,15 @@ class JobRunner:
         state = await self.state_backend.load(job_id)
 
         if state is None:
+            # Serialize JobConfig for resume capability (Task 3: Config Storage)
+            config_snapshot = self.config.model_dump(mode="json")
+
             state = CheckpointState(
                 job_id=job_id,
                 job_name=self.config.name,
                 total_batches=self.config.batch.total_batches,
+                config_snapshot=config_snapshot,
+                config_path=config_path,
             )
             await self.state_backend.save(state)
             self.console.print("[green]Created new job state[/green]")
@@ -631,7 +947,7 @@ class JobRunner:
             validation_pass_rate=validation_result.pass_percentage,
             first_attempt_success=first_attempt_success,
             patterns_detected=[],  # Future: pattern detection logic
-            timestamp=datetime.utcnow(),
+            timestamp=_utc_now(),
         )
 
         await self.outcome_store.record(outcome)

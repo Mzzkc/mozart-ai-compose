@@ -3,11 +3,19 @@
 Defines the state that gets persisted between runs for resumable orchestration.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+
+def _utc_now() -> datetime:
+    """Return current UTC time as timezone-aware datetime.
+
+    Replacement for deprecated datetime.utcnow().
+    """
+    return datetime.now(UTC)
 
 
 class BatchStatus(str, Enum):
@@ -111,9 +119,19 @@ class CheckpointState(BaseModel):
     job_name: str = Field(description="Name from job config")
     config_hash: str | None = Field(default=None, description="Hash of config for change detection")
 
+    # Config storage for resume (Task 3: Config Storage)
+    config_snapshot: dict[str, Any] | None = Field(
+        default=None,
+        description="Serialized JobConfig for resume without config file",
+    )
+    config_path: str | None = Field(
+        default=None,
+        description="Original config file path for fallback and debugging",
+    )
+
     # Timestamps
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utc_now)
+    updated_at: datetime = Field(default_factory=_utc_now)
     started_at: datetime | None = None
     completed_at: datetime | None = None
 
@@ -162,14 +180,14 @@ class CheckpointState(BaseModel):
         """Mark a batch as started."""
         self.current_batch = batch_num
         self.status = JobStatus.RUNNING
-        self.updated_at = datetime.utcnow()
+        self.updated_at = _utc_now()
 
         if batch_num not in self.batches:
             self.batches[batch_num] = BatchState(batch_num=batch_num)
 
         batch = self.batches[batch_num]
         batch.status = BatchStatus.IN_PROGRESS
-        batch.started_at = datetime.utcnow()
+        batch.started_at = _utc_now()
         batch.attempt_count += 1
 
     def mark_batch_completed(
@@ -179,11 +197,11 @@ class CheckpointState(BaseModel):
         validation_details: list[dict[str, Any]] | None = None,
     ) -> None:
         """Mark a batch as completed."""
-        self.updated_at = datetime.utcnow()
+        self.updated_at = _utc_now()
 
         batch = self.batches[batch_num]
         batch.status = BatchStatus.COMPLETED
-        batch.completed_at = datetime.utcnow()
+        batch.completed_at = _utc_now()
         batch.exit_code = 0
         batch.validation_passed = validation_passed
         batch.validation_details = validation_details
@@ -194,7 +212,7 @@ class CheckpointState(BaseModel):
         # Check if job is complete
         if batch_num >= self.total_batches:
             self.status = JobStatus.COMPLETED
-            self.completed_at = datetime.utcnow()
+            self.completed_at = _utc_now()
 
     def mark_batch_failed(
         self,
@@ -204,11 +222,11 @@ class CheckpointState(BaseModel):
         exit_code: int | None = None,
     ) -> None:
         """Mark a batch as failed."""
-        self.updated_at = datetime.utcnow()
+        self.updated_at = _utc_now()
 
         batch = self.batches[batch_num]
         batch.status = BatchStatus.FAILED
-        batch.completed_at = datetime.utcnow()
+        batch.completed_at = _utc_now()
         batch.error_message = error_message
         batch.error_category = error_category
         batch.exit_code = exit_code
@@ -220,13 +238,13 @@ class CheckpointState(BaseModel):
         """Mark the entire job as failed."""
         self.status = JobStatus.FAILED
         self.error_message = error_message
-        self.completed_at = datetime.utcnow()
-        self.updated_at = datetime.utcnow()
+        self.completed_at = _utc_now()
+        self.updated_at = _utc_now()
 
     def mark_job_paused(self) -> None:
         """Mark the job as paused."""
         self.status = JobStatus.PAUSED
-        self.updated_at = datetime.utcnow()
+        self.updated_at = _utc_now()
 
     def get_progress(self) -> tuple[int, int]:
         """Get progress as (completed, total)."""

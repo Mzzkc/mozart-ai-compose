@@ -6,16 +6,19 @@ Orchestration tool for running multiple Claude AI sessions with configurable pro
 
 - **YAML Configuration**: Define jobs declaratively with Jinja2 templating
 - **Multiple Backends**: Claude CLI or direct Anthropic API
-- **Resumable Execution**: Checkpoint-based state management
+- **Resumable Execution**: Checkpoint-based state management with resume command
 - **Smart Retry**: Error classification with rate limit detection
-- **Output Validation**: Verify expected files are created
+- **Output Validation**: Verify expected files with multiple validation types
+- **Progress Tracking**: Real-time progress bar with ETA
+- **Graceful Shutdown**: Ctrl+C saves state for later resume
 - **Notifications**: Desktop, Slack, webhook support
-- **Web Dashboard**: Monitor jobs, view history, retry failures (coming soon)
+- **Web Dashboard**: REST API for monitoring and job management
 
 ## Installation
 
 ```bash
 # From source
+git clone https://github.com/yourusername/mozart-ai-compose.git
 cd mozart-ai-compose
 pip install -e .
 
@@ -57,30 +60,54 @@ validations:
     path: "output/batch{{ batch_num }}-result.md"
 ```
 
-2. Run the job:
+2. Validate and run:
 
 ```bash
+# Validate configuration
+mozart validate my-job.yaml
+
+# Preview with dry run
+mozart run my-job.yaml --dry-run
+
+# Run the job
 mozart run my-job.yaml
 ```
 
-3. Check status:
+3. Monitor and manage:
 
 ```bash
-mozart status
+# Check job status
+mozart status my-batch-job
+
+# List all jobs
+mozart list
+
+# Resume if interrupted
+mozart resume my-batch-job
+
+# Start web dashboard
+mozart dashboard
 ```
 
 ## CLI Commands
 
-```bash
-mozart run <config.yaml>      # Run a job
-mozart run <config.yaml> -n   # Dry run (show plan)
-mozart status                 # Show all job statuses
-mozart status <job-id>        # Show specific job status
-mozart resume <job-id>        # Resume failed/paused job
-mozart list                   # List all jobs
-mozart validate <config.yaml> # Validate configuration
-mozart dashboard              # Start web dashboard
-```
+| Command | Description |
+|---------|-------------|
+| `mozart run <config>` | Execute a batch job |
+| `mozart run <config> -n` | Dry run (show plan) |
+| `mozart status <job-id>` | Show job status and progress |
+| `mozart resume <job-id>` | Resume paused/failed job |
+| `mozart list` | List all jobs |
+| `mozart validate <config>` | Validate configuration |
+| `mozart dashboard` | Start web dashboard |
+
+### Global Options
+
+| Option | Description |
+|--------|-------------|
+| `-v, --verbose` | Enable detailed output |
+| `-q, --quiet` | Suppress non-essential output |
+| `-V, --version` | Show version |
 
 ## Configuration Reference
 
@@ -141,6 +168,10 @@ validations:
   - type: content_contains
     path: "{workspace}/report.md"
     pattern: "## Summary"
+
+  # Run command and check exit code
+  - type: command_succeeds
+    command: "python validate.py {batch_num}"
 ```
 
 ### Notifications
@@ -187,8 +218,27 @@ mozart/
 ├── state/          # JSON and SQLite state backends
 ├── prompts/        # Jinja2 templating
 ├── notifications/  # Desktop, Slack, webhook
-└── dashboard/      # FastAPI web interface
+├── dashboard/      # FastAPI web interface
+└── learning/       # Outcome tracking (experimental)
 ```
+
+## Dashboard API
+
+Start the dashboard:
+
+```bash
+mozart dashboard --port 8000
+```
+
+Available endpoints:
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /health` | Health check |
+| `GET /api/jobs` | List jobs |
+| `GET /api/jobs/{id}` | Job details |
+| `GET /api/jobs/{id}/status` | Job status (lightweight) |
+| `GET /docs` | Swagger UI |
 
 ## Development
 
@@ -205,6 +255,12 @@ mypy src/
 # Linting
 ruff check src/
 ```
+
+## Documentation
+
+- [Getting Started Guide](docs/getting-started.md)
+- [CLI Reference](docs/cli-reference.md)
+- [Changelog](CHANGELOG.md)
 
 ## License
 
