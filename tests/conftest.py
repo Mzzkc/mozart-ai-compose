@@ -1,9 +1,56 @@
 """Pytest fixtures for Mozart tests."""
 
+import logging
 import tempfile
 from pathlib import Path
+from typing import Generator
 
 import pytest
+import structlog
+
+
+@pytest.fixture(autouse=True)
+def reset_logging_state() -> Generator[None, None, None]:
+    """Reset logging state before and after each test.
+
+    This ensures test isolation for logging configuration.
+    """
+    import mozart.cli as cli_module
+
+    # Store original state
+    original_configured = cli_module._logging_configured
+    original_log_level = cli_module._log_level
+    original_log_file = cli_module._log_file
+    original_log_format = cli_module._log_format
+
+    # Reset state before test
+    cli_module._logging_configured = False
+    cli_module._log_level = "INFO"
+    cli_module._log_file = None
+    cli_module._log_format = "console"
+
+    # Reset structlog to default state
+    structlog.reset_defaults()
+
+    # Clear all handlers from root logger
+    root_logger = logging.getLogger()
+    original_handlers = root_logger.handlers[:]
+    for handler in original_handlers:
+        root_logger.removeHandler(handler)
+
+    yield
+
+    # Restore state after test
+    cli_module._logging_configured = original_configured
+    cli_module._log_level = original_log_level
+    cli_module._log_file = original_log_file
+    cli_module._log_format = original_log_format
+
+    # Restore original handlers
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    for handler in original_handlers:
+        root_logger.addHandler(handler)
 
 
 @pytest.fixture

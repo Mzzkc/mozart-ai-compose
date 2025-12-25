@@ -11,10 +11,9 @@ Commands:
 
 import asyncio
 import json
-import logging
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
 
 import typer
 from rich.console import Console
@@ -32,6 +31,7 @@ from rich.table import Table
 from mozart import __version__
 from mozart.core.checkpoint import BatchStatus, CheckpointState, JobStatus
 from mozart.core.config import JobConfig, NotificationConfig
+from mozart.core.logging import configure_logging, get_logger
 from mozart.execution.runner import RunSummary
 from mozart.notifications import (
     DesktopNotifier,
@@ -42,7 +42,8 @@ from mozart.notifications import (
 )
 from mozart.state import JsonStateBackend, SQLiteStateBackend, StateBackend
 
-logger = logging.getLogger(__name__)
+# Get logger for CLI module - will be configured in main()
+logger = get_logger("cli")
 
 
 class OutputLevel(str, Enum):
@@ -56,8 +57,39 @@ class OutputLevel(str, Enum):
 # Global output level state
 _output_level: OutputLevel = OutputLevel.NORMAL
 
+# Global logging configuration state
+_log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "WARNING"
+_log_file: Path | None = None
+_log_format: Literal["json", "console", "both"] = "console"
+_logging_configured: bool = False
+
 # Default state directory when no config is available
 DEFAULT_STATE_DIR = Path.home() / ".mozart" / "state"
+
+
+def _configure_global_logging() -> None:
+    """Configure logging based on global CLI options.
+
+    This is called after all callbacks have processed their options.
+    Only configures once per session.
+    """
+    global _logging_configured
+    if _logging_configured:
+        return
+
+    try:
+        configure_logging(
+            level=_log_level,
+            format=_log_format,
+            file_path=_log_file,
+        )
+        _logging_configured = True
+        # Note: Intentionally not logging here to avoid polluting --json output
+        # If debugging is needed, use --log-file to redirect logs
+    except ValueError as e:
+        # Handle configuration errors (e.g., format="both" without file_path)
+        console.print(f"[red]Logging configuration error:[/red] {e}")
+        raise typer.Exit(1) from None
 
 
 def create_state_backend_from_config(config: JobConfig) -> StateBackend:
@@ -160,6 +192,30 @@ def quiet_callback(value: bool) -> None:
         _output_level = OutputLevel.QUIET
 
 
+def log_level_callback(value: str | None) -> str | None:
+    """Set log level from CLI option."""
+    global _log_level
+    if value:
+        _log_level = value  # type: ignore[assignment]
+    return value
+
+
+def log_file_callback(value: Path | None) -> Path | None:
+    """Set log file path from CLI option."""
+    global _log_file
+    if value:
+        _log_file = value
+    return value
+
+
+def log_format_callback(value: str | None) -> str | None:
+    """Set log format from CLI option."""
+    global _log_format
+    if value:
+        _log_format = value  # type: ignore[assignment]
+    return value
+
+
 def get_output_level() -> OutputLevel:
     """Get current output level."""
     return _output_level
@@ -201,9 +257,38 @@ def main(
         is_eager=True,
         help="Show minimal output (errors only)",
     ),
+    log_level: Annotated[
+        str | None,
+        typer.Option(
+            "--log-level",
+            "-L",
+            callback=log_level_callback,
+            help="Logging level (DEBUG, INFO, WARNING, ERROR)",
+            envvar="MOZART_LOG_LEVEL",
+        ),
+    ] = None,
+    log_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--log-file",
+            callback=log_file_callback,
+            help="Path for log file output",
+            envvar="MOZART_LOG_FILE",
+        ),
+    ] = None,
+    log_format: Annotated[
+        str | None,
+        typer.Option(
+            "--log-format",
+            callback=log_format_callback,
+            help="Log format: json, console, or both",
+            envvar="MOZART_LOG_FORMAT",
+        ),
+    ] = None,
 ) -> None:
     """Mozart AI Compose - Orchestration tool for Claude AI sessions."""
-    pass
+    # Configure logging based on CLI options (called once)
+    _configure_global_logging()
 
 
 @app.command()

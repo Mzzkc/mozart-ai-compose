@@ -9,6 +9,11 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Literal
 
+from mozart.core.logging import get_logger
+
+# Module-level logger for error classification
+_logger = get_logger("errors")
+
 # Type alias for exit reasons (matches backend)
 ExitReason = Literal["completed", "timeout", "killed", "error"]
 
@@ -197,17 +202,27 @@ class ErrorClassifier:
 
         # Handle signal-based exits first (new in Task 3)
         if exit_signal is not None:
-            return self._classify_signal(
+            result = self._classify_signal(
                 exit_signal=exit_signal,
                 exit_reason=exit_reason,
                 exception=exception,
                 stdout=stdout,
                 stderr=stderr,
             )
+            _logger.warning(
+                "error_classified",
+                category=result.category.value,
+                exit_signal=exit_signal,
+                exit_reason=exit_reason,
+                retriable=result.retriable,
+                suggested_wait=result.suggested_wait_seconds,
+                message=result.message,
+            )
+            return result
 
         # Handle timeout exit reason (even without signal)
         if exit_reason == "timeout":
-            return ClassifiedError(
+            result = ClassifiedError(
                 category=ErrorCategory.TIMEOUT,
                 message="Command timed out",
                 exit_code=exit_code,
@@ -216,10 +231,19 @@ class ErrorClassifier:
                 retriable=True,
                 suggested_wait_seconds=60.0,
             )
+            _logger.warning(
+                "error_classified",
+                category=result.category.value,
+                exit_code=exit_code,
+                exit_reason=exit_reason,
+                retriable=result.retriable,
+                message=result.message,
+            )
+            return result
 
         # Check for rate limiting first (most common retriable)
         if self._matches_any(combined, self.rate_limit_patterns):
-            return ClassifiedError(
+            result = ClassifiedError(
                 category=ErrorCategory.RATE_LIMIT,
                 message="Rate limit detected",
                 original_error=exception,
@@ -229,10 +253,19 @@ class ErrorClassifier:
                 retriable=True,
                 suggested_wait_seconds=3600.0,  # 1 hour default
             )
+            _logger.warning(
+                "error_classified",
+                category=result.category.value,
+                exit_code=exit_code,
+                retriable=result.retriable,
+                suggested_wait=result.suggested_wait_seconds,
+                message=result.message,
+            )
+            return result
 
         # Check for auth failures (fatal)
         if self._matches_any(combined, self.auth_patterns):
-            return ClassifiedError(
+            result = ClassifiedError(
                 category=ErrorCategory.AUTH,
                 message="Authentication or authorization failure",
                 original_error=exception,
@@ -241,10 +274,18 @@ class ErrorClassifier:
                 exit_reason=exit_reason,
                 retriable=False,
             )
+            _logger.warning(
+                "error_classified",
+                category=result.category.value,
+                exit_code=exit_code,
+                retriable=result.retriable,
+                message=result.message,
+            )
+            return result
 
         # Check for network issues (retriable with backoff)
         if self._matches_any(combined, self.network_patterns):
-            return ClassifiedError(
+            result = ClassifiedError(
                 category=ErrorCategory.NETWORK,
                 message="Network connectivity issue",
                 original_error=exception,
@@ -254,10 +295,20 @@ class ErrorClassifier:
                 retriable=True,
                 suggested_wait_seconds=30.0,
             )
+            _logger.warning(
+                "error_classified",
+                category=result.category.value,
+                exit_code=exit_code,
+                retriable=result.retriable,
+                suggested_wait=result.suggested_wait_seconds,
+                message=result.message,
+            )
+            return result
 
         # Check exit code
         if exit_code == 0:
             # Command succeeded but might have validation issues
+            # Note: This is not an error, just needs validation - no warning log
             return ClassifiedError(
                 category=ErrorCategory.VALIDATION,
                 message="Command succeeded but output validation needed",
@@ -271,7 +322,7 @@ class ErrorClassifier:
             # Non-zero exit codes
             if exit_code in (1, 2):
                 # Common transient errors
-                return ClassifiedError(
+                result = ClassifiedError(
                     category=ErrorCategory.TRANSIENT,
                     message=f"Command failed with exit code {exit_code}",
                     original_error=exception,
@@ -281,10 +332,19 @@ class ErrorClassifier:
                     retriable=True,
                     suggested_wait_seconds=10.0,
                 )
+                _logger.warning(
+                    "error_classified",
+                    category=result.category.value,
+                    exit_code=exit_code,
+                    retriable=result.retriable,
+                    suggested_wait=result.suggested_wait_seconds,
+                    message=result.message,
+                )
+                return result
 
             if exit_code == 124:
                 # Timeout (from `timeout` command - legacy support)
-                return ClassifiedError(
+                result = ClassifiedError(
                     category=ErrorCategory.TIMEOUT,
                     message="Command timed out",
                     exit_code=exit_code,
@@ -293,9 +353,18 @@ class ErrorClassifier:
                     retriable=True,
                     suggested_wait_seconds=60.0,
                 )
+                _logger.warning(
+                    "error_classified",
+                    category=result.category.value,
+                    exit_code=exit_code,
+                    retriable=result.retriable,
+                    suggested_wait=result.suggested_wait_seconds,
+                    message=result.message,
+                )
+                return result
 
         # Default to fatal for unknown errors
-        return ClassifiedError(
+        result = ClassifiedError(
             category=ErrorCategory.FATAL,
             message=f"Unknown error (exit_code={exit_code})",
             original_error=exception,
@@ -304,6 +373,14 @@ class ErrorClassifier:
             exit_reason=exit_reason,
             retriable=False,
         )
+        _logger.warning(
+            "error_classified",
+            category=result.category.value,
+            exit_code=exit_code,
+            retriable=result.retriable,
+            message=result.message,
+        )
+        return result
 
     def _classify_signal(
         self,

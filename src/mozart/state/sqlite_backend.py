@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -16,12 +15,14 @@ from typing import TYPE_CHECKING, Any
 import aiosqlite
 
 from mozart.core.checkpoint import BatchState, BatchStatus, CheckpointState, JobStatus
+from mozart.core.logging import get_logger
 from mozart.state.base import StateBackend
 
 if TYPE_CHECKING:
     pass
 
-logger = logging.getLogger(__name__)
+# Module-level logger for state operations
+_logger = get_logger("state.sqlite")
 
 
 def _utc_now() -> datetime:
@@ -86,11 +87,11 @@ class SQLiteStateBackend(StateBackend):
 
         if current_version < 1:
             await self._migrate_v1(db)
-            logger.info("Migrated SQLite schema to version 1")
+            _logger.info("schema_migrated", from_version=0, to_version=1)
 
         if current_version < 2:
             await self._migrate_v2(db)
-            logger.info("Migrated SQLite schema to version 2")
+            _logger.info("schema_migrated", from_version=1, to_version=2)
 
     async def _migrate_v1(self, db: aiosqlite.Connection) -> None:
         """Initial schema migration (version 1)."""
@@ -250,6 +251,7 @@ class SQLiteStateBackend(StateBackend):
             job_row = await cursor.fetchone()
 
             if not job_row:
+                _logger.debug("state_not_found", job_id=job_id)
                 return None
 
             # Load batch records
@@ -295,7 +297,7 @@ class SQLiteStateBackend(StateBackend):
             except (IndexError, KeyError):
                 config_path_value = None
 
-            return CheckpointState(
+            state = CheckpointState(
                 job_id=job_row["id"],
                 job_name=job_row["name"],
                 config_hash=job_row["config_hash"],
@@ -317,6 +319,16 @@ class SQLiteStateBackend(StateBackend):
                 total_retry_count=job_row["total_retry_count"],
                 rate_limit_waits=job_row["rate_limit_waits"],
             )
+
+            _logger.debug(
+                "checkpoint_loaded",
+                job_id=job_id,
+                status=state.status.value,
+                last_completed_batch=state.last_completed_batch,
+                total_batches=state.total_batches,
+                batch_count=len(batches),
+            )
+            return state
 
     async def save(self, state: CheckpointState) -> None:
         """Save job state to SQLite."""
@@ -438,6 +450,15 @@ class SQLiteStateBackend(StateBackend):
                 )
 
             await db.commit()
+
+        _logger.info(
+            "checkpoint_saved",
+            job_id=state.job_id,
+            status=state.status.value,
+            last_completed_batch=state.last_completed_batch,
+            total_batches=state.total_batches,
+            batch_count=len(state.batches),
+        )
 
     async def delete(self, job_id: str) -> bool:
         """Delete state for a job."""

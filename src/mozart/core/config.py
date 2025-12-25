@@ -40,6 +40,47 @@ class RetryConfig(BaseModel):
     )
 
 
+class LogConfig(BaseModel):
+    """Configuration for structured logging.
+
+    Controls log level, output format, and file rotation settings.
+    """
+
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = Field(
+        default="INFO",
+        description="Minimum log level to capture",
+    )
+    format: Literal["json", "console", "both"] = Field(
+        default="console",
+        description="Output format: json for structured, console for human-readable, "
+        "both for console to stderr and JSON to file",
+    )
+    file_path: Path | None = Field(
+        default=None,
+        description="Path for log file output (required if format='both')",
+    )
+    max_file_size_mb: int = Field(
+        default=50,
+        gt=0,
+        le=1000,
+        description="Maximum log file size before rotation (MB)",
+    )
+    backup_count: int = Field(
+        default=5,
+        ge=0,
+        le=100,
+        description="Number of rotated log files to keep",
+    )
+    include_timestamps: bool = Field(
+        default=True,
+        description="Include ISO8601 UTC timestamps in log entries",
+    )
+    include_context: bool = Field(
+        default=True,
+        description="Include bound context (job_id, batch_num) in log entries",
+    )
+
+
 class LearningConfig(BaseModel):
     """Configuration for learning and outcome tracking (Phase 2).
 
@@ -264,6 +305,7 @@ class JobConfig(BaseModel):
     retry: RetryConfig = Field(default_factory=RetryConfig)
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
     learning: LearningConfig = Field(default_factory=LearningConfig)
+    logging: LogConfig = Field(default_factory=LogConfig)
 
     validations: list[ValidationRule] = Field(default_factory=list)
     notifications: list[NotificationConfig] = Field(default_factory=list)

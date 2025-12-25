@@ -9,6 +9,11 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from mozart.core.logging import get_logger
+
+# Module-level logger for checkpoint operations
+_logger = get_logger("checkpoint")
+
 # Constants for output capture
 MAX_OUTPUT_CAPTURE_BYTES: int = 10240  # 10KB - last N bytes of stdout/stderr to capture
 
@@ -269,6 +274,7 @@ class CheckpointState(BaseModel):
 
     def mark_batch_started(self, batch_num: int) -> None:
         """Mark a batch as started."""
+        previous_status = self.status
         self.current_batch = batch_num
         self.status = JobStatus.RUNNING
         self.updated_at = _utc_now()
@@ -280,6 +286,15 @@ class CheckpointState(BaseModel):
         batch.status = BatchStatus.IN_PROGRESS
         batch.started_at = _utc_now()
         batch.attempt_count += 1
+
+        _logger.debug(
+            "batch_started",
+            job_id=self.job_id,
+            batch_num=batch_num,
+            attempt_count=batch.attempt_count,
+            previous_status=previous_status.value,
+            total_batches=self.total_batches,
+        )
 
     def mark_batch_completed(
         self,
@@ -301,9 +316,20 @@ class CheckpointState(BaseModel):
         self.current_batch = None
 
         # Check if job is complete
-        if batch_num >= self.total_batches:
+        job_completed = batch_num >= self.total_batches
+        if job_completed:
             self.status = JobStatus.COMPLETED
             self.completed_at = _utc_now()
+
+        _logger.debug(
+            "batch_completed",
+            job_id=self.job_id,
+            batch_num=batch_num,
+            validation_passed=validation_passed,
+            attempt_count=batch.attempt_count,
+            job_completed=job_completed,
+            progress=f"{self.last_completed_batch}/{self.total_batches}",
+        )
 
     def mark_batch_failed(
         self,
@@ -342,17 +368,51 @@ class CheckpointState(BaseModel):
         self.current_batch = None
         self.total_retry_count += 1
 
+        _logger.debug(
+            "batch_failed",
+            job_id=self.job_id,
+            batch_num=batch_num,
+            error_category=error_category,
+            exit_code=exit_code,
+            exit_signal=exit_signal,
+            exit_reason=exit_reason,
+            attempt_count=batch.attempt_count,
+            total_retry_count=self.total_retry_count,
+            error_message=error_message[:100] if error_message else None,
+        )
+
     def mark_job_failed(self, error_message: str) -> None:
         """Mark the entire job as failed."""
+        previous_status = self.status
         self.status = JobStatus.FAILED
         self.error_message = error_message
         self.completed_at = _utc_now()
         self.updated_at = _utc_now()
 
+        _logger.error(
+            "job_failed",
+            job_id=self.job_id,
+            previous_status=previous_status.value,
+            last_completed_batch=self.last_completed_batch,
+            total_batches=self.total_batches,
+            total_retry_count=self.total_retry_count,
+            error_message=error_message[:200] if error_message else None,
+        )
+
     def mark_job_paused(self) -> None:
         """Mark the job as paused."""
+        previous_status = self.status
         self.status = JobStatus.PAUSED
         self.updated_at = _utc_now()
+
+        _logger.info(
+            "job_paused",
+            job_id=self.job_id,
+            previous_status=previous_status.value,
+            last_completed_batch=self.last_completed_batch,
+            total_batches=self.total_batches,
+            current_batch=self.current_batch,
+        )
 
     def get_progress(self) -> tuple[int, int]:
         """Get progress as (completed, total)."""

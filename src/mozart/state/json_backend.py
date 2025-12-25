@@ -9,7 +9,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from mozart.core.checkpoint import BatchStatus, CheckpointState
+from mozart.core.logging import get_logger
 from mozart.state.base import StateBackend
+
+# Module-level logger for state operations
+_logger = get_logger("state.json")
 
 
 def _utc_now() -> datetime:
@@ -43,16 +47,40 @@ class JsonStateBackend(StateBackend):
         """Load state from JSON file."""
         state_file = self._get_state_file(job_id)
         if not state_file.exists():
+            _logger.debug("state_file_not_found", job_id=job_id, path=str(state_file))
             return None
 
         try:
             with open(state_file) as f:
                 data = json.load(f)
-            return CheckpointState.model_validate(data)
-        except (json.JSONDecodeError, ValueError) as e:
+            state = CheckpointState.model_validate(data)
+            _logger.debug(
+                "checkpoint_loaded",
+                job_id=job_id,
+                status=state.status.value,
+                last_completed_batch=state.last_completed_batch,
+                total_batches=state.total_batches,
+            )
+            return state
+        except json.JSONDecodeError as e:
             # Corrupted state file - log and return None
-            import logging
-            logging.warning(f"Failed to load state from {state_file}: {e}")
+            _logger.error(
+                "checkpoint_corruption_detected",
+                job_id=job_id,
+                path=str(state_file),
+                error_type="json_decode",
+                error=str(e),
+            )
+            return None
+        except ValueError as e:
+            # Validation error - log and return None
+            _logger.error(
+                "checkpoint_corruption_detected",
+                job_id=job_id,
+                path=str(state_file),
+                error_type="validation",
+                error=str(e),
+            )
             return None
 
     async def save(self, state: CheckpointState) -> None:
@@ -70,6 +98,15 @@ class JsonStateBackend(StateBackend):
                 default=str,  # Handle datetime serialization
             )
         temp_file.rename(state_file)
+
+        _logger.info(
+            "checkpoint_saved",
+            job_id=state.job_id,
+            status=state.status.value,
+            last_completed_batch=state.last_completed_batch,
+            total_batches=state.total_batches,
+            path=str(state_file),
+        )
 
     async def delete(self, job_id: str) -> bool:
         """Delete state file."""

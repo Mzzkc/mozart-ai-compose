@@ -39,6 +39,9 @@ dependencies = [
 
     # Desktop notifications
     "plyer>=2.1.0",
+
+    # Structured logging
+    "structlog>=24.1.0",
 ]
 
 [project.optional-dependencies]
