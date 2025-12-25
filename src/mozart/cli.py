@@ -14,6 +14,7 @@ import json
 import logging
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -316,6 +317,15 @@ async def _run_job(
         # Default to ClaudeCliBackend (claude_cli)
         backend = ClaudeCliBackend.from_config(config.backend)
 
+    # Execution progress state for CLI display (Task 4)
+    execution_status: dict[str, Any] = {
+        "batch_num": None,
+        "bytes_received": 0,
+        "lines_received": 0,
+        "elapsed_seconds": 0.0,
+        "phase": "idle",
+    }
+
     # Setup outcome store for learning if enabled
     outcome_store = None
     if config.learning.enabled:
@@ -355,21 +365,57 @@ async def _run_job(
             TimeElapsedColumn(),
             TextColumn("•"),
             TextColumn("ETA: {task.fields[eta]}"),
+            TextColumn("•"),
+            TextColumn("[dim]{task.fields[exec_status]}[/dim]"),
             console=console,
             transient=False,
         )
+
+    def _format_exec_status() -> str:
+        """Format execution status for progress display."""
+        if execution_status["phase"] == "idle":
+            return ""
+        if execution_status["phase"] == "starting":
+            return "starting..."
+        if execution_status["phase"] == "completed":
+            return ""
+
+        # Format bytes received
+        bytes_recv = execution_status.get("bytes_received", 0)
+        if bytes_recv < 1024:
+            bytes_str = f"{bytes_recv}B"
+        elif bytes_recv < 1024 * 1024:
+            bytes_str = f"{bytes_recv / 1024:.1f}KB"
+        else:
+            bytes_str = f"{bytes_recv / (1024 * 1024):.1f}MB"
+
+        return f"{bytes_str} received"
 
     def update_progress(completed: int, total: int, eta_seconds: float | None) -> None:
         """Update progress bar with current batch progress."""
         nonlocal progress_task_id
         if progress is not None and progress_task_id is not None:
             eta_str = _format_duration(eta_seconds) if eta_seconds else "calculating..."
+            exec_status = _format_exec_status()
             progress.update(
                 progress_task_id,
                 completed=completed,
                 total=total,
                 eta=eta_str,
+                exec_status=exec_status,
             )
+
+    def update_execution_display(progress_info: dict[str, Any]) -> None:
+        """Update progress bar with execution status (called by backend)."""
+        execution_status.update(progress_info)
+        # Refresh the progress bar with new execution status
+        if progress is not None and progress_task_id is not None:
+            exec_status = _format_exec_status()
+            progress.update(progress_task_id, exec_status=exec_status)
+
+    # Override the execution progress callback to update display
+    if isinstance(backend, ClaudeCliBackend) and not is_quiet() and not json_output:
+        backend.progress_callback = update_execution_display
 
     # Create runner with progress callback
     runner = JobRunner(
@@ -403,6 +449,7 @@ async def _run_job(
                 total=config.batch.total_batches,
                 completed=initial_completed,
                 eta="calculating...",
+                exec_status="",  # Initial empty execution status
             )
 
         # Run job with validation and completion recovery

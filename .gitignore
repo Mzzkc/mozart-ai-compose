@@ -33,8 +33,8 @@ env/
 *.swo
 *~
 
-# Mozart artifacts
-self-dev-workspace/
+# Mozart artifacts - workspaces contain runtime state, never commit
+*-workspace/
 *.log
 
 # State files (keep structure, ignore contents)

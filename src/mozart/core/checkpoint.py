@@ -9,6 +9,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+# Constants for output capture
+MAX_OUTPUT_CAPTURE_BYTES: int = 10240  # 10KB - last N bytes of stdout/stderr to capture
+
 
 def _utc_now() -> datetime:
     """Return current UTC time as timezone-aware datetime.
@@ -52,6 +55,20 @@ class BatchState(BaseModel):
     error_category: str | None = None
     validation_passed: bool | None = None
     validation_details: list[dict[str, Any]] | None = None
+
+    # Exit signal differentiation (Task 3: Exit Signal Differentiation)
+    exit_signal: int | None = Field(
+        default=None,
+        description="Signal number if process was killed (e.g., 9=SIGKILL, 15=SIGTERM)",
+    )
+    exit_reason: str | None = Field(
+        default=None,
+        description="Why execution ended: completed, timeout, killed, or error",
+    )
+    execution_duration_seconds: float | None = Field(
+        default=None,
+        description="How long the batch execution took in seconds",
+    )
 
     # Partial completion tracking
     completion_attempts: int = Field(
@@ -105,6 +122,80 @@ class BatchState(BaseModel):
             "success_retry, failed_exhausted, failed_fatal"
         ),
     )
+
+    # Raw output capture for debugging (last N bytes to avoid memory issues)
+    stdout_tail: str | None = Field(
+        default=None,
+        description="Last 10KB of stdout for debugging failed executions",
+    )
+    stderr_tail: str | None = Field(
+        default=None,
+        description="Last 10KB of stderr for debugging failed executions",
+    )
+    output_truncated: bool = Field(
+        default=False,
+        description="True if output was larger than capture limit and was truncated",
+    )
+
+    # Preflight metrics (Task 2: Prompt Metrics and Pre-flight Checks)
+    prompt_metrics: dict[str, Any] | None = Field(
+        default=None,
+        description="Prompt analysis metrics (character_count, estimated_tokens, etc.)",
+    )
+    preflight_warnings: list[str] = Field(
+        default_factory=list,
+        description="Warnings from preflight checks (large prompts, missing files, etc.)",
+    )
+
+    # Execution progress tracking (Task 4: Execution Progress Tracking)
+    progress_snapshots: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Periodic progress records during execution (bytes, lines, phase)",
+    )
+    last_activity_at: datetime | None = Field(
+        default=None,
+        description="Last time activity was observed during execution",
+    )
+
+    def capture_output(
+        self,
+        stdout: str,
+        stderr: str,
+        max_bytes: int = MAX_OUTPUT_CAPTURE_BYTES,
+    ) -> None:
+        """Capture tail of stdout/stderr for debugging.
+
+        Stores the last `max_bytes` of each output stream. Sets output_truncated
+        to True if either stream was larger than the limit.
+
+        Args:
+            stdout: Full stdout string from execution.
+            stderr: Full stderr string from execution.
+            max_bytes: Maximum bytes to capture per stream (default 10KB).
+        """
+        # Convert to bytes to measure actual size, then slice
+        stdout_bytes = stdout.encode("utf-8", errors="replace")
+        stderr_bytes = stderr.encode("utf-8", errors="replace")
+
+        stdout_truncated = len(stdout_bytes) > max_bytes
+        stderr_truncated = len(stderr_bytes) > max_bytes
+
+        # Capture tail (last N bytes) and decode back to string
+        if stdout_truncated:
+            self.stdout_tail = stdout_bytes[-max_bytes:].decode(
+                "utf-8", errors="replace"
+            )
+        else:
+            self.stdout_tail = stdout if stdout else None
+
+        if stderr_truncated:
+            self.stderr_tail = stderr_bytes[-max_bytes:].decode(
+                "utf-8", errors="replace"
+            )
+        else:
+            self.stderr_tail = stderr if stderr else None
+
+        self.output_truncated = stdout_truncated or stderr_truncated
 
 
 class CheckpointState(BaseModel):
@@ -220,8 +311,21 @@ class CheckpointState(BaseModel):
         error_message: str,
         error_category: str | None = None,
         exit_code: int | None = None,
+        exit_signal: int | None = None,
+        exit_reason: str | None = None,
+        execution_duration_seconds: float | None = None,
     ) -> None:
-        """Mark a batch as failed."""
+        """Mark a batch as failed.
+
+        Args:
+            batch_num: Batch number that failed.
+            error_message: Human-readable error description.
+            error_category: Error category from ErrorClassifier (e.g., "signal", "timeout").
+            exit_code: Process exit code (None if killed by signal).
+            exit_signal: Signal number if killed by signal (e.g., 9=SIGKILL, 15=SIGTERM).
+            exit_reason: Why execution ended ("completed", "timeout", "killed", "error").
+            execution_duration_seconds: How long the batch execution took.
+        """
         self.updated_at = _utc_now()
 
         batch = self.batches[batch_num]
@@ -230,6 +334,10 @@ class CheckpointState(BaseModel):
         batch.error_message = error_message
         batch.error_category = error_category
         batch.exit_code = exit_code
+        batch.exit_signal = exit_signal
+        batch.exit_reason = exit_reason
+        if execution_duration_seconds is not None:
+            batch.execution_duration_seconds = execution_duration_seconds
 
         self.current_batch = None
         self.total_retry_count += 1

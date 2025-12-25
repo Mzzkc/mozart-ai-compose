@@ -22,6 +22,7 @@ from mozart.core.checkpoint import BatchStatus, CheckpointState, JobStatus
 from mozart.core.config import JobConfig
 from mozart.core.errors import ClassifiedError, ErrorClassifier
 from mozart.execution.escalation import EscalationContext, EscalationHandler, EscalationResponse
+from mozart.execution.preflight import PreflightChecker, PreflightResult
 from mozart.execution.validation import BatchValidationResult, ValidationEngine
 from mozart.learning.judgment import JudgmentClient, JudgmentQuery, JudgmentResponse
 from mozart.learning.outcomes import BatchOutcome, OutcomeStore
@@ -179,6 +180,7 @@ class JobRunner:
         escalation_handler: EscalationHandler | None = None,
         judgment_client: JudgmentClient | None = None,
         progress_callback: Callable[[int, int, float | None], None] | None = None,
+        execution_progress_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         """Initialize job runner.
 
@@ -196,6 +198,10 @@ class JobRunner:
             progress_callback: Optional callback for progress updates. Called with
                 (completed_batches, total_batches, eta_seconds). Used by CLI for
                 progress bar updates.
+            execution_progress_callback: Optional callback for real-time execution
+                progress during long-running batch executions. Called with dict
+                containing: batch_num, bytes_received, lines_received, elapsed_seconds,
+                phase. Used by CLI to show "Still running... 5.2KB received".
         """
         self.config = config
         self.backend = backend
@@ -205,9 +211,14 @@ class JobRunner:
         self.escalation_handler = escalation_handler
         self.judgment_client = judgment_client
         self.progress_callback = progress_callback
+        self.execution_progress_callback = execution_progress_callback
         self.prompt_builder = PromptBuilder(config.prompt)
         self.error_classifier = ErrorClassifier.from_config(
             config.rate_limit.detection_patterns
+        )
+        self.preflight_checker = PreflightChecker(
+            workspace=config.workspace,
+            working_directory=config.backend.working_directory or config.workspace,
         )
 
         # Graceful shutdown state
@@ -218,6 +229,10 @@ class JobRunner:
         # Summary tracking for run statistics
         self._summary: RunSummary | None = None
         self._run_start_time: float = 0.0
+
+        # Execution progress tracking (Task 4)
+        self._current_batch_num: int | None = None
+        self._execution_progress_snapshots: list[dict[str, Any]] = []
 
     async def run(
         self,
@@ -440,6 +455,39 @@ class JobRunner:
             eta,
         )
 
+    def _handle_execution_progress(self, progress: dict[str, Any]) -> None:
+        """Handle execution progress update from backend.
+
+        Called by backend during long-running executions to report
+        bytes/lines received and elapsed time.
+
+        Args:
+            progress: Dict with bytes_received, lines_received, elapsed_seconds, phase.
+        """
+        # Add batch_num to progress info
+        progress_with_batch = {
+            "batch_num": self._current_batch_num,
+            **progress,
+        }
+
+        # Record snapshot for persistence (every 30 seconds of significant change)
+        should_snapshot = (
+            not self._execution_progress_snapshots
+            or progress.get("bytes_received", 0)
+            - self._execution_progress_snapshots[-1].get("bytes_received", 0)
+            > 1024  # At least 1KB of new data
+        )
+        if should_snapshot:
+            snapshot = {
+                **progress_with_batch,
+                "snapshot_at": _utc_now().isoformat(),
+            }
+            self._execution_progress_snapshots.append(snapshot)
+
+        # Forward to CLI callback if set
+        if self.execution_progress_callback is not None:
+            self.execution_progress_callback(progress_with_batch)
+
     async def _initialize_state(
         self, start_batch: int | None,
         config_path: str | None = None,
@@ -525,12 +573,35 @@ class JobRunner:
         current_prompt = original_prompt
         current_mode = BatchExecutionMode.NORMAL
 
+        # Run preflight checks before first execution (Task 2: Prompt Metrics)
+        preflight_result = self._run_preflight_checks(
+            prompt=original_prompt,
+            batch_context=batch_context.to_dict(),
+            batch_num=batch_num,
+            state=state,
+        )
+
+        # Check for fatal preflight errors
+        if preflight_result.has_errors:
+            error_summary = "; ".join(preflight_result.errors)
+            state.mark_batch_failed(
+                batch_num,
+                f"Preflight check failed: {error_summary}",
+                "preflight",
+            )
+            await self.state_backend.save(state)
+            raise FatalError(f"Batch {batch_num}: Preflight check failed - {error_summary}")
+
         while True:
             # Mark batch started
             state.mark_batch_started(batch_num)
             batch_state = state.batches[batch_num]
             batch_state.execution_mode = current_mode.value
             await self.state_backend.save(state)
+
+            # Initialize execution progress tracking (Task 4)
+            self._current_batch_num = batch_num
+            self._execution_progress_snapshots.clear()
 
             # Snapshot mtimes before execution (for file_modified checks)
             validation_engine.snapshot_mtime_files(self.config.validations)
@@ -540,6 +611,14 @@ class JobRunner:
                 f"[blue]Batch {batch_num}: {current_mode.value} execution[/blue]"
             )
             result = await self.backend.execute(current_prompt)
+
+            # Store execution progress snapshots in batch state (Task 4)
+            if self._execution_progress_snapshots:
+                batch_state.progress_snapshots = self._execution_progress_snapshots.copy()
+                batch_state.last_activity_at = _utc_now()
+
+            # Capture raw output for debugging (Task 1: Raw Output Capture)
+            batch_state.capture_output(result.stdout, result.stderr)
 
             # Track execution result for judgment (Phase 4)
             execution_history.append(result)
@@ -557,7 +636,10 @@ class JobRunner:
                         batch_num,
                         error.message,
                         error.category.value,
-                        result.exit_code,
+                        exit_code=result.exit_code,
+                        exit_signal=result.exit_signal,
+                        exit_reason=result.exit_reason,
+                        execution_duration_seconds=result.duration_seconds,
                     )
                     await self.state_backend.save(state)
                     raise FatalError(f"Batch {batch_num}: {error.message}")
@@ -569,7 +651,10 @@ class JobRunner:
                         batch_num,
                         f"Failed after {max_retries} retries: {error.message}",
                         error.category.value,
-                        result.exit_code,
+                        exit_code=result.exit_code,
+                        exit_signal=result.exit_signal,
+                        exit_reason=result.exit_reason,
+                        execution_duration_seconds=result.duration_seconds,
                     )
                     await self.state_backend.save(state)
                     raise FatalError(
@@ -815,6 +900,61 @@ class JobRunner:
             workspace=self.config.workspace,
         )
 
+    def _run_preflight_checks(
+        self,
+        prompt: str,
+        batch_context: dict[str, Any],
+        batch_num: int,
+        state: CheckpointState,
+    ) -> PreflightResult:
+        """Run preflight checks on a prompt before execution.
+
+        Analyzes the prompt for potential issues like excessive size,
+        missing file references, and invalid working directories.
+
+        Updates BatchState with metrics and any warnings.
+
+        Args:
+            prompt: The prompt text to analyze.
+            batch_context: Context dictionary for template expansion.
+            batch_num: Current batch number.
+            state: Current job state to update.
+
+        Returns:
+            PreflightResult with metrics and any warnings/errors.
+        """
+        # Ensure batch state exists
+        if batch_num not in state.batches:
+            from mozart.core.checkpoint import BatchState
+            state.batches[batch_num] = BatchState(batch_num=batch_num)
+
+        batch_state = state.batches[batch_num]
+
+        # Run preflight checks
+        result = self.preflight_checker.check(prompt, batch_context)
+
+        # Store metrics in batch state
+        batch_state.prompt_metrics = result.prompt_metrics.to_dict()
+        batch_state.preflight_warnings = result.warnings.copy()
+
+        # Log warnings
+        for warning in result.warnings:
+            self.console.print(f"[yellow]Batch {batch_num} preflight: {warning}[/yellow]")
+
+        # Log errors (will be handled by caller)
+        for error in result.errors:
+            self.console.print(f"[red]Batch {batch_num} preflight ERROR: {error}[/red]")
+
+        # Log metrics summary
+        metrics = result.prompt_metrics
+        self.console.print(
+            f"[dim]Batch {batch_num}: ~{metrics.estimated_tokens:,} tokens, "
+            f"{metrics.line_count:,} lines, "
+            f"{len(metrics.referenced_paths)} file refs[/dim]"
+        )
+
+        return result
+
     def _update_batch_validation_state(
         self,
         state: CheckpointState,
@@ -857,6 +997,8 @@ class JobRunner:
             stdout=result.stdout,
             stderr=result.stderr,
             exit_code=result.exit_code,
+            exit_signal=result.exit_signal,
+            exit_reason=result.exit_reason,
         )
 
     def _get_retry_delay(self, attempt: int) -> float:

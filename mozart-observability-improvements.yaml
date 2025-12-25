@@ -1,0 +1,553 @@
+name: mozart-observability-improvements
+description: Comprehensive logging, error handling, and diagnostics for Mozart
+
+workspace: observability-workspace
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  working_directory: /home/emzi/Projects/mozart-ai-compose
+  timeout_seconds: 1800
+
+batch:
+  size: 1
+  total_items: 16
+  start_item: 1
+
+retry:
+  max_retries: 2
+  base_delay_seconds: 30
+  max_completion_attempts: 2
+
+rate_limit:
+  wait_minutes: 60
+  max_waits: 3
+
+# Validation disabled - tests catch transitional state during Claude execution
+# We verify manually after each batch instead
+validations: []
+
+prompt:
+  variables:
+    project_root: /home/emzi/Projects/mozart-ai-compose
+
+  template: |
+    You are enhancing Mozart AI Compose's observability: logging, error handling, and diagnostics.
+
+    Project: {{ project_root }}
+    Task: {{ batch_num }} of 16
+
+    ## Context
+
+    Mozart is a batch orchestration framework. Current observability is critically lacking:
+    - Only exit code captured, no raw output
+    - print() statements instead of structured logging
+    - No correlation/tracing for debugging
+    - No prompt size metrics or warnings
+    - No intermediate progress during long executions
+    - No distinction between exit codes and signals
+    - No resource tracking
+
+    Key files:
+    - src/mozart/core/errors.py - Error classification
+    - src/mozart/core/checkpoint.py - State models (BatchState, CheckpointState)
+    - src/mozart/execution/runner.py - JobRunner
+    - src/mozart/backends/claude_cli.py - Claude CLI backend
+    - src/mozart/cli.py - CLI interface
+
+    ---
+
+    {% if batch_num == 1 %}
+    ## Task 1: Raw Output Capture
+
+    CRITICAL: We just had a job fail with "Command failed with exit code 1" and NO way
+    to see what actually happened. Fix this first.
+
+    Modify BatchState in checkpoint.py:
+
+    1. Add output capture fields:
+       ```python
+       # Raw output capture (last N bytes to avoid memory issues)
+       stdout_tail: str | None = None  # Last 10KB of stdout
+       stderr_tail: str | None = None  # Last 10KB of stderr
+       output_truncated: bool = False  # True if output was larger than capture limit
+       ```
+
+    2. Add constants:
+       ```python
+       MAX_OUTPUT_CAPTURE_BYTES: int = 10240  # 10KB
+       ```
+
+    3. Add helper method:
+       ```python
+       def capture_output(self, stdout: str, stderr: str) -> None:
+           """Capture tail of stdout/stderr for debugging."""
+       ```
+
+    4. Modify claude_cli.py to pass output to batch state after execution
+
+    5. Modify runner.py to call capture_output after each execution
+
+    Write tests verifying output capture and truncation.
+
+    {% elif batch_num == 2 %}
+    ## Task 2: Prompt Metrics and Pre-flight Checks
+
+    Add prompt analysis before execution:
+
+    1. Create src/mozart/execution/preflight.py:
+       ```python
+       @dataclass
+       class PromptMetrics:
+           character_count: int
+           estimated_tokens: int  # chars / 4 as rough estimate
+           line_count: int
+           has_file_references: bool
+           referenced_paths: list[str]
+
+       @dataclass
+       class PreflightResult:
+           prompt_metrics: PromptMetrics
+           warnings: list[str]
+           errors: list[str]  # Fatal issues
+           paths_accessible: dict[str, bool]  # path -> exists
+       ```
+
+    2. Add preflight checks:
+       - Estimate token count (warn if > 50K tokens)
+       - Extract file paths from prompt, verify they exist
+       - Check working directory is valid
+       - Warn about very long prompts
+
+    3. Add to BatchState:
+       ```python
+       prompt_metrics: dict[str, Any] | None = None
+       preflight_warnings: list[str] = []
+       ```
+
+    4. Integrate into runner - run preflight before execution
+
+    Write tests for various prompt scenarios.
+
+    {% elif batch_num == 3 %}
+    ## Task 3: Exit Signal Differentiation
+
+    Distinguish between exit codes and signals:
+
+    1. Update ExecutionResult in backends/base.py:
+       ```python
+       exit_code: int | None = None
+       exit_signal: int | None = None  # Signal number if killed by signal
+       exit_reason: Literal["completed", "timeout", "killed", "error"] = "completed"
+       duration_seconds: float = 0.0
+       ```
+
+    2. Update claude_cli.py to detect:
+       - Normal exit (exit_code set)
+       - Timeout (SIGTERM/SIGKILL from timeout)
+       - Signal termination (returncode < 0 means signal)
+       - Parse signal: `signal_num = -returncode`
+
+    3. Update BatchState:
+       ```python
+       exit_signal: int | None = None
+       exit_reason: str | None = None
+       execution_duration_seconds: float | None = None
+       ```
+
+    4. Update error classifier to handle signal-based exits differently
+
+    Write tests for various exit scenarios.
+
+    {% elif batch_num == 4 %}
+    ## Task 4: Execution Progress Tracking
+
+    Add heartbeat/progress during long executions:
+
+    1. Create src/mozart/execution/progress.py:
+       ```python
+       @dataclass
+       class ExecutionProgress:
+           started_at: datetime
+           last_activity_at: datetime
+           bytes_received: int
+           lines_received: int
+           phase: str  # "starting", "executing", "validating"
+
+       class ProgressTracker:
+           def __init__(self, callback: Callable[[ExecutionProgress], None] | None = None):
+               ...
+           def update(self, new_bytes: int = 0, new_lines: int = 0) -> None:
+               ...
+           def get_progress(self) -> ExecutionProgress:
+               ...
+       ```
+
+    2. Update claude_cli.py:
+       - Stream output and track bytes/lines received
+       - Call progress callback periodically
+       - Store progress snapshots in state
+
+    3. Add to BatchState:
+       ```python
+       progress_snapshots: list[dict[str, Any]] = []  # Periodic progress records
+       last_activity_at: datetime | None = None
+       ```
+
+    4. CLI: Show "Still running... 5.2KB received, 3m elapsed"
+
+    Write tests for progress tracking.
+
+    {% elif batch_num == 5 %}
+    ## Task 5: Logging Infrastructure
+
+    Create src/mozart/core/logging.py with structured logging:
+
+    1. Use structlog for structured JSON logging:
+       ```python
+       import structlog
+       from typing import Any
+       ```
+
+    2. Create MozartLogger class:
+       - Wraps structlog with Mozart-specific context
+       - Methods: debug, info, warning, error, critical
+       - Auto-includes: timestamp, job_id, batch_num, component
+
+    3. Create LogConfig model in config.py:
+       ```python
+       class LogConfig(BaseModel):
+           level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+           format: Literal["json", "console", "both"] = "console"
+           file_path: Path | None = None
+           max_file_size_mb: int = 50
+           backup_count: int = 5
+           include_timestamps: bool = True
+           include_context: bool = True
+       ```
+
+    4. Add structlog to pyproject.toml dependencies
+
+    Write tests in tests/test_logging.py
+
+    {% elif batch_num == 6 %}
+    ## Task 6: Correlation IDs and Context
+
+    Add tracing/correlation support:
+
+    1. Create ExecutionContext in logging.py:
+       ```python
+       @dataclass
+       class ExecutionContext:
+           job_id: str
+           run_id: str  # UUID, unique per execution
+           batch_num: int | None = None
+           component: str = "unknown"
+           parent_run_id: str | None = None  # For nested operations
+       ```
+
+    2. Create ContextVar for thread-safe context:
+       ```python
+       from contextvars import ContextVar
+       _current_context: ContextVar[ExecutionContext | None] = ContextVar('mozart_context', default=None)
+       ```
+
+    3. Context manager: with_context(ctx)
+       - Sets context for duration of block
+       - All log calls auto-include context
+
+    4. Helper: get_logger(component: str) -> MozartLogger
+
+    Write tests for context propagation.
+
+    {% elif batch_num == 7 %}
+    ## Task 7: Integrate Logging into Core and CLI
+
+    Replace print() with structured logging:
+
+    1. src/mozart/cli.py:
+       - Add --log-level option (DEBUG/INFO/WARNING/ERROR)
+       - Add --log-file option (path for log output)
+       - Add --log-format option (json/console)
+       - Initialize logging early in main()
+       - Keep Rich for UI, use logging for operational data
+
+    2. src/mozart/core/checkpoint.py:
+       - Log state transitions (DEBUG)
+       - Log checkpoint saves/loads (INFO)
+       - Log corruption detection (ERROR)
+
+    3. src/mozart/core/errors.py:
+       - Log error classifications (WARNING)
+
+    {% elif batch_num == 8 %}
+    ## Task 8: Integrate Logging into Execution
+
+    Add comprehensive logging to runner.py:
+
+    1. Log events with structured data:
+       ```python
+       logger.info("job.started", job_id=job_id, batches=total_batches, config=config_summary)
+       logger.info("batch.started", batch_num=n, prompt_tokens=est_tokens)
+       logger.info("batch.completed", batch_num=n, duration=dur, validations=results)
+       logger.warning("batch.retry", batch_num=n, attempt=a, error_code=code, reason=msg)
+       logger.error("batch.failed", batch_num=n, error_code=code, stdout_tail=tail)
+       ```
+
+    2. Include timing for all operations:
+       - Execution duration
+       - Validation duration
+       - Total job duration
+
+    3. Log preflight results and warnings
+
+    {% elif batch_num == 9 %}
+    ## Task 9: Backend Logging
+
+    Add logging to all backends:
+
+    1. claude_cli.py:
+       - DEBUG: Full command being executed
+       - DEBUG: Working directory, environment
+       - INFO: Execution completed (duration, exit_code, signal)
+       - WARNING: Rate limit detected (pattern matched)
+       - ERROR: Execution failed (include stdout_tail, stderr_tail)
+
+    2. anthropic_api.py:
+       - DEBUG: API request (model, max_tokens, prompt preview)
+       - INFO: API response (input_tokens, output_tokens, duration)
+       - WARNING: Rate limit response
+       - ERROR: API error with full response
+
+    3. recursive_light.py:
+       - DEBUG: HTTP request details
+       - INFO: Response with confidence scores
+       - WARNING: Connection issues
+
+    NEVER log API keys or sensitive tokens.
+
+    {% elif batch_num == 10 %}
+    ## Task 10: Error History Model
+
+    Extend BatchState to store error history:
+
+    1. Add ErrorRecord model:
+       ```python
+       class ErrorRecord(BaseModel):
+           timestamp: datetime
+           error_type: Literal["transient", "rate_limit", "permanent"]
+           error_code: str  # E001, E002, etc.
+           error_message: str
+           attempt_number: int
+           context: dict[str, Any] = {}
+           stdout_tail: str | None = None
+           stderr_tail: str | None = None
+           stack_trace: str | None = None
+       ```
+
+    2. Add to BatchState:
+       ```python
+       error_history: list[ErrorRecord] = []
+       MAX_ERROR_HISTORY: int = 10
+
+       def record_error(self, error_type, code, message, attempt, **context) -> None:
+           """Record error with context, trim to max history."""
+       ```
+
+    3. Log error recordings at WARNING level
+
+    Write tests in tests/test_error_history.py
+
+    {% elif batch_num == 11 %}
+    ## Task 11: Structured Error Codes
+
+    Create comprehensive error codes in errors.py:
+
+    ```python
+    class ErrorCode(str, Enum):
+        # E0xx: Execution errors
+        EXECUTION_TIMEOUT = "E001"
+        EXECUTION_KILLED = "E002"
+        EXECUTION_CRASHED = "E003"
+
+        # E1xx: Rate limit / capacity
+        RATE_LIMIT_API = "E101"
+        RATE_LIMIT_CLI = "E102"
+        CAPACITY_EXCEEDED = "E103"
+
+        # E2xx: Validation errors
+        VALIDATION_FILE_MISSING = "E201"
+        VALIDATION_CONTENT_MISMATCH = "E202"
+        VALIDATION_COMMAND_FAILED = "E203"
+
+        # E3xx: Configuration errors
+        CONFIG_INVALID = "E301"
+        CONFIG_MISSING_FIELD = "E302"
+        CONFIG_PATH_NOT_FOUND = "E303"
+
+        # E4xx: State errors
+        STATE_CORRUPTION = "E401"
+        STATE_LOAD_FAILED = "E402"
+        STATE_SAVE_FAILED = "E403"
+
+        # E5xx: Backend errors
+        BACKEND_CONNECTION = "E501"
+        BACKEND_AUTH = "E502"
+        BACKEND_RESPONSE = "E503"
+        BACKEND_TIMEOUT = "E504"
+
+        # E6xx: Preflight errors
+        PREFLIGHT_PATH_MISSING = "E601"
+        PREFLIGHT_PROMPT_TOO_LARGE = "E602"
+        PREFLIGHT_WORKING_DIR_INVALID = "E603"
+    ```
+
+    Update ErrorClassifier to assign codes.
+
+    {% elif batch_num == 12 %}
+    ## Task 12: Circuit Breaker Pattern
+
+    Add circuit breaker for resilience:
+
+    1. Create src/mozart/execution/circuit_breaker.py:
+       ```python
+       class CircuitState(Enum):
+           CLOSED = "closed"      # Normal operation
+           OPEN = "open"          # Blocking calls
+           HALF_OPEN = "half_open"  # Testing recovery
+
+       class CircuitBreaker:
+           def __init__(self, failure_threshold=5, recovery_timeout=300.0):
+               ...
+           def record_success(self) -> None: ...
+           def record_failure(self) -> None: ...
+           def can_execute(self) -> bool: ...
+           def get_state(self) -> CircuitState: ...
+       ```
+
+    2. Add CircuitBreakerConfig to config.py
+
+    3. Integrate into JobRunner
+
+    4. Log state transitions at INFO level
+
+    {% elif batch_num == 13 %}
+    ## Task 13: Adaptive Retry Strategy
+
+    Implement intelligent retry:
+
+    1. Create src/mozart/execution/retry_strategy.py:
+       ```python
+       @dataclass
+       class RetryRecommendation:
+           should_retry: bool
+           delay_seconds: float
+           reason: str
+           confidence: float
+
+       class AdaptiveRetryStrategy:
+           def analyze(self, error_history: list[ErrorRecord]) -> RetryRecommendation:
+               # Detect patterns:
+               # - Rapid consecutive failures -> longer backoff
+               # - Same error code repeated -> different strategy
+               # - Rate limits -> use rate limit delay
+               ...
+       ```
+
+    2. Integrate into runner retry logic
+
+    3. Log retry decisions with reasoning
+
+    {% elif batch_num == 14 %}
+    ## Task 14: Log Persistence and Rotation
+
+    Add log file management:
+
+    1. Implement log rotation in logging.py:
+       - Use logging.handlers.RotatingFileHandler
+       - Compress old logs (.gz)
+       - Configurable max size and backup count
+
+    2. Log file location: {workspace}/logs/mozart.log
+
+    3. Add `mozart logs <job-id>` CLI command:
+       - Shows/tails log file
+       - Options: --follow, --lines N, --level, --json
+
+    {% elif batch_num == 15 %}
+    ## Task 15: Error and Diagnostics CLI
+
+    Enhance CLI for debugging:
+
+    1. Add `mozart errors <job-id>`:
+       - List all errors with Rich table
+       - Color by error type (red=permanent, yellow=transient, blue=rate_limit)
+       - Show stdout/stderr tails
+       - Options: --batch N, --type, --code, --verbose
+
+    2. Add `mozart diagnose <job-id>`:
+       - Shows comprehensive diagnostic report
+       - Preflight warnings
+       - Prompt metrics
+       - Execution timeline
+       - All errors with full context
+
+    3. Enhance `mozart status`:
+       - Show recent errors
+       - Show circuit breaker state
+       - Show last activity timestamp
+
+    {% elif batch_num == 16 %}
+    ## Task 16: Integration Testing and Documentation
+
+    Final integration:
+
+    1. Create tests/test_observability_integration.py:
+       - End-to-end: job with failures, verify:
+         - Raw output captured
+         - Error history recorded
+         - Logs written
+         - Metrics collected
+       - Verify log rotation
+       - Verify circuit breaker
+
+    2. Update README.md:
+       - Observability configuration section
+       - Error codes reference table
+       - Troubleshooting guide
+       - `mozart diagnose` usage
+
+    3. Run full validation:
+       ```bash
+       pytest tests/ -v
+       mypy src/
+       ruff check src/
+       ```
+
+    4. Create examples/observability-demo.yaml
+
+    {% endif %}
+
+    ## Quality Requirements
+
+    - All code must pass mypy strict mode
+    - All code must pass ruff linting
+    - Write comprehensive tests
+    - Use existing patterns from the codebase
+    - NEVER log sensitive data (API keys, tokens)
+    - Maintain backwards compatibility with existing state files
+    - Handle missing new fields gracefully (default values)
+
+  stakes: |
+    We just had a job fail with "Command failed with exit code 1" and NO WAY
+    to see what happened. This is unacceptable for a production system.
+
+    After this work, every failure will include:
+    - Raw stdout/stderr (last 10KB)
+    - Error code with meaning (E001, E002, etc.)
+    - Full error history
+    - Prompt metrics (was it too large?)
+    - Exit signal vs code (timeout vs error?)
+    - Structured logs for tracing
+
+    This transforms Mozart from "hope it works" to "diagnosable and trustworthy."

@@ -1,6 +1,11 @@
 """Core domain models and configuration."""
 
-from mozart.core.checkpoint import BatchStatus, CheckpointState
+from mozart.core.checkpoint import (
+    MAX_OUTPUT_CAPTURE_BYTES,
+    BatchState,
+    BatchStatus,
+    CheckpointState,
+)
 from mozart.core.config import (
     BackendConfig,
     BatchConfig,
@@ -16,11 +21,13 @@ from mozart.core.errors import ErrorCategory, ErrorClassifier
 __all__ = [
     "BackendConfig",
     "BatchConfig",
+    "BatchState",
     "BatchStatus",
     "CheckpointState",
     "ErrorCategory",
     "ErrorClassifier",
     "JobConfig",
+    "MAX_OUTPUT_CAPTURE_BYTES",
     "NotificationConfig",
     "PromptConfig",
     "RateLimitConfig",

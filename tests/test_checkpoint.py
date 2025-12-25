@@ -5,6 +5,7 @@ from datetime import datetime
 import pytest
 
 from mozart.core.checkpoint import (
+    MAX_OUTPUT_CAPTURE_BYTES,
     BatchState,
     BatchStatus,
     CheckpointState,
@@ -65,6 +66,231 @@ class TestBatchState:
 
         with pytest.raises(Exception):
             BatchState(batch_num=1, confidence_score=-0.1)
+
+
+class TestOutputCapture:
+    """Tests for raw output capture functionality (Task 1: Raw Output Capture)."""
+
+    def test_output_capture_fields_default(self):
+        """Test output capture fields have correct defaults."""
+        state = BatchState(batch_num=1)
+        assert state.stdout_tail is None
+        assert state.stderr_tail is None
+        assert state.output_truncated is False
+
+    def test_capture_output_small_strings(self):
+        """Test capturing small output strings without truncation."""
+        state = BatchState(batch_num=1)
+        stdout = "Hello, World!"
+        stderr = "Some warning message"
+
+        state.capture_output(stdout, stderr)
+
+        assert state.stdout_tail == stdout
+        assert state.stderr_tail == stderr
+        assert state.output_truncated is False
+
+    def test_capture_output_empty_strings(self):
+        """Test capturing empty output strings."""
+        state = BatchState(batch_num=1)
+
+        state.capture_output("", "")
+
+        assert state.stdout_tail is None
+        assert state.stderr_tail is None
+        assert state.output_truncated is False
+
+    def test_capture_output_only_stdout(self):
+        """Test capturing when only stdout has content."""
+        state = BatchState(batch_num=1)
+
+        state.capture_output("stdout content", "")
+
+        assert state.stdout_tail == "stdout content"
+        assert state.stderr_tail is None
+        assert state.output_truncated is False
+
+    def test_capture_output_only_stderr(self):
+        """Test capturing when only stderr has content."""
+        state = BatchState(batch_num=1)
+
+        state.capture_output("", "stderr content")
+
+        assert state.stdout_tail is None
+        assert state.stderr_tail == "stderr content"
+        assert state.output_truncated is False
+
+    def test_capture_output_truncation_stdout(self):
+        """Test stdout truncation when exceeding max bytes."""
+        state = BatchState(batch_num=1)
+        # Create output larger than 10KB (default limit)
+        large_stdout = "x" * (MAX_OUTPUT_CAPTURE_BYTES + 1000)
+        small_stderr = "small"
+
+        state.capture_output(large_stdout, small_stderr)
+
+        # stdout should be truncated to last 10KB
+        assert state.stdout_tail is not None
+        assert len(state.stdout_tail.encode("utf-8")) == MAX_OUTPUT_CAPTURE_BYTES
+        # stderr should be intact
+        assert state.stderr_tail == small_stderr
+        # Truncation flag should be set
+        assert state.output_truncated is True
+
+    def test_capture_output_truncation_stderr(self):
+        """Test stderr truncation when exceeding max bytes."""
+        state = BatchState(batch_num=1)
+        small_stdout = "small"
+        large_stderr = "e" * (MAX_OUTPUT_CAPTURE_BYTES + 500)
+
+        state.capture_output(small_stdout, large_stderr)
+
+        # stdout should be intact
+        assert state.stdout_tail == small_stdout
+        # stderr should be truncated
+        assert state.stderr_tail is not None
+        assert len(state.stderr_tail.encode("utf-8")) == MAX_OUTPUT_CAPTURE_BYTES
+        # Truncation flag should be set
+        assert state.output_truncated is True
+
+    def test_capture_output_truncation_both(self):
+        """Test both stdout and stderr truncation."""
+        state = BatchState(batch_num=1)
+        large_stdout = "o" * (MAX_OUTPUT_CAPTURE_BYTES * 2)
+        large_stderr = "e" * (MAX_OUTPUT_CAPTURE_BYTES * 2)
+
+        state.capture_output(large_stdout, large_stderr)
+
+        # Both should be truncated
+        assert state.stdout_tail is not None
+        assert state.stderr_tail is not None
+        assert len(state.stdout_tail.encode("utf-8")) == MAX_OUTPUT_CAPTURE_BYTES
+        assert len(state.stderr_tail.encode("utf-8")) == MAX_OUTPUT_CAPTURE_BYTES
+        assert state.output_truncated is True
+
+    def test_capture_output_preserves_tail(self):
+        """Test that truncation preserves the tail (end) of output."""
+        state = BatchState(batch_num=1)
+        # Create distinctive start and end content
+        # Use a small limit for easier testing
+        limit = 100
+        content = "START_MARKER" + ("x" * 200) + "END_MARKER"
+
+        state.capture_output(content, "", max_bytes=limit)
+
+        # Should contain the end, not the start
+        assert state.stdout_tail is not None
+        assert "END_MARKER" in state.stdout_tail
+        assert "START_MARKER" not in state.stdout_tail
+        assert state.output_truncated is True
+
+    def test_capture_output_custom_max_bytes(self):
+        """Test capture with custom max_bytes limit."""
+        state = BatchState(batch_num=1)
+        content = "A" * 500  # 500 bytes
+
+        # Use smaller limit
+        state.capture_output(content, "", max_bytes=100)
+
+        assert state.stdout_tail is not None
+        assert len(state.stdout_tail.encode("utf-8")) == 100
+        assert state.output_truncated is True
+
+    def test_capture_output_unicode_content(self):
+        """Test capturing unicode/multi-byte characters."""
+        state = BatchState(batch_num=1)
+        # Mix of ASCII and multi-byte UTF-8 characters
+        unicode_content = "Hello 世界 🌍 Здравствуй мир"
+
+        state.capture_output(unicode_content, unicode_content)
+
+        assert state.stdout_tail == unicode_content
+        assert state.stderr_tail == unicode_content
+        assert state.output_truncated is False
+
+    def test_capture_output_unicode_truncation(self):
+        """Test truncation handles unicode character boundaries correctly."""
+        state = BatchState(batch_num=1)
+        # Create content with multi-byte chars that might get split
+        # Each emoji is 4 bytes, so 30 emojis = 120 bytes
+        emoji_content = "🎉" * 30  # 120 bytes total
+
+        # Truncate at 50 bytes - may split in middle of emoji
+        state.capture_output(emoji_content, "", max_bytes=50)
+
+        assert state.stdout_tail is not None
+        # Should be valid UTF-8 (no decode errors when encoding back)
+        state.stdout_tail.encode("utf-8")
+        # The result may be slightly larger than max_bytes due to replacement
+        # characters (U+FFFD = 3 bytes) for split multi-byte sequences.
+        # This is expected and correct - the output is readable and valid UTF-8.
+        # The important thing is it's close to max_bytes, not that the full
+        # content (120 bytes) was preserved.
+        assert len(state.stdout_tail.encode("utf-8")) < 60  # Reasonable upper bound
+        assert state.output_truncated is True
+
+    def test_capture_output_overwrites_previous(self):
+        """Test that capture_output overwrites previous captured output."""
+        state = BatchState(batch_num=1)
+
+        # First capture
+        state.capture_output("first stdout", "first stderr")
+        assert state.stdout_tail == "first stdout"
+        assert state.stderr_tail == "first stderr"
+
+        # Second capture - should overwrite
+        state.capture_output("second stdout", "second stderr")
+        assert state.stdout_tail == "second stdout"
+        assert state.stderr_tail == "second stderr"
+
+    def test_capture_output_serialization(self):
+        """Test that captured output survives JSON serialization."""
+        state = BatchState(batch_num=1)
+        state.capture_output("stdout content", "stderr content")
+
+        # Serialize and deserialize
+        data = state.model_dump(mode="json")
+        loaded = BatchState.model_validate(data)
+
+        assert loaded.stdout_tail == "stdout content"
+        assert loaded.stderr_tail == "stderr content"
+        assert loaded.output_truncated is False
+
+    def test_capture_output_serialization_with_truncation(self):
+        """Test that truncated output survives serialization correctly."""
+        state = BatchState(batch_num=1)
+        large_content = "x" * (MAX_OUTPUT_CAPTURE_BYTES + 1000)
+        state.capture_output(large_content, "small")
+
+        # Serialize and deserialize
+        data = state.model_dump(mode="json")
+        loaded = BatchState.model_validate(data)
+
+        # Truncated state should be preserved
+        assert loaded.output_truncated is True
+        assert loaded.stdout_tail is not None
+        assert len(loaded.stdout_tail.encode("utf-8")) == MAX_OUTPUT_CAPTURE_BYTES
+        assert loaded.stderr_tail == "small"
+
+    def test_max_output_capture_bytes_constant(self):
+        """Test that MAX_OUTPUT_CAPTURE_BYTES is 10KB."""
+        assert MAX_OUTPUT_CAPTURE_BYTES == 10240  # 10KB
+
+    def test_backwards_compatibility_missing_fields(self):
+        """Test loading old state without output capture fields."""
+        # Simulate old state data without new fields
+        old_data = {
+            "batch_num": 1,
+            "status": "completed",
+            "attempt_count": 1,
+            # No stdout_tail, stderr_tail, or output_truncated
+        }
+
+        # Should load successfully with defaults
+        loaded = BatchState.model_validate(old_data)
+        assert loaded.stdout_tail is None
+        assert loaded.stderr_tail is None
+        assert loaded.output_truncated is False
 
 
 class TestJobStatus:
@@ -167,6 +393,67 @@ class TestCheckpointState:
         assert state.batches[1].status == BatchStatus.FAILED
         assert state.batches[1].error_message == "Test error"
         assert state.batches[1].error_category == "unknown"
+
+    def test_mark_batch_failed_with_signal_fields(self):
+        """Test marking a batch as failed with signal differentiation fields."""
+        import signal as sig
+
+        state = self._create_state(total_batches=3)
+        state.mark_batch_started(1)
+        state.mark_batch_failed(
+            batch_num=1,
+            error_message="Process killed by SIGTERM",
+            error_category="signal",
+            exit_code=None,  # No exit code when killed by signal
+            exit_signal=sig.SIGTERM,
+            exit_reason="killed",
+            execution_duration_seconds=15.5,
+        )
+
+        batch = state.batches[1]
+        assert batch.status == BatchStatus.FAILED
+        assert batch.error_message == "Process killed by SIGTERM"
+        assert batch.error_category == "signal"
+        assert batch.exit_code is None
+        assert batch.exit_signal == sig.SIGTERM
+        assert batch.exit_reason == "killed"
+        assert batch.execution_duration_seconds == 15.5
+
+    def test_mark_batch_failed_with_timeout(self):
+        """Test marking a batch as failed due to timeout."""
+        import signal as sig
+
+        state = self._create_state(total_batches=3)
+        state.mark_batch_started(1)
+        state.mark_batch_failed(
+            batch_num=1,
+            error_message="Command timed out after 30s",
+            error_category="timeout",
+            exit_code=None,
+            exit_signal=sig.SIGKILL,
+            exit_reason="timeout",
+            execution_duration_seconds=30.0,
+        )
+
+        batch = state.batches[1]
+        assert batch.exit_signal == sig.SIGKILL
+        assert batch.exit_reason == "timeout"
+        assert batch.error_category == "timeout"
+
+    def test_mark_batch_failed_backwards_compatible(self):
+        """Test that mark_batch_failed works without new optional fields."""
+        state = self._create_state(total_batches=3)
+        state.mark_batch_started(1)
+        # Call without new fields (backwards compatible)
+        state.mark_batch_failed(1, "Error occurred")
+
+        batch = state.batches[1]
+        assert batch.status == BatchStatus.FAILED
+        assert batch.error_message == "Error occurred"
+        # New fields should be None (defaults)
+        assert batch.exit_signal is None
+        assert batch.exit_reason is None
+        assert batch.execution_duration_seconds is None
 
     def test_job_completes_when_all_batches_done(self):
         """Test job status updates to COMPLETED when all batches are done."""

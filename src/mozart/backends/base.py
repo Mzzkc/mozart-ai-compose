@@ -3,7 +3,10 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
+
+# Type alias for exit reasons - provides exhaustive pattern matching
+ExitReason = Literal["completed", "timeout", "killed", "error"]
 
 
 def _utc_now() -> datetime:
@@ -16,13 +19,14 @@ class ExecutionResult:
     """Result of executing a prompt through a backend.
 
     Captures all relevant output and metadata for validation and debugging.
+
+    Note: Fields are ordered with required fields first, then optional fields
+    with defaults, as required by Python dataclasses.
     """
 
+    # Required fields (no defaults) - must come first
     success: bool
     """Whether the execution completed without error (exit code 0)."""
-
-    exit_code: int
-    """Process exit code or HTTP status code."""
 
     stdout: str
     """Standard output from the command."""
@@ -32,6 +36,25 @@ class ExecutionResult:
 
     duration_seconds: float
     """Execution duration in seconds."""
+
+    # Optional fields with defaults
+    exit_code: int | None = None
+    """Process exit code or HTTP status code. None if killed by signal."""
+
+    exit_signal: int | None = None
+    """Signal number if process was killed by a signal (e.g., 9=SIGKILL, 15=SIGTERM).
+
+    On Unix, when a process is killed by a signal, returncode = -signal_number.
+    This field extracts that signal for clearer diagnostics.
+    """
+
+    exit_reason: ExitReason = "completed"
+    """Why the execution ended:
+    - completed: Normal exit (exit_code set)
+    - timeout: Process was killed due to timeout
+    - killed: Process was killed by external signal
+    - error: Internal error prevented execution
+    """
 
     started_at: datetime = field(default_factory=_utc_now)
     """When execution started."""
