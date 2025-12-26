@@ -2,6 +2,10 @@
 
 Direct API access for Claude models without needing the CLI installed.
 Provides rate limit detection, token tracking, and graceful error handling.
+
+Security Note: API keys are NEVER logged. The logging infrastructure uses
+SENSITIVE_PATTERNS to automatically redact fields containing 'api_key', 'token',
+'secret', etc.
 """
 
 import os
@@ -12,6 +16,10 @@ import anthropic
 
 from mozart.backends.base import Backend, ExecutionResult
 from mozart.core.config import BackendConfig
+from mozart.core.logging import get_logger
+
+# Module-level logger for Anthropic API backend
+_logger = get_logger("backend.anthropic_api")
 
 
 class AnthropicApiBackend(Backend):
@@ -89,6 +97,16 @@ class AnthropicApiBackend(Backend):
         """
         start_time = time.monotonic()
 
+        # Log API request at DEBUG level (never log prompt content or API keys)
+        _logger.debug(
+            "api_request",
+            model=self.model,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            prompt_length=len(prompt),
+            # Note: prompt preview intentionally omitted for security
+        )
+
         try:
             client = self._get_client()
 
@@ -111,10 +129,23 @@ class AnthropicApiBackend(Backend):
                     response_text += block.text
 
             # Calculate tokens used
+            input_tokens = response.usage.input_tokens if response.usage else None
+            output_tokens = response.usage.output_tokens if response.usage else None
             tokens_used = (
-                response.usage.input_tokens + response.usage.output_tokens
-                if response.usage
+                input_tokens + output_tokens
+                if input_tokens is not None and output_tokens is not None
                 else None
+            )
+
+            # Log successful response at INFO level
+            _logger.info(
+                "api_response",
+                duration_seconds=duration,
+                model=self.model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=tokens_used,
+                response_length=len(response_text),
             )
 
             return ExecutionResult(
@@ -129,6 +160,12 @@ class AnthropicApiBackend(Backend):
 
         except anthropic.RateLimitError as e:
             duration = time.monotonic() - start_time
+            _logger.warning(
+                "rate_limit_error",
+                duration_seconds=duration,
+                model=self.model,
+                error_message=str(e),
+            )
             return ExecutionResult(
                 success=False,
                 exit_code=429,
@@ -143,6 +180,13 @@ class AnthropicApiBackend(Backend):
 
         except anthropic.AuthenticationError as e:
             duration = time.monotonic() - start_time
+            # Note: Never log API key details, just that auth failed
+            _logger.error(
+                "authentication_error",
+                duration_seconds=duration,
+                model=self.model,
+                api_key_env=self.api_key_env,  # Only log env var name, not value
+            )
             return ExecutionResult(
                 success=False,
                 exit_code=401,
@@ -156,6 +200,12 @@ class AnthropicApiBackend(Backend):
 
         except anthropic.BadRequestError as e:
             duration = time.monotonic() - start_time
+            _logger.error(
+                "bad_request_error",
+                duration_seconds=duration,
+                model=self.model,
+                error_message=str(e),
+            )
             return ExecutionResult(
                 success=False,
                 exit_code=400,
@@ -169,6 +219,12 @@ class AnthropicApiBackend(Backend):
 
         except anthropic.APITimeoutError as e:
             duration = time.monotonic() - start_time
+            _logger.error(
+                "api_timeout_error",
+                duration_seconds=duration,
+                timeout_seconds=self.timeout_seconds,
+                model=self.model,
+            )
             return ExecutionResult(
                 success=False,
                 exit_code=408,
@@ -182,6 +238,12 @@ class AnthropicApiBackend(Backend):
 
         except anthropic.APIConnectionError as e:
             duration = time.monotonic() - start_time
+            _logger.error(
+                "api_connection_error",
+                duration_seconds=duration,
+                model=self.model,
+                error_message=str(e),
+            )
             return ExecutionResult(
                 success=False,
                 exit_code=503,
@@ -197,9 +259,28 @@ class AnthropicApiBackend(Backend):
             duration = time.monotonic() - start_time
             # Check if this is a rate limit error by status code or message
             rate_limited = self._detect_rate_limit(str(e))
+            status_code = e.status_code if hasattr(e, "status_code") else 500
+
+            if rate_limited:
+                _logger.warning(
+                    "rate_limit_error",
+                    duration_seconds=duration,
+                    status_code=status_code,
+                    model=self.model,
+                    error_message=str(e),
+                )
+            else:
+                _logger.error(
+                    "api_status_error",
+                    duration_seconds=duration,
+                    status_code=status_code,
+                    model=self.model,
+                    error_message=str(e),
+                )
+
             return ExecutionResult(
                 success=False,
-                exit_code=e.status_code if hasattr(e, "status_code") else 500,
+                exit_code=status_code,
                 stdout="",
                 stderr=str(e),
                 duration_seconds=duration,
@@ -212,6 +293,12 @@ class AnthropicApiBackend(Backend):
         except RuntimeError as e:
             # API key not found
             duration = time.monotonic() - start_time
+            _logger.error(
+                "configuration_error",
+                duration_seconds=duration,
+                error_message=str(e),
+                api_key_env=self.api_key_env,  # Only log env var name, not value
+            )
             return ExecutionResult(
                 success=False,
                 exit_code=1,
@@ -225,6 +312,12 @@ class AnthropicApiBackend(Backend):
 
         except Exception as e:
             duration = time.monotonic() - start_time
+            _logger.exception(
+                "unexpected_error",
+                duration_seconds=duration,
+                model=self.model,
+                error_message=str(e),
+            )
             return ExecutionResult(
                 success=False,
                 exit_code=1,

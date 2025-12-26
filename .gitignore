@@ -37,6 +37,11 @@ env/
 *-workspace/
 *.log
 
+# Project-specific context (personal, not for public repo)
+CLAUDE.md
+memory-bank/
+STATUS.md
+
 # State files (keep structure, ignore contents)
 *.json.tmp
 

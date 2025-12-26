@@ -1,0 +1,39 @@
+# Example: Simple Batch Job
+# A minimal Mozart configuration to get started
+#
+# Usage:
+#   mozart run examples/simple-batch.yaml
+#   mozart status simple-batch
+#   mozart resume simple-batch
+
+name: "simple-batch"
+description: "Minimal example showing core Mozart features"
+
+workspace: "./simple-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  timeout_seconds: 600  # 10 minutes per batch
+
+batch:
+  size: 5          # Items per batch
+  total_items: 10  # Total items = 2 batches
+
+prompt:
+  template: |
+    Process batch {{ batch_num }} of {{ total_batches }}.
+    Items: {{ start_item }} to {{ end_item }}
+
+    Create a file at {{ workspace }}/batch{{ batch_num }}.md summarizing your work.
+
+retry:
+  max_retries: 2
+  base_delay_seconds: 10
+
+validations:
+  - type: file_exists
+    path: "{workspace}/batch{batch_num}.md"
+    description: "Batch output file must exist"
+
+state_backend: json

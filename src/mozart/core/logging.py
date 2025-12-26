@@ -30,7 +30,10 @@ Example usage:
 
 from __future__ import annotations
 
+import gzip
 import logging
+import os
+import shutil
 import sys
 import uuid
 from collections.abc import Iterator
@@ -58,6 +61,227 @@ SENSITIVE_PATTERNS = frozenset({
     "bearer",
     "authorization",
 })
+
+# Global state for log file path tracking (for CLI `logs` command)
+_current_log_path: Path | None = None
+
+
+def get_current_log_path() -> Path | None:
+    """Get the currently configured log file path.
+
+    Returns:
+        The Path to the current log file, or None if file logging is not enabled.
+    """
+    return _current_log_path
+
+
+def get_default_log_path(workspace: Path) -> Path:
+    """Get the default log file path for a workspace.
+
+    The default log location is {workspace}/logs/mozart.log
+
+    Args:
+        workspace: The workspace directory.
+
+    Returns:
+        Path to the default log file location.
+    """
+    return workspace / "logs" / "mozart.log"
+
+
+def find_log_files(workspace: Path, log_path: Path | None = None) -> list[Path]:
+    """Find all log files for a workspace.
+
+    Searches for the main log file and any rotated/compressed backups.
+
+    Args:
+        workspace: The workspace directory.
+        log_path: Optional specific log path. If None, uses default location.
+
+    Returns:
+        List of paths to all log files (current + compressed backups),
+        sorted from newest to oldest.
+    """
+    if log_path is None:
+        log_path = get_default_log_path(workspace)
+
+    files: list[Path] = []
+
+    # Current log file
+    if log_path.exists():
+        files.append(log_path)
+
+    # Look for compressed backups (.1.gz, .2.gz, etc.)
+    for i in range(1, 100):  # Reasonable upper bound
+        gz_path = log_path.with_suffix(f".log.{i}.gz")
+        # Handle case where log_path ends with .log
+        if log_path.suffix == ".log":
+            gz_path = log_path.parent / f"{log_path.stem}.log.{i}.gz"
+            plain_path = log_path.parent / f"{log_path.stem}.log.{i}"
+        else:
+            plain_path = Path(f"{log_path}.{i}")
+            gz_path = Path(f"{log_path}.{i}.gz")
+
+        if gz_path.exists():
+            files.append(gz_path)
+        elif plain_path.exists():
+            files.append(plain_path)
+        else:
+            # Stop when no more backups found
+            break
+
+    return files
+
+
+class CompressingRotatingFileHandler(RotatingFileHandler):
+    """Rotating file handler that compresses old log files with gzip.
+
+    After rotation, old log files are compressed to .gz format to save disk space.
+    For example, mozart.log.1 becomes mozart.log.1.gz.
+
+    This handler extends the standard RotatingFileHandler with:
+    - Automatic gzip compression of rotated files
+    - Configurable compression level (default: 9 for best compression)
+    - Cleanup of temporary files on compression failure
+
+    Example:
+        handler = CompressingRotatingFileHandler(
+            "logs/mozart.log",
+            maxBytes=50 * 1024 * 1024,  # 50MB
+            backupCount=5,
+            compress_level=9,
+        )
+    """
+
+    def __init__(
+        self,
+        filename: str | Path,
+        mode: str = "a",
+        maxBytes: int = 0,
+        backupCount: int = 0,
+        encoding: str | None = None,
+        delay: bool = False,
+        errors: str | None = None,
+        compress_level: int = 9,
+    ) -> None:
+        """Initialize the compressing rotating file handler.
+
+        Args:
+            filename: Path to the log file.
+            mode: File mode (default 'a' for append).
+            maxBytes: Maximum file size before rotation (0 = no rotation).
+            backupCount: Number of backup files to keep.
+            encoding: File encoding (default None for system default).
+            delay: If True, file opening is deferred until first write.
+            errors: Error handling mode for encoding errors.
+            compress_level: Gzip compression level 1-9 (default 9, best compression).
+        """
+        self.compress_level = compress_level
+        super().__init__(
+            filename,
+            mode=mode,
+            maxBytes=maxBytes,
+            backupCount=backupCount,
+            encoding=encoding,
+            delay=delay,
+            errors=errors,
+        )
+
+    def doRollover(self) -> None:
+        """Perform log rotation with compression.
+
+        This method:
+        1. Closes the current log stream
+        2. Rotates existing .gz files (e.g., .2.gz -> .3.gz)
+        3. Compresses the current log file to .1.gz
+        4. Opens a new log file for writing
+        """
+        if self.stream:
+            self.stream.close()
+            self.stream = None  # type: ignore[assignment]
+
+        # Rotate existing compressed backups (.2.gz -> .3.gz, etc.)
+        # Start from highest and work down to avoid overwrites
+        for i in range(self.backupCount - 1, 0, -1):
+            src = f"{self.baseFilename}.{i}.gz"
+            dst = f"{self.baseFilename}.{i + 1}.gz"
+            if os.path.exists(src):
+                # Remove destination if it exists (shouldn't normally happen)
+                if os.path.exists(dst):
+                    os.remove(dst)
+                os.rename(src, dst)
+
+        # Compress current log file to .1.gz
+        if os.path.exists(self.baseFilename):
+            compressed_path = f"{self.baseFilename}.1.gz"
+            try:
+                with (
+                    open(self.baseFilename, "rb") as f_in,
+                    gzip.open(
+                        compressed_path,
+                        "wb",
+                        compresslevel=self.compress_level,
+                    ) as f_out,
+                ):
+                    shutil.copyfileobj(f_in, f_out)
+                # Only remove original after successful compression
+                os.remove(self.baseFilename)
+            except OSError:
+                # If compression fails, fall back to just renaming
+                # (better to have uncompressed backup than lose data)
+                if os.path.exists(compressed_path):
+                    try:
+                        os.remove(compressed_path)
+                    except OSError:
+                        pass  # Ignore cleanup failures
+                try:
+                    dst = f"{self.baseFilename}.1"
+                    if os.path.exists(dst):
+                        os.remove(dst)
+                    os.rename(self.baseFilename, dst)
+                except OSError:
+                    pass  # Ignore if this also fails - just truncate
+
+        # Remove old backups beyond backupCount
+        for i in range(self.backupCount + 1, self.backupCount + 10):
+            old_gz = f"{self.baseFilename}.{i}.gz"
+            old_plain = f"{self.baseFilename}.{i}"
+            for old_file in [old_gz, old_plain]:
+                if os.path.exists(old_file):
+                    try:
+                        os.remove(old_file)
+                    except OSError:
+                        pass
+
+        # Reopen the base file for writing
+        if not self.delay:
+            self.stream = self._open()
+
+    def get_log_files(self) -> list[Path]:
+        """Get all log files managed by this handler.
+
+        Returns:
+            List of paths to all log files (current + compressed backups),
+            sorted from newest to oldest.
+        """
+        files: list[Path] = []
+
+        # Current log file
+        base = Path(self.baseFilename)
+        if base.exists():
+            files.append(base)
+
+        # Compressed backups (sorted by number)
+        for i in range(1, self.backupCount + 1):
+            gz_path = Path(f"{self.baseFilename}.{i}.gz")
+            plain_path = Path(f"{self.baseFilename}.{i}")
+
+            if gz_path.exists():
+                files.append(gz_path)
+            elif plain_path.exists():
+                files.append(plain_path)
+
+        return files
 
 
 @dataclass(frozen=True)
@@ -339,7 +563,8 @@ class MozartLogger:
         current logging configuration, even if configure_logging() was
         called after this MozartLogger was created.
         """
-        return structlog.get_logger().bind(**self._context)
+        logger: structlog.stdlib.BoundLogger = structlog.get_logger().bind(**self._context)
+        return logger
 
     def bind(self, **context: Any) -> MozartLogger:
         """Create a new logger with additional bound context.
@@ -506,6 +731,7 @@ def configure_logging(
     backup_count: int = 5,
     include_timestamps: bool = True,
     include_context: bool = True,
+    compress_logs: bool = True,
 ) -> None:
     """Configure Mozart structured logging.
 
@@ -521,10 +747,13 @@ def configure_logging(
         include_timestamps: Whether to include ISO8601 timestamps in log entries.
         include_context: Whether to include ExecutionContext fields (job_id, run_id,
             batch_num) in log entries when a context is active.
+        compress_logs: Whether to compress rotated log files with gzip (default: True).
 
     Raises:
         ValueError: If format="both" but file_path is not provided.
     """
+    global _current_log_path
+
     # Validate configuration
     if format == "both" and file_path is None:
         raise ValueError("file_path is required when format='both'")
@@ -546,13 +775,24 @@ def configure_logging(
             # Ensure parent directory exists
             file_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Rotating file handler for JSON logs
-            file_handler = RotatingFileHandler(
-                file_path,
-                maxBytes=max_file_size_mb * 1024 * 1024,
-                backupCount=backup_count,
-                encoding="utf-8",
-            )
+            # Store current log path for CLI access
+            _current_log_path = file_path
+
+            # Use compressing handler or standard rotating handler
+            if compress_logs:
+                file_handler: logging.Handler = CompressingRotatingFileHandler(
+                    file_path,
+                    maxBytes=max_file_size_mb * 1024 * 1024,
+                    backupCount=backup_count,
+                    encoding="utf-8",
+                )
+            else:
+                file_handler = RotatingFileHandler(
+                    file_path,
+                    maxBytes=max_file_size_mb * 1024 * 1024,
+                    backupCount=backup_count,
+                    encoding="utf-8",
+                )
             file_handler.setLevel(log_level)
             handlers.append(file_handler)
         elif format == "json":
@@ -616,12 +856,16 @@ def get_logger(component: str, **initial_context: Any) -> MozartLogger:
 
 # Re-export for convenience
 __all__ = [
+    "CompressingRotatingFileHandler",
     "ExecutionContext",
     "MozartLogger",
     "SENSITIVE_PATTERNS",
     "clear_context",
     "configure_logging",
+    "find_log_files",
     "get_current_context",
+    "get_current_log_path",
+    "get_default_log_path",
     "get_logger",
     "set_context",
     "with_context",

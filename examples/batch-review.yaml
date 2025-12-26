@@ -1,5 +1,5 @@
 # Example: Batch Commit Review Job
-# This mirrors the run-batch-review.sh script from Naurva
+# Multi-agent coordinated code review with expert agents
 
 name: "commit-batch-review"
 description: "Review all commits in batches using coordinated expert agents"

@@ -24,6 +24,10 @@ from typing import Any
 
 from mozart.backends.base import Backend, ExecutionResult, ExitReason
 from mozart.core.config import BackendConfig
+from mozart.core.logging import get_logger
+
+# Module-level logger for Claude CLI backend
+_logger = get_logger("backend.claude_cli")
 
 # Type alias for progress callback - receives dict with progress info
 ProgressCallback = Callable[[dict[str, Any]], None]
@@ -134,6 +138,19 @@ class ClaudeCliBackend(Backend):
         cmd = self._build_command(prompt)
         start_time = time.monotonic()
 
+        # Log command details at DEBUG level
+        # Note: prompt is NOT logged as it may be large and contain sensitive data
+        _logger.debug(
+            "executing_command",
+            command=cmd[0],
+            args_count=len(cmd) - 1,
+            skip_permissions=self.skip_permissions,
+            output_format=self.output_format,
+            working_directory=str(self.working_directory) if self.working_directory else None,
+            timeout_seconds=self.timeout_seconds,
+            prompt_length=len(prompt),
+        )
+
         # Progress tracking state
         bytes_received = 0
         lines_received = 0
@@ -204,6 +221,15 @@ class ClaudeCliBackend(Backend):
 
                 duration = time.monotonic() - start_time
 
+                # Log timeout as ERROR
+                _logger.error(
+                    "execution_timeout",
+                    duration_seconds=duration,
+                    timeout_seconds=self.timeout_seconds,
+                    bytes_received=bytes_received,
+                    lines_received=lines_received,
+                )
+
                 # Final progress update on timeout
                 if self.progress_callback:
                     self.progress_callback({
@@ -269,6 +295,38 @@ class ClaudeCliBackend(Backend):
             # Determine success: only if exit_code is 0
             success = exit_code == 0
 
+            # Log execution result at appropriate level
+            if rate_limited:
+                _logger.warning(
+                    "rate_limit_detected",
+                    duration_seconds=duration,
+                    exit_code=exit_code,
+                    exit_signal=exit_signal,
+                    stdout_bytes=len(stdout),
+                    stderr_bytes=len(stderr),
+                )
+            elif success:
+                _logger.info(
+                    "execution_completed",
+                    duration_seconds=duration,
+                    exit_code=exit_code,
+                    stdout_bytes=len(stdout),
+                    stderr_bytes=len(stderr),
+                )
+            else:
+                # Failed execution - include output tails for debugging
+                stdout_tail = stdout[-500:] if len(stdout) > 500 else stdout
+                stderr_tail = stderr[-500:] if len(stderr) > 500 else stderr
+                _logger.error(
+                    "execution_failed",
+                    duration_seconds=duration,
+                    exit_code=exit_code,
+                    exit_signal=exit_signal,
+                    exit_reason=exit_reason,
+                    stdout_tail=stdout_tail,
+                    stderr_tail=stderr_tail,
+                )
+
             return ExecutionResult(
                 success=success,
                 exit_code=exit_code,
@@ -283,6 +341,11 @@ class ClaudeCliBackend(Backend):
 
         except FileNotFoundError:
             duration = time.monotonic() - start_time
+            _logger.error(
+                "cli_not_found",
+                error_message="claude CLI not found in PATH",
+                duration_seconds=duration,
+            )
             return ExecutionResult(
                 success=False,
                 exit_code=127,
@@ -296,6 +359,11 @@ class ClaudeCliBackend(Backend):
             )
         except Exception as e:
             duration = time.monotonic() - start_time
+            _logger.exception(
+                "execution_exception",
+                error_message=str(e),
+                duration_seconds=duration,
+            )
             return ExecutionResult(
                 success=False,
                 exit_code=None,

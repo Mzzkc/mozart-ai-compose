@@ -16,7 +16,7 @@ from mozart.core.config import (
     RetryConfig,
     ValidationRule,
 )
-from mozart.core.errors import ErrorCategory, ErrorClassifier
+from mozart.core.errors import ClassifiedError, ErrorCategory, ErrorClassifier, ErrorCode
 
 __all__ = [
     "BackendConfig",
@@ -24,8 +24,10 @@ __all__ = [
     "BatchState",
     "BatchStatus",
     "CheckpointState",
+    "ClassifiedError",
     "ErrorCategory",
     "ErrorClassifier",
+    "ErrorCode",
     "JobConfig",
     "MAX_OUTPUT_CAPTURE_BYTES",
     "NotificationConfig",

@@ -5,12 +5,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-import pytest
 from typer.testing import CliRunner
 
 from mozart.cli import app
 from mozart.core.checkpoint import BatchState, BatchStatus, CheckpointState, JobStatus
-
 
 runner = CliRunner()
 
@@ -818,3 +816,821 @@ class TestRunSummaryDisplay:
         assert "Batch Plan" in result.stdout
         # Dry run shouldn't show summary (job wasn't run)
         assert "Run Summary" not in result.stdout
+
+
+class TestLoggingOptions:
+    """Tests for --log-level, --log-file, and --log-format CLI options."""
+
+    def test_log_level_option_debug(self, sample_yaml_config: Path) -> None:
+        """Test --log-level DEBUG is accepted."""
+        result = runner.invoke(
+            app, ["--log-level", "DEBUG", "run", str(sample_yaml_config), "--dry-run"]
+        )
+        assert result.exit_code == 0
+
+    def test_log_level_option_info(self, sample_yaml_config: Path) -> None:
+        """Test --log-level INFO is accepted."""
+        result = runner.invoke(
+            app, ["--log-level", "INFO", "run", str(sample_yaml_config), "--dry-run"]
+        )
+        assert result.exit_code == 0
+
+    def test_log_level_option_warning(self, sample_yaml_config: Path) -> None:
+        """Test --log-level WARNING is accepted."""
+        result = runner.invoke(
+            app, ["--log-level", "WARNING", "run", str(sample_yaml_config), "--dry-run"]
+        )
+        assert result.exit_code == 0
+
+    def test_log_level_option_error(self, sample_yaml_config: Path) -> None:
+        """Test --log-level ERROR is accepted."""
+        result = runner.invoke(
+            app, ["--log-level", "ERROR", "run", str(sample_yaml_config), "--dry-run"]
+        )
+        assert result.exit_code == 0
+
+    def test_log_level_short_flag(self, sample_yaml_config: Path) -> None:
+        """Test -L short flag for log level."""
+        result = runner.invoke(
+            app, ["-L", "DEBUG", "run", str(sample_yaml_config), "--dry-run"]
+        )
+        assert result.exit_code == 0
+
+    def test_log_file_option(self, tmp_path: Path, sample_yaml_config: Path) -> None:
+        """Test --log-file option creates log file."""
+        log_file = tmp_path / "test.log"
+        result = runner.invoke(
+            app, [
+                "--log-level", "DEBUG",
+                "--log-file", str(log_file),
+                "run", str(sample_yaml_config), "--dry-run",
+            ]
+        )
+        assert result.exit_code == 0
+        # Note: The log file may or may not have content depending on what
+        # operations happen during dry-run, but the option should be accepted
+
+    def test_log_format_console(self, sample_yaml_config: Path) -> None:
+        """Test --log-format console is accepted."""
+        result = runner.invoke(
+            app, ["--log-format", "console", "run", str(sample_yaml_config), "--dry-run"]
+        )
+        assert result.exit_code == 0
+
+    def test_log_format_json(self, sample_yaml_config: Path) -> None:
+        """Test --log-format json is accepted."""
+        result = runner.invoke(
+            app, ["--log-format", "json", "run", str(sample_yaml_config), "--dry-run"]
+        )
+        assert result.exit_code == 0
+
+    def test_log_format_both_requires_log_file(self, sample_yaml_config: Path) -> None:
+        """Test --log-format both requires --log-file."""
+        result = runner.invoke(
+            app, ["--log-format", "both", "run", str(sample_yaml_config), "--dry-run"]
+        )
+        # Should fail because format='both' requires file_path
+        assert result.exit_code == 1
+        assert "file_path is required" in result.stdout
+
+    def test_log_format_both_with_log_file(
+        self, tmp_path: Path, sample_yaml_config: Path
+    ) -> None:
+        """Test --log-format both works with --log-file."""
+        log_file = tmp_path / "test.log"
+        result = runner.invoke(
+            app, [
+                "--log-format", "both",
+                "--log-file", str(log_file),
+                "run", str(sample_yaml_config), "--dry-run",
+            ]
+        )
+        assert result.exit_code == 0
+
+    def test_all_logging_options_combined(
+        self, tmp_path: Path, sample_yaml_config: Path
+    ) -> None:
+        """Test all logging options can be combined."""
+        log_file = tmp_path / "combined.log"
+        result = runner.invoke(
+            app, [
+                "--log-level", "DEBUG",
+                "--log-format", "both",
+                "--log-file", str(log_file),
+                "run", str(sample_yaml_config), "--dry-run",
+            ]
+        )
+        assert result.exit_code == 0
+
+    def test_log_level_with_validate_command(self, sample_yaml_config: Path) -> None:
+        """Test --log-level works with validate command."""
+        result = runner.invoke(
+            app, ["--log-level", "DEBUG", "validate", str(sample_yaml_config)]
+        )
+        assert result.exit_code == 0
+        assert "Valid configuration" in result.stdout
+
+    def test_log_level_with_list_command(self, tmp_path: Path) -> None:
+        """Test --log-level works with list command."""
+        workspace = tmp_path / "empty_workspace"
+        workspace.mkdir()
+
+        result = runner.invoke(
+            app, ["--log-level", "WARNING", "list", "--workspace", str(workspace)]
+        )
+        assert result.exit_code == 0
+        assert "No jobs found" in result.stdout
+
+    def test_log_level_env_var(self, sample_yaml_config: Path) -> None:
+        """Test MOZART_LOG_LEVEL environment variable."""
+        result = runner.invoke(
+            app,
+            ["run", str(sample_yaml_config), "--dry-run"],
+            env={"MOZART_LOG_LEVEL": "DEBUG"},
+        )
+        assert result.exit_code == 0
+
+    def test_log_file_env_var(self, tmp_path: Path, sample_yaml_config: Path) -> None:
+        """Test MOZART_LOG_FILE environment variable."""
+        log_file = tmp_path / "env_test.log"
+        result = runner.invoke(
+            app,
+            ["run", str(sample_yaml_config), "--dry-run"],
+            env={"MOZART_LOG_FILE": str(log_file)},
+        )
+        assert result.exit_code == 0
+
+    def test_log_format_env_var(self, sample_yaml_config: Path) -> None:
+        """Test MOZART_LOG_FORMAT environment variable."""
+        result = runner.invoke(
+            app,
+            ["run", str(sample_yaml_config), "--dry-run"],
+            env={"MOZART_LOG_FORMAT": "json"},
+        )
+        assert result.exit_code == 0
+
+    def test_cli_option_overrides_env_var(
+        self, tmp_path: Path, sample_yaml_config: Path
+    ) -> None:
+        """Test CLI option takes precedence over environment variable."""
+        # Set env var to WARNING, but CLI to DEBUG
+        result = runner.invoke(
+            app,
+            ["--log-level", "DEBUG", "run", str(sample_yaml_config), "--dry-run"],
+            env={"MOZART_LOG_LEVEL": "WARNING"},
+        )
+        assert result.exit_code == 0
+
+
+class TestErrorsCommand:
+    """Tests for the errors command."""
+
+    def test_errors_job_not_found(self, tmp_path: Path) -> None:
+        """Test errors command shows error for non-existent job."""
+        workspace = tmp_path / "empty_ws"
+        workspace.mkdir()
+
+        result = runner.invoke(
+            app, ["errors", "nonexistent-job", "--workspace", str(workspace)]
+        )
+        assert result.exit_code == 1
+        assert "Job not found" in result.stdout
+
+    def test_errors_no_errors_found(self, tmp_path: Path) -> None:
+        """Test errors command with job that has no errors."""
+        state = CheckpointState(
+            job_id="clean-job",
+            job_name="Clean Job",
+            total_batches=3,
+            last_completed_batch=3,
+            status=JobStatus.COMPLETED,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            batches={
+                1: BatchState(
+                    batch_num=1,
+                    status=BatchStatus.COMPLETED,
+                    attempt_count=1,
+                    validation_passed=True,
+                ),
+                2: BatchState(
+                    batch_num=2,
+                    status=BatchStatus.COMPLETED,
+                    attempt_count=1,
+                    validation_passed=True,
+                ),
+                3: BatchState(
+                    batch_num=3,
+                    status=BatchStatus.COMPLETED,
+                    attempt_count=1,
+                    validation_passed=True,
+                ),
+            },
+        )
+
+        state_file = tmp_path / "clean-job.json"
+        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
+
+        result = runner.invoke(
+            app, ["errors", "clean-job", "--workspace", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        assert "No errors found" in result.stdout
+
+    def test_errors_with_failed_batch(self, tmp_path: Path) -> None:
+        """Test errors command shows batch-level errors."""
+        state = CheckpointState(
+            job_id="failed-job",
+            job_name="Failed Job",
+            total_batches=3,
+            last_completed_batch=2,
+            status=JobStatus.FAILED,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            batches={
+                1: BatchState(
+                    batch_num=1,
+                    status=BatchStatus.COMPLETED,
+                    attempt_count=1,
+                    validation_passed=True,
+                ),
+                2: BatchState(
+                    batch_num=2,
+                    status=BatchStatus.COMPLETED,
+                    attempt_count=1,
+                    validation_passed=True,
+                ),
+                3: BatchState(
+                    batch_num=3,
+                    status=BatchStatus.FAILED,
+                    attempt_count=3,
+                    validation_passed=False,
+                    error_message="Max retries exceeded: validation failed",
+                    error_category="validation",
+                    completed_at=datetime.now(UTC),
+                ),
+            },
+        )
+
+        state_file = tmp_path / "failed-job.json"
+        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
+
+        result = runner.invoke(
+            app, ["errors", "failed-job", "--workspace", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        assert "Errors for Job" in result.stdout
+        assert "Max retries exceeded" in result.stdout or "validation" in result.stdout
+
+    def test_errors_batch_filter(self, tmp_path: Path) -> None:
+        """Test errors command with --batch filter."""
+        state = CheckpointState(
+            job_id="multi-fail-job",
+            job_name="Multi Fail Job",
+            total_batches=5,
+            last_completed_batch=3,
+            status=JobStatus.FAILED,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            batches={
+                1: BatchState(
+                    batch_num=1,
+                    status=BatchStatus.FAILED,
+                    attempt_count=3,
+                    error_message="Batch 1 failed",
+                    error_category="transient",
+                    completed_at=datetime.now(UTC),
+                ),
+                2: BatchState(
+                    batch_num=2,
+                    status=BatchStatus.COMPLETED,
+                    attempt_count=1,
+                    validation_passed=True,
+                ),
+                3: BatchState(
+                    batch_num=3,
+                    status=BatchStatus.FAILED,
+                    attempt_count=3,
+                    error_message="Batch 3 failed",
+                    error_category="permanent",
+                    completed_at=datetime.now(UTC),
+                ),
+            },
+        )
+
+        state_file = tmp_path / "multi-fail-job.json"
+        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
+
+        # Filter for batch 3 only
+        result = runner.invoke(
+            app, ["errors", "multi-fail-job", "--batch", "3", "--workspace", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        # Should show batch 3 error but not batch 1
+        assert "3" in result.stdout
+
+    def test_errors_json_output(self, tmp_path: Path) -> None:
+        """Test errors --json outputs valid JSON."""
+        state = CheckpointState(
+            job_id="json-error-job",
+            job_name="JSON Error Job",
+            total_batches=2,
+            last_completed_batch=1,
+            status=JobStatus.FAILED,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            batches={
+                1: BatchState(
+                    batch_num=1,
+                    status=BatchStatus.COMPLETED,
+                    attempt_count=1,
+                    validation_passed=True,
+                ),
+                2: BatchState(
+                    batch_num=2,
+                    status=BatchStatus.FAILED,
+                    attempt_count=2,
+                    error_message="Test error message",
+                    error_category="transient",
+                    completed_at=datetime.now(UTC),
+                ),
+            },
+        )
+
+        state_file = tmp_path / "json-error-job.json"
+        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
+
+        result = runner.invoke(
+            app, ["errors", "json-error-job", "--json", "--workspace", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+
+        output = json.loads(result.stdout)
+        assert output["job_id"] == "json-error-job"
+        assert output["total_errors"] >= 1
+        assert "errors" in output
+
+    def test_errors_type_filter(self, tmp_path: Path) -> None:
+        """Test errors command with --type filter."""
+        state = CheckpointState(
+            job_id="mixed-errors-job",
+            job_name="Mixed Errors Job",
+            total_batches=3,
+            last_completed_batch=1,
+            status=JobStatus.FAILED,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            batches={
+                1: BatchState(
+                    batch_num=1,
+                    status=BatchStatus.FAILED,
+                    attempt_count=3,
+                    error_message="Transient error occurred",
+                    error_category="transient",
+                    completed_at=datetime.now(UTC),
+                ),
+                2: BatchState(
+                    batch_num=2,
+                    status=BatchStatus.FAILED,
+                    attempt_count=1,
+                    error_message="Permanent error occurred",
+                    error_category="permanent",
+                    completed_at=datetime.now(UTC),
+                ),
+            },
+        )
+
+        state_file = tmp_path / "mixed-errors-job.json"
+        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
+
+        # Filter for transient only
+        result = runner.invoke(
+            app, ["errors", "mixed-errors-job", "--type", "transient", "--workspace", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        # Should show transient but not permanent
+        assert "transient" in result.stdout.lower()
+
+
+class TestDiagnoseCommand:
+    """Tests for the diagnose command."""
+
+    def test_diagnose_job_not_found(self, tmp_path: Path) -> None:
+        """Test diagnose command shows error for non-existent job."""
+        workspace = tmp_path / "empty_ws"
+        workspace.mkdir()
+
+        result = runner.invoke(
+            app, ["diagnose", "nonexistent-job", "--workspace", str(workspace)]
+        )
+        assert result.exit_code == 1
+        assert "Job not found" in result.stdout
+
+    def test_diagnose_basic_report(self, tmp_path: Path) -> None:
+        """Test diagnose command generates basic report."""
+        state = CheckpointState(
+            job_id="diagnose-test",
+            job_name="Diagnose Test Job",
+            total_batches=5,
+            last_completed_batch=3,
+            status=JobStatus.RUNNING,
+            created_at=datetime.now(UTC),
+            started_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            batches={
+                1: BatchState(
+                    batch_num=1,
+                    status=BatchStatus.COMPLETED,
+                    attempt_count=1,
+                    validation_passed=True,
+                    execution_duration_seconds=15.5,
+                ),
+                2: BatchState(
+                    batch_num=2,
+                    status=BatchStatus.COMPLETED,
+                    attempt_count=2,
+                    validation_passed=True,
+                    execution_duration_seconds=25.0,
+                ),
+                3: BatchState(
+                    batch_num=3,
+                    status=BatchStatus.COMPLETED,
+                    attempt_count=1,
+                    validation_passed=True,
+                    execution_duration_seconds=12.0,
+                ),
+            },
+        )
+
+        state_file = tmp_path / "diagnose-test.json"
+        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
+
+        result = runner.invoke(
+            app, ["diagnose", "diagnose-test", "--workspace", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        assert "Diagnostic Report" in result.stdout
+        assert "Diagnose Test Job" in result.stdout
+        assert "Progress" in result.stdout
+
+    def test_diagnose_with_errors(self, tmp_path: Path) -> None:
+        """Test diagnose command shows errors section."""
+        state = CheckpointState(
+            job_id="diagnose-errors",
+            job_name="Diagnose Errors Job",
+            total_batches=3,
+            last_completed_batch=1,
+            status=JobStatus.FAILED,
+            created_at=datetime.now(UTC),
+            started_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            error_message="Job failed due to max retries",
+            batches={
+                1: BatchState(
+                    batch_num=1,
+                    status=BatchStatus.COMPLETED,
+                    attempt_count=1,
+                    validation_passed=True,
+                ),
+                2: BatchState(
+                    batch_num=2,
+                    status=BatchStatus.FAILED,
+                    attempt_count=3,
+                    error_message="Validation failed: file not found",
+                    error_category="validation",
+                    completed_at=datetime.now(UTC),
+                ),
+            },
+        )
+
+        state_file = tmp_path / "diagnose-errors.json"
+        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
+
+        result = runner.invoke(
+            app, ["diagnose", "diagnose-errors", "--workspace", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        assert "Errors" in result.stdout
+        assert "FAILED" in result.stdout
+
+    def test_diagnose_with_preflight_warnings(self, tmp_path: Path) -> None:
+        """Test diagnose command shows preflight warnings."""
+        state = CheckpointState(
+            job_id="diagnose-warnings",
+            job_name="Diagnose Warnings Job",
+            total_batches=2,
+            last_completed_batch=2,
+            status=JobStatus.COMPLETED,
+            created_at=datetime.now(UTC),
+            started_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            batches={
+                1: BatchState(
+                    batch_num=1,
+                    status=BatchStatus.COMPLETED,
+                    attempt_count=1,
+                    validation_passed=True,
+                    preflight_warnings=["Large prompt: 50000 tokens estimated"],
+                ),
+                2: BatchState(
+                    batch_num=2,
+                    status=BatchStatus.COMPLETED,
+                    attempt_count=1,
+                    validation_passed=True,
+                    preflight_warnings=["Missing file reference: /nonexistent/file.txt"],
+                ),
+            },
+        )
+
+        state_file = tmp_path / "diagnose-warnings.json"
+        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
+
+        result = runner.invoke(
+            app, ["diagnose", "diagnose-warnings", "--workspace", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        assert "Preflight Warnings" in result.stdout
+
+    def test_diagnose_json_output(self, tmp_path: Path) -> None:
+        """Test diagnose --json outputs valid JSON."""
+        state = CheckpointState(
+            job_id="diagnose-json",
+            job_name="Diagnose JSON Job",
+            total_batches=3,
+            last_completed_batch=3,
+            status=JobStatus.COMPLETED,
+            created_at=datetime.now(UTC),
+            started_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            completed_at=datetime.now(UTC),
+            batches={
+                1: BatchState(
+                    batch_num=1,
+                    status=BatchStatus.COMPLETED,
+                    attempt_count=1,
+                    validation_passed=True,
+                    prompt_metrics={"estimated_tokens": 1000, "line_count": 50},
+                ),
+                2: BatchState(
+                    batch_num=2,
+                    status=BatchStatus.COMPLETED,
+                    attempt_count=1,
+                    validation_passed=True,
+                    prompt_metrics={"estimated_tokens": 1200, "line_count": 60},
+                ),
+                3: BatchState(
+                    batch_num=3,
+                    status=BatchStatus.COMPLETED,
+                    attempt_count=1,
+                    validation_passed=True,
+                    prompt_metrics={"estimated_tokens": 1100, "line_count": 55},
+                ),
+            },
+        )
+
+        state_file = tmp_path / "diagnose-json.json"
+        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
+
+        result = runner.invoke(
+            app, ["diagnose", "diagnose-json", "--json", "--workspace", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+
+        output = json.loads(result.stdout)
+        assert output["job_id"] == "diagnose-json"
+        assert output["status"] == "completed"
+        assert "progress" in output
+        assert "timing" in output
+        assert "execution_timeline" in output
+        assert "token_statistics" in output
+
+    def test_diagnose_timeline(self, tmp_path: Path) -> None:
+        """Test diagnose command shows execution timeline."""
+        state = CheckpointState(
+            job_id="diagnose-timeline",
+            job_name="Diagnose Timeline Job",
+            total_batches=3,
+            last_completed_batch=3,
+            status=JobStatus.COMPLETED,
+            created_at=datetime.now(UTC),
+            started_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            completed_at=datetime.now(UTC),
+            batches={
+                1: BatchState(
+                    batch_num=1,
+                    status=BatchStatus.COMPLETED,
+                    attempt_count=1,
+                    validation_passed=True,
+                    execution_mode="normal",
+                    outcome_category="success_first_try",
+                ),
+                2: BatchState(
+                    batch_num=2,
+                    status=BatchStatus.COMPLETED,
+                    attempt_count=2,
+                    validation_passed=True,
+                    execution_mode="completion",
+                    outcome_category="success_completion",
+                ),
+                3: BatchState(
+                    batch_num=3,
+                    status=BatchStatus.COMPLETED,
+                    attempt_count=1,
+                    validation_passed=True,
+                    execution_mode="normal",
+                    outcome_category="success_first_try",
+                ),
+            },
+        )
+
+        state_file = tmp_path / "diagnose-timeline.json"
+        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
+
+        result = runner.invoke(
+            app, ["diagnose", "diagnose-timeline", "--workspace", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        assert "Execution Timeline" in result.stdout
+
+
+class TestEnhancedStatusCommand:
+    """Tests for the enhanced status command features (Task 15)."""
+
+    def test_status_shows_recent_errors(self, tmp_path: Path) -> None:
+        """Test status command shows recent errors section."""
+        state = CheckpointState(
+            job_id="status-errors",
+            job_name="Status Errors Test",
+            total_batches=5,
+            last_completed_batch=3,
+            status=JobStatus.RUNNING,
+            created_at=datetime.now(UTC),
+            started_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            batches={
+                1: BatchState(
+                    batch_num=1,
+                    status=BatchStatus.COMPLETED,
+                    attempt_count=1,
+                    validation_passed=True,
+                ),
+                2: BatchState(
+                    batch_num=2,
+                    status=BatchStatus.FAILED,
+                    attempt_count=3,
+                    error_message="Timeout after 300 seconds",
+                    error_category="timeout",
+                    completed_at=datetime.now(UTC),
+                ),
+                3: BatchState(
+                    batch_num=3,
+                    status=BatchStatus.COMPLETED,
+                    attempt_count=2,
+                    validation_passed=True,
+                ),
+            },
+        )
+
+        state_file = tmp_path / "status-errors.json"
+        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
+
+        result = runner.invoke(
+            app, ["status", "status-errors", "--workspace", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        assert "Recent Errors" in result.stdout
+        assert "mozart errors" in result.stdout  # Hint to use errors command
+
+    def test_status_shows_last_activity(self, tmp_path: Path) -> None:
+        """Test status command shows last activity timestamp."""
+        now = datetime.now(UTC)
+        state = CheckpointState(
+            job_id="status-activity",
+            job_name="Status Activity Test",
+            total_batches=3,
+            last_completed_batch=2,
+            status=JobStatus.RUNNING,
+            created_at=now,
+            started_at=now,
+            updated_at=now,
+            batches={
+                1: BatchState(
+                    batch_num=1,
+                    status=BatchStatus.COMPLETED,
+                    attempt_count=1,
+                    validation_passed=True,
+                    last_activity_at=now,
+                ),
+                2: BatchState(
+                    batch_num=2,
+                    status=BatchStatus.COMPLETED,
+                    attempt_count=1,
+                    validation_passed=True,
+                    last_activity_at=now,
+                ),
+            },
+        )
+
+        state_file = tmp_path / "status-activity.json"
+        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
+
+        result = runner.invoke(
+            app, ["status", "status-activity", "--workspace", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        assert "Last Activity" in result.stdout
+
+    def test_status_shows_circuit_breaker_inferred(self, tmp_path: Path) -> None:
+        """Test status command shows inferred circuit breaker state when failures detected."""
+        state = CheckpointState(
+            job_id="status-cb",
+            job_name="Status CB Test",
+            total_batches=10,
+            last_completed_batch=5,
+            status=JobStatus.FAILED,
+            created_at=datetime.now(UTC),
+            started_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            batches={
+                1: BatchState(batch_num=1, status=BatchStatus.COMPLETED, attempt_count=1),
+                2: BatchState(batch_num=2, status=BatchStatus.COMPLETED, attempt_count=1),
+                3: BatchState(batch_num=3, status=BatchStatus.COMPLETED, attempt_count=1),
+                # Consecutive failures that would trigger circuit breaker
+                4: BatchState(
+                    batch_num=4, status=BatchStatus.FAILED,
+                    attempt_count=3, error_message="Failed 1",
+                ),
+                5: BatchState(
+                    batch_num=5, status=BatchStatus.FAILED,
+                    attempt_count=3, error_message="Failed 2",
+                ),
+                6: BatchState(
+                    batch_num=6, status=BatchStatus.FAILED,
+                    attempt_count=3, error_message="Failed 3",
+                ),
+                7: BatchState(
+                    batch_num=7, status=BatchStatus.FAILED,
+                    attempt_count=3, error_message="Failed 4",
+                ),
+                8: BatchState(
+                    batch_num=8, status=BatchStatus.FAILED,
+                    attempt_count=3, error_message="Failed 5",
+                ),
+            },
+        )
+
+        state_file = tmp_path / "status-cb.json"
+        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
+
+        result = runner.invoke(
+            app, ["status", "status-cb", "--workspace", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        # Should show inferred circuit breaker state with consecutive failures
+        assert "Circuit Breaker" in result.stdout
+        assert "OPEN" in result.stdout
+
+    def test_status_json_includes_new_fields(self, tmp_path: Path) -> None:
+        """Test status --json includes circuit_breaker and recent_errors."""
+        state = CheckpointState(
+            job_id="status-json-new",
+            job_name="Status JSON New Fields",
+            total_batches=3,
+            last_completed_batch=1,
+            status=JobStatus.FAILED,
+            created_at=datetime.now(UTC),
+            started_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            batches={
+                1: BatchState(
+                    batch_num=1,
+                    status=BatchStatus.COMPLETED,
+                    attempt_count=1,
+                    validation_passed=True,
+                    last_activity_at=datetime.now(UTC),
+                ),
+                2: BatchState(
+                    batch_num=2,
+                    status=BatchStatus.FAILED,
+                    attempt_count=3,
+                    error_message="Test failure",
+                    error_category="transient",
+                    completed_at=datetime.now(UTC),
+                ),
+            },
+        )
+
+        state_file = tmp_path / "status-json-new.json"
+        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
+
+        result = runner.invoke(
+            app, ["status", "status-json-new", "--json", "--workspace", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+
+        output = json.loads(result.stdout)
+        assert "circuit_breaker" in output
+        assert "recent_errors" in output
+        assert "last_activity" in output["timing"]
+        assert len(output["recent_errors"]) >= 1

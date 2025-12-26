@@ -136,6 +136,43 @@ class RateLimitConfig(BaseModel):
     max_waits: int = Field(default=24, ge=1, description="Maximum wait cycles (24 = 24 hours)")
 
 
+class CircuitBreakerConfig(BaseModel):
+    """Configuration for the circuit breaker pattern.
+
+    The circuit breaker prevents cascading failures by temporarily blocking
+    requests after repeated failures. This gives the backend time to recover
+    before retrying.
+
+    State transitions:
+    - CLOSED (normal): Requests flow through, failures are tracked
+    - OPEN (blocking): Requests are blocked after failure_threshold exceeded
+    - HALF_OPEN (testing): Single request allowed to test recovery
+
+    Example:
+        circuit_breaker:
+          enabled: true
+          failure_threshold: 5
+          recovery_timeout_seconds: 300
+    """
+
+    enabled: bool = Field(
+        default=True,
+        description="Enable circuit breaker pattern for resilient execution",
+    )
+    failure_threshold: int = Field(
+        default=5,
+        ge=1,
+        le=100,
+        description="Number of consecutive failures before opening circuit",
+    )
+    recovery_timeout_seconds: float = Field(
+        default=300.0,
+        gt=0,
+        le=3600,
+        description="Seconds to wait in OPEN state before testing recovery (max 1 hour)",
+    )
+
+
 class ValidationRule(BaseModel):
     """A single validation rule for checking batch outputs."""
 
@@ -304,6 +341,7 @@ class JobConfig(BaseModel):
 
     retry: RetryConfig = Field(default_factory=RetryConfig)
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
+    circuit_breaker: CircuitBreakerConfig = Field(default_factory=CircuitBreakerConfig)
     learning: LearningConfig = Field(default_factory=LearningConfig)
     logging: LogConfig = Field(default_factory=LogConfig)
 

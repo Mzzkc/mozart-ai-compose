@@ -5,7 +5,7 @@ Defines the state that gets persisted between runs for resumable orchestration.
 
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -16,6 +16,12 @@ _logger = get_logger("checkpoint")
 
 # Constants for output capture
 MAX_OUTPUT_CAPTURE_BYTES: int = 10240  # 10KB - last N bytes of stdout/stderr to capture
+
+# Constants for error history (Task 10: Error History Model)
+MAX_ERROR_HISTORY: int = 10  # Maximum number of error records to keep per batch
+
+# Type alias for error types
+ErrorType = Literal["transient", "rate_limit", "permanent"]
 
 
 def _utc_now() -> datetime:
@@ -45,6 +51,49 @@ class JobStatus(str, Enum):
     FAILED = "failed"
     PAUSED = "paused"
     CANCELLED = "cancelled"
+
+
+class ErrorRecord(BaseModel):
+    """Record of a single error occurrence during batch execution.
+
+    Stores structured error information for debugging and pattern analysis.
+    Error history is trimmed to MAX_ERROR_HISTORY records per batch to
+    prevent unbounded state growth.
+    """
+
+    timestamp: datetime = Field(
+        default_factory=_utc_now,
+        description="When the error occurred (UTC)",
+    )
+    error_type: ErrorType = Field(
+        description="Error classification: transient, rate_limit, or permanent",
+    )
+    error_code: str = Field(
+        description="Error code for categorization (e.g., E001, E002)",
+    )
+    error_message: str = Field(
+        description="Human-readable error description",
+    )
+    attempt_number: int = Field(
+        ge=1,
+        description="Which attempt this error occurred on (1-based)",
+    )
+    context: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional context (exit_code, signal, category, etc.)",
+    )
+    stdout_tail: str | None = Field(
+        default=None,
+        description="Last portion of stdout when error occurred",
+    )
+    stderr_tail: str | None = Field(
+        default=None,
+        description="Last portion of stderr when error occurred",
+    )
+    stack_trace: str | None = Field(
+        default=None,
+        description="Stack trace if exception was caught",
+    )
 
 
 class BatchState(BaseModel):
@@ -162,6 +211,12 @@ class BatchState(BaseModel):
         description="Last time activity was observed during execution",
     )
 
+    # Error history tracking (Task 10: Error History Model)
+    error_history: list[ErrorRecord] = Field(
+        default_factory=list,
+        description="History of errors encountered during batch execution (max 10)",
+    )
+
     def capture_output(
         self,
         stdout: str,
@@ -201,6 +256,64 @@ class BatchState(BaseModel):
             self.stderr_tail = stderr if stderr else None
 
         self.output_truncated = stdout_truncated or stderr_truncated
+
+    def record_error(
+        self,
+        error_type: ErrorType,
+        error_code: str,
+        error_message: str,
+        attempt: int,
+        *,
+        stdout_tail: str | None = None,
+        stderr_tail: str | None = None,
+        stack_trace: str | None = None,
+        **context: Any,
+    ) -> None:
+        """Record an error with context, trimming to max history.
+
+        Creates an ErrorRecord and appends it to error_history. If the history
+        exceeds MAX_ERROR_HISTORY, the oldest records are removed.
+
+        Logs the error at WARNING level for observability.
+
+        Args:
+            error_type: Classification of the error (transient, rate_limit, permanent).
+            error_code: Error code for categorization (e.g., E001, E002).
+            error_message: Human-readable error description.
+            attempt: Which attempt this error occurred on (1-based).
+            stdout_tail: Optional tail of stdout when error occurred.
+            stderr_tail: Optional tail of stderr when error occurred.
+            stack_trace: Optional stack trace if exception was caught.
+            **context: Additional context to store (exit_code, signal, etc.).
+        """
+        record = ErrorRecord(
+            error_type=error_type,
+            error_code=error_code,
+            error_message=error_message,
+            attempt_number=attempt,
+            context=context,
+            stdout_tail=stdout_tail,
+            stderr_tail=stderr_tail,
+            stack_trace=stack_trace,
+        )
+
+        self.error_history.append(record)
+
+        # Trim to max history (keep most recent)
+        if len(self.error_history) > MAX_ERROR_HISTORY:
+            self.error_history = self.error_history[-MAX_ERROR_HISTORY:]
+
+        # Log at WARNING level for observability
+        _logger.warning(
+            "error_recorded",
+            batch_num=self.batch_num,
+            error_type=error_type,
+            error_code=error_code,
+            attempt=attempt,
+            history_size=len(self.error_history),
+            error_message=error_message[:100] if error_message else None,
+            **{k: v for k, v in context.items() if k not in ("stdout_tail", "stderr_tail")},
+        )
 
 
 class CheckpointState(BaseModel):

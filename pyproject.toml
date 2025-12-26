@@ -71,6 +71,9 @@ target-version = "py311"
 select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
 ignore = [
     "B008",  # Function call in default argument - required for typer CLI patterns
+    "N802",  # Function name should be lowercase - we override stdlib methods (doRollover)
+    "N803",  # Argument name should be lowercase - we match stdlib signatures (maxBytes, backupCount)
+    "SIM105",  # contextlib.suppress - try/except/pass is clearer for error recovery
 ]
 
 [tool.mypy]

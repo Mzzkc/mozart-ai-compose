@@ -5,7 +5,7 @@ Usage:
     python scripts/reset-batch.py STATE_FILE BATCH_NUM [--delete-files]
 
 Example:
-    python scripts/reset-batch.py ~/Projects/Naurva/coordination-workspace/naurva-commit-review.json 8
+    python scripts/reset-batch.py my-workspace/my-job.json 8
 """
 
 import argparse

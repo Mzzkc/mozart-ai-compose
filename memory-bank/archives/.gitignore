@@ -1,6 +1,0 @@
-# Keep archives directory but ignore contents
-# Archives are local history - not version controlled
-# Use `git mv` to move files here (preserves git history)
-
-*
-!.gitignore

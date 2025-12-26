@@ -1,0 +1,56 @@
+# Example: API Backend Job
+# Uses the Anthropic API directly instead of Claude CLI
+#
+# Useful when:
+# - You need more control over model parameters
+# - You're running in an environment without Claude CLI
+# - You want faster execution for simple prompts
+#
+# Requirements:
+#   export ANTHROPIC_API_KEY=sk-ant-...
+#
+# Usage:
+#   mozart run examples/api-backend.yaml
+
+name: "api-batch"
+description: "Batch processing using Anthropic API"
+
+workspace: "./api-workspace"
+
+backend:
+  type: anthropic_api
+  model: claude-sonnet-4-20250514
+  api_key_env: ANTHROPIC_API_KEY  # Environment variable name
+  max_tokens: 4096
+  timeout_seconds: 120
+
+batch:
+  size: 10
+  total_items: 50
+
+prompt:
+  template: |
+    Process items {{ start_item }} to {{ end_item }}.
+
+    For each item, provide a brief analysis.
+
+    Batch {{ batch_num }} of {{ total_batches }}.
+
+retry:
+  max_retries: 3
+  base_delay_seconds: 5
+  exponential_base: 2.0
+
+rate_limit:
+  wait_minutes: 1
+  max_waits: 10
+  detection_patterns:
+    - "rate_limit"
+    - "429"
+    - "overloaded"
+
+# Note: Validations work differently with API backend
+# since there's no filesystem access. Use command_succeeds
+# with external verification scripts if needed.
+
+state_backend: json

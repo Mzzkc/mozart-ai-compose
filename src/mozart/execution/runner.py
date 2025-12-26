@@ -21,8 +21,15 @@ from mozart.backends.base import Backend, ExecutionResult
 from mozart.core.checkpoint import BatchStatus, CheckpointState, JobStatus
 from mozart.core.config import JobConfig
 from mozart.core.errors import ClassifiedError, ErrorClassifier
+from mozart.core.logging import ExecutionContext, MozartLogger, get_logger
+from mozart.execution.circuit_breaker import CircuitBreaker
 from mozart.execution.escalation import EscalationContext, EscalationHandler, EscalationResponse
 from mozart.execution.preflight import PreflightChecker, PreflightResult
+from mozart.execution.retry_strategy import (
+    AdaptiveRetryStrategy,
+    ErrorRecord,
+    RetryStrategyConfig,
+)
 from mozart.execution.validation import BatchValidationResult, ValidationEngine
 from mozart.learning.judgment import JudgmentClient, JudgmentQuery, JudgmentResponse
 from mozart.learning.outcomes import BatchOutcome, OutcomeStore
@@ -234,6 +241,29 @@ class JobRunner:
         self._current_batch_num: int | None = None
         self._execution_progress_snapshots: list[dict[str, Any]] = []
 
+        # Structured logging (Task 8: Logging Integration)
+        self._logger: MozartLogger = get_logger("runner")
+        self._execution_context: ExecutionContext | None = None
+
+        # Circuit breaker for resilient execution (Task 12)
+        self._circuit_breaker: CircuitBreaker | None = None
+        if config.circuit_breaker.enabled:
+            self._circuit_breaker = CircuitBreaker(
+                failure_threshold=config.circuit_breaker.failure_threshold,
+                recovery_timeout=config.circuit_breaker.recovery_timeout_seconds,
+                name=config.name,
+            )
+
+        # Adaptive retry strategy (Task 13)
+        self._retry_strategy = AdaptiveRetryStrategy(
+            config=RetryStrategyConfig(
+                base_delay=config.retry.base_delay_seconds,
+                max_delay=config.retry.max_delay_seconds,
+                exponential_base=config.retry.exponential_base,
+                jitter_factor=0.25,  # 25% jitter
+            )
+        )
+
     async def run(
         self,
         start_batch: int | None = None,
@@ -265,8 +295,24 @@ class JobRunner:
             total_batches=state.total_batches,
         )
 
+        # Create execution context for correlation (Task 8: Logging Integration)
+        self._execution_context = ExecutionContext(
+            job_id=state.job_id,
+            component="runner",
+        )
+
         # Install signal handlers for graceful shutdown
         self._install_signal_handlers()
+
+        # Log job start with config summary
+        config_summary = self._get_config_summary()
+        self._logger.info(
+            "job.started",
+            job_id=state.job_id,
+            total_batches=state.total_batches,
+            resume_from=start_batch,
+            config=config_summary,
+        )
 
         try:
             next_batch = state.get_next_batch()
@@ -284,6 +330,15 @@ class JobRunner:
                     await self.state_backend.save(state)
                     # Update summary with failure before raising
                     self._finalize_summary(state)
+                    # Log job failure
+                    self._logger.error(
+                        "job.failed",
+                        job_id=state.job_id,
+                        batch_num=next_batch,
+                        error=str(e),
+                        duration_seconds=round(time.monotonic() - self._run_start_time, 2),
+                        completed_batches=self._summary.completed_batches if self._summary else 0,
+                    )
                     raise
 
                 # Track batch timing for ETA calculation
@@ -308,6 +363,19 @@ class JobRunner:
 
             # Finalize summary
             self._finalize_summary(state)
+
+            # Log job completion with summary
+            self._logger.info(
+                "job.completed",
+                job_id=state.job_id,
+                status=state.status.value,
+                duration_seconds=round(self._summary.total_duration_seconds, 2),
+                completed_batches=self._summary.completed_batches,
+                failed_batches=self._summary.failed_batches,
+                success_rate=round(self._summary.success_rate, 1),
+                validation_pass_rate=round(self._summary.validation_pass_rate, 1),
+                total_retries=self._summary.total_retries,
+            )
 
             return state, self._summary
         finally:
@@ -361,6 +429,31 @@ class JobRunner:
             RunSummary if a run has been executed, None otherwise.
         """
         return self._summary
+
+    def _get_config_summary(self) -> dict[str, Any]:
+        """Build a safe config summary for logging.
+
+        Returns a dictionary with key configuration values that are safe
+        to log (no sensitive data like API keys or tokens).
+
+        Returns:
+            Dictionary with non-sensitive configuration summary.
+        """
+        return {
+            "backend_type": self.config.backend.type,
+            "batch_size": self.config.batch.size,
+            "total_items": self.config.batch.total_items,
+            "max_retries": self.config.retry.max_retries,
+            "max_completion_attempts": self.config.retry.max_completion_attempts,
+            "workspace": str(self.config.workspace),
+            "validation_count": len(self.config.validations),
+            "rate_limit_wait_minutes": self.config.rate_limit.wait_minutes,
+            "learning_enabled": (
+                self.config.learning.enabled if hasattr(self.config, "learning") else False
+            ),
+            "circuit_breaker_enabled": self.config.circuit_breaker.enabled,
+            "circuit_breaker_threshold": self.config.circuit_breaker.failure_threshold,
+        }
 
     def _install_signal_handlers(self) -> None:
         """Install signal handlers for graceful shutdown.
@@ -568,6 +661,9 @@ class JobRunner:
         # Track execution history for judgment (Phase 4)
         execution_history: list[ExecutionResult] = []
 
+        # Track error history for adaptive retry (Task 13)
+        error_history: list[ErrorRecord] = []
+
         # Build original prompt
         original_prompt = self.prompt_builder.build_batch_prompt(batch_context)
         current_prompt = original_prompt
@@ -590,7 +686,23 @@ class JobRunner:
                 "preflight",
             )
             await self.state_backend.save(state)
+            # Log preflight failure
+            self._logger.error(
+                "batch.preflight_failed",
+                batch_num=batch_num,
+                errors=preflight_result.errors,
+            )
             raise FatalError(f"Batch {batch_num}: Preflight check failed - {error_summary}")
+
+        # Log batch start (Task 8: Logging Integration)
+        self._logger.info(
+            "batch.started",
+            batch_num=batch_num,
+            execution_mode=current_mode.value,
+            prompt_tokens=preflight_result.prompt_metrics.estimated_tokens,
+            prompt_lines=preflight_result.prompt_metrics.line_count,
+            preflight_warnings=len(preflight_result.warnings),
+        )
 
         while True:
             # Mark batch started
@@ -605,6 +717,27 @@ class JobRunner:
 
             # Snapshot mtimes before execution (for file_modified checks)
             validation_engine.snapshot_mtime_files(self.config.validations)
+
+            # Check circuit breaker before execution (Task 12)
+            if (
+                self._circuit_breaker is not None
+                and not self._circuit_breaker.can_execute()
+            ):
+                wait_time = self._circuit_breaker.time_until_retry()
+                cb_state = self._circuit_breaker.get_state()
+                self._logger.warning(
+                    "circuit_breaker.blocked",
+                    batch_num=batch_num,
+                    state=cb_state.value,
+                    wait_seconds=wait_time,
+                )
+                self.console.print(
+                    f"[yellow]Batch {batch_num}: Circuit breaker OPEN - "
+                    f"waiting {wait_time:.0f}s for recovery[/yellow]"
+                )
+                if wait_time and wait_time > 0:
+                    await self._interruptible_sleep(wait_time)
+                continue  # Re-check circuit breaker after wait
 
             # Execute
             self.console.print(
@@ -627,7 +760,22 @@ class JobRunner:
                 # Execution failed (not validation failure)
                 error = self._classify_error(result)
 
+                # Track error for adaptive retry (Task 13)
+                error_record = ErrorRecord.from_classified_error(
+                    error=error,
+                    batch_num=batch_num,
+                    attempt_num=normal_attempts + 1,
+                )
+                error_history.append(error_record)
+
+                # Record failure in circuit breaker (Task 12)
+                # Don't record rate limits as they're handled specially
+                if self._circuit_breaker is not None and not error.is_rate_limit:
+                    self._circuit_breaker.record_failure()
+
                 if error.is_rate_limit:
+                    # Rate limit handling uses its own strategy
+                    error_history.clear()  # Reset on rate limit
                     await self._handle_rate_limit(state)
                     continue  # Retry same execution
 
@@ -642,10 +790,29 @@ class JobRunner:
                         execution_duration_seconds=result.duration_seconds,
                     )
                     await self.state_backend.save(state)
+                    # Log fatal batch failure
+                    self._logger.error(
+                        "batch.failed",
+                        batch_num=batch_num,
+                        error_category=error.category.value,
+                        error_message=error.message,
+                        exit_code=result.exit_code,
+                        exit_signal=result.exit_signal,
+                        exit_reason=result.exit_reason,
+                        duration_seconds=round(result.duration_seconds or 0, 2),
+                        stdout_tail=result.stdout[-500:] if result.stdout else None,
+                    )
                     raise FatalError(f"Batch {batch_num}: {error.message}")
 
-                # Transient error - count as normal attempt
+                # Transient error - get adaptive retry recommendation (Task 13)
+                retry_recommendation = self._retry_strategy.analyze(
+                    error_history=error_history,
+                    max_retries=max_retries,
+                )
+
                 normal_attempts += 1
+
+                # Check both max retries and adaptive strategy recommendation
                 if normal_attempts >= max_retries:
                     state.mark_batch_failed(
                         batch_num,
@@ -657,21 +824,81 @@ class JobRunner:
                         execution_duration_seconds=result.duration_seconds,
                     )
                     await self.state_backend.save(state)
+                    # Log retry exhaustion failure
+                    self._logger.error(
+                        "batch.failed",
+                        batch_num=batch_num,
+                        error_category=error.category.value,
+                        error_message=f"Retries exhausted: {error.message}",
+                        attempt=normal_attempts,
+                        max_retries=max_retries,
+                        exit_code=result.exit_code,
+                        duration_seconds=round(result.duration_seconds or 0, 2),
+                    )
                     raise FatalError(
                         f"Batch {batch_num} failed after {max_retries} retries"
                     )
 
-                self.console.print(
-                    f"[yellow]Batch {batch_num}: Transient error, "
-                    f"retry {normal_attempts}/{max_retries}[/yellow]"
+                # Check if adaptive strategy recommends stopping early
+                if not retry_recommendation.should_retry:
+                    state.mark_batch_failed(
+                        batch_num,
+                        f"Adaptive retry aborted: {retry_recommendation.reason}",
+                        error.category.value,
+                        exit_code=result.exit_code,
+                        exit_signal=result.exit_signal,
+                        exit_reason=result.exit_reason,
+                        execution_duration_seconds=result.duration_seconds,
+                    )
+                    await self.state_backend.save(state)
+                    # Log adaptive strategy abort
+                    self._logger.warning(
+                        "batch.adaptive_retry_aborted",
+                        batch_num=batch_num,
+                        error_category=error.category.value,
+                        pattern=retry_recommendation.detected_pattern.value,
+                        reason=retry_recommendation.reason,
+                        confidence=round(retry_recommendation.confidence, 3),
+                        strategy=retry_recommendation.strategy_used,
+                        attempt=normal_attempts,
+                    )
+                    raise FatalError(
+                        f"Batch {batch_num} aborted: {retry_recommendation.reason}"
+                    )
+
+                # Log retry attempt with adaptive strategy info
+                self._logger.warning(
+                    "batch.retry",
+                    batch_num=batch_num,
+                    attempt=normal_attempts,
+                    max_retries=max_retries,
+                    error_category=error.category.value,
+                    reason=error.message,
+                    # Adaptive retry strategy fields (Task 13)
+                    retry_delay_seconds=round(retry_recommendation.delay_seconds, 2),
+                    retry_confidence=round(retry_recommendation.confidence, 3),
+                    retry_pattern=retry_recommendation.detected_pattern.value,
+                    retry_strategy=retry_recommendation.strategy_used,
                 )
-                await asyncio.sleep(self._get_retry_delay(normal_attempts))
+                self.console.print(
+                    f"[yellow]Batch {batch_num}: {retry_recommendation.detected_pattern.value} - "
+                    f"retry {normal_attempts}/{max_retries} "
+                    f"(delay: {retry_recommendation.delay_seconds:.1f}s, "
+                    f"confidence: {retry_recommendation.confidence:.0%})[/yellow]"
+                )
+                await asyncio.sleep(retry_recommendation.delay_seconds)
                 continue
 
+            # Execution succeeded - record success in circuit breaker (Task 12)
+            if self._circuit_breaker is not None:
+                self._circuit_breaker.record_success()
+
             # Execution succeeded - run validations
+            validation_start = time.monotonic()
             validation_result = validation_engine.run_validations(
                 self.config.validations
             )
+            validation_duration = time.monotonic() - validation_start
 
             # Update state with validation details
             self._update_batch_validation_state(state, batch_num, validation_result)
@@ -715,6 +942,19 @@ class JobRunner:
                 )
 
                 await self.state_backend.save(state)
+                # Log successful batch completion
+                self._logger.info(
+                    "batch.completed",
+                    batch_num=batch_num,
+                    duration_seconds=round(execution_duration, 2),
+                    validation_duration_seconds=round(validation_duration, 3),
+                    validation_count=len(validation_result.results),
+                    validation_pass_rate=100.0,
+                    outcome_category=outcome_category,
+                    retry_count=normal_attempts - 1 if normal_attempts > 0 else 0,
+                    completion_attempts=completion_attempts,
+                    first_attempt_success=first_attempt_success,
+                )
                 self.console.print(
                     f"[green]Batch {batch_num}: All {len(validation_result.results)} "
                     f"validations passed[/green]"
@@ -779,17 +1019,17 @@ class JobRunner:
 
             elif next_mode == BatchExecutionMode.ESCALATE:
                 # ESCALATE MODE: Low confidence requires external decision
-                # Track error history for escalation context
-                error_history: list[str] = []
+                # Track error messages for escalation context
+                escalation_error_history: list[str] = []
                 if batch_state.error_message:
-                    error_history.append(batch_state.error_message)
+                    escalation_error_history.append(batch_state.error_message)
 
                 response = await self._handle_escalation(
                     state=state,
                     batch_num=batch_num,
                     validation_result=validation_result,
                     current_prompt=current_prompt,
-                    error_history=error_history,
+                    error_history=escalation_error_history,
                     normal_attempts=normal_attempts,
                 )
 
@@ -937,16 +1177,36 @@ class JobRunner:
         batch_state.prompt_metrics = result.prompt_metrics.to_dict()
         batch_state.preflight_warnings = result.warnings.copy()
 
-        # Log warnings
+        metrics = result.prompt_metrics
+
+        # Structured logging for preflight results (Task 8)
+        if result.has_warnings:
+            self._logger.warning(
+                "batch.preflight_warnings",
+                batch_num=batch_num,
+                warnings=result.warnings,
+                estimated_tokens=metrics.estimated_tokens,
+            )
+
+        # Debug-level log for metrics
+        self._logger.debug(
+            "batch.preflight_metrics",
+            batch_num=batch_num,
+            character_count=metrics.character_count,
+            estimated_tokens=metrics.estimated_tokens,
+            line_count=metrics.line_count,
+            word_count=metrics.word_count,
+            has_file_references=metrics.has_file_references,
+            referenced_path_count=len(metrics.referenced_paths),
+        )
+
+        # Console output (preserved for CLI feedback)
         for warning in result.warnings:
             self.console.print(f"[yellow]Batch {batch_num} preflight: {warning}[/yellow]")
 
-        # Log errors (will be handled by caller)
         for error in result.errors:
             self.console.print(f"[red]Batch {batch_num} preflight ERROR: {error}[/red]")
 
-        # Log metrics summary
-        metrics = result.prompt_metrics
         self.console.print(
             f"[dim]Batch {batch_num}: ~{metrics.estimated_tokens:,} tokens, "
             f"{metrics.line_count:,} lines, "
@@ -1035,7 +1295,22 @@ class JobRunner:
         state.rate_limit_waits += 1
         await self.state_backend.save(state)
 
+        # Log rate limit detection
+        self._logger.warning(
+            "rate_limit.detected",
+            job_id=state.job_id,
+            wait_count=state.rate_limit_waits,
+            max_waits=self.config.rate_limit.max_waits,
+            wait_minutes=wait_minutes,
+        )
+
         if state.rate_limit_waits >= self.config.rate_limit.max_waits:
+            self._logger.error(
+                "rate_limit.exhausted",
+                job_id=state.job_id,
+                wait_count=state.rate_limit_waits,
+                max_waits=self.config.rate_limit.max_waits,
+            )
             raise FatalError(
                 f"Exceeded maximum rate limit waits ({self.config.rate_limit.max_waits})"
             )
@@ -1049,7 +1324,17 @@ class JobRunner:
         # Health check before resuming
         self.console.print("[blue]Running health check...[/blue]")
         if not await self.backend.health_check():
+            self._logger.error(
+                "rate_limit.health_check_failed",
+                job_id=state.job_id,
+            )
             raise FatalError("Backend health check failed after rate limit wait")
+
+        self._logger.info(
+            "rate_limit.resumed",
+            job_id=state.job_id,
+            wait_count=state.rate_limit_waits,
+        )
         self.console.print("[green]Health check passed, resuming...[/green]")
 
     async def _record_batch_outcome(

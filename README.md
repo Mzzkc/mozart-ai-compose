@@ -99,6 +99,9 @@ mozart dashboard
 | `mozart resume <job-id>` | Resume paused/failed job |
 | `mozart list` | List all jobs |
 | `mozart validate <config>` | Validate configuration |
+| `mozart logs [job-id]` | View/tail log files |
+| `mozart errors [job-id]` | View error history |
+| `mozart diagnose <job-id>` | Comprehensive diagnostics |
 | `mozart dashboard` | Start web dashboard |
 
 ### Global Options
@@ -221,6 +224,133 @@ mozart/
 ├── dashboard/      # FastAPI web interface
 └── learning/       # Outcome tracking (experimental)
 ```
+
+## Observability
+
+Mozart includes comprehensive observability features for debugging and monitoring batch jobs.
+
+### Structured Logging
+
+Configure structured JSON logging with automatic rotation:
+
+```yaml
+logging:
+  level: DEBUG        # DEBUG, INFO, WARNING, ERROR
+  format: json        # json, console, or both
+  file_path: logs/mozart.log
+  max_file_size_mb: 50
+  backup_count: 5
+  include_timestamps: true
+  include_context: true  # Adds job_id, run_id, batch_num to logs
+```
+
+View logs with built-in CLI:
+
+```bash
+# Show recent logs
+mozart logs
+
+# Follow logs in real-time
+mozart logs -f
+
+# Filter by level or job
+mozart logs --level ERROR
+mozart logs my-job-id
+
+# Output as JSON for processing
+mozart logs --json | jq '.event'
+```
+
+### Error Codes Reference
+
+Mozart uses structured error codes for classification:
+
+| Code | Category | Description | Retriable |
+|------|----------|-------------|-----------|
+| E001 | TRANSIENT | Generic transient error | Yes |
+| E002 | TRANSIENT | Connection/network error | Yes |
+| E003 | TRANSIENT | Temporary unavailable | Yes |
+| E101 | RATE_LIMIT | API rate limit hit | Yes |
+| E102 | RATE_LIMIT | Quota exceeded | Yes |
+| E201 | VALIDATION | Output validation failed | No |
+| E301 | TIMEOUT | Execution timed out | Yes |
+| E302 | TIMEOUT | Process killed (timeout) | Yes |
+| E401 | SIGNAL | Process killed by signal | No |
+| E402 | SIGNAL | Segmentation fault | No |
+| E501 | FATAL | Authentication failed | No |
+| E502 | FATAL | Configuration error | No |
+| E999 | FATAL | Unknown/unclassified error | No |
+
+### Diagnostics Command
+
+Get comprehensive diagnostic information for troubleshooting:
+
+```bash
+# Run diagnostics on a job
+mozart diagnose my-job-id
+
+# Include raw output capture
+mozart diagnose my-job-id --include-output
+
+# Export as JSON for analysis
+mozart diagnose my-job-id --json > diagnostics.json
+```
+
+The diagnose command shows:
+- Job status and progress
+- Error history with codes and messages
+- Batch execution times and retry counts
+- Raw stdout/stderr capture (last 10KB per batch)
+- Prompt metrics (token estimates, warnings)
+- Circuit breaker status
+
+### Error History
+
+View error history for debugging patterns:
+
+```bash
+# Show recent errors across all jobs
+mozart errors
+
+# Filter by job
+mozart errors my-job-id
+
+# Filter by error code
+mozart errors --code E101
+
+# Include raw output
+mozart errors --verbose
+```
+
+### Circuit Breaker
+
+Mozart includes a circuit breaker to prevent cascading failures:
+
+- Opens after consecutive failures (default: 5)
+- Prevents new batch execution while open
+- Automatically recovers after timeout (default: 5 minutes)
+- Stats available in `mozart diagnose` output
+
+### Preflight Checks
+
+Before each batch, Mozart runs preflight checks:
+
+- Validates working directory exists
+- Estimates prompt token count
+- Warns if prompt exceeds thresholds:
+  - Warning: >50K tokens
+  - Error: >150K tokens
+- Checks referenced file paths exist
+- Results stored in batch state for diagnostics
+
+### Output Capture
+
+Raw stdout/stderr is captured for debugging:
+
+- Last 10KB of each stream preserved
+- Available in checkpoint state
+- Shown in `mozart diagnose --include-output`
+- Useful for debugging failed batches
 
 ## Dashboard API
 

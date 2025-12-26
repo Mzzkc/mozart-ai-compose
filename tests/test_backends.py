@@ -3,17 +3,19 @@
 Tests cover:
 - AnthropicApiBackend: API client, error handling, rate limit detection
 - ClaudeCliBackend: Basic structure (CLI tests need integration tests)
+- Backend logging: Verifies appropriate log levels and content
 """
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import anthropic
+import httpx
 import pytest
 
-import anthropic
 from mozart.backends.anthropic_api import AnthropicApiBackend
 from mozart.backends.claude_cli import ClaudeCliBackend
 from mozart.core.config import BackendConfig
-
 
 # ============================================================================
 # AnthropicApiBackend Tests
@@ -390,3 +392,325 @@ class TestClaudeCliBackendRateLimitDetection:
             assert (
                 backend._detect_rate_limit(message, "") is False
             ), f"Failed for: {message}"
+
+
+# ============================================================================
+# Backend Logging Tests
+# ============================================================================
+
+
+class TestBackendLogging:
+    """Test that backends produce appropriate log messages.
+
+    Uses structlog's testing utilities to capture and verify log output.
+    These tests verify that:
+    - Correct log levels are used for different scenarios
+    - Sensitive data is NOT logged (API keys, tokens)
+    - Appropriate context is included (duration, error types, etc.)
+    """
+
+    @pytest.fixture
+    def captured_logs(self) -> list[dict[str, Any]]:
+        """Return a list that will capture log entries."""
+        return []
+
+    @pytest.fixture
+    def configure_test_logging(
+        self, captured_logs: list[dict[str, Any]]
+    ) -> None:
+        """Configure structlog to capture logs for testing."""
+        import structlog
+        from structlog.types import EventDict, WrappedLogger
+
+        def capture_to_list(
+            logger: WrappedLogger, method_name: str, event_dict: EventDict
+        ) -> EventDict:
+            """Processor that captures logs to a list."""
+            captured_logs.append({"level": method_name, **event_dict})
+            raise structlog.DropEvent
+
+        structlog.configure(
+            processors=[capture_to_list],
+            wrapper_class=structlog.stdlib.BoundLogger,
+            context_class=dict,
+            logger_factory=structlog.stdlib.LoggerFactory(),
+            cache_logger_on_first_use=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_anthropic_api_logs_request_at_debug(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        configure_test_logging: None,
+        captured_logs: list[dict[str, Any]],
+    ) -> None:
+        """Test that API requests are logged at DEBUG level."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        backend = AnthropicApiBackend()
+
+        # Mock successful response
+        mock_content = MagicMock()
+        mock_content.text = "response"
+        mock_usage = MagicMock()
+        mock_usage.input_tokens = 10
+        mock_usage.output_tokens = 5
+        mock_response = MagicMock()
+        mock_response.content = [mock_content]
+        mock_response.usage = mock_usage
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(return_value=mock_response)
+
+        with patch.object(backend, "_get_client", return_value=mock_client):
+            await backend.execute("test prompt")
+
+        # Find the api_request log entry
+        request_logs = [log for log in captured_logs if log.get("event") == "api_request"]
+        assert len(request_logs) == 1
+        assert request_logs[0]["level"] == "debug"
+        assert request_logs[0]["model"] == "claude-sonnet-4-20250514"
+        assert request_logs[0]["prompt_length"] == 11  # len("test prompt")
+        # Ensure API key is NOT logged
+        assert "api_key" not in request_logs[0]
+        assert "test-key" not in str(request_logs[0])
+
+    @pytest.mark.asyncio
+    async def test_anthropic_api_logs_response_at_info(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        configure_test_logging: None,
+        captured_logs: list[dict[str, Any]],
+    ) -> None:
+        """Test that successful API responses are logged at INFO level."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        backend = AnthropicApiBackend()
+
+        mock_content = MagicMock()
+        mock_content.text = "response text"
+        mock_usage = MagicMock()
+        mock_usage.input_tokens = 10
+        mock_usage.output_tokens = 5
+        mock_response = MagicMock()
+        mock_response.content = [mock_content]
+        mock_response.usage = mock_usage
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(return_value=mock_response)
+
+        with patch.object(backend, "_get_client", return_value=mock_client):
+            await backend.execute("test prompt")
+
+        # Find the api_response log entry
+        response_logs = [log for log in captured_logs if log.get("event") == "api_response"]
+        assert len(response_logs) == 1
+        assert response_logs[0]["level"] == "info"
+        assert response_logs[0]["input_tokens"] == 10
+        assert response_logs[0]["output_tokens"] == 5
+        assert response_logs[0]["total_tokens"] == 15
+
+    @pytest.mark.asyncio
+    async def test_anthropic_api_logs_rate_limit_at_warning(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        configure_test_logging: None,
+        captured_logs: list[dict[str, Any]],
+    ) -> None:
+        """Test that rate limit errors are logged at WARNING level."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        backend = AnthropicApiBackend()
+
+        mock_client = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+        mock_client.messages.create = AsyncMock(
+            side_effect=anthropic.RateLimitError(
+                message="Rate limit exceeded",
+                response=mock_response,
+                body=None,
+            )
+        )
+
+        with patch.object(backend, "_get_client", return_value=mock_client):
+            await backend.execute("test prompt")
+
+        # Find the rate_limit_error log entry
+        rate_limit_logs = [
+            log for log in captured_logs if log.get("event") == "rate_limit_error"
+        ]
+        assert len(rate_limit_logs) == 1
+        assert rate_limit_logs[0]["level"] == "warning"
+
+    @pytest.mark.asyncio
+    async def test_anthropic_api_logs_auth_error_at_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        configure_test_logging: None,
+        captured_logs: list[dict[str, Any]],
+    ) -> None:
+        """Test that authentication errors are logged at ERROR level."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        backend = AnthropicApiBackend()
+
+        mock_client = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+        mock_client.messages.create = AsyncMock(
+            side_effect=anthropic.AuthenticationError(
+                message="Invalid API key",
+                response=mock_response,
+                body=None,
+            )
+        )
+
+        with patch.object(backend, "_get_client", return_value=mock_client):
+            await backend.execute("test prompt")
+
+        # Find the authentication_error log entry
+        auth_logs = [
+            log for log in captured_logs if log.get("event") == "authentication_error"
+        ]
+        assert len(auth_logs) == 1
+        assert auth_logs[0]["level"] == "error"
+        # Ensure only env var name is logged, not the actual key
+        assert auth_logs[0].get("api_key_env") == "ANTHROPIC_API_KEY"
+        assert "test-key" not in str(auth_logs[0])
+
+    @pytest.mark.asyncio
+    async def test_anthropic_api_never_logs_api_key(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        configure_test_logging: None,
+        captured_logs: list[dict[str, Any]],
+    ) -> None:
+        """Test that API keys are NEVER logged in any scenario."""
+        test_key = "sk-ant-test-key-12345"
+        monkeypatch.setenv("ANTHROPIC_API_KEY", test_key)
+        backend = AnthropicApiBackend()
+
+        # Trigger a configuration error by mocking client creation to fail
+        with patch.object(
+            backend, "_get_client", side_effect=RuntimeError("API key error")
+        ):
+            await backend.execute("test prompt")
+
+        # Check ALL log entries to ensure the API key never appears
+        all_log_content = str(captured_logs)
+        assert test_key not in all_log_content
+
+
+class TestRecursiveLightBackendLogging:
+    """Test Recursive Light backend logging."""
+
+    @pytest.fixture
+    def captured_logs(self) -> list[dict[str, Any]]:
+        """Return a list that will capture log entries."""
+        return []
+
+    @pytest.fixture
+    def configure_test_logging(
+        self, captured_logs: list[dict[str, Any]]
+    ) -> None:
+        """Configure structlog to capture logs for testing."""
+        import structlog
+        from structlog.types import EventDict, WrappedLogger
+
+        def capture_to_list(
+            logger: WrappedLogger, method_name: str, event_dict: EventDict
+        ) -> EventDict:
+            """Processor that captures logs to a list."""
+            captured_logs.append({"level": method_name, **event_dict})
+            raise structlog.DropEvent
+
+        structlog.configure(
+            processors=[capture_to_list],
+            wrapper_class=structlog.stdlib.BoundLogger,
+            context_class=dict,
+            logger_factory=structlog.stdlib.LoggerFactory(),
+            cache_logger_on_first_use=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_recursive_light_logs_request_at_debug(
+        self,
+        configure_test_logging: None,
+        captured_logs: list[dict[str, Any]],
+    ) -> None:
+        """Test that HTTP requests are logged at DEBUG level."""
+        from mozart.backends.recursive_light import RecursiveLightBackend
+
+        backend = RecursiveLightBackend(rl_endpoint="http://test:8080")
+
+        # Mock httpx response
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"response": "test response", "confidence": 0.9}
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        with patch.object(backend, "_get_client", return_value=mock_client):
+            await backend.execute("test prompt")
+
+        # Find the http_request log entry
+        request_logs = [log for log in captured_logs if log.get("event") == "http_request"]
+        assert len(request_logs) == 1
+        assert request_logs[0]["level"] == "debug"
+        assert "test:8080" in request_logs[0]["endpoint"]
+        assert request_logs[0]["prompt_length"] == 11
+
+    @pytest.mark.asyncio
+    async def test_recursive_light_logs_response_with_confidence(
+        self,
+        configure_test_logging: None,
+        captured_logs: list[dict[str, Any]],
+    ) -> None:
+        """Test that responses are logged with confidence scores at INFO level."""
+        from mozart.backends.recursive_light import RecursiveLightBackend
+
+        backend = RecursiveLightBackend(rl_endpoint="http://test:8080")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "response": "test response",
+            "confidence": 0.85,
+            "domains": {"COMP": 0.9, "SCI": 0.7},
+        }
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        with patch.object(backend, "_get_client", return_value=mock_client):
+            await backend.execute("test prompt")
+
+        # Find the http_response log entry
+        response_logs = [log for log in captured_logs if log.get("event") == "http_response"]
+        assert len(response_logs) == 1
+        assert response_logs[0]["level"] == "info"
+        assert response_logs[0]["confidence_score"] == 0.85
+        assert response_logs[0]["has_domain_activations"] is True
+
+    @pytest.mark.asyncio
+    async def test_recursive_light_logs_connection_error_at_warning(
+        self,
+        configure_test_logging: None,
+        captured_logs: list[dict[str, Any]],
+    ) -> None:
+        """Test that connection errors are logged at WARNING level."""
+        from mozart.backends.recursive_light import RecursiveLightBackend
+
+        backend = RecursiveLightBackend(rl_endpoint="http://test:8080")
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(
+            side_effect=httpx.ConnectError("Connection refused")
+        )
+
+        with patch.object(backend, "_get_client", return_value=mock_client):
+            await backend.execute("test prompt")
+
+        # Find the connection_error log entry
+        conn_logs = [log for log in captured_logs if log.get("event") == "connection_error"]
+        assert len(conn_logs) == 1
+        assert conn_logs[0]["level"] == "warning"
+        assert "test:8080" in conn_logs[0]["endpoint"]

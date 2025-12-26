@@ -14,6 +14,10 @@ from typing import Any
 import httpx
 
 from mozart.backends.base import Backend, ExecutionResult
+from mozart.core.logging import get_logger
+
+# Module-level logger for Recursive Light backend
+_logger = get_logger("backend.recursive_light")
 
 
 def _utc_now() -> datetime:
@@ -100,6 +104,15 @@ class RecursiveLightBackend(Backend):
         start_time = time.monotonic()
         started_at = _utc_now()
 
+        # Log HTTP request details at DEBUG level
+        _logger.debug(
+            "http_request",
+            endpoint=f"{self.rl_endpoint}/api/process",
+            user_id=self.user_id,
+            timeout=self.timeout,
+            prompt_length=len(prompt),
+        )
+
         try:
             client = await self._get_client()
 
@@ -114,6 +127,12 @@ class RecursiveLightBackend(Backend):
             duration = time.monotonic() - start_time
 
             if response.status_code != 200:
+                _logger.error(
+                    "api_error_response",
+                    duration_seconds=duration,
+                    status_code=response.status_code,
+                    response_text=response.text[:500] if response.text else None,
+                )
                 return ExecutionResult(
                     success=False,
                     exit_code=response.status_code,
@@ -129,10 +148,29 @@ class RecursiveLightBackend(Backend):
             data = response.json()
 
             # Extract RL-specific metadata with graceful fallbacks
-            return self._parse_rl_response(data, duration, started_at)
+            result = self._parse_rl_response(data, duration, started_at)
+
+            # Log successful response with confidence scores at INFO level
+            _logger.info(
+                "http_response",
+                duration_seconds=duration,
+                status_code=response.status_code,
+                confidence_score=result.confidence_score,
+                response_length=len(result.stdout) if result.stdout else 0,
+                has_domain_activations=result.domain_activations is not None,
+                has_boundary_states=result.boundary_states is not None,
+            )
+
+            return result
 
         except httpx.ConnectError as e:
             duration = time.monotonic() - start_time
+            _logger.warning(
+                "connection_error",
+                duration_seconds=duration,
+                endpoint=self.rl_endpoint,
+                error_message=str(e),
+            )
             return ExecutionResult(
                 success=False,
                 exit_code=1,
@@ -146,6 +184,12 @@ class RecursiveLightBackend(Backend):
 
         except httpx.TimeoutException as e:
             duration = time.monotonic() - start_time
+            _logger.warning(
+                "request_timeout",
+                duration_seconds=duration,
+                timeout_seconds=self.timeout,
+                endpoint=self.rl_endpoint,
+            )
             return ExecutionResult(
                 success=False,
                 exit_code=124,  # Timeout exit code
@@ -159,6 +203,22 @@ class RecursiveLightBackend(Backend):
 
         except httpx.HTTPStatusError as e:
             duration = time.monotonic() - start_time
+            is_rate_limited = e.response.status_code == 429
+            if is_rate_limited:
+                _logger.warning(
+                    "rate_limit_error",
+                    duration_seconds=duration,
+                    status_code=e.response.status_code,
+                    endpoint=self.rl_endpoint,
+                )
+            else:
+                _logger.error(
+                    "http_status_error",
+                    duration_seconds=duration,
+                    status_code=e.response.status_code,
+                    endpoint=self.rl_endpoint,
+                    error_message=str(e),
+                )
             return ExecutionResult(
                 success=False,
                 exit_code=e.response.status_code,
@@ -168,11 +228,17 @@ class RecursiveLightBackend(Backend):
                 started_at=started_at,
                 error_type="http_error",
                 error_message=str(e),
-                rate_limited=e.response.status_code == 429,
+                rate_limited=is_rate_limited,
             )
 
         except Exception as e:
             duration = time.monotonic() - start_time
+            _logger.exception(
+                "unexpected_error",
+                duration_seconds=duration,
+                endpoint=self.rl_endpoint,
+                error_message=str(e),
+            )
             return ExecutionResult(
                 success=False,
                 exit_code=1,
