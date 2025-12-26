@@ -68,7 +68,7 @@ class TestSensitivePatterns:
 
     def test_sanitize_value_preserves_safe_values(self):
         """Test that non-sensitive values are preserved."""
-        result = _sanitize_value("batch_num", 5)
+        result = _sanitize_value("sheet_num", 5)
         assert result == 5
 
         result = _sanitize_value("job_id", "test-job-123")
@@ -82,7 +82,7 @@ class TestSensitivePatterns:
         event_dict = {
             "event": "test_event",
             "api_key": "sk-secret",
-            "batch_num": 5,
+            "sheet_num": 5,
             "token": "bearer-123",
         }
 
@@ -90,7 +90,7 @@ class TestSensitivePatterns:
 
         assert result["event"] == "test_event"
         assert result["api_key"] == "[REDACTED]"
-        assert result["batch_num"] == 5
+        assert result["sheet_num"] == 5
         assert result["token"] == "[REDACTED]"
 
     def test_sanitize_event_dict_handles_nested_dicts(self):
@@ -162,7 +162,7 @@ class TestGetLogger:
 
     def test_get_logger_with_initial_context(self):
         """Test get_logger with initial context."""
-        logger = get_logger("runner", job_id="my-job", batch_num=1)
+        logger = get_logger("runner", job_id="my-job", sheet_num=1)
         assert logger._component == "runner"
 
 
@@ -371,7 +371,7 @@ class TestLoggingIntegration:
     def test_bound_context_preserved(self):
         """Test that bound context is preserved through operations."""
         logger = get_logger("runner")
-        bound = logger.bind(job_id="job-1", batch_num=5)
+        bound = logger.bind(job_id="job-1", sheet_num=5)
 
         # Create another binding
         double_bound = bound.bind(retry_count=2)
@@ -381,8 +381,8 @@ class TestLoggingIntegration:
 
     def test_unbind_removes_context(self):
         """Test that unbind removes specified keys."""
-        logger = get_logger("runner", job_id="job-1", batch_num=5)
-        unbound = logger.unbind("batch_num")
+        logger = get_logger("runner", job_id="job-1", sheet_num=5)
+        unbound = logger.unbind("sheet_num")
 
         # Should still have the component
         assert unbound._component == "runner"
@@ -400,7 +400,7 @@ class TestExecutionContext:
         assert ctx.job_id == "test-job"
         assert ctx.run_id is not None  # Auto-generated UUID
         assert len(ctx.run_id) == 36  # UUID format
-        assert ctx.batch_num is None
+        assert ctx.sheet_num is None
         assert ctx.component == "unknown"
         assert ctx.parent_run_id is None
 
@@ -411,14 +411,14 @@ class TestExecutionContext:
         ctx = ExecutionContext(
             job_id="test-job",
             run_id="custom-run-id",
-            batch_num=5,
+            sheet_num=5,
             component="runner",
             parent_run_id="parent-run-id",
         )
 
         assert ctx.job_id == "test-job"
         assert ctx.run_id == "custom-run-id"
-        assert ctx.batch_num == 5
+        assert ctx.sheet_num == 5
         assert ctx.component == "runner"
         assert ctx.parent_run_id == "parent-run-id"
 
@@ -432,17 +432,17 @@ class TestExecutionContext:
             ctx.job_id = "modified"  # type: ignore[misc]
 
     def test_with_batch_creates_new_context(self):
-        """Test that with_batch creates a new context with updated batch_num."""
+        """Test that with_batch creates a new context with updated sheet_num."""
         from mozart.core.logging import ExecutionContext
 
         ctx = ExecutionContext(job_id="test-job", run_id="run-123", component="runner")
         new_ctx = ctx.with_batch(10)
 
         # Original unchanged
-        assert ctx.batch_num is None
+        assert ctx.sheet_num is None
 
-        # New context has batch_num
-        assert new_ctx.batch_num == 10
+        # New context has sheet_num
+        assert new_ctx.sheet_num == 10
 
         # Other fields preserved
         assert new_ctx.job_id == "test-job"
@@ -453,7 +453,7 @@ class TestExecutionContext:
         """Test that with_component creates a new context with updated component."""
         from mozart.core.logging import ExecutionContext
 
-        ctx = ExecutionContext(job_id="test-job", run_id="run-123", batch_num=5)
+        ctx = ExecutionContext(job_id="test-job", run_id="run-123", sheet_num=5)
         new_ctx = ctx.with_component("backend")
 
         # Original unchanged
@@ -465,7 +465,7 @@ class TestExecutionContext:
         # Other fields preserved
         assert new_ctx.job_id == "test-job"
         assert new_ctx.run_id == "run-123"
-        assert new_ctx.batch_num == 5
+        assert new_ctx.sheet_num == 5
 
     def test_as_child_creates_nested_context(self):
         """Test that as_child creates a child context with parent tracking."""
@@ -505,7 +505,7 @@ class TestExecutionContext:
             "run_id": "run-123",
             "component": "unknown",
         }
-        assert "batch_num" not in result
+        assert "sheet_num" not in result
         assert "parent_run_id" not in result
 
     def test_to_dict_includes_all_set_values(self):
@@ -515,7 +515,7 @@ class TestExecutionContext:
         ctx = ExecutionContext(
             job_id="test-job",
             run_id="run-123",
-            batch_num=5,
+            sheet_num=5,
             component="runner",
             parent_run_id="parent-run",
         )
@@ -524,7 +524,7 @@ class TestExecutionContext:
         assert result == {
             "job_id": "test-job",
             "run_id": "run-123",
-            "batch_num": 5,
+            "sheet_num": 5,
             "component": "runner",
             "parent_run_id": "parent-run",
         }
@@ -690,7 +690,7 @@ class TestAddContextProcessor:
         ctx = ExecutionContext(
             job_id="test-job",
             run_id="run-123",
-            batch_num=5,
+            sheet_num=5,
             component="runner",
         )
         set_context(ctx)
@@ -700,7 +700,7 @@ class TestAddContextProcessor:
 
         assert result["job_id"] == "test-job"
         assert result["run_id"] == "run-123"
-        assert result["batch_num"] == 5
+        assert result["sheet_num"] == 5
         assert result["component"] == "runner"
 
     def test_add_context_preserves_explicit_values(self):
@@ -777,7 +777,7 @@ class TestContextIntegration:
         ctx = ExecutionContext(
             job_id="my-job",
             run_id="run-abc",
-            batch_num=3,
+            sheet_num=3,
         )
 
         with with_context(ctx):
@@ -789,7 +789,7 @@ class TestContextIntegration:
 
         assert log_entry["job_id"] == "my-job"
         assert log_entry["run_id"] == "run-abc"
-        assert log_entry["batch_num"] == 3
+        assert log_entry["sheet_num"] == 3
         assert log_entry["component"] == "test-component"
         assert log_entry["extra_field"] == "value"
 
@@ -1025,7 +1025,7 @@ class TestStateBackendLogging:
         state = CheckpointState(
             job_id="test-job",
             job_name="Test Job",
-            total_batches=10,
+            total_sheets=10,
             status=JobStatus.RUNNING,
         )
 
@@ -1036,7 +1036,7 @@ class TestStateBackendLogging:
         assert "checkpoint_saved" in err
         assert "job_id=test-job" in err
         assert "status=running" in err
-        assert "total_batches=10" in err
+        assert "total_sheets=10" in err
 
     @pytest.mark.asyncio
     async def test_json_backend_load_logs_info(
@@ -1059,8 +1059,8 @@ class TestStateBackendLogging:
         state = CheckpointState(
             job_id="test-job",
             job_name="Test Job",
-            total_batches=10,
-            last_completed_batch=5,
+            total_sheets=10,
+            last_completed_sheet=5,
             status=JobStatus.RUNNING,
         )
 
@@ -1074,7 +1074,7 @@ class TestStateBackendLogging:
         err = strip_ansi(captured.err)
         assert "checkpoint_loaded" in err
         assert "job_id=test-job" in err
-        assert "last_completed_batch=5" in err
+        assert "last_completed_sheet=5" in err
 
     @pytest.mark.asyncio
     async def test_json_backend_corruption_logs_error(
@@ -1126,7 +1126,7 @@ class TestCheckpointStateTransitionLogging:
         for handler in root_logger.handlers[:]:
             root_logger.removeHandler(handler)
 
-    def test_batch_started_logs_debug(self, capsys: pytest.CaptureFixture[str]):
+    def test_sheet_started_logs_debug(self, capsys: pytest.CaptureFixture[str]):
         """Test that batch started transition logs debug message."""
         from mozart.core.checkpoint import CheckpointState
 
@@ -1139,20 +1139,20 @@ class TestCheckpointStateTransitionLogging:
         state = CheckpointState(
             job_id="test-job",
             job_name="Test Job",
-            total_batches=10,
+            total_sheets=10,
         )
 
-        state.mark_batch_started(1)
+        state.mark_sheet_started(1)
 
         # Capture console output (goes to stderr)
         captured = capsys.readouterr()
         err = strip_ansi(captured.err)
-        assert "batch_started" in err
+        assert "sheet_started" in err
         assert "job_id=test-job" in err
-        assert "batch_num=1" in err
+        assert "sheet_num=1" in err
         assert "attempt_count=1" in err
 
-    def test_batch_completed_logs_debug(self, capsys: pytest.CaptureFixture[str]):
+    def test_sheet_completed_logs_debug(self, capsys: pytest.CaptureFixture[str]):
         """Test that batch completed transition logs debug message."""
         from mozart.core.checkpoint import CheckpointState
 
@@ -1165,19 +1165,19 @@ class TestCheckpointStateTransitionLogging:
         state = CheckpointState(
             job_id="test-job",
             job_name="Test Job",
-            total_batches=10,
+            total_sheets=10,
         )
 
-        state.mark_batch_started(1)
+        state.mark_sheet_started(1)
         capsys.readouterr()  # Clear the start log
 
-        state.mark_batch_completed(1, validation_passed=True)
+        state.mark_sheet_completed(1, validation_passed=True)
 
         captured = capsys.readouterr()
         err = strip_ansi(captured.err)
-        assert "batch_completed" in err
+        assert "sheet_completed" in err
         assert "job_id=test-job" in err
-        assert "batch_num=1" in err
+        assert "sheet_num=1" in err
         assert "validation_passed=True" in err
 
     def test_job_failed_logs_error(self, capsys: pytest.CaptureFixture[str]):
@@ -1193,7 +1193,7 @@ class TestCheckpointStateTransitionLogging:
         state = CheckpointState(
             job_id="test-job",
             job_name="Test Job",
-            total_batches=10,
+            total_sheets=10,
         )
 
         state.mark_job_failed("Test failure message")
@@ -1217,7 +1217,7 @@ class TestCheckpointStateTransitionLogging:
         state = CheckpointState(
             job_id="test-job",
             job_name="Test Job",
-            total_batches=10,
+            total_sheets=10,
             status=JobStatus.RUNNING,
         )
 

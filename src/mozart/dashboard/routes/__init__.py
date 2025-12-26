@@ -8,7 +8,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from mozart.core.checkpoint import BatchStatus, CheckpointState, JobStatus
+from mozart.core.checkpoint import CheckpointState, JobStatus, SheetStatus
 from mozart.dashboard.app import get_state_backend
 from mozart.state.base import StateBackend
 
@@ -20,11 +20,11 @@ router = APIRouter(prefix="/api", tags=["Jobs"])
 # ============================================================================
 
 
-class BatchSummary(BaseModel):
-    """Summarized batch information for list views."""
+class SheetSummary(BaseModel):
+    """Summarized sheet information for list views."""
 
-    batch_num: int
-    status: BatchStatus
+    sheet_num: int
+    status: SheetStatus
     attempt_count: int = 0
     validation_passed: bool | None = None
 
@@ -35,8 +35,8 @@ class JobSummary(BaseModel):
     job_id: str
     job_name: str
     status: JobStatus
-    total_batches: int
-    completed_batches: int
+    total_sheets: int
+    completed_sheets: int
     progress_percent: float
     created_at: datetime
     updated_at: datetime
@@ -49,8 +49,8 @@ class JobSummary(BaseModel):
             job_id=state.job_id,
             job_name=state.job_name,
             status=state.status,
-            total_batches=total,
-            completed_batches=completed,
+            total_sheets=total,
+            completed_sheets=completed,
             progress_percent=state.get_progress_percent(),
             created_at=state.created_at,
             updated_at=state.updated_at,
@@ -63,9 +63,9 @@ class JobDetail(BaseModel):
     job_id: str
     job_name: str
     status: JobStatus
-    total_batches: int
-    last_completed_batch: int
-    current_batch: int | None
+    total_sheets: int
+    last_completed_sheet: int
+    current_sheet: int | None
     progress_percent: float
     created_at: datetime
     updated_at: datetime
@@ -74,27 +74,27 @@ class JobDetail(BaseModel):
     error_message: str | None
     total_retry_count: int
     rate_limit_waits: int
-    batches: list[BatchSummary]
+    sheets: list[SheetSummary]
 
     @classmethod
     def from_checkpoint(cls, state: CheckpointState) -> "JobDetail":
         """Create from CheckpointState."""
-        batches = [
-            BatchSummary(
-                batch_num=b.batch_num,
-                status=b.status,
-                attempt_count=b.attempt_count,
-                validation_passed=b.validation_passed,
+        sheets = [
+            SheetSummary(
+                sheet_num=s.sheet_num,
+                status=s.status,
+                attempt_count=s.attempt_count,
+                validation_passed=s.validation_passed,
             )
-            for b in sorted(state.batches.values(), key=lambda x: x.batch_num)
+            for s in sorted(state.sheets.values(), key=lambda x: x.sheet_num)
         ]
         return cls(
             job_id=state.job_id,
             job_name=state.job_name,
             status=state.status,
-            total_batches=state.total_batches,
-            last_completed_batch=state.last_completed_batch,
-            current_batch=state.current_batch,
+            total_sheets=state.total_sheets,
+            last_completed_sheet=state.last_completed_sheet,
+            current_sheet=state.current_sheet,
             progress_percent=state.get_progress_percent(),
             created_at=state.created_at,
             updated_at=state.updated_at,
@@ -103,7 +103,7 @@ class JobDetail(BaseModel):
             error_message=state.error_message,
             total_retry_count=state.total_retry_count,
             rate_limit_waits=state.rate_limit_waits,
-            batches=batches,
+            sheets=sheets,
         )
 
 
@@ -113,9 +113,9 @@ class JobStatusResponse(BaseModel):
     job_id: str
     status: JobStatus
     progress_percent: float
-    completed_batches: int
-    total_batches: int
-    current_batch: int | None
+    completed_sheets: int
+    total_sheets: int
+    current_sheet: int | None
     error_message: str | None
     updated_at: datetime
 
@@ -127,9 +127,9 @@ class JobStatusResponse(BaseModel):
             job_id=state.job_id,
             status=state.status,
             progress_percent=state.get_progress_percent(),
-            completed_batches=completed,
-            total_batches=total,
-            current_batch=state.current_batch,
+            completed_sheets=completed,
+            total_sheets=total,
+            current_sheet=state.current_sheet,
             error_message=state.error_message,
             updated_at=state.updated_at,
         )

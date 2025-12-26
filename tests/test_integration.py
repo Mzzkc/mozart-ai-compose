@@ -22,7 +22,7 @@ from typer.testing import CliRunner
 
 from mozart.backends.base import ExecutionResult
 from mozart.cli import app
-from mozart.core.checkpoint import BatchState, BatchStatus, CheckpointState, JobStatus
+from mozart.core.checkpoint import SheetState, SheetStatus, CheckpointState, JobStatus
 from mozart.core.config import JobConfig
 from mozart.dashboard import create_app
 from mozart.execution.runner import JobRunner, RunSummary
@@ -99,7 +99,7 @@ def workspace_with_config(tmp_path: Path, sample_config_dict: dict) -> tuple[Pat
     config_path = tmp_path / "test-job.yaml"
     # Modify config for integration test
     config_dict = sample_config_dict.copy()
-    config_dict["batch"]["total_items"] = 20  # 2 batches of size 10
+    config_dict["sheet"]["total_items"] = 20  # 2 sheets of size 10
     config_dict["validations"] = []  # No validations for simpler tests
 
     with open(config_path, "w") as f:
@@ -118,8 +118,8 @@ def multi_job_workspace(tmp_path: Path) -> Path:
         CheckpointState(
             job_id="job-completed-1",
             job_name="Completed Job 1",
-            total_batches=5,
-            last_completed_batch=5,
+            total_sheets=5,
+            last_completed_sheet=5,
             status=JobStatus.COMPLETED,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
@@ -127,8 +127,8 @@ def multi_job_workspace(tmp_path: Path) -> Path:
         CheckpointState(
             job_id="job-running-2",
             job_name="Running Job 2",
-            total_batches=10,
-            last_completed_batch=5,
+            total_sheets=10,
+            last_completed_sheet=5,
             status=JobStatus.RUNNING,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
@@ -136,8 +136,8 @@ def multi_job_workspace(tmp_path: Path) -> Path:
         CheckpointState(
             job_id="job-failed-3",
             job_name="Failed Job 3",
-            total_batches=8,
-            last_completed_batch=3,
+            total_sheets=8,
+            last_completed_sheet=3,
             status=JobStatus.FAILED,
             error_message="Max retries exceeded",
             created_at=datetime.now(UTC),
@@ -146,14 +146,14 @@ def multi_job_workspace(tmp_path: Path) -> Path:
         CheckpointState(
             job_id="job-paused-4",
             job_name="Paused Job 4",
-            total_batches=6,
-            last_completed_batch=2,
+            total_sheets=6,
+            last_completed_sheet=2,
             status=JobStatus.PAUSED,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             config_snapshot={
                 "name": "job-paused-4",
-                "batch": {"size": 5, "total_items": 30},
+                "sheet": {"size": 5, "total_items": 30},
                 "prompt": {"template": "Test"},
             },
         ),
@@ -198,21 +198,21 @@ class TestRunStatusResumeWorkflow:
         state = CheckpointState(
             job_id="integration-test-job",
             job_name="Integration Test Job",
-            total_batches=3,
-            last_completed_batch=2,
+            total_sheets=3,
+            last_completed_sheet=2,
             status=JobStatus.RUNNING,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
-            batches={
-                1: BatchState(
-                    batch_num=1,
-                    status=BatchStatus.COMPLETED,
+            sheets={
+                1: SheetState(
+                    sheet_num=1,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                 ),
-                2: BatchState(
-                    batch_num=2,
-                    status=BatchStatus.COMPLETED,
+                2: SheetState(
+                    sheet_num=2,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                 ),
@@ -242,25 +242,25 @@ class TestRunStatusResumeWorkflow:
         state = CheckpointState(
             job_id="resume-test-job",
             job_name="Resume Test Job",
-            total_batches=5,
-            last_completed_batch=2,
+            total_sheets=5,
+            last_completed_sheet=2,
             status=JobStatus.PAUSED,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             config_snapshot={
                 "name": "resume-test-job",
-                "batch": {"size": 10, "total_items": 50},
-                "prompt": {"template": "Process batch {{ batch_num }}"},
+                "sheet": {"size": 10, "total_items": 50},
+                "prompt": {"template": "Process batch {{ sheet_num }}"},
                 "backend": {"type": "claude_cli", "skip_permissions": True},
                 "retry": {"max_retries": 2},
                 "validations": [],
             },
-            batches={
-                1: BatchState(
-                    batch_num=1, status=BatchStatus.COMPLETED, attempt_count=1
+            sheets={
+                1: SheetState(
+                    sheet_num=1, status=SheetStatus.COMPLETED, attempt_count=1
                 ),
-                2: BatchState(
-                    batch_num=2, status=BatchStatus.COMPLETED, attempt_count=1
+                2: SheetState(
+                    sheet_num=2, status=SheetStatus.COMPLETED, attempt_count=1
                 ),
             },
         )
@@ -273,17 +273,17 @@ class TestRunStatusResumeWorkflow:
             completed_state = CheckpointState(
                 job_id="resume-test-job",
                 job_name="Resume Test Job",
-                total_batches=5,
-                last_completed_batch=5,
+                total_sheets=5,
+                last_completed_sheet=5,
                 status=JobStatus.COMPLETED,
             )
             mock_summary = RunSummary(
                 job_id="resume-test-job",
                 job_name="Resume Test Job",
-                total_batches=5,
-                completed_batches=3,
-                failed_batches=0,
-                skipped_batches=0,
+                total_sheets=5,
+                completed_sheets=3,
+                failed_sheets=0,
+                skipped_sheets=0,
             )
             mock_runner.run = AsyncMock(return_value=(completed_state, mock_summary))
             mock_runner_cls.return_value = mock_runner
@@ -312,8 +312,8 @@ class TestRunStatusResumeWorkflow:
             "name": "e2e-test-job",
             "description": "End-to-end test",
             "backend": {"type": "claude_cli", "skip_permissions": True},
-            "batch": {"size": 5, "total_items": 15},  # 3 batches
-            "prompt": {"template": "Process batch {{ batch_num }}"},
+            "sheet": {"size": 5, "total_items": 15},  # 3 batches
+            "prompt": {"template": "Process batch {{ sheet_num }}"},
             "retry": {"max_retries": 1},
             "validations": [],
         }
@@ -326,16 +326,16 @@ class TestRunStatusResumeWorkflow:
         paused_state = CheckpointState(
             job_id="e2e-test-job",
             job_name="End-to-end test",
-            total_batches=3,
-            last_completed_batch=1,
+            total_sheets=3,
+            last_completed_sheet=1,
             status=JobStatus.PAUSED,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             config_snapshot=config_dict,
-            batches={
-                1: BatchState(
-                    batch_num=1,
-                    status=BatchStatus.COMPLETED,
+            sheets={
+                1: SheetState(
+                    sheet_num=1,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                 ),
@@ -359,17 +359,17 @@ class TestRunStatusResumeWorkflow:
             completed_state = CheckpointState(
                 job_id="e2e-test-job",
                 job_name="End-to-end test",
-                total_batches=3,
-                last_completed_batch=3,
+                total_sheets=3,
+                last_completed_sheet=3,
                 status=JobStatus.COMPLETED,
             )
             mock_summary = RunSummary(
                 job_id="e2e-test-job",
                 job_name="End-to-end test",
-                total_batches=3,
-                completed_batches=2,  # Resumed from batch 2
-                failed_batches=0,
-                skipped_batches=0,
+                total_sheets=3,
+                completed_sheets=2,  # Resumed from batch 2
+                failed_sheets=0,
+                skipped_sheets=0,
             )
             mock_runner = AsyncMock()
             mock_runner.run = AsyncMock(return_value=(completed_state, mock_summary))
@@ -500,8 +500,8 @@ class TestDashboardAPIIntegration:
         job = CheckpointState(
             job_id="dashboard-test-job",
             job_name="Dashboard Test Job",
-            total_batches=5,
-            last_completed_batch=3,
+            total_sheets=5,
+            last_completed_sheet=3,
             status=JobStatus.RUNNING,
         )
         state_file = dashboard_workspace / f"{job.job_id}.json"
@@ -522,7 +522,7 @@ class TestDashboardAPIIntegration:
         job_data = response.json()
         assert job_data["job_id"] == "dashboard-test-job"
         assert job_data["status"] == "running"
-        assert job_data["total_batches"] == 5
+        assert job_data["total_sheets"] == 5
 
     def test_dashboard_404_for_missing_job(
         self, dashboard_client: TestClient
@@ -624,8 +624,8 @@ class TestStateBackendIntegration:
         state = CheckpointState(
             job_id="persistence-test",
             job_name="Persistence Test",
-            total_batches=5,
-            last_completed_batch=2,
+            total_sheets=5,
+            last_completed_sheet=2,
             status=JobStatus.RUNNING,
         )
         await backend.save(state)
@@ -635,7 +635,7 @@ class TestStateBackendIntegration:
         assert loaded is not None
         assert loaded.job_id == "persistence-test"
         assert loaded.status == JobStatus.RUNNING
-        assert loaded.last_completed_batch == 2
+        assert loaded.last_completed_sheet == 2
 
     @pytest.mark.asyncio
     async def test_json_backend_list_jobs(self, tmp_path: Path) -> None:
@@ -647,8 +647,8 @@ class TestStateBackendIntegration:
             state = CheckpointState(
                 job_id=f"list-test-{i}",
                 job_name=f"List Test {i}",
-                total_batches=5,
-                last_completed_batch=i,
+                total_sheets=5,
+                last_completed_sheet=i,
                 status=JobStatus.COMPLETED if i == 2 else JobStatus.RUNNING,
             )
             await backend.save(state)
@@ -671,17 +671,17 @@ class TestStateBackendIntegration:
         state = CheckpointState(
             job_id="update-test",
             job_name="Update Test",
-            total_batches=5,
-            last_completed_batch=0,
+            total_sheets=5,
+            last_completed_sheet=0,
             status=JobStatus.PENDING,
         )
         await backend.save(state)
 
         # Update state
         state.status = JobStatus.RUNNING
-        state.last_completed_batch = 3
-        state.batches[1] = BatchState(
-            batch_num=1, status=BatchStatus.COMPLETED, attempt_count=1
+        state.last_completed_sheet = 3
+        state.sheets[1] = SheetState(
+            sheet_num=1, status=SheetStatus.COMPLETED, attempt_count=1
         )
         await backend.save(state)
 
@@ -689,9 +689,9 @@ class TestStateBackendIntegration:
         loaded = await backend.load("update-test")
         assert loaded is not None
         assert loaded.status == JobStatus.RUNNING
-        assert loaded.last_completed_batch == 3
-        assert 1 in loaded.batches
-        assert loaded.batches[1].status == BatchStatus.COMPLETED
+        assert loaded.last_completed_sheet == 3
+        assert 1 in loaded.sheets
+        assert loaded.sheets[1].status == SheetStatus.COMPLETED
 
 
 # ============================================================================
@@ -738,8 +738,8 @@ class TestErrorHandlingIntegration:
         state = CheckpointState(
             job_id="no-config",
             job_name="No Config Job",
-            total_batches=5,
-            last_completed_batch=2,
+            total_sheets=5,
+            last_completed_sheet=2,
             status=JobStatus.PAUSED,
             config_snapshot=None,
         )

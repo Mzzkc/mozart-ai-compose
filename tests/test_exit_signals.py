@@ -4,7 +4,7 @@ Tests cover:
 - ExecutionResult signal fields
 - ClaudeCliBackend signal detection
 - ErrorClassifier signal handling
-- BatchState signal persistence
+- SheetState signal persistence
 """
 
 import signal
@@ -14,7 +14,7 @@ import pytest
 
 from mozart.backends.base import ExecutionResult, ExitReason
 from mozart.backends.claude_cli import ClaudeCliBackend, get_signal_name, SIGNAL_NAMES
-from mozart.core.checkpoint import BatchState, BatchStatus
+from mozart.core.checkpoint import SheetState, SheetStatus
 from mozart.core.errors import (
     ClassifiedError,
     ErrorCategory,
@@ -431,24 +431,24 @@ class TestErrorClassifierBackwardsCompatibility:
 
 
 # ============================================================================
-# BatchState Signal Fields Tests
+# SheetState Signal Fields Tests
 # ============================================================================
 
 
-class TestBatchStateSignalFields:
-    """Test BatchState with new signal fields."""
+class TestSheetStateSignalFields:
+    """Test SheetState with new signal fields."""
 
     def test_new_fields_default_none(self) -> None:
         """Test new fields default to None for backwards compatibility."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
         assert state.exit_signal is None
         assert state.exit_reason is None
         assert state.execution_duration_seconds is None
 
     def test_set_signal_fields(self) -> None:
         """Test setting signal fields."""
-        state = BatchState(
-            batch_num=1,
+        state = SheetState(
+            sheet_num=1,
             exit_signal=signal.SIGTERM,
             exit_reason="killed",
             execution_duration_seconds=15.5,
@@ -459,9 +459,9 @@ class TestBatchStateSignalFields:
 
     def test_serialization_with_signal(self) -> None:
         """Test JSON serialization includes signal fields."""
-        state = BatchState(
-            batch_num=1,
-            status=BatchStatus.FAILED,
+        state = SheetState(
+            sheet_num=1,
+            status=SheetStatus.FAILED,
             exit_signal=9,  # SIGKILL
             exit_reason="timeout",
             execution_duration_seconds=30.0,
@@ -475,11 +475,11 @@ class TestBatchStateSignalFields:
         """Test deserialization handles missing new fields (backwards compat)."""
         # Simulate old state file without new fields
         old_data = {
-            "batch_num": 1,
+            "sheet_num": 1,
             "status": "completed",
             "exit_code": 0,
         }
-        state = BatchState.model_validate(old_data)
+        state = SheetState.model_validate(old_data)
         assert state.exit_signal is None
         assert state.exit_reason is None
         assert state.execution_duration_seconds is None
@@ -487,8 +487,8 @@ class TestBatchStateSignalFields:
     def test_combined_with_exit_code(self) -> None:
         """Test state can have both exit_code and signal fields."""
         # Normal exit has exit_code, no signal
-        state = BatchState(
-            batch_num=1,
+        state = SheetState(
+            sheet_num=1,
             exit_code=0,
             exit_signal=None,
             exit_reason="completed",
@@ -498,8 +498,8 @@ class TestBatchStateSignalFields:
         assert state.exit_signal is None
 
         # Signal exit has no exit_code, has signal
-        state2 = BatchState(
-            batch_num=2,
+        state2 = SheetState(
+            sheet_num=2,
             exit_code=None,
             exit_signal=15,
             exit_reason="killed",
@@ -570,8 +570,8 @@ class TestSignalIntegration:
         assert error.retriable is True
         assert error.exit_signal == signal.SIGKILL
 
-    def test_batch_state_from_execution_result(self) -> None:
-        """Test populating BatchState from ExecutionResult."""
+    def test_sheet_state_from_execution_result(self) -> None:
+        """Test populating SheetState from ExecutionResult."""
         result = ExecutionResult(
             success=False,
             stdout="",
@@ -582,9 +582,9 @@ class TestSignalIntegration:
             exit_reason="killed",
         )
 
-        state = BatchState(
-            batch_num=1,
-            status=BatchStatus.FAILED,
+        state = SheetState(
+            sheet_num=1,
+            status=SheetStatus.FAILED,
             exit_code=result.exit_code,
             exit_signal=result.exit_signal,
             exit_reason=result.exit_reason,

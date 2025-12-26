@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from mozart.core.checkpoint import BatchState, BatchStatus, CheckpointState, JobStatus
+from mozart.core.checkpoint import SheetState, SheetStatus, CheckpointState, JobStatus
 from mozart.dashboard import create_app
 from mozart.dashboard.app import get_state_backend
 from mozart.state.json_backend import JsonStateBackend
@@ -44,26 +44,26 @@ def sample_job() -> CheckpointState:
     return CheckpointState(
         job_id="test-job-123",
         job_name="Test Job",
-        total_batches=5,
+        total_sheets=5,
         status=JobStatus.RUNNING,
-        last_completed_batch=2,
-        current_batch=3,
-        batches={
-            1: BatchState(
-                batch_num=1,
-                status=BatchStatus.COMPLETED,
+        last_completed_sheet=2,
+        current_sheet=3,
+        sheets={
+            1: SheetState(
+                sheet_num=1,
+                status=SheetStatus.COMPLETED,
                 attempt_count=1,
                 validation_passed=True,
             ),
-            2: BatchState(
-                batch_num=2,
-                status=BatchStatus.COMPLETED,
+            2: SheetState(
+                sheet_num=2,
+                status=SheetStatus.COMPLETED,
                 attempt_count=2,
                 validation_passed=True,
             ),
-            3: BatchState(
-                batch_num=3,
-                status=BatchStatus.IN_PROGRESS,
+            3: SheetState(
+                sheet_num=3,
+                status=SheetStatus.IN_PROGRESS,
                 attempt_count=1,
             ),
         },
@@ -76,14 +76,14 @@ def completed_job() -> CheckpointState:
     return CheckpointState(
         job_id="completed-job-456",
         job_name="Completed Job",
-        total_batches=3,
+        total_sheets=3,
         status=JobStatus.COMPLETED,
-        last_completed_batch=3,
+        last_completed_sheet=3,
         completed_at=datetime.now(UTC),
-        batches={
-            i: BatchState(
-                batch_num=i,
-                status=BatchStatus.COMPLETED,
+        sheets={
+            i: SheetState(
+                sheet_num=i,
+                status=SheetStatus.COMPLETED,
                 attempt_count=1,
                 validation_passed=True,
             )
@@ -98,20 +98,20 @@ def failed_job() -> CheckpointState:
     return CheckpointState(
         job_id="failed-job-789",
         job_name="Failed Job",
-        total_batches=4,
+        total_sheets=4,
         status=JobStatus.FAILED,
-        last_completed_batch=1,
+        last_completed_sheet=1,
         error_message="Batch 2 validation failed",
-        batches={
-            1: BatchState(
-                batch_num=1,
-                status=BatchStatus.COMPLETED,
+        sheets={
+            1: SheetState(
+                sheet_num=1,
+                status=SheetStatus.COMPLETED,
                 attempt_count=1,
                 validation_passed=True,
             ),
-            2: BatchState(
-                batch_num=2,
-                status=BatchStatus.FAILED,
+            2: SheetState(
+                sheet_num=2,
+                status=SheetStatus.FAILED,
                 attempt_count=3,
                 error_message="Validation failed",
             ),
@@ -246,8 +246,8 @@ class TestListJobs:
         data = response.json()
         job = data["jobs"][0]
 
-        assert job["total_batches"] == 5
-        assert job["completed_batches"] == 2
+        assert job["total_sheets"] == 5
+        assert job["completed_sheets"] == 2
         assert job["progress_percent"] == 40.0
 
 
@@ -275,10 +275,10 @@ class TestGetJob:
         assert data["job_id"] == "test-job-123"
         assert data["job_name"] == "Test Job"
         assert data["status"] == "running"
-        assert data["total_batches"] == 5
-        assert data["last_completed_batch"] == 2
-        assert data["current_batch"] == 3
-        assert len(data["batches"]) == 3
+        assert data["total_sheets"] == 5
+        assert data["last_completed_sheet"] == 2
+        assert data["current_sheet"] == 3
+        assert len(data["sheets"]) == 3
 
     def test_get_job_not_found(self, app: TestClient) -> None:
         """Get job returns 404 for missing job."""
@@ -297,11 +297,11 @@ class TestGetJob:
 
         response = app.get("/api/jobs/test-job-123")
         data = response.json()
-        batches = data["batches"]
+        batches = data["sheets"]
 
         # Check batch data
         assert len(batches) == 3
-        batch_by_num = {b["batch_num"]: b for b in batches}
+        batch_by_num = {b["sheet_num"]: b for b in batches}
 
         assert batch_by_num[1]["status"] == "completed"
         assert batch_by_num[1]["validation_passed"] is True
@@ -348,9 +348,9 @@ class TestGetJobStatus:
         assert data["job_id"] == "test-job-123"
         assert data["status"] == "running"
         assert data["progress_percent"] == 40.0
-        assert data["completed_batches"] == 2
-        assert data["total_batches"] == 5
-        assert data["current_batch"] == 3
+        assert data["completed_sheets"] == 2
+        assert data["total_sheets"] == 5
+        assert data["current_sheet"] == 3
 
     def test_get_status_not_found(self, app: TestClient) -> None:
         """Status endpoint returns 404 for missing job."""

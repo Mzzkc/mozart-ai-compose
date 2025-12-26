@@ -1,7 +1,7 @@
 """Structured logging infrastructure for Mozart.
 
 Provides structured JSON logging using structlog with Mozart-specific context
-such as job_id, batch_num, and component names. Supports both console and
+such as job_id, sheet_num, and component names. Supports both console and
 file output with log rotation.
 
 Example usage:
@@ -14,10 +14,10 @@ Example usage:
     logger = get_logger("runner")
 
     # Log with auto-context
-    logger.info("starting_batch", batch_num=5)
+    logger.info("starting_batch", sheet_num=5)
 
     # Bind context for a scope
-    ctx_logger = logger.bind(job_id="my-job", batch_num=1)
+    ctx_logger = logger.bind(job_id="my-job", sheet_num=1)
     ctx_logger.debug("executing_prompt")
 
     # Use execution context for automatic correlation
@@ -294,30 +294,30 @@ class ExecutionContext:
     Attributes:
         job_id: The job identifier (from config name).
         run_id: Unique execution run ID (UUID), unique per `mozart run` invocation.
-        batch_num: Current batch number being processed (None if not in batch).
+        sheet_num: Current batch number being processed (None if not in batch).
         component: Component name for the current operation (e.g., "runner", "backend").
         parent_run_id: Optional parent run ID for nested operations (e.g., sub-jobs).
     """
 
     job_id: str
     run_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    batch_num: int | None = None
+    sheet_num: int | None = None
     component: str = "unknown"
     parent_run_id: str | None = None
 
-    def with_batch(self, batch_num: int) -> ExecutionContext:
+    def with_batch(self, sheet_num: int) -> ExecutionContext:
         """Create a new context with the specified batch number.
 
         Args:
-            batch_num: The batch number to set.
+            sheet_num: The batch number to set.
 
         Returns:
-            A new ExecutionContext with the batch_num field updated.
+            A new ExecutionContext with the sheet_num field updated.
         """
         return ExecutionContext(
             job_id=self.job_id,
             run_id=self.run_id,
-            batch_num=batch_num,
+            sheet_num=sheet_num,
             component=self.component,
             parent_run_id=self.parent_run_id,
         )
@@ -334,7 +334,7 @@ class ExecutionContext:
         return ExecutionContext(
             job_id=self.job_id,
             run_id=self.run_id,
-            batch_num=self.batch_num,
+            sheet_num=self.sheet_num,
             component=component,
             parent_run_id=self.parent_run_id,
         )
@@ -354,7 +354,7 @@ class ExecutionContext:
         return ExecutionContext(
             job_id=self.job_id,
             run_id=child_run_id or str(uuid.uuid4()),
-            batch_num=self.batch_num,
+            sheet_num=self.sheet_num,
             component=self.component,
             parent_run_id=self.run_id,
         )
@@ -370,8 +370,8 @@ class ExecutionContext:
             "run_id": self.run_id,
             "component": self.component,
         }
-        if self.batch_num is not None:
-            result["batch_num"] = self.batch_num
+        if self.sheet_num is not None:
+            result["sheet_num"] = self.sheet_num
         if self.parent_run_id is not None:
             result["parent_run_id"] = self.parent_run_id
         return result
@@ -414,7 +414,7 @@ def with_context(ctx: ExecutionContext) -> Iterator[ExecutionContext]:
     """Context manager that sets ExecutionContext for the duration of a block.
 
     All log calls within the block will automatically include the context fields
-    (job_id, run_id, batch_num, etc.) when the _add_context processor is active.
+    (job_id, run_id, sheet_num, etc.) when the _add_context processor is active.
 
     Args:
         ctx: The ExecutionContext to use for the block.
@@ -506,7 +506,7 @@ def _add_context(
     """Structlog processor that adds ExecutionContext fields to log entries.
 
     Retrieves the current ExecutionContext from the ContextVar and adds its
-    fields (job_id, run_id, batch_num, etc.) to the event dict. Fields from
+    fields (job_id, run_id, sheet_num, etc.) to the event dict. Fields from
     the context are only added if they are not already present in the event
     dict (explicit bindings take precedence).
 
@@ -532,10 +532,10 @@ class MozartLogger:
     """Mozart-specific logger wrapper around structlog.
 
     Provides methods for debug, info, warning, error, and critical logging
-    with automatic inclusion of Mozart context (job_id, batch_num, component).
+    with automatic inclusion of Mozart context (job_id, sheet_num, component).
 
     The logger is bound to a component name and can have additional context
-    bound for a specific scope (e.g., job_id, batch_num).
+    bound for a specific scope (e.g., job_id, sheet_num).
 
     Note: This class uses lazy logger initialization to ensure that loggers
     created at module import time still respect configuration set later via
@@ -570,7 +570,7 @@ class MozartLogger:
         """Create a new logger with additional bound context.
 
         Args:
-            **context: Additional context to bind (e.g., job_id, batch_num).
+            **context: Additional context to bind (e.g., job_id, sheet_num).
 
         Returns:
             A new MozartLogger with the additional context bound.
@@ -746,7 +746,7 @@ def configure_logging(
         backup_count: Number of rotated log files to keep.
         include_timestamps: Whether to include ISO8601 timestamps in log entries.
         include_context: Whether to include ExecutionContext fields (job_id, run_id,
-            batch_num) in log entries when a context is active.
+            sheet_num) in log entries when a context is active.
         compress_logs: Whether to compress rotated log files with gzip (default: True).
 
     Raises:
@@ -836,7 +836,7 @@ def get_logger(component: str, **initial_context: Any) -> MozartLogger:
     """Get a Mozart logger for a component.
 
     The returned logger will automatically include ExecutionContext fields
-    (job_id, run_id, batch_num) when logging inside a `with_context()` block.
+    (job_id, run_id, sheet_num) when logging inside a `with_context()` block.
 
     Args:
         component: The component name (e.g., "runner", "backend", "validator").

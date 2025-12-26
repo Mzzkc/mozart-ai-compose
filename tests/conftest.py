@@ -71,12 +71,12 @@ def sample_config_dict() -> dict:
             "type": "claude_cli",
             "skip_permissions": True,
         },
-        "batch": {
+        "sheet": {
             "size": 10,
             "total_items": 30,
         },
         "prompt": {
-            "template": "Process batch {{ batch_num }} of {{ total_batches }}.",
+            "template": "Process batch {{ sheet_num }} of {{ total_sheets }}.",
         },
         "retry": {
             "max_retries": 2,
@@ -84,7 +84,7 @@ def sample_config_dict() -> dict:
         "validations": [
             {
                 "type": "file_exists",
-                "path": "{workspace}/output-{batch_num}.txt",
+                "path": "{workspace}/output-{sheet_num}.txt",
                 "description": "Output file exists",
             },
         ],

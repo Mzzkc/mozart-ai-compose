@@ -16,18 +16,18 @@ from mozart.execution.retry_strategy import (
     RetryRecommendation,
     RetryStrategyConfig,
 )
-from mozart.execution.runner import BatchExecutionMode, FatalError, JobRunner
+from mozart.execution.runner import FatalError, JobRunner, SheetExecutionMode
 from mozart.execution.validation import (
-    BatchValidationResult,
     FileModificationTracker,
+    SheetValidationResult,
     ValidationEngine,
     ValidationResult,
 )
 
 __all__ = [
     "AdaptiveRetryStrategy",
-    "BatchExecutionMode",
-    "BatchValidationResult",
+    "SheetExecutionMode",
+    "SheetValidationResult",
     "CircuitBreaker",
     "CircuitBreakerStats",
     "CircuitState",

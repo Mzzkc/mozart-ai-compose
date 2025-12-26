@@ -1,0 +1,190 @@
+# Mozart Config: Rename "batch" to "sheet" throughout codebase
+#
+# This is a meta-orchestration task - Mozart improving itself!
+# The rename makes the codebase more thematically consistent with music.
+
+name: "batch-to-sheet-rename"
+description: "Rename all batch terminology to sheet throughout Mozart codebase"
+
+workspace: "./batch-to-sheet-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  working_directory: "/home/emzi/Projects/mozart-ai-compose"
+  timeout_seconds: 1800
+
+sheet:
+  size: 1
+  total_items: 4
+  start_item: 1
+
+prompt:
+  template: |
+    {{ preamble }}
+
+    {% if sheet_num == 1 %}
+    ============================================================
+    SHEET 1: Core Source Files Rename
+    ============================================================
+
+    Your task: Complete the batch → sheet rename in the core source files.
+
+    Files to process in src/mozart/:
+    - cli.py
+    - execution/runner.py
+    - execution/validation.py
+    - prompts/templating.py
+    - state/*.py
+    - notifications/*.py
+    - learning/*.py
+    - dashboard/*.py
+    - backends/*.py
+    - core/errors.py
+    - core/logging.py
+
+    Replacements to make (be thorough):
+    1. Class names: BatchStatus → SheetStatus, BatchState → SheetState, etc.
+    2. Variable names: sheet_num → sheet_num, total_sheets → total_sheets, etc.
+    3. Method names: mark_batch_started → mark_sheet_started, etc.
+    4. Dict names: .batches → .sheets
+    5. Config refs: config.batch → config.sheet
+    6. String literals: "Batch" → "Sheet", "batch" → "sheet"
+    7. Log event names: batch_start → sheet_start, etc.
+    8. Comments and docstrings
+
+    Use the Edit tool with replace_all=true for efficient bulk replacements.
+
+    After making changes, run:
+    ```bash
+    cd /home/emzi/Projects/mozart-ai-compose
+    source .venv/bin/activate
+    python -c "import mozart.cli" 2>&1 | head -20
+    ```
+
+    Write validation marker to {{ workspace }}/batch1-result.md:
+    ```
+    IMPLEMENTATION_COMPLETE: yes
+    TESTS_PASS: yes
+    TYPES_PASS: yes
+    FILES_UPDATED: [count]
+    ```
+
+    {% elif sheet_num == 2 %}
+    ============================================================
+    SHEET 2: Test Files Rename
+    ============================================================
+
+    Your task: Complete the batch → sheet rename in all test files.
+
+    Files in tests/:
+    - test_config.py
+    - test_checkpoint.py
+    - test_runner.py
+    - test_validation.py
+    - test_cli.py
+    - test_integration.py
+    - test_backends.py
+    - test_notifications.py
+    - test_sqlite_backend.py
+    - All other test_*.py files
+
+    Same replacements as Sheet 1. Be thorough!
+
+    After changes:
+    ```bash
+    cd /home/emzi/Projects/mozart-ai-compose
+    source .venv/bin/activate
+    python -c "import tests" 2>&1 | head -5 || echo "Import check done"
+    ```
+
+    Write validation marker to {{ workspace }}/batch2-result.md
+
+    {% elif sheet_num == 3 %}
+    ============================================================
+    SHEET 3: Example Configs and Documentation
+    ============================================================
+
+    Your task: Update example configs and documentation.
+
+    Files:
+    - examples/*.yaml (update batch: section to sheet:)
+    - docs/*.md
+    - README.md
+    - CLAUDE.md
+
+    YAML changes:
+    - `batch:` section → `sheet:`
+    - sheet_num template var → sheet_num
+    - total_sheets → total_sheets
+
+    Write validation marker to {{ workspace }}/batch3-result.md
+
+    {% elif sheet_num == 4 %}
+    ============================================================
+    SHEET 4: Verify and Test
+    ============================================================
+
+    Your task: Run full test suite and fix any remaining issues.
+
+    Steps:
+    1. Run pytest:
+       ```bash
+       cd /home/emzi/Projects/mozart-ai-compose
+       source .venv/bin/activate
+       pytest tests/ -x -q 2>&1 | tail -50
+       ```
+
+    2. If tests fail, fix the issues.
+
+    3. Run mypy:
+       ```bash
+       mypy src/ 2>&1 | tail -30
+       ```
+
+    4. Fix any type errors.
+
+    5. Verify a config loads:
+       ```bash
+       mozart validate examples/simple-batch.yaml 2>&1
+       ```
+
+    Write validation marker with test results to {{ workspace }}/batch4-result.md
+
+    {% endif %}
+
+    {{ stakes }}
+
+  variables:
+    preamble: |
+      You are completing a codebase-wide rename from "batch" to "sheet" in Mozart.
+
+      Mozart is a batch orchestration tool. We're renaming "batch" to "sheet" to
+      align with the musical theme (Mozart composes sheets of music).
+
+      This is a comprehensive rename - every occurrence must be updated.
+      Be thorough but also efficient - use bulk replacements where possible.
+
+      WORKING DIRECTORY: /home/emzi/Projects/mozart-ai-compose
+
+    stakes: |
+      This rename is important for thematic consistency.
+      Missing any references will cause import or runtime errors.
+      Be thorough!
+
+validations:
+  - type: file_exists
+    path: "{workspace}/batch{sheet_num}-result.md"
+    description: "Batch result file exists"
+
+  - type: content_contains
+    path: "{workspace}/batch{sheet_num}-result.md"
+    pattern: "IMPLEMENTATION_COMPLETE: yes"
+    description: "Batch marked complete"
+
+retry:
+  max_retries: 2
+  max_completion_attempts: 2
+
+state_backend: json
+pause_between_sheets_seconds: 5

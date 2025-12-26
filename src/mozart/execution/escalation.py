@@ -1,4 +1,4 @@
-"""Escalation protocol for low-confidence batch execution decisions.
+"""Escalation protocol for low-confidence sheet execution decisions.
 
 Provides a mechanism for escalating to external decision-makers (human or AI)
 when batch confidence is too low to proceed automatically.
@@ -9,22 +9,22 @@ Phase 2 of AGI Evolution: Confidence-Based Execution
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, runtime_checkable
 
-from mozart.core.checkpoint import BatchState
-from mozart.execution.validation import BatchValidationResult
+from mozart.core.checkpoint import SheetState
+from mozart.execution.validation import SheetValidationResult
 
 
 @dataclass
 class EscalationContext:
     """Context provided to escalation handlers for decision-making.
 
-    Contains all relevant information about the batch execution state
+    Contains all relevant information about the sheet execution state
     that led to escalation.
     """
 
     job_id: str
     """Unique identifier for the job."""
 
-    batch_num: int
+    sheet_num: int
     """Batch number that triggered escalation."""
 
     validation_results: list[dict[str, Any]]
@@ -40,10 +40,10 @@ class EscalationContext:
     """List of error messages from previous attempts."""
 
     prompt_used: str
-    """The prompt that was used for the batch execution."""
+    """The prompt that was used for the sheet execution."""
 
     output_summary: str
-    """Summary of the batch execution output."""
+    """Summary of the sheet execution output."""
 
 
 @dataclass
@@ -83,14 +83,14 @@ class EscalationHandler(Protocol):
 
     async def should_escalate(
         self,
-        batch_state: BatchState,
-        validation_result: BatchValidationResult,
+        sheet_state: SheetState,
+        validation_result: SheetValidationResult,
         confidence: float,
     ) -> bool:
         """Determine if escalation is needed for this batch.
 
         Args:
-            batch_state: Current state of the batch.
+            sheet_state: Current state of the batch.
             validation_result: Results from validation engine.
             confidence: Aggregate confidence score.
 
@@ -135,8 +135,8 @@ class ConsoleEscalationHandler:
 
     async def should_escalate(
         self,
-        batch_state: BatchState,
-        validation_result: BatchValidationResult,
+        sheet_state: SheetState,
+        validation_result: SheetValidationResult,
         confidence: float,
     ) -> bool:
         """Determine if escalation is needed.
@@ -146,7 +146,7 @@ class ConsoleEscalationHandler:
         - AND (not first attempt OR auto_retry_on_first_failure is False)
 
         Args:
-            batch_state: Current batch state.
+            sheet_state: Current sheet state.
             validation_result: Validation results.
             confidence: Aggregate confidence score.
 
@@ -158,7 +158,7 @@ class ConsoleEscalationHandler:
             return False
 
         # Escalate if auto-retry is disabled OR this is not the first attempt
-        return not (self.auto_retry_on_first_failure and batch_state.attempt_count <= 1)
+        return not (self.auto_retry_on_first_failure and sheet_state.attempt_count <= 1)
 
     async def escalate(self, context: EscalationContext) -> EscalationResponse:
         """Prompt user for escalation decision via console.
@@ -179,7 +179,7 @@ class ConsoleEscalationHandler:
         print("ESCALATION REQUIRED - Low Confidence Batch Execution")
         print(separator)
         print(f"Job ID:       {context.job_id}")
-        print(f"Batch:        {context.batch_num}")
+        print(f"Batch:        {context.sheet_num}")
         print(f"Confidence:   {context.confidence:.1%}")
         print(f"Retry Count:  {context.retry_count}")
         print("-" * 60)

@@ -20,7 +20,7 @@ backend:
   working_directory: /path/to/your/project  # CHANGE THIS
   timeout_seconds: 1800  # 30 minutes per task
 
-batch:
+sheet:
   size: 1           # One task per batch (recommended for code changes)
   total_items: 4    # Number of tasks
   start_item: 1     # Resume from this item
@@ -56,7 +56,7 @@ prompt:
     You are improving a codebase incrementally.
 
     Project: {{ project_root }}
-    Task: {{ batch_num }} of {{ total_batches }}
+    Task: {{ sheet_num }} of {{ total_sheets }}
 
     ## Context
     [Describe your project and what you're trying to achieve]
@@ -68,22 +68,22 @@ prompt:
 
     ---
 
-    {% if batch_num == 1 %}
+    {% if sheet_num == 1 %}
     ## Task 1: [First improvement]
 
     [Detailed instructions for task 1]
 
-    {% elif batch_num == 2 %}
+    {% elif sheet_num == 2 %}
     ## Task 2: [Second improvement]
 
     [Detailed instructions for task 2]
 
-    {% elif batch_num == 3 %}
+    {% elif sheet_num == 3 %}
     ## Task 3: [Third improvement]
 
     [Detailed instructions for task 3]
 
-    {% elif batch_num == 4 %}
+    {% elif sheet_num == 4 %}
     ## Task 4: [Final improvement]
 
     [Detailed instructions for task 4]

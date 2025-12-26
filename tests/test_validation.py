@@ -6,7 +6,7 @@ import pytest
 
 from mozart.core.config import ValidationRule
 from mozart.execution.validation import (
-    BatchValidationResult,
+    SheetValidationResult,
     ValidationEngine,
     ValidationResult,
 )
@@ -65,8 +65,8 @@ class TestValidationResult:
         assert data["pattern"] == "SUCCESS"
 
 
-class TestBatchValidationResult:
-    """Tests for BatchValidationResult dataclass."""
+class TestSheetValidationResult:
+    """Tests for SheetValidationResult dataclass."""
 
     def _make_result(
         self, passed: bool, confidence: float = 1.0
@@ -85,22 +85,22 @@ class TestBatchValidationResult:
         """Test all_passed property."""
         result1 = self._make_result(passed=True)
         result2 = self._make_result(passed=True)
-        batch_result = BatchValidationResult(batch_num=1, results=[result1, result2])
+        batch_result = SheetValidationResult(sheet_num=1, results=[result1, result2])
         assert batch_result.all_passed is True
 
     def test_all_passed_false(self):
         """Test all_passed is False when any fails."""
         result1 = self._make_result(passed=True)
         result2 = self._make_result(passed=False)
-        batch_result = BatchValidationResult(batch_num=1, results=[result1, result2])
+        batch_result = SheetValidationResult(sheet_num=1, results=[result1, result2])
         assert batch_result.all_passed is False
 
     def test_pass_percentage(self):
         """Test pass_percentage calculation."""
         passed = self._make_result(passed=True)
         failed = self._make_result(passed=False)
-        batch_result = BatchValidationResult(
-            batch_num=1, results=[passed, passed, failed]
+        batch_result = SheetValidationResult(
+            sheet_num=1, results=[passed, passed, failed]
         )
         assert batch_result.pass_percentage == pytest.approx(66.67, rel=0.01)
 
@@ -110,7 +110,7 @@ class TestBatchValidationResult:
         result1 = self._make_result(passed=True, confidence=0.9)
         # Lower confidence pass
         result2 = self._make_result(passed=True, confidence=0.7)
-        batch_result = BatchValidationResult(batch_num=1, results=[result1, result2])
+        batch_result = SheetValidationResult(sheet_num=1, results=[result1, result2])
         # Both passed, so aggregate is weighted average
         assert batch_result.aggregate_confidence == pytest.approx(0.8, rel=0.01)
 
@@ -118,8 +118,8 @@ class TestBatchValidationResult:
         """Test getting only passed results."""
         passed = self._make_result(passed=True)
         failed = self._make_result(passed=False)
-        batch_result = BatchValidationResult(
-            batch_num=1, results=[passed, failed, passed]
+        batch_result = SheetValidationResult(
+            sheet_num=1, results=[passed, failed, passed]
         )
         assert len(batch_result.get_passed_results()) == 2
 
@@ -127,13 +127,13 @@ class TestBatchValidationResult:
         """Test getting only failed results."""
         passed = self._make_result(passed=True)
         failed = self._make_result(passed=False)
-        batch_result = BatchValidationResult(batch_num=1, results=[passed, failed])
+        batch_result = SheetValidationResult(sheet_num=1, results=[passed, failed])
         assert len(batch_result.get_failed_results()) == 1
 
     def test_passed_count(self):
         """Test passed_count property."""
-        batch_result = BatchValidationResult(
-            batch_num=1,
+        batch_result = SheetValidationResult(
+            sheet_num=1,
             results=[
                 self._make_result(passed=True),
                 self._make_result(passed=True),
@@ -144,8 +144,8 @@ class TestBatchValidationResult:
 
     def test_failed_count(self):
         """Test failed_count property."""
-        batch_result = BatchValidationResult(
-            batch_num=1,
+        batch_result = SheetValidationResult(
+            sheet_num=1,
             results=[
                 self._make_result(passed=True),
                 self._make_result(passed=False),
@@ -171,7 +171,7 @@ class TestValidationEngine:
         )
         engine = ValidationEngine(
             workspace=temp_workspace,
-            batch_context={"batch_num": 1, "workspace": str(temp_workspace)},
+            sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
         batch_result = engine.run_validations([rule])
         assert batch_result.results[0].passed is True
@@ -185,7 +185,7 @@ class TestValidationEngine:
         )
         engine = ValidationEngine(
             workspace=temp_workspace,
-            batch_context={"batch_num": 1, "workspace": str(temp_workspace)},
+            sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
         batch_result = engine.run_validations([rule])
         assert batch_result.results[0].passed is False
@@ -203,7 +203,7 @@ class TestValidationEngine:
         )
         engine = ValidationEngine(
             workspace=temp_workspace,
-            batch_context={"batch_num": 1, "workspace": str(temp_workspace)},
+            sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
         batch_result = engine.run_validations([rule])
         assert batch_result.results[0].passed is True
@@ -221,7 +221,7 @@ class TestValidationEngine:
         )
         engine = ValidationEngine(
             workspace=temp_workspace,
-            batch_context={"batch_num": 1, "workspace": str(temp_workspace)},
+            sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
         batch_result = engine.run_validations([rule])
         assert batch_result.results[0].passed is False
@@ -233,12 +233,12 @@ class TestValidationEngine:
 
         rule = ValidationRule(
             type="file_exists",
-            path="{workspace}/batch-{batch_num}-output.txt",
+            path="{workspace}/batch-{sheet_num}-output.txt",
             description="Batch output",
         )
         engine = ValidationEngine(
             workspace=temp_workspace,
-            batch_context={"batch_num": 1, "workspace": str(temp_workspace)},
+            sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
         batch_result = engine.run_validations([rule])
         assert batch_result.results[0].passed is True
@@ -266,7 +266,7 @@ class TestValidationEngine:
         ]
         engine = ValidationEngine(
             workspace=temp_workspace,
-            batch_context={"batch_num": 1, "workspace": str(temp_workspace)},
+            sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
         batch_result = engine.run_validations(rules)
 
@@ -284,7 +284,7 @@ class TestValidationEngine:
         )
         engine = ValidationEngine(
             workspace=temp_workspace,
-            batch_context={"batch_num": 1, "workspace": str(temp_workspace)},
+            sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
         batch_result = engine.run_validations([rule])
         assert batch_result.results[0].passed is True
@@ -299,7 +299,7 @@ class TestValidationEngine:
         )
         engine = ValidationEngine(
             workspace=temp_workspace,
-            batch_context={"batch_num": 1, "workspace": str(temp_workspace)},
+            sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
         batch_result = engine.run_validations([rule])
         assert batch_result.results[0].passed is False
@@ -320,7 +320,7 @@ class TestValidationEngine:
         )
         engine = ValidationEngine(
             workspace=temp_workspace,
-            batch_context={"batch_num": 1, "workspace": str(temp_workspace)},
+            sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
         batch_result = engine.run_validations([rule])
         assert batch_result.results[0].passed is True

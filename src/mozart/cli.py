@@ -29,7 +29,7 @@ from rich.progress import (
 from rich.table import Table
 
 from mozart import __version__
-from mozart.core.checkpoint import BatchStatus, CheckpointState, JobStatus
+from mozart.core.checkpoint import CheckpointState, JobStatus, SheetStatus
 from mozart.core.config import JobConfig, NotificationConfig
 from mozart.core.logging import configure_logging, get_logger
 from mozart.execution.runner import RunSummary
@@ -305,11 +305,11 @@ def run(
         "-n",
         help="Show what would be executed without running",
     ),
-    start_batch: int | None = typer.Option(
+    start_sheet: int | None = typer.Option(
         None,
-        "--start-batch",
+        "--start-sheet",
         "-s",
-        help="Override starting batch number",
+        help="Override starting sheet number",
     ),
     json_output: bool = typer.Option(
         False,
@@ -336,8 +336,8 @@ def run(
             f"[bold]{config.name}[/bold]\n"
             f"{config.description or 'No description'}\n\n"
             f"Backend: {config.backend.type}\n"
-            f"Batches: {config.batch.total_batches} "
-            f"({config.batch.size} items each)\n"
+            f"Sheets: {config.sheet.total_sheets} "
+            f"({config.sheet.size} items each)\n"
             f"Workspace: {config.workspace}",
             title="Job Configuration",
         ))
@@ -350,19 +350,19 @@ def run(
             console.print(json.dumps({
                 "dry_run": True,
                 "job_name": config.name,
-                "total_batches": config.batch.total_batches,
+                "total_sheets": config.sheet.total_sheets,
             }, indent=2))
         return
 
     # Actually run the job
     if not is_quiet() and not json_output:
         console.print("\n[green]Starting job...[/green]")
-    asyncio.run(_run_job(config, start_batch, json_output))
+    asyncio.run(_run_job(config, start_sheet, json_output))
 
 
 async def _run_job(
     config: JobConfig,
-    start_batch: int | None,
+    start_sheet: int | None,
     json_output: bool = False,
 ) -> None:
     """Run the job asynchronously using the JobRunner with progress display."""
@@ -404,7 +404,7 @@ async def _run_job(
 
     # Execution progress state for CLI display (Task 4)
     execution_status: dict[str, Any] = {
-        "batch_num": None,
+        "sheet_num": None,
         "bytes_received": 0,
         "lines_received": 0,
         "elapsed_seconds": 0.0,
@@ -521,24 +521,24 @@ async def _run_job(
             await notification_manager.notify_job_start(
                 job_id=job_id,
                 job_name=config.name,
-                total_batches=config.batch.total_batches,
+                total_sheets=config.sheet.total_sheets,
             )
 
         # Start progress display
         if progress:
             progress.start()
-            starting_batch = start_batch or 1
-            initial_completed = starting_batch - 1
+            starting_sheet = start_sheet or 1
+            initial_completed = starting_sheet - 1
             progress_task_id = progress.add_task(
                 f"[cyan]{config.name}[/cyan]",
-                total=config.batch.total_batches,
+                total=config.sheet.total_sheets,
                 completed=initial_completed,
                 eta="calculating...",
                 exec_status="",  # Initial empty execution status
             )
 
         # Run job with validation and completion recovery
-        state, summary = await runner.run(start_batch=start_batch)
+        state, summary = await runner.run(start_sheet=start_sheet)
 
         # Stop progress and show final state
         if progress:
@@ -555,8 +555,8 @@ async def _run_job(
                 await notification_manager.notify_job_complete(
                     job_id=job_id,
                     job_name=config.name,
-                    success_count=summary.completed_batches,
-                    failure_count=summary.failed_batches,
+                    success_count=summary.completed_sheets,
+                    failure_count=summary.failed_sheets,
                     duration_seconds=summary.total_duration_seconds,
                 )
         else:
@@ -572,7 +572,7 @@ async def _run_job(
                     job_id=job_id,
                     job_name=config.name,
                     error_message=f"Job failed with status: {state.status.value}",
-                    batch_num=state.current_batch,
+                    sheet_num=state.current_sheet,
                 )
 
     except GracefulShutdownError:
@@ -649,14 +649,14 @@ def _display_run_summary(summary: RunSummary) -> None:
         f"Status: {status_text}",
         f"Duration: {summary._format_duration(summary.total_duration_seconds)}",
         "",
-        "[bold]Batches[/bold]",
-        f"  Completed: [green]{summary.completed_batches}[/green]/{summary.total_batches}",
+        "[bold]Sheets[/bold]",
+        f"  Completed: [green]{summary.completed_sheets}[/green]/{summary.total_sheets}",
     ]
 
-    if summary.failed_batches > 0:
-        lines.append(f"  Failed: [red]{summary.failed_batches}[/red]")
-    if summary.skipped_batches > 0:
-        lines.append(f"  Skipped: [yellow]{summary.skipped_batches}[/yellow]")
+    if summary.failed_sheets > 0:
+        lines.append(f"  Failed: [red]{summary.failed_sheets}[/red]")
+    if summary.skipped_sheets > 0:
+        lines.append(f"  Skipped: [yellow]{summary.skipped_sheets}[/yellow]")
 
     lines.append(f"  Success Rate: {summary.success_rate:.1f}%")
 
@@ -677,7 +677,7 @@ def _display_run_summary(summary: RunSummary) -> None:
         if summary.first_attempt_successes > 0:
             lines.append(
                 f"  First Attempt Success: {summary.first_attempt_rate:.0f}% "
-                f"({summary.first_attempt_successes}/{summary.completed_batches})"
+                f"({summary.first_attempt_successes}/{summary.completed_sheets})"
             )
         if summary.total_retries > 0:
             lines.append(f"  Retries Used: {summary.total_retries}")
@@ -700,11 +700,11 @@ def _show_dry_run(config: JobConfig) -> None:
     table.add_column("Items", style="green")
     table.add_column("Validations", style="yellow")
 
-    for batch_num in range(1, config.batch.total_batches + 1):
-        start = (batch_num - 1) * config.batch.size + config.batch.start_item
-        end = min(start + config.batch.size - 1, config.batch.total_items)
+    for sheet_num in range(1, config.sheet.total_sheets + 1):
+        start = (sheet_num - 1) * config.sheet.size + config.sheet.start_item
+        end = min(start + config.sheet.size - 1, config.sheet.total_items)
         table.add_row(
-            str(batch_num),
+            str(sheet_num),
             f"{start}-{end}",
             str(len(config.validations)),
         )
@@ -906,13 +906,13 @@ async def _resume_job(
         raise typer.Exit(1)
 
     # Calculate resume point
-    resume_batch = found_state.last_completed_batch + 1
-    if resume_batch > found_state.total_batches:
+    resume_sheet = found_state.last_completed_sheet + 1
+    if resume_sheet > found_state.total_sheets:
         if force:
             # For force resume, restart from last batch
-            resume_batch = found_state.total_batches
+            resume_sheet = found_state.total_sheets
             console.print(
-                f"[yellow]Job was completed. Force restarting batch {resume_batch}.[/yellow]"
+                f"[yellow]Job was completed. Force restarting batch {resume_sheet}.[/yellow]"
             )
         else:
             console.print("[green]Job is already fully completed.[/green]")
@@ -922,8 +922,8 @@ async def _resume_job(
     console.print(Panel(
         f"[bold]{config.name}[/bold]\n"
         f"Status: {found_state.status.value}\n"
-        f"Progress: {found_state.last_completed_batch}/{found_state.total_batches} batches\n"
-        f"Resuming from batch: {resume_batch}",
+        f"Progress: {found_state.last_completed_sheet}/{found_state.total_sheets} batches\n"
+        f"Resuming from batch: {resume_sheet}",
         title="Resume Job",
     ))
 
@@ -1016,27 +1016,27 @@ async def _resume_job(
     try:
         # Send job resume notification (use job_start event)
         if notification_manager:
-            remaining_batches = found_state.total_batches - found_state.last_completed_batch
+            remaining_batches = found_state.total_sheets - found_state.last_completed_sheet
             await notification_manager.notify_job_start(
                 job_id=job_id,
                 job_name=config.name,
-                total_batches=remaining_batches,
+                total_sheets=remaining_batches,
             )
 
         # Start progress display
         progress.start()
         progress_task_id = progress.add_task(
             f"[cyan]{config.name}[/cyan] (resuming)",
-            total=found_state.total_batches,
-            completed=found_state.last_completed_batch,
+            total=found_state.total_sheets,
+            completed=found_state.last_completed_sheet,
             eta="calculating...",
         )
 
         # Resume from the next batch
         if not is_quiet():
-            console.print(f"\n[green]Resuming from batch {resume_batch}...[/green]")
+            console.print(f"\n[green]Resuming from batch {resume_sheet}...[/green]")
         state, summary = await runner.run(
-            start_batch=resume_batch,
+            start_sheet=resume_sheet,
             config_path=str(config_file) if config_file else found_state.config_path,
         )
 
@@ -1051,8 +1051,8 @@ async def _resume_job(
                 await notification_manager.notify_job_complete(
                     job_id=job_id,
                     job_name=config.name,
-                    success_count=summary.completed_batches,
-                    failure_count=summary.failed_batches,
+                    success_count=summary.completed_sheets,
+                    failure_count=summary.failed_sheets,
                     duration_seconds=summary.total_duration_seconds,
                 )
         else:
@@ -1068,7 +1068,7 @@ async def _resume_job(
                     job_id=job_id,
                     job_name=config.name,
                     error_message=f"Job failed with status: {state.status.value}",
-                    batch_num=state.current_batch,
+                    sheet_num=state.current_sheet,
                 )
 
     except GracefulShutdownError:
@@ -1229,7 +1229,7 @@ async def _list_jobs(
         status_str = f"[{status_style}]{job.status.value}[/{status_style}]"
 
         # Format progress
-        progress = f"{job.last_completed_batch}/{job.total_batches}"
+        progress = f"{job.last_completed_sheet}/{job.total_sheets}"
 
         # Format updated time
         updated = job.updated_at.strftime("%Y-%m-%d %H:%M") if job.updated_at else "-"
@@ -1309,16 +1309,16 @@ def _output_status_json(job: CheckpointState) -> None:
     """Output job status as JSON."""
 
     # Build a clean JSON representation
-    # Use last_completed_batch for progress since it's more reliable than counting batches dict
-    completed = job.last_completed_batch
-    total = job.total_batches
+    # Use last_completed_sheet for progress since it's more reliable than counting batches dict
+    completed = job.last_completed_sheet
+    total = job.total_sheets
     percent = (completed / total * 100) if total > 0 else 0.0
 
     # Collect recent errors for JSON output
     recent_errors_data: list[dict[str, Any]] = []
-    for batch_num, error in _collect_recent_errors_for_json(job, limit=5):
+    for sheet_num, error in _collect_recent_errors_for_json(job, limit=5):
         recent_errors_data.append({
-            "batch_num": batch_num,
+            "sheet_num": sheet_num,
             "timestamp": error.timestamp.isoformat() if error.timestamp else None,
             "error_type": error.error_type,
             "error_code": error.error_code,
@@ -1348,7 +1348,7 @@ def _output_status_json(job: CheckpointState) -> None:
             "last_activity": last_activity.isoformat() if last_activity else None,
         },
         "execution": {
-            "current_batch": job.current_batch,
+            "current_sheet": job.current_sheet,
             "total_retry_count": job.total_retry_count,
             "rate_limit_waits": job.rate_limit_waits,
         },
@@ -1363,7 +1363,7 @@ def _output_status_json(job: CheckpointState) -> None:
                 "error_message": batch.error_message,
                 "error_category": batch.error_category,
             }
-            for num, batch in job.batches.items()
+            for num, batch in job.sheets.items()
         },
     }
     console.print(json.dumps(output, indent=2))
@@ -1383,16 +1383,16 @@ def _collect_recent_errors_for_json(
         limit: Maximum number of errors to return.
 
     Returns:
-        List of (batch_num, error) tuples, sorted by timestamp descending.
+        List of (sheet_num, error) tuples, sorted by timestamp descending.
     """
     from mozart.core.checkpoint import ErrorRecord
 
     all_errors: list[tuple[int, ErrorRecord]] = []
 
-    for batch_num, batch in job.batches.items():
+    for sheet_num, batch in job.sheets.items():
         # Collect from error_history
         for error in batch.error_history:
-            all_errors.append((batch_num, error))
+            all_errors.append((sheet_num, error))
 
         # If no history but has error_message, create synthetic record
         if not batch.error_history and batch.error_message:
@@ -1408,7 +1408,7 @@ def _collect_recent_errors_for_json(
             )
             if batch.completed_at:
                 synthetic.timestamp = batch.completed_at
-            all_errors.append((batch_num, synthetic))
+            all_errors.append((sheet_num, synthetic))
 
     # Sort by timestamp (most recent first) and take limit
     all_errors.sort(key=lambda x: x[1].timestamp, reverse=True)
@@ -1450,9 +1450,9 @@ def _output_status_rich(job: CheckpointState) -> None:
 
     console.print(Panel("\n".join(header_lines), title="Job Status"))
 
-    # Progress bar - use last_completed_batch for consistency with JSON output
-    completed = job.last_completed_batch
-    total = job.total_batches
+    # Progress bar - use last_completed_sheet for consistency with JSON output
+    completed = job.last_completed_sheet
+    total = job.total_sheets
 
     console.print("\n[bold]Progress[/bold]")
     with Progress(
@@ -1468,7 +1468,7 @@ def _output_status_rich(job: CheckpointState) -> None:
         progress.refresh()
 
     # Batch details table
-    if job.batches:
+    if job.sheets:
         console.print("\n[bold]Batch Details[/bold]")
         batch_table = Table(show_header=True, header_style="bold")
         batch_table.add_column("#", justify="right", style="cyan", width=4)
@@ -1478,15 +1478,15 @@ def _output_status_rich(job: CheckpointState) -> None:
         batch_table.add_column("Error", style="dim", no_wrap=False)
 
         batch_status_colors = {
-            BatchStatus.PENDING: "yellow",
-            BatchStatus.IN_PROGRESS: "blue",
-            BatchStatus.COMPLETED: "green",
-            BatchStatus.FAILED: "red",
-            BatchStatus.SKIPPED: "dim",
+            SheetStatus.PENDING: "yellow",
+            SheetStatus.IN_PROGRESS: "blue",
+            SheetStatus.COMPLETED: "green",
+            SheetStatus.FAILED: "red",
+            SheetStatus.SKIPPED: "dim",
         }
 
-        for batch_num in sorted(job.batches.keys()):
-            batch = job.batches[batch_num]
+        for sheet_num in sorted(job.sheets.keys()):
+            batch = job.sheets[sheet_num]
             batch_color = batch_status_colors.get(batch.status, "white")
 
             # Format validation status
@@ -1505,7 +1505,7 @@ def _output_status_rich(job: CheckpointState) -> None:
                     error_str += "..."
 
             batch_table.add_row(
-                str(batch_num),
+                str(sheet_num),
                 f"[{batch_color}]{batch.status.value}[/{batch_color}]",
                 str(batch.attempt_count),
                 val_str,
@@ -1539,7 +1539,7 @@ def _output_status_rich(job: CheckpointState) -> None:
     recent_errors = _collect_recent_errors(job, limit=3)
     if recent_errors:
         console.print("\n[bold red]Recent Errors[/bold red]")
-        for batch_num, error in recent_errors:
+        for sheet_num, error in recent_errors:
             # Format with color based on error type
             type_styles = {
                 "permanent": "red",
@@ -1554,7 +1554,7 @@ def _output_status_rich(job: CheckpointState) -> None:
                 message = message[:57] + "..."
 
             console.print(
-                f"  [{type_style}]•[/{type_style}] Batch {batch_num}: "
+                f"  [{type_style}]•[/{type_style}] Batch {sheet_num}: "
                 f"[{type_style}]{error.error_code}[/{type_style}] - {message}"
             )
 
@@ -1595,16 +1595,16 @@ def _collect_recent_errors(
         limit: Maximum number of errors to return.
 
     Returns:
-        List of (batch_num, ErrorRecord) tuples, sorted by timestamp descending.
+        List of (sheet_num, ErrorRecord) tuples, sorted by timestamp descending.
     """
     from mozart.core.checkpoint import ErrorRecord
 
     all_errors: list[tuple[int, ErrorRecord]] = []
 
-    for batch_num, batch in job.batches.items():
+    for sheet_num, batch in job.sheets.items():
         # Collect from error_history
         for error in batch.error_history:
-            all_errors.append((batch_num, error))
+            all_errors.append((sheet_num, error))
 
         # If no history but has error_message, create synthetic record
         if not batch.error_history and batch.error_message:
@@ -1620,7 +1620,7 @@ def _collect_recent_errors(
             )
             if batch.completed_at:
                 synthetic.timestamp = batch.completed_at
-            all_errors.append((batch_num, synthetic))
+            all_errors.append((sheet_num, synthetic))
 
     # Sort by timestamp (most recent first) and take limit
     all_errors.sort(key=lambda x: x[1].timestamp, reverse=True)
@@ -1647,7 +1647,7 @@ def _get_last_activity_time(job: CheckpointState) -> Any | None:
         candidates.append(job.updated_at)
 
     # Check batch-level last_activity_at
-    for batch in job.batches.values():
+    for batch in job.sheets.values():
         if batch.last_activity_at:
             candidates.append(batch.last_activity_at)
 
@@ -1671,17 +1671,17 @@ def _infer_circuit_breaker_state(job: CheckpointState) -> dict[str, Any] | None:
     Returns:
         Dict with inferred state info, or None if no relevant data.
     """
-    if not job.batches:
+    if not job.sheets:
         return None
 
     # Count consecutive failures from the end
-    sorted_batches = sorted(job.batches.items(), key=lambda x: x[0], reverse=True)
+    sorted_batches = sorted(job.sheets.items(), key=lambda x: x[0], reverse=True)
     consecutive_failures = 0
 
-    for _batch_num, batch in sorted_batches:
-        if batch.status == BatchStatus.FAILED:
+    for _sheet_num, batch in sorted_batches:
+        if batch.status == SheetStatus.FAILED:
             consecutive_failures += 1
-        elif batch.status == BatchStatus.COMPLETED:
+        elif batch.status == SheetStatus.COMPLETED:
             break
         # PENDING/IN_PROGRESS don't count
 
@@ -1736,7 +1736,7 @@ def validate(
     try:
         config = JobConfig.from_yaml(config_file)
         console.print(f"[green]Valid configuration:[/green] {config.name}")
-        console.print(f"  Batches: {config.batch.total_batches}")
+        console.print(f"  Batches: {config.sheet.total_sheets}")
         console.print(f"  Backend: {config.backend.type}")
         console.print(f"  Validations: {len(config.validations)}")
         console.print(f"  Notifications: {len(config.notifications)}")
@@ -1883,7 +1883,7 @@ def logs(
         event = entry.get("event", "")
         component = entry.get("component", "")
         entry_job_id = entry.get("job_id", "")
-        batch_num = entry.get("batch_num")
+        sheet_num = entry.get("sheet_num")
 
         # Color for level
         level_colors = {
@@ -1913,15 +1913,15 @@ def logs(
         if entry_job_id:
             parts.append(f"[magenta]{entry_job_id}[/magenta]")
 
-        if batch_num is not None:
-            parts.append(f"[green]batch:{batch_num}[/green]")
+        if sheet_num is not None:
+            parts.append(f"[green]batch:{sheet_num}[/green]")
 
         parts.append(event)
 
         # Add extra context fields
         exclude_keys = {
             "timestamp", "level", "event", "component",
-            "job_id", "batch_num", "run_id", "parent_run_id", "_raw",
+            "job_id", "sheet_num", "run_id", "parent_run_id", "_raw",
         }
         extras = {k: v for k, v in entry.items() if k not in exclude_keys}
         if extras:
@@ -2119,43 +2119,43 @@ async def _errors_job(
     # Collect all errors from batch states
     all_errors: list[tuple[int, ErrorRecord]] = []
 
-    for batch_num, batch_state in found_job.batches.items():
+    for sheet_num, sheet_state in found_job.sheets.items():
         # Apply batch filter if specified
-        if batch_filter is not None and batch_num != batch_filter:
+        if batch_filter is not None and sheet_num != batch_filter:
             continue
 
         # Collect from error_history field
-        for error in batch_state.error_history:
+        for error in sheet_state.error_history:
             # Apply type filter
             if error_type_filter is not None and error.error_type != error_type_filter:
                 continue
             # Apply code filter
             if error_code_filter is not None and error.error_code != error_code_filter:
                 continue
-            all_errors.append((batch_num, error))
+            all_errors.append((sheet_num, error))
 
     # If no errors in history, check for error_message on failed batches
     if not all_errors:
-        for batch_num, batch_state in found_job.batches.items():
-            if batch_filter is not None and batch_num != batch_filter:
+        for sheet_num, sheet_state in found_job.sheets.items():
+            if batch_filter is not None and sheet_num != batch_filter:
                 continue
 
-            if batch_state.error_message:
+            if sheet_state.error_message:
                 # Create a synthetic ErrorRecord from batch error_message
                 # This handles older state files that don't have error_history populated
                 from mozart.core.checkpoint import ErrorRecord as ErrRec
 
                 synthetic_error = ErrRec(
-                    error_type=_infer_error_type(batch_state.error_category),
-                    error_code=batch_state.error_category or "E999",
-                    error_message=batch_state.error_message,
-                    attempt_number=batch_state.attempt_count,
-                    stdout_tail=batch_state.stdout_tail,
-                    stderr_tail=batch_state.stderr_tail,
+                    error_type=_infer_error_type(sheet_state.error_category),
+                    error_code=sheet_state.error_category or "E999",
+                    error_message=sheet_state.error_message,
+                    attempt_number=sheet_state.attempt_count,
+                    stdout_tail=sheet_state.stdout_tail,
+                    stderr_tail=sheet_state.stderr_tail,
                     context={
-                        "exit_code": batch_state.exit_code,
-                        "exit_signal": batch_state.exit_signal,
-                        "exit_reason": batch_state.exit_reason,
+                        "exit_code": sheet_state.exit_code,
+                        "exit_signal": sheet_state.exit_signal,
+                        "exit_reason": sheet_state.exit_reason,
                     },
                 )
                 # Apply filters
@@ -2169,7 +2169,7 @@ async def _errors_job(
                 )
                 if type_mismatch or code_mismatch:
                     continue
-                all_errors.append((batch_num, synthetic_error))
+                all_errors.append((sheet_num, synthetic_error))
 
     # Sort by batch number, then timestamp
     all_errors.sort(key=lambda x: (x[0], x[1].timestamp))
@@ -2181,7 +2181,7 @@ async def _errors_job(
             "total_errors": len(all_errors),
             "errors": [
                 {
-                    "batch_num": batch_num,
+                    "sheet_num": sheet_num,
                     "timestamp": error.timestamp.isoformat() if error.timestamp else None,
                     "error_type": error.error_type,
                     "error_code": error.error_code,
@@ -2191,7 +2191,7 @@ async def _errors_job(
                     "stdout_tail": error.stdout_tail if verbose else None,
                     "stderr_tail": error.stderr_tail if verbose else None,
                 }
-                for batch_num, error in all_errors
+                for sheet_num, error in all_errors
             ],
         }
         console.print(json_module.dumps(output, indent=2, default=str))
@@ -2224,7 +2224,7 @@ async def _errors_job(
         "rate_limit": "blue",
     }
 
-    for batch_num, error in all_errors:
+    for sheet_num, error in all_errors:
         # Format timestamp (just time, not date)
         time_str = ""
         if error.timestamp:
@@ -2240,7 +2240,7 @@ async def _errors_job(
             message = message[:57] + "..."
 
         table.add_row(
-            str(batch_num),
+            str(sheet_num),
             time_str,
             type_str,
             error.error_code,
@@ -2254,11 +2254,11 @@ async def _errors_job(
     # Show verbose details if requested
     if verbose:
         console.print("\n[bold]Error Details[/bold]")
-        for batch_num, error in all_errors:
+        for sheet_num, error in all_errors:
             console.print(
                 Panel(
                     _format_error_details(error),
-                    title=f"Batch {batch_num} - {error.error_code}",
+                    title=f"Batch {sheet_num} - {error.error_code}",
                     border_style=type_styles.get(error.error_type, "white").split()[0],
                 )
             )
@@ -2446,19 +2446,19 @@ def _build_diagnostic_report(job: CheckpointState) -> dict[str, Any]:
 
     # Progress summary
     completed_count = sum(
-        1 for b in job.batches.values() if b.status == BatchStatus.COMPLETED
+        1 for b in job.sheets.values() if b.status == SheetStatus.COMPLETED
     )
     failed_count = sum(
-        1 for b in job.batches.values() if b.status == BatchStatus.FAILED
+        1 for b in job.sheets.values() if b.status == SheetStatus.FAILED
     )
     report["progress"] = {
-        "total_batches": job.total_batches,
+        "total_sheets": job.total_sheets,
         "completed": completed_count,
         "failed": failed_count,
-        "last_completed": job.last_completed_batch,
+        "last_completed": job.last_completed_sheet,
         "percent": (
-            round(job.last_completed_batch / job.total_batches * 100, 1)
-            if job.total_batches > 0 else 0
+            round(job.last_completed_sheet / job.total_sheets * 100, 1)
+            if job.total_sheets > 0 else 0
         ),
     }
 
@@ -2478,20 +2478,20 @@ def _build_diagnostic_report(job: CheckpointState) -> dict[str, Any]:
 
     # Collect preflight warnings across all batches
     all_warnings: list[dict[str, Any]] = []
-    for batch_num, batch in job.batches.items():
+    for sheet_num, batch in job.sheets.items():
         for warning in batch.preflight_warnings:
             all_warnings.append({
-                "batch_num": batch_num,
+                "sheet_num": sheet_num,
                 "warning": warning,
             })
     report["preflight_warnings"] = all_warnings
 
     # Collect prompt metrics from all batches
     prompt_metrics: list[dict[str, Any]] = []
-    for batch_num, batch in job.batches.items():
+    for sheet_num, batch in job.sheets.items():
         if batch.prompt_metrics:
             prompt_metrics.append({
-                "batch_num": batch_num,
+                "sheet_num": sheet_num,
                 **batch.prompt_metrics,
             })
     report["prompt_metrics"] = prompt_metrics
@@ -2508,10 +2508,10 @@ def _build_diagnostic_report(job: CheckpointState) -> dict[str, Any]:
 
     # Execution timeline
     timeline: list[dict[str, Any]] = []
-    for batch_num in sorted(job.batches.keys()):
-        batch = job.batches[batch_num]
+    for sheet_num in sorted(job.sheets.keys()):
+        batch = job.sheets[sheet_num]
         entry = {
-            "batch_num": batch_num,
+            "sheet_num": sheet_num,
             "status": batch.status.value,
             "started_at": batch.started_at.isoformat() if batch.started_at else None,
             "completed_at": batch.completed_at.isoformat() if batch.completed_at else None,
@@ -2532,10 +2532,10 @@ def _build_diagnostic_report(job: CheckpointState) -> dict[str, Any]:
 
     # All errors with full context
     all_errors: list[dict[str, Any]] = []
-    for batch_num, batch in job.batches.items():
+    for sheet_num, batch in job.sheets.items():
         for error in batch.error_history:
             all_errors.append({
-                "batch_num": batch_num,
+                "sheet_num": sheet_num,
                 "timestamp": error.timestamp.isoformat() if error.timestamp else None,
                 "error_type": error.error_type,
                 "error_code": error.error_code,
@@ -2550,7 +2550,7 @@ def _build_diagnostic_report(job: CheckpointState) -> dict[str, Any]:
         # Add batch-level error if no history exists
         if not batch.error_history and batch.error_message:
             all_errors.append({
-                "batch_num": batch_num,
+                "sheet_num": sheet_num,
                 "timestamp": batch.completed_at.isoformat() if batch.completed_at else None,
                 "error_type": _infer_error_type(batch.error_category),
                 "error_code": batch.error_category or "E999",
@@ -2608,7 +2608,7 @@ def _display_diagnostic_report(job: CheckpointState, report: dict[str, Any]) -> 
     progress = report.get("progress", {})
     console.print("\n[bold cyan]Progress[/bold cyan]")
     console.print(
-        f"  Batches: {progress.get('completed', 0)}/{progress.get('total_batches', 0)} "
+        f"  Batches: {progress.get('completed', 0)}/{progress.get('total_sheets', 0)} "
         f"completed ({progress.get('percent', 0):.1f}%)"
     )
     if progress.get("failed", 0) > 0:
@@ -2629,7 +2629,7 @@ def _display_diagnostic_report(job: CheckpointState, report: dict[str, Any]) -> 
     if warnings:
         console.print(f"\n[bold yellow]Preflight Warnings ({len(warnings)})[/bold yellow]")
         for w in warnings[:10]:  # Limit display
-            console.print(f"  [yellow]•[/yellow] Batch {w['batch_num']}: {w['warning']}")
+            console.print(f"  [yellow]•[/yellow] Batch {w['sheet_num']}: {w['warning']}")
         if len(warnings) > 10:
             console.print(f"  [dim]... and {len(warnings) - 10} more[/dim]")
 
@@ -2677,7 +2677,7 @@ def _display_diagnostic_report(job: CheckpointState, report: dict[str, Any]) -> 
                 attempts_str += f"+{comp_attempts}c"
 
             timeline_table.add_row(
-                str(entry.get("batch_num", "")),
+                str(entry.get("sheet_num", "")),
                 f"[{status_style}]{status}[/{status_style}]",
                 duration_str,
                 attempts_str,
@@ -2724,7 +2724,7 @@ def _display_diagnostic_report(job: CheckpointState, report: dict[str, Any]) -> 
                 message += "..."
 
             error_table.add_row(
-                str(err.get("batch_num", "")),
+                str(err.get("sheet_num", "")),
                 f"[{type_style}]{err_type}[/{type_style}]",
                 err.get("error_code", ""),
                 message,

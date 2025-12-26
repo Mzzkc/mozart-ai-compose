@@ -5,24 +5,24 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-from mozart.core.checkpoint import BatchStatus
+from mozart.core.checkpoint import SheetStatus
 
 
 @dataclass
-class BatchOutcome:
-    """Structured outcome data from a completed batch execution.
+class SheetOutcome:
+    """Structured outcome data from a completed sheet execution.
 
-    This dataclass captures all relevant information about a batch execution
+    This dataclass captures all relevant information about a sheet execution
     for learning and pattern detection purposes.
     """
 
-    batch_id: str
+    sheet_id: str
     job_id: str
     validation_results: list[dict[str, Any]]  # Serialized ValidationResult data
     execution_duration: float
     retry_count: int
     completion_mode_used: bool
-    final_status: BatchStatus
+    final_status: SheetStatus
     validation_pass_rate: float
     first_attempt_success: bool
     patterns_detected: list[str] = field(default_factory=list)
@@ -37,13 +37,13 @@ class OutcomeStore(Protocol):
     for similar past outcomes to inform execution decisions.
     """
 
-    async def record(self, outcome: BatchOutcome) -> None:
-        """Record a batch outcome for future learning."""
+    async def record(self, outcome: SheetOutcome) -> None:
+        """Record a sheet outcome for future learning."""
         ...
 
     async def query_similar(
         self, context: dict[str, Any], limit: int = 10
-    ) -> list[BatchOutcome]:
+    ) -> list[SheetOutcome]:
         """Query for similar past outcomes based on context."""
         ...
 
@@ -66,20 +66,20 @@ class JsonOutcomeStore:
             store_path: Path to the JSON file for storing outcomes.
         """
         self.store_path = store_path
-        self._outcomes: list[BatchOutcome] = []
+        self._outcomes: list[SheetOutcome] = []
 
-    async def record(self, outcome: BatchOutcome) -> None:
-        """Record a batch outcome to the store.
+    async def record(self, outcome: SheetOutcome) -> None:
+        """Record a sheet outcome to the store.
 
         Args:
-            outcome: The batch outcome to record.
+            outcome: The sheet outcome to record.
         """
         self._outcomes.append(outcome)
         await self._save()
 
     async def query_similar(
         self, context: dict[str, Any], limit: int = 10
-    ) -> list[BatchOutcome]:
+    ) -> list[SheetOutcome]:
         """Query for similar past outcomes.
 
         Currently returns recent outcomes for the same job_id.
@@ -90,7 +90,7 @@ class JsonOutcomeStore:
             limit: Maximum number of outcomes to return.
 
         Returns:
-            List of similar batch outcomes.
+            List of similar sheet outcomes.
         """
         await self._load()
         job_id = context.get("job_id")
@@ -124,7 +124,7 @@ class JsonOutcomeStore:
         data = {
             "outcomes": [
                 {
-                    "batch_id": o.batch_id,
+                    "sheet_id": o.sheet_id,
                     "job_id": o.job_id,
                     "validation_results": o.validation_results,
                     "execution_duration": o.execution_duration,
@@ -164,14 +164,14 @@ class JsonOutcomeStore:
             data = json.load(f)
 
         self._outcomes = [
-            BatchOutcome(
-                batch_id=o["batch_id"],
+            SheetOutcome(
+                sheet_id=o["sheet_id"],
                 job_id=o["job_id"],
                 validation_results=o["validation_results"],
                 execution_duration=o["execution_duration"],
                 retry_count=o["retry_count"],
                 completion_mode_used=o["completion_mode_used"],
-                final_status=BatchStatus(o["final_status"]),
+                final_status=SheetStatus(o["final_status"]),
                 validation_pass_rate=o["validation_pass_rate"],
                 first_attempt_success=o["first_attempt_success"],
                 patterns_detected=o.get("patterns_detected", []),

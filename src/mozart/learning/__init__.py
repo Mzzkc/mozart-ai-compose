@@ -7,10 +7,10 @@ from mozart.learning.judgment import (
     JudgmentResponse,
     LocalJudgmentClient,
 )
-from mozart.learning.outcomes import BatchOutcome, JsonOutcomeStore, OutcomeStore
+from mozart.learning.outcomes import JsonOutcomeStore, OutcomeStore, SheetOutcome
 
 __all__ = [
-    "BatchOutcome",
+    "SheetOutcome",
     "OutcomeStore",
     "JsonOutcomeStore",
     "JudgmentQuery",

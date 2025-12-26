@@ -35,9 +35,9 @@ def _get_event_emoji(event: NotificationEvent) -> str:
         NotificationEvent.JOB_FAILED: ":x:",
         NotificationEvent.JOB_PAUSED: ":pause_button:",
         NotificationEvent.JOB_RESUMED: ":play_button:",
-        NotificationEvent.BATCH_START: ":hourglass_flowing_sand:",
-        NotificationEvent.BATCH_COMPLETE: ":heavy_check_mark:",
-        NotificationEvent.BATCH_FAILED: ":warning:",
+        NotificationEvent.SHEET_START: ":hourglass_flowing_sand:",
+        NotificationEvent.SHEET_COMPLETE: ":heavy_check_mark:",
+        NotificationEvent.SHEET_FAILED: ":warning:",
         NotificationEvent.RATE_LIMIT_DETECTED: ":snail:",
     }
     return emoji_map.get(event, ":bell:")
@@ -55,7 +55,7 @@ def _get_event_color(event: NotificationEvent) -> str:
     color_map = {
         NotificationEvent.JOB_COMPLETE: "#36a64f",  # Green
         NotificationEvent.JOB_FAILED: "#d00000",  # Red
-        NotificationEvent.BATCH_FAILED: "#ff9800",  # Orange
+        NotificationEvent.SHEET_FAILED: "#ff9800",  # Orange
         NotificationEvent.RATE_LIMIT_DETECTED: "#ff9800",  # Orange
         NotificationEvent.JOB_PAUSED: "#ffcc00",  # Yellow
     }
@@ -118,7 +118,7 @@ class SlackNotifier:
         self._events = events or {
             NotificationEvent.JOB_COMPLETE,
             NotificationEvent.JOB_FAILED,
-            NotificationEvent.BATCH_FAILED,
+            NotificationEvent.SHEET_FAILED,
         }
 
         self._client: httpx.AsyncClient | None = None
@@ -213,10 +213,10 @@ class SlackNotifier:
         # Build fields for attachment
         fields: list[dict[str, Any]] = []
 
-        if context.batch_num is not None and context.total_batches is not None:
+        if context.sheet_num is not None and context.total_sheets is not None:
             fields.append({
                 "title": "Progress",
-                "value": f"Batch {context.batch_num}/{context.total_batches}",
+                "value": f"Batch {context.sheet_num}/{context.total_sheets}",
                 "short": True,
             })
 
@@ -362,7 +362,7 @@ class MockSlackNotifier:
         self._events = events or {
             NotificationEvent.JOB_COMPLETE,
             NotificationEvent.JOB_FAILED,
-            NotificationEvent.BATCH_FAILED,
+            NotificationEvent.SHEET_FAILED,
         }
         self.sent_notifications: list[NotificationContext] = []
         self.sent_payloads: list[dict[str, Any]] = []

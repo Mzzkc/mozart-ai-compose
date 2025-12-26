@@ -322,30 +322,30 @@ class TestStreamingOutputTracker:
         assert progress_tracker.get_progress().lines_received == 2
 
 
-class TestBatchStateProgressFields:
-    """Tests for BatchState progress tracking fields."""
+class TestSheetStateProgressFields:
+    """Tests for SheetState progress tracking fields."""
 
     def test_progress_snapshots_default(self) -> None:
         """Test progress_snapshots defaults to empty list."""
-        from mozart.core.checkpoint import BatchState
+        from mozart.core.checkpoint import SheetState
 
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
         assert state.progress_snapshots == []
 
     def test_last_activity_at_default(self) -> None:
         """Test last_activity_at defaults to None."""
-        from mozart.core.checkpoint import BatchState
+        from mozart.core.checkpoint import SheetState
 
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
         assert state.last_activity_at is None
 
     def test_progress_snapshots_serialization(self) -> None:
         """Test progress_snapshots serializes to JSON correctly."""
-        from mozart.core.checkpoint import BatchState
+        from mozart.core.checkpoint import SheetState
 
         now = datetime.now(UTC)
-        state = BatchState(
-            batch_num=1,
+        state = SheetState(
+            sheet_num=1,
             progress_snapshots=[
                 {"bytes_received": 1024, "phase": "executing"},
                 {"bytes_received": 2048, "phase": "completed"},

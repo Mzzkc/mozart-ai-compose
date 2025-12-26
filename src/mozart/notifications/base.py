@@ -28,10 +28,10 @@ class NotificationEvent(Enum):
     JOB_PAUSED = "job_paused"
     JOB_RESUMED = "job_resumed"
 
-    # Batch-level events
-    BATCH_START = "batch_start"
-    BATCH_COMPLETE = "batch_complete"
-    BATCH_FAILED = "batch_failed"
+    # Sheet-level events
+    SHEET_START = "sheet_start"
+    SHEET_COMPLETE = "sheet_complete"
+    SHEET_FAILED = "sheet_failed"
 
     # Special events
     RATE_LIMIT_DETECTED = "rate_limit_detected"
@@ -58,17 +58,17 @@ class NotificationContext:
     """When the event occurred."""
 
     # Optional fields populated based on event type
-    batch_num: int | None = None
-    """Batch number (for batch-level events)."""
+    sheet_num: int | None = None
+    """Sheet number (for sheet-level events)."""
 
-    total_batches: int | None = None
-    """Total number of batches in the job."""
+    total_sheets: int | None = None
+    """Total number of sheets in the job."""
 
     success_count: int | None = None
-    """Number of successful validations/batches."""
+    """Number of successful validations/sheets."""
 
     failure_count: int | None = None
-    """Number of failed validations/batches."""
+    """Number of failed validations/sheets."""
 
     error_message: str | None = None
     """Error message (for failure events)."""
@@ -91,9 +91,9 @@ class NotificationContext:
             NotificationEvent.JOB_FAILED: f"Mozart: Job '{self.job_name}' Failed ✗",
             NotificationEvent.JOB_PAUSED: f"Mozart: Job '{self.job_name}' Paused",
             NotificationEvent.JOB_RESUMED: f"Mozart: Job '{self.job_name}' Resumed",
-            NotificationEvent.BATCH_START: f"Mozart: Batch {self.batch_num} Started",
-            NotificationEvent.BATCH_COMPLETE: f"Mozart: Batch {self.batch_num} Complete",
-            NotificationEvent.BATCH_FAILED: f"Mozart: Batch {self.batch_num} Failed",
+            NotificationEvent.SHEET_START: f"Mozart: Sheet {self.sheet_num} Started",
+            NotificationEvent.SHEET_COMPLETE: f"Mozart: Sheet {self.sheet_num} Complete",
+            NotificationEvent.SHEET_FAILED: f"Mozart: Sheet {self.sheet_num} Failed",
             NotificationEvent.RATE_LIMIT_DETECTED: "Mozart: Rate Limit Detected",
         }
         return event_titles.get(self.event, f"Mozart: {self.event.value}")
@@ -106,8 +106,8 @@ class NotificationContext:
         """
         parts: list[str] = []
 
-        if self.batch_num is not None and self.total_batches is not None:
-            parts.append(f"Batch {self.batch_num}/{self.total_batches}")
+        if self.sheet_num is not None and self.total_sheets is not None:
+            parts.append(f"Sheet {self.sheet_num}/{self.total_sheets}")
 
         if self.success_count is not None or self.failure_count is not None:
             success = self.success_count or 0
@@ -268,14 +268,14 @@ class NotificationManager:
         self,
         job_id: str,
         job_name: str,
-        total_batches: int,
+        total_sheets: int,
     ) -> dict[str, bool]:
         """Convenience method for job start notification.
 
         Args:
             job_id: Unique job identifier.
             job_name: Human-readable job name.
-            total_batches: Total number of batches to process.
+            total_sheets: Total number of sheets to process.
 
         Returns:
             Dict of notifier results.
@@ -285,7 +285,7 @@ class NotificationManager:
                 event=NotificationEvent.JOB_START,
                 job_id=job_id,
                 job_name=job_name,
-                total_batches=total_batches,
+                total_sheets=total_sheets,
             )
         )
 
@@ -302,8 +302,8 @@ class NotificationManager:
         Args:
             job_id: Unique job identifier.
             job_name: Human-readable job name.
-            success_count: Number of successful batches.
-            failure_count: Number of failed batches.
+            success_count: Number of successful sheets.
+            failure_count: Number of failed sheets.
             duration_seconds: Total job duration.
 
         Returns:
@@ -325,7 +325,7 @@ class NotificationManager:
         job_id: str,
         job_name: str,
         error_message: str,
-        batch_num: int | None = None,
+        sheet_num: int | None = None,
     ) -> dict[str, bool]:
         """Convenience method for job failure notification.
 
@@ -333,7 +333,7 @@ class NotificationManager:
             job_id: Unique job identifier.
             job_name: Human-readable job name.
             error_message: Error that caused the failure.
-            batch_num: Batch number where failure occurred (optional).
+            sheet_num: Sheet number where failure occurred (optional).
 
         Returns:
             Dict of notifier results.
@@ -344,26 +344,26 @@ class NotificationManager:
                 job_id=job_id,
                 job_name=job_name,
                 error_message=error_message,
-                batch_num=batch_num,
+                sheet_num=sheet_num,
             )
         )
 
-    async def notify_batch_complete(
+    async def notify_sheet_complete(
         self,
         job_id: str,
         job_name: str,
-        batch_num: int,
-        total_batches: int,
+        sheet_num: int,
+        total_sheets: int,
         success_count: int,
         failure_count: int,
     ) -> dict[str, bool]:
-        """Convenience method for batch completion notification.
+        """Convenience method for sheet completion notification.
 
         Args:
             job_id: Unique job identifier.
             job_name: Human-readable job name.
-            batch_num: Completed batch number.
-            total_batches: Total number of batches.
+            sheet_num: Completed sheet number.
+            total_sheets: Total number of sheets.
             success_count: Validations passed.
             failure_count: Validations failed.
 
@@ -372,11 +372,11 @@ class NotificationManager:
         """
         return await self.notify(
             NotificationContext(
-                event=NotificationEvent.BATCH_COMPLETE,
+                event=NotificationEvent.SHEET_COMPLETE,
                 job_id=job_id,
                 job_name=job_name,
-                batch_num=batch_num,
-                total_batches=total_batches,
+                sheet_num=sheet_num,
+                total_sheets=total_sheets,
                 success_count=success_count,
                 failure_count=failure_count,
             )
@@ -386,14 +386,14 @@ class NotificationManager:
         self,
         job_id: str,
         job_name: str,
-        batch_num: int,
+        sheet_num: int,
     ) -> dict[str, bool]:
         """Convenience method for rate limit notification.
 
         Args:
             job_id: Unique job identifier.
             job_name: Human-readable job name.
-            batch_num: Batch that hit rate limit.
+            sheet_num: Sheet that hit rate limit.
 
         Returns:
             Dict of notifier results.
@@ -403,7 +403,7 @@ class NotificationManager:
                 event=NotificationEvent.RATE_LIMIT_DETECTED,
                 job_id=job_id,
                 job_name=job_name,
-                batch_num=batch_num,
+                sheet_num=sheet_num,
             )
         )
 

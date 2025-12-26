@@ -24,7 +24,7 @@ backend:
   max_tokens: 4096
   timeout_seconds: 120
 
-batch:
+sheet:
   size: 10
   total_items: 50
 
@@ -34,7 +34,7 @@ prompt:
 
     For each item, provide a brief analysis.
 
-    Batch {{ batch_num }} of {{ total_batches }}.
+    Batch {{ sheet_num }} of {{ total_sheets }}.
 
 retry:
   max_retries: 3

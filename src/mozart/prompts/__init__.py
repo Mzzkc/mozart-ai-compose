@@ -4,15 +4,15 @@ Handles Jinja2 templates and completion prompt generation.
 """
 
 from mozart.prompts.templating import (
-    BatchContext,
     CompletionContext,
     PromptBuilder,
-    build_batch_prompt_simple,
+    SheetContext,
+    build_sheet_prompt_simple,
 )
 
 __all__ = [
-    "BatchContext",
+    "SheetContext",
     "CompletionContext",
     "PromptBuilder",
-    "build_batch_prompt_simple",
+    "build_sheet_prompt_simple",
 ]

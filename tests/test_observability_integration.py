@@ -29,7 +29,7 @@ from mozart.backends.base import ExecutionResult
 from mozart.core.checkpoint import (
     MAX_ERROR_HISTORY,
     MAX_OUTPUT_CAPTURE_BYTES,
-    BatchState,
+    SheetState,
     CheckpointState,
 )
 from mozart.core.config import JobConfig, LogConfig
@@ -66,7 +66,7 @@ class TestOutputCaptureIntegration:
 
     def test_capture_output_stores_tail(self):
         """Test that output capture stores the last N bytes."""
-        batch = BatchState(batch_num=1)
+        batch = SheetState(sheet_num=1)
         stdout = "prefix " + "x" * 5000
         stderr = "error " + "y" * 3000
 
@@ -80,7 +80,7 @@ class TestOutputCaptureIntegration:
 
     def test_capture_output_truncates_large_output(self):
         """Test that large output is truncated to MAX_OUTPUT_CAPTURE_BYTES."""
-        batch = BatchState(batch_num=1)
+        batch = SheetState(sheet_num=1)
         # Create output larger than the limit
         large_stdout = "S" * (MAX_OUTPUT_CAPTURE_BYTES + 5000)
         large_stderr = "E" * (MAX_OUTPUT_CAPTURE_BYTES + 3000)
@@ -94,7 +94,7 @@ class TestOutputCaptureIntegration:
 
     def test_capture_output_handles_empty_output(self):
         """Test handling of empty output strings."""
-        batch = BatchState(batch_num=1)
+        batch = SheetState(sheet_num=1)
         batch.capture_output("", "")
 
         assert batch.stdout_tail is None
@@ -103,7 +103,7 @@ class TestOutputCaptureIntegration:
 
     def test_capture_output_handles_unicode(self):
         """Test handling of unicode characters in output."""
-        batch = BatchState(batch_num=1)
+        batch = SheetState(sheet_num=1)
         unicode_stdout = "Hello 世界! 🎉 привет"
         unicode_stderr = "Error: données invalides"
 
@@ -118,7 +118,7 @@ class TestErrorHistoryIntegration:
 
     def test_record_error_adds_to_history(self):
         """Test that errors are added to history."""
-        batch = BatchState(batch_num=1)
+        batch = SheetState(sheet_num=1)
 
         batch.record_error(
             error_type="transient",
@@ -134,7 +134,7 @@ class TestErrorHistoryIntegration:
 
     def test_record_error_trims_to_max_history(self):
         """Test that error history is trimmed to MAX_ERROR_HISTORY."""
-        batch = BatchState(batch_num=1)
+        batch = SheetState(sheet_num=1)
 
         # Add more errors than the maximum
         for i in range(MAX_ERROR_HISTORY + 5):
@@ -151,7 +151,7 @@ class TestErrorHistoryIntegration:
 
     def test_record_error_includes_context(self):
         """Test that error context is properly stored."""
-        batch = BatchState(batch_num=1)
+        batch = SheetState(sheet_num=1)
 
         batch.record_error(
             error_type="rate_limit",
@@ -329,7 +329,7 @@ class TestRetryStrategyIntegration:
         # Create error history
         error = classifier.classify(stderr="connection timeout", exit_code=1)
         history = [
-            RetryErrorRecord.from_classified_error(error, batch_num=1, attempt_num=1),
+            RetryErrorRecord.from_classified_error(error, sheet_num=1, attempt_num=1),
         ]
 
         recommendation = strategy.analyze(history)
@@ -345,7 +345,7 @@ class TestRetryStrategyIntegration:
         # Create rate limit error
         error = classifier.classify(stdout="rate limit exceeded", exit_code=429)
         history = [
-            RetryErrorRecord.from_classified_error(error, batch_num=1, attempt_num=1),
+            RetryErrorRecord.from_classified_error(error, sheet_num=1, attempt_num=1),
         ]
 
         recommendation = strategy.analyze(history)
@@ -363,7 +363,7 @@ class TestRetryStrategyIntegration:
         # Create repeated auth errors (non-retriable)
         error = classifier.classify(stderr="unauthorized access", exit_code=401)
         history = [
-            RetryErrorRecord.from_classified_error(error, batch_num=1, attempt_num=i)
+            RetryErrorRecord.from_classified_error(error, sheet_num=1, attempt_num=i)
             for i in range(1, 5)
         ]
 
@@ -397,7 +397,7 @@ class TestLoggingIntegration:
         root_logger.addHandler(CapturingHandler())
 
         logger = get_logger("test")
-        ctx = ExecutionContext(job_id="test-job", run_id="run-123", batch_num=5)
+        ctx = ExecutionContext(job_id="test-job", run_id="run-123", sheet_num=5)
 
         with with_context(ctx):
             logger.info("test_event", custom_field="value")
@@ -407,7 +407,7 @@ class TestLoggingIntegration:
 
         assert log_entry["job_id"] == "test-job"
         assert log_entry["run_id"] == "run-123"
-        assert log_entry["batch_num"] == 5
+        assert log_entry["sheet_num"] == 5
         assert log_entry["custom_field"] == "value"
 
     def test_sensitive_data_redaction(self, tmp_path: Path):
@@ -498,12 +498,12 @@ class TestEndToEndObservability:
                 "type": "claude_cli",
                 "skip_permissions": True,
             },
-            "batch": {
+            "sheet": {
                 "size": 5,
                 "total_items": 10,
             },
             "prompt": {
-                "template": "Process batch {{ batch_num }}",
+                "template": "Process batch {{ sheet_num }}",
             },
             "retry": {
                 "max_retries": 2,
@@ -523,12 +523,12 @@ class TestEndToEndObservability:
         state = CheckpointState(
             job_id=config.name,
             job_name=config.name,
-            total_batches=2,
+            total_sheets=2,
         )
 
         # Simulate batch 1 starting
-        state.mark_batch_started(1)
-        batch = state.batches[1]
+        state.mark_sheet_started(1)
+        batch = state.sheets[1]
 
         # Simulate preflight check
         workspace = Path(config.workspace)
@@ -570,8 +570,8 @@ class TestEndToEndObservability:
         )
 
         # Mark batch failed
-        state.mark_batch_failed(
-            batch_num=1,
+        state.mark_sheet_failed(
+            sheet_num=1,
             error_message=error.message,
             error_category=error.category.value,
             exit_code=error.exit_code,
@@ -594,13 +594,13 @@ class TestEndToEndObservability:
         state = CheckpointState(
             job_id="test-job",
             job_name="Test Job",
-            total_batches=5,
+            total_sheets=5,
         )
 
         # Simulate multiple batch failures
-        for batch_num in range(1, 4):
-            state.mark_batch_started(batch_num)
-            batch = state.batches[batch_num]
+        for sheet_num in range(1, 4):
+            state.mark_sheet_started(sheet_num)
+            batch = state.sheets[sheet_num]
 
             # Simulate failure
             error = classifier.classify(stderr="connection error", exit_code=1)
@@ -613,8 +613,8 @@ class TestEndToEndObservability:
 
             breaker.record_failure()
 
-            state.mark_batch_failed(
-                batch_num=batch_num,
+            state.mark_sheet_failed(
+                sheet_num=sheet_num,
                 error_message=error.message,
                 error_category=error.category.value,
             )
@@ -646,31 +646,31 @@ class TestEndToEndObservability:
         ctx = ExecutionContext(job_id="trace-test", run_id="run-abc")
 
         with with_context(ctx):
-            logger.info("job_started", total_batches=3)
+            logger.info("job_started", total_sheets=3)
 
             # Batch 1
             batch_ctx = ctx.with_batch(1)
             with with_context(batch_ctx):
-                logger.info("batch_started")
+                logger.info("sheet_started")
                 logger.debug("executing_prompt", prompt_tokens=1000)
-                logger.info("batch_completed", duration=5.2)
+                logger.info("sheet_completed", duration=5.2)
 
             # Batch 2 with failure
             batch_ctx = ctx.with_batch(2)
             with with_context(batch_ctx):
-                logger.info("batch_started")
-                logger.warning("batch_retry", attempt=2, error="timeout")
-                logger.error("batch_failed", error_code="E001")
+                logger.info("sheet_started")
+                logger.warning("sheet_retry", attempt=2, error="timeout")
+                logger.error("sheet_failed", error_code="E001")
 
             logger.info("job_completed", status="partial")
 
         # Verify trace is complete
         events = [json.loads(log)["event"] for log in captured_logs]
         assert "job_started" in events
-        assert "batch_started" in events
-        assert "batch_completed" in events
-        assert "batch_retry" in events
-        assert "batch_failed" in events
+        assert "sheet_started" in events
+        assert "sheet_completed" in events
+        assert "sheet_retry" in events
+        assert "sheet_failed" in events
         assert "job_completed" in events
 
         # Verify context propagation
@@ -688,12 +688,12 @@ class TestDiagnosticsReporting:
         state = CheckpointState(
             job_id="diag-test",
             job_name="Diagnostics Test",
-            total_batches=3,
+            total_sheets=3,
         )
 
         # Process batch 1
-        state.mark_batch_started(1)
-        batch = state.batches[1]
+        state.mark_sheet_started(1)
+        batch = state.sheets[1]
 
         # Add all diagnostic data
         batch.capture_output("stdout content", "stderr content")
@@ -716,7 +716,7 @@ class TestDiagnosticsReporting:
         restored = CheckpointState.model_validate(state_dict)
 
         # Verify all diagnostic data survives serialization
-        restored_batch = restored.batches[1]
+        restored_batch = restored.sheets[1]
         assert restored_batch.stdout_tail == "stdout content"
         assert restored_batch.stderr_tail == "stderr content"
         assert restored_batch.prompt_metrics["character_count"] == 1000
@@ -725,7 +725,7 @@ class TestDiagnosticsReporting:
 
     def test_error_history_serialization(self):
         """Test that error history properly serializes and deserializes."""
-        batch = BatchState(batch_num=1)
+        batch = SheetState(sheet_num=1)
 
         # Add multiple errors
         # Note: context is passed as **kwargs in record_error, not as a named field
@@ -741,7 +741,7 @@ class TestDiagnosticsReporting:
 
         # Serialize and deserialize
         batch_dict = batch.model_dump()
-        restored = BatchState.model_validate(batch_dict)
+        restored = SheetState.model_validate(batch_dict)
 
         assert len(restored.error_history) == 3
         for i, error in enumerate(restored.error_history):

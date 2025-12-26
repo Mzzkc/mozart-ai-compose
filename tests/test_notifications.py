@@ -32,9 +32,9 @@ class TestNotificationEvent:
             "JOB_FAILED",
             "JOB_PAUSED",
             "JOB_RESUMED",
-            "BATCH_START",
-            "BATCH_COMPLETE",
-            "BATCH_FAILED",
+            "SHEET_START",
+            "SHEET_COMPLETE",
+            "SHEET_FAILED",
             "RATE_LIMIT_DETECTED",
         ]
         for event_name in expected_events:
@@ -43,7 +43,7 @@ class TestNotificationEvent:
     def test_event_values(self):
         """Test event string values match expected format."""
         assert NotificationEvent.JOB_COMPLETE.value == "job_complete"
-        assert NotificationEvent.BATCH_FAILED.value == "batch_failed"
+        assert NotificationEvent.SHEET_FAILED.value == "sheet_failed"
         assert NotificationEvent.RATE_LIMIT_DETECTED.value == "rate_limit_detected"
 
 
@@ -65,18 +65,18 @@ class TestNotificationContext:
     def test_create_full_context(self):
         """Test creating context with all fields."""
         ctx = NotificationContext(
-            event=NotificationEvent.BATCH_COMPLETE,
+            event=NotificationEvent.SHEET_COMPLETE,
             job_id="test-123",
             job_name="test-job",
-            batch_num=5,
-            total_batches=10,
+            sheet_num=5,
+            total_sheets=10,
             success_count=8,
             failure_count=2,
             duration_seconds=120.5,
             extra={"custom": "data"},
         )
-        assert ctx.batch_num == 5
-        assert ctx.total_batches == 10
+        assert ctx.sheet_num == 5
+        assert ctx.total_sheets == 10
         assert ctx.success_count == 8
         assert ctx.failure_count == 2
         assert ctx.duration_seconds == 120.5
@@ -105,16 +105,16 @@ class TestNotificationContext:
         assert "failed-job" in title
         assert "Failed" in title
 
-    def test_format_title_batch(self):
-        """Test title formatting for batch events."""
+    def test_format_title_sheet(self):
+        """Test title formatting for sheet events."""
         ctx = NotificationContext(
-            event=NotificationEvent.BATCH_COMPLETE,
+            event=NotificationEvent.SHEET_COMPLETE,
             job_id="123",
-            job_name="batch-job",
-            batch_num=5,
+            job_name="sheet-job",
+            sheet_num=5,
         )
         title = ctx.format_title()
-        assert "Batch 5" in title
+        assert "Sheet 5" in title
 
     def test_format_message_with_counts(self):
         """Test message formatting with success/failure counts."""
@@ -190,11 +190,11 @@ class TestNotificationContext:
     def test_format_message_batch_progress(self):
         """Test message formatting with batch progress."""
         ctx = NotificationContext(
-            event=NotificationEvent.BATCH_COMPLETE,
+            event=NotificationEvent.SHEET_COMPLETE,
             job_id="123",
             job_name="test",
-            batch_num=5,
-            total_batches=10,
+            sheet_num=5,
+            total_sheets=10,
         )
         msg = ctx.format_message()
         assert "5/10" in msg
@@ -223,9 +223,9 @@ class TestMockDesktopNotifier:
     def test_custom_events(self):
         """Test custom event subscription."""
         notifier = MockDesktopNotifier(
-            events={NotificationEvent.BATCH_COMPLETE}
+            events={NotificationEvent.SHEET_COMPLETE}
         )
-        assert NotificationEvent.BATCH_COMPLETE in notifier.subscribed_events
+        assert NotificationEvent.SHEET_COMPLETE in notifier.subscribed_events
         assert NotificationEvent.JOB_COMPLETE not in notifier.subscribed_events
 
     @pytest.mark.asyncio
@@ -321,9 +321,9 @@ class TestDesktopNotifier:
     def test_custom_events(self):
         """Test custom event subscription."""
         notifier = DesktopNotifier(
-            events={NotificationEvent.BATCH_COMPLETE}
+            events={NotificationEvent.SHEET_COMPLETE}
         )
-        assert NotificationEvent.BATCH_COMPLETE in notifier.subscribed_events
+        assert NotificationEvent.SHEET_COMPLETE in notifier.subscribed_events
         assert NotificationEvent.JOB_COMPLETE not in notifier.subscribed_events
 
     def test_custom_app_name(self):
@@ -345,10 +345,10 @@ class TestDesktopNotifier:
     def test_from_config_uppercase_events(self):
         """Test from_config handles uppercase event names."""
         notifier = DesktopNotifier.from_config(
-            on_events=["JOB_COMPLETE", "BATCH_FAILED"],
+            on_events=["JOB_COMPLETE", "SHEET_FAILED"],
         )
         assert NotificationEvent.JOB_COMPLETE in notifier.subscribed_events
-        assert NotificationEvent.BATCH_FAILED in notifier.subscribed_events
+        assert NotificationEvent.SHEET_FAILED in notifier.subscribed_events
 
     def test_from_config_unknown_event_warning(self):
         """Test from_config handles unknown events gracefully."""
@@ -488,13 +488,13 @@ class TestNotificationManager:
         await manager.notify_job_start(
             job_id="123",
             job_name="test-job",
-            total_batches=10,
+            total_sheets=10,
         )
 
         assert mock.get_notification_count() == 1
         ctx = mock.sent_notifications[0]
         assert ctx.event == NotificationEvent.JOB_START
-        assert ctx.total_batches == 10
+        assert ctx.total_sheets == 10
 
     @pytest.mark.asyncio
     async def test_notify_job_complete(self):
@@ -527,35 +527,35 @@ class TestNotificationManager:
             job_id="123",
             job_name="test-job",
             error_message="Connection refused",
-            batch_num=5,
+            sheet_num=5,
         )
 
         assert mock.get_notification_count() == 1
         ctx = mock.sent_notifications[0]
         assert ctx.event == NotificationEvent.JOB_FAILED
         assert ctx.error_message == "Connection refused"
-        assert ctx.batch_num == 5
+        assert ctx.sheet_num == 5
 
     @pytest.mark.asyncio
-    async def test_notify_batch_complete(self):
+    async def test_notify_sheet_complete(self):
         """Test convenience method for batch complete."""
-        mock = MockDesktopNotifier(events={NotificationEvent.BATCH_COMPLETE})
+        mock = MockDesktopNotifier(events={NotificationEvent.SHEET_COMPLETE})
         manager = NotificationManager([mock])
 
-        await manager.notify_batch_complete(
+        await manager.notify_sheet_complete(
             job_id="123",
             job_name="test-job",
-            batch_num=3,
-            total_batches=10,
+            sheet_num=3,
+            total_sheets=10,
             success_count=5,
             failure_count=0,
         )
 
         assert mock.get_notification_count() == 1
         ctx = mock.sent_notifications[0]
-        assert ctx.event == NotificationEvent.BATCH_COMPLETE
-        assert ctx.batch_num == 3
-        assert ctx.total_batches == 10
+        assert ctx.event == NotificationEvent.SHEET_COMPLETE
+        assert ctx.sheet_num == 3
+        assert ctx.total_sheets == 10
 
     @pytest.mark.asyncio
     async def test_notify_rate_limit(self):
@@ -566,13 +566,13 @@ class TestNotificationManager:
         await manager.notify_rate_limit(
             job_id="123",
             job_name="test-job",
-            batch_num=7,
+            sheet_num=7,
         )
 
         assert mock.get_notification_count() == 1
         ctx = mock.sent_notifications[0]
         assert ctx.event == NotificationEvent.RATE_LIMIT_DETECTED
-        assert ctx.batch_num == 7
+        assert ctx.sheet_num == 7
 
     @pytest.mark.asyncio
     async def test_close(self):
@@ -632,21 +632,21 @@ class TestSlackNotifier:
         notifier = SlackNotifier(webhook_url="https://mock")
         assert NotificationEvent.JOB_COMPLETE in notifier.subscribed_events
         assert NotificationEvent.JOB_FAILED in notifier.subscribed_events
-        assert NotificationEvent.BATCH_FAILED in notifier.subscribed_events
+        assert NotificationEvent.SHEET_FAILED in notifier.subscribed_events
 
     def test_custom_events(self):
         """Test custom event subscription."""
         notifier = SlackNotifier(
             webhook_url="https://mock",
-            events={NotificationEvent.BATCH_COMPLETE},
+            events={NotificationEvent.SHEET_COMPLETE},
         )
-        assert NotificationEvent.BATCH_COMPLETE in notifier.subscribed_events
+        assert NotificationEvent.SHEET_COMPLETE in notifier.subscribed_events
         assert NotificationEvent.JOB_COMPLETE not in notifier.subscribed_events
 
     def test_from_config(self):
         """Test creating notifier from YAML config."""
         notifier = SlackNotifier.from_config(
-            on_events=["job_complete", "batch_failed"],
+            on_events=["job_complete", "sheet_failed"],
             config={
                 "webhook_url": "https://hooks.slack.com/test",
                 "channel": "#alerts",
@@ -654,7 +654,7 @@ class TestSlackNotifier:
             },
         )
         assert NotificationEvent.JOB_COMPLETE in notifier.subscribed_events
-        assert NotificationEvent.BATCH_FAILED in notifier.subscribed_events
+        assert NotificationEvent.SHEET_FAILED in notifier.subscribed_events
         assert notifier._channel == "#alerts"
         assert notifier._username == "Test Bot"
 
@@ -819,9 +819,9 @@ class TestWebhookNotifier:
         """Test custom event subscription."""
         notifier = WebhookNotifier(
             url="https://mock",
-            events={NotificationEvent.BATCH_COMPLETE, NotificationEvent.RATE_LIMIT_DETECTED},
+            events={NotificationEvent.SHEET_COMPLETE, NotificationEvent.RATE_LIMIT_DETECTED},
         )
-        assert NotificationEvent.BATCH_COMPLETE in notifier.subscribed_events
+        assert NotificationEvent.SHEET_COMPLETE in notifier.subscribed_events
         assert NotificationEvent.RATE_LIMIT_DETECTED in notifier.subscribed_events
         assert NotificationEvent.JOB_COMPLETE not in notifier.subscribed_events
 

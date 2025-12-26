@@ -286,19 +286,19 @@ class TestPreflightChecker:
         accessible = result.paths_accessible
         assert any(accessible.get(str(test_file), False) for _ in accessible)
 
-    def test_check_with_batch_context(self, temp_workspace: Path):
+    def test_check_with_sheet_context(self, temp_workspace: Path):
         """Test preflight check with batch context for template expansion."""
         # Create file matching template
         (temp_workspace / "batch-1-output.txt").write_text("output")
 
-        prompt = "Process {workspace}/batch-{batch_num}-output.txt"
-        batch_context = {
-            "batch_num": 1,
+        prompt = "Process {workspace}/batch-{sheet_num}-output.txt"
+        sheet_context = {
+            "sheet_num": 1,
             "workspace": str(temp_workspace),
         }
 
         checker = PreflightChecker(workspace=temp_workspace)
-        result = checker.check(prompt, batch_context)
+        result = checker.check(prompt, sheet_context)
 
         assert result.can_proceed is True
 
@@ -348,12 +348,12 @@ class TestRunPreflightCheck:
 
         assert result.working_directory_valid is True
 
-    def test_with_batch_context(self, temp_workspace: Path):
+    def test_with_sheet_context(self, temp_workspace: Path):
         """Test with batch context."""
         result = run_preflight_check(
-            prompt="Process batch {batch_num}",
+            prompt="Process batch {sheet_num}",
             workspace=temp_workspace,
-            batch_context={"batch_num": 1},
+            sheet_context={"sheet_num": 1},
         )
 
         assert result.can_proceed is True

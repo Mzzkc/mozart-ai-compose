@@ -90,7 +90,7 @@ class ErrorRecord:
         exit_signal: Signal number if killed by signal.
         retriable: Whether this specific error is retriable.
         suggested_wait: Classifier's suggested wait time in seconds.
-        batch_num: Batch number where error occurred.
+        sheet_num: Batch number where error occurred.
         attempt_num: Which attempt number this was (1-indexed).
         monotonic_time: Monotonic timestamp for precise timing calculations.
     """
@@ -103,7 +103,7 @@ class ErrorRecord:
     exit_signal: int | None = None
     retriable: bool = True
     suggested_wait: float | None = None
-    batch_num: int | None = None
+    sheet_num: int | None = None
     attempt_num: int = 1
     monotonic_time: float = field(default_factory=time.monotonic)
 
@@ -111,7 +111,7 @@ class ErrorRecord:
     def from_classified_error(
         cls,
         error: ClassifiedError,
-        batch_num: int | None = None,
+        sheet_num: int | None = None,
         attempt_num: int = 1,
     ) -> ErrorRecord:
         """Create an ErrorRecord from a ClassifiedError.
@@ -121,7 +121,7 @@ class ErrorRecord:
 
         Args:
             error: ClassifiedError from the error classifier.
-            batch_num: Optional batch number for context.
+            sheet_num: Optional batch number for context.
             attempt_num: Which retry attempt this represents.
 
         Returns:
@@ -136,7 +136,7 @@ class ErrorRecord:
             exit_signal=error.exit_signal,
             retriable=error.retriable,
             suggested_wait=error.suggested_wait_seconds,
-            batch_num=batch_num,
+            sheet_num=sheet_num,
             attempt_num=attempt_num,
         )
 
@@ -155,7 +155,7 @@ class ErrorRecord:
             "exit_signal": self.exit_signal,
             "retriable": self.retriable,
             "suggested_wait": self.suggested_wait,
-            "batch_num": self.batch_num,
+            "sheet_num": self.sheet_num,
             "attempt_num": self.attempt_num,
         }
 

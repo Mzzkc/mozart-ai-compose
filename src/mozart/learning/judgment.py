@@ -23,7 +23,7 @@ class JudgmentQuery:
     job_id: str
     """Unique identifier for the job."""
 
-    batch_num: int
+    sheet_num: int
     """Current batch number being executed."""
 
     validation_results: list[dict[str, Any]]
@@ -168,7 +168,7 @@ class JudgmentClient:
             # Build request payload from JudgmentQuery
             payload = {
                 "job_id": query.job_id,
-                "batch_num": query.batch_num,
+                "sheet_num": query.sheet_num,
                 "validation_results": query.validation_results,
                 "execution_history": query.execution_history,
                 "error_patterns": query.error_patterns,
@@ -394,7 +394,7 @@ class LocalJudgmentClient:
                 ),
                 escalation_urgency="medium",
                 human_question=(
-                    f"Batch {query.batch_num} failed {retry_count} times with "
+                    f"Batch {query.sheet_num} failed {retry_count} times with "
                     f"{pass_rate:.0%} validation pass rate. Continue, skip, or abort?"
                 ),
                 patterns_learned=["max_retries_exceeded"],
@@ -428,7 +428,7 @@ class LocalJudgmentClient:
             ),
             escalation_urgency=urgency,
             human_question=(
-                f"Batch {query.batch_num} has low confidence ({confidence:.0%}) "
+                f"Batch {query.sheet_num} has low confidence ({confidence:.0%}) "
                 f"after {retry_count} attempts. How should we proceed?"
             ),
             patterns_learned=["low_confidence_escalation"],

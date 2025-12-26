@@ -8,7 +8,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from mozart.core.checkpoint import BatchStatus, CheckpointState
+from mozart.core.checkpoint import CheckpointState, SheetStatus
 from mozart.core.logging import get_logger
 from mozart.state.base import StateBackend
 
@@ -58,8 +58,8 @@ class JsonStateBackend(StateBackend):
                 "checkpoint_loaded",
                 job_id=job_id,
                 status=state.status.value,
-                last_completed_batch=state.last_completed_batch,
-                total_batches=state.total_batches,
+                last_completed_sheet=state.last_completed_sheet,
+                total_sheets=state.total_sheets,
             )
             return state
         except json.JSONDecodeError as e:
@@ -103,8 +103,8 @@ class JsonStateBackend(StateBackend):
             "checkpoint_saved",
             job_id=state.job_id,
             status=state.status.value,
-            last_completed_batch=state.last_completed_batch,
-            total_batches=state.total_batches,
+            last_completed_sheet=state.last_completed_sheet,
+            total_sheets=state.total_sheets,
             path=str(state_file),
         )
 
@@ -129,18 +129,18 @@ class JsonStateBackend(StateBackend):
                     continue
         return sorted(states, key=lambda s: s.updated_at, reverse=True)
 
-    async def get_next_batch(self, job_id: str) -> int | None:
+    async def get_next_sheet(self, job_id: str) -> int | None:
         """Get next batch from state."""
         state = await self.load(job_id)
         if state is None:
             return 1  # Start from beginning if no state
-        return state.get_next_batch()
+        return state.get_next_sheet()
 
-    async def mark_batch_status(
+    async def mark_sheet_status(
         self,
         job_id: str,
-        batch_num: int,
-        status: BatchStatus,
+        sheet_num: int,
+        status: SheetStatus,
         error_message: str | None = None,
     ) -> None:
         """Update batch status in state."""
@@ -148,11 +148,11 @@ class JsonStateBackend(StateBackend):
         if state is None:
             raise ValueError(f"No state found for job {job_id}")
 
-        if status == BatchStatus.COMPLETED:
-            state.mark_batch_completed(batch_num)
-        elif status == BatchStatus.FAILED:
-            state.mark_batch_failed(batch_num, error_message or "Unknown error")
-        elif status == BatchStatus.IN_PROGRESS:
-            state.mark_batch_started(batch_num)
+        if status == SheetStatus.COMPLETED:
+            state.mark_sheet_completed(sheet_num)
+        elif status == SheetStatus.FAILED:
+            state.mark_sheet_failed(sheet_num, error_message or "Unknown error")
+        elif status == SheetStatus.IN_PROGRESS:
+            state.mark_sheet_started(sheet_num)
 
         await self.save(state)

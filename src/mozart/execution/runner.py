@@ -1,6 +1,6 @@
 """Job runner with partial completion recovery.
 
-Orchestrates batch execution with validation, retry logic, and
+Orchestrates sheet execution with validation, retry logic, and
 automatic completion prompt generation for partial failures.
 """
 
@@ -18,7 +18,7 @@ from typing import Any
 from rich.console import Console
 
 from mozart.backends.base import Backend, ExecutionResult
-from mozart.core.checkpoint import BatchStatus, CheckpointState, JobStatus
+from mozart.core.checkpoint import CheckpointState, JobStatus, SheetStatus
 from mozart.core.config import JobConfig
 from mozart.core.errors import ClassifiedError, ErrorClassifier
 from mozart.core.logging import ExecutionContext, MozartLogger, get_logger
@@ -30,10 +30,10 @@ from mozart.execution.retry_strategy import (
     ErrorRecord,
     RetryStrategyConfig,
 )
-from mozart.execution.validation import BatchValidationResult, ValidationEngine
+from mozart.execution.validation import SheetValidationResult, ValidationEngine
 from mozart.learning.judgment import JudgmentClient, JudgmentQuery, JudgmentResponse
-from mozart.learning.outcomes import BatchOutcome, OutcomeStore
-from mozart.prompts.templating import BatchContext, CompletionContext, PromptBuilder
+from mozart.learning.outcomes import OutcomeStore, SheetOutcome
+from mozart.prompts.templating import CompletionContext, PromptBuilder, SheetContext
 from mozart.state.base import StateBackend
 
 
@@ -55,10 +55,10 @@ class RunSummary:
 
     job_id: str
     job_name: str
-    total_batches: int
-    completed_batches: int = 0
-    failed_batches: int = 0
-    skipped_batches: int = 0
+    total_sheets: int
+    completed_sheets: int = 0
+    failed_sheets: int = 0
+    skipped_sheets: int = 0
     total_duration_seconds: float = 0.0
     total_retries: int = 0
     total_completion_attempts: int = 0
@@ -70,10 +70,10 @@ class RunSummary:
 
     @property
     def success_rate(self) -> float:
-        """Calculate batch success rate as percentage."""
-        if self.total_batches == 0:
+        """Calculate sheet success rate as percentage."""
+        if self.total_sheets == 0:
             return 0.0
-        return (self.completed_batches / self.total_batches) * 100
+        return (self.completed_sheets / self.total_sheets) * 100
 
     @property
     def validation_pass_rate(self) -> float:
@@ -86,9 +86,9 @@ class RunSummary:
     @property
     def first_attempt_rate(self) -> float:
         """Calculate first-attempt success rate as percentage."""
-        if self.completed_batches == 0:
+        if self.completed_sheets == 0:
             return 0.0
-        return (self.first_attempt_successes / self.completed_batches) * 100
+        return (self.first_attempt_successes / self.completed_sheets) * 100
 
     def to_dict(self) -> dict[str, Any]:
         """Convert summary to dictionary for JSON output."""
@@ -98,11 +98,11 @@ class RunSummary:
             "status": self.final_status.value,
             "duration_seconds": round(self.total_duration_seconds, 2),
             "duration_formatted": self._format_duration(self.total_duration_seconds),
-            "batches": {
-                "total": self.total_batches,
-                "completed": self.completed_batches,
-                "failed": self.failed_batches,
-                "skipped": self.skipped_batches,
+            "sheets": {
+                "total": self.total_sheets,
+                "completed": self.completed_sheets,
+                "failed": self.failed_sheets,
+                "skipped": self.skipped_sheets,
                 "success_rate": round(self.success_rate, 1),
             },
             "validation": {
@@ -134,8 +134,8 @@ class RunSummary:
             return f"{hours}h {minutes}m"
 
 
-class BatchExecutionMode(str, Enum):
-    """Mode of batch execution."""
+class SheetExecutionMode(str, Enum):
+    """Mode of sheet execution."""
 
     NORMAL = "normal"
     """Standard first-time execution."""
@@ -166,12 +166,12 @@ class GracefulShutdownError(Exception):
 
 
 class JobRunner:
-    """Orchestrates batch execution with validation and partial recovery.
+    """Orchestrates sheet execution with validation and partial recovery.
 
     The runner implements the following flow:
-    1. Execute batch with standard prompt
+    1. Execute sheet with standard prompt
     2. Run validations on expected outputs
-    3. If all pass: mark complete, continue to next batch
+    3. If all pass: mark complete, continue to next sheet
     4. If majority pass: enter completion mode, generate focused prompt
     5. If minority pass: full retry with original prompt
     6. Track attempts separately for completion vs full retry
@@ -203,11 +203,11 @@ class JobRunner:
                 integration (Phase 4). Provides TDF-aligned execution decisions.
                 If not provided, falls back to local _decide_next_action().
             progress_callback: Optional callback for progress updates. Called with
-                (completed_batches, total_batches, eta_seconds). Used by CLI for
+                (completed_sheets, total_sheets, eta_seconds). Used by CLI for
                 progress bar updates.
             execution_progress_callback: Optional callback for real-time execution
-                progress during long-running batch executions. Called with dict
-                containing: batch_num, bytes_received, lines_received, elapsed_seconds,
+                progress during long-running sheet executions. Called with dict
+                containing: sheet_num, bytes_received, lines_received, elapsed_seconds,
                 phase. Used by CLI to show "Still running... 5.2KB received".
         """
         self.config = config
@@ -231,14 +231,14 @@ class JobRunner:
         # Graceful shutdown state
         self._shutdown_requested = False
         self._current_state: CheckpointState | None = None
-        self._batch_times: list[float] = []  # Track batch durations for ETA
+        self._sheet_times: list[float] = []  # Track sheet durations for ETA
 
         # Summary tracking for run statistics
         self._summary: RunSummary | None = None
         self._run_start_time: float = 0.0
 
         # Execution progress tracking (Task 4)
-        self._current_batch_num: int | None = None
+        self._current_sheet_num: int | None = None
         self._execution_progress_snapshots: list[dict[str, Any]] = []
 
         # Structured logging (Task 8: Logging Integration)
@@ -266,13 +266,13 @@ class JobRunner:
 
     async def run(
         self,
-        start_batch: int | None = None,
+        start_sheet: int | None = None,
         config_path: str | None = None,
     ) -> tuple[CheckpointState, RunSummary]:
         """Run the job from start or resume point.
 
         Args:
-            start_batch: Optional batch number to start from (overrides state).
+            start_sheet: Optional sheet number to start from (overrides state).
             config_path: Optional path to the original config file (for resume).
 
         Returns:
@@ -285,14 +285,14 @@ class JobRunner:
         """
         # Initialize timing and summary tracking
         self._run_start_time = time.monotonic()
-        state = await self._initialize_state(start_batch, config_path)
+        state = await self._initialize_state(start_sheet, config_path)
         self._current_state = state
 
         # Initialize run summary
         self._summary = RunSummary(
             job_id=state.job_id,
             job_name=state.job_name,
-            total_batches=state.total_batches,
+            total_sheets=state.total_sheets,
         )
 
         # Create execution context for correlation (Task 8: Logging Integration)
@@ -309,22 +309,22 @@ class JobRunner:
         self._logger.info(
             "job.started",
             job_id=state.job_id,
-            total_batches=state.total_batches,
-            resume_from=start_batch,
+            total_sheets=state.total_sheets,
+            resume_from=start_sheet,
             config=config_summary,
         )
 
         try:
-            next_batch = state.get_next_batch()
-            while next_batch is not None and next_batch <= state.total_batches:
-                # Check for shutdown request before starting batch
+            next_sheet = state.get_next_sheet()
+            while next_sheet is not None and next_sheet <= state.total_sheets:
+                # Check for shutdown request before starting sheet
                 if self._shutdown_requested:
                     await self._handle_graceful_shutdown(state)
 
-                batch_start = time.monotonic()
+                sheet_start = time.monotonic()
 
                 try:
-                    await self._execute_batch_with_recovery(state, next_batch)
+                    await self._execute_sheet_with_recovery(state, next_sheet)
                 except FatalError as e:
                     state.mark_job_failed(str(e))
                     await self.state_backend.save(state)
@@ -334,29 +334,29 @@ class JobRunner:
                     self._logger.error(
                         "job.failed",
                         job_id=state.job_id,
-                        batch_num=next_batch,
+                        sheet_num=next_sheet,
                         error=str(e),
                         duration_seconds=round(time.monotonic() - self._run_start_time, 2),
-                        completed_batches=self._summary.completed_batches if self._summary else 0,
+                        completed_sheets=self._summary.completed_sheets if self._summary else 0,
                     )
                     raise
 
-                # Track batch timing for ETA calculation
-                batch_duration = time.monotonic() - batch_start
-                self._batch_times.append(batch_duration)
+                # Track sheet timing for ETA calculation
+                sheet_duration = time.monotonic() - sheet_start
+                self._sheet_times.append(sheet_duration)
 
                 # Update progress callback
                 self._update_progress(state)
 
-                # Pause between batches
-                if next_batch < state.total_batches:
+                # Pause between sheets
+                if next_sheet < state.total_sheets:
                     await self._interruptible_sleep(
                         self.config.pause_between_batches_seconds
                     )
 
-                next_batch = state.get_next_batch()
+                next_sheet = state.get_next_sheet()
 
-            # Mark job complete if we processed all batches
+            # Mark job complete if we processed all sheets
             if state.status == JobStatus.RUNNING:
                 state.status = JobStatus.COMPLETED
                 await self.state_backend.save(state)
@@ -370,8 +370,8 @@ class JobRunner:
                 job_id=state.job_id,
                 status=state.status.value,
                 duration_seconds=round(self._summary.total_duration_seconds, 2),
-                completed_batches=self._summary.completed_batches,
-                failed_batches=self._summary.failed_batches,
+                completed_sheets=self._summary.completed_sheets,
+                failed_sheets=self._summary.failed_sheets,
                 success_rate=round(self._summary.success_rate, 1),
                 validation_pass_rate=round(self._summary.validation_pass_rate, 1),
                 total_retries=self._summary.total_retries,
@@ -395,28 +395,28 @@ class JobRunner:
         self._summary.total_duration_seconds = time.monotonic() - self._run_start_time
         self._summary.final_status = state.status
 
-        # Aggregate batch statistics
-        for batch_state in state.batches.values():
-            if batch_state.status == BatchStatus.COMPLETED:
-                self._summary.completed_batches += 1
-                if batch_state.first_attempt_success:
+        # Aggregate sheet statistics
+        for sheet_state in state.sheets.values():
+            if sheet_state.status == SheetStatus.COMPLETED:
+                self._summary.completed_sheets += 1
+                if sheet_state.first_attempt_success:
                     self._summary.first_attempt_successes += 1
                 # Track completion attempts
-                if batch_state.completion_attempts:
-                    self._summary.total_completion_attempts += batch_state.completion_attempts
-            elif batch_state.status == BatchStatus.FAILED:
-                self._summary.failed_batches += 1
-            elif batch_state.status == BatchStatus.SKIPPED:
-                self._summary.skipped_batches += 1
+                if sheet_state.completion_attempts:
+                    self._summary.total_completion_attempts += sheet_state.completion_attempts
+            elif sheet_state.status == SheetStatus.FAILED:
+                self._summary.failed_sheets += 1
+            elif sheet_state.status == SheetStatus.SKIPPED:
+                self._summary.skipped_sheets += 1
 
             # Track retries (attempts - 1)
-            if batch_state.attempt_count > 1:
-                self._summary.total_retries += batch_state.attempt_count - 1
+            if sheet_state.attempt_count > 1:
+                self._summary.total_retries += sheet_state.attempt_count - 1
 
             # Track validation results
-            if batch_state.validation_passed is True:
+            if sheet_state.validation_passed is True:
                 self._summary.validation_pass_count += 1
-            elif batch_state.validation_passed is False:
+            elif sheet_state.validation_passed is False:
                 self._summary.validation_fail_count += 1
 
         # Copy rate limit waits from state
@@ -441,8 +441,8 @@ class JobRunner:
         """
         return {
             "backend_type": self.config.backend.type,
-            "batch_size": self.config.batch.size,
-            "total_items": self.config.batch.total_items,
+            "sheet_size": self.config.sheet.size,
+            "total_items": self.config.sheet.total_items,
             "max_retries": self.config.retry.max_retries,
             "max_completion_attempts": self.config.retry.max_completion_attempts,
             "workspace": str(self.config.workspace),
@@ -486,7 +486,7 @@ class JobRunner:
         if not self._shutdown_requested:
             self._shutdown_requested = True
             self.console.print(
-                "\n[yellow]Ctrl+C received. Finishing current batch and saving state...[/yellow]"
+                "\n[yellow]Ctrl+C received. Finishing current sheet and saving state...[/yellow]"
             )
 
     async def _handle_graceful_shutdown(self, state: CheckpointState) -> None:
@@ -503,8 +503,8 @@ class JobRunner:
 
         # Show resume hint
         self.console.print(
-            f"\n[green]State saved.[/green] Job paused at batch "
-            f"{state.last_completed_batch + 1}/{state.total_batches}."
+            f"\n[green]State saved.[/green] Job paused at sheet "
+            f"{state.last_completed_sheet + 1}/{state.total_sheets}."
         )
         self.console.print(
             f"\n[bold]To resume:[/bold] mozart resume {state.job_id}"
@@ -535,16 +535,16 @@ class JobRunner:
         if self.progress_callback is None:
             return
 
-        # Calculate ETA based on average batch time
+        # Calculate ETA based on average sheet time
         eta: float | None = None
-        if self._batch_times:
-            avg_time = sum(self._batch_times) / len(self._batch_times)
-            remaining_batches = state.total_batches - state.last_completed_batch
-            eta = avg_time * remaining_batches
+        if self._sheet_times:
+            avg_time = sum(self._sheet_times) / len(self._sheet_times)
+            remaining_sheets = state.total_sheets - state.last_completed_sheet
+            eta = avg_time * remaining_sheets
 
         self.progress_callback(
-            state.last_completed_batch,
-            state.total_batches,
+            state.last_completed_sheet,
+            state.total_sheets,
             eta,
         )
 
@@ -557,9 +557,9 @@ class JobRunner:
         Args:
             progress: Dict with bytes_received, lines_received, elapsed_seconds, phase.
         """
-        # Add batch_num to progress info
-        progress_with_batch = {
-            "batch_num": self._current_batch_num,
+        # Add sheet_num to progress info
+        progress_with_sheet = {
+            "sheet_num": self._current_sheet_num,
             **progress,
         }
 
@@ -572,23 +572,23 @@ class JobRunner:
         )
         if should_snapshot:
             snapshot = {
-                **progress_with_batch,
+                **progress_with_sheet,
                 "snapshot_at": _utc_now().isoformat(),
             }
             self._execution_progress_snapshots.append(snapshot)
 
         # Forward to CLI callback if set
         if self.execution_progress_callback is not None:
-            self.execution_progress_callback(progress_with_batch)
+            self.execution_progress_callback(progress_with_sheet)
 
     async def _initialize_state(
-        self, start_batch: int | None,
+        self, start_sheet: int | None,
         config_path: str | None = None,
     ) -> CheckpointState:
         """Initialize or load job state.
 
         Args:
-            start_batch: Optional override for starting batch.
+            start_sheet: Optional override for starting sheet.
             config_path: Optional path to the original config file.
 
         Returns:
@@ -604,7 +604,7 @@ class JobRunner:
             state = CheckpointState(
                 job_id=job_id,
                 job_name=self.config.name,
-                total_batches=self.config.batch.total_batches,
+                total_sheets=self.config.sheet.total_sheets,
                 config_snapshot=config_snapshot,
                 config_path=config_path,
             )
@@ -612,24 +612,24 @@ class JobRunner:
             self.console.print("[green]Created new job state[/green]")
         else:
             self.console.print(
-                f"[yellow]Resuming from batch {state.last_completed_batch + 1}[/yellow]"
+                f"[yellow]Resuming from sheet {state.last_completed_sheet + 1}[/yellow]"
             )
 
-        # Override starting batch if specified
-        if start_batch is not None:
-            state.last_completed_batch = start_batch - 1
+        # Override starting sheet if specified
+        if start_sheet is not None:
+            state.last_completed_sheet = start_sheet - 1
 
         return state
 
-    async def _execute_batch_with_recovery(
+    async def _execute_sheet_with_recovery(
         self,
         state: CheckpointState,
-        batch_num: int,
+        sheet_num: int,
     ) -> None:
-        """Execute a single batch with full retry/completion logic.
+        """Execute a single sheet with full retry/completion logic.
 
         Flow:
-        1. Execute batch normally
+        1. Execute sheet normally
         2. Run validations
         3. If all pass -> complete
         4. If majority pass -> enter completion mode
@@ -637,7 +637,7 @@ class JobRunner:
 
         Args:
             state: Current job state.
-            batch_num: Batch number to execute.
+            sheet_num: Sheet number to execute.
 
         Raises:
             FatalError: If all retries exhausted or fatal error encountered.
@@ -645,11 +645,11 @@ class JobRunner:
         # Track execution timing for learning
         execution_start_time = time.monotonic()
 
-        # Build batch context
-        batch_context = self._build_batch_context(batch_num)
+        # Build sheet context
+        sheet_context = self._build_sheet_context(sheet_num)
         validation_engine = ValidationEngine(
             self.config.workspace,
-            batch_context.to_dict(),
+            sheet_context.to_dict(),
         )
 
         # Track attempts
@@ -665,39 +665,39 @@ class JobRunner:
         error_history: list[ErrorRecord] = []
 
         # Build original prompt
-        original_prompt = self.prompt_builder.build_batch_prompt(batch_context)
+        original_prompt = self.prompt_builder.build_sheet_prompt(sheet_context)
         current_prompt = original_prompt
-        current_mode = BatchExecutionMode.NORMAL
+        current_mode = SheetExecutionMode.NORMAL
 
         # Run preflight checks before first execution (Task 2: Prompt Metrics)
         preflight_result = self._run_preflight_checks(
             prompt=original_prompt,
-            batch_context=batch_context.to_dict(),
-            batch_num=batch_num,
+            sheet_context=sheet_context.to_dict(),
+            sheet_num=sheet_num,
             state=state,
         )
 
         # Check for fatal preflight errors
         if preflight_result.has_errors:
             error_summary = "; ".join(preflight_result.errors)
-            state.mark_batch_failed(
-                batch_num,
+            state.mark_sheet_failed(
+                sheet_num,
                 f"Preflight check failed: {error_summary}",
                 "preflight",
             )
             await self.state_backend.save(state)
             # Log preflight failure
             self._logger.error(
-                "batch.preflight_failed",
-                batch_num=batch_num,
+                "sheet.preflight_failed",
+                sheet_num=sheet_num,
                 errors=preflight_result.errors,
             )
-            raise FatalError(f"Batch {batch_num}: Preflight check failed - {error_summary}")
+            raise FatalError(f"Sheet {sheet_num}: Preflight check failed - {error_summary}")
 
-        # Log batch start (Task 8: Logging Integration)
+        # Log sheet start (Task 8: Logging Integration)
         self._logger.info(
-            "batch.started",
-            batch_num=batch_num,
+            "sheet.started",
+            sheet_num=sheet_num,
             execution_mode=current_mode.value,
             prompt_tokens=preflight_result.prompt_metrics.estimated_tokens,
             prompt_lines=preflight_result.prompt_metrics.line_count,
@@ -705,14 +705,14 @@ class JobRunner:
         )
 
         while True:
-            # Mark batch started
-            state.mark_batch_started(batch_num)
-            batch_state = state.batches[batch_num]
-            batch_state.execution_mode = current_mode.value
+            # Mark sheet started
+            state.mark_sheet_started(sheet_num)
+            sheet_state = state.sheets[sheet_num]
+            sheet_state.execution_mode = current_mode.value
             await self.state_backend.save(state)
 
             # Initialize execution progress tracking (Task 4)
-            self._current_batch_num = batch_num
+            self._current_sheet_num = sheet_num
             self._execution_progress_snapshots.clear()
 
             # Snapshot mtimes before execution (for file_modified checks)
@@ -727,12 +727,12 @@ class JobRunner:
                 cb_state = self._circuit_breaker.get_state()
                 self._logger.warning(
                     "circuit_breaker.blocked",
-                    batch_num=batch_num,
+                    sheet_num=sheet_num,
                     state=cb_state.value,
                     wait_seconds=wait_time,
                 )
                 self.console.print(
-                    f"[yellow]Batch {batch_num}: Circuit breaker OPEN - "
+                    f"[yellow]Batch {sheet_num}: Circuit breaker OPEN - "
                     f"waiting {wait_time:.0f}s for recovery[/yellow]"
                 )
                 if wait_time and wait_time > 0:
@@ -741,17 +741,17 @@ class JobRunner:
 
             # Execute
             self.console.print(
-                f"[blue]Batch {batch_num}: {current_mode.value} execution[/blue]"
+                f"[blue]Batch {sheet_num}: {current_mode.value} execution[/blue]"
             )
             result = await self.backend.execute(current_prompt)
 
-            # Store execution progress snapshots in batch state (Task 4)
+            # Store execution progress snapshots in sheet state (Task 4)
             if self._execution_progress_snapshots:
-                batch_state.progress_snapshots = self._execution_progress_snapshots.copy()
-                batch_state.last_activity_at = _utc_now()
+                sheet_state.progress_snapshots = self._execution_progress_snapshots.copy()
+                sheet_state.last_activity_at = _utc_now()
 
             # Capture raw output for debugging (Task 1: Raw Output Capture)
-            batch_state.capture_output(result.stdout, result.stderr)
+            sheet_state.capture_output(result.stdout, result.stderr)
 
             # Track execution result for judgment (Phase 4)
             execution_history.append(result)
@@ -763,7 +763,7 @@ class JobRunner:
                 # Track error for adaptive retry (Task 13)
                 error_record = ErrorRecord.from_classified_error(
                     error=error,
-                    batch_num=batch_num,
+                    sheet_num=sheet_num,
                     attempt_num=normal_attempts + 1,
                 )
                 error_history.append(error_record)
@@ -780,8 +780,8 @@ class JobRunner:
                     continue  # Retry same execution
 
                 if not error.should_retry:
-                    state.mark_batch_failed(
-                        batch_num,
+                    state.mark_sheet_failed(
+                        sheet_num,
                         error.message,
                         error.category.value,
                         exit_code=result.exit_code,
@@ -790,10 +790,10 @@ class JobRunner:
                         execution_duration_seconds=result.duration_seconds,
                     )
                     await self.state_backend.save(state)
-                    # Log fatal batch failure
+                    # Log fatal sheet failure
                     self._logger.error(
-                        "batch.failed",
-                        batch_num=batch_num,
+                        "sheet.failed",
+                        sheet_num=sheet_num,
                         error_category=error.category.value,
                         error_message=error.message,
                         exit_code=result.exit_code,
@@ -802,7 +802,7 @@ class JobRunner:
                         duration_seconds=round(result.duration_seconds or 0, 2),
                         stdout_tail=result.stdout[-500:] if result.stdout else None,
                     )
-                    raise FatalError(f"Batch {batch_num}: {error.message}")
+                    raise FatalError(f"Sheet {sheet_num}: {error.message}")
 
                 # Transient error - get adaptive retry recommendation (Task 13)
                 retry_recommendation = self._retry_strategy.analyze(
@@ -814,8 +814,8 @@ class JobRunner:
 
                 # Check both max retries and adaptive strategy recommendation
                 if normal_attempts >= max_retries:
-                    state.mark_batch_failed(
-                        batch_num,
+                    state.mark_sheet_failed(
+                        sheet_num,
                         f"Failed after {max_retries} retries: {error.message}",
                         error.category.value,
                         exit_code=result.exit_code,
@@ -826,8 +826,8 @@ class JobRunner:
                     await self.state_backend.save(state)
                     # Log retry exhaustion failure
                     self._logger.error(
-                        "batch.failed",
-                        batch_num=batch_num,
+                        "sheet.failed",
+                        sheet_num=sheet_num,
                         error_category=error.category.value,
                         error_message=f"Retries exhausted: {error.message}",
                         attempt=normal_attempts,
@@ -836,13 +836,13 @@ class JobRunner:
                         duration_seconds=round(result.duration_seconds or 0, 2),
                     )
                     raise FatalError(
-                        f"Batch {batch_num} failed after {max_retries} retries"
+                        f"Sheet {sheet_num} failed after {max_retries} retries"
                     )
 
                 # Check if adaptive strategy recommends stopping early
                 if not retry_recommendation.should_retry:
-                    state.mark_batch_failed(
-                        batch_num,
+                    state.mark_sheet_failed(
+                        sheet_num,
                         f"Adaptive retry aborted: {retry_recommendation.reason}",
                         error.category.value,
                         exit_code=result.exit_code,
@@ -853,8 +853,8 @@ class JobRunner:
                     await self.state_backend.save(state)
                     # Log adaptive strategy abort
                     self._logger.warning(
-                        "batch.adaptive_retry_aborted",
-                        batch_num=batch_num,
+                        "sheet.adaptive_retry_aborted",
+                        sheet_num=sheet_num,
                         error_category=error.category.value,
                         pattern=retry_recommendation.detected_pattern.value,
                         reason=retry_recommendation.reason,
@@ -863,13 +863,13 @@ class JobRunner:
                         attempt=normal_attempts,
                     )
                     raise FatalError(
-                        f"Batch {batch_num} aborted: {retry_recommendation.reason}"
+                        f"Sheet {sheet_num} aborted: {retry_recommendation.reason}"
                     )
 
                 # Log retry attempt with adaptive strategy info
                 self._logger.warning(
-                    "batch.retry",
-                    batch_num=batch_num,
+                    "sheet.retry",
+                    sheet_num=sheet_num,
                     attempt=normal_attempts,
                     max_retries=max_retries,
                     error_category=error.category.value,
@@ -881,7 +881,7 @@ class JobRunner:
                     retry_strategy=retry_recommendation.strategy_used,
                 )
                 self.console.print(
-                    f"[yellow]Batch {batch_num}: {retry_recommendation.detected_pattern.value} - "
+                    f"[yellow]Batch {sheet_num}: {retry_recommendation.detected_pattern.value} - "
                     f"retry {normal_attempts}/{max_retries} "
                     f"(delay: {retry_recommendation.delay_seconds:.1f}s, "
                     f"confidence: {retry_recommendation.confidence:.0%})[/yellow]"
@@ -901,7 +901,7 @@ class JobRunner:
             validation_duration = time.monotonic() - validation_start
 
             # Update state with validation details
-            self._update_batch_validation_state(state, batch_num, validation_result)
+            self._update_sheet_validation_state(state, sheet_num, validation_result)
             await self.state_backend.save(state)
 
             if validation_result.all_passed:
@@ -917,35 +917,35 @@ class JobRunner:
                 else:
                     outcome_category = "success_retry"
 
-                # Populate BatchState learning fields
-                batch_state = state.batches[batch_num]
-                batch_state.first_attempt_success = first_attempt_success
-                batch_state.outcome_category = outcome_category
-                batch_state.confidence_score = validation_result.pass_percentage / 100.0
+                # Populate SheetState learning fields
+                sheet_state = state.sheets[sheet_num]
+                sheet_state.first_attempt_success = first_attempt_success
+                sheet_state.outcome_category = outcome_category
+                sheet_state.confidence_score = validation_result.pass_percentage / 100.0
 
-                state.mark_batch_completed(
-                    batch_num,
+                state.mark_sheet_completed(
+                    sheet_num,
                     validation_passed=True,
                     validation_details=validation_result.to_dict_list(),
                 )
 
                 # Record outcome for learning if store is available
-                await self._record_batch_outcome(
-                    batch_num=batch_num,
+                await self._record_sheet_outcome(
+                    sheet_num=sheet_num,
                     job_id=state.job_id,
                     validation_result=validation_result,
                     execution_duration=execution_duration,
                     normal_attempts=normal_attempts,
                     completion_attempts=completion_attempts,
                     first_attempt_success=first_attempt_success,
-                    final_status=BatchStatus.COMPLETED,
+                    final_status=SheetStatus.COMPLETED,
                 )
 
                 await self.state_backend.save(state)
-                # Log successful batch completion
+                # Log successful sheet completion
                 self._logger.info(
-                    "batch.completed",
-                    batch_num=batch_num,
+                    "sheet.completed",
+                    sheet_num=sheet_num,
                     duration_seconds=round(execution_duration, 2),
                     validation_duration_seconds=round(validation_duration, 3),
                     validation_count=len(validation_result.results),
@@ -956,14 +956,14 @@ class JobRunner:
                     first_attempt_success=first_attempt_success,
                 )
                 self.console.print(
-                    f"[green]Batch {batch_num}: All {len(validation_result.results)} "
+                    f"[green]Batch {sheet_num}: All {len(validation_result.results)} "
                     f"validations passed[/green]"
                 )
                 return
 
             # Some validations failed - use judgment-based decision logic (Phase 4)
             next_mode, decision_reason, prompt_modifications = await self._decide_with_judgment(
-                batch_num=batch_num,
+                sheet_num=sheet_num,
                 validation_result=validation_result,
                 execution_history=execution_history,
                 normal_attempts=normal_attempts,
@@ -972,31 +972,31 @@ class JobRunner:
             pass_pct = validation_result.pass_percentage
 
             self.console.print(
-                f"[dim]Batch {batch_num}: Decision: {next_mode.value} - {decision_reason}[/dim]"
+                f"[dim]Batch {sheet_num}: Decision: {next_mode.value} - {decision_reason}[/dim]"
             )
 
             # Apply prompt modifications from judgment if provided
-            if prompt_modifications and next_mode == BatchExecutionMode.RETRY:
+            if prompt_modifications and next_mode == SheetExecutionMode.RETRY:
                 # Join modifications into additional instructions
                 modification_text = "\n".join(prompt_modifications)
                 current_prompt = (
                     original_prompt + "\n\n---\nJudgment modifications:\n" + modification_text
                 )
                 self.console.print(
-                    f"[blue]Batch {batch_num}: Applying {len(prompt_modifications)} "
+                    f"[blue]Batch {sheet_num}: Applying {len(prompt_modifications)} "
                     f"prompt modifications from judgment[/blue]"
                 )
 
-            if next_mode == BatchExecutionMode.COMPLETION:
+            if next_mode == SheetExecutionMode.COMPLETION:
                 # COMPLETION MODE: High/medium confidence with majority passed
                 completion_attempts += 1
-                batch_state.completion_attempts = completion_attempts
-                current_mode = BatchExecutionMode.COMPLETION
+                sheet_state.completion_attempts = completion_attempts
+                current_mode = SheetExecutionMode.COMPLETION
 
                 # Pass ValidationResult objects (not just rules) to get expanded paths
                 completion_ctx = CompletionContext(
-                    batch_num=batch_num,
-                    total_batches=state.total_batches,
+                    sheet_num=sheet_num,
+                    total_sheets=state.total_sheets,
                     passed_validations=validation_result.get_passed_results(),
                     failed_validations=validation_result.get_failed_results(),
                     completion_attempt=completion_attempts,
@@ -1009,7 +1009,7 @@ class JobRunner:
                 )
 
                 self.console.print(
-                    f"[yellow]Batch {batch_num}: Entering completion mode "
+                    f"[yellow]Batch {sheet_num}: Entering completion mode "
                     f"({validation_result.passed_count}/{len(validation_result.results)} passed, "
                     f"{pass_pct:.0f}%). Attempt {completion_attempts}/{max_completion}[/yellow]"
                 )
@@ -1017,16 +1017,16 @@ class JobRunner:
                 await asyncio.sleep(self.config.retry.completion_delay_seconds)
                 continue
 
-            elif next_mode == BatchExecutionMode.ESCALATE:
+            elif next_mode == SheetExecutionMode.ESCALATE:
                 # ESCALATE MODE: Low confidence requires external decision
                 # Track error messages for escalation context
                 escalation_error_history: list[str] = []
-                if batch_state.error_message:
-                    escalation_error_history.append(batch_state.error_message)
+                if sheet_state.error_message:
+                    escalation_error_history.append(sheet_state.error_message)
 
                 response = await self._handle_escalation(
                     state=state,
-                    batch_num=batch_num,
+                    sheet_num=sheet_num,
                     validation_result=validation_result,
                     current_prompt=current_prompt,
                     error_history=escalation_error_history,
@@ -1037,61 +1037,61 @@ class JobRunner:
                 if response.action == "retry":
                     normal_attempts += 1
                     if normal_attempts >= max_retries:
-                        state.mark_batch_failed(
-                            batch_num,
+                        state.mark_sheet_failed(
+                            sheet_num,
                             f"Escalation retry exhausted after {max_retries} attempts",
                             "escalation",
                         )
                         await self.state_backend.save(state)
                         raise FatalError(
-                            f"Batch {batch_num} exhausted retries after escalation"
+                            f"Sheet {sheet_num} exhausted retries after escalation"
                         )
-                    current_mode = BatchExecutionMode.RETRY
+                    current_mode = SheetExecutionMode.RETRY
                     current_prompt = original_prompt
                     await asyncio.sleep(self._get_retry_delay(normal_attempts))
                     continue
 
                 elif response.action == "skip":
-                    # Skip this batch and move to next
-                    state.mark_batch_completed(
-                        batch_num,
+                    # Skip this sheet and move to next
+                    state.mark_sheet_completed(
+                        sheet_num,
                         validation_passed=False,
                         validation_details=validation_result.to_dict_list(),
                     )
-                    batch_state = state.batches[batch_num]
-                    batch_state.outcome_category = "skipped_by_escalation"
+                    sheet_state = state.sheets[sheet_num]
+                    sheet_state.outcome_category = "skipped_by_escalation"
                     await self.state_backend.save(state)
                     self.console.print(
-                        f"[yellow]Batch {batch_num}: Skipped via escalation[/yellow]"
+                        f"[yellow]Batch {sheet_num}: Skipped via escalation[/yellow]"
                     )
                     return
 
                 elif response.action == "abort":
-                    state.mark_batch_failed(
-                        batch_num,
+                    state.mark_sheet_failed(
+                        sheet_num,
                         "Aborted via escalation",
                         "escalation",
                     )
                     await self.state_backend.save(state)
                     raise FatalError(
-                        f"Batch {batch_num}: Job aborted via escalation"
+                        f"Sheet {sheet_num}: Job aborted via escalation"
                     )
 
                 elif response.action == "modify_prompt":
                     if response.modified_prompt is None:
                         # Fall back to retry if no modified prompt provided
                         self.console.print(
-                            f"[yellow]Batch {batch_num}: No modified prompt provided, "
+                            f"[yellow]Batch {sheet_num}: No modified prompt provided, "
                             f"falling back to retry[/yellow]"
                         )
                         normal_attempts += 1
-                        current_mode = BatchExecutionMode.RETRY
+                        current_mode = SheetExecutionMode.RETRY
                         current_prompt = original_prompt
                     else:
-                        current_mode = BatchExecutionMode.RETRY
+                        current_mode = SheetExecutionMode.RETRY
                         current_prompt = response.modified_prompt
                         self.console.print(
-                            f"[blue]Batch {batch_num}: Retrying with modified prompt[/blue]"
+                            f"[blue]Batch {sheet_num}: Retrying with modified prompt[/blue]"
                         )
                     await asyncio.sleep(self._get_retry_delay(normal_attempts))
                     continue
@@ -1100,8 +1100,8 @@ class JobRunner:
                 # RETRY MODE: Fall through to full retry
                 normal_attempts += 1
                 if normal_attempts >= max_retries:
-                    state.mark_batch_failed(
-                        batch_num,
+                    state.mark_sheet_failed(
+                        sheet_num,
                         f"Validation failed after {max_retries} retries and "
                         f"{completion_attempts} completion attempts "
                         f"({validation_result.failed_count} validations still failing)",
@@ -1109,42 +1109,42 @@ class JobRunner:
                     )
                     await self.state_backend.save(state)
                     raise FatalError(
-                        f"Batch {batch_num} exhausted all retry options "
+                        f"Sheet {sheet_num} exhausted all retry options "
                         f"({validation_result.failed_count} validations failing)"
                     )
 
                 self.console.print(
-                    f"[red]Batch {batch_num}: {validation_result.failed_count} validations failed "
+                    f"[red]Batch {sheet_num}: {validation_result.failed_count} validations failed "
                     f"({pass_pct:.0f}% passed). Full retry {normal_attempts}/{max_retries}[/red]"
                 )
 
-                current_mode = BatchExecutionMode.RETRY
+                current_mode = SheetExecutionMode.RETRY
                 current_prompt = original_prompt
                 await asyncio.sleep(self._get_retry_delay(normal_attempts))
 
-    def _build_batch_context(self, batch_num: int) -> BatchContext:
-        """Build batch context for template expansion.
+    def _build_sheet_context(self, sheet_num: int) -> SheetContext:
+        """Build sheet context for template expansion.
 
         Args:
-            batch_num: Current batch number.
+            sheet_num: Current sheet number.
 
         Returns:
-            BatchContext with item range and workspace.
+            SheetContext with item range and workspace.
         """
-        return self.prompt_builder.build_batch_context(
-            batch_num=batch_num,
-            total_batches=self.config.batch.total_batches,
-            batch_size=self.config.batch.size,
-            total_items=self.config.batch.total_items,
-            start_item=self.config.batch.start_item,
+        return self.prompt_builder.build_sheet_context(
+            sheet_num=sheet_num,
+            total_sheets=self.config.sheet.total_sheets,
+            sheet_size=self.config.sheet.size,
+            total_items=self.config.sheet.total_items,
+            start_item=self.config.sheet.start_item,
             workspace=self.config.workspace,
         )
 
     def _run_preflight_checks(
         self,
         prompt: str,
-        batch_context: dict[str, Any],
-        batch_num: int,
+        sheet_context: dict[str, Any],
+        sheet_num: int,
         state: CheckpointState,
     ) -> PreflightResult:
         """Run preflight checks on a prompt before execution.
@@ -1152,46 +1152,46 @@ class JobRunner:
         Analyzes the prompt for potential issues like excessive size,
         missing file references, and invalid working directories.
 
-        Updates BatchState with metrics and any warnings.
+        Updates SheetState with metrics and any warnings.
 
         Args:
             prompt: The prompt text to analyze.
-            batch_context: Context dictionary for template expansion.
-            batch_num: Current batch number.
+            sheet_context: Context dictionary for template expansion.
+            sheet_num: Current sheet number.
             state: Current job state to update.
 
         Returns:
             PreflightResult with metrics and any warnings/errors.
         """
-        # Ensure batch state exists
-        if batch_num not in state.batches:
-            from mozart.core.checkpoint import BatchState
-            state.batches[batch_num] = BatchState(batch_num=batch_num)
+        # Ensure sheet state exists
+        if sheet_num not in state.sheets:
+            from mozart.core.checkpoint import SheetState
+            state.sheets[sheet_num] = SheetState(sheet_num=sheet_num)
 
-        batch_state = state.batches[batch_num]
+        sheet_state = state.sheets[sheet_num]
 
         # Run preflight checks
-        result = self.preflight_checker.check(prompt, batch_context)
+        result = self.preflight_checker.check(prompt, sheet_context)
 
-        # Store metrics in batch state
-        batch_state.prompt_metrics = result.prompt_metrics.to_dict()
-        batch_state.preflight_warnings = result.warnings.copy()
+        # Store metrics in sheet state
+        sheet_state.prompt_metrics = result.prompt_metrics.to_dict()
+        sheet_state.preflight_warnings = result.warnings.copy()
 
         metrics = result.prompt_metrics
 
         # Structured logging for preflight results (Task 8)
         if result.has_warnings:
             self._logger.warning(
-                "batch.preflight_warnings",
-                batch_num=batch_num,
+                "sheet.preflight_warnings",
+                sheet_num=sheet_num,
                 warnings=result.warnings,
                 estimated_tokens=metrics.estimated_tokens,
             )
 
         # Debug-level log for metrics
         self._logger.debug(
-            "batch.preflight_metrics",
-            batch_num=batch_num,
+            "sheet.preflight_metrics",
+            sheet_num=sheet_num,
             character_count=metrics.character_count,
             estimated_tokens=metrics.estimated_tokens,
             line_count=metrics.line_count,
@@ -1202,44 +1202,44 @@ class JobRunner:
 
         # Console output (preserved for CLI feedback)
         for warning in result.warnings:
-            self.console.print(f"[yellow]Batch {batch_num} preflight: {warning}[/yellow]")
+            self.console.print(f"[yellow]Batch {sheet_num} preflight: {warning}[/yellow]")
 
         for error in result.errors:
-            self.console.print(f"[red]Batch {batch_num} preflight ERROR: {error}[/red]")
+            self.console.print(f"[red]Batch {sheet_num} preflight ERROR: {error}[/red]")
 
         self.console.print(
-            f"[dim]Batch {batch_num}: ~{metrics.estimated_tokens:,} tokens, "
+            f"[dim]Batch {sheet_num}: ~{metrics.estimated_tokens:,} tokens, "
             f"{metrics.line_count:,} lines, "
             f"{len(metrics.referenced_paths)} file refs[/dim]"
         )
 
         return result
 
-    def _update_batch_validation_state(
+    def _update_sheet_validation_state(
         self,
         state: CheckpointState,
-        batch_num: int,
-        result: BatchValidationResult,
+        sheet_num: int,
+        result: SheetValidationResult,
     ) -> None:
-        """Update batch state with validation tracking.
+        """Update sheet state with validation tracking.
 
         Args:
             state: Current job state.
-            batch_num: Batch number.
+            sheet_num: Sheet number.
             result: Validation results.
         """
-        batch = state.batches.get(batch_num)
-        if batch:
-            batch.validation_passed = result.all_passed
-            batch.validation_details = result.to_dict_list()
-            batch.last_pass_percentage = result.pass_percentage
+        sheet = state.sheets.get(sheet_num)
+        if sheet:
+            sheet.validation_passed = result.all_passed
+            sheet.validation_details = result.to_dict_list()
+            sheet.last_pass_percentage = result.pass_percentage
 
             # Store validation descriptions for display
-            batch.passed_validations = [
+            sheet.passed_validations = [
                 r.rule.description or r.rule.path or "validation"
                 for r in result.get_passed_results()
             ]
-            batch.failed_validations = [
+            sheet.failed_validations = [
                 r.rule.description or r.rule.path or "validation"
                 for r in result.get_failed_results()
             ]
@@ -1337,34 +1337,34 @@ class JobRunner:
         )
         self.console.print("[green]Health check passed, resuming...[/green]")
 
-    async def _record_batch_outcome(
+    async def _record_sheet_outcome(
         self,
-        batch_num: int,
+        sheet_num: int,
         job_id: str,
-        validation_result: BatchValidationResult,
+        validation_result: SheetValidationResult,
         execution_duration: float,
         normal_attempts: int,
         completion_attempts: int,
         first_attempt_success: bool,
-        final_status: BatchStatus,
+        final_status: SheetStatus,
     ) -> None:
-        """Record batch outcome for learning if outcome store is available.
+        """Record sheet outcome for learning if outcome store is available.
 
         Args:
-            batch_num: Batch number that completed.
+            sheet_num: Sheet number that completed.
             job_id: Job identifier.
-            validation_result: Validation results from the batch.
+            validation_result: Validation results from the sheet.
             execution_duration: Total execution time in seconds.
             normal_attempts: Number of normal/retry attempts.
             completion_attempts: Number of completion mode attempts.
-            first_attempt_success: Whether batch succeeded on first attempt.
-            final_status: Final batch status.
+            first_attempt_success: Whether sheet succeeded on first attempt.
+            final_status: Final sheet status.
         """
         if self.outcome_store is None:
             return
 
-        outcome = BatchOutcome(
-            batch_id=f"{job_id}_batch_{batch_num}",
+        outcome = SheetOutcome(
+            sheet_id=f"{job_id}_sheet_{sheet_num}",
             job_id=job_id,
             validation_results=validation_result.to_dict_list(),
             execution_duration=execution_duration,
@@ -1381,10 +1381,10 @@ class JobRunner:
 
     def _decide_next_action(
         self,
-        validation_result: BatchValidationResult,
+        validation_result: SheetValidationResult,
         normal_attempts: int,
         completion_attempts: int,
-    ) -> tuple[BatchExecutionMode, str]:
+    ) -> tuple[SheetExecutionMode, str]:
         """Decide the next action based on confidence and pass percentage.
 
         This method implements adaptive retry strategy using validation confidence
@@ -1401,7 +1401,7 @@ class JobRunner:
             completion_attempts: Number of completion mode attempts already made.
 
         Returns:
-            Tuple of (BatchExecutionMode, reason string explaining the decision).
+            Tuple of (SheetExecutionMode, reason string explaining the decision).
         """
         confidence = validation_result.aggregate_confidence
         pass_pct = validation_result.pass_percentage
@@ -1416,14 +1416,14 @@ class JobRunner:
         if confidence > high_threshold and pass_pct > completion_threshold:
             if completion_attempts < max_completion:
                 return (
-                    BatchExecutionMode.COMPLETION,
+                    SheetExecutionMode.COMPLETION,
                     f"high confidence ({confidence:.2f}) with {pass_pct:.0f}% passed, "
                     f"attempting focused completion",
                 )
             else:
                 # Completion attempts exhausted, fall back to retry
                 return (
-                    BatchExecutionMode.RETRY,
+                    SheetExecutionMode.RETRY,
                     f"completion attempts exhausted ({completion_attempts}/{max_completion}), "
                     f"falling back to full retry",
                 )
@@ -1436,12 +1436,12 @@ class JobRunner:
             )
             if escalation_available:
                 return (
-                    BatchExecutionMode.ESCALATE,
+                    SheetExecutionMode.ESCALATE,
                     f"low confidence ({confidence:.2f}) requires escalation",
                 )
             else:
                 return (
-                    BatchExecutionMode.RETRY,
+                    SheetExecutionMode.RETRY,
                     f"low confidence ({confidence:.2f}) but escalation not available, "
                     f"attempting retry",
                 )
@@ -1449,25 +1449,25 @@ class JobRunner:
         # Medium confidence zone: use pass percentage to decide
         if pass_pct > completion_threshold and completion_attempts < max_completion:
             return (
-                BatchExecutionMode.COMPLETION,
+                SheetExecutionMode.COMPLETION,
                 f"medium confidence ({confidence:.2f}) with {pass_pct:.0f}% passed, "
                 f"attempting completion mode",
             )
         else:
             return (
-                BatchExecutionMode.RETRY,
+                SheetExecutionMode.RETRY,
                 f"medium confidence ({confidence:.2f}) with {pass_pct:.0f}% passed, "
                 f"full retry needed",
             )
 
     async def _decide_with_judgment(
         self,
-        batch_num: int,
-        validation_result: BatchValidationResult,
+        sheet_num: int,
+        validation_result: SheetValidationResult,
         execution_history: list[ExecutionResult],
         normal_attempts: int,
         completion_attempts: int,
-    ) -> tuple[BatchExecutionMode, str, list[str] | None]:
+    ) -> tuple[SheetExecutionMode, str, list[str] | None]:
         """Decide next action using Recursive Light judgment if available.
 
         Consults the judgment_client (Recursive Light) for TDF-aligned decisions.
@@ -1475,14 +1475,14 @@ class JobRunner:
         or if the judgment client encounters errors.
 
         Args:
-            batch_num: Current batch number.
+            sheet_num: Current sheet number.
             validation_result: Results from validation engine with confidence scores.
             execution_history: List of ExecutionResults from previous attempts.
             normal_attempts: Number of retry attempts already made.
             completion_attempts: Number of completion mode attempts already made.
 
         Returns:
-            Tuple of (BatchExecutionMode, reason string, optional prompt_modifications).
+            Tuple of (SheetExecutionMode, reason string, optional prompt_modifications).
             The prompt_modifications list is provided if judgment recommends it.
         """
         # Fall back to local decision if no judgment client
@@ -1494,7 +1494,7 @@ class JobRunner:
 
         # Build JudgmentQuery from current state
         query = self._build_judgment_query(
-            batch_num=batch_num,
+            sheet_num=sheet_num,
             validation_result=validation_result,
             execution_history=execution_history,
             normal_attempts=normal_attempts,
@@ -1508,10 +1508,10 @@ class JobRunner:
             if response.patterns_learned:
                 for pattern in response.patterns_learned:
                     self.console.print(
-                        f"[dim]Batch {batch_num}: Pattern learned: {pattern}[/dim]"
+                        f"[dim]Batch {sheet_num}: Pattern learned: {pattern}[/dim]"
                     )
 
-            # Map JudgmentResponse.recommended_action to BatchExecutionMode
+            # Map JudgmentResponse.recommended_action to SheetExecutionMode
             mode = self._map_judgment_to_mode(response, completion_attempts)
             reason = f"RL judgment ({response.confidence:.2f}): {response.reasoning}"
 
@@ -1520,7 +1520,7 @@ class JobRunner:
         except Exception as e:
             # On any error, fall back to local decision
             self.console.print(
-                f"[yellow]Batch {batch_num}: Judgment client error: {e}, "
+                f"[yellow]Batch {sheet_num}: Judgment client error: {e}, "
                 f"falling back to local decision[/yellow]"
             )
             mode, reason = self._decide_next_action(
@@ -1530,17 +1530,17 @@ class JobRunner:
 
     def _build_judgment_query(
         self,
-        batch_num: int,
-        validation_result: BatchValidationResult,
+        sheet_num: int,
+        validation_result: SheetValidationResult,
         execution_history: list[ExecutionResult],
         normal_attempts: int,
     ) -> JudgmentQuery:
         """Build a JudgmentQuery from current execution state.
 
         Args:
-            batch_num: Current batch number.
+            sheet_num: Current sheet number.
             validation_result: Validation results with confidence.
-            execution_history: Previous execution results for this batch.
+            execution_history: Previous execution results for this sheet.
             normal_attempts: Number of retry attempts made.
 
         Returns:
@@ -1573,7 +1573,7 @@ class JobRunner:
 
         return JudgmentQuery(
             job_id=self.config.name,
-            batch_num=batch_num,
+            sheet_num=sheet_num,
             validation_results=validation_result.to_dict_list(),
             execution_history=history_dicts,
             error_patterns=error_patterns,
@@ -1586,15 +1586,15 @@ class JobRunner:
         self,
         response: JudgmentResponse,
         completion_attempts: int,
-    ) -> BatchExecutionMode:
-        """Map JudgmentResponse.recommended_action to BatchExecutionMode.
+    ) -> SheetExecutionMode:
+        """Map JudgmentResponse.recommended_action to SheetExecutionMode.
 
         Args:
             response: JudgmentResponse from Recursive Light.
             completion_attempts: Number of completion attempts already made.
 
         Returns:
-            BatchExecutionMode corresponding to the recommended action.
+            SheetExecutionMode corresponding to the recommended action.
 
         Raises:
             FatalError: If action is 'abort'.
@@ -1605,21 +1605,21 @@ class JobRunner:
         if action == "proceed":
             # Proceed means validation passed - this shouldn't happen in decision flow
             # but handle gracefully by treating as completion success
-            return BatchExecutionMode.NORMAL
+            return SheetExecutionMode.NORMAL
 
         elif action == "retry":
-            return BatchExecutionMode.RETRY
+            return SheetExecutionMode.RETRY
 
         elif action == "completion":
             # Check if we have completion attempts left
             if completion_attempts < max_completion:
-                return BatchExecutionMode.COMPLETION
+                return SheetExecutionMode.COMPLETION
             else:
                 # Exhausted completion attempts, fall back to retry
-                return BatchExecutionMode.RETRY
+                return SheetExecutionMode.RETRY
 
         elif action == "escalate":
-            return BatchExecutionMode.ESCALATE
+            return SheetExecutionMode.ESCALATE
 
         elif action == "abort":
             # Abort raises FatalError to stop the job
@@ -1629,26 +1629,26 @@ class JobRunner:
 
         else:
             # Unknown action - fall back to retry
-            return BatchExecutionMode.RETRY
+            return SheetExecutionMode.RETRY
 
     async def _handle_escalation(
         self,
         state: CheckpointState,
-        batch_num: int,
-        validation_result: BatchValidationResult,
+        sheet_num: int,
+        validation_result: SheetValidationResult,
         current_prompt: str,
         error_history: list[str],
         normal_attempts: int,
     ) -> EscalationResponse:
-        """Handle escalation for low-confidence batch decisions.
+        """Handle escalation for low-confidence sheet decisions.
 
         Builds escalation context and invokes the escalation handler
         to get a decision on how to proceed.
 
         Args:
             state: Current job state.
-            batch_num: Batch number being processed.
-            validation_result: Validation results from the batch.
+            sheet_num: Sheet number being processed.
+            validation_result: Validation results from the sheet.
             current_prompt: The prompt that was used for execution.
             error_history: List of previous error messages.
             normal_attempts: Number of retry attempts already made.
@@ -1661,27 +1661,27 @@ class JobRunner:
         """
         if self.escalation_handler is None:
             raise FatalError(
-                f"Batch {batch_num}: Escalation requested but no handler configured"
+                f"Sheet {sheet_num}: Escalation requested but no handler configured"
             )
 
-        batch_state = state.batches.get(batch_num)
-        if batch_state is None:
-            raise FatalError(f"Batch {batch_num}: No batch state found for escalation")
+        sheet_state = state.sheets.get(sheet_num)
+        if sheet_state is None:
+            raise FatalError(f"Sheet {sheet_num}: No sheet state found for escalation")
 
         # Build escalation context
         context = EscalationContext(
             job_id=state.job_id,
-            batch_num=batch_num,
+            sheet_num=sheet_num,
             validation_results=validation_result.to_dict_list(),
             confidence=validation_result.aggregate_confidence,
             retry_count=normal_attempts,
             error_history=error_history,
             prompt_used=current_prompt,
-            output_summary=batch_state.error_message or "",
+            output_summary=sheet_state.error_message or "",
         )
 
         self.console.print(
-            f"[yellow]Batch {batch_num}: Escalating due to low confidence "
+            f"[yellow]Batch {sheet_num}: Escalating due to low confidence "
             f"({context.confidence:.1%})[/yellow]"
         )
 
@@ -1689,7 +1689,7 @@ class JobRunner:
         response = await self.escalation_handler.escalate(context)
 
         self.console.print(
-            f"[blue]Batch {batch_num}: Escalation response: {response.action}[/blue]"
+            f"[blue]Batch {sheet_num}: Escalation response: {response.action}[/blue]"
         )
         if response.guidance:
             self.console.print(f"[dim]Guidance: {response.guidance}[/dim]")

@@ -16,16 +16,16 @@ backend:
   skip_permissions: true
   timeout_seconds: 600  # 10 minutes per batch
 
-batch:
+sheet:
   size: 5          # Items per batch
   total_items: 10  # Total items = 2 batches
 
 prompt:
   template: |
-    Process batch {{ batch_num }} of {{ total_batches }}.
+    Process batch {{ sheet_num }} of {{ total_sheets }}.
     Items: {{ start_item }} to {{ end_item }}
 
-    Create a file at {{ workspace }}/batch{{ batch_num }}.md summarizing your work.
+    Create a file at {{ workspace }}/batch{{ sheet_num }}.md summarizing your work.
 
 retry:
   max_retries: 2
@@ -33,7 +33,7 @@ retry:
 
 validations:
   - type: file_exists
-    path: "{workspace}/batch{batch_num}.md"
+    path: "{workspace}/batch{sheet_num}.md"
     description: "Batch output file must exist"
 
 state_backend: json

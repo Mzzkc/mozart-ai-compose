@@ -209,13 +209,13 @@ class PreflightChecker:
     def check(
         self,
         prompt: str,
-        batch_context: dict[str, Any] | None = None,
+        sheet_context: dict[str, Any] | None = None,
     ) -> PreflightResult:
         """Perform pre-flight checks on a prompt.
 
         Args:
             prompt: The prompt text to analyze.
-            batch_context: Optional context for template variable expansion.
+            sheet_context: Optional context for template variable expansion.
 
         Returns:
             PreflightResult with metrics, warnings, and errors.
@@ -263,7 +263,7 @@ class PreflightChecker:
         if metrics.has_file_references:
             paths_accessible = self._check_paths(
                 metrics.referenced_paths,
-                batch_context or {},
+                sheet_context or {},
             )
             inaccessible = [p for p, exists in paths_accessible.items() if not exists]
             if inaccessible:
@@ -284,13 +284,13 @@ class PreflightChecker:
     def _check_paths(
         self,
         paths: list[str],
-        batch_context: dict[str, Any],
+        sheet_context: dict[str, Any],
     ) -> dict[str, bool]:
         """Check if referenced paths exist.
 
         Args:
             paths: List of paths to check.
-            batch_context: Context for template expansion.
+            sheet_context: Context for template expansion.
 
         Returns:
             Dictionary mapping paths to their existence status.
@@ -302,7 +302,7 @@ class PreflightChecker:
             if "{" in path_str and "}" in path_str:
                 try:
                     # Try to expand template
-                    context = dict(batch_context)
+                    context = dict(sheet_context)
                     context["workspace"] = str(self.workspace)
                     expanded = path_str.format(**context)
                     path = Path(expanded)
@@ -359,7 +359,7 @@ def run_preflight_check(
     prompt: str,
     workspace: Path,
     working_directory: Path | None = None,
-    batch_context: dict[str, Any] | None = None,
+    sheet_context: dict[str, Any] | None = None,
 ) -> PreflightResult:
     """Convenience function to run preflight checks.
 
@@ -367,7 +367,7 @@ def run_preflight_check(
         prompt: The prompt text to analyze.
         workspace: Base workspace directory.
         working_directory: Optional working directory for execution.
-        batch_context: Optional context for template expansion.
+        sheet_context: Optional context for template expansion.
 
     Returns:
         PreflightResult with metrics and any warnings/errors.
@@ -376,4 +376,4 @@ def run_preflight_check(
         workspace=workspace,
         working_directory=working_directory,
     )
-    return checker.check(prompt, batch_context)
+    return checker.check(prompt, sheet_context)

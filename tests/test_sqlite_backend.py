@@ -4,7 +4,7 @@ import pytest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from mozart.core.checkpoint import BatchStatus, CheckpointState, JobStatus
+from mozart.core.checkpoint import SheetStatus, CheckpointState, JobStatus
 from mozart.state.sqlite_backend import SQLiteStateBackend
 
 
@@ -22,7 +22,7 @@ def sample_state() -> CheckpointState:
     return CheckpointState(
         job_id="test-job-123",
         job_name="Test Job",
-        total_batches=5,
+        total_sheets=5,
         status=JobStatus.PENDING,
     )
 
@@ -41,7 +41,7 @@ class TestSQLiteBackendBasics:
         assert loaded is not None
         assert loaded.job_id == sample_state.job_id
         assert loaded.job_name == sample_state.job_name
-        assert loaded.total_batches == sample_state.total_batches
+        assert loaded.total_sheets == sample_state.total_sheets
         assert loaded.status == JobStatus.PENDING
 
     async def test_load_nonexistent_returns_none(
@@ -83,7 +83,7 @@ class TestSQLiteBackendBasics:
             state = CheckpointState(
                 job_id=f"job-{i}",
                 job_name=f"Job {i}",
-                total_batches=5,
+                total_sheets=5,
             )
             await sqlite_backend.save(state)
 
@@ -97,94 +97,94 @@ class TestSQLiteBackendBasics:
 class TestBatchOperations:
     """Test batch-level operations."""
 
-    async def test_get_next_batch_new_job(
+    async def test_get_next_sheet_new_job(
         self, sqlite_backend: SQLiteStateBackend
     ) -> None:
-        """Test get_next_batch returns 1 for new job."""
-        result = await sqlite_backend.get_next_batch("new-job")
+        """Test get_next_sheet returns 1 for new job."""
+        result = await sqlite_backend.get_next_sheet("new-job")
         assert result == 1
 
-    async def test_get_next_batch_with_state(
+    async def test_get_next_sheet_with_state(
         self, sqlite_backend: SQLiteStateBackend, sample_state: CheckpointState
     ) -> None:
-        """Test get_next_batch returns correct batch number."""
-        sample_state.last_completed_batch = 2
+        """Test get_next_sheet returns correct batch number."""
+        sample_state.last_completed_sheet = 2
         await sqlite_backend.save(sample_state)
 
-        result = await sqlite_backend.get_next_batch(sample_state.job_id)
+        result = await sqlite_backend.get_next_sheet(sample_state.job_id)
         assert result == 3
 
-    async def test_mark_batch_in_progress(
+    async def test_mark_sheet_in_progress(
         self, sqlite_backend: SQLiteStateBackend, sample_state: CheckpointState
     ) -> None:
         """Test marking a batch as in progress."""
         await sqlite_backend.save(sample_state)
 
-        await sqlite_backend.mark_batch_status(
-            sample_state.job_id, 1, BatchStatus.IN_PROGRESS
+        await sqlite_backend.mark_sheet_status(
+            sample_state.job_id, 1, SheetStatus.IN_PROGRESS
         )
 
         loaded = await sqlite_backend.load(sample_state.job_id)
         assert loaded is not None
         assert loaded.status == JobStatus.RUNNING
-        assert loaded.current_batch == 1
-        assert 1 in loaded.batches
-        assert loaded.batches[1].status == BatchStatus.IN_PROGRESS
+        assert loaded.current_sheet == 1
+        assert 1 in loaded.sheets
+        assert loaded.sheets[1].status == SheetStatus.IN_PROGRESS
 
-    async def test_mark_batch_completed(
+    async def test_mark_sheet_completed(
         self, sqlite_backend: SQLiteStateBackend, sample_state: CheckpointState
     ) -> None:
         """Test marking a batch as completed."""
-        sample_state.mark_batch_started(1)
+        sample_state.mark_sheet_started(1)
         await sqlite_backend.save(sample_state)
 
-        await sqlite_backend.mark_batch_status(
-            sample_state.job_id, 1, BatchStatus.COMPLETED
+        await sqlite_backend.mark_sheet_status(
+            sample_state.job_id, 1, SheetStatus.COMPLETED
         )
 
         loaded = await sqlite_backend.load(sample_state.job_id)
         assert loaded is not None
-        assert loaded.last_completed_batch == 1
-        assert loaded.batches[1].status == BatchStatus.COMPLETED
+        assert loaded.last_completed_sheet == 1
+        assert loaded.sheets[1].status == SheetStatus.COMPLETED
 
-    async def test_mark_batch_failed(
+    async def test_mark_sheet_failed(
         self, sqlite_backend: SQLiteStateBackend, sample_state: CheckpointState
     ) -> None:
         """Test marking a batch as failed with error message."""
-        sample_state.mark_batch_started(1)
+        sample_state.mark_sheet_started(1)
         await sqlite_backend.save(sample_state)
 
-        await sqlite_backend.mark_batch_status(
-            sample_state.job_id, 1, BatchStatus.FAILED, "Rate limit exceeded"
+        await sqlite_backend.mark_sheet_status(
+            sample_state.job_id, 1, SheetStatus.FAILED, "Rate limit exceeded"
         )
 
         loaded = await sqlite_backend.load(sample_state.job_id)
         assert loaded is not None
-        assert loaded.batches[1].status == BatchStatus.FAILED
-        assert loaded.batches[1].error_message == "Rate limit exceeded"
+        assert loaded.sheets[1].status == SheetStatus.FAILED
+        assert loaded.sheets[1].error_message == "Rate limit exceeded"
 
-    async def test_mark_batch_nonexistent_job_raises(
+    async def test_mark_sheet_nonexistent_job_raises(
         self, sqlite_backend: SQLiteStateBackend
     ) -> None:
         """Test marking batch on non-existent job raises ValueError."""
         with pytest.raises(ValueError, match="No state found"):
-            await sqlite_backend.mark_batch_status(
-                "nonexistent", 1, BatchStatus.COMPLETED
+            await sqlite_backend.mark_sheet_status(
+                "nonexistent", 1, SheetStatus.COMPLETED
             )
 
 
-class TestBatchStatePreservation:
-    """Test that all BatchState fields are preserved."""
+class TestSheetStatePreservation:
+    """Test that all SheetState fields are preserved."""
 
     async def test_batch_learning_fields_preserved(
         self, sqlite_backend: SQLiteStateBackend, sample_state: CheckpointState
     ) -> None:
         """Test that learning metadata fields are preserved."""
-        from mozart.core.checkpoint import BatchState
+        from mozart.core.checkpoint import SheetState
 
-        sample_state.batches[1] = BatchState(
-            batch_num=1,
-            status=BatchStatus.COMPLETED,
+        sample_state.sheets[1] = SheetState(
+            sheet_num=1,
+            status=SheetStatus.COMPLETED,
             confidence_score=0.85,
             learned_patterns=["pattern1", "pattern2"],
             similar_outcomes_count=5,
@@ -196,7 +196,7 @@ class TestBatchStatePreservation:
 
         loaded = await sqlite_backend.load(sample_state.job_id)
         assert loaded is not None
-        batch = loaded.batches[1]
+        batch = loaded.sheets[1]
 
         assert batch.confidence_score == 0.85
         assert batch.learned_patterns == ["pattern1", "pattern2"]
@@ -209,11 +209,11 @@ class TestBatchStatePreservation:
         self, sqlite_backend: SQLiteStateBackend, sample_state: CheckpointState
     ) -> None:
         """Test that validation fields are preserved."""
-        from mozart.core.checkpoint import BatchState
+        from mozart.core.checkpoint import SheetState
 
-        sample_state.batches[1] = BatchState(
-            batch_num=1,
-            status=BatchStatus.COMPLETED,
+        sample_state.sheets[1] = SheetState(
+            sheet_num=1,
+            status=SheetStatus.COMPLETED,
             validation_passed=True,
             validation_details=[{"type": "file_exists", "passed": True}],
             passed_validations=["File check", "Content check"],
@@ -224,7 +224,7 @@ class TestBatchStatePreservation:
 
         loaded = await sqlite_backend.load(sample_state.job_id)
         assert loaded is not None
-        batch = loaded.batches[1]
+        batch = loaded.sheets[1]
 
         assert batch.validation_passed is True
         assert batch.validation_details == [{"type": "file_exists", "passed": True}]
@@ -244,7 +244,7 @@ class TestExecutionHistory:
 
         record_id = await sqlite_backend.record_execution(
             job_id=sample_state.job_id,
-            batch_num=1,
+            sheet_num=1,
             attempt_num=1,
             prompt="Test prompt",
             output="Test output",
@@ -264,7 +264,7 @@ class TestExecutionHistory:
         for i in range(3):
             await sqlite_backend.record_execution(
                 job_id=sample_state.job_id,
-                batch_num=1,
+                sheet_num=1,
                 attempt_num=i + 1,
                 prompt=f"Prompt {i}",
                 output=f"Output {i}",
@@ -273,7 +273,7 @@ class TestExecutionHistory:
             )
 
         history = await sqlite_backend.get_execution_history(
-            sample_state.job_id, batch_num=1
+            sample_state.job_id, sheet_num=1
         )
 
         assert len(history) == 3
@@ -291,7 +291,7 @@ class TestExecutionHistory:
         for batch in range(1, 4):
             await sqlite_backend.record_execution(
                 job_id=sample_state.job_id,
-                batch_num=batch,
+                sheet_num=batch,
                 attempt_num=1,
                 exit_code=0,
             )
@@ -311,8 +311,8 @@ class TestJobStatistics:
         state = CheckpointState(
             job_id="stats-job",
             job_name="Stats Test",
-            total_batches=10,
-            last_completed_batch=7,
+            total_sheets=10,
+            last_completed_sheet=7,
             total_retry_count=3,
         )
         await sqlite_backend.save(state)
@@ -321,7 +321,7 @@ class TestJobStatistics:
         for i in range(1, 8):
             await sqlite_backend.record_execution(
                 job_id="stats-job",
-                batch_num=i,
+                sheet_num=i,
                 attempt_num=1,
                 exit_code=0,
                 duration_seconds=2.0,
@@ -329,8 +329,8 @@ class TestJobStatistics:
 
         stats = await sqlite_backend.get_job_statistics("stats-job")
 
-        assert stats["total_batches"] == 10
-        assert stats["completed_batches"] == 7
+        assert stats["total_sheets"] == 10
+        assert stats["completed_sheets"] == 7
         assert stats["success_rate"] == 70.0
         assert stats["total_retries"] == 3
         assert stats["total_executions"] == 7
@@ -356,7 +356,7 @@ class TestQueryJobs:
             state = CheckpointState(
                 job_id=f"query-job-{i}",
                 job_name=f"Query Job {i}",
-                total_batches=5,
+                total_sheets=5,
                 status=status,
             )
             await sqlite_backend.save(state)
@@ -373,7 +373,7 @@ class TestQueryJobs:
             state = CheckpointState(
                 job_id=f"status-job-{i}",
                 job_name=f"Status Job {i}",
-                total_batches=5,
+                total_sheets=5,
                 status=status,
             )
             await sqlite_backend.save(state)
@@ -391,7 +391,7 @@ class TestQueryJobs:
         state = CheckpointState(
             job_id="recent-job",
             job_name="Recent Job",
-            total_batches=5,
+            total_sheets=5,
         )
         await sqlite_backend.save(state)
 
@@ -418,14 +418,14 @@ class TestConfigSnapshot:
         config_data = {
             "name": "test-job",
             "workspace": "/tmp/workspace",
-            "batch": {"size": 5, "total_items": 25},
-            "prompt": {"template": "Process batch {{batch_num}}"},
+            "sheet": {"size": 5, "total_items": 25},
+            "prompt": {"template": "Process batch {{sheet_num}}"},
         }
 
         state = CheckpointState(
             job_id="config-test-job",
             job_name="Config Test",
-            total_batches=5,
+            total_sheets=5,
             config_snapshot=config_data,
             config_path="/path/to/config.yaml",
         )
@@ -456,7 +456,7 @@ class TestConfigSnapshot:
         state = CheckpointState(
             job_id="complex-config-job",
             job_name="Complex Config",
-            total_batches=3,
+            total_sheets=3,
             config_snapshot=config_data,
         )
         await sqlite_backend.save(state)
@@ -476,7 +476,7 @@ class TestConfigSnapshot:
         state = CheckpointState(
             job_id="no-config-job",
             job_name="No Config",
-            total_batches=1,
+            total_sheets=1,
             config_snapshot=None,
             config_path=None,
         )
@@ -522,7 +522,7 @@ class TestSchemaMigration:
         state = CheckpointState(
             job_id="migration-test",
             job_name="Migration Test",
-            total_batches=1,
+            total_sheets=1,
         )
         await sqlite_backend.save(state)
 
@@ -537,11 +537,11 @@ class TestEdgeCases:
         self, sqlite_backend: SQLiteStateBackend, sample_state: CheckpointState
     ) -> None:
         """Test handling of empty lists and None values."""
-        from mozart.core.checkpoint import BatchState
+        from mozart.core.checkpoint import SheetState
 
-        sample_state.batches[1] = BatchState(
-            batch_num=1,
-            status=BatchStatus.PENDING,
+        sample_state.sheets[1] = SheetState(
+            sheet_num=1,
+            status=SheetStatus.PENDING,
             learned_patterns=[],
             passed_validations=[],
             failed_validations=[],
@@ -552,7 +552,7 @@ class TestEdgeCases:
 
         loaded = await sqlite_backend.load(sample_state.job_id)
         assert loaded is not None
-        batch = loaded.batches[1]
+        batch = loaded.sheets[1]
 
         assert batch.learned_patterns == []
         assert batch.passed_validations == []
@@ -568,13 +568,13 @@ class TestEdgeCases:
 
         # Update state
         sample_state.status = JobStatus.RUNNING
-        sample_state.last_completed_batch = 3
+        sample_state.last_completed_sheet = 3
         await sqlite_backend.save(sample_state)
 
         loaded = await sqlite_backend.load(sample_state.job_id)
         assert loaded is not None
         assert loaded.status == JobStatus.RUNNING
-        assert loaded.last_completed_batch == 3
+        assert loaded.last_completed_sheet == 3
 
     async def test_special_characters_in_job_id(
         self, sqlite_backend: SQLiteStateBackend
@@ -583,7 +583,7 @@ class TestEdgeCases:
         state = CheckpointState(
             job_id="job-with-special/chars:and@symbols",
             job_name="Special Job",
-            total_batches=1,
+            total_sheets=1,
         )
         await sqlite_backend.save(state)
 
@@ -601,7 +601,7 @@ class TestEdgeCases:
             state = CheckpointState(
                 job_id=f"concurrent-{job_num}",
                 job_name=f"Concurrent Job {job_num}",
-                total_batches=5,
+                total_sheets=5,
             )
             await sqlite_backend.save(state)
 

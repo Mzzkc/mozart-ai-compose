@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 from typer.testing import CliRunner
 
 from mozart.cli import app
-from mozart.core.checkpoint import BatchState, BatchStatus, CheckpointState, JobStatus
+from mozart.core.checkpoint import SheetState, SheetStatus, CheckpointState, JobStatus
 
 runner = CliRunner()
 
@@ -41,7 +41,7 @@ class TestValidateCommand:
     def test_validate_invalid_yaml(self, tmp_path: Path) -> None:
         """Test validation of invalid YAML content."""
         bad_config = tmp_path / "bad.yaml"
-        bad_config.write_text("name: test\nbatch:\n  size: -1")  # Invalid size
+        bad_config.write_text("name: test\nsheet:\n  size: -1")  # Invalid size
         result = runner.invoke(app, ["validate", str(bad_config)])
         assert result.exit_code == 1
         assert "Invalid configuration" in result.stdout
@@ -65,8 +65,8 @@ class TestListCommand:
         state = CheckpointState(
             job_id="test-job-1",
             job_name="Test Job 1",
-            total_batches=5,
-            last_completed_batch=3,
+            total_sheets=5,
+            last_completed_sheet=3,
             status=JobStatus.RUNNING,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
@@ -88,8 +88,8 @@ class TestListCommand:
             state = CheckpointState(
                 job_id=f"job-{i}",
                 job_name=f"Job {i}",
-                total_batches=10,
-                last_completed_batch=i * 3,
+                total_sheets=10,
+                last_completed_sheet=i * 3,
                 status=status,
                 created_at=datetime.now(UTC),
                 updated_at=datetime.now(UTC),
@@ -111,8 +111,8 @@ class TestListCommand:
             state = CheckpointState(
                 job_id=f"job-{i}",
                 job_name=f"Job {i}",
-                total_batches=10,
-                last_completed_batch=10 if status == JobStatus.COMPLETED else 5,
+                total_sheets=10,
+                last_completed_sheet=10 if status == JobStatus.COMPLETED else 5,
                 status=status,
                 created_at=datetime.now(UTC),
                 updated_at=datetime.now(UTC),
@@ -149,8 +149,8 @@ class TestListCommand:
             state = CheckpointState(
                 job_id=f"job-{i}",
                 job_name=f"Job {i}",
-                total_batches=10,
-                last_completed_batch=i,
+                total_sheets=10,
+                last_completed_sheet=i,
                 status=JobStatus.COMPLETED,
                 created_at=datetime.now(UTC),
                 updated_at=datetime.now(UTC),
@@ -201,29 +201,29 @@ class TestStatusCommand:
         state = CheckpointState(
             job_id="test-job-status",
             job_name="Test Job for Status",
-            total_batches=5,
-            last_completed_batch=3,
+            total_sheets=5,
+            last_completed_sheet=3,
             status=JobStatus.RUNNING,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             total_retry_count=2,
             rate_limit_waits=1,
-            batches={
-                1: BatchState(
-                    batch_num=1,
-                    status=BatchStatus.COMPLETED,
+            sheets={
+                1: SheetState(
+                    sheet_num=1,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                 ),
-                2: BatchState(
-                    batch_num=2,
-                    status=BatchStatus.COMPLETED,
+                2: SheetState(
+                    sheet_num=2,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=2,
                     validation_passed=True,
                 ),
-                3: BatchState(
-                    batch_num=3,
-                    status=BatchStatus.COMPLETED,
+                3: SheetState(
+                    sheet_num=3,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                 ),
@@ -260,15 +260,15 @@ class TestStatusCommand:
         state = CheckpointState(
             job_id="json-test-job",
             job_name="JSON Test Job",
-            total_batches=10,
-            last_completed_batch=5,
+            total_sheets=10,
+            last_completed_sheet=5,
             status=JobStatus.COMPLETED,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
-            batches={
-                1: BatchState(
-                    batch_num=1,
-                    status=BatchStatus.COMPLETED,
+            sheets={
+                1: SheetState(
+                    sheet_num=1,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                 ),
@@ -313,28 +313,28 @@ class TestStatusCommand:
         state = CheckpointState(
             job_id="batch-details-job",
             job_name="Batch Details Test",
-            total_batches=3,
-            last_completed_batch=2,
+            total_sheets=3,
+            last_completed_sheet=2,
             status=JobStatus.FAILED,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             error_message="Max retries exceeded",
-            batches={
-                1: BatchState(
-                    batch_num=1,
-                    status=BatchStatus.COMPLETED,
+            sheets={
+                1: SheetState(
+                    sheet_num=1,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                 ),
-                2: BatchState(
-                    batch_num=2,
-                    status=BatchStatus.COMPLETED,
+                2: SheetState(
+                    sheet_num=2,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                 ),
-                3: BatchState(
-                    batch_num=3,
-                    status=BatchStatus.FAILED,
+                3: SheetState(
+                    sheet_num=3,
+                    status=SheetStatus.FAILED,
                     attempt_count=3,
                     validation_passed=False,
                     error_message="Validation failed: file not found",
@@ -388,14 +388,14 @@ class TestResumeCommand:
         state = CheckpointState(
             job_id="completed-job",
             job_name="Completed Job",
-            total_batches=5,
-            last_completed_batch=5,
+            total_sheets=5,
+            last_completed_sheet=5,
             status=JobStatus.COMPLETED,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             config_snapshot={
                 "name": "completed-job",
-                "batch": {"size": 5, "total_items": 25},
+                "sheet": {"size": 5, "total_items": 25},
                 "prompt": {"template": "Test"},
             },
         )
@@ -414,8 +414,8 @@ class TestResumeCommand:
         state = CheckpointState(
             job_id="pending-job",
             job_name="Pending Job",
-            total_batches=5,
-            last_completed_batch=0,
+            total_sheets=5,
+            last_completed_sheet=0,
             status=JobStatus.PENDING,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
@@ -438,8 +438,8 @@ class TestResumeCommand:
         state = CheckpointState(
             job_id="paused-job",
             job_name="Paused Job",
-            total_batches=5,
-            last_completed_batch=2,
+            total_sheets=5,
+            last_completed_sheet=2,
             status=JobStatus.PAUSED,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
@@ -455,8 +455,8 @@ class TestResumeCommand:
             mock_runner.run = AsyncMock(return_value=CheckpointState(
                 job_id="paused-job",
                 job_name="Paused Job",
-                total_batches=5,
-                last_completed_batch=5,
+                total_sheets=5,
+                last_completed_sheet=5,
                 status=JobStatus.COMPLETED,
             ))
             mock_runner_cls.return_value = mock_runner
@@ -477,8 +477,8 @@ class TestResumeCommand:
         state = CheckpointState(
             job_id="failed-job",
             job_name="Failed Job",
-            total_batches=10,
-            last_completed_batch=5,
+            total_sheets=10,
+            last_completed_sheet=5,
             status=JobStatus.FAILED,
             error_message="Max retries exceeded",
             created_at=datetime.now(UTC),
@@ -495,8 +495,8 @@ class TestResumeCommand:
             mock_runner.run = AsyncMock(return_value=CheckpointState(
                 job_id="failed-job",
                 job_name="Failed Job",
-                total_batches=10,
-                last_completed_batch=10,
+                total_sheets=10,
+                last_completed_sheet=10,
                 status=JobStatus.COMPLETED,
             ))
             mock_runner_cls.return_value = mock_runner
@@ -518,8 +518,8 @@ class TestResumeCommand:
         state = CheckpointState(
             job_id="no-config-job",
             job_name="No Config Job",
-            total_batches=5,
-            last_completed_batch=2,
+            total_sheets=5,
+            last_completed_sheet=2,
             status=JobStatus.PAUSED,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
@@ -544,8 +544,8 @@ class TestResumeCommand:
         state = CheckpointState(
             job_id="test-job",  # Matches sample_config_dict name
             job_name="Test Job",
-            total_batches=3,
-            last_completed_batch=1,
+            total_sheets=3,
+            last_completed_sheet=1,
             status=JobStatus.PAUSED,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
@@ -561,8 +561,8 @@ class TestResumeCommand:
             mock_runner.run = AsyncMock(return_value=CheckpointState(
                 job_id="test-job",
                 job_name="Test Job",
-                total_batches=3,
-                last_completed_batch=3,
+                total_sheets=3,
+                last_completed_sheet=3,
                 status=JobStatus.COMPLETED,
             ))
             mock_runner_cls.return_value = mock_runner
@@ -588,8 +588,8 @@ class TestResumeCommand:
         state = CheckpointState(
             job_id="force-job",
             job_name="Force Job",
-            total_batches=5,
-            last_completed_batch=5,
+            total_sheets=5,
+            last_completed_sheet=5,
             status=JobStatus.COMPLETED,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
@@ -605,8 +605,8 @@ class TestResumeCommand:
             mock_runner.run = AsyncMock(return_value=CheckpointState(
                 job_id="force-job",
                 job_name="Force Job",
-                total_batches=5,
-                last_completed_batch=5,
+                total_sheets=5,
+                last_completed_sheet=5,
                 status=JobStatus.COMPLETED,
             ))
             mock_runner_cls.return_value = mock_runner
@@ -783,7 +783,7 @@ class TestRunCommandJsonOutput:
         output_data = json.loads(result.stdout)
         assert output_data["dry_run"] is True
         assert "job_name" in output_data
-        assert "total_batches" in output_data
+        assert "total_sheets" in output_data
 
     def test_run_json_short_flag(self, sample_yaml_config: Path) -> None:
         """Test run --dry-run -j uses short flag."""
@@ -1001,27 +1001,27 @@ class TestErrorsCommand:
         state = CheckpointState(
             job_id="clean-job",
             job_name="Clean Job",
-            total_batches=3,
-            last_completed_batch=3,
+            total_sheets=3,
+            last_completed_sheet=3,
             status=JobStatus.COMPLETED,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
-            batches={
-                1: BatchState(
-                    batch_num=1,
-                    status=BatchStatus.COMPLETED,
+            sheets={
+                1: SheetState(
+                    sheet_num=1,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                 ),
-                2: BatchState(
-                    batch_num=2,
-                    status=BatchStatus.COMPLETED,
+                2: SheetState(
+                    sheet_num=2,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                 ),
-                3: BatchState(
-                    batch_num=3,
-                    status=BatchStatus.COMPLETED,
+                3: SheetState(
+                    sheet_num=3,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                 ),
@@ -1042,27 +1042,27 @@ class TestErrorsCommand:
         state = CheckpointState(
             job_id="failed-job",
             job_name="Failed Job",
-            total_batches=3,
-            last_completed_batch=2,
+            total_sheets=3,
+            last_completed_sheet=2,
             status=JobStatus.FAILED,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
-            batches={
-                1: BatchState(
-                    batch_num=1,
-                    status=BatchStatus.COMPLETED,
+            sheets={
+                1: SheetState(
+                    sheet_num=1,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                 ),
-                2: BatchState(
-                    batch_num=2,
-                    status=BatchStatus.COMPLETED,
+                2: SheetState(
+                    sheet_num=2,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                 ),
-                3: BatchState(
-                    batch_num=3,
-                    status=BatchStatus.FAILED,
+                3: SheetState(
+                    sheet_num=3,
+                    status=SheetStatus.FAILED,
                     attempt_count=3,
                     validation_passed=False,
                     error_message="Max retries exceeded: validation failed",
@@ -1087,29 +1087,29 @@ class TestErrorsCommand:
         state = CheckpointState(
             job_id="multi-fail-job",
             job_name="Multi Fail Job",
-            total_batches=5,
-            last_completed_batch=3,
+            total_sheets=5,
+            last_completed_sheet=3,
             status=JobStatus.FAILED,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
-            batches={
-                1: BatchState(
-                    batch_num=1,
-                    status=BatchStatus.FAILED,
+            sheets={
+                1: SheetState(
+                    sheet_num=1,
+                    status=SheetStatus.FAILED,
                     attempt_count=3,
                     error_message="Batch 1 failed",
                     error_category="transient",
                     completed_at=datetime.now(UTC),
                 ),
-                2: BatchState(
-                    batch_num=2,
-                    status=BatchStatus.COMPLETED,
+                2: SheetState(
+                    sheet_num=2,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                 ),
-                3: BatchState(
-                    batch_num=3,
-                    status=BatchStatus.FAILED,
+                3: SheetState(
+                    sheet_num=3,
+                    status=SheetStatus.FAILED,
                     attempt_count=3,
                     error_message="Batch 3 failed",
                     error_category="permanent",
@@ -1134,21 +1134,21 @@ class TestErrorsCommand:
         state = CheckpointState(
             job_id="json-error-job",
             job_name="JSON Error Job",
-            total_batches=2,
-            last_completed_batch=1,
+            total_sheets=2,
+            last_completed_sheet=1,
             status=JobStatus.FAILED,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
-            batches={
-                1: BatchState(
-                    batch_num=1,
-                    status=BatchStatus.COMPLETED,
+            sheets={
+                1: SheetState(
+                    sheet_num=1,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                 ),
-                2: BatchState(
-                    batch_num=2,
-                    status=BatchStatus.FAILED,
+                2: SheetState(
+                    sheet_num=2,
+                    status=SheetStatus.FAILED,
                     attempt_count=2,
                     error_message="Test error message",
                     error_category="transient",
@@ -1175,23 +1175,23 @@ class TestErrorsCommand:
         state = CheckpointState(
             job_id="mixed-errors-job",
             job_name="Mixed Errors Job",
-            total_batches=3,
-            last_completed_batch=1,
+            total_sheets=3,
+            last_completed_sheet=1,
             status=JobStatus.FAILED,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
-            batches={
-                1: BatchState(
-                    batch_num=1,
-                    status=BatchStatus.FAILED,
+            sheets={
+                1: SheetState(
+                    sheet_num=1,
+                    status=SheetStatus.FAILED,
                     attempt_count=3,
                     error_message="Transient error occurred",
                     error_category="transient",
                     completed_at=datetime.now(UTC),
                 ),
-                2: BatchState(
-                    batch_num=2,
-                    status=BatchStatus.FAILED,
+                2: SheetState(
+                    sheet_num=2,
+                    status=SheetStatus.FAILED,
                     attempt_count=1,
                     error_message="Permanent error occurred",
                     error_category="permanent",
@@ -1231,30 +1231,30 @@ class TestDiagnoseCommand:
         state = CheckpointState(
             job_id="diagnose-test",
             job_name="Diagnose Test Job",
-            total_batches=5,
-            last_completed_batch=3,
+            total_sheets=5,
+            last_completed_sheet=3,
             status=JobStatus.RUNNING,
             created_at=datetime.now(UTC),
             started_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
-            batches={
-                1: BatchState(
-                    batch_num=1,
-                    status=BatchStatus.COMPLETED,
+            sheets={
+                1: SheetState(
+                    sheet_num=1,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                     execution_duration_seconds=15.5,
                 ),
-                2: BatchState(
-                    batch_num=2,
-                    status=BatchStatus.COMPLETED,
+                2: SheetState(
+                    sheet_num=2,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=2,
                     validation_passed=True,
                     execution_duration_seconds=25.0,
                 ),
-                3: BatchState(
-                    batch_num=3,
-                    status=BatchStatus.COMPLETED,
+                3: SheetState(
+                    sheet_num=3,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                     execution_duration_seconds=12.0,
@@ -1278,23 +1278,23 @@ class TestDiagnoseCommand:
         state = CheckpointState(
             job_id="diagnose-errors",
             job_name="Diagnose Errors Job",
-            total_batches=3,
-            last_completed_batch=1,
+            total_sheets=3,
+            last_completed_sheet=1,
             status=JobStatus.FAILED,
             created_at=datetime.now(UTC),
             started_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             error_message="Job failed due to max retries",
-            batches={
-                1: BatchState(
-                    batch_num=1,
-                    status=BatchStatus.COMPLETED,
+            sheets={
+                1: SheetState(
+                    sheet_num=1,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                 ),
-                2: BatchState(
-                    batch_num=2,
-                    status=BatchStatus.FAILED,
+                2: SheetState(
+                    sheet_num=2,
+                    status=SheetStatus.FAILED,
                     attempt_count=3,
                     error_message="Validation failed: file not found",
                     error_category="validation",
@@ -1318,23 +1318,23 @@ class TestDiagnoseCommand:
         state = CheckpointState(
             job_id="diagnose-warnings",
             job_name="Diagnose Warnings Job",
-            total_batches=2,
-            last_completed_batch=2,
+            total_sheets=2,
+            last_completed_sheet=2,
             status=JobStatus.COMPLETED,
             created_at=datetime.now(UTC),
             started_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
-            batches={
-                1: BatchState(
-                    batch_num=1,
-                    status=BatchStatus.COMPLETED,
+            sheets={
+                1: SheetState(
+                    sheet_num=1,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                     preflight_warnings=["Large prompt: 50000 tokens estimated"],
                 ),
-                2: BatchState(
-                    batch_num=2,
-                    status=BatchStatus.COMPLETED,
+                2: SheetState(
+                    sheet_num=2,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                     preflight_warnings=["Missing file reference: /nonexistent/file.txt"],
@@ -1356,31 +1356,31 @@ class TestDiagnoseCommand:
         state = CheckpointState(
             job_id="diagnose-json",
             job_name="Diagnose JSON Job",
-            total_batches=3,
-            last_completed_batch=3,
+            total_sheets=3,
+            last_completed_sheet=3,
             status=JobStatus.COMPLETED,
             created_at=datetime.now(UTC),
             started_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             completed_at=datetime.now(UTC),
-            batches={
-                1: BatchState(
-                    batch_num=1,
-                    status=BatchStatus.COMPLETED,
+            sheets={
+                1: SheetState(
+                    sheet_num=1,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                     prompt_metrics={"estimated_tokens": 1000, "line_count": 50},
                 ),
-                2: BatchState(
-                    batch_num=2,
-                    status=BatchStatus.COMPLETED,
+                2: SheetState(
+                    sheet_num=2,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                     prompt_metrics={"estimated_tokens": 1200, "line_count": 60},
                 ),
-                3: BatchState(
-                    batch_num=3,
-                    status=BatchStatus.COMPLETED,
+                3: SheetState(
+                    sheet_num=3,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                     prompt_metrics={"estimated_tokens": 1100, "line_count": 55},
@@ -1409,33 +1409,33 @@ class TestDiagnoseCommand:
         state = CheckpointState(
             job_id="diagnose-timeline",
             job_name="Diagnose Timeline Job",
-            total_batches=3,
-            last_completed_batch=3,
+            total_sheets=3,
+            last_completed_sheet=3,
             status=JobStatus.COMPLETED,
             created_at=datetime.now(UTC),
             started_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             completed_at=datetime.now(UTC),
-            batches={
-                1: BatchState(
-                    batch_num=1,
-                    status=BatchStatus.COMPLETED,
+            sheets={
+                1: SheetState(
+                    sheet_num=1,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                     execution_mode="normal",
                     outcome_category="success_first_try",
                 ),
-                2: BatchState(
-                    batch_num=2,
-                    status=BatchStatus.COMPLETED,
+                2: SheetState(
+                    sheet_num=2,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=2,
                     validation_passed=True,
                     execution_mode="completion",
                     outcome_category="success_completion",
                 ),
-                3: BatchState(
-                    batch_num=3,
-                    status=BatchStatus.COMPLETED,
+                3: SheetState(
+                    sheet_num=3,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                     execution_mode="normal",
@@ -1462,30 +1462,30 @@ class TestEnhancedStatusCommand:
         state = CheckpointState(
             job_id="status-errors",
             job_name="Status Errors Test",
-            total_batches=5,
-            last_completed_batch=3,
+            total_sheets=5,
+            last_completed_sheet=3,
             status=JobStatus.RUNNING,
             created_at=datetime.now(UTC),
             started_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
-            batches={
-                1: BatchState(
-                    batch_num=1,
-                    status=BatchStatus.COMPLETED,
+            sheets={
+                1: SheetState(
+                    sheet_num=1,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                 ),
-                2: BatchState(
-                    batch_num=2,
-                    status=BatchStatus.FAILED,
+                2: SheetState(
+                    sheet_num=2,
+                    status=SheetStatus.FAILED,
                     attempt_count=3,
                     error_message="Timeout after 300 seconds",
                     error_category="timeout",
                     completed_at=datetime.now(UTC),
                 ),
-                3: BatchState(
-                    batch_num=3,
-                    status=BatchStatus.COMPLETED,
+                3: SheetState(
+                    sheet_num=3,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=2,
                     validation_passed=True,
                 ),
@@ -1508,23 +1508,23 @@ class TestEnhancedStatusCommand:
         state = CheckpointState(
             job_id="status-activity",
             job_name="Status Activity Test",
-            total_batches=3,
-            last_completed_batch=2,
+            total_sheets=3,
+            last_completed_sheet=2,
             status=JobStatus.RUNNING,
             created_at=now,
             started_at=now,
             updated_at=now,
-            batches={
-                1: BatchState(
-                    batch_num=1,
-                    status=BatchStatus.COMPLETED,
+            sheets={
+                1: SheetState(
+                    sheet_num=1,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                     last_activity_at=now,
                 ),
-                2: BatchState(
-                    batch_num=2,
-                    status=BatchStatus.COMPLETED,
+                2: SheetState(
+                    sheet_num=2,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                     last_activity_at=now,
@@ -1546,35 +1546,35 @@ class TestEnhancedStatusCommand:
         state = CheckpointState(
             job_id="status-cb",
             job_name="Status CB Test",
-            total_batches=10,
-            last_completed_batch=5,
+            total_sheets=10,
+            last_completed_sheet=5,
             status=JobStatus.FAILED,
             created_at=datetime.now(UTC),
             started_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
-            batches={
-                1: BatchState(batch_num=1, status=BatchStatus.COMPLETED, attempt_count=1),
-                2: BatchState(batch_num=2, status=BatchStatus.COMPLETED, attempt_count=1),
-                3: BatchState(batch_num=3, status=BatchStatus.COMPLETED, attempt_count=1),
+            sheets={
+                1: SheetState(sheet_num=1, status=SheetStatus.COMPLETED, attempt_count=1),
+                2: SheetState(sheet_num=2, status=SheetStatus.COMPLETED, attempt_count=1),
+                3: SheetState(sheet_num=3, status=SheetStatus.COMPLETED, attempt_count=1),
                 # Consecutive failures that would trigger circuit breaker
-                4: BatchState(
-                    batch_num=4, status=BatchStatus.FAILED,
+                4: SheetState(
+                    sheet_num=4, status=SheetStatus.FAILED,
                     attempt_count=3, error_message="Failed 1",
                 ),
-                5: BatchState(
-                    batch_num=5, status=BatchStatus.FAILED,
+                5: SheetState(
+                    sheet_num=5, status=SheetStatus.FAILED,
                     attempt_count=3, error_message="Failed 2",
                 ),
-                6: BatchState(
-                    batch_num=6, status=BatchStatus.FAILED,
+                6: SheetState(
+                    sheet_num=6, status=SheetStatus.FAILED,
                     attempt_count=3, error_message="Failed 3",
                 ),
-                7: BatchState(
-                    batch_num=7, status=BatchStatus.FAILED,
+                7: SheetState(
+                    sheet_num=7, status=SheetStatus.FAILED,
                     attempt_count=3, error_message="Failed 4",
                 ),
-                8: BatchState(
-                    batch_num=8, status=BatchStatus.FAILED,
+                8: SheetState(
+                    sheet_num=8, status=SheetStatus.FAILED,
                     attempt_count=3, error_message="Failed 5",
                 ),
             },
@@ -1596,23 +1596,23 @@ class TestEnhancedStatusCommand:
         state = CheckpointState(
             job_id="status-json-new",
             job_name="Status JSON New Fields",
-            total_batches=3,
-            last_completed_batch=1,
+            total_sheets=3,
+            last_completed_sheet=1,
             status=JobStatus.FAILED,
             created_at=datetime.now(UTC),
             started_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
-            batches={
-                1: BatchState(
-                    batch_num=1,
-                    status=BatchStatus.COMPLETED,
+            sheets={
+                1: SheetState(
+                    sheet_num=1,
+                    status=SheetStatus.COMPLETED,
                     attempt_count=1,
                     validation_passed=True,
                     last_activity_at=datetime.now(UTC),
                 ),
-                2: BatchState(
-                    batch_num=2,
-                    status=BatchStatus.FAILED,
+                2: SheetState(
+                    sheet_num=2,
+                    status=SheetStatus.FAILED,
                     attempt_count=3,
                     error_message="Test failure",
                     error_category="transient",

@@ -44,7 +44,7 @@ class TestErrorRecord:
 
         record = ErrorRecord.from_classified_error(
             error=classified,
-            batch_num=5,
+            sheet_num=5,
             attempt_num=2,
         )
 
@@ -54,7 +54,7 @@ class TestErrorRecord:
         assert record.exit_code == 1
         assert record.retriable is True
         assert record.suggested_wait == 30.0
-        assert record.batch_num == 5
+        assert record.sheet_num == 5
         assert record.attempt_num == 2
         assert record.timestamp.tzinfo is not None  # UTC aware
 
@@ -83,7 +83,7 @@ class TestErrorRecord:
             exit_code=124,
             retriable=True,
             suggested_wait=60.0,
-            batch_num=3,
+            sheet_num=3,
             attempt_num=2,
         )
 
@@ -95,7 +95,7 @@ class TestErrorRecord:
         assert d["exit_code"] == 124
         assert d["retriable"] is True
         assert d["suggested_wait"] == 60.0
-        assert d["batch_num"] == 3
+        assert d["sheet_num"] == 3
         assert d["attempt_num"] == 2
         assert "2024-01-15" in d["timestamp"]
 
@@ -613,7 +613,7 @@ class TestIntegration:
                 message="Connection refused",
                 retriable=True,
                 suggested_wait=30.0,
-                batch_num=1,
+                sheet_num=1,
                 attempt_num=1,
                 monotonic_time=base_time,
             ),
@@ -624,7 +624,7 @@ class TestIntegration:
                 message="Command timed out",
                 retriable=True,
                 suggested_wait=60.0,
-                batch_num=1,
+                sheet_num=1,
                 attempt_num=2,
                 monotonic_time=base_time + 35,
             ),
@@ -635,7 +635,7 @@ class TestIntegration:
                 message="Connection refused",
                 retriable=True,
                 suggested_wait=30.0,
-                batch_num=1,
+                sheet_num=1,
                 attempt_num=3,
                 monotonic_time=base_time + 100,
             ),
@@ -681,7 +681,7 @@ class TestIntegration:
         # Convert to ErrorRecord
         record = ErrorRecord.from_classified_error(
             error=classified,
-            batch_num=2,
+            sheet_num=2,
             attempt_num=1,
         )
 

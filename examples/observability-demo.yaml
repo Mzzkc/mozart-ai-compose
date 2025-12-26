@@ -13,16 +13,16 @@ backend:
   timeout_seconds: 300  # 5 minute timeout per batch
 
 # Simple batch setup for demo
-batch:
+sheet:
   size: 5
   total_items: 15  # 3 batches total
 
 # Simple prompt template
 prompt:
   template: |
-    Process batch {{ batch_num }} of {{ total_batches }}.
+    Process batch {{ sheet_num }} of {{ total_sheets }}.
 
-    Create a file at {{ workspace }}/batch{{ batch_num }}-output.md containing:
+    Create a file at {{ workspace }}/batch{{ sheet_num }}-output.md containing:
     - A summary of items {{ start_item }} to {{ end_item }}
     - A timestamp of when processing completed
     - Any observations about the batch
@@ -57,11 +57,11 @@ rate_limit:
 # Validations - each generates diagnostic data on failure
 validations:
   - type: file_exists
-    path: "{workspace}/batch{batch_num}-output.md"
+    path: "{workspace}/batch{sheet_num}-output.md"
     description: "Batch output file must exist"
 
   - type: content_contains
-    path: "{workspace}/batch{batch_num}-output.md"
+    path: "{workspace}/batch{sheet_num}-output.md"
     pattern: "Summary"
     description: "Output must contain Summary section"
 
@@ -77,7 +77,7 @@ logging:
   max_file_size_mb: 50      # Rotate at 50MB
   backup_count: 5           # Keep 5 compressed backups
   include_timestamps: true  # Add timestamps to all entries
-  include_context: true     # Add job_id, run_id, batch_num to logs
+  include_context: true     # Add job_id, run_id, sheet_num to logs
 
 # Notifications for observability
 notifications:
@@ -124,7 +124,7 @@ pause_between_batches_seconds: 5
 # WHAT TO OBSERVE
 # ============================================================
 #
-# - Structured logs with context (job_id, batch_num, run_id)
+# - Structured logs with context (job_id, sheet_num, run_id)
 # - Error classification with error codes (E001, E101, etc.)
 # - Prompt metrics (estimated tokens, line count)
 # - Preflight warnings (if prompt is large)

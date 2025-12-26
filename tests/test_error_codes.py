@@ -512,9 +512,9 @@ class TestErrorCodeIntegration:
 
     def test_error_record_uses_error_code(self) -> None:
         """Test that ErrorRecord can store error codes."""
-        from mozart.core.checkpoint import BatchState
+        from mozart.core.checkpoint import SheetState
 
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
         state.record_error(
             error_type="transient",
             error_code=ErrorCode.EXECUTION_TIMEOUT.value,

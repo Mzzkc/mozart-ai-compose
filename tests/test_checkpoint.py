@@ -6,33 +6,33 @@ import pytest
 
 from mozart.core.checkpoint import (
     MAX_OUTPUT_CAPTURE_BYTES,
-    BatchState,
-    BatchStatus,
+    SheetState,
+    SheetStatus,
     CheckpointState,
     JobStatus,
 )
 
 
-class TestBatchStatus:
-    """Tests for BatchStatus enum."""
+class TestSheetStatus:
+    """Tests for SheetStatus enum."""
 
     def test_status_values(self):
         """Test all status values exist."""
-        assert BatchStatus.PENDING == "pending"
-        assert BatchStatus.IN_PROGRESS == "in_progress"
-        assert BatchStatus.COMPLETED == "completed"
-        assert BatchStatus.FAILED == "failed"
-        assert BatchStatus.SKIPPED == "skipped"
+        assert SheetStatus.PENDING == "pending"
+        assert SheetStatus.IN_PROGRESS == "in_progress"
+        assert SheetStatus.COMPLETED == "completed"
+        assert SheetStatus.FAILED == "failed"
+        assert SheetStatus.SKIPPED == "skipped"
 
 
-class TestBatchState:
-    """Tests for BatchState model."""
+class TestSheetState:
+    """Tests for SheetState model."""
 
     def test_default_state(self):
         """Test default batch state."""
-        state = BatchState(batch_num=1)
-        assert state.batch_num == 1
-        assert state.status == BatchStatus.PENDING
+        state = SheetState(sheet_num=1)
+        assert state.sheet_num == 1
+        assert state.status == SheetStatus.PENDING
         assert state.started_at is None
         assert state.completed_at is None
         assert state.attempt_count == 0
@@ -41,8 +41,8 @@ class TestBatchState:
 
     def test_learning_fields(self):
         """Test learning metadata fields (Phase 1)."""
-        state = BatchState(
-            batch_num=1,
+        state = SheetState(
+            sheet_num=1,
             confidence_score=0.85,
             first_attempt_success=True,
             outcome_category="success_first_try",
@@ -56,16 +56,16 @@ class TestBatchState:
     def test_confidence_score_bounds(self):
         """Test confidence score must be between 0 and 1."""
         # Valid values
-        BatchState(batch_num=1, confidence_score=0.0)
-        BatchState(batch_num=1, confidence_score=1.0)
-        BatchState(batch_num=1, confidence_score=0.5)
+        SheetState(sheet_num=1, confidence_score=0.0)
+        SheetState(sheet_num=1, confidence_score=1.0)
+        SheetState(sheet_num=1, confidence_score=0.5)
 
         # Invalid values should raise validation error
         with pytest.raises(Exception):  # Pydantic ValidationError
-            BatchState(batch_num=1, confidence_score=1.5)
+            SheetState(sheet_num=1, confidence_score=1.5)
 
         with pytest.raises(Exception):
-            BatchState(batch_num=1, confidence_score=-0.1)
+            SheetState(sheet_num=1, confidence_score=-0.1)
 
 
 class TestOutputCapture:
@@ -73,14 +73,14 @@ class TestOutputCapture:
 
     def test_output_capture_fields_default(self):
         """Test output capture fields have correct defaults."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
         assert state.stdout_tail is None
         assert state.stderr_tail is None
         assert state.output_truncated is False
 
     def test_capture_output_small_strings(self):
         """Test capturing small output strings without truncation."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
         stdout = "Hello, World!"
         stderr = "Some warning message"
 
@@ -92,7 +92,7 @@ class TestOutputCapture:
 
     def test_capture_output_empty_strings(self):
         """Test capturing empty output strings."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
 
         state.capture_output("", "")
 
@@ -102,7 +102,7 @@ class TestOutputCapture:
 
     def test_capture_output_only_stdout(self):
         """Test capturing when only stdout has content."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
 
         state.capture_output("stdout content", "")
 
@@ -112,7 +112,7 @@ class TestOutputCapture:
 
     def test_capture_output_only_stderr(self):
         """Test capturing when only stderr has content."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
 
         state.capture_output("", "stderr content")
 
@@ -122,7 +122,7 @@ class TestOutputCapture:
 
     def test_capture_output_truncation_stdout(self):
         """Test stdout truncation when exceeding max bytes."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
         # Create output larger than 10KB (default limit)
         large_stdout = "x" * (MAX_OUTPUT_CAPTURE_BYTES + 1000)
         small_stderr = "small"
@@ -139,7 +139,7 @@ class TestOutputCapture:
 
     def test_capture_output_truncation_stderr(self):
         """Test stderr truncation when exceeding max bytes."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
         small_stdout = "small"
         large_stderr = "e" * (MAX_OUTPUT_CAPTURE_BYTES + 500)
 
@@ -155,7 +155,7 @@ class TestOutputCapture:
 
     def test_capture_output_truncation_both(self):
         """Test both stdout and stderr truncation."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
         large_stdout = "o" * (MAX_OUTPUT_CAPTURE_BYTES * 2)
         large_stderr = "e" * (MAX_OUTPUT_CAPTURE_BYTES * 2)
 
@@ -170,7 +170,7 @@ class TestOutputCapture:
 
     def test_capture_output_preserves_tail(self):
         """Test that truncation preserves the tail (end) of output."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
         # Create distinctive start and end content
         # Use a small limit for easier testing
         limit = 100
@@ -186,7 +186,7 @@ class TestOutputCapture:
 
     def test_capture_output_custom_max_bytes(self):
         """Test capture with custom max_bytes limit."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
         content = "A" * 500  # 500 bytes
 
         # Use smaller limit
@@ -198,7 +198,7 @@ class TestOutputCapture:
 
     def test_capture_output_unicode_content(self):
         """Test capturing unicode/multi-byte characters."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
         # Mix of ASCII and multi-byte UTF-8 characters
         unicode_content = "Hello 世界 🌍 Здравствуй мир"
 
@@ -210,7 +210,7 @@ class TestOutputCapture:
 
     def test_capture_output_unicode_truncation(self):
         """Test truncation handles unicode character boundaries correctly."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
         # Create content with multi-byte chars that might get split
         # Each emoji is 4 bytes, so 30 emojis = 120 bytes
         emoji_content = "🎉" * 30  # 120 bytes total
@@ -231,7 +231,7 @@ class TestOutputCapture:
 
     def test_capture_output_overwrites_previous(self):
         """Test that capture_output overwrites previous captured output."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
 
         # First capture
         state.capture_output("first stdout", "first stderr")
@@ -245,12 +245,12 @@ class TestOutputCapture:
 
     def test_capture_output_serialization(self):
         """Test that captured output survives JSON serialization."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
         state.capture_output("stdout content", "stderr content")
 
         # Serialize and deserialize
         data = state.model_dump(mode="json")
-        loaded = BatchState.model_validate(data)
+        loaded = SheetState.model_validate(data)
 
         assert loaded.stdout_tail == "stdout content"
         assert loaded.stderr_tail == "stderr content"
@@ -258,13 +258,13 @@ class TestOutputCapture:
 
     def test_capture_output_serialization_with_truncation(self):
         """Test that truncated output survives serialization correctly."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
         large_content = "x" * (MAX_OUTPUT_CAPTURE_BYTES + 1000)
         state.capture_output(large_content, "small")
 
         # Serialize and deserialize
         data = state.model_dump(mode="json")
-        loaded = BatchState.model_validate(data)
+        loaded = SheetState.model_validate(data)
 
         # Truncated state should be preserved
         assert loaded.output_truncated is True
@@ -280,14 +280,14 @@ class TestOutputCapture:
         """Test loading old state without output capture fields."""
         # Simulate old state data without new fields
         old_data = {
-            "batch_num": 1,
+            "sheet_num": 1,
             "status": "completed",
             "attempt_count": 1,
             # No stdout_tail, stderr_tail, or output_truncated
         }
 
         # Should load successfully with defaults
-        loaded = BatchState.model_validate(old_data)
+        loaded = SheetState.model_validate(old_data)
         assert loaded.stdout_tail is None
         assert loaded.stderr_tail is None
         assert loaded.output_truncated is False
@@ -310,14 +310,14 @@ class TestCheckpointState:
     """Tests for CheckpointState model."""
 
     def _create_state(
-        self, job_id: str = "test-job", job_name: str = "Test", total_batches: int = 3
+        self, job_id: str = "test-job", job_name: str = "Test", total_sheets: int = 3
     ) -> CheckpointState:
         """Helper to create a CheckpointState."""
         state = CheckpointState(
             job_id=job_id,
             job_name=job_name,
-            total_batches=total_batches,
-            batches={i: BatchState(batch_num=i) for i in range(1, total_batches + 1)},
+            total_sheets=total_sheets,
+            sheets={i: SheetState(sheet_num=i) for i in range(1, total_sheets + 1)},
         )
         return state
 
@@ -326,82 +326,82 @@ class TestCheckpointState:
         state = self._create_state(
             job_id="test-job-123",
             job_name="Test Job",
-            total_batches=5,
+            total_sheets=5,
         )
         assert state.job_id == "test-job-123"
         assert state.job_name == "Test Job"
-        assert state.total_batches == 5
+        assert state.total_sheets == 5
         assert state.status == JobStatus.PENDING
-        assert state.last_completed_batch == 0
-        assert len(state.batches) == 5
+        assert state.last_completed_sheet == 0
+        assert len(state.sheets) == 5
 
     def test_batches_initialized(self):
         """Test all batches are initialized with PENDING status."""
-        state = self._create_state(total_batches=3)
+        state = self._create_state(total_sheets=3)
         for i in range(1, 4):
-            assert i in state.batches
-            assert state.batches[i].status == BatchStatus.PENDING
+            assert i in state.sheets
+            assert state.sheets[i].status == SheetStatus.PENDING
 
-    def test_get_next_batch_initial(self):
-        """Test get_next_batch returns 1 for new job."""
-        state = self._create_state(total_batches=3)
-        assert state.get_next_batch() == 1
+    def test_get_next_sheet_initial(self):
+        """Test get_next_sheet returns 1 for new job."""
+        state = self._create_state(total_sheets=3)
+        assert state.get_next_sheet() == 1
 
-    def test_get_next_batch_after_completion(self):
-        """Test get_next_batch returns correct batch after completion."""
-        state = self._create_state(total_batches=3)
-        state.mark_batch_started(1)
-        state.mark_batch_completed(1)
-        assert state.get_next_batch() == 2
+    def test_get_next_sheet_after_completion(self):
+        """Test get_next_sheet returns correct batch after completion."""
+        state = self._create_state(total_sheets=3)
+        state.mark_sheet_started(1)
+        state.mark_sheet_completed(1)
+        assert state.get_next_sheet() == 2
 
-    def test_get_next_batch_all_completed(self):
-        """Test get_next_batch returns None when all complete."""
-        state = self._create_state(total_batches=2)
-        state.mark_batch_started(1)
-        state.mark_batch_completed(1)
-        state.mark_batch_started(2)
-        state.mark_batch_completed(2)
-        assert state.get_next_batch() is None
+    def test_get_next_sheet_all_completed(self):
+        """Test get_next_sheet returns None when all complete."""
+        state = self._create_state(total_sheets=2)
+        state.mark_sheet_started(1)
+        state.mark_sheet_completed(1)
+        state.mark_sheet_started(2)
+        state.mark_sheet_completed(2)
+        assert state.get_next_sheet() is None
 
-    def test_mark_batch_started(self):
+    def test_mark_sheet_started(self):
         """Test marking a batch as started."""
-        state = self._create_state(total_batches=3)
-        state.mark_batch_started(1)
-        assert state.batches[1].status == BatchStatus.IN_PROGRESS
-        assert state.batches[1].started_at is not None
-        assert state.batches[1].attempt_count == 1
-        assert state.current_batch == 1
+        state = self._create_state(total_sheets=3)
+        state.mark_sheet_started(1)
+        assert state.sheets[1].status == SheetStatus.IN_PROGRESS
+        assert state.sheets[1].started_at is not None
+        assert state.sheets[1].attempt_count == 1
+        assert state.current_sheet == 1
         assert state.status == JobStatus.RUNNING
 
-    def test_mark_batch_completed(self):
+    def test_mark_sheet_completed(self):
         """Test marking a batch as completed."""
-        state = self._create_state(total_batches=3)
-        state.mark_batch_started(1)
-        state.mark_batch_completed(1, validation_passed=True)
+        state = self._create_state(total_sheets=3)
+        state.mark_sheet_started(1)
+        state.mark_sheet_completed(1, validation_passed=True)
 
-        assert state.batches[1].status == BatchStatus.COMPLETED
-        assert state.batches[1].completed_at is not None
-        assert state.batches[1].validation_passed is True
-        assert state.last_completed_batch == 1
+        assert state.sheets[1].status == SheetStatus.COMPLETED
+        assert state.sheets[1].completed_at is not None
+        assert state.sheets[1].validation_passed is True
+        assert state.last_completed_sheet == 1
 
-    def test_mark_batch_failed(self):
+    def test_mark_sheet_failed(self):
         """Test marking a batch as failed."""
-        state = self._create_state(total_batches=3)
-        state.mark_batch_started(1)
-        state.mark_batch_failed(1, error_message="Test error", error_category="unknown")
+        state = self._create_state(total_sheets=3)
+        state.mark_sheet_started(1)
+        state.mark_sheet_failed(1, error_message="Test error", error_category="unknown")
 
-        assert state.batches[1].status == BatchStatus.FAILED
-        assert state.batches[1].error_message == "Test error"
-        assert state.batches[1].error_category == "unknown"
+        assert state.sheets[1].status == SheetStatus.FAILED
+        assert state.sheets[1].error_message == "Test error"
+        assert state.sheets[1].error_category == "unknown"
 
-    def test_mark_batch_failed_with_signal_fields(self):
+    def test_mark_sheet_failed_with_signal_fields(self):
         """Test marking a batch as failed with signal differentiation fields."""
         import signal as sig
 
-        state = self._create_state(total_batches=3)
-        state.mark_batch_started(1)
-        state.mark_batch_failed(
-            batch_num=1,
+        state = self._create_state(total_sheets=3)
+        state.mark_sheet_started(1)
+        state.mark_sheet_failed(
+            sheet_num=1,
             error_message="Process killed by SIGTERM",
             error_category="signal",
             exit_code=None,  # No exit code when killed by signal
@@ -410,8 +410,8 @@ class TestCheckpointState:
             execution_duration_seconds=15.5,
         )
 
-        batch = state.batches[1]
-        assert batch.status == BatchStatus.FAILED
+        batch = state.sheets[1]
+        assert batch.status == SheetStatus.FAILED
         assert batch.error_message == "Process killed by SIGTERM"
         assert batch.error_category == "signal"
         assert batch.exit_code is None
@@ -419,14 +419,14 @@ class TestCheckpointState:
         assert batch.exit_reason == "killed"
         assert batch.execution_duration_seconds == 15.5
 
-    def test_mark_batch_failed_with_timeout(self):
+    def test_mark_sheet_failed_with_timeout(self):
         """Test marking a batch as failed due to timeout."""
         import signal as sig
 
-        state = self._create_state(total_batches=3)
-        state.mark_batch_started(1)
-        state.mark_batch_failed(
-            batch_num=1,
+        state = self._create_state(total_sheets=3)
+        state.mark_sheet_started(1)
+        state.mark_sheet_failed(
+            sheet_num=1,
             error_message="Command timed out after 30s",
             error_category="timeout",
             exit_code=None,
@@ -435,20 +435,20 @@ class TestCheckpointState:
             execution_duration_seconds=30.0,
         )
 
-        batch = state.batches[1]
+        batch = state.sheets[1]
         assert batch.exit_signal == sig.SIGKILL
         assert batch.exit_reason == "timeout"
         assert batch.error_category == "timeout"
 
-    def test_mark_batch_failed_backwards_compatible(self):
-        """Test that mark_batch_failed works without new optional fields."""
-        state = self._create_state(total_batches=3)
-        state.mark_batch_started(1)
+    def test_mark_sheet_failed_backwards_compatible(self):
+        """Test that mark_sheet_failed works without new optional fields."""
+        state = self._create_state(total_sheets=3)
+        state.mark_sheet_started(1)
         # Call without new fields (backwards compatible)
-        state.mark_batch_failed(1, "Error occurred")
+        state.mark_sheet_failed(1, "Error occurred")
 
-        batch = state.batches[1]
-        assert batch.status == BatchStatus.FAILED
+        batch = state.sheets[1]
+        assert batch.status == SheetStatus.FAILED
         assert batch.error_message == "Error occurred"
         # New fields should be None (defaults)
         assert batch.exit_signal is None
@@ -457,34 +457,34 @@ class TestCheckpointState:
 
     def test_job_completes_when_all_batches_done(self):
         """Test job status updates to COMPLETED when all batches are done."""
-        state = self._create_state(total_batches=2)
-        state.mark_batch_started(1)
-        state.mark_batch_completed(1)
+        state = self._create_state(total_sheets=2)
+        state.mark_sheet_started(1)
+        state.mark_sheet_completed(1)
         assert state.status == JobStatus.RUNNING
 
-        state.mark_batch_started(2)
-        state.mark_batch_completed(2)
+        state.mark_sheet_started(2)
+        state.mark_sheet_completed(2)
         assert state.status == JobStatus.COMPLETED
         assert state.completed_at is not None
 
     def test_retry_tracking(self):
         """Test retry attempt tracking."""
-        state = self._create_state(total_batches=1)
+        state = self._create_state(total_sheets=1)
         # First attempt
-        state.mark_batch_started(1)
-        assert state.batches[1].attempt_count == 1
+        state.mark_sheet_started(1)
+        assert state.sheets[1].attempt_count == 1
 
         # Retry
-        state.mark_batch_started(1)
-        assert state.batches[1].attempt_count == 2
+        state.mark_sheet_started(1)
+        assert state.sheets[1].attempt_count == 2
 
     def test_get_progress(self):
         """Test progress tracking."""
-        state = self._create_state(total_batches=5)
-        state.mark_batch_started(1)
-        state.mark_batch_completed(1)
-        state.mark_batch_started(2)
-        state.mark_batch_completed(2)
+        state = self._create_state(total_sheets=5)
+        state.mark_sheet_started(1)
+        state.mark_sheet_completed(1)
+        state.mark_sheet_started(2)
+        state.mark_sheet_completed(2)
 
         completed, total = state.get_progress()
         assert completed == 2
@@ -492,11 +492,11 @@ class TestCheckpointState:
 
     def test_get_progress_percent(self):
         """Test progress percentage calculation."""
-        state = self._create_state(total_batches=4)
-        state.mark_batch_started(1)
-        state.mark_batch_completed(1)
-        state.mark_batch_started(2)
-        state.mark_batch_completed(2)
+        state = self._create_state(total_sheets=4)
+        state.mark_sheet_started(1)
+        state.mark_sheet_completed(1)
+        state.mark_sheet_started(2)
+        state.mark_sheet_completed(2)
 
         assert state.get_progress_percent() == 50.0
 
@@ -509,31 +509,31 @@ class TestCheckpointStateSerialization:
         state = CheckpointState(
             job_id="test-job",
             job_name="Test",
-            total_batches=2,
-            batches={i: BatchState(batch_num=i) for i in range(1, 3)},
+            total_sheets=2,
+            sheets={i: SheetState(sheet_num=i) for i in range(1, 3)},
         )
         data = state.model_dump()
         assert data["job_id"] == "test-job"
-        assert data["total_batches"] == 2
-        assert "batches" in data
+        assert data["total_sheets"] == 2
+        assert "sheets" in data
 
     def test_from_dict(self):
         """Test loading state from dictionary."""
         state = CheckpointState(
             job_id="test-job",
             job_name="Test",
-            total_batches=2,
-            batches={i: BatchState(batch_num=i) for i in range(1, 3)},
+            total_sheets=2,
+            sheets={i: SheetState(sheet_num=i) for i in range(1, 3)},
         )
-        state.mark_batch_started(1)
-        state.mark_batch_completed(1)
+        state.mark_sheet_started(1)
+        state.mark_sheet_completed(1)
 
         data = state.model_dump()
         loaded = CheckpointState.model_validate(data)
 
         assert loaded.job_id == state.job_id
-        assert loaded.last_completed_batch == 1
-        assert loaded.batches[1].status == BatchStatus.COMPLETED
+        assert loaded.last_completed_sheet == 1
+        assert loaded.sheets[1].status == SheetStatus.COMPLETED
 
 
 class TestConfigSnapshot:
@@ -544,7 +544,7 @@ class TestConfigSnapshot:
         state = CheckpointState(
             job_id="test-job",
             job_name="Test",
-            total_batches=2,
+            total_sheets=2,
         )
         assert state.config_snapshot is None
         assert state.config_path is None
@@ -554,14 +554,14 @@ class TestConfigSnapshot:
         config_data = {
             "name": "test-job",
             "workspace": "/tmp/workspace",
-            "batch": {"size": 5, "total_items": 10},
-            "prompt": {"template": "Process item {{batch_num}}"},
+            "sheet": {"size": 5, "total_items": 10},
+            "prompt": {"template": "Process item {{sheet_num}}"},
         }
 
         state = CheckpointState(
             job_id="test-job",
             job_name="Test",
-            total_batches=2,
+            total_sheets=2,
             config_snapshot=config_data,
             config_path="/path/to/config.yaml",
         )
@@ -574,15 +574,15 @@ class TestConfigSnapshot:
         config_data = {
             "name": "test-job",
             "workspace": "/tmp/workspace",
-            "batch": {"size": 5, "total_items": 10},
-            "prompt": {"template": "Process item {{batch_num}}"},
+            "sheet": {"size": 5, "total_items": 10},
+            "prompt": {"template": "Process item {{sheet_num}}"},
             "retry": {"max_retries": 3, "base_delay_seconds": 10.0},
         }
 
         state = CheckpointState(
             job_id="test-job",
             job_name="Test",
-            total_batches=2,
+            total_sheets=2,
             config_snapshot=config_data,
             config_path="/path/to/config.yaml",
         )
@@ -614,7 +614,7 @@ class TestConfigSnapshot:
         state = CheckpointState(
             job_id="complex-job",
             job_name="Complex",
-            total_batches=3,
+            total_sheets=3,
             config_snapshot=config_data,
         )
 

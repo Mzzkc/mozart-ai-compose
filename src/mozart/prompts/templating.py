@@ -1,7 +1,7 @@
 """Prompt templating for Mozart jobs.
 
-Handles building batch prompts from templates and generating
-auto-completion prompts for partial batch recovery.
+Handles building sheet prompts from templates and generating
+auto-completion prompts for partial sheet recovery.
 """
 
 from dataclasses import dataclass
@@ -17,11 +17,11 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class BatchContext:
-    """Context for building a batch prompt."""
+class SheetContext:
+    """Context for building a sheet prompt."""
 
-    batch_num: int
-    total_batches: int
+    sheet_num: int
+    total_sheets: int
     start_item: int
     end_item: int
     workspace: Path
@@ -29,8 +29,8 @@ class BatchContext:
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for template rendering."""
         return {
-            "batch_num": self.batch_num,
-            "total_batches": self.total_batches,
+            "sheet_num": self.sheet_num,
+            "total_sheets": self.total_sheets,
             "start_item": self.start_item,
             "end_item": self.end_item,
             "workspace": str(self.workspace),
@@ -43,11 +43,11 @@ class CompletionContext:
 
     Uses ValidationResult objects (not just ValidationRule) to ensure
     that file paths are properly expanded with actual values like workspace
-    and batch_num, rather than showing template placeholders.
+    and sheet_num, rather than showing template placeholders.
     """
 
-    batch_num: int
-    total_batches: int
+    sheet_num: int
+    total_sheets: int
     passed_validations: list["ValidationResult"]  # Changed from ValidationRule
     failed_validations: list["ValidationResult"]  # Changed from ValidationRule
     completion_attempt: int
@@ -60,7 +60,7 @@ class PromptBuilder:
     """Builds prompts including completion prompts for partial recovery.
 
     Handles Jinja2 template rendering and auto-generation of completion
-    prompts when a batch partially completes.
+    prompts when a sheet partially completes.
     """
 
     def __init__(
@@ -81,41 +81,41 @@ class PromptBuilder:
             keep_trailing_newline=True,
         )
 
-    def build_batch_context(
+    def build_sheet_context(
         self,
-        batch_num: int,
-        total_batches: int,
-        batch_size: int,
+        sheet_num: int,
+        total_sheets: int,
+        sheet_size: int,
         total_items: int,
         start_item: int,
         workspace: Path,
-    ) -> BatchContext:
-        """Build batch context from job parameters.
+    ) -> SheetContext:
+        """Build sheet context from job parameters.
 
         Args:
-            batch_num: Current batch number (1-indexed).
-            total_batches: Total number of batches.
-            batch_size: Items per batch.
+            sheet_num: Current sheet number (1-indexed).
+            total_sheets: Total number of sheets.
+            sheet_size: Items per sheet.
             total_items: Total items to process.
             start_item: First item number (1-indexed).
             workspace: Workspace directory.
 
         Returns:
-            BatchContext with calculated item range.
+            SheetContext with calculated item range.
         """
-        batch_start = (batch_num - 1) * batch_size + start_item
-        batch_end = min(batch_start + batch_size - 1, total_items)
+        sheet_start = (sheet_num - 1) * sheet_size + start_item
+        sheet_end = min(sheet_start + sheet_size - 1, total_items)
 
-        return BatchContext(
-            batch_num=batch_num,
-            total_batches=total_batches,
-            start_item=batch_start,
-            end_item=batch_end,
+        return SheetContext(
+            sheet_num=sheet_num,
+            total_sheets=total_sheets,
+            start_item=sheet_start,
+            end_item=sheet_end,
             workspace=workspace,
         )
 
-    def build_batch_prompt(self, context: BatchContext) -> str:
-        """Build the standard batch prompt from config.
+    def build_sheet_prompt(self, context: SheetContext) -> str:
+        """Build the standard sheet prompt from config.
 
         Args:
             context: Batch context with item range and workspace.
@@ -142,7 +142,7 @@ class PromptBuilder:
         else:
             return self._build_default_prompt(context)
 
-    def _build_default_prompt(self, context: BatchContext) -> str:
+    def _build_default_prompt(self, context: SheetContext) -> str:
         """Build a simple default prompt when no template is provided.
 
         Args:
@@ -152,7 +152,7 @@ class PromptBuilder:
             Simple prompt string.
         """
         prompt = (
-            f"Processing batch {context.batch_num} of {context.total_batches} "
+            f"Processing sheet {context.sheet_num} of {context.total_sheets} "
             f"(items {context.start_item}-{context.end_item})"
         )
 
@@ -187,11 +187,11 @@ class PromptBuilder:
             truncation_msg = "\n\n[... original prompt truncated for brevity ...]"
             original_context = original_context[:3000] + truncation_msg
 
-        completion_prompt = f"""## COMPLETION MODE - Batch {ctx.batch_num}
+        completion_prompt = f"""## COMPLETION MODE - Batch {ctx.sheet_num}
 
 This is completion attempt {ctx.completion_attempt} of {ctx.max_completion_attempts}.
 
-A previous execution of this batch partially completed. Your job is to \
+A previous execution of this sheet partially completed. Your job is to \
 finish ONLY the incomplete items.
 
 ### ALREADY COMPLETED (DO NOT REDO)
@@ -308,7 +308,7 @@ Focus on completing the missing items. Do not start over from scratch."""
                     )
                     lines.append(
                         "    Hint: Read the file, then write back with "
-                        "additions for this batch's findings."
+                        "additions for this sheet's findings."
                     )
 
             elif rule.type == "content_contains":
@@ -330,25 +330,25 @@ Focus on completing the missing items. Do not start over from scratch."""
         return "\n".join(lines)
 
 
-def build_batch_prompt_simple(
+def build_sheet_prompt_simple(
     config: PromptConfig,
-    batch_num: int,
-    total_batches: int,
-    batch_size: int,
+    sheet_num: int,
+    total_sheets: int,
+    sheet_size: int,
     total_items: int,
     start_item: int,
     workspace: Path,
 ) -> str:
-    """Convenience function to build a batch prompt.
+    """Convenience function to build a sheet prompt.
 
     This provides a simpler interface for cases where you don't need
     to reuse the PromptBuilder.
 
     Args:
         config: Prompt configuration.
-        batch_num: Current batch number.
-        total_batches: Total number of batches.
-        batch_size: Items per batch.
+        sheet_num: Current sheet number.
+        total_sheets: Total number of sheets.
+        sheet_size: Items per sheet.
         total_items: Total items.
         start_item: First item number.
         workspace: Workspace directory.
@@ -357,12 +357,12 @@ def build_batch_prompt_simple(
         Rendered prompt string.
     """
     builder = PromptBuilder(config)
-    context = builder.build_batch_context(
-        batch_num=batch_num,
-        total_batches=total_batches,
-        batch_size=batch_size,
+    context = builder.build_sheet_context(
+        sheet_num=sheet_num,
+        total_sheets=total_sheets,
+        sheet_size=sheet_size,
         total_items=total_items,
         start_item=start_item,
         workspace=workspace,
     )
-    return builder.build_batch_prompt(context)
+    return builder.build_sheet_prompt(context)

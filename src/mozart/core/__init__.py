@@ -2,27 +2,27 @@
 
 from mozart.core.checkpoint import (
     MAX_OUTPUT_CAPTURE_BYTES,
-    BatchState,
-    BatchStatus,
     CheckpointState,
+    SheetState,
+    SheetStatus,
 )
 from mozart.core.config import (
     BackendConfig,
-    BatchConfig,
     JobConfig,
     NotificationConfig,
     PromptConfig,
     RateLimitConfig,
     RetryConfig,
+    SheetConfig,
     ValidationRule,
 )
 from mozart.core.errors import ClassifiedError, ErrorCategory, ErrorClassifier, ErrorCode
 
 __all__ = [
     "BackendConfig",
-    "BatchConfig",
-    "BatchState",
-    "BatchStatus",
+    "SheetConfig",
+    "SheetState",
+    "SheetStatus",
     "CheckpointState",
     "ClassifiedError",
     "ErrorCategory",

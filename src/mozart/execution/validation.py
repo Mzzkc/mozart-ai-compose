@@ -1,6 +1,6 @@
-"""Validation framework for batch outputs.
+"""Validation framework for sheet outputs.
 
-Executes validation rules against batch outputs and tracks results
+Executes validation rules against sheet outputs and tracks results
 for partial completion recovery.
 """
 
@@ -56,10 +56,10 @@ class ValidationResult:
 
 
 @dataclass
-class BatchValidationResult:
-    """Aggregate result of all validations for a batch."""
+class SheetValidationResult:
+    """Aggregate result of all validations for a sheet."""
 
-    batch_num: int
+    sheet_num: int
     results: list[ValidationResult]
 
     @property
@@ -138,7 +138,7 @@ class BatchValidationResult:
 
 
 class FileModificationTracker:
-    """Tracks file mtimes before batch execution for file_modified checks.
+    """Tracks file mtimes before sheet execution for file_modified checks.
 
     The file_modified validation checks if a file was updated during batch
     execution. This tracker snapshots mtimes before execution so we can
@@ -149,7 +149,7 @@ class FileModificationTracker:
         self._mtimes: dict[str, float] = {}
 
     def snapshot(self, paths: list[Path]) -> None:
-        """Capture mtimes of files before batch execution.
+        """Capture mtimes of files before sheet execution.
 
         Args:
             paths: List of file paths to track. Non-existent files are
@@ -191,27 +191,27 @@ class FileModificationTracker:
 
 
 class ValidationEngine:
-    """Executes validation rules against batch outputs.
+    """Executes validation rules against sheet outputs.
 
     Handles path template expansion and dispatches to type-specific
     validation methods.
     """
 
-    def __init__(self, workspace: Path, batch_context: dict[str, Any]) -> None:
+    def __init__(self, workspace: Path, sheet_context: dict[str, Any]) -> None:
         """Initialize validation engine.
 
         Args:
             workspace: Base workspace directory.
-            batch_context: Context dict with batch_num, start_item, end_item, etc.
+            sheet_context: Context dict with sheet_num, start_item, end_item, etc.
         """
         self.workspace = workspace
-        self.batch_context = batch_context
+        self.sheet_context = sheet_context
         self._mtime_tracker = FileModificationTracker()
 
     def expand_path(self, path_template: str) -> Path:
         """Expand path template with batch context variables.
 
-        Supports: {batch_num}, {workspace}, {start_item}, {end_item}
+        Supports: {sheet_num}, {workspace}, {start_item}, {end_item}
 
         Args:
             path_template: Path with {variable} placeholders.
@@ -220,16 +220,16 @@ class ValidationEngine:
             Expanded Path object.
         """
         # Build context, ensuring workspace is set correctly
-        context = dict(self.batch_context)
+        context = dict(self.sheet_context)
         context["workspace"] = str(self.workspace)
 
         expanded = path_template.format(**context)
         return Path(expanded)
 
     def snapshot_mtime_files(self, rules: list[ValidationRule]) -> None:
-        """Snapshot mtimes for all file_modified rules before batch execution.
+        """Snapshot mtimes for all file_modified rules before sheet execution.
 
-        Call this BEFORE running the batch so we can detect modifications.
+        Call this BEFORE running the sheet so we can detect modifications.
 
         Args:
             rules: List of validation rules to scan for file_modified types.
@@ -241,14 +241,14 @@ class ValidationEngine:
         ]
         self._mtime_tracker.snapshot(paths)
 
-    def run_validations(self, rules: list[ValidationRule]) -> BatchValidationResult:
+    def run_validations(self, rules: list[ValidationRule]) -> SheetValidationResult:
         """Execute all validation rules and return aggregate result.
 
         Args:
             rules: List of validation rules to execute.
 
         Returns:
-            BatchValidationResult with all individual results.
+            SheetValidationResult with all individual results.
         """
         results: list[ValidationResult] = []
 
@@ -256,8 +256,8 @@ class ValidationEngine:
             result = self._run_single_validation(rule)
             results.append(result)
 
-        return BatchValidationResult(
-            batch_num=self.batch_context.get("batch_num", 0),
+        return SheetValidationResult(
+            sheet_num=self.sheet_context.get("sheet_num", 0),
             results=results,
         )
 
@@ -330,9 +330,9 @@ class ValidationEngine:
         )
 
     def _check_file_modified(self, rule: ValidationRule) -> ValidationResult:
-        """Check if a file was modified after batch started.
+        """Check if a file was modified after sheet started.
 
-        Requires snapshot_mtime_files() to be called before batch execution.
+        Requires snapshot_mtime_files() to be called before sheet execution.
 
         Args:
             rule: Validation rule with path template.

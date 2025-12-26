@@ -15,7 +15,7 @@ backend:
   # model: claude-sonnet-4-20250514
   # api_key_env: ANTHROPIC_API_KEY
 
-batch:
+sheet:
   size: 10
   total_items: 552
   start_item: 1
@@ -39,7 +39,7 @@ prompt:
     {% endfor %}
 
     CURRENT STATUS:
-    - Working on Batch {{ batch_num }} of {{ total_batches }}
+    - Working on Batch {{ sheet_num }} of {{ total_sheets }}
     - Items {{ start_item }} to {{ end_item }}
 
     STEP 3: LAUNCH 3 EXPERT AGENTS IN PARALLEL:
@@ -54,9 +54,9 @@ prompt:
     2. Update LONGFORM-REVIEW.md with findings
     3. Update TEST-GAP-ANALYSIS.md with test gaps
     4. The 3 expert agents MUST create EXACTLY these 3 report files:
-       - {{ workspace }}/batch{{ batch_num }}-security-report.md
-       - {{ workspace }}/batch{{ batch_num }}-architecture-report.md
-       - {{ workspace }}/batch{{ batch_num }}-quality-report.md
+       - {{ workspace }}/batch{{ sheet_num }}-security-report.md
+       - {{ workspace }}/batch{{ sheet_num }}-architecture-report.md
+       - {{ workspace }}/batch{{ sheet_num }}-quality-report.md
        Each report MUST include an Evidence Log section.
 
     {{ stakes }}
@@ -111,15 +111,15 @@ rate_limit:
 validations:
   # Required output files (must exist after each batch)
   - type: file_exists
-    path: "{workspace}/batch{batch_num}-security-report.md"
+    path: "{workspace}/batch{sheet_num}-security-report.md"
     description: "Security Analyst report"
 
   - type: file_exists
-    path: "{workspace}/batch{batch_num}-architecture-report.md"
+    path: "{workspace}/batch{sheet_num}-architecture-report.md"
     description: "Architecture Reviewer report"
 
   - type: file_exists
-    path: "{workspace}/batch{batch_num}-quality-report.md"
+    path: "{workspace}/batch{sheet_num}-quality-report.md"
     description: "Code Quality Auditor report"
 
   # Tracking files must be updated (mtime check)

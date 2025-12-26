@@ -77,7 +77,7 @@ class LogConfig(BaseModel):
     )
     include_context: bool = Field(
         default=True,
-        description="Include bound context (job_id, batch_num) in log entries",
+        description="Include bound context (job_id, sheet_num) in log entries",
     )
 
 
@@ -184,7 +184,7 @@ class ValidationRule(BaseModel):
         "command_succeeds",
     ]
     path: str | None = Field(
-        default=None, description="File path (supports {batch_num}, {workspace})"
+        default=None, description="File path (supports {sheet_num}, {workspace})"
     )
     pattern: str | None = Field(default=None, description="Pattern for content matching")
     description: str | None = Field(default=None, description="Human-readable description")
@@ -284,16 +284,20 @@ class BackendConfig(BaseModel):
     )
 
 
-class BatchConfig(BaseModel):
-    """Configuration for batch processing."""
+class SheetConfig(BaseModel):
+    """Configuration for sheet processing.
 
-    size: int = Field(ge=1, description="Number of items per batch")
+    In Mozart's musical theme, a composition is divided into sheets,
+    each containing a portion of the work to be performed.
+    """
+
+    size: int = Field(ge=1, description="Number of items per sheet")
     total_items: int = Field(ge=1, description="Total number of items to process")
     start_item: int = Field(default=1, ge=1, description="First item number (1-indexed)")
 
     @property
-    def total_batches(self) -> int:
-        """Calculate total number of batches."""
+    def total_sheets(self) -> int:
+        """Calculate total number of sheets."""
         return (self.total_items - self.start_item + 1 + self.size - 1) // self.size
 
 
@@ -336,7 +340,7 @@ class JobConfig(BaseModel):
     workspace: Path = Field(default=Path("./workspace"), description="Output directory")
 
     backend: BackendConfig = Field(default_factory=BackendConfig)
-    batch: BatchConfig
+    sheet: SheetConfig
     prompt: PromptConfig
 
     retry: RetryConfig = Field(default_factory=RetryConfig)

@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 import aiosqlite
 
-from mozart.core.checkpoint import BatchState, BatchStatus, CheckpointState, JobStatus
+from mozart.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
 from mozart.core.logging import get_logger
 from mozart.state.base import StateBackend
 
@@ -108,9 +108,9 @@ class SQLiteStateBackend(StateBackend):
                 name TEXT NOT NULL,
                 description TEXT,
                 status TEXT NOT NULL DEFAULT 'pending',
-                total_batches INTEGER NOT NULL,
-                last_completed_batch INTEGER NOT NULL DEFAULT 0,
-                current_batch INTEGER,
+                total_sheets INTEGER NOT NULL,
+                last_completed_sheet INTEGER NOT NULL DEFAULT 0,
+                current_sheet INTEGER,
                 config_hash TEXT,
                 config_snapshot TEXT,
                 pid INTEGER,
@@ -127,7 +127,7 @@ class SQLiteStateBackend(StateBackend):
         await db.execute("""
             CREATE TABLE IF NOT EXISTS batches (
                 job_id TEXT NOT NULL,
-                batch_num INTEGER NOT NULL,
+                sheet_num INTEGER NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending',
                 attempt_count INTEGER NOT NULL DEFAULT 0,
                 exit_code INTEGER,
@@ -148,7 +148,7 @@ class SQLiteStateBackend(StateBackend):
                 outcome_category TEXT,
                 started_at TEXT,
                 completed_at TEXT,
-                PRIMARY KEY (job_id, batch_num),
+                PRIMARY KEY (job_id, sheet_num),
                 FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
             )
         """)
@@ -157,7 +157,7 @@ class SQLiteStateBackend(StateBackend):
             CREATE TABLE IF NOT EXISTS execution_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 job_id TEXT NOT NULL,
-                batch_num INTEGER NOT NULL,
+                sheet_num INTEGER NOT NULL,
                 attempt_num INTEGER NOT NULL,
                 prompt TEXT,
                 output TEXT,
@@ -180,7 +180,7 @@ class SQLiteStateBackend(StateBackend):
         )
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_history_job_batch "
-            "ON execution_history(job_id, batch_num)"
+            "ON execution_history(job_id, sheet_num)"
         )
 
         # Record migration
@@ -256,17 +256,17 @@ class SQLiteStateBackend(StateBackend):
 
             # Load batch records
             cursor = await db.execute(
-                "SELECT * FROM batches WHERE job_id = ? ORDER BY batch_num",
+                "SELECT * FROM batches WHERE job_id = ? ORDER BY sheet_num",
                 (job_id,),
             )
             batch_rows = await cursor.fetchall()
 
             # Reconstruct CheckpointState
-            batches: dict[int, BatchState] = {}
+            batches: dict[int, SheetState] = {}
             for row in batch_rows:
-                batch = BatchState(
-                    batch_num=row["batch_num"],
-                    status=BatchStatus(row["status"]),
+                batch = SheetState(
+                    sheet_num=row["sheet_num"],
+                    status=SheetStatus(row["status"]),
                     started_at=self._str_to_datetime(row["started_at"]),
                     completed_at=self._str_to_datetime(row["completed_at"]),
                     attempt_count=row["attempt_count"],
@@ -289,7 +289,7 @@ class SQLiteStateBackend(StateBackend):
                     first_attempt_success=bool(row["first_attempt_success"]),
                     outcome_category=row["outcome_category"],
                 )
-                batches[batch.batch_num] = batch
+                batches[batch.sheet_num] = batch
 
             # Handle config_path which may not exist in older schemas
             try:
@@ -309,11 +309,11 @@ class SQLiteStateBackend(StateBackend):
                 or _utc_now(),
                 started_at=self._str_to_datetime(job_row["started_at"]),
                 completed_at=self._str_to_datetime(job_row["completed_at"]),
-                total_batches=job_row["total_batches"],
-                last_completed_batch=job_row["last_completed_batch"],
-                current_batch=job_row["current_batch"],
+                total_sheets=job_row["total_sheets"],
+                last_completed_sheet=job_row["last_completed_sheet"],
+                current_sheet=job_row["current_sheet"],
                 status=JobStatus(job_row["status"]),
-                batches=batches,
+                sheets=batches,
                 pid=job_row["pid"],
                 error_message=job_row["error_message"],
                 total_retry_count=job_row["total_retry_count"],
@@ -324,8 +324,8 @@ class SQLiteStateBackend(StateBackend):
                 "checkpoint_loaded",
                 job_id=job_id,
                 status=state.status.value,
-                last_completed_batch=state.last_completed_batch,
-                total_batches=state.total_batches,
+                last_completed_sheet=state.last_completed_sheet,
+                total_sheets=state.total_sheets,
                 batch_count=len(batches),
             )
             return state
@@ -341,8 +341,8 @@ class SQLiteStateBackend(StateBackend):
             await db.execute(
                 """
                 INSERT INTO jobs (
-                    id, name, description, status, total_batches,
-                    last_completed_batch, current_batch, config_hash,
+                    id, name, description, status, total_sheets,
+                    last_completed_sheet, current_sheet, config_hash,
                     config_snapshot, config_path,
                     pid, error_message, total_retry_count, rate_limit_waits,
                     created_at, updated_at, started_at, completed_at
@@ -350,9 +350,9 @@ class SQLiteStateBackend(StateBackend):
                 ON CONFLICT(id) DO UPDATE SET
                     name = excluded.name,
                     status = excluded.status,
-                    total_batches = excluded.total_batches,
-                    last_completed_batch = excluded.last_completed_batch,
-                    current_batch = excluded.current_batch,
+                    total_sheets = excluded.total_sheets,
+                    last_completed_sheet = excluded.last_completed_sheet,
+                    current_sheet = excluded.current_sheet,
                     config_hash = excluded.config_hash,
                     config_snapshot = excluded.config_snapshot,
                     config_path = excluded.config_path,
@@ -369,9 +369,9 @@ class SQLiteStateBackend(StateBackend):
                     state.job_name,
                     None,  # description - not in CheckpointState currently
                     state.status.value,
-                    state.total_batches,
-                    state.last_completed_batch,
-                    state.current_batch,
+                    state.total_sheets,
+                    state.last_completed_sheet,
+                    state.current_sheet,
                     state.config_hash,
                     self._json_dumps(state.config_snapshot),
                     state.config_path,
@@ -387,11 +387,11 @@ class SQLiteStateBackend(StateBackend):
             )
 
             # Upsert batch records
-            for batch in state.batches.values():
+            for batch in state.sheets.values():
                 await db.execute(
                     """
                     INSERT INTO batches (
-                        job_id, batch_num, status, attempt_count, exit_code,
+                        job_id, sheet_num, status, attempt_count, exit_code,
                         error_message, error_category, validation_passed,
                         validation_details, completion_attempts, passed_validations,
                         failed_validations, last_pass_percentage, execution_mode,
@@ -399,7 +399,7 @@ class SQLiteStateBackend(StateBackend):
                         similar_outcomes_count, first_attempt_success,
                         outcome_category, started_at, completed_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(job_id, batch_num) DO UPDATE SET
+                    ON CONFLICT(job_id, sheet_num) DO UPDATE SET
                         status = excluded.status,
                         attempt_count = excluded.attempt_count,
                         exit_code = excluded.exit_code,
@@ -423,7 +423,7 @@ class SQLiteStateBackend(StateBackend):
                 """,
                     (
                         state.job_id,
-                        batch.batch_num,
+                        batch.sheet_num,
                         batch.status.value,
                         batch.attempt_count,
                         batch.exit_code,
@@ -455,9 +455,9 @@ class SQLiteStateBackend(StateBackend):
             "checkpoint_saved",
             job_id=state.job_id,
             status=state.status.value,
-            last_completed_batch=state.last_completed_batch,
-            total_batches=state.total_batches,
-            batch_count=len(state.batches),
+            last_completed_sheet=state.last_completed_sheet,
+            total_sheets=state.total_sheets,
+            batch_count=len(state.sheets),
         )
 
     async def delete(self, job_id: str) -> bool:
@@ -496,18 +496,18 @@ class SQLiteStateBackend(StateBackend):
 
         return states
 
-    async def get_next_batch(self, job_id: str) -> int | None:
+    async def get_next_sheet(self, job_id: str) -> int | None:
         """Get the next batch to process for a job."""
         state = await self.load(job_id)
         if state is None:
             return 1  # Start from beginning if no state
-        return state.get_next_batch()
+        return state.get_next_sheet()
 
-    async def mark_batch_status(
+    async def mark_sheet_status(
         self,
         job_id: str,
-        batch_num: int,
-        status: BatchStatus,
+        sheet_num: int,
+        status: SheetStatus,
         error_message: str | None = None,
     ) -> None:
         """Update status of a specific batch."""
@@ -515,12 +515,12 @@ class SQLiteStateBackend(StateBackend):
         if state is None:
             raise ValueError(f"No state found for job {job_id}")
 
-        if status == BatchStatus.COMPLETED:
-            state.mark_batch_completed(batch_num)
-        elif status == BatchStatus.FAILED:
-            state.mark_batch_failed(batch_num, error_message or "Unknown error")
-        elif status == BatchStatus.IN_PROGRESS:
-            state.mark_batch_started(batch_num)
+        if status == SheetStatus.COMPLETED:
+            state.mark_sheet_completed(sheet_num)
+        elif status == SheetStatus.FAILED:
+            state.mark_sheet_failed(sheet_num, error_message or "Unknown error")
+        elif status == SheetStatus.IN_PROGRESS:
+            state.mark_sheet_started(sheet_num)
 
         await self.save(state)
 
@@ -529,7 +529,7 @@ class SQLiteStateBackend(StateBackend):
     async def record_execution(
         self,
         job_id: str,
-        batch_num: int,
+        sheet_num: int,
         attempt_num: int,
         prompt: str | None = None,
         output: str | None = None,
@@ -540,7 +540,7 @@ class SQLiteStateBackend(StateBackend):
 
         Args:
             job_id: Job identifier
-            batch_num: Batch number
+            sheet_num: Batch number
             attempt_num: Attempt number within the batch
             prompt: The prompt sent to Claude
             output: The output received
@@ -556,13 +556,13 @@ class SQLiteStateBackend(StateBackend):
             cursor = await db.execute(
                 """
                 INSERT INTO execution_history (
-                    job_id, batch_num, attempt_num, prompt, output,
+                    job_id, sheet_num, attempt_num, prompt, output,
                     exit_code, duration_seconds, executed_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     job_id,
-                    batch_num,
+                    sheet_num,
                     attempt_num,
                     prompt,
                     output,
@@ -577,14 +577,14 @@ class SQLiteStateBackend(StateBackend):
     async def get_execution_history(
         self,
         job_id: str,
-        batch_num: int | None = None,
+        sheet_num: int | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         """Get execution history for a job.
 
         Args:
             job_id: Job identifier
-            batch_num: Optional batch number filter
+            sheet_num: Optional batch number filter
             limit: Maximum records to return
 
         Returns:
@@ -595,15 +595,15 @@ class SQLiteStateBackend(StateBackend):
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
 
-            if batch_num is not None:
+            if sheet_num is not None:
                 cursor = await db.execute(
                     """
                     SELECT * FROM execution_history
-                    WHERE job_id = ? AND batch_num = ?
+                    WHERE job_id = ? AND sheet_num = ?
                     ORDER BY executed_at DESC
                     LIMIT ?
                 """,
-                    (job_id, batch_num, limit),
+                    (job_id, sheet_num, limit),
                 )
             else:
                 cursor = await db.execute(
@@ -637,7 +637,7 @@ class SQLiteStateBackend(StateBackend):
         async with aiosqlite.connect(self.db_path) as db:
             # Get job data
             cursor = await db.execute(
-                "SELECT total_batches, last_completed_batch, total_retry_count "
+                "SELECT total_sheets, last_completed_sheet, total_retry_count "
                 "FROM jobs WHERE id = ?",
                 (job_id,),
             )
@@ -660,15 +660,15 @@ class SQLiteStateBackend(StateBackend):
             )
             exec_row = await cursor.fetchone()
 
-            total_batches = job_row[0]
+            total_sheets = job_row[0]
             completed = job_row[1]
             total_retries = job_row[2]
 
             return {
-                "total_batches": total_batches,
-                "completed_batches": completed,
-                "success_rate": (completed / total_batches * 100)
-                if total_batches > 0
+                "total_sheets": total_sheets,
+                "completed_sheets": completed,
+                "success_rate": (completed / total_sheets * 100)
+                if total_sheets > 0
                 else 0.0,
                 "total_retries": total_retries,
                 "total_executions": exec_row[0] if exec_row else 0,
@@ -713,7 +713,7 @@ class SQLiteStateBackend(StateBackend):
 
             cursor = await db.execute(
                 f"""
-                SELECT id, name, status, total_batches, last_completed_batch,
+                SELECT id, name, status, total_sheets, last_completed_sheet,
                        created_at, updated_at, completed_at, error_message
                 FROM jobs
                 WHERE {where_clause}

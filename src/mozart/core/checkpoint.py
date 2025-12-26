@@ -18,7 +18,7 @@ _logger = get_logger("checkpoint")
 MAX_OUTPUT_CAPTURE_BYTES: int = 10240  # 10KB - last N bytes of stdout/stderr to capture
 
 # Constants for error history (Task 10: Error History Model)
-MAX_ERROR_HISTORY: int = 10  # Maximum number of error records to keep per batch
+MAX_ERROR_HISTORY: int = 10  # Maximum number of error records to keep per sheet
 
 # Type alias for error types
 ErrorType = Literal["transient", "rate_limit", "permanent"]
@@ -32,8 +32,8 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-class BatchStatus(str, Enum):
-    """Status of a single batch."""
+class SheetStatus(str, Enum):
+    """Status of a single sheet."""
 
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
@@ -54,10 +54,10 @@ class JobStatus(str, Enum):
 
 
 class ErrorRecord(BaseModel):
-    """Record of a single error occurrence during batch execution.
+    """Record of a single error occurrence during sheet execution.
 
     Stores structured error information for debugging and pattern analysis.
-    Error history is trimmed to MAX_ERROR_HISTORY records per batch to
+    Error history is trimmed to MAX_ERROR_HISTORY records per sheet to
     prevent unbounded state growth.
     """
 
@@ -96,11 +96,11 @@ class ErrorRecord(BaseModel):
     )
 
 
-class BatchState(BaseModel):
-    """State for a single batch."""
+class SheetState(BaseModel):
+    """State for a single sheet."""
 
-    batch_num: int
-    status: BatchStatus = BatchStatus.PENDING
+    sheet_num: int
+    status: SheetStatus = SheetStatus.PENDING
     started_at: datetime | None = None
     completed_at: datetime | None = None
     attempt_count: int = 0
@@ -121,7 +121,7 @@ class BatchState(BaseModel):
     )
     execution_duration_seconds: float | None = Field(
         default=None,
-        description="How long the batch execution took in seconds",
+        description="How long the sheet execution took in seconds",
     )
 
     # Partial completion tracking
@@ -159,7 +159,7 @@ class BatchState(BaseModel):
     )
     learned_patterns: list[str] = Field(
         default_factory=list,
-        description="Patterns recognized from this batch execution",
+        description="Patterns recognized from this sheet execution",
     )
     similar_outcomes_count: int = Field(
         default=0,
@@ -167,7 +167,7 @@ class BatchState(BaseModel):
     )
     first_attempt_success: bool = Field(
         default=False,
-        description="Whether batch succeeded on first attempt (no retries/completion)",
+        description="Whether sheet succeeded on first attempt (no retries/completion)",
     )
     outcome_category: str | None = Field(
         default=None,
@@ -214,7 +214,7 @@ class BatchState(BaseModel):
     # Error history tracking (Task 10: Error History Model)
     error_history: list[ErrorRecord] = Field(
         default_factory=list,
-        description="History of errors encountered during batch execution (max 10)",
+        description="History of errors encountered during sheet execution (max 10)",
     )
 
     def capture_output(
@@ -306,7 +306,7 @@ class BatchState(BaseModel):
         # Log at WARNING level for observability
         _logger.warning(
             "error_recorded",
-            batch_num=self.batch_num,
+            sheet_num=self.sheet_num,
             error_type=error_type,
             error_code=error_code,
             attempt=attempt,
@@ -345,108 +345,108 @@ class CheckpointState(BaseModel):
     completed_at: datetime | None = None
 
     # Progress tracking
-    total_batches: int
-    last_completed_batch: int = Field(
-        default=0, description="Last successfully completed batch number"
+    total_sheets: int
+    last_completed_sheet: int = Field(
+        default=0, description="Last successfully completed sheet number"
     )
-    current_batch: int | None = Field(default=None, description="Currently processing batch")
+    current_sheet: int | None = Field(default=None, description="Currently processing sheet")
     status: JobStatus = JobStatus.PENDING
 
-    # Batch-level state
-    batches: dict[int, BatchState] = Field(default_factory=dict)
+    # Sheet-level state
+    sheets: dict[int, SheetState] = Field(default_factory=dict)
 
     # Execution metadata
     pid: int | None = Field(default=None, description="Process ID of running orchestrator")
     error_message: str | None = None
-    total_retry_count: int = Field(default=0, description="Total retries across all batches")
+    total_retry_count: int = Field(default=0, description="Total retries across all sheets")
     rate_limit_waits: int = Field(default=0, description="Number of rate limit waits")
 
-    def get_next_batch(self) -> int | None:
-        """Determine the next batch to process.
+    def get_next_sheet(self) -> int | None:
+        """Determine the next sheet to process.
 
-        Returns None if all batches are complete.
+        Returns None if all sheets are complete.
         """
         if self.status in (JobStatus.COMPLETED, JobStatus.CANCELLED):
             return None
 
-        # Check for in-progress batch (resume from crash)
-        if self.current_batch is not None:
-            batch_state = self.batches.get(self.current_batch)
-            if batch_state and batch_state.status == BatchStatus.IN_PROGRESS:
-                return self.current_batch
+        # Check for in-progress sheet (resume from crash)
+        if self.current_sheet is not None:
+            sheet_state = self.sheets.get(self.current_sheet)
+            if sheet_state and sheet_state.status == SheetStatus.IN_PROGRESS:
+                return self.current_sheet
 
-        # Find next pending batch after last completed
-        for batch_num in range(self.last_completed_batch + 1, self.total_batches + 1):
-            batch_state = self.batches.get(batch_num)
-            if batch_state is None:
-                return batch_num
-            if batch_state.status in (BatchStatus.PENDING, BatchStatus.FAILED):
-                return batch_num
+        # Find next pending sheet after last completed
+        for sheet_num in range(self.last_completed_sheet + 1, self.total_sheets + 1):
+            sheet_state = self.sheets.get(sheet_num)
+            if sheet_state is None:
+                return sheet_num
+            if sheet_state.status in (SheetStatus.PENDING, SheetStatus.FAILED):
+                return sheet_num
 
         return None
 
-    def mark_batch_started(self, batch_num: int) -> None:
-        """Mark a batch as started."""
+    def mark_sheet_started(self, sheet_num: int) -> None:
+        """Mark a sheet as started."""
         previous_status = self.status
-        self.current_batch = batch_num
+        self.current_sheet = sheet_num
         self.status = JobStatus.RUNNING
         self.updated_at = _utc_now()
 
-        if batch_num not in self.batches:
-            self.batches[batch_num] = BatchState(batch_num=batch_num)
+        if sheet_num not in self.sheets:
+            self.sheets[sheet_num] = SheetState(sheet_num=sheet_num)
 
-        batch = self.batches[batch_num]
-        batch.status = BatchStatus.IN_PROGRESS
-        batch.started_at = _utc_now()
-        batch.attempt_count += 1
+        sheet = self.sheets[sheet_num]
+        sheet.status = SheetStatus.IN_PROGRESS
+        sheet.started_at = _utc_now()
+        sheet.attempt_count += 1
 
         _logger.debug(
-            "batch_started",
+            "sheet_started",
             job_id=self.job_id,
-            batch_num=batch_num,
-            attempt_count=batch.attempt_count,
+            sheet_num=sheet_num,
+            attempt_count=sheet.attempt_count,
             previous_status=previous_status.value,
-            total_batches=self.total_batches,
+            total_sheets=self.total_sheets,
         )
 
-    def mark_batch_completed(
+    def mark_sheet_completed(
         self,
-        batch_num: int,
+        sheet_num: int,
         validation_passed: bool = True,
         validation_details: list[dict[str, Any]] | None = None,
     ) -> None:
-        """Mark a batch as completed."""
+        """Mark a sheet as completed."""
         self.updated_at = _utc_now()
 
-        batch = self.batches[batch_num]
-        batch.status = BatchStatus.COMPLETED
-        batch.completed_at = _utc_now()
-        batch.exit_code = 0
-        batch.validation_passed = validation_passed
-        batch.validation_details = validation_details
+        sheet = self.sheets[sheet_num]
+        sheet.status = SheetStatus.COMPLETED
+        sheet.completed_at = _utc_now()
+        sheet.exit_code = 0
+        sheet.validation_passed = validation_passed
+        sheet.validation_details = validation_details
 
-        self.last_completed_batch = batch_num
-        self.current_batch = None
+        self.last_completed_sheet = sheet_num
+        self.current_sheet = None
 
         # Check if job is complete
-        job_completed = batch_num >= self.total_batches
+        job_completed = sheet_num >= self.total_sheets
         if job_completed:
             self.status = JobStatus.COMPLETED
             self.completed_at = _utc_now()
 
         _logger.debug(
-            "batch_completed",
+            "sheet_completed",
             job_id=self.job_id,
-            batch_num=batch_num,
+            sheet_num=sheet_num,
             validation_passed=validation_passed,
-            attempt_count=batch.attempt_count,
+            attempt_count=sheet.attempt_count,
             job_completed=job_completed,
-            progress=f"{self.last_completed_batch}/{self.total_batches}",
+            progress=f"{self.last_completed_sheet}/{self.total_sheets}",
         )
 
-    def mark_batch_failed(
+    def mark_sheet_failed(
         self,
-        batch_num: int,
+        sheet_num: int,
         error_message: str,
         error_category: str | None = None,
         exit_code: int | None = None,
@@ -454,42 +454,42 @@ class CheckpointState(BaseModel):
         exit_reason: str | None = None,
         execution_duration_seconds: float | None = None,
     ) -> None:
-        """Mark a batch as failed.
+        """Mark a sheet as failed.
 
         Args:
-            batch_num: Batch number that failed.
+            sheet_num: Sheet number that failed.
             error_message: Human-readable error description.
             error_category: Error category from ErrorClassifier (e.g., "signal", "timeout").
             exit_code: Process exit code (None if killed by signal).
             exit_signal: Signal number if killed by signal (e.g., 9=SIGKILL, 15=SIGTERM).
             exit_reason: Why execution ended ("completed", "timeout", "killed", "error").
-            execution_duration_seconds: How long the batch execution took.
+            execution_duration_seconds: How long the sheet execution took.
         """
         self.updated_at = _utc_now()
 
-        batch = self.batches[batch_num]
-        batch.status = BatchStatus.FAILED
-        batch.completed_at = _utc_now()
-        batch.error_message = error_message
-        batch.error_category = error_category
-        batch.exit_code = exit_code
-        batch.exit_signal = exit_signal
-        batch.exit_reason = exit_reason
+        sheet = self.sheets[sheet_num]
+        sheet.status = SheetStatus.FAILED
+        sheet.completed_at = _utc_now()
+        sheet.error_message = error_message
+        sheet.error_category = error_category
+        sheet.exit_code = exit_code
+        sheet.exit_signal = exit_signal
+        sheet.exit_reason = exit_reason
         if execution_duration_seconds is not None:
-            batch.execution_duration_seconds = execution_duration_seconds
+            sheet.execution_duration_seconds = execution_duration_seconds
 
-        self.current_batch = None
+        self.current_sheet = None
         self.total_retry_count += 1
 
         _logger.debug(
-            "batch_failed",
+            "sheet_failed",
             job_id=self.job_id,
-            batch_num=batch_num,
+            sheet_num=sheet_num,
             error_category=error_category,
             exit_code=exit_code,
             exit_signal=exit_signal,
             exit_reason=exit_reason,
-            attempt_count=batch.attempt_count,
+            attempt_count=sheet.attempt_count,
             total_retry_count=self.total_retry_count,
             error_message=error_message[:100] if error_message else None,
         )
@@ -506,8 +506,8 @@ class CheckpointState(BaseModel):
             "job_failed",
             job_id=self.job_id,
             previous_status=previous_status.value,
-            last_completed_batch=self.last_completed_batch,
-            total_batches=self.total_batches,
+            last_completed_sheet=self.last_completed_sheet,
+            total_sheets=self.total_sheets,
             total_retry_count=self.total_retry_count,
             error_message=error_message[:200] if error_message else None,
         )
@@ -522,18 +522,18 @@ class CheckpointState(BaseModel):
             "job_paused",
             job_id=self.job_id,
             previous_status=previous_status.value,
-            last_completed_batch=self.last_completed_batch,
-            total_batches=self.total_batches,
-            current_batch=self.current_batch,
+            last_completed_sheet=self.last_completed_sheet,
+            total_sheets=self.total_sheets,
+            current_sheet=self.current_sheet,
         )
 
     def get_progress(self) -> tuple[int, int]:
         """Get progress as (completed, total)."""
         completed = sum(
-            1 for b in self.batches.values()
-            if b.status == BatchStatus.COMPLETED
+            1 for b in self.sheets.values()
+            if b.status == SheetStatus.COMPLETED
         )
-        return completed, self.total_batches
+        return completed, self.total_sheets
 
     def get_progress_percent(self) -> float:
         """Get progress as percentage."""

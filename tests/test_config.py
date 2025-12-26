@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from mozart.core.config import (
     BackendConfig,
-    BatchConfig,
+    SheetConfig,
     JobConfig,
     PromptConfig,
     RateLimitConfig,
@@ -51,25 +51,25 @@ class TestRetryConfig:
             RetryConfig(base_delay_seconds=0)
 
 
-class TestBatchConfig:
-    """Tests for BatchConfig model."""
+class TestSheetConfig:
+    """Tests for SheetConfig model."""
 
     def test_required_fields(self):
         """Test required fields are enforced."""
         with pytest.raises(ValidationError):
-            BatchConfig()
+            SheetConfig()
 
-    def test_total_batches_calculation(self):
-        """Test total_batches is calculated correctly."""
-        config = BatchConfig(size=10, total_items=35)
-        assert config.total_batches == 4  # ceil(35/10)
+    def test_total_sheets_calculation(self):
+        """Test total_sheets is calculated correctly."""
+        config = SheetConfig(size=10, total_items=35)
+        assert config.total_sheets == 4  # ceil(35/10)
 
-        config = BatchConfig(size=10, total_items=30)
-        assert config.total_batches == 3  # exact
+        config = SheetConfig(size=10, total_items=30)
+        assert config.total_sheets == 3  # exact
 
     def test_start_item_default(self):
         """Test start_item defaults to 1."""
-        config = BatchConfig(size=10, total_items=30)
+        config = SheetConfig(size=10, total_items=30)
         assert config.start_item == 1
 
 
@@ -144,14 +144,14 @@ class TestJobConfig:
         """Test creating JobConfig from dictionary."""
         config = JobConfig(**sample_config_dict)
         assert config.name == "test-job"
-        assert config.batch.total_items == 30
+        assert config.sheet.total_items == 30
         assert config.backend.type == "claude_cli"
 
     def test_from_yaml(self, sample_yaml_config: Path):
         """Test loading JobConfig from YAML file."""
         config = JobConfig.from_yaml(sample_yaml_config)
         assert config.name == "test-job"
-        assert config.batch.size == 10
+        assert config.sheet.size == 10
 
     def test_workspace_default(self, sample_config_dict: dict):
         """Test workspace defaults to ./workspace."""

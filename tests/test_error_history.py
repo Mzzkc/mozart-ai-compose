@@ -1,6 +1,6 @@
 """Tests for error history tracking functionality (Task 10: Error History Model).
 
-This module tests the ErrorRecord model and error history tracking in BatchState.
+This module tests the ErrorRecord model and error history tracking in SheetState.
 """
 
 from datetime import UTC, datetime
@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from mozart.core.checkpoint import (
     MAX_ERROR_HISTORY,
-    BatchState,
+    SheetState,
     ErrorRecord,
 )
 
@@ -169,12 +169,12 @@ class TestErrorRecordModel:
         assert loaded.stderr_tail == record.stderr_tail
 
 
-class TestBatchStateErrorHistory:
-    """Tests for error_history field on BatchState."""
+class TestSheetStateErrorHistory:
+    """Tests for error_history field on SheetState."""
 
     def test_error_history_default_empty(self):
         """Test that error_history defaults to empty list."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
         assert state.error_history == []
 
     def test_error_history_field_type(self):
@@ -194,17 +194,17 @@ class TestBatchStateErrorHistory:
             ),
         ]
 
-        state = BatchState(batch_num=1, error_history=records)
+        state = SheetState(sheet_num=1, error_history=records)
         assert len(state.error_history) == 2
         assert all(isinstance(r, ErrorRecord) for r in state.error_history)
 
 
 class TestRecordErrorMethod:
-    """Tests for BatchState.record_error() method."""
+    """Tests for SheetState.record_error() method."""
 
     def test_record_error_basic(self):
         """Test recording a basic error."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
 
         state.record_error(
             error_type="transient",
@@ -222,7 +222,7 @@ class TestRecordErrorMethod:
 
     def test_record_error_with_output(self):
         """Test recording error with stdout/stderr tails."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
 
         state.record_error(
             error_type="permanent",
@@ -239,7 +239,7 @@ class TestRecordErrorMethod:
 
     def test_record_error_with_stack_trace(self):
         """Test recording error with stack trace."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
         stack = "Traceback (most recent call last):\n  File 'test.py', line 1\nError"
 
         state.record_error(
@@ -255,7 +255,7 @@ class TestRecordErrorMethod:
 
     def test_record_error_with_context(self):
         """Test recording error with additional context via kwargs."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
 
         state.record_error(
             error_type="transient",
@@ -276,7 +276,7 @@ class TestRecordErrorMethod:
 
     def test_record_error_multiple(self):
         """Test recording multiple errors."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
 
         state.record_error(
             error_type="transient",
@@ -304,7 +304,7 @@ class TestRecordErrorMethod:
 
     def test_record_error_trims_to_max_history(self):
         """Test that error history is trimmed to MAX_ERROR_HISTORY."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
 
         # Record more than MAX_ERROR_HISTORY errors
         for i in range(MAX_ERROR_HISTORY + 5):
@@ -320,7 +320,7 @@ class TestRecordErrorMethod:
 
     def test_record_error_keeps_most_recent(self):
         """Test that trimming keeps the most recent errors."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
 
         # Record more than MAX_ERROR_HISTORY errors
         total_errors = MAX_ERROR_HISTORY + 5
@@ -340,7 +340,7 @@ class TestRecordErrorMethod:
 
     def test_record_error_preserves_timestamp_order(self):
         """Test that errors are stored in chronological order."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
 
         state.record_error(
             error_type="transient",
@@ -375,7 +375,7 @@ class TestErrorHistorySerialization:
 
     def test_error_history_serialization(self):
         """Test that error_history survives JSON serialization."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
         state.record_error(
             error_type="transient",
             error_code="E001",
@@ -385,7 +385,7 @@ class TestErrorHistorySerialization:
         )
 
         data = state.model_dump(mode="json")
-        loaded = BatchState.model_validate(data)
+        loaded = SheetState.model_validate(data)
 
         assert len(loaded.error_history) == 1
         record = loaded.error_history[0]
@@ -397,7 +397,7 @@ class TestErrorHistorySerialization:
 
     def test_error_history_serialization_multiple(self):
         """Test serialization with multiple error records."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
         for i in range(5):
             state.record_error(
                 error_type="transient" if i % 2 == 0 else "permanent",
@@ -407,7 +407,7 @@ class TestErrorHistorySerialization:
             )
 
         data = state.model_dump(mode="json")
-        loaded = BatchState.model_validate(data)
+        loaded = SheetState.model_validate(data)
 
         assert len(loaded.error_history) == 5
         for i, record in enumerate(loaded.error_history):
@@ -418,23 +418,23 @@ class TestErrorHistorySerialization:
         """Test loading old state without error_history field."""
         # Simulate old state data without error_history
         old_data = {
-            "batch_num": 1,
+            "sheet_num": 1,
             "status": "completed",
             "attempt_count": 2,
             # No error_history field
         }
 
         # Should load successfully with empty default
-        loaded = BatchState.model_validate(old_data)
+        loaded = SheetState.model_validate(old_data)
         assert loaded.error_history == []
 
 
 class TestErrorHistoryIntegration:
-    """Integration tests for error history with other BatchState functionality."""
+    """Integration tests for error history with other SheetState functionality."""
 
     def test_error_history_with_output_capture(self):
         """Test error history works alongside output capture."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
 
         # Capture some output
         state.capture_output("stdout content", "stderr content")
@@ -454,9 +454,9 @@ class TestErrorHistoryIntegration:
         assert state.error_history[0].stdout_tail == "stdout content"
 
     def test_error_history_preserves_other_fields(self):
-        """Test that using error history doesn't affect other BatchState fields."""
-        state = BatchState(
-            batch_num=5,
+        """Test that using error history doesn't affect other SheetState fields."""
+        state = SheetState(
+            sheet_num=5,
             attempt_count=3,
             exit_code=1,
             error_message="Previous error",
@@ -471,7 +471,7 @@ class TestErrorHistoryIntegration:
         )
 
         # Original fields should be unchanged
-        assert state.batch_num == 5
+        assert state.sheet_num == 5
         assert state.attempt_count == 3
         assert state.exit_code == 1
         assert state.error_message == "Previous error"
@@ -522,7 +522,7 @@ class TestErrorRecordEdgeCases:
             "list": [1, 2, {"nested": True}],
         }
 
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
         state.record_error(
             error_type="transient",
             error_code="E001",
@@ -537,7 +537,7 @@ class TestErrorRecordEdgeCases:
 
     def test_context_with_none_values(self):
         """Test that context can contain None values."""
-        state = BatchState(batch_num=1)
+        state = SheetState(sheet_num=1)
         state.record_error(
             error_type="transient",
             error_code="E001",

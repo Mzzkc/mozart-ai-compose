@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 
-from mozart.core.checkpoint import BatchStatus, CheckpointState
+from mozart.core.checkpoint import CheckpointState, SheetStatus
 
 
 class StateBackend(ABC):
@@ -54,30 +54,30 @@ class StateBackend(ABC):
         ...
 
     @abstractmethod
-    async def get_next_batch(self, job_id: str) -> int | None:
-        """Get the next batch to process for a job.
+    async def get_next_sheet(self, job_id: str) -> int | None:
+        """Get the next sheet to process for a job.
 
         Args:
             job_id: Unique job identifier
 
         Returns:
-            Next batch number, or None if complete
+            Next sheet number, or None if complete
         """
         ...
 
     @abstractmethod
-    async def mark_batch_status(
+    async def mark_sheet_status(
         self,
         job_id: str,
-        batch_num: int,
-        status: BatchStatus,
+        sheet_num: int,
+        status: SheetStatus,
         error_message: str | None = None,
     ) -> None:
-        """Update status of a specific batch.
+        """Update status of a specific sheet.
 
         Args:
             job_id: Unique job identifier
-            batch_num: Batch number to update
+            sheet_num: Batch number to update
             status: New status
             error_message: Optional error message for failures
         """
@@ -89,18 +89,18 @@ class StateBackend(ABC):
         workspace: str,
         artifact_pattern: str,
     ) -> int | None:
-        """Infer last completed batch from artifact files.
+        """Infer last completed sheet from artifact files.
 
         Fallback when state file is missing - checks for output files.
-        Based on the fallback logic in run-batch-review.sh.
+        Based on the fallback logic in run-sheet-review.sh.
 
         Args:
             job_id: Unique job identifier
             workspace: Workspace directory path
-            artifact_pattern: Glob pattern for batch artifacts (e.g., "batch*-security-report.md")
+            artifact_pattern: Glob pattern for sheet artifacts (e.g., "sheet*-security-report.md")
 
         Returns:
-            Inferred last completed batch number, or None
+            Inferred last completed sheet number, or None
         """
         import re
         from pathlib import Path
@@ -114,11 +114,11 @@ class StateBackend(ABC):
         if not artifacts:
             return None
 
-        # Extract batch numbers and find max
-        batch_nums = []
+        # Extract sheet numbers and find max
+        sheet_nums = []
         for artifact in artifacts:
-            match = re.search(r"batch(\d+)", artifact.name)
+            match = re.search(r"sheet(\d+)", artifact.name)
             if match:
-                batch_nums.append(int(match.group(1)))
+                sheet_nums.append(int(match.group(1)))
 
-        return max(batch_nums) if batch_nums else None
+        return max(sheet_nums) if sheet_nums else None
