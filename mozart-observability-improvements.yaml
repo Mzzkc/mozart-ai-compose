@@ -23,9 +23,11 @@ rate_limit:
   wait_minutes: 60
   max_waits: 3
 
-# Validation disabled - tests catch transitional state during Claude execution
-# We verify manually after each batch instead
-validations: []
+# Re-enabled validations - now with better observability to diagnose issues
+validations:
+  - type: command_succeeds
+    command: "cd {{ project_root }} && source .venv/bin/activate && pytest tests/ -q --tb=no 2>&1 | tail -1 | grep -E '^[0-9]+ passed'"
+    description: "All tests must pass"
 
 prompt:
   variables:
