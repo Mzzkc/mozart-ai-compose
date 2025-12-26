@@ -10,22 +10,22 @@ workspace: "./observability-workspace"
 backend:
   type: claude_cli
   skip_permissions: true
-  timeout_seconds: 300  # 5 minute timeout per batch
+  timeout_seconds: 300  # 5 minute timeout per sheet
 
-# Simple batch setup for demo
+# Simple sheet setup for demo
 sheet:
   size: 5
-  total_items: 15  # 3 batches total
+  total_items: 15  # 3 sheets total
 
 # Simple prompt template
 prompt:
   template: |
-    Process batch {{ sheet_num }} of {{ total_sheets }}.
+    Process sheet {{ sheet_num }} of {{ total_sheets }}.
 
-    Create a file at {{ workspace }}/batch{{ sheet_num }}-output.md containing:
+    Create a file at {{ workspace }}/sheet{{ sheet_num }}-output.md containing:
     - A summary of items {{ start_item }} to {{ end_item }}
     - A timestamp of when processing completed
-    - Any observations about the batch
+    - Any observations about the sheet
 
     {{ stakes }}
 
@@ -57,11 +57,11 @@ rate_limit:
 # Validations - each generates diagnostic data on failure
 validations:
   - type: file_exists
-    path: "{workspace}/batch{sheet_num}-output.md"
-    description: "Batch output file must exist"
+    path: "{workspace}/sheet{sheet_num}-output.md"
+    description: "Sheet output file must exist"
 
   - type: content_contains
-    path: "{workspace}/batch{sheet_num}-output.md"
+    path: "{workspace}/sheet{sheet_num}-output.md"
     pattern: "Summary"
     description: "Output must contain Summary section"
 
@@ -82,13 +82,13 @@ logging:
 # Notifications for observability
 notifications:
   - type: desktop
-    on_events: [job_complete, job_failed, batch_failed]
+    on_events: [job_complete, job_failed, sheet_failed]
 
 # State backend (JSON for easy inspection)
 state_backend: json
 
-# Pause between batches (helps with debugging)
-pause_between_batches_seconds: 5
+# Pause between sheets (helps with debugging)
+pause_between_sheets_seconds: 5
 
 # ============================================================
 # USAGE: Observability Features Demo
@@ -116,9 +116,9 @@ pause_between_batches_seconds: 5
 #    zcat observability-workspace/logs/mozart.log.1.gz
 #
 # 6. INSPECT STATE FILE (JSON backend):
-#    cat ~/.mozart/state/observability-demo.json | jq '.batches'
-#    cat ~/.mozart/state/observability-demo.json | jq '.batches."1".error_history'
-#    cat ~/.mozart/state/observability-demo.json | jq '.batches."1".prompt_metrics'
+#    cat ~/.mozart/state/observability-demo.json | jq '.sheets'
+#    cat ~/.mozart/state/observability-demo.json | jq '.sheets."1".error_history'
+#    cat ~/.mozart/state/observability-demo.json | jq '.sheets."1".prompt_metrics'
 #
 # ============================================================
 # WHAT TO OBSERVE
@@ -128,9 +128,9 @@ pause_between_batches_seconds: 5
 # - Error classification with error codes (E001, E101, etc.)
 # - Prompt metrics (estimated tokens, line count)
 # - Preflight warnings (if prompt is large)
-# - Raw output capture (last 10KB in batch state)
+# - Raw output capture (last 10KB in sheet state)
 # - Error history with stack traces
-# - Execution timing per batch
+# - Execution timing per sheet
 # - Exit signal differentiation (SIGTERM vs SIGKILL)
 # - Circuit breaker status
 # - Log rotation and compression

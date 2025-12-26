@@ -94,8 +94,8 @@ class TestSQLiteBackendBasics:
         assert job_ids == {"job-0", "job-1", "job-2"}
 
 
-class TestBatchOperations:
-    """Test batch-level operations."""
+class TestSheetOperations:
+    """Test sheet-level operations."""
 
     async def test_get_next_sheet_new_job(
         self, sqlite_backend: SQLiteStateBackend
@@ -107,7 +107,7 @@ class TestBatchOperations:
     async def test_get_next_sheet_with_state(
         self, sqlite_backend: SQLiteStateBackend, sample_state: CheckpointState
     ) -> None:
-        """Test get_next_sheet returns correct batch number."""
+        """Test get_next_sheet returns correct sheet number."""
         sample_state.last_completed_sheet = 2
         await sqlite_backend.save(sample_state)
 
@@ -117,7 +117,7 @@ class TestBatchOperations:
     async def test_mark_sheet_in_progress(
         self, sqlite_backend: SQLiteStateBackend, sample_state: CheckpointState
     ) -> None:
-        """Test marking a batch as in progress."""
+        """Test marking a sheet as in progress."""
         await sqlite_backend.save(sample_state)
 
         await sqlite_backend.mark_sheet_status(
@@ -134,7 +134,7 @@ class TestBatchOperations:
     async def test_mark_sheet_completed(
         self, sqlite_backend: SQLiteStateBackend, sample_state: CheckpointState
     ) -> None:
-        """Test marking a batch as completed."""
+        """Test marking a sheet as completed."""
         sample_state.mark_sheet_started(1)
         await sqlite_backend.save(sample_state)
 
@@ -150,7 +150,7 @@ class TestBatchOperations:
     async def test_mark_sheet_failed(
         self, sqlite_backend: SQLiteStateBackend, sample_state: CheckpointState
     ) -> None:
-        """Test marking a batch as failed with error message."""
+        """Test marking a sheet as failed with error message."""
         sample_state.mark_sheet_started(1)
         await sqlite_backend.save(sample_state)
 
@@ -166,7 +166,7 @@ class TestBatchOperations:
     async def test_mark_sheet_nonexistent_job_raises(
         self, sqlite_backend: SQLiteStateBackend
     ) -> None:
-        """Test marking batch on non-existent job raises ValueError."""
+        """Test marking sheet on non-existent job raises ValueError."""
         with pytest.raises(ValueError, match="No state found"):
             await sqlite_backend.mark_sheet_status(
                 "nonexistent", 1, SheetStatus.COMPLETED
@@ -176,7 +176,7 @@ class TestBatchOperations:
 class TestSheetStatePreservation:
     """Test that all SheetState fields are preserved."""
 
-    async def test_batch_learning_fields_preserved(
+    async def test_sheet_learning_fields_preserved(
         self, sqlite_backend: SQLiteStateBackend, sample_state: CheckpointState
     ) -> None:
         """Test that learning metadata fields are preserved."""
@@ -196,16 +196,16 @@ class TestSheetStatePreservation:
 
         loaded = await sqlite_backend.load(sample_state.job_id)
         assert loaded is not None
-        batch = loaded.sheets[1]
+        sheet = loaded.sheets[1]
 
-        assert batch.confidence_score == 0.85
-        assert batch.learned_patterns == ["pattern1", "pattern2"]
-        assert batch.similar_outcomes_count == 5
-        assert batch.first_attempt_success is True
-        assert batch.outcome_category == "success_first_try"
-        assert batch.outcome_data == {"key": "value", "nested": {"a": 1}}
+        assert sheet.confidence_score == 0.85
+        assert sheet.learned_patterns == ["pattern1", "pattern2"]
+        assert sheet.similar_outcomes_count == 5
+        assert sheet.first_attempt_success is True
+        assert sheet.outcome_category == "success_first_try"
+        assert sheet.outcome_data == {"key": "value", "nested": {"a": 1}}
 
-    async def test_batch_validation_fields_preserved(
+    async def test_sheet_validation_fields_preserved(
         self, sqlite_backend: SQLiteStateBackend, sample_state: CheckpointState
     ) -> None:
         """Test that validation fields are preserved."""
@@ -224,13 +224,13 @@ class TestSheetStatePreservation:
 
         loaded = await sqlite_backend.load(sample_state.job_id)
         assert loaded is not None
-        batch = loaded.sheets[1]
+        sheet = loaded.sheets[1]
 
-        assert batch.validation_passed is True
-        assert batch.validation_details == [{"type": "file_exists", "passed": True}]
-        assert batch.passed_validations == ["File check", "Content check"]
-        assert batch.failed_validations == ["Size check"]
-        assert batch.last_pass_percentage == 66.7
+        assert sheet.validation_passed is True
+        assert sheet.validation_details == [{"type": "file_exists", "passed": True}]
+        assert sheet.passed_validations == ["File check", "Content check"]
+        assert sheet.failed_validations == ["Size check"]
+        assert sheet.last_pass_percentage == 66.7
 
 
 class TestExecutionHistory:
@@ -281,17 +281,17 @@ class TestExecutionHistory:
         assert history[0]["attempt_num"] == 3
         assert history[0]["exit_code"] == 0
 
-    async def test_get_execution_history_all_batches(
+    async def test_get_execution_history_all_sheets(
         self, sqlite_backend: SQLiteStateBackend, sample_state: CheckpointState
     ) -> None:
-        """Test retrieving execution history for all batches."""
+        """Test retrieving execution history for all sheets."""
         await sqlite_backend.save(sample_state)
 
-        # Record for multiple batches
-        for batch in range(1, 4):
+        # Record for multiple sheets
+        for sheet in range(1, 4):
             await sqlite_backend.record_execution(
                 job_id=sample_state.job_id,
-                sheet_num=batch,
+                sheet_num=sheet,
                 attempt_num=1,
                 exit_code=0,
             )
@@ -419,7 +419,7 @@ class TestConfigSnapshot:
             "name": "test-job",
             "workspace": "/tmp/workspace",
             "sheet": {"size": 5, "total_items": 25},
-            "prompt": {"template": "Process batch {{sheet_num}}"},
+            "prompt": {"template": "Process sheet {{sheet_num}}"},
         }
 
         state = CheckpointState(
@@ -552,13 +552,13 @@ class TestEdgeCases:
 
         loaded = await sqlite_backend.load(sample_state.job_id)
         assert loaded is not None
-        batch = loaded.sheets[1]
+        sheet = loaded.sheets[1]
 
-        assert batch.learned_patterns == []
-        assert batch.passed_validations == []
-        assert batch.failed_validations == []
-        assert batch.validation_details is None
-        assert batch.outcome_data is None
+        assert sheet.learned_patterns == []
+        assert sheet.passed_validations == []
+        assert sheet.failed_validations == []
+        assert sheet.validation_details is None
+        assert sheet.outcome_data is None
 
     async def test_update_existing_job(
         self, sqlite_backend: SQLiteStateBackend, sample_state: CheckpointState

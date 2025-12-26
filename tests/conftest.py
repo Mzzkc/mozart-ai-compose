@@ -76,7 +76,7 @@ def sample_config_dict() -> dict:
             "total_items": 30,
         },
         "prompt": {
-            "template": "Process batch {{ sheet_num }} of {{ total_sheets }}.",
+            "template": "Process sheet {{ sheet_num }} of {{ total_sheets }}.",
         },
         "retry": {
             "max_retries": 2,

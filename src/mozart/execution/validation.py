@@ -140,7 +140,7 @@ class SheetValidationResult:
 class FileModificationTracker:
     """Tracks file mtimes before sheet execution for file_modified checks.
 
-    The file_modified validation checks if a file was updated during batch
+    The file_modified validation checks if a file was updated during sheet
     execution. This tracker snapshots mtimes before execution so we can
     compare after execution completes.
     """
@@ -209,7 +209,7 @@ class ValidationEngine:
         self._mtime_tracker = FileModificationTracker()
 
     def expand_path(self, path_template: str) -> Path:
-        """Expand path template with batch context variables.
+        """Expand path template with sheet context variables.
 
         Supports: {sheet_num}, {workspace}, {start_item}, {end_item}
 

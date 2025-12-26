@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, ValidationInfo, field_validator
 class RetryConfig(BaseModel):
     """Configuration for retry behavior including partial completion recovery."""
 
-    max_retries: int = Field(default=3, ge=0, description="Maximum retry attempts per batch")
+    max_retries: int = Field(default=3, ge=0, description="Maximum retry attempts per sheet")
     base_delay_seconds: float = Field(
         default=10.0, gt=0, description="Initial delay between retries"
     )
@@ -174,7 +174,7 @@ class CircuitBreakerConfig(BaseModel):
 
 
 class ValidationRule(BaseModel):
-    """A single validation rule for checking batch outputs."""
+    """A single validation rule for checking sheet outputs."""
 
     type: Literal[
         "file_exists",
@@ -204,9 +204,9 @@ class NotificationConfig(BaseModel):
     type: Literal["desktop", "slack", "webhook", "email"]
     on_events: list[Literal[
         "job_start",
-        "batch_start",
-        "batch_complete",
-        "batch_failed",
+        "sheet_start",
+        "sheet_complete",
+        "sheet_failed",
         "job_complete",
         "job_failed",
         "job_paused",
@@ -361,10 +361,10 @@ class JobConfig(BaseModel):
         description="Path for state storage (default: workspace/.mozart-state)",
     )
 
-    pause_between_batches_seconds: int = Field(
+    pause_between_sheets_seconds: int = Field(
         default=10,
         ge=0,
-        description="Seconds to wait between batches",
+        description="Seconds to wait between sheets",
     )
 
     @classmethod

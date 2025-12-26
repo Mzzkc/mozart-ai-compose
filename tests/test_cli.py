@@ -182,7 +182,7 @@ class TestRunCommand:
         result = runner.invoke(app, ["run", str(sample_yaml_config), "--dry-run"])
         assert result.exit_code == 0
         assert "Dry run" in result.stdout
-        assert "Batch Plan" in result.stdout
+        assert "Sheet Plan" in result.stdout
 
     def test_run_shows_config_panel(self, sample_yaml_config: Path) -> None:
         """Test run command displays configuration panel."""
@@ -291,7 +291,7 @@ class TestStatusCommand:
         assert output_data["progress"]["completed"] == 5
         assert output_data["progress"]["total"] == 10
         assert output_data["progress"]["percent"] == 50.0
-        assert "1" in output_data["batches"]
+        assert "1" in output_data["sheets"]
 
     def test_status_json_output_for_missing_job(self, tmp_path: Path) -> None:
         """Test status --json outputs JSON error for missing job."""
@@ -308,11 +308,11 @@ class TestStatusCommand:
         assert "error" in output_data
         assert "missing-job" in output_data["error"]
 
-    def test_status_shows_batch_details(self, tmp_path: Path) -> None:
-        """Test status command shows batch details table."""
+    def test_status_shows_sheet_details(self, tmp_path: Path) -> None:
+        """Test status command shows sheet details table."""
         state = CheckpointState(
-            job_id="batch-details-job",
-            job_name="Batch Details Test",
+            job_id="sheet-details-job",
+            job_name="Sheet Details Test",
             total_sheets=3,
             last_completed_sheet=2,
             status=JobStatus.FAILED,
@@ -343,16 +343,16 @@ class TestStatusCommand:
             },
         )
 
-        state_file = tmp_path / "batch-details-job.json"
+        state_file = tmp_path / "sheet-details-job.json"
         state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
 
         result = runner.invoke(
-            app, ["status", "batch-details-job", "--workspace", str(tmp_path)]
+            app, ["status", "sheet-details-job", "--workspace", str(tmp_path)]
         )
         assert result.exit_code == 0
-        assert "Batch Details" in result.stdout
+        assert "Sheet Details" in result.stdout
         assert "Max retries exceeded" in result.stdout
-        # Check batch statuses are visible
+        # Check sheet statuses are visible
         assert "completed" in result.stdout.lower()
         assert "failed" in result.stdout.lower()
 
@@ -809,11 +809,11 @@ class TestRunCommandJsonOutput:
 class TestRunSummaryDisplay:
     """Tests for run summary display (indirect via CLI)."""
 
-    def test_run_dry_run_shows_batch_plan(self, sample_yaml_config: Path) -> None:
-        """Test dry-run still shows batch plan (not summary)."""
+    def test_run_dry_run_shows_sheet_plan(self, sample_yaml_config: Path) -> None:
+        """Test dry-run still shows sheet plan (not summary)."""
         result = runner.invoke(app, ["run", str(sample_yaml_config), "--dry-run"])
         assert result.exit_code == 0
-        assert "Batch Plan" in result.stdout
+        assert "Sheet Plan" in result.stdout
         # Dry run shouldn't show summary (job wasn't run)
         assert "Run Summary" not in result.stdout
 
@@ -1037,8 +1037,8 @@ class TestErrorsCommand:
         assert result.exit_code == 0
         assert "No errors found" in result.stdout
 
-    def test_errors_with_failed_batch(self, tmp_path: Path) -> None:
-        """Test errors command shows batch-level errors."""
+    def test_errors_with_failed_sheet(self, tmp_path: Path) -> None:
+        """Test errors command shows sheet-level errors."""
         state = CheckpointState(
             job_id="failed-job",
             job_name="Failed Job",
@@ -1082,8 +1082,8 @@ class TestErrorsCommand:
         assert "Errors for Job" in result.stdout
         assert "Max retries exceeded" in result.stdout or "validation" in result.stdout
 
-    def test_errors_batch_filter(self, tmp_path: Path) -> None:
-        """Test errors command with --batch filter."""
+    def test_errors_sheet_filter(self, tmp_path: Path) -> None:
+        """Test errors command with --sheet filter."""
         state = CheckpointState(
             job_id="multi-fail-job",
             job_name="Multi Fail Job",
@@ -1097,7 +1097,7 @@ class TestErrorsCommand:
                     sheet_num=1,
                     status=SheetStatus.FAILED,
                     attempt_count=3,
-                    error_message="Batch 1 failed",
+                    error_message="Sheet 1 failed",
                     error_category="transient",
                     completed_at=datetime.now(UTC),
                 ),
@@ -1111,7 +1111,7 @@ class TestErrorsCommand:
                     sheet_num=3,
                     status=SheetStatus.FAILED,
                     attempt_count=3,
-                    error_message="Batch 3 failed",
+                    error_message="Sheet 3 failed",
                     error_category="permanent",
                     completed_at=datetime.now(UTC),
                 ),
@@ -1121,12 +1121,12 @@ class TestErrorsCommand:
         state_file = tmp_path / "multi-fail-job.json"
         state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
 
-        # Filter for batch 3 only
+        # Filter for sheet 3 only
         result = runner.invoke(
-            app, ["errors", "multi-fail-job", "--batch", "3", "--workspace", str(tmp_path)]
+            app, ["errors", "multi-fail-job", "--sheet", "3", "--workspace", str(tmp_path)]
         )
         assert result.exit_code == 0
-        # Should show batch 3 error but not batch 1
+        # Should show sheet 3 error but not sheet 1
         assert "3" in result.stdout
 
     def test_errors_json_output(self, tmp_path: Path) -> None:

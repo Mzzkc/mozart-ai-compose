@@ -90,7 +90,7 @@ class ErrorRecord:
         exit_signal: Signal number if killed by signal.
         retriable: Whether this specific error is retriable.
         suggested_wait: Classifier's suggested wait time in seconds.
-        sheet_num: Batch number where error occurred.
+        sheet_num: Sheet number where error occurred.
         attempt_num: Which attempt number this was (1-indexed).
         monotonic_time: Monotonic timestamp for precise timing calculations.
     """
@@ -121,7 +121,7 @@ class ErrorRecord:
 
         Args:
             error: ClassifiedError from the error classifier.
-            sheet_num: Optional batch number for context.
+            sheet_num: Optional sheet number for context.
             attempt_num: Which retry attempt this represents.
 
         Returns:

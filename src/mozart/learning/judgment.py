@@ -16,7 +16,7 @@ import httpx
 class JudgmentQuery:
     """Query sent to Recursive Light for execution judgment.
 
-    Contains all relevant context about the current batch execution
+    Contains all relevant context about the current sheet execution
     state needed for RL to provide informed judgment.
     """
 
@@ -24,13 +24,13 @@ class JudgmentQuery:
     """Unique identifier for the job."""
 
     sheet_num: int
-    """Current batch number being executed."""
+    """Current sheet number being executed."""
 
     validation_results: list[dict[str, Any]]
-    """Serialized validation results from the batch."""
+    """Serialized validation results from the sheet."""
 
     execution_history: list[dict[str, Any]]
-    """History of previous execution attempts for this batch."""
+    """History of previous execution attempts for this sheet."""
 
     error_patterns: list[str]
     """Detected error patterns from previous attempts."""
@@ -50,13 +50,13 @@ class JudgmentResponse:
     """Response from Recursive Light with execution judgment.
 
     Provides recommended action, reasoning, and optional modifications
-    for how to proceed with batch execution.
+    for how to proceed with sheet execution.
     """
 
     recommended_action: Literal["proceed", "retry", "completion", "escalate", "abort"]
     """Recommended action:
-    - proceed: Continue to next batch (current succeeded)
-    - retry: Retry the current batch
+    - proceed: Continue to next sheet (current succeeded)
+    - retry: Retry the current sheet
     - completion: Run completion prompt for partial success
     - escalate: Escalate to human for decision
     - abort: Stop the entire job
@@ -90,10 +90,10 @@ class JudgmentProvider(Protocol):
     """
 
     async def get_judgment(self, query: JudgmentQuery) -> JudgmentResponse:
-        """Get execution judgment for a batch.
+        """Get execution judgment for a sheet.
 
         Args:
-            query: Full context about the batch execution state.
+            query: Full context about the sheet execution state.
 
         Returns:
             JudgmentResponse with recommended action and reasoning.
@@ -156,7 +156,7 @@ class JudgmentClient:
         action for graceful degradation.
 
         Args:
-            query: Full context about the batch execution state.
+            query: Full context about the sheet execution state.
 
         Returns:
             JudgmentResponse with recommended action. On connection
@@ -332,7 +332,7 @@ class LocalJudgmentClient:
         """Initialize the local judgment client.
 
         Args:
-            proceed_threshold: Confidence >= this proceeds to next batch.
+            proceed_threshold: Confidence >= this proceeds to next sheet.
             retry_threshold: Confidence >= this (but < proceed) retries.
                 Below this, escalates or aborts.
             max_retries: Maximum retry count before escalating.
@@ -351,7 +351,7 @@ class LocalJudgmentClient:
         4. Max retries exceeded -> completion or escalate based on pass rate
 
         Args:
-            query: Full context about the batch execution state.
+            query: Full context about the sheet execution state.
 
         Returns:
             JudgmentResponse with recommended action based on heuristics.
@@ -362,7 +362,7 @@ class LocalJudgmentClient:
         # Calculate validation pass rate
         pass_rate = self._calculate_pass_rate(query.validation_results)
 
-        # High confidence: proceed to next batch
+        # High confidence: proceed to next sheet
         if confidence >= self.proceed_threshold:
             return JudgmentResponse(
                 recommended_action="proceed",
@@ -394,7 +394,7 @@ class LocalJudgmentClient:
                 ),
                 escalation_urgency="medium",
                 human_question=(
-                    f"Batch {query.sheet_num} failed {retry_count} times with "
+                    f"Sheet {query.sheet_num} failed {retry_count} times with "
                     f"{pass_rate:.0%} validation pass rate. Continue, skip, or abort?"
                 ),
                 patterns_learned=["max_retries_exceeded"],
@@ -428,7 +428,7 @@ class LocalJudgmentClient:
             ),
             escalation_urgency=urgency,
             human_question=(
-                f"Batch {query.sheet_num} has low confidence ({confidence:.0%}) "
+                f"Sheet {query.sheet_num} has low confidence ({confidence:.0%}) "
                 f"after {retry_count} attempts. How should we proceed?"
             ),
             patterns_learned=["low_confidence_escalation"],

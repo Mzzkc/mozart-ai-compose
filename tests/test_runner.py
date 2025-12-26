@@ -79,7 +79,7 @@ def sample_config() -> JobConfig:
             "total_items": 30,
         },
         "prompt": {
-            "template": "Process batch {{ sheet_num }} of {{ total_sheets }}.",
+            "template": "Process sheet {{ sheet_num }} of {{ total_sheets }}.",
         },
         "retry": {
             "max_retries": 2,
@@ -206,13 +206,13 @@ class TestGracefulShutdownError:
         assert elapsed < 2.0
 
     @pytest.mark.asyncio
-    async def test_run_checks_shutdown_before_each_batch(
+    async def test_run_checks_shutdown_before_each_sheet(
         self,
         sample_config: JobConfig,
         mock_backend: MagicMock,
         mock_state_backend: MagicMock,
     ) -> None:
-        """Test that run method checks shutdown flag before each batch."""
+        """Test that run method checks shutdown flag before each sheet."""
         runner = JobRunner(
             config=sample_config,
             backend=mock_backend,
@@ -221,22 +221,22 @@ class TestGracefulShutdownError:
 
         # Mock validation to always pass
         with patch.object(runner, "_execute_sheet_with_recovery") as mock_exec:
-            # Set shutdown after first batch completes
+            # Set shutdown after first sheet completes
             async def set_shutdown_after_first(*args: Any) -> None:
                 state = args[0]
                 sheet_num = args[1]
-                # First mark the batch as started (creates the batch state)
+                # First mark the sheet as started (creates the sheet state)
                 state.mark_sheet_started(sheet_num)
                 state.mark_sheet_completed(sheet_num, validation_passed=True)
                 runner._shutdown_requested = True
 
             mock_exec.side_effect = set_shutdown_after_first
 
-            # Run should stop after first batch due to shutdown
+            # Run should stop after first sheet due to shutdown
             with pytest.raises(GracefulShutdownError):
                 await runner.run()
 
-            # Should have only executed one batch
+            # Should have only executed one sheet
             assert mock_exec.call_count == 1
 
 
@@ -250,7 +250,7 @@ class TestProgressTracking:
         mock_backend: MagicMock,
         mock_state_backend: MagicMock,
     ) -> None:
-        """Test that progress callback is called after each batch."""
+        """Test that progress callback is called after each sheet."""
         progress_updates: list[tuple[int, int, float | None]] = []
 
         def track_progress(completed: int, total: int, eta: float | None) -> None:
@@ -263,16 +263,16 @@ class TestProgressTracking:
             progress_callback=track_progress,
         )
 
-        # Mock the batch execution to just mark batches complete
+        # Mock the sheet execution to just mark sheets complete
         with patch.object(runner, "_execute_sheet_with_recovery") as mock_exec:
             async def mark_complete(state: CheckpointState, sheet_num: int) -> None:
-                # First mark the batch as started (creates the batch state)
+                # First mark the sheet as started (creates the sheet state)
                 state.mark_sheet_started(sheet_num)
                 state.mark_sheet_completed(sheet_num, validation_passed=True)
 
             mock_exec.side_effect = mark_complete
 
-            # Run all 3 batches
+            # Run all 3 sheets
             await runner.run()
 
         # Should have 3 progress updates
@@ -293,7 +293,7 @@ class TestProgressTracking:
         mock_backend: MagicMock,
         mock_state_backend: MagicMock,
     ) -> None:
-        """Test that ETA is calculated from average batch time."""
+        """Test that ETA is calculated from average sheet time."""
         etas: list[float | None] = []
 
         def track_eta(completed: int, total: int, eta: float | None) -> None:
@@ -306,7 +306,7 @@ class TestProgressTracking:
             progress_callback=track_eta,
         )
 
-        # Simulate batch times
+        # Simulate sheet times
         runner._sheet_times = [1.0, 2.0, 3.0]  # Avg = 2.0
 
         # Create a state
@@ -379,8 +379,8 @@ class TestGracefulShutdownErrorException:
         assert caught
 
 
-class TestBatchTiming:
-    """Tests for batch timing and ETA calculation."""
+class TestSheetTiming:
+    """Tests for sheet timing and ETA calculation."""
 
     @pytest.mark.asyncio
     async def test_sheet_times_are_tracked(
@@ -389,7 +389,7 @@ class TestBatchTiming:
         mock_backend: MagicMock,
         mock_state_backend: MagicMock,
     ) -> None:
-        """Test that batch execution times are recorded."""
+        """Test that sheet execution times are recorded."""
         runner = JobRunner(
             config=sample_config,
             backend=mock_backend,
@@ -399,20 +399,20 @@ class TestBatchTiming:
         # Initially empty
         assert len(runner._sheet_times) == 0
 
-        # Mock batch execution with a small delay
+        # Mock sheet execution with a small delay
         with patch.object(runner, "_execute_sheet_with_recovery") as mock_exec:
-            async def slow_batch(state: CheckpointState, sheet_num: int) -> None:
+            async def slow_sheet(state: CheckpointState, sheet_num: int) -> None:
                 await asyncio.sleep(0.1)  # 100ms
-                # First mark the batch as started (creates the batch state)
+                # First mark the sheet as started (creates the sheet state)
                 state.mark_sheet_started(sheet_num)
                 state.mark_sheet_completed(sheet_num, validation_passed=True)
 
-            mock_exec.side_effect = slow_batch
+            mock_exec.side_effect = slow_sheet
 
-            # Run all batches
+            # Run all sheets
             await runner.run()
 
-        # Should have 3 batch times recorded
+        # Should have 3 sheet times recorded
         assert len(runner._sheet_times) == 3
 
         # Each time should be at least 100ms
@@ -424,7 +424,7 @@ class TestBatchTiming:
         mock_backend: MagicMock,
         mock_state_backend: MagicMock,
     ) -> None:
-        """Test ETA returns None when no batch times recorded."""
+        """Test ETA returns None when no sheet times recorded."""
         runner = JobRunner(
             config=sample_config,
             backend=mock_backend,
@@ -447,7 +447,7 @@ class TestBatchTiming:
 
         runner._update_progress(state)
 
-        # No batch times = no ETA
+        # No sheet times = no ETA
         assert etas[0] is None
 
 
@@ -484,8 +484,8 @@ class TestRunSummary:
 
         assert summary.success_rate == 80.0
 
-    def test_success_rate_zero_batches(self) -> None:
-        """Test success rate with zero batches returns 0."""
+    def test_success_rate_zero_sheets(self) -> None:
+        """Test success rate with zero sheets returns 0."""
         summary = RunSummary(
             job_id="test-job",
             job_name="Test Job",
@@ -530,7 +530,7 @@ class TestRunSummary:
         assert summary.first_attempt_rate == 75.0
 
     def test_first_attempt_rate_no_completions(self) -> None:
-        """Test first attempt rate with no completed batches returns 0."""
+        """Test first attempt rate with no completed sheets returns 0."""
         summary = RunSummary(
             job_id="test-job",
             job_name="Test Job",
@@ -613,13 +613,13 @@ class TestRunnerReturnsRunSummary:
             state_backend=mock_state_backend,
         )
 
-        # Mock batch execution
+        # Mock sheet execution
         with patch.object(runner, "_execute_sheet_with_recovery") as mock_exec:
-            async def complete_batch(state: CheckpointState, sheet_num: int) -> None:
+            async def complete_sheet(state: CheckpointState, sheet_num: int) -> None:
                 state.mark_sheet_started(sheet_num)
                 state.mark_sheet_completed(sheet_num, validation_passed=True)
 
-            mock_exec.side_effect = complete_batch
+            mock_exec.side_effect = complete_sheet
 
             result = await runner.run()
 
@@ -645,21 +645,21 @@ class TestRunnerReturnsRunSummary:
             state_backend=mock_state_backend,
         )
 
-        # Mock batch execution to succeed with first_attempt_success
+        # Mock sheet execution to succeed with first_attempt_success
         with patch.object(runner, "_execute_sheet_with_recovery") as mock_exec:
-            async def complete_batch(state: CheckpointState, sheet_num: int) -> None:
+            async def complete_sheet(state: CheckpointState, sheet_num: int) -> None:
                 state.mark_sheet_started(sheet_num)
                 sheet_state = state.sheets[sheet_num]
                 sheet_state.first_attempt_success = True
                 state.mark_sheet_completed(sheet_num, validation_passed=True)
 
-            mock_exec.side_effect = complete_batch
+            mock_exec.side_effect = complete_sheet
 
             state, summary = await runner.run()
 
         assert summary.job_id == "test-job"
         assert summary.job_name == "test-job"
-        assert summary.total_sheets == 3  # sample_config has 3 batches
+        assert summary.total_sheets == 3  # sample_config has 3 sheets
         assert summary.completed_sheets == 3
         assert summary.failed_sheets == 0
         assert summary.final_status == JobStatus.COMPLETED
@@ -682,13 +682,13 @@ class TestRunnerReturnsRunSummary:
         # Before run, summary is None
         assert runner.get_summary() is None
 
-        # Mock batch execution
+        # Mock sheet execution
         with patch.object(runner, "_execute_sheet_with_recovery") as mock_exec:
-            async def complete_batch(state: CheckpointState, sheet_num: int) -> None:
+            async def complete_sheet(state: CheckpointState, sheet_num: int) -> None:
                 state.mark_sheet_started(sheet_num)
                 state.mark_sheet_completed(sheet_num, validation_passed=True)
 
-            mock_exec.side_effect = complete_batch
+            mock_exec.side_effect = complete_sheet
 
             await runner.run()
 
@@ -758,13 +758,13 @@ class TestRunnerLoggingIntegration:
             state_backend=mock_state_backend,
         )
 
-        # Mock batch execution to complete immediately
+        # Mock sheet execution to complete immediately
         with patch.object(runner, "_execute_sheet_with_recovery") as mock_exec:
-            async def complete_batch(state: CheckpointState, sheet_num: int) -> None:
+            async def complete_sheet(state: CheckpointState, sheet_num: int) -> None:
                 state.mark_sheet_started(sheet_num)
                 state.mark_sheet_completed(sheet_num, validation_passed=True)
 
-            mock_exec.side_effect = complete_batch
+            mock_exec.side_effect = complete_sheet
             await runner.run()
 
         captured = capsys.readouterr()
@@ -798,11 +798,11 @@ class TestRunnerLoggingIntegration:
         )
 
         with patch.object(runner, "_execute_sheet_with_recovery") as mock_exec:
-            async def complete_batch(state: CheckpointState, sheet_num: int) -> None:
+            async def complete_sheet(state: CheckpointState, sheet_num: int) -> None:
                 state.mark_sheet_started(sheet_num)
                 state.mark_sheet_completed(sheet_num, validation_passed=True)
 
-            mock_exec.side_effect = complete_batch
+            mock_exec.side_effect = complete_sheet
             await runner.run()
 
         captured = capsys.readouterr()
@@ -837,7 +837,7 @@ class TestRunnerLoggingIntegration:
             state_backend=mock_state_backend,
         )
 
-        # Mock batch execution to fail
+        # Mock sheet execution to fail
         with patch.object(runner, "_execute_sheet_with_recovery") as mock_exec:
             mock_exec.side_effect = FatalError("Test fatal error")
 
@@ -859,7 +859,7 @@ class TestRunnerLoggingIntegration:
         mock_state_backend: MagicMock,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """Test that batch.started event is logged for each batch."""
+        """Test that sheet.started event is logged for each sheet."""
         from mozart.core.logging import configure_logging
 
         configure_logging(
@@ -874,12 +874,12 @@ class TestRunnerLoggingIntegration:
             state_backend=mock_state_backend,
         )
 
-        # For batch.started to be logged, we need to actually run batches
+        # For sheet.started to be logged, we need to actually run sheets
         # This requires mocking deeper - let's patch at a higher level
-        executed_batches: list[int] = []
+        executed_sheets: list[int] = []
 
         async def track_and_complete(state: CheckpointState, sheet_num: int) -> None:
-            executed_batches.append(sheet_num)
+            executed_sheets.append(sheet_num)
             state.mark_sheet_started(sheet_num)
             state.mark_sheet_completed(sheet_num, validation_passed=True)
 
@@ -889,7 +889,7 @@ class TestRunnerLoggingIntegration:
         captured = capsys.readouterr()
         err = self.strip_ansi(captured.err)
 
-        # Check that batch.started was logged for each batch via job.started logs
+        # Check that sheet.started was logged for each sheet via job.started logs
         assert "job.started" in err
 
     @pytest.mark.asyncio
@@ -900,7 +900,7 @@ class TestRunnerLoggingIntegration:
         mock_state_backend: MagicMock,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """Test that batch.retry event is logged when retry occurs."""
+        """Test that sheet.retry event is logged when retry occurs."""
         from mozart.core.logging import configure_logging
 
         configure_logging(
@@ -955,7 +955,7 @@ class TestRunnerLoggingIntegration:
             ),
         ):
             mock_validation.return_value = SheetValidationResult(sheet_num=1, results=[])
-            # Run only one batch to limit complexity
+            # Run only one sheet to limit complexity
             sample_config.sheet.total_items = 10
             await runner.run()
 
@@ -1073,7 +1073,7 @@ class TestRunnerLoggingIntegration:
         mock_state_backend: MagicMock,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """Test that batch.completed includes validation_duration_seconds."""
+        """Test that sheet.completed includes validation_duration_seconds."""
         from mozart.core.logging import configure_logging
 
         configure_logging(
@@ -1128,11 +1128,11 @@ class TestRunnerLoggingIntegration:
         assert runner._execution_context is None
 
         with patch.object(runner, "_execute_sheet_with_recovery") as mock_exec:
-            async def complete_batch(state: CheckpointState, sheet_num: int) -> None:
+            async def complete_sheet(state: CheckpointState, sheet_num: int) -> None:
                 state.mark_sheet_started(sheet_num)
                 state.mark_sheet_completed(sheet_num, validation_passed=True)
 
-            mock_exec.side_effect = complete_batch
+            mock_exec.side_effect = complete_sheet
             await runner.run()
 
         # After run, execution context should be set
@@ -1148,10 +1148,10 @@ class TestRunnerLoggingIntegration:
         mock_state_backend: MagicMock,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """Test that preflight warnings count is included in batch.started log."""
+        """Test that preflight warnings count is included in sheet.started log."""
         from mozart.core.logging import configure_logging
 
-        # Use INFO level to capture batch.started which includes preflight_warnings count
+        # Use INFO level to capture sheet.started which includes preflight_warnings count
         configure_logging(
             level="INFO",
             format="console",
@@ -1201,13 +1201,13 @@ class TestRunnerLoggingIntegration:
         out = self.strip_ansi(captured.out)
 
         # When _run_preflight_checks is patched, the logging inside it doesn't run.
-        # But the caller logs batch.started with preflight_warnings count at INFO level.
+        # But the caller logs sheet.started with preflight_warnings count at INFO level.
         # Check that either:
         # 1. The structured warning log appears in stderr (if not patched)
-        # 2. The batch.started log shows preflight_warnings count > 0
+        # 2. The sheet.started log shows preflight_warnings count > 0
         # 3. Console output shows the warning (stdout)
         assert (
-            "batch.preflight_warnings" in err
+            "sheet.preflight_warnings" in err
             or "preflight_warnings=1" in err
             or "Large prompt detected" in out
         )
@@ -1263,11 +1263,11 @@ class TestLoggingLevelFiltering:
         )
 
         with patch.object(runner, "_execute_sheet_with_recovery") as mock_exec:
-            async def complete_batch(state: CheckpointState, sheet_num: int) -> None:
+            async def complete_sheet(state: CheckpointState, sheet_num: int) -> None:
                 state.mark_sheet_started(sheet_num)
                 state.mark_sheet_completed(sheet_num, validation_passed=True)
 
-            mock_exec.side_effect = complete_batch
+            mock_exec.side_effect = complete_sheet
             await runner.run()
 
         captured = capsys.readouterr()
@@ -1278,7 +1278,7 @@ class TestLoggingLevelFiltering:
 
         # DEBUG level logs (like preflight_metrics) should NOT be present
         # at INFO level
-        assert "batch.preflight_metrics" not in err
+        assert "sheet.preflight_metrics" not in err
 
     @pytest.mark.asyncio
     async def test_warning_logs_shown_at_warning_level(

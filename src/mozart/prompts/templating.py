@@ -118,7 +118,7 @@ class PromptBuilder:
         """Build the standard sheet prompt from config.
 
         Args:
-            context: Batch context with item range and workspace.
+            context: Sheet context with item range and workspace.
 
         Returns:
             Rendered prompt string.
@@ -146,7 +146,7 @@ class PromptBuilder:
         """Build a simple default prompt when no template is provided.
 
         Args:
-            context: Batch context.
+            context: Sheet context.
 
         Returns:
             Simple prompt string.
@@ -187,7 +187,7 @@ class PromptBuilder:
             truncation_msg = "\n\n[... original prompt truncated for brevity ...]"
             original_context = original_context[:3000] + truncation_msg
 
-        completion_prompt = f"""## COMPLETION MODE - Batch {ctx.sheet_num}
+        completion_prompt = f"""## COMPLETION MODE - Sheet {ctx.sheet_num}
 
 This is completion attempt {ctx.completion_attempt} of {ctx.max_completion_attempts}.
 

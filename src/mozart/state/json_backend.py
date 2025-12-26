@@ -130,7 +130,7 @@ class JsonStateBackend(StateBackend):
         return sorted(states, key=lambda s: s.updated_at, reverse=True)
 
     async def get_next_sheet(self, job_id: str) -> int | None:
-        """Get next batch from state."""
+        """Get next sheet from state."""
         state = await self.load(job_id)
         if state is None:
             return 1  # Start from beginning if no state
@@ -143,7 +143,7 @@ class JsonStateBackend(StateBackend):
         status: SheetStatus,
         error_message: str | None = None,
     ) -> None:
-        """Update batch status in state."""
+        """Update sheet status in state."""
         state = await self.load(job_id)
         if state is None:
             raise ValueError(f"No state found for job {job_id}")

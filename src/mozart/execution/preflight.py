@@ -1,4 +1,4 @@
-"""Pre-flight checks and prompt analysis before batch execution.
+"""Pre-flight checks and prompt analysis before sheet execution.
 
 Analyzes prompts before execution to estimate token usage, extract file
 references, and detect potential issues early.
@@ -123,7 +123,7 @@ class PromptMetrics:
 
 @dataclass
 class PreflightResult:
-    """Result of pre-flight checks before batch execution.
+    """Result of pre-flight checks before sheet execution.
 
     Captures both prompt metrics and any warnings/errors that
     should be addressed before or during execution.
@@ -180,7 +180,7 @@ class PreflightResult:
 
 
 class PreflightChecker:
-    """Performs pre-flight checks before batch execution.
+    """Performs pre-flight checks before sheet execution.
 
     Analyzes prompts for potential issues, verifies file references,
     and provides warnings for resource-intensive prompts.

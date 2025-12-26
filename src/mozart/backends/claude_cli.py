@@ -1,7 +1,7 @@
 """Claude CLI backend using subprocess.
 
 Wraps the `claude` CLI command for running prompts.
-Based on patterns from run-batch-review.sh.
+Based on patterns from run-sheet-review.sh.
 
 Security Note: This module uses asyncio.create_subprocess_exec() which is the
 safe subprocess method in Python - it does NOT use shell=True, so there is no

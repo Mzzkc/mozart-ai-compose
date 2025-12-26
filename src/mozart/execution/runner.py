@@ -48,7 +48,7 @@ class RunSummary:
 
     Tracks key metrics for display at job completion:
     - Total execution time
-    - Batch success/failure counts
+    - Sheet success/failure counts
     - Validation pass rate
     - Retry statistics
     """
@@ -351,7 +351,7 @@ class JobRunner:
                 # Pause between sheets
                 if next_sheet < state.total_sheets:
                     await self._interruptible_sleep(
-                        self.config.pause_between_batches_seconds
+                        self.config.pause_between_sheets_seconds
                     )
 
                 next_sheet = state.get_next_sheet()
@@ -732,7 +732,7 @@ class JobRunner:
                     wait_seconds=wait_time,
                 )
                 self.console.print(
-                    f"[yellow]Batch {sheet_num}: Circuit breaker OPEN - "
+                    f"[yellow]Sheet {sheet_num}: Circuit breaker OPEN - "
                     f"waiting {wait_time:.0f}s for recovery[/yellow]"
                 )
                 if wait_time and wait_time > 0:
@@ -741,7 +741,7 @@ class JobRunner:
 
             # Execute
             self.console.print(
-                f"[blue]Batch {sheet_num}: {current_mode.value} execution[/blue]"
+                f"[blue]Sheet {sheet_num}: {current_mode.value} execution[/blue]"
             )
             result = await self.backend.execute(current_prompt)
 
@@ -881,7 +881,7 @@ class JobRunner:
                     retry_strategy=retry_recommendation.strategy_used,
                 )
                 self.console.print(
-                    f"[yellow]Batch {sheet_num}: {retry_recommendation.detected_pattern.value} - "
+                    f"[yellow]Sheet {sheet_num}: {retry_recommendation.detected_pattern.value} - "
                     f"retry {normal_attempts}/{max_retries} "
                     f"(delay: {retry_recommendation.delay_seconds:.1f}s, "
                     f"confidence: {retry_recommendation.confidence:.0%})[/yellow]"
@@ -956,7 +956,7 @@ class JobRunner:
                     first_attempt_success=first_attempt_success,
                 )
                 self.console.print(
-                    f"[green]Batch {sheet_num}: All {len(validation_result.results)} "
+                    f"[green]Sheet {sheet_num}: All {len(validation_result.results)} "
                     f"validations passed[/green]"
                 )
                 return
@@ -972,7 +972,7 @@ class JobRunner:
             pass_pct = validation_result.pass_percentage
 
             self.console.print(
-                f"[dim]Batch {sheet_num}: Decision: {next_mode.value} - {decision_reason}[/dim]"
+                f"[dim]Sheet {sheet_num}: Decision: {next_mode.value} - {decision_reason}[/dim]"
             )
 
             # Apply prompt modifications from judgment if provided
@@ -983,7 +983,7 @@ class JobRunner:
                     original_prompt + "\n\n---\nJudgment modifications:\n" + modification_text
                 )
                 self.console.print(
-                    f"[blue]Batch {sheet_num}: Applying {len(prompt_modifications)} "
+                    f"[blue]Sheet {sheet_num}: Applying {len(prompt_modifications)} "
                     f"prompt modifications from judgment[/blue]"
                 )
 
@@ -1009,7 +1009,7 @@ class JobRunner:
                 )
 
                 self.console.print(
-                    f"[yellow]Batch {sheet_num}: Entering completion mode "
+                    f"[yellow]Sheet {sheet_num}: Entering completion mode "
                     f"({validation_result.passed_count}/{len(validation_result.results)} passed, "
                     f"{pass_pct:.0f}%). Attempt {completion_attempts}/{max_completion}[/yellow]"
                 )
@@ -1062,7 +1062,7 @@ class JobRunner:
                     sheet_state.outcome_category = "skipped_by_escalation"
                     await self.state_backend.save(state)
                     self.console.print(
-                        f"[yellow]Batch {sheet_num}: Skipped via escalation[/yellow]"
+                        f"[yellow]Sheet {sheet_num}: Skipped via escalation[/yellow]"
                     )
                     return
 
@@ -1081,7 +1081,7 @@ class JobRunner:
                     if response.modified_prompt is None:
                         # Fall back to retry if no modified prompt provided
                         self.console.print(
-                            f"[yellow]Batch {sheet_num}: No modified prompt provided, "
+                            f"[yellow]Sheet {sheet_num}: No modified prompt provided, "
                             f"falling back to retry[/yellow]"
                         )
                         normal_attempts += 1
@@ -1091,7 +1091,7 @@ class JobRunner:
                         current_mode = SheetExecutionMode.RETRY
                         current_prompt = response.modified_prompt
                         self.console.print(
-                            f"[blue]Batch {sheet_num}: Retrying with modified prompt[/blue]"
+                            f"[blue]Sheet {sheet_num}: Retrying with modified prompt[/blue]"
                         )
                     await asyncio.sleep(self._get_retry_delay(normal_attempts))
                     continue
@@ -1114,7 +1114,7 @@ class JobRunner:
                     )
 
                 self.console.print(
-                    f"[red]Batch {sheet_num}: {validation_result.failed_count} validations failed "
+                    f"[red]Sheet {sheet_num}: {validation_result.failed_count} validations failed "
                     f"({pass_pct:.0f}% passed). Full retry {normal_attempts}/{max_retries}[/red]"
                 )
 
@@ -1202,13 +1202,13 @@ class JobRunner:
 
         # Console output (preserved for CLI feedback)
         for warning in result.warnings:
-            self.console.print(f"[yellow]Batch {sheet_num} preflight: {warning}[/yellow]")
+            self.console.print(f"[yellow]Sheet {sheet_num} preflight: {warning}[/yellow]")
 
         for error in result.errors:
-            self.console.print(f"[red]Batch {sheet_num} preflight ERROR: {error}[/red]")
+            self.console.print(f"[red]Sheet {sheet_num} preflight ERROR: {error}[/red]")
 
         self.console.print(
-            f"[dim]Batch {sheet_num}: ~{metrics.estimated_tokens:,} tokens, "
+            f"[dim]Sheet {sheet_num}: ~{metrics.estimated_tokens:,} tokens, "
             f"{metrics.line_count:,} lines, "
             f"{len(metrics.referenced_paths)} file refs[/dim]"
         )
@@ -1508,7 +1508,7 @@ class JobRunner:
             if response.patterns_learned:
                 for pattern in response.patterns_learned:
                     self.console.print(
-                        f"[dim]Batch {sheet_num}: Pattern learned: {pattern}[/dim]"
+                        f"[dim]Sheet {sheet_num}: Pattern learned: {pattern}[/dim]"
                     )
 
             # Map JudgmentResponse.recommended_action to SheetExecutionMode
@@ -1520,7 +1520,7 @@ class JobRunner:
         except Exception as e:
             # On any error, fall back to local decision
             self.console.print(
-                f"[yellow]Batch {sheet_num}: Judgment client error: {e}, "
+                f"[yellow]Sheet {sheet_num}: Judgment client error: {e}, "
                 f"falling back to local decision[/yellow]"
             )
             mode, reason = self._decide_next_action(
@@ -1681,7 +1681,7 @@ class JobRunner:
         )
 
         self.console.print(
-            f"[yellow]Batch {sheet_num}: Escalating due to low confidence "
+            f"[yellow]Sheet {sheet_num}: Escalating due to low confidence "
             f"({context.confidence:.1%})[/yellow]"
         )
 
@@ -1689,7 +1689,7 @@ class JobRunner:
         response = await self.escalation_handler.escalate(context)
 
         self.console.print(
-            f"[blue]Batch {sheet_num}: Escalation response: {response.action}[/blue]"
+            f"[blue]Sheet {sheet_num}: Escalation response: {response.action}[/blue]"
         )
         if response.guidance:
             self.console.print(f"[dim]Guidance: {response.guidance}[/dim]")

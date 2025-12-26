@@ -431,12 +431,12 @@ class TestExecutionContext:
         with pytest.raises(AttributeError):
             ctx.job_id = "modified"  # type: ignore[misc]
 
-    def test_with_batch_creates_new_context(self):
-        """Test that with_batch creates a new context with updated sheet_num."""
+    def test_with_sheet_creates_new_context(self):
+        """Test that with_sheet creates a new context with updated sheet_num."""
         from mozart.core.logging import ExecutionContext
 
         ctx = ExecutionContext(job_id="test-job", run_id="run-123", component="runner")
-        new_ctx = ctx.with_batch(10)
+        new_ctx = ctx.with_sheet(10)
 
         # Original unchanged
         assert ctx.sheet_num is None
@@ -1127,7 +1127,7 @@ class TestCheckpointStateTransitionLogging:
             root_logger.removeHandler(handler)
 
     def test_sheet_started_logs_debug(self, capsys: pytest.CaptureFixture[str]):
-        """Test that batch started transition logs debug message."""
+        """Test that sheet started transition logs debug message."""
         from mozart.core.checkpoint import CheckpointState
 
         configure_logging(
@@ -1153,7 +1153,7 @@ class TestCheckpointStateTransitionLogging:
         assert "attempt_count=1" in err
 
     def test_sheet_completed_logs_debug(self, capsys: pytest.CaptureFixture[str]):
-        """Test that batch completed transition logs debug message."""
+        """Test that sheet completed transition logs debug message."""
         from mozart.core.checkpoint import CheckpointState
 
         configure_logging(

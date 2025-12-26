@@ -1,7 +1,7 @@
 """Tests for execution progress tracking (Task 4).
 
 Tests the ExecutionProgress, ProgressTracker, and StreamingOutputTracker
-classes that enable real-time visibility during long-running batch executions.
+classes that enable real-time visibility during long-running sheet executions.
 """
 
 from datetime import UTC, datetime, timedelta

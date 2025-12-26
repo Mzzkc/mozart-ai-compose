@@ -1,6 +1,6 @@
-"""Execution progress tracking for long-running batch executions.
+"""Execution progress tracking for long-running sheet executions.
 
-Provides real-time visibility into batch execution progress through:
+Provides real-time visibility into sheet execution progress through:
 - Byte/line tracking as output streams in
 - Phase indicators (starting, executing, validating)
 - Periodic progress snapshots for state persistence
@@ -26,7 +26,7 @@ class ExecutionProgress:
     """Snapshot of execution progress at a point in time.
 
     Tracks metrics about an ongoing execution to provide visibility
-    during long-running batch operations.
+    during long-running sheet operations.
 
     Attributes:
         started_at: When the execution started.
@@ -110,7 +110,7 @@ ProgressCallback = Callable[[ExecutionProgress], None]
 
 @dataclass
 class ProgressTracker:
-    """Tracks execution progress during a batch execution.
+    """Tracks execution progress during a sheet execution.
 
     Provides methods to update progress metrics as output streams in,
     and optionally notifies a callback for real-time updates.

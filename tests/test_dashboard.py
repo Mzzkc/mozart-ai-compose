@@ -101,7 +101,7 @@ def failed_job() -> CheckpointState:
         total_sheets=4,
         status=JobStatus.FAILED,
         last_completed_sheet=1,
-        error_message="Batch 2 validation failed",
+        error_message="Sheet 2 validation failed",
         sheets={
             1: SheetState(
                 sheet_num=1,
@@ -286,27 +286,27 @@ class TestGetJob:
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
 
-    async def test_get_job_includes_batches(
+    async def test_get_job_includes_sheets(
         self,
         app: TestClient,
         state_backend: JsonStateBackend,
         sample_job: CheckpointState,
     ) -> None:
-        """Get job includes batch details."""
+        """Get job includes sheet details."""
         await state_backend.save(sample_job)
 
         response = app.get("/api/jobs/test-job-123")
         data = response.json()
-        batches = data["sheets"]
+        sheets = data["sheets"]
 
-        # Check batch data
-        assert len(batches) == 3
-        batch_by_num = {b["sheet_num"]: b for b in batches}
+        # Check sheet data
+        assert len(sheets) == 3
+        sheet_by_num = {b["sheet_num"]: b for b in sheets}
 
-        assert batch_by_num[1]["status"] == "completed"
-        assert batch_by_num[1]["validation_passed"] is True
-        assert batch_by_num[2]["attempt_count"] == 2
-        assert batch_by_num[3]["status"] == "in_progress"
+        assert sheet_by_num[1]["status"] == "completed"
+        assert sheet_by_num[1]["validation_passed"] is True
+        assert sheet_by_num[2]["attempt_count"] == 2
+        assert sheet_by_num[3]["status"] == "in_progress"
 
     async def test_get_job_includes_error_info(
         self,
@@ -321,7 +321,7 @@ class TestGetJob:
         data = response.json()
 
         assert data["status"] == "failed"
-        assert data["error_message"] == "Batch 2 validation failed"
+        assert data["error_message"] == "Sheet 2 validation failed"
 
 
 # ============================================================================
@@ -363,14 +363,14 @@ class TestGetJobStatus:
         state_backend: JsonStateBackend,
         sample_job: CheckpointState,
     ) -> None:
-        """Status endpoint doesn't include heavy fields like batches."""
+        """Status endpoint doesn't include heavy fields like sheets."""
         await state_backend.save(sample_job)
 
         response = app.get("/api/jobs/test-job-123/status")
         data = response.json()
 
         # Should NOT have these heavy fields
-        assert "batches" not in data
+        assert "sheets" not in data
         assert "config_snapshot" not in data
 
         # Should have these lightweight fields

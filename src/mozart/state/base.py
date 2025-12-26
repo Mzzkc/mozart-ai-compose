@@ -77,7 +77,7 @@ class StateBackend(ABC):
 
         Args:
             job_id: Unique job identifier
-            sheet_num: Batch number to update
+            sheet_num: Sheet number to update
             status: New status
             error_message: Optional error message for failures
         """

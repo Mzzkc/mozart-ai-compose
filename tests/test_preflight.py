@@ -50,7 +50,7 @@ class TestPromptMetrics:
         """Test extraction of template paths like {workspace}/file.txt."""
         prompt = """
         Process files in {workspace}/input/
-        Save to {workspace}/output/batch-1.txt
+        Save to {workspace}/output/sheet-1.txt
         """
         metrics = PromptMetrics.from_prompt(prompt)
 
@@ -287,11 +287,11 @@ class TestPreflightChecker:
         assert any(accessible.get(str(test_file), False) for _ in accessible)
 
     def test_check_with_sheet_context(self, temp_workspace: Path):
-        """Test preflight check with batch context for template expansion."""
+        """Test preflight check with sheet context for template expansion."""
         # Create file matching template
-        (temp_workspace / "batch-1-output.txt").write_text("output")
+        (temp_workspace / "sheet-1-output.txt").write_text("output")
 
-        prompt = "Process {workspace}/batch-{sheet_num}-output.txt"
+        prompt = "Process {workspace}/sheet-{sheet_num}-output.txt"
         sheet_context = {
             "sheet_num": 1,
             "workspace": str(temp_workspace),
@@ -349,9 +349,9 @@ class TestRunPreflightCheck:
         assert result.working_directory_valid is True
 
     def test_with_sheet_context(self, temp_workspace: Path):
-        """Test with batch context."""
+        """Test with sheet context."""
         result = run_preflight_check(
-            prompt="Process batch {sheet_num}",
+            prompt="Process sheet {sheet_num}",
             workspace=temp_workspace,
             sheet_context={"sheet_num": 1},
         )

@@ -58,7 +58,7 @@ class JobSummary(BaseModel):
 
 
 class JobDetail(BaseModel):
-    """Full job details including batch information."""
+    """Full job details including sheet information."""
 
     job_id: str
     job_name: str

@@ -79,7 +79,7 @@ class SlackNotifier:
     Configuration from YAML:
         notifications:
           - type: slack
-            on_events: [job_complete, job_failed, batch_failed]
+            on_events: [job_complete, job_failed, sheet_failed]
             config:
               webhook_url_env: SLACK_WEBHOOK_URL
               channel: "#mozart-alerts"
@@ -216,7 +216,7 @@ class SlackNotifier:
         if context.sheet_num is not None and context.total_sheets is not None:
             fields.append({
                 "title": "Progress",
-                "value": f"Batch {context.sheet_num}/{context.total_sheets}",
+                "value": f"Sheet {context.sheet_num}/{context.total_sheets}",
                 "short": True,
             })
 

@@ -309,7 +309,7 @@ class ClassifiedError:
 class ErrorClassifier:
     """Classifies errors based on patterns and exit codes.
 
-    Pattern matching follows the approach from run-batch-review.sh
+    Pattern matching follows the approach from run-sheet-review.sh
     which checks output for rate limit indicators.
     """
 

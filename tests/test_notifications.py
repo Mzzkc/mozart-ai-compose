@@ -187,8 +187,8 @@ class TestNotificationContext:
         assert "..." in msg
         assert len(msg) < 200
 
-    def test_format_message_batch_progress(self):
-        """Test message formatting with batch progress."""
+    def test_format_message_sheet_progress(self):
+        """Test message formatting with sheet progress."""
         ctx = NotificationContext(
             event=NotificationEvent.SHEET_COMPLETE,
             job_id="123",
@@ -538,7 +538,7 @@ class TestNotificationManager:
 
     @pytest.mark.asyncio
     async def test_notify_sheet_complete(self):
-        """Test convenience method for batch complete."""
+        """Test convenience method for sheet complete."""
         mock = MockDesktopNotifier(events={NotificationEvent.SHEET_COMPLETE})
         manager = NotificationManager([mock])
 

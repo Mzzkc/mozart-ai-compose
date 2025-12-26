@@ -56,18 +56,18 @@ def mock_successful_backend() -> MagicMock:
 
 @pytest.fixture
 def mock_failing_backend() -> MagicMock:
-    """Create a mock backend that fails on batch 2."""
+    """Create a mock backend that fails on sheet 2."""
     backend = AsyncMock()
     call_count = 0
 
     async def execute_with_failure(*args: Any, **kwargs: Any) -> ExecutionResult:
         nonlocal call_count
         call_count += 1
-        if call_count >= 2:  # Fail on second batch
+        if call_count >= 2:  # Fail on second sheet
             return ExecutionResult(
                 success=False,
                 stdout="",
-                stderr="Error processing batch",
+                stderr="Error processing sheet",
                 exit_code=1,
                 duration_seconds=0.5,
             )
@@ -187,7 +187,7 @@ class TestRunStatusResumeWorkflow:
 
         assert result.exit_code == 0, f"Exit code: {result.exit_code}\nOutput: {result.stdout}"
         assert "Dry run" in result.stdout
-        assert "Batch Plan" in result.stdout
+        assert "Sheet Plan" in result.stdout
 
     def test_status_shows_job_after_run(self, tmp_path: Path) -> None:
         """Status command shows job details after running."""
@@ -230,8 +230,8 @@ class TestRunStatusResumeWorkflow:
         assert result.exit_code == 0
         assert "Integration Test Job" in result.stdout
         assert "RUNNING" in result.stdout
-        assert "2" in result.stdout  # completed batches
-        assert "3" in result.stdout  # total batches
+        assert "2" in result.stdout  # completed sheets
+        assert "3" in result.stdout  # total sheets
 
     def test_resume_continues_from_checkpoint(self, tmp_path: Path) -> None:
         """Resume continues a paused job from the last checkpoint."""
@@ -250,7 +250,7 @@ class TestRunStatusResumeWorkflow:
             config_snapshot={
                 "name": "resume-test-job",
                 "sheet": {"size": 10, "total_items": 50},
-                "prompt": {"template": "Process batch {{ sheet_num }}"},
+                "prompt": {"template": "Process sheet {{ sheet_num }}"},
                 "backend": {"type": "claude_cli", "skip_permissions": True},
                 "retry": {"max_retries": 2},
                 "validations": [],
@@ -298,7 +298,7 @@ class TestRunStatusResumeWorkflow:
 
         # Should show resume info
         assert "Resume Job" in result.stdout
-        assert "2/5" in result.stdout  # Starting from batch 2
+        assert "2/5" in result.stdout  # Starting from sheet 2
 
     def test_complete_workflow_end_to_end(self, tmp_path: Path) -> None:
         """Test complete workflow: run -> status -> (fail) -> resume."""
@@ -312,8 +312,8 @@ class TestRunStatusResumeWorkflow:
             "name": "e2e-test-job",
             "description": "End-to-end test",
             "backend": {"type": "claude_cli", "skip_permissions": True},
-            "sheet": {"size": 5, "total_items": 15},  # 3 batches
-            "prompt": {"template": "Process batch {{ sheet_num }}"},
+            "sheet": {"size": 5, "total_items": 15},  # 3 sheets
+            "prompt": {"template": "Process sheet {{ sheet_num }}"},
             "retry": {"max_retries": 1},
             "validations": [],
         }
@@ -322,7 +322,7 @@ class TestRunStatusResumeWorkflow:
             yaml.dump(config_dict, f)
 
         # Step 1: Start run (will be interrupted)
-        # Simulate a paused state after 1 batch
+        # Simulate a paused state after 1 sheet
         paused_state = CheckpointState(
             job_id="e2e-test-job",
             job_name="End-to-end test",
@@ -352,7 +352,7 @@ class TestRunStatusResumeWorkflow:
         )
         assert result.exit_code == 0
         assert "PAUSED" in result.stdout
-        assert "1" in result.stdout and "3" in result.stdout  # 1/3 batches
+        assert "1" in result.stdout and "3" in result.stdout  # 1/3 sheets
 
         # Step 3: Resume and complete
         with patch("mozart.execution.runner.JobRunner") as mock_runner_cls:
@@ -367,7 +367,7 @@ class TestRunStatusResumeWorkflow:
                 job_id="e2e-test-job",
                 job_name="End-to-end test",
                 total_sheets=3,
-                completed_sheets=2,  # Resumed from batch 2
+                completed_sheets=2,  # Resumed from sheet 2
                 failed_sheets=0,
                 skipped_sheets=0,
             )
@@ -563,7 +563,7 @@ class TestAllCLICommandsFunctional:
         )
         assert result.exit_code == 0
         assert "Dry run" in result.stdout
-        assert "Batch Plan" in result.stdout
+        assert "Sheet Plan" in result.stdout
 
     def test_list_command_works(self, multi_job_workspace: Path) -> None:
         """List command works."""

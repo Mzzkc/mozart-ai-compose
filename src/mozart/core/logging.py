@@ -14,7 +14,7 @@ Example usage:
     logger = get_logger("runner")
 
     # Log with auto-context
-    logger.info("starting_batch", sheet_num=5)
+    logger.info("starting_sheet", sheet_num=5)
 
     # Bind context for a scope
     ctx_logger = logger.bind(job_id="my-job", sheet_num=1)
@@ -25,7 +25,7 @@ Example usage:
 
     ctx = ExecutionContext(job_id="my-job", run_id="abc-123")
     with with_context(ctx):
-        logger.info("batch_started")  # Automatically includes job_id, run_id
+        logger.info("sheet_started")  # Automatically includes job_id, run_id
 """
 
 from __future__ import annotations
@@ -294,7 +294,7 @@ class ExecutionContext:
     Attributes:
         job_id: The job identifier (from config name).
         run_id: Unique execution run ID (UUID), unique per `mozart run` invocation.
-        sheet_num: Current batch number being processed (None if not in batch).
+        sheet_num: Current sheet number being processed (None if not in sheet).
         component: Component name for the current operation (e.g., "runner", "backend").
         parent_run_id: Optional parent run ID for nested operations (e.g., sub-jobs).
     """
@@ -305,11 +305,11 @@ class ExecutionContext:
     component: str = "unknown"
     parent_run_id: str | None = None
 
-    def with_batch(self, sheet_num: int) -> ExecutionContext:
-        """Create a new context with the specified batch number.
+    def with_sheet(self, sheet_num: int) -> ExecutionContext:
+        """Create a new context with the specified sheet number.
 
         Args:
-            sheet_num: The batch number to set.
+            sheet_num: The sheet number to set.
 
         Returns:
             A new ExecutionContext with the sheet_num field updated.
@@ -849,7 +849,7 @@ def get_logger(component: str, **initial_context: Any) -> MozartLogger:
         logger = get_logger("runner")
         ctx = ExecutionContext(job_id="my-job")
         with with_context(ctx):
-            logger.info("batch_started")  # Includes job_id, run_id automatically
+            logger.info("sheet_started")  # Includes job_id, run_id automatically
     """
     return MozartLogger(component, **initial_context)
 

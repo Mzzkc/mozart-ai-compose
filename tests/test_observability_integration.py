@@ -62,65 +62,65 @@ from mozart.execution.retry_strategy import (
 
 
 class TestOutputCaptureIntegration:
-    """Tests for raw output capture in batch state."""
+    """Tests for raw output capture in sheet state."""
 
     def test_capture_output_stores_tail(self):
         """Test that output capture stores the last N bytes."""
-        batch = SheetState(sheet_num=1)
+        sheet = SheetState(sheet_num=1)
         stdout = "prefix " + "x" * 5000
         stderr = "error " + "y" * 3000
 
-        batch.capture_output(stdout, stderr)
+        sheet.capture_output(stdout, stderr)
 
-        assert batch.stdout_tail is not None
-        assert "x" in batch.stdout_tail
-        assert batch.stderr_tail is not None
-        assert "y" in batch.stderr_tail
-        assert batch.output_truncated is False
+        assert sheet.stdout_tail is not None
+        assert "x" in sheet.stdout_tail
+        assert sheet.stderr_tail is not None
+        assert "y" in sheet.stderr_tail
+        assert sheet.output_truncated is False
 
     def test_capture_output_truncates_large_output(self):
         """Test that large output is truncated to MAX_OUTPUT_CAPTURE_BYTES."""
-        batch = SheetState(sheet_num=1)
+        sheet = SheetState(sheet_num=1)
         # Create output larger than the limit
         large_stdout = "S" * (MAX_OUTPUT_CAPTURE_BYTES + 5000)
         large_stderr = "E" * (MAX_OUTPUT_CAPTURE_BYTES + 3000)
 
-        batch.capture_output(large_stdout, large_stderr)
+        sheet.capture_output(large_stdout, large_stderr)
 
-        assert batch.output_truncated is True
+        assert sheet.output_truncated is True
         # Tail should be at most MAX_OUTPUT_CAPTURE_BYTES
-        assert len(batch.stdout_tail.encode("utf-8")) <= MAX_OUTPUT_CAPTURE_BYTES
-        assert len(batch.stderr_tail.encode("utf-8")) <= MAX_OUTPUT_CAPTURE_BYTES
+        assert len(sheet.stdout_tail.encode("utf-8")) <= MAX_OUTPUT_CAPTURE_BYTES
+        assert len(sheet.stderr_tail.encode("utf-8")) <= MAX_OUTPUT_CAPTURE_BYTES
 
     def test_capture_output_handles_empty_output(self):
         """Test handling of empty output strings."""
-        batch = SheetState(sheet_num=1)
-        batch.capture_output("", "")
+        sheet = SheetState(sheet_num=1)
+        sheet.capture_output("", "")
 
-        assert batch.stdout_tail is None
-        assert batch.stderr_tail is None
-        assert batch.output_truncated is False
+        assert sheet.stdout_tail is None
+        assert sheet.stderr_tail is None
+        assert sheet.output_truncated is False
 
     def test_capture_output_handles_unicode(self):
         """Test handling of unicode characters in output."""
-        batch = SheetState(sheet_num=1)
+        sheet = SheetState(sheet_num=1)
         unicode_stdout = "Hello 世界! 🎉 привет"
         unicode_stderr = "Error: données invalides"
 
-        batch.capture_output(unicode_stdout, unicode_stderr)
+        sheet.capture_output(unicode_stdout, unicode_stderr)
 
-        assert unicode_stdout in batch.stdout_tail
-        assert unicode_stderr in batch.stderr_tail
+        assert unicode_stdout in sheet.stdout_tail
+        assert unicode_stderr in sheet.stderr_tail
 
 
 class TestErrorHistoryIntegration:
-    """Tests for error history recording in batch state."""
+    """Tests for error history recording in sheet state."""
 
     def test_record_error_adds_to_history(self):
         """Test that errors are added to history."""
-        batch = SheetState(sheet_num=1)
+        sheet = SheetState(sheet_num=1)
 
-        batch.record_error(
+        sheet.record_error(
             error_type="transient",
             error_code="E001",
             error_message="Connection timeout",
@@ -128,32 +128,32 @@ class TestErrorHistoryIntegration:
             exit_code=1,
         )
 
-        assert len(batch.error_history) == 1
-        assert batch.error_history[0].error_code == "E001"
-        assert batch.error_history[0].error_type == "transient"
+        assert len(sheet.error_history) == 1
+        assert sheet.error_history[0].error_code == "E001"
+        assert sheet.error_history[0].error_type == "transient"
 
     def test_record_error_trims_to_max_history(self):
         """Test that error history is trimmed to MAX_ERROR_HISTORY."""
-        batch = SheetState(sheet_num=1)
+        sheet = SheetState(sheet_num=1)
 
         # Add more errors than the maximum
         for i in range(MAX_ERROR_HISTORY + 5):
-            batch.record_error(
+            sheet.record_error(
                 error_type="transient",
                 error_code=f"E00{i}",
                 error_message=f"Error {i}",
                 attempt=i + 1,
             )
 
-        assert len(batch.error_history) == MAX_ERROR_HISTORY
+        assert len(sheet.error_history) == MAX_ERROR_HISTORY
         # Should keep most recent
-        assert batch.error_history[-1].error_message == f"Error {MAX_ERROR_HISTORY + 4}"
+        assert sheet.error_history[-1].error_message == f"Error {MAX_ERROR_HISTORY + 4}"
 
     def test_record_error_includes_context(self):
         """Test that error context is properly stored."""
-        batch = SheetState(sheet_num=1)
+        sheet = SheetState(sheet_num=1)
 
-        batch.record_error(
+        sheet.record_error(
             error_type="rate_limit",
             error_code="E101",
             error_message="Rate limit exceeded",
@@ -165,7 +165,7 @@ class TestErrorHistoryIntegration:
             category="rate_limit",
         )
 
-        error = batch.error_history[0]
+        error = sheet.error_history[0]
         assert error.stdout_tail == "Last output..."
         assert error.stderr_tail == "Error details..."
         assert error.context["exit_code"] == 429
@@ -503,7 +503,7 @@ class TestEndToEndObservability:
                 "total_items": 10,
             },
             "prompt": {
-                "template": "Process batch {{ sheet_num }}",
+                "template": "Process sheet {{ sheet_num }}",
             },
             "retry": {
                 "max_retries": 2,
@@ -526,31 +526,31 @@ class TestEndToEndObservability:
             total_sheets=2,
         )
 
-        # Simulate batch 1 starting
+        # Simulate sheet 1 starting
         state.mark_sheet_started(1)
-        batch = state.sheets[1]
+        sheet = state.sheets[1]
 
         # Simulate preflight check
         workspace = Path(config.workspace)
         workspace.mkdir(parents=True, exist_ok=True)
         result = run_preflight_check(
-            prompt="Test prompt for batch 1",
+            prompt="Test prompt for sheet 1",
             workspace=workspace,
             working_directory=workspace,
         )
 
-        # Store preflight metrics in batch state
-        batch.prompt_metrics = {
+        # Store preflight metrics in sheet state
+        sheet.prompt_metrics = {
             "character_count": result.prompt_metrics.character_count,
             "estimated_tokens": result.prompt_metrics.estimated_tokens,
             "line_count": result.prompt_metrics.line_count,
         }
-        batch.preflight_warnings = result.warnings
+        sheet.preflight_warnings = result.warnings
 
         # Simulate execution with output
         stdout = "Processing...\nCompleted step 1\nCompleted step 2"
         stderr = "Warning: some warning message"
-        batch.capture_output(stdout, stderr)
+        sheet.capture_output(stdout, stderr)
 
         # Simulate failure and error recording
         classifier = ErrorClassifier()
@@ -560,7 +560,7 @@ class TestEndToEndObservability:
             exit_code=1,
         )
 
-        batch.record_error(
+        sheet.record_error(
             error_type="transient" if error.retriable else "permanent",
             error_code=error.error_code.value,
             error_message=error.message,
@@ -569,7 +569,7 @@ class TestEndToEndObservability:
             category=error.category.value,
         )
 
-        # Mark batch failed
+        # Mark sheet failed
         state.mark_sheet_failed(
             sheet_num=1,
             error_message=error.message,
@@ -579,12 +579,12 @@ class TestEndToEndObservability:
         )
 
         # Verify observability data is captured
-        assert batch.stdout_tail is not None
-        assert "Completed step 2" in batch.stdout_tail
-        assert batch.stderr_tail is not None
-        assert len(batch.error_history) == 1
-        assert batch.prompt_metrics is not None
-        assert batch.execution_duration_seconds == 5.5
+        assert sheet.stdout_tail is not None
+        assert "Completed step 2" in sheet.stdout_tail
+        assert sheet.stderr_tail is not None
+        assert len(sheet.error_history) == 1
+        assert sheet.prompt_metrics is not None
+        assert sheet.execution_duration_seconds == 5.5
 
     def test_circuit_breaker_integration_with_state(self, tmp_path: Path):
         """Test circuit breaker integration with checkpoint state."""
@@ -597,14 +597,14 @@ class TestEndToEndObservability:
             total_sheets=5,
         )
 
-        # Simulate multiple batch failures
+        # Simulate multiple sheet failures
         for sheet_num in range(1, 4):
             state.mark_sheet_started(sheet_num)
-            batch = state.sheets[sheet_num]
+            sheet = state.sheets[sheet_num]
 
             # Simulate failure
             error = classifier.classify(stderr="connection error", exit_code=1)
-            batch.record_error(
+            sheet.record_error(
                 error_type="transient",
                 error_code=error.error_code.value,
                 error_message=error.message,
@@ -648,16 +648,16 @@ class TestEndToEndObservability:
         with with_context(ctx):
             logger.info("job_started", total_sheets=3)
 
-            # Batch 1
-            batch_ctx = ctx.with_batch(1)
-            with with_context(batch_ctx):
+            # Sheet 1
+            sheet_ctx = ctx.with_sheet(1)
+            with with_context(sheet_ctx):
                 logger.info("sheet_started")
                 logger.debug("executing_prompt", prompt_tokens=1000)
                 logger.info("sheet_completed", duration=5.2)
 
-            # Batch 2 with failure
-            batch_ctx = ctx.with_batch(2)
-            with with_context(batch_ctx):
+            # Sheet 2 with failure
+            sheet_ctx = ctx.with_sheet(2)
+            with with_context(sheet_ctx):
                 logger.info("sheet_started")
                 logger.warning("sheet_retry", attempt=2, error="timeout")
                 logger.error("sheet_failed", error_code="E001")
@@ -691,19 +691,19 @@ class TestDiagnosticsReporting:
             total_sheets=3,
         )
 
-        # Process batch 1
+        # Process sheet 1
         state.mark_sheet_started(1)
-        batch = state.sheets[1]
+        sheet = state.sheets[1]
 
         # Add all diagnostic data
-        batch.capture_output("stdout content", "stderr content")
-        batch.prompt_metrics = {
+        sheet.capture_output("stdout content", "stderr content")
+        sheet.prompt_metrics = {
             "character_count": 1000,
             "estimated_tokens": 250,
             "line_count": 50,
         }
-        batch.preflight_warnings = ["Large prompt detected"]
-        batch.record_error(
+        sheet.preflight_warnings = ["Large prompt detected"]
+        sheet.record_error(
             error_type="transient",
             error_code="E001",
             error_message="Timeout error",
@@ -716,21 +716,21 @@ class TestDiagnosticsReporting:
         restored = CheckpointState.model_validate(state_dict)
 
         # Verify all diagnostic data survives serialization
-        restored_batch = restored.sheets[1]
-        assert restored_batch.stdout_tail == "stdout content"
-        assert restored_batch.stderr_tail == "stderr content"
-        assert restored_batch.prompt_metrics["character_count"] == 1000
-        assert len(restored_batch.preflight_warnings) == 1
-        assert len(restored_batch.error_history) == 1
+        restored_sheet = restored.sheets[1]
+        assert restored_sheet.stdout_tail == "stdout content"
+        assert restored_sheet.stderr_tail == "stderr content"
+        assert restored_sheet.prompt_metrics["character_count"] == 1000
+        assert len(restored_sheet.preflight_warnings) == 1
+        assert len(restored_sheet.error_history) == 1
 
     def test_error_history_serialization(self):
         """Test that error history properly serializes and deserializes."""
-        batch = SheetState(sheet_num=1)
+        sheet = SheetState(sheet_num=1)
 
         # Add multiple errors
         # Note: context is passed as **kwargs in record_error, not as a named field
         for i in range(3):
-            batch.record_error(
+            sheet.record_error(
                 error_type="transient",
                 error_code=f"E00{i}",
                 error_message=f"Error {i}",
@@ -740,8 +740,8 @@ class TestDiagnosticsReporting:
             )
 
         # Serialize and deserialize
-        batch_dict = batch.model_dump()
-        restored = SheetState.model_validate(batch_dict)
+        sheet_dict = sheet.model_dump()
+        restored = SheetState.model_validate(sheet_dict)
 
         assert len(restored.error_history) == 3
         for i, error in enumerate(restored.error_history):

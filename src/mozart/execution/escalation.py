@@ -1,7 +1,7 @@
 """Escalation protocol for low-confidence sheet execution decisions.
 
 Provides a mechanism for escalating to external decision-makers (human or AI)
-when batch confidence is too low to proceed automatically.
+when sheet confidence is too low to proceed automatically.
 
 Phase 2 of AGI Evolution: Confidence-Based Execution
 """
@@ -25,10 +25,10 @@ class EscalationContext:
     """Unique identifier for the job."""
 
     sheet_num: int
-    """Batch number that triggered escalation."""
+    """Sheet number that triggered escalation."""
 
     validation_results: list[dict[str, Any]]
-    """Serialized validation results from the batch."""
+    """Serialized validation results from the sheet."""
 
     confidence: float
     """Aggregate confidence score that triggered escalation (0.0-1.0)."""
@@ -50,13 +50,13 @@ class EscalationContext:
 class EscalationResponse:
     """Response from an escalation handler specifying how to proceed.
 
-    Determines the next action for a batch that triggered escalation.
+    Determines the next action for a sheet that triggered escalation.
     """
 
     action: Literal["retry", "skip", "abort", "modify_prompt"]
     """Action to take:
-    - retry: Retry the batch with the same or modified prompt
-    - skip: Skip this batch and continue to the next
+    - retry: Retry the sheet with the same or modified prompt
+    - skip: Skip this sheet and continue to the next
     - abort: Stop the entire job
     - modify_prompt: Retry with a modified prompt (requires modified_prompt)
     """
@@ -87,10 +87,10 @@ class EscalationHandler(Protocol):
         validation_result: SheetValidationResult,
         confidence: float,
     ) -> bool:
-        """Determine if escalation is needed for this batch.
+        """Determine if escalation is needed for this sheet.
 
         Args:
-            sheet_state: Current state of the batch.
+            sheet_state: Current state of the sheet.
             validation_result: Results from validation engine.
             confidence: Aggregate confidence score.
 
@@ -176,10 +176,10 @@ class ConsoleEscalationHandler:
         """Print a summary of the escalation context to console."""
         separator = "=" * 60
         print(f"\n{separator}")
-        print("ESCALATION REQUIRED - Low Confidence Batch Execution")
+        print("ESCALATION REQUIRED - Low Confidence Sheet Execution")
         print(separator)
         print(f"Job ID:       {context.job_id}")
-        print(f"Batch:        {context.sheet_num}")
+        print(f"Sheet:        {context.sheet_num}")
         print(f"Confidence:   {context.confidence:.1%}")
         print(f"Retry Count:  {context.retry_count}")
         print("-" * 60)
@@ -226,8 +226,8 @@ class ConsoleEscalationHandler:
             EscalationResponse based on user choice.
         """
         print("\nActions:")
-        print("  [r] Retry - Try the batch again with same prompt")
-        print("  [s] Skip  - Skip this batch and continue")
+        print("  [r] Retry - Try the sheet again with same prompt")
+        print("  [s] Skip  - Skip this sheet and continue")
         print("  [a] Abort - Stop the entire job")
         print("  [m] Modify - Retry with modified prompt")
         print()

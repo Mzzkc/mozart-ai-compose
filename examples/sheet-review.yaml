@@ -1,8 +1,8 @@
-# Example: Batch Commit Review Job
+# Example: Sheet Commit Review Job
 # Multi-agent coordinated code review with expert agents
 
-name: "commit-batch-review"
-description: "Review all commits in batches using coordinated expert agents"
+name: "commit-sheet-review"
+description: "Review all commits in sheets using coordinated expert agents"
 
 workspace: "./coordination-workspace"
 
@@ -33,13 +33,13 @@ prompt:
     - {{ skill }}
     {% endfor %}
 
-    STEP 2: READ EXISTING CONTEXT (if batch > 1):
+    STEP 2: READ EXISTING CONTEXT (if sheet > 1):
     {% for ctx in context_files %}
     - {{ ctx }}
     {% endfor %}
 
     CURRENT STATUS:
-    - Working on Batch {{ sheet_num }} of {{ total_sheets }}
+    - Working on Sheet {{ sheet_num }} of {{ total_sheets }}
     - Items {{ start_item }} to {{ end_item }}
 
     STEP 3: LAUNCH 3 EXPERT AGENTS IN PARALLEL:
@@ -54,16 +54,16 @@ prompt:
     2. Update LONGFORM-REVIEW.md with findings
     3. Update TEST-GAP-ANALYSIS.md with test gaps
     4. The 3 expert agents MUST create EXACTLY these 3 report files:
-       - {{ workspace }}/batch{{ sheet_num }}-security-report.md
-       - {{ workspace }}/batch{{ sheet_num }}-architecture-report.md
-       - {{ workspace }}/batch{{ sheet_num }}-quality-report.md
+       - {{ workspace }}/sheet{{ sheet_num }}-security-report.md
+       - {{ workspace }}/sheet{{ sheet_num }}-architecture-report.md
+       - {{ workspace }}/sheet{{ sheet_num }}-quality-report.md
        Each report MUST include an Evidence Log section.
 
     {{ stakes }}
 
     {{ thinking_method }}
 
-    Work until this batch is fully complete with all reports written.
+    Work until this sheet is fully complete with all reports written.
 
   variables:
     skill_files:
@@ -109,17 +109,17 @@ rate_limit:
     - "try again later"
 
 validations:
-  # Required output files (must exist after each batch)
+  # Required output files (must exist after each sheet)
   - type: file_exists
-    path: "{workspace}/batch{sheet_num}-security-report.md"
+    path: "{workspace}/sheet{sheet_num}-security-report.md"
     description: "Security Analyst report"
 
   - type: file_exists
-    path: "{workspace}/batch{sheet_num}-architecture-report.md"
+    path: "{workspace}/sheet{sheet_num}-architecture-report.md"
     description: "Architecture Reviewer report"
 
   - type: file_exists
-    path: "{workspace}/batch{sheet_num}-quality-report.md"
+    path: "{workspace}/sheet{sheet_num}-quality-report.md"
     description: "Code Quality Auditor report"
 
   # Tracking files must be updated (mtime check)
@@ -136,4 +136,4 @@ notifications:
     on_events: [job_complete, job_failed]
 
 state_backend: json
-pause_between_batches_seconds: 10
+pause_between_sheets_seconds: 10

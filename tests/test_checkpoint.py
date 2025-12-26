@@ -29,7 +29,7 @@ class TestSheetState:
     """Tests for SheetState model."""
 
     def test_default_state(self):
-        """Test default batch state."""
+        """Test default sheet state."""
         state = SheetState(sheet_num=1)
         assert state.sheet_num == 1
         assert state.status == SheetStatus.PENDING
@@ -335,8 +335,8 @@ class TestCheckpointState:
         assert state.last_completed_sheet == 0
         assert len(state.sheets) == 5
 
-    def test_batches_initialized(self):
-        """Test all batches are initialized with PENDING status."""
+    def test_sheets_initialized(self):
+        """Test all sheets are initialized with PENDING status."""
         state = self._create_state(total_sheets=3)
         for i in range(1, 4):
             assert i in state.sheets
@@ -348,7 +348,7 @@ class TestCheckpointState:
         assert state.get_next_sheet() == 1
 
     def test_get_next_sheet_after_completion(self):
-        """Test get_next_sheet returns correct batch after completion."""
+        """Test get_next_sheet returns correct sheet after completion."""
         state = self._create_state(total_sheets=3)
         state.mark_sheet_started(1)
         state.mark_sheet_completed(1)
@@ -364,7 +364,7 @@ class TestCheckpointState:
         assert state.get_next_sheet() is None
 
     def test_mark_sheet_started(self):
-        """Test marking a batch as started."""
+        """Test marking a sheet as started."""
         state = self._create_state(total_sheets=3)
         state.mark_sheet_started(1)
         assert state.sheets[1].status == SheetStatus.IN_PROGRESS
@@ -374,7 +374,7 @@ class TestCheckpointState:
         assert state.status == JobStatus.RUNNING
 
     def test_mark_sheet_completed(self):
-        """Test marking a batch as completed."""
+        """Test marking a sheet as completed."""
         state = self._create_state(total_sheets=3)
         state.mark_sheet_started(1)
         state.mark_sheet_completed(1, validation_passed=True)
@@ -385,7 +385,7 @@ class TestCheckpointState:
         assert state.last_completed_sheet == 1
 
     def test_mark_sheet_failed(self):
-        """Test marking a batch as failed."""
+        """Test marking a sheet as failed."""
         state = self._create_state(total_sheets=3)
         state.mark_sheet_started(1)
         state.mark_sheet_failed(1, error_message="Test error", error_category="unknown")
@@ -395,7 +395,7 @@ class TestCheckpointState:
         assert state.sheets[1].error_category == "unknown"
 
     def test_mark_sheet_failed_with_signal_fields(self):
-        """Test marking a batch as failed with signal differentiation fields."""
+        """Test marking a sheet as failed with signal differentiation fields."""
         import signal as sig
 
         state = self._create_state(total_sheets=3)
@@ -410,17 +410,17 @@ class TestCheckpointState:
             execution_duration_seconds=15.5,
         )
 
-        batch = state.sheets[1]
-        assert batch.status == SheetStatus.FAILED
-        assert batch.error_message == "Process killed by SIGTERM"
-        assert batch.error_category == "signal"
-        assert batch.exit_code is None
-        assert batch.exit_signal == sig.SIGTERM
-        assert batch.exit_reason == "killed"
-        assert batch.execution_duration_seconds == 15.5
+        sheet = state.sheets[1]
+        assert sheet.status == SheetStatus.FAILED
+        assert sheet.error_message == "Process killed by SIGTERM"
+        assert sheet.error_category == "signal"
+        assert sheet.exit_code is None
+        assert sheet.exit_signal == sig.SIGTERM
+        assert sheet.exit_reason == "killed"
+        assert sheet.execution_duration_seconds == 15.5
 
     def test_mark_sheet_failed_with_timeout(self):
-        """Test marking a batch as failed due to timeout."""
+        """Test marking a sheet as failed due to timeout."""
         import signal as sig
 
         state = self._create_state(total_sheets=3)
@@ -435,10 +435,10 @@ class TestCheckpointState:
             execution_duration_seconds=30.0,
         )
 
-        batch = state.sheets[1]
-        assert batch.exit_signal == sig.SIGKILL
-        assert batch.exit_reason == "timeout"
-        assert batch.error_category == "timeout"
+        sheet = state.sheets[1]
+        assert sheet.exit_signal == sig.SIGKILL
+        assert sheet.exit_reason == "timeout"
+        assert sheet.error_category == "timeout"
 
     def test_mark_sheet_failed_backwards_compatible(self):
         """Test that mark_sheet_failed works without new optional fields."""
@@ -447,16 +447,16 @@ class TestCheckpointState:
         # Call without new fields (backwards compatible)
         state.mark_sheet_failed(1, "Error occurred")
 
-        batch = state.sheets[1]
-        assert batch.status == SheetStatus.FAILED
-        assert batch.error_message == "Error occurred"
+        sheet = state.sheets[1]
+        assert sheet.status == SheetStatus.FAILED
+        assert sheet.error_message == "Error occurred"
         # New fields should be None (defaults)
-        assert batch.exit_signal is None
-        assert batch.exit_reason is None
-        assert batch.execution_duration_seconds is None
+        assert sheet.exit_signal is None
+        assert sheet.exit_reason is None
+        assert sheet.execution_duration_seconds is None
 
-    def test_job_completes_when_all_batches_done(self):
-        """Test job status updates to COMPLETED when all batches are done."""
+    def test_job_completes_when_all_sheets_done(self):
+        """Test job status updates to COMPLETED when all sheets are done."""
         state = self._create_state(total_sheets=2)
         state.mark_sheet_started(1)
         state.mark_sheet_completed(1)

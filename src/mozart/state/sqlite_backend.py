@@ -38,7 +38,7 @@ class SQLiteStateBackend(StateBackend):
 
     Stores job state in a SQLite database with queryable tables for:
     - jobs: Job-level metadata and status
-    - batches: Per-batch state including attempts and errors
+    - sheets: Per-sheet state including attempts and errors
     - execution_history: Detailed record of each execution attempt
 
     Supports schema migrations for future upgrades.
@@ -125,7 +125,7 @@ class SQLiteStateBackend(StateBackend):
         """)
 
         await db.execute("""
-            CREATE TABLE IF NOT EXISTS batches (
+            CREATE TABLE IF NOT EXISTS sheets (
                 job_id TEXT NOT NULL,
                 sheet_num INTEGER NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending',
@@ -176,10 +176,10 @@ class SQLiteStateBackend(StateBackend):
             "CREATE INDEX IF NOT EXISTS idx_jobs_updated ON jobs(updated_at)"
         )
         await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_batches_status ON batches(status)"
+            "CREATE INDEX IF NOT EXISTS idx_sheets_status ON sheets(status)"
         )
         await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_history_job_batch "
+            "CREATE INDEX IF NOT EXISTS idx_history_job_sheet "
             "ON execution_history(job_id, sheet_num)"
         )
 
@@ -254,17 +254,17 @@ class SQLiteStateBackend(StateBackend):
                 _logger.debug("state_not_found", job_id=job_id)
                 return None
 
-            # Load batch records
+            # Load sheet records
             cursor = await db.execute(
-                "SELECT * FROM batches WHERE job_id = ? ORDER BY sheet_num",
+                "SELECT * FROM sheets WHERE job_id = ? ORDER BY sheet_num",
                 (job_id,),
             )
-            batch_rows = await cursor.fetchall()
+            sheet_rows = await cursor.fetchall()
 
             # Reconstruct CheckpointState
-            batches: dict[int, SheetState] = {}
-            for row in batch_rows:
-                batch = SheetState(
+            sheets: dict[int, SheetState] = {}
+            for row in sheet_rows:
+                sheet = SheetState(
                     sheet_num=row["sheet_num"],
                     status=SheetStatus(row["status"]),
                     started_at=self._str_to_datetime(row["started_at"]),
@@ -289,7 +289,7 @@ class SQLiteStateBackend(StateBackend):
                     first_attempt_success=bool(row["first_attempt_success"]),
                     outcome_category=row["outcome_category"],
                 )
-                batches[batch.sheet_num] = batch
+                sheets[sheet.sheet_num] = sheet
 
             # Handle config_path which may not exist in older schemas
             try:
@@ -313,7 +313,7 @@ class SQLiteStateBackend(StateBackend):
                 last_completed_sheet=job_row["last_completed_sheet"],
                 current_sheet=job_row["current_sheet"],
                 status=JobStatus(job_row["status"]),
-                sheets=batches,
+                sheets=sheets,
                 pid=job_row["pid"],
                 error_message=job_row["error_message"],
                 total_retry_count=job_row["total_retry_count"],
@@ -326,7 +326,7 @@ class SQLiteStateBackend(StateBackend):
                 status=state.status.value,
                 last_completed_sheet=state.last_completed_sheet,
                 total_sheets=state.total_sheets,
-                batch_count=len(batches),
+                sheet_count=len(sheets),
             )
             return state
 
@@ -386,11 +386,11 @@ class SQLiteStateBackend(StateBackend):
                 ),
             )
 
-            # Upsert batch records
-            for batch in state.sheets.values():
+            # Upsert sheet records
+            for sheet in state.sheets.values():
                 await db.execute(
                     """
-                    INSERT INTO batches (
+                    INSERT INTO sheets (
                         job_id, sheet_num, status, attempt_count, exit_code,
                         error_message, error_category, validation_passed,
                         validation_details, completion_attempts, passed_validations,
@@ -423,29 +423,29 @@ class SQLiteStateBackend(StateBackend):
                 """,
                     (
                         state.job_id,
-                        batch.sheet_num,
-                        batch.status.value,
-                        batch.attempt_count,
-                        batch.exit_code,
-                        batch.error_message,
-                        batch.error_category,
-                        1 if batch.validation_passed else 0
-                        if batch.validation_passed is not None
+                        sheet.sheet_num,
+                        sheet.status.value,
+                        sheet.attempt_count,
+                        sheet.exit_code,
+                        sheet.error_message,
+                        sheet.error_category,
+                        1 if sheet.validation_passed else 0
+                        if sheet.validation_passed is not None
                         else None,
-                        self._json_dumps(batch.validation_details),
-                        batch.completion_attempts,
-                        self._json_dumps(batch.passed_validations),
-                        self._json_dumps(batch.failed_validations),
-                        batch.last_pass_percentage,
-                        batch.execution_mode,
-                        self._json_dumps(batch.outcome_data),
-                        batch.confidence_score,
-                        self._json_dumps(batch.learned_patterns),
-                        batch.similar_outcomes_count,
-                        1 if batch.first_attempt_success else 0,
-                        batch.outcome_category,
-                        self._datetime_to_str(batch.started_at),
-                        self._datetime_to_str(batch.completed_at),
+                        self._json_dumps(sheet.validation_details),
+                        sheet.completion_attempts,
+                        self._json_dumps(sheet.passed_validations),
+                        self._json_dumps(sheet.failed_validations),
+                        sheet.last_pass_percentage,
+                        sheet.execution_mode,
+                        self._json_dumps(sheet.outcome_data),
+                        sheet.confidence_score,
+                        self._json_dumps(sheet.learned_patterns),
+                        sheet.similar_outcomes_count,
+                        1 if sheet.first_attempt_success else 0,
+                        sheet.outcome_category,
+                        self._datetime_to_str(sheet.started_at),
+                        self._datetime_to_str(sheet.completed_at),
                     ),
                 )
 
@@ -457,7 +457,7 @@ class SQLiteStateBackend(StateBackend):
             status=state.status.value,
             last_completed_sheet=state.last_completed_sheet,
             total_sheets=state.total_sheets,
-            batch_count=len(state.sheets),
+            sheet_count=len(state.sheets),
         )
 
     async def delete(self, job_id: str) -> bool:
@@ -472,7 +472,7 @@ class SQLiteStateBackend(StateBackend):
             if not await cursor.fetchone():
                 return False
 
-            # Delete cascades to batches and execution_history
+            # Delete cascades to sheets and execution_history
             await db.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
             await db.commit()
             return True
@@ -497,7 +497,7 @@ class SQLiteStateBackend(StateBackend):
         return states
 
     async def get_next_sheet(self, job_id: str) -> int | None:
-        """Get the next batch to process for a job."""
+        """Get the next sheet to process for a job."""
         state = await self.load(job_id)
         if state is None:
             return 1  # Start from beginning if no state
@@ -510,7 +510,7 @@ class SQLiteStateBackend(StateBackend):
         status: SheetStatus,
         error_message: str | None = None,
     ) -> None:
-        """Update status of a specific batch."""
+        """Update status of a specific sheet."""
         state = await self.load(job_id)
         if state is None:
             raise ValueError(f"No state found for job {job_id}")
@@ -540,8 +540,8 @@ class SQLiteStateBackend(StateBackend):
 
         Args:
             job_id: Job identifier
-            sheet_num: Batch number
-            attempt_num: Attempt number within the batch
+            sheet_num: Sheet number
+            attempt_num: Attempt number within the sheet
             prompt: The prompt sent to Claude
             output: The output received
             exit_code: Exit code from the execution
@@ -584,7 +584,7 @@ class SQLiteStateBackend(StateBackend):
 
         Args:
             job_id: Job identifier
-            sheet_num: Optional batch number filter
+            sheet_num: Optional sheet number filter
             limit: Maximum records to return
 
         Returns:
@@ -628,7 +628,7 @@ class SQLiteStateBackend(StateBackend):
         Returns:
             Dictionary with statistics including:
             - total_executions: Total execution attempts
-            - success_rate: Percentage of successful batches
+            - success_rate: Percentage of successful sheets
             - avg_duration: Average execution duration
             - total_retries: Total retry count
         """

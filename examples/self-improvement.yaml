@@ -1,7 +1,7 @@
 # Example: Self-Improvement Job
 # Template for using Mozart to improve a codebase incrementally
 #
-# This pattern was used by Mozart to improve itself - each batch
+# This pattern was used by Mozart to improve itself - each sheet
 # implements one task, with validations ensuring quality gates.
 #
 # Usage:
@@ -21,7 +21,7 @@ backend:
   timeout_seconds: 1800  # 30 minutes per task
 
 sheet:
-  size: 1           # One task per batch (recommended for code changes)
+  size: 1           # One task per sheet (recommended for code changes)
   total_items: 4    # Number of tasks
   start_item: 1     # Resume from this item
 
@@ -34,7 +34,7 @@ rate_limit:
   wait_minutes: 60
   max_waits: 3
 
-# Quality gates - all must pass for batch to complete
+# Quality gates - all must pass for sheet to complete
 validations:
   - type: command_succeeds
     command: "cd {{ project_root }} && pytest tests/ -q --tb=no 2>&1 | tail -1 | grep -E '^[0-9]+ passed'"
@@ -99,11 +99,11 @@ prompt:
 
   stakes: |
     Quality is non-negotiable. Each task builds on the previous,
-    so ensure all validations pass before the batch completes.
+    so ensure all validations pass before the sheet completes.
 
 notifications:
   - type: desktop
-    on_events: [job_complete, job_failed, batch_failed]
+    on_events: [job_complete, job_failed, sheet_failed]
 
 state_backend: json
-pause_between_batches_seconds: 5
+pause_between_sheets_seconds: 5

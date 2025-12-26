@@ -12,8 +12,8 @@
 # Usage:
 #   mozart run examples/api-backend.yaml
 
-name: "api-batch"
-description: "Batch processing using Anthropic API"
+name: "api-sheet"
+description: "Sheet processing using Anthropic API"
 
 workspace: "./api-workspace"
 
@@ -34,7 +34,7 @@ prompt:
 
     For each item, provide a brief analysis.
 
-    Batch {{ sheet_num }} of {{ total_sheets }}.
+    Sheet {{ sheet_num }} of {{ total_sheets }}.
 
 retry:
   max_retries: 3
