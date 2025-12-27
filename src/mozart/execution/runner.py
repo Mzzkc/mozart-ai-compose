@@ -664,8 +664,30 @@ class JobRunner:
         # Track error history for adaptive retry (Task 13)
         error_history: list[ErrorRecord] = []
 
-        # Build original prompt
-        original_prompt = self.prompt_builder.build_sheet_prompt(sheet_context)
+        # Query learned patterns before building prompt (Priority 1 Evolution)
+        relevant_patterns: list[str] = []
+        if self.outcome_store is not None:
+            try:
+                relevant_patterns = await self.outcome_store.get_relevant_patterns(
+                    context={
+                        "job_id": state.job_id,
+                        "sheet_num": sheet_num,
+                    },
+                    limit=3,
+                )
+            except Exception as e:
+                # Pattern detection failure shouldn't block execution
+                self._logger.debug(
+                    "patterns.query_failed",
+                    sheet_num=sheet_num,
+                    error=str(e),
+                )
+
+        # Build original prompt with learned patterns
+        original_prompt = self.prompt_builder.build_sheet_prompt(
+            sheet_context,
+            patterns=relevant_patterns if relevant_patterns else None,
+        )
         current_prompt = original_prompt
         current_mode = SheetExecutionMode.NORMAL
 
@@ -702,6 +724,7 @@ class JobRunner:
             prompt_tokens=preflight_result.prompt_metrics.estimated_tokens,
             prompt_lines=preflight_result.prompt_metrics.line_count,
             preflight_warnings=len(preflight_result.warnings),
+            patterns_injected=len(relevant_patterns),
         )
 
         while True:

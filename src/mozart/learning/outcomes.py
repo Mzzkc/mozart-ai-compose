@@ -3,9 +3,12 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from mozart.core.checkpoint import SheetStatus
+
+if TYPE_CHECKING:
+    from mozart.learning.patterns import DetectedPattern
 
 
 @dataclass
@@ -51,6 +54,12 @@ class OutcomeStore(Protocol):
         """Get detected patterns for a specific job."""
         ...
 
+    async def get_relevant_patterns(
+        self, context: dict[str, Any], limit: int = 5
+    ) -> list[str]:
+        """Get pattern descriptions relevant to the given context."""
+        ...
+
 
 class JsonOutcomeStore:
     """JSON-file based outcome store implementation.
@@ -71,10 +80,22 @@ class JsonOutcomeStore:
     async def record(self, outcome: SheetOutcome) -> None:
         """Record a sheet outcome to the store.
 
+        After recording, if there are enough outcomes (>= 5), pattern
+        detection is run and patterns_detected is populated on the outcome.
+
         Args:
             outcome: The sheet outcome to record.
         """
         self._outcomes.append(outcome)
+
+        # Detect patterns after accumulating enough data
+        if len(self._outcomes) >= 5:
+            patterns = await self.detect_patterns()
+            # Populate patterns_detected with top pattern descriptions
+            outcome.patterns_detected = [
+                p.to_prompt_guidance() for p in patterns[:3]
+            ]
+
         await self._save()
 
     async def query_similar(
@@ -115,6 +136,56 @@ class JsonOutcomeStore:
             if outcome.job_id == job_name:
                 patterns.update(outcome.patterns_detected)
         return list(patterns)
+
+    async def detect_patterns(self) -> list["DetectedPattern"]:
+        """Detect patterns from all recorded outcomes.
+
+        Uses PatternDetector to analyze historical outcomes and
+        identify recurring patterns that can inform future executions.
+
+        Returns:
+            List of DetectedPattern objects sorted by confidence.
+        """
+        from mozart.learning.patterns import PatternDetector
+
+        await self._load()
+        if not self._outcomes:
+            return []
+
+        detector = PatternDetector(self._outcomes)
+        return detector.detect_all()
+
+    async def get_relevant_patterns(
+        self,
+        context: dict[str, Any],
+        limit: int = 5,
+    ) -> list[str]:
+        """Get pattern descriptions relevant to the given context.
+
+        This method detects patterns, matches them to the context,
+        and returns human-readable descriptions suitable for prompt injection.
+
+        Args:
+            context: Context dict containing job_id, sheet_num, validation_types, etc.
+            limit: Maximum number of patterns to return.
+
+        Returns:
+            List of pattern description strings for prompt injection.
+        """
+        from mozart.learning.patterns import PatternApplicator, PatternMatcher
+
+        # Detect all patterns
+        all_patterns = await self.detect_patterns()
+        if not all_patterns:
+            return []
+
+        # Match patterns to context
+        matcher = PatternMatcher(all_patterns)
+        matched = matcher.match(context, limit=limit)
+
+        # Convert to prompt-ready descriptions
+        applicator = PatternApplicator(matched)
+        return applicator.get_pattern_descriptions()
 
     async def _save(self) -> None:
         """Save outcomes to JSON file with atomic write."""

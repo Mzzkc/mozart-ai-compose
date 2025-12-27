@@ -8,11 +8,26 @@ from mozart.learning.judgment import (
     LocalJudgmentClient,
 )
 from mozart.learning.outcomes import JsonOutcomeStore, OutcomeStore, SheetOutcome
+from mozart.learning.patterns import (
+    DetectedPattern,
+    PatternApplicator,
+    PatternDetector,
+    PatternMatcher,
+    PatternType,
+)
 
 __all__ = [
+    # Outcomes
     "SheetOutcome",
     "OutcomeStore",
     "JsonOutcomeStore",
+    # Patterns
+    "PatternType",
+    "DetectedPattern",
+    "PatternDetector",
+    "PatternMatcher",
+    "PatternApplicator",
+    # Judgment
     "JudgmentQuery",
     "JudgmentResponse",
     "JudgmentProvider",

@@ -114,11 +114,16 @@ class PromptBuilder:
             workspace=workspace,
         )
 
-    def build_sheet_prompt(self, context: SheetContext) -> str:
+    def build_sheet_prompt(
+        self,
+        context: SheetContext,
+        patterns: list[str] | None = None,
+    ) -> str:
         """Build the standard sheet prompt from config.
 
         Args:
             context: Sheet context with item range and workspace.
+            patterns: Optional list of learned pattern descriptions to inject.
 
         Returns:
             Rendered prompt string.
@@ -134,13 +139,45 @@ class PromptBuilder:
 
         if self.config.template:
             template = self.env.from_string(self.config.template)
-            return template.render(**template_context)
+            prompt = template.render(**template_context)
         elif self.config.template_file and self.config.template_file.exists():
             template_content = self.config.template_file.read_text()
             template = self.env.from_string(template_content)
-            return template.render(**template_context)
+            prompt = template.render(**template_context)
         else:
-            return self._build_default_prompt(context)
+            prompt = self._build_default_prompt(context)
+
+        # Inject learned patterns if available
+        if patterns:
+            pattern_section = self._format_patterns_section(patterns)
+            prompt = f"{prompt}\n\n{pattern_section}"
+
+        return prompt
+
+    def _format_patterns_section(self, patterns: list[str]) -> str:
+        """Format learned patterns as a prompt section.
+
+        Args:
+            patterns: List of pattern description strings.
+
+        Returns:
+            Formatted markdown section for prompt injection.
+        """
+        if not patterns:
+            return ""
+
+        lines = ["## Learned Patterns", ""]
+        lines.append("Based on previous executions, here are relevant insights:")
+        lines.append("")
+
+        for i, pattern in enumerate(patterns[:5], 1):
+            lines.append(f"{i}. {pattern}")
+
+        lines.append("")
+        lines.append("Consider these patterns when executing this sheet.")
+        lines.append("")
+
+        return "\n".join(lines)
 
     def _build_default_prompt(self, context: SheetContext) -> str:
         """Build a simple default prompt when no template is provided.
@@ -265,7 +302,8 @@ Focus on completing the missing items. Do not start over from scratch."""
         """Format failed validations for the completion prompt.
 
         Provides actionable information about what needs to be done.
-        Uses ValidationResult objects to get expanded file paths.
+        Uses ValidationResult objects to get expanded file paths and
+        semantic failure reasons.
 
         Args:
             results: List of validation results that failed.
@@ -277,57 +315,68 @@ Focus on completing the missing items. Do not start over from scratch."""
             return "  (none)"
 
         lines = []
-        for result in results:
+        for i, result in enumerate(results, 1):
             rule = result.rule
             desc = rule.description or "Unnamed validation"
-            # Get expanded path from the result - this is the actual resolved path
-            expanded_path = result.expected_value or result.actual_value
 
-            if rule.type == "file_exists":
-                lines.append(f"  - [MISSING] {desc}")
-                if expanded_path:
-                    lines.append(f"    Expected file: {expanded_path}")
-                    lines.append("    Action: Create this file with the required content")
+            # Use semantic failure information if available (Priority 2 evolution)
+            if result.failure_category and result.failure_reason:
+                lines.append(f"  {i}. [{result.failure_category.upper()}] {desc}")
+                lines.append(f"     Why: {result.failure_reason}")
+                if result.suggested_fix:
+                    lines.append(f"     Fix: {result.suggested_fix}")
+            else:
+                # Fallback to legacy formatting for backwards compatibility
+                expanded_path = result.expected_value or result.actual_value
 
-            elif rule.type == "file_modified":
-                lines.append(f"  - [NOT UPDATED] {desc}")
-                # For file_modified, error_message contains the actual path
-                actual_path = None
-                if result.error_message and ":" in result.error_message:
-                    # Extract path from "File not modified: path/to/file"
-                    actual_path = result.error_message.split(": ", 1)[-1]
-                display_path = actual_path or expanded_path or rule.path
-                if display_path:
-                    lines.append(f"    File needs modification: {display_path}")
-                    lines.append(
-                        "    Action: You MUST append/write new content to this file."
-                    )
-                    lines.append(
-                        "    Reason: The file's modification time must change "
-                        "for validation to pass."
-                    )
-                    lines.append(
-                        "    Hint: Read the file, then write back with "
-                        "additions for this sheet's findings."
-                    )
+                if rule.type == "file_exists":
+                    lines.append(f"  {i}. [MISSING] {desc}")
+                    if expanded_path:
+                        lines.append(f"     Expected file: {expanded_path}")
+                        lines.append("     Action: Create this file with the required content")
 
-            elif rule.type == "content_contains":
-                lines.append(f"  - [CONTENT MISSING] {desc}")
-                if rule.pattern:
-                    lines.append(f"    Required text: {rule.pattern}")
-                if expanded_path:
-                    lines.append(f"    In file: {expanded_path}")
-                lines.append("    Action: Add the required content to the file")
+                elif rule.type == "file_modified":
+                    lines.append(f"  {i}. [NOT UPDATED] {desc}")
+                    # For file_modified, error_message contains the actual path
+                    actual_path = None
+                    if result.error_message and ":" in result.error_message:
+                        actual_path = result.error_message.split(": ", 1)[-1]
+                    display_path = actual_path or expanded_path or rule.path
+                    if display_path:
+                        lines.append(f"     File needs modification: {display_path}")
+                        lines.append(
+                            "     Action: You MUST append/write new content to this file."
+                        )
 
-            elif rule.type == "content_regex":
-                lines.append(f"  - [PATTERN NOT MATCHED] {desc}")
-                if rule.pattern:
-                    lines.append(f"    Required pattern: {rule.pattern}")
-                if expanded_path:
-                    lines.append(f"    In file: {expanded_path}")
-                lines.append("    Action: Ensure file content matches the pattern")
+                elif rule.type == "content_contains":
+                    lines.append(f"  {i}. [CONTENT MISSING] {desc}")
+                    if rule.pattern:
+                        lines.append(f"     Required text: {rule.pattern}")
+                    if expanded_path:
+                        lines.append(f"     In file: {expanded_path}")
+                    lines.append("     Action: Add the required content to the file")
 
-        return "\n".join(lines)
+                elif rule.type == "content_regex":
+                    lines.append(f"  {i}. [PATTERN NOT MATCHED] {desc}")
+                    if rule.pattern:
+                        lines.append(f"     Required pattern: {rule.pattern}")
+                    if expanded_path:
+                        lines.append(f"     In file: {expanded_path}")
+                    lines.append("     Action: Ensure file content matches the pattern")
+
+                elif rule.type == "command_succeeds":
+                    lines.append(f"  {i}. [COMMAND FAILED] {desc}")
+                    if result.error_message:
+                        # Truncate for readability
+                        err_summary = result.error_message[:200]
+                        if len(result.error_message) > 200:
+                            err_summary += "..."
+                        lines.append(f"     Error: {err_summary}")
+                    lines.append("     Action: Fix the command errors")
+
+            lines.append("")  # Blank line between items
+
+        return "\n".join(lines).rstrip()
 
 
 def build_sheet_prompt_simple(
