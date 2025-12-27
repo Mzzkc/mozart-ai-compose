@@ -7,7 +7,7 @@ import re
 import signal
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Literal
+from typing import Literal, NamedTuple
 
 from mozart.core.logging import get_logger
 
@@ -16,6 +16,23 @@ _logger = get_logger("errors")
 
 # Type alias for exit reasons (matches backend)
 ExitReason = Literal["completed", "timeout", "killed", "error"]
+
+
+class RetryBehavior(NamedTuple):
+    """Precise retry behavior recommendation for a specific error code.
+
+    Unlike ErrorCategory which provides broad retry guidelines, RetryBehavior
+    encodes error-code-specific knowledge about optimal retry strategies.
+
+    Attributes:
+        delay_seconds: Recommended delay before retrying (0 = no delay).
+        is_retriable: Whether this error is generally retriable.
+        reason: Human-readable explanation for the retry behavior.
+    """
+
+    delay_seconds: float
+    is_retriable: bool
+    reason: str
 
 
 class ErrorCode(str, Enum):
@@ -197,6 +214,219 @@ class ErrorCode(str, Enum):
             ErrorCode.STATE_VERSION_MISMATCH,
         }
         return self not in non_retriable
+
+    def get_retry_behavior(self) -> RetryBehavior:
+        """Get precise retry behavior for this error code.
+
+        Returns error-code-specific delay and retry recommendations.
+        This provides finer-grained control than ErrorCategory alone.
+
+        Returns:
+            RetryBehavior with delay, retriability, and reason.
+        """
+        # Error-code-specific retry behaviors
+        # Organized by category for maintainability
+        behaviors: dict[ErrorCode, RetryBehavior] = {
+            # E0xx: Execution errors
+            ErrorCode.EXECUTION_TIMEOUT: RetryBehavior(
+                delay_seconds=60.0,
+                is_retriable=True,
+                reason="Timeout - allow system to recover before retry",
+            ),
+            ErrorCode.EXECUTION_KILLED: RetryBehavior(
+                delay_seconds=30.0,
+                is_retriable=True,
+                reason="Process killed externally - may be transient",
+            ),
+            ErrorCode.EXECUTION_CRASHED: RetryBehavior(
+                delay_seconds=0.0,
+                is_retriable=False,
+                reason="Process crashed - likely a bug, not transient",
+            ),
+            ErrorCode.EXECUTION_INTERRUPTED: RetryBehavior(
+                delay_seconds=0.0,
+                is_retriable=False,
+                reason="User interrupted - respect user intent",
+            ),
+            ErrorCode.EXECUTION_OOM: RetryBehavior(
+                delay_seconds=0.0,
+                is_retriable=False,
+                reason="Out of memory - will likely recur",
+            ),
+            ErrorCode.EXECUTION_UNKNOWN: RetryBehavior(
+                delay_seconds=10.0,
+                is_retriable=True,
+                reason="Unknown execution error - attempt retry with backoff",
+            ),
+            # E1xx: Rate limit / capacity
+            ErrorCode.RATE_LIMIT_API: RetryBehavior(
+                delay_seconds=3600.0,  # 1 hour for API rate limits
+                is_retriable=True,
+                reason="API rate limit - wait for quota reset",
+            ),
+            ErrorCode.RATE_LIMIT_CLI: RetryBehavior(
+                delay_seconds=900.0,  # 15 minutes for CLI rate limits
+                is_retriable=True,
+                reason="CLI rate limit - shorter wait than API",
+            ),
+            ErrorCode.CAPACITY_EXCEEDED: RetryBehavior(
+                delay_seconds=300.0,  # 5 minutes for capacity
+                is_retriable=True,
+                reason="Service overloaded - wait for capacity",
+            ),
+            # E2xx: Validation errors
+            ErrorCode.VALIDATION_FILE_MISSING: RetryBehavior(
+                delay_seconds=5.0,
+                is_retriable=True,
+                reason="File not created - prompt may need adjustment",
+            ),
+            ErrorCode.VALIDATION_CONTENT_MISMATCH: RetryBehavior(
+                delay_seconds=5.0,
+                is_retriable=True,
+                reason="Content doesn't match - retry with same prompt",
+            ),
+            ErrorCode.VALIDATION_COMMAND_FAILED: RetryBehavior(
+                delay_seconds=10.0,
+                is_retriable=True,
+                reason="Validation command failed - may be transient",
+            ),
+            ErrorCode.VALIDATION_TIMEOUT: RetryBehavior(
+                delay_seconds=30.0,
+                is_retriable=True,
+                reason="Validation timed out - allow more time",
+            ),
+            ErrorCode.VALIDATION_GENERIC: RetryBehavior(
+                delay_seconds=5.0,
+                is_retriable=True,
+                reason="Validation needed - retry with validation",
+            ),
+            # E3xx: Configuration errors - generally not retriable
+            ErrorCode.CONFIG_INVALID: RetryBehavior(
+                delay_seconds=0.0,
+                is_retriable=False,
+                reason="Invalid config - requires user fix",
+            ),
+            ErrorCode.CONFIG_MISSING_FIELD: RetryBehavior(
+                delay_seconds=0.0,
+                is_retriable=False,
+                reason="Missing config field - requires user fix",
+            ),
+            ErrorCode.CONFIG_PATH_NOT_FOUND: RetryBehavior(
+                delay_seconds=0.0,
+                is_retriable=False,
+                reason="Config file not found - requires user fix",
+            ),
+            ErrorCode.CONFIG_PARSE_ERROR: RetryBehavior(
+                delay_seconds=0.0,
+                is_retriable=False,
+                reason="Config parse error - requires user fix",
+            ),
+            # E4xx: State errors
+            ErrorCode.STATE_CORRUPTION: RetryBehavior(
+                delay_seconds=0.0,
+                is_retriable=False,
+                reason="Corrupted state - requires manual recovery",
+            ),
+            ErrorCode.STATE_LOAD_FAILED: RetryBehavior(
+                delay_seconds=5.0,
+                is_retriable=True,
+                reason="State load failed - may be transient I/O",
+            ),
+            ErrorCode.STATE_SAVE_FAILED: RetryBehavior(
+                delay_seconds=5.0,
+                is_retriable=True,
+                reason="State save failed - may be transient I/O",
+            ),
+            ErrorCode.STATE_VERSION_MISMATCH: RetryBehavior(
+                delay_seconds=0.0,
+                is_retriable=False,
+                reason="State version mismatch - requires migration",
+            ),
+            # E5xx: Backend errors
+            ErrorCode.BACKEND_CONNECTION: RetryBehavior(
+                delay_seconds=30.0,
+                is_retriable=True,
+                reason="Backend connection failed - may recover",
+            ),
+            ErrorCode.BACKEND_AUTH: RetryBehavior(
+                delay_seconds=0.0,
+                is_retriable=False,
+                reason="Auth failed - requires credential fix",
+            ),
+            ErrorCode.BACKEND_RESPONSE: RetryBehavior(
+                delay_seconds=15.0,
+                is_retriable=True,
+                reason="Invalid backend response - may be transient",
+            ),
+            ErrorCode.BACKEND_TIMEOUT: RetryBehavior(
+                delay_seconds=60.0,
+                is_retriable=True,
+                reason="Backend timeout - allow recovery time",
+            ),
+            ErrorCode.BACKEND_NOT_FOUND: RetryBehavior(
+                delay_seconds=0.0,
+                is_retriable=False,
+                reason="Backend not found - requires installation",
+            ),
+            # E6xx: Preflight errors
+            ErrorCode.PREFLIGHT_PATH_MISSING: RetryBehavior(
+                delay_seconds=0.0,
+                is_retriable=False,
+                reason="Required path missing - requires user fix",
+            ),
+            ErrorCode.PREFLIGHT_PROMPT_TOO_LARGE: RetryBehavior(
+                delay_seconds=0.0,
+                is_retriable=False,
+                reason="Prompt too large - requires user fix",
+            ),
+            ErrorCode.PREFLIGHT_WORKING_DIR_INVALID: RetryBehavior(
+                delay_seconds=0.0,
+                is_retriable=False,
+                reason="Invalid working dir - requires user fix",
+            ),
+            ErrorCode.PREFLIGHT_VALIDATION_SETUP: RetryBehavior(
+                delay_seconds=0.0,
+                is_retriable=False,
+                reason="Invalid validation setup - requires user fix",
+            ),
+            # E9xx: Transient/network errors
+            ErrorCode.NETWORK_CONNECTION_FAILED: RetryBehavior(
+                delay_seconds=30.0,
+                is_retriable=True,
+                reason="Network connection failed - may recover",
+            ),
+            ErrorCode.NETWORK_DNS_ERROR: RetryBehavior(
+                delay_seconds=30.0,
+                is_retriable=True,
+                reason="DNS error - may be transient",
+            ),
+            ErrorCode.NETWORK_SSL_ERROR: RetryBehavior(
+                delay_seconds=30.0,
+                is_retriable=True,
+                reason="SSL error - may be transient",
+            ),
+            ErrorCode.NETWORK_TIMEOUT: RetryBehavior(
+                delay_seconds=60.0,
+                is_retriable=True,
+                reason="Network timeout - allow recovery time",
+            ),
+            # Fallback
+            ErrorCode.UNKNOWN: RetryBehavior(
+                delay_seconds=30.0,
+                is_retriable=True,
+                reason="Unknown error - attempt retry with backoff",
+            ),
+        }
+
+        # Return specific behavior or a sensible default
+        return behaviors.get(
+            self,
+            RetryBehavior(
+                delay_seconds=30.0,
+                is_retriable=self.is_retriable,
+                reason=f"Default behavior for {self.value}",
+            ),
+        )
 
 
 class ErrorCategory(str, Enum):

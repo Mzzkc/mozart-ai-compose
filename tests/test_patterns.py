@@ -500,3 +500,245 @@ class TestDetectedPattern:
         assert pattern.confidence == 0.5
         assert pattern.context_tags == []
         assert pattern.evidence == []
+
+    def test_semantic_failure_guidance(self) -> None:
+        """Test prompt guidance for semantic failure pattern."""
+        pattern = DetectedPattern(
+            pattern_type=PatternType.SEMANTIC_FAILURE,
+            description="'stale' failures are common",
+            frequency=5,
+        )
+        guidance = pattern.to_prompt_guidance()
+
+        assert "🔍" in guidance
+        assert "Semantic insight" in guidance
+        assert "stale" in guidance
+        assert "5x" in guidance
+
+
+# =============================================================================
+# TestSemanticPatterns
+# =============================================================================
+
+
+class TestSemanticPatterns:
+    """Tests for semantic pattern detection (Evolution: Deep Validation-Learning)."""
+
+    def test_detect_semantic_category_patterns(self) -> None:
+        """Test detection of patterns from failure_category."""
+        outcomes = [
+            SheetOutcome(
+                sheet_id=f"job1-sheet{i}",
+                job_id="job1",
+                validation_results=[
+                    {
+                        "rule_type": "file_exists",
+                        "passed": False,
+                        "confidence": 1.0,
+                        "failure_category": "missing",
+                        "failure_reason": "File was not created",
+                    },
+                ],
+                execution_duration=30.0,
+                retry_count=1,
+                completion_mode_used=False,
+                final_status=SheetStatus.FAILED,
+                validation_pass_rate=0.0,
+                first_attempt_success=False,
+            )
+            for i in range(3)
+        ]
+
+        detector = PatternDetector(outcomes)
+        patterns = detector.detect_all()
+
+        semantic_patterns = [
+            p for p in patterns if p.pattern_type == PatternType.SEMANTIC_FAILURE
+        ]
+        assert len(semantic_patterns) >= 1
+
+        # Should detect 'missing' category pattern
+        missing_pattern = next(
+            (p for p in semantic_patterns if "missing" in p.description.lower()),
+            None,
+        )
+        assert missing_pattern is not None
+        assert missing_pattern.frequency >= 2
+
+    def test_detect_semantic_reason_patterns(self) -> None:
+        """Test detection of patterns from failure_reason normalization."""
+        # Use a failure_reason that will match one of our normalized patterns
+        outcomes = [
+            SheetOutcome(
+                sheet_id=f"job1-sheet{i}",
+                job_id="job1",
+                validation_results=[
+                    {
+                        "rule_type": "content_contains",
+                        "passed": False,
+                        "confidence": 1.0,
+                        "failure_category": "malformed",
+                        "failure_reason": "Pattern not found in the output",  # "pattern not found" will match
+                    },
+                ],
+                execution_duration=30.0,
+                retry_count=1,
+                completion_mode_used=False,
+                final_status=SheetStatus.FAILED,
+                validation_pass_rate=0.0,
+                first_attempt_success=False,
+            )
+            for i in range(3)
+        ]
+
+        detector = PatternDetector(outcomes)
+        patterns = detector.detect_all()
+
+        semantic_patterns = [
+            p for p in patterns if p.pattern_type == PatternType.SEMANTIC_FAILURE
+        ]
+        assert len(semantic_patterns) >= 1
+
+        # Should detect 'pattern not found' reason pattern (normalized form)
+        reason_pattern = next(
+            (p for p in semantic_patterns if "pattern not found" in p.description.lower()),
+            None,
+        )
+        assert reason_pattern is not None
+
+    def test_detect_fix_suggestion_patterns(self) -> None:
+        """Test detection of patterns from recurring fix suggestions."""
+        fix_text = "Ensure file is created in workspace/"
+        outcomes = [
+            SheetOutcome(
+                sheet_id=f"job1-sheet{i}",
+                job_id="job1",
+                validation_results=[
+                    {
+                        "rule_type": "file_exists",
+                        "passed": False,
+                        "confidence": 1.0,
+                        "failure_category": "missing",
+                        "failure_reason": "File not created",
+                        "suggested_fix": fix_text,
+                    },
+                ],
+                execution_duration=30.0,
+                retry_count=1,
+                completion_mode_used=False,
+                final_status=SheetStatus.FAILED,
+                validation_pass_rate=0.0,
+                first_attempt_success=False,
+            )
+            for i in range(4)  # Need >= 3 to trigger pattern
+        ]
+
+        detector = PatternDetector(outcomes)
+        patterns = detector.detect_all()
+
+        semantic_patterns = [
+            p for p in patterns if p.pattern_type == PatternType.SEMANTIC_FAILURE
+        ]
+
+        # Should detect fix suggestion pattern
+        fix_pattern = next(
+            (p for p in semantic_patterns if "suggested fix" in p.description.lower()),
+            None,
+        )
+        assert fix_pattern is not None
+        assert fix_pattern.frequency >= 3
+
+    def test_outcome_semantic_fields_persistence(self) -> None:
+        """Test that semantic fields are properly stored in SheetOutcome."""
+        outcome = SheetOutcome(
+            sheet_id="job1-sheet1",
+            job_id="job1",
+            validation_results=[],
+            execution_duration=30.0,
+            retry_count=0,
+            completion_mode_used=False,
+            final_status=SheetStatus.COMPLETED,
+            validation_pass_rate=1.0,
+            first_attempt_success=True,
+            failure_category_counts={"missing": 2, "stale": 1},
+            semantic_patterns=["file not created", "content empty"],
+            fix_suggestions=["Add proper import", "Create directory first"],
+        )
+
+        assert outcome.failure_category_counts == {"missing": 2, "stale": 1}
+        assert outcome.semantic_patterns == ["file not created", "content empty"]
+        assert len(outcome.fix_suggestions) == 2
+
+    def test_normalize_failure_reason(self) -> None:
+        """Test failure_reason normalization for aggregation."""
+        detector = PatternDetector([])
+
+        # Test common pattern extraction - patterns must contain exact substring
+        assert detector._normalize_failure_reason("file not created during execution") == "file not created"
+        assert detector._normalize_failure_reason("Error: pattern not found in output") == "pattern not found"
+        assert detector._normalize_failure_reason("command failed with exit code 1") == "command failed"
+        assert detector._normalize_failure_reason("Timeout after 60 seconds") == "timeout"
+
+        # Test that phrases only partially matching get full normalized string
+        # (when under 50 chars)
+        result = detector._normalize_failure_reason("short error")
+        assert result == "short error"
+
+        # Test empty handling
+        assert detector._normalize_failure_reason("") == ""
+
+        # Test whitespace-only is normalized to empty
+        result = detector._normalize_failure_reason("   ")
+        # After strip, whitespace becomes ""
+        assert result == ""
+
+        # Test very long strings are ignored (too specific)
+        long_reason = "A" * 100
+        assert detector._normalize_failure_reason(long_reason) == ""
+
+    def test_semantic_patterns_with_pre_aggregated_data(self) -> None:
+        """Test semantic pattern detection using pre-aggregated SheetOutcome fields."""
+        outcomes = [
+            SheetOutcome(
+                sheet_id="job1-sheet1",
+                job_id="job1",
+                validation_results=[],  # Empty - using pre-aggregated instead
+                execution_duration=30.0,
+                retry_count=1,
+                completion_mode_used=False,
+                final_status=SheetStatus.FAILED,
+                validation_pass_rate=0.0,
+                first_attempt_success=False,
+                failure_category_counts={"stale": 3},
+                semantic_patterns=["file not modified"],
+            ),
+            SheetOutcome(
+                sheet_id="job1-sheet2",
+                job_id="job1",
+                validation_results=[],
+                execution_duration=30.0,
+                retry_count=1,
+                completion_mode_used=False,
+                final_status=SheetStatus.FAILED,
+                validation_pass_rate=0.0,
+                first_attempt_success=False,
+                failure_category_counts={"stale": 2},
+                semantic_patterns=["file not modified"],
+            ),
+        ]
+
+        detector = PatternDetector(outcomes)
+        patterns = detector.detect_all()
+
+        semantic_patterns = [
+            p for p in patterns if p.pattern_type == PatternType.SEMANTIC_FAILURE
+        ]
+        assert len(semantic_patterns) >= 1
+
+        # Should detect 'stale' pattern from pre-aggregated counts (3+2=5)
+        stale_pattern = next(
+            (p for p in semantic_patterns if "stale" in p.description.lower()),
+            None,
+        )
+        assert stale_pattern is not None
+        assert stale_pattern.frequency >= 5

@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from mozart.core.errors import ClassifiedError, ErrorCategory, ErrorCode
+from mozart.core.errors import ClassifiedError, ErrorCategory, ErrorCode, RetryBehavior
 from mozart.execution.retry_strategy import (
     AdaptiveRetryStrategy,
     ErrorRecord,
@@ -416,7 +416,7 @@ class TestRetryRecommendations:
     """Tests for retry recommendations."""
 
     def test_standard_exponential_backoff(self) -> None:
-        """Test standard exponential backoff for simple errors."""
+        """Test standard retry using ErrorCode-specific delays (or exponential backoff fallback)."""
         strategy = AdaptiveRetryStrategy(
             config=RetryStrategyConfig(
                 base_delay=10.0,
@@ -425,7 +425,7 @@ class TestRetryRecommendations:
             )
         )
 
-        # Single transient error
+        # Single transient error - EXECUTION_UNKNOWN has ErrorCode-specific delay of 10s
         record = ErrorRecord(
             timestamp=datetime.now(UTC),
             error_code=ErrorCode.EXECUTION_UNKNOWN,
@@ -438,8 +438,9 @@ class TestRetryRecommendations:
 
         assert rec.should_retry is True
         assert rec.detected_pattern == RetryPattern.NONE
-        assert rec.strategy_used == "exponential_backoff"
-        # First attempt: base_delay * (2^0) = 10.0
+        # Now uses ErrorCode-specific strategy (EXECUTION_UNKNOWN has 10s delay)
+        assert rec.strategy_used == "error_code_specific"
+        # EXECUTION_UNKNOWN has base delay of 10.0s
         assert rec.delay_seconds == 10.0
 
     def test_exponential_backoff_increases(self) -> None:
@@ -512,6 +513,7 @@ class TestRetryRecommendations:
             )
         )
 
+        # Use EXECUTION_UNKNOWN which has 10s ErrorCode-specific delay
         record = ErrorRecord(
             timestamp=datetime.now(UTC),
             error_code=ErrorCode.EXECUTION_UNKNOWN,
@@ -523,9 +525,10 @@ class TestRetryRecommendations:
         # Run multiple times and check for variation
         delays = [strategy.analyze([record]).delay_seconds for _ in range(10)]
 
-        # With 25% jitter on 100s, delays should range from 100 to 125
-        # All delays should be >= base_delay
-        assert all(d >= 100.0 for d in delays)
+        # EXECUTION_UNKNOWN has 10s base, with 25% jitter: 10-12.5s range
+        # All delays should be >= ErrorCode-specific delay
+        assert all(d >= 10.0 for d in delays)
+        assert all(d <= 12.5 for d in delays)
         # With jitter, should have some variation
         # (Though randomness could theoretically give all same values)
 
@@ -690,3 +693,285 @@ class TestIntegration:
 
         assert rec.should_retry is True
         assert rec.delay_seconds >= 10.0  # At least base delay
+
+
+# ============================================================================
+# ErrorCode.get_retry_behavior Tests
+# ============================================================================
+
+
+class TestRetryBehavior:
+    """Tests for RetryBehavior and ErrorCode.get_retry_behavior()."""
+
+    def test_retry_behavior_is_named_tuple(self) -> None:
+        """Test that RetryBehavior is a proper NamedTuple."""
+        behavior = RetryBehavior(
+            delay_seconds=60.0,
+            is_retriable=True,
+            reason="Test behavior",
+        )
+
+        assert behavior.delay_seconds == 60.0
+        assert behavior.is_retriable is True
+        assert behavior.reason == "Test behavior"
+        # NamedTuple supports indexing
+        assert behavior[0] == 60.0
+        assert behavior[1] is True
+        assert behavior[2] == "Test behavior"
+
+    def test_rate_limit_api_has_long_delay(self) -> None:
+        """Test that API rate limits have long delay (1 hour)."""
+        behavior = ErrorCode.RATE_LIMIT_API.get_retry_behavior()
+
+        assert behavior.delay_seconds == 3600.0  # 1 hour
+        assert behavior.is_retriable is True
+        assert "quota" in behavior.reason.lower() or "rate" in behavior.reason.lower()
+
+    def test_rate_limit_cli_has_shorter_delay(self) -> None:
+        """Test that CLI rate limits have shorter delay than API."""
+        api_behavior = ErrorCode.RATE_LIMIT_API.get_retry_behavior()
+        cli_behavior = ErrorCode.RATE_LIMIT_CLI.get_retry_behavior()
+
+        assert cli_behavior.delay_seconds < api_behavior.delay_seconds
+        assert cli_behavior.delay_seconds == 900.0  # 15 minutes
+        assert cli_behavior.is_retriable is True
+
+    def test_execution_timeout_is_retriable(self) -> None:
+        """Test that execution timeout is retriable with moderate delay."""
+        behavior = ErrorCode.EXECUTION_TIMEOUT.get_retry_behavior()
+
+        assert behavior.is_retriable is True
+        assert behavior.delay_seconds == 60.0
+        assert "timeout" in behavior.reason.lower()
+
+    def test_execution_crashed_not_retriable(self) -> None:
+        """Test that crashes are not retriable."""
+        behavior = ErrorCode.EXECUTION_CRASHED.get_retry_behavior()
+
+        assert behavior.is_retriable is False
+        assert behavior.delay_seconds == 0.0
+        assert "crash" in behavior.reason.lower()
+
+    def test_execution_oom_not_retriable(self) -> None:
+        """Test that OOM errors are not retriable."""
+        behavior = ErrorCode.EXECUTION_OOM.get_retry_behavior()
+
+        assert behavior.is_retriable is False
+        assert "memory" in behavior.reason.lower() or "recur" in behavior.reason.lower()
+
+    def test_config_errors_not_retriable(self) -> None:
+        """Test that configuration errors are not retriable."""
+        config_codes = [
+            ErrorCode.CONFIG_INVALID,
+            ErrorCode.CONFIG_MISSING_FIELD,
+            ErrorCode.CONFIG_PATH_NOT_FOUND,
+            ErrorCode.CONFIG_PARSE_ERROR,
+        ]
+
+        for code in config_codes:
+            behavior = code.get_retry_behavior()
+            assert behavior.is_retriable is False, f"{code} should not be retriable"
+            assert behavior.delay_seconds == 0.0, f"{code} should have 0 delay"
+            assert "user" in behavior.reason.lower() or "fix" in behavior.reason.lower()
+
+    def test_backend_auth_not_retriable(self) -> None:
+        """Test that auth failures are not retriable."""
+        behavior = ErrorCode.BACKEND_AUTH.get_retry_behavior()
+
+        assert behavior.is_retriable is False
+        assert "auth" in behavior.reason.lower() or "credential" in behavior.reason.lower()
+
+    def test_network_errors_retriable_with_moderate_delay(self) -> None:
+        """Test that network errors are retriable with moderate delay."""
+        network_codes = [
+            ErrorCode.NETWORK_CONNECTION_FAILED,
+            ErrorCode.NETWORK_DNS_ERROR,
+            ErrorCode.NETWORK_SSL_ERROR,
+            ErrorCode.NETWORK_TIMEOUT,
+        ]
+
+        for code in network_codes:
+            behavior = code.get_retry_behavior()
+            assert behavior.is_retriable is True, f"{code} should be retriable"
+            assert 30.0 <= behavior.delay_seconds <= 60.0, \
+                f"{code} should have 30-60s delay, got {behavior.delay_seconds}"
+
+    def test_validation_errors_retriable_with_short_delay(self) -> None:
+        """Test that validation errors are retriable with short delay."""
+        validation_codes = [
+            ErrorCode.VALIDATION_FILE_MISSING,
+            ErrorCode.VALIDATION_CONTENT_MISMATCH,
+            ErrorCode.VALIDATION_GENERIC,
+        ]
+
+        for code in validation_codes:
+            behavior = code.get_retry_behavior()
+            assert behavior.is_retriable is True, f"{code} should be retriable"
+            assert behavior.delay_seconds <= 10.0, \
+                f"{code} should have short delay, got {behavior.delay_seconds}"
+
+    def test_all_error_codes_have_behavior(self) -> None:
+        """Test that all ErrorCodes return a valid RetryBehavior."""
+        for code in ErrorCode:
+            behavior = code.get_retry_behavior()
+            assert isinstance(behavior, RetryBehavior)
+            assert isinstance(behavior.delay_seconds, (int, float))
+            assert isinstance(behavior.is_retriable, bool)
+            assert isinstance(behavior.reason, str)
+            assert len(behavior.reason) > 0
+
+
+# ============================================================================
+# ErrorCode-Specific Retry Strategy Tests
+# ============================================================================
+
+
+class TestErrorCodeSpecificRetry:
+    """Tests for ErrorCode-specific retry behavior in AdaptiveRetryStrategy."""
+
+    def test_strategy_uses_error_code_delay(self) -> None:
+        """Test that strategy uses ErrorCode-specific delay for standard retry."""
+        strategy = AdaptiveRetryStrategy(
+            config=RetryStrategyConfig(
+                base_delay=10.0,
+                jitter_factor=0.0,  # No jitter for predictable testing
+            )
+        )
+
+        # Network timeout has specific delay of 60s
+        record = ErrorRecord(
+            timestamp=datetime.now(UTC),
+            error_code=ErrorCode.NETWORK_TIMEOUT,
+            category=ErrorCategory.NETWORK,
+            message="Network timeout",
+            retriable=True,
+            # No suggested_wait - should use ErrorCode-specific
+        )
+
+        rec = strategy.analyze([record])
+
+        assert rec.should_retry is True
+        # Should use ErrorCode's 60s, not base_delay's 10s
+        assert rec.delay_seconds >= 60.0
+        assert rec.strategy_used == "error_code_specific"
+
+    def test_strategy_detects_non_retriable_error_code(self) -> None:
+        """Test that strategy respects ErrorCode.is_retriable when no pattern."""
+        strategy = AdaptiveRetryStrategy()
+
+        # OOM is not retriable per ErrorCode
+        record = ErrorRecord(
+            timestamp=datetime.now(UTC),
+            error_code=ErrorCode.EXECUTION_OOM,
+            category=ErrorCategory.FATAL,  # Category says fatal
+            message="Out of memory",
+            retriable=True,  # Record says retriable (but ErrorCode overrides)
+        )
+
+        rec = strategy.analyze([record])
+
+        # ErrorCode.EXECUTION_OOM.get_retry_behavior() says not retriable
+        assert rec.should_retry is False
+        assert "E005" in rec.reason or "not retriable" in rec.reason.lower()
+
+    def test_different_error_codes_different_delays(self) -> None:
+        """Test that different ErrorCodes produce different delays."""
+        strategy = AdaptiveRetryStrategy(
+            config=RetryStrategyConfig(jitter_factor=0.0)
+        )
+
+        # Rate limit API: 3600s
+        rate_limit_rec = ErrorRecord(
+            timestamp=datetime.now(UTC),
+            error_code=ErrorCode.RATE_LIMIT_API,
+            category=ErrorCategory.RATE_LIMIT,
+            message="Rate limited",
+            retriable=True,
+        )
+
+        # Validation missing: 5s
+        validation_rec = ErrorRecord(
+            timestamp=datetime.now(UTC),
+            error_code=ErrorCode.VALIDATION_FILE_MISSING,
+            category=ErrorCategory.VALIDATION,
+            message="File missing",
+            retriable=True,
+        )
+
+        rate_result = strategy.analyze([rate_limit_rec])
+        val_result = strategy.analyze([validation_rec])
+
+        # Rate limit uses rate_limit_wait strategy (pattern-based)
+        assert rate_result.delay_seconds >= 3600.0
+
+        # Validation uses ErrorCode-specific (5s base)
+        assert val_result.delay_seconds < 100.0  # Much shorter
+        assert val_result.delay_seconds >= 5.0
+
+    def test_error_code_delay_scales_with_attempts(self) -> None:
+        """Test that ErrorCode delay scales mildly with attempt count."""
+        strategy = AdaptiveRetryStrategy(
+            config=RetryStrategyConfig(
+                base_delay=10.0,
+                jitter_factor=0.0,
+                # Increase threshold to prevent repeated_error pattern
+                repeated_error_threshold=5,
+                repeated_error_strategy_change_threshold=6,
+            )
+        )
+
+        base_time = time.monotonic() - 200
+
+        # Backend connection error: 30s base
+        # First attempt
+        single_error = [
+            ErrorRecord(
+                timestamp=datetime.now(UTC),
+                error_code=ErrorCode.BACKEND_CONNECTION,
+                category=ErrorCategory.NETWORK,
+                message="Connection failed",
+                retriable=True,
+                monotonic_time=base_time,
+            )
+        ]
+
+        # Third attempt (3 errors spread out) - use different error codes to avoid
+        # repeated_error pattern, while testing delay scaling
+        three_errors = [
+            ErrorRecord(
+                timestamp=datetime.now(UTC),
+                error_code=ErrorCode.NETWORK_CONNECTION_FAILED,
+                category=ErrorCategory.NETWORK,
+                message="Connection failed 1",
+                retriable=True,
+                monotonic_time=base_time,
+            ),
+            ErrorRecord(
+                timestamp=datetime.now(UTC),
+                error_code=ErrorCode.NETWORK_TIMEOUT,
+                category=ErrorCategory.NETWORK,
+                message="Timeout 2",
+                retriable=True,
+                monotonic_time=base_time + 100,
+            ),
+            ErrorRecord(
+                timestamp=datetime.now(UTC),
+                error_code=ErrorCode.BACKEND_CONNECTION,
+                category=ErrorCategory.NETWORK,
+                message="Connection failed 3",
+                retriable=True,
+                monotonic_time=base_time + 200,
+            ),
+        ]
+
+        rec1 = strategy.analyze(single_error)
+        rec3 = strategy.analyze(three_errors)
+
+        # First attempt uses base ErrorCode delay (30s for BACKEND_CONNECTION)
+        assert rec1.delay_seconds == 30.0
+
+        # Third attempt should have higher delay due to attempt count scaling
+        # or may trigger cascading_failures pattern (which also increases delay)
+        assert rec3.should_retry is True
+        # Delay should be at least the ErrorCode-specific base
+        assert rec3.delay_seconds >= 30.0

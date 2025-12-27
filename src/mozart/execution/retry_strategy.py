@@ -35,7 +35,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from mozart.core.errors import ClassifiedError, ErrorCategory, ErrorCode
+from mozart.core.errors import ClassifiedError, ErrorCategory, ErrorCode, RetryBehavior
 from mozart.core.logging import get_logger
 
 if TYPE_CHECKING:
@@ -715,9 +715,11 @@ class AdaptiveRetryStrategy:
         attempt_count: int,
         max_retries: int | None,
     ) -> RetryRecommendation:
-        """Recommend standard exponential backoff retry.
+        """Recommend standard retry using ErrorCode-specific behavior.
 
-        This is the default strategy when no specific pattern is detected.
+        Uses ErrorCode.get_retry_behavior() for precise delay recommendations
+        rather than generic exponential backoff. Falls back to exponential
+        backoff if no error code available.
 
         Args:
             error: The latest error.
@@ -725,27 +727,54 @@ class AdaptiveRetryStrategy:
             max_retries: Maximum retries allowed.
 
         Returns:
-            RetryRecommendation with standard backoff.
+            RetryRecommendation with ErrorCode-specific or standard backoff.
         """
-        # Use suggested wait if available, otherwise exponential backoff
-        if error.suggested_wait:
-            delay = min(error.suggested_wait, self.config.max_delay)
+        # Get ErrorCode-specific retry behavior
+        retry_behavior = error.error_code.get_retry_behavior()
+
+        # Check if ErrorCode says this is not retriable
+        if not retry_behavior.is_retriable:
+            return RetryRecommendation(
+                should_retry=False,
+                delay_seconds=0,
+                reason=f"ErrorCode {error.error_code.value} not retriable: {retry_behavior.reason}",
+                confidence=0.90,
+                detected_pattern=RetryPattern.NONE,
+                strategy_used="error_code_not_retriable",
+            )
+
+        # Determine delay: ErrorCode-specific > suggested_wait > exponential backoff
+        if retry_behavior.delay_seconds > 0:
+            # Use ErrorCode-specific delay as base, scale with attempt count
+            base_delay = retry_behavior.delay_seconds
+            # Mild exponential increase for repeated errors (1.5x per attempt, capped)
+            delay = base_delay * min(1.5 ** (attempt_count - 1), 4.0)
+            strategy_used = "error_code_specific"
+            reason_detail = retry_behavior.reason
+        elif error.suggested_wait:
+            # Fall back to classifier's suggested wait
+            delay = error.suggested_wait
+            strategy_used = "suggested_wait"
+            reason_detail = "using classifier's suggested wait"
         else:
+            # Fall back to exponential backoff
             delay = self.config.base_delay * (
                 self.config.exponential_base ** (attempt_count - 1)
             )
-            delay = min(delay, self.config.max_delay)
+            strategy_used = "exponential_backoff"
+            reason_detail = "using exponential backoff"
 
+        delay = min(delay, self.config.max_delay)
         delay = self._apply_jitter(delay)
         confidence = self._calculate_confidence(attempt_count, max_retries)
 
         return RetryRecommendation(
             should_retry=True,
             delay_seconds=delay,
-            reason=f"Standard retry with exponential backoff (attempt {attempt_count})",
+            reason=f"Retry (attempt {attempt_count}): {reason_detail}",
             confidence=confidence,
             detected_pattern=RetryPattern.NONE,
-            strategy_used="exponential_backoff",
+            strategy_used=strategy_used,
         )
 
     def _recommend_no_retry(
@@ -826,6 +855,7 @@ class AdaptiveRetryStrategy:
 __all__ = [
     "AdaptiveRetryStrategy",
     "ErrorRecord",
+    "RetryBehavior",
     "RetryPattern",
     "RetryRecommendation",
     "RetryStrategyConfig",

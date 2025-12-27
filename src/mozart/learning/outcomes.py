@@ -31,6 +31,27 @@ class SheetOutcome:
     patterns_detected: list[str] = field(default_factory=list)
     timestamp: datetime = field(default_factory=datetime.now)
 
+    # Semantic validation fields (Evolution: Deep Validation-Learning)
+    failure_category_counts: dict[str, int] = field(default_factory=dict)
+    """Counts of each failure category from validation results.
+
+    Example: {'missing': 2, 'stale': 1, 'malformed': 0}
+    Categories: missing, malformed, incomplete, stale, error
+    """
+
+    semantic_patterns: list[str] = field(default_factory=list)
+    """Extracted semantic patterns from failure_reason fields.
+
+    Example: ['file not created', 'pattern not found', 'content empty']
+    These are normalized phrases that can be aggregated across outcomes.
+    """
+
+    fix_suggestions: list[str] = field(default_factory=list)
+    """Collected suggested_fix values from failed validations.
+
+    Example: ['Ensure file is created in workspace/', 'Add missing import']
+    """
+
 
 @runtime_checkable
 class OutcomeStore(Protocol):
@@ -206,6 +227,10 @@ class JsonOutcomeStore:
                     "first_attempt_success": o.first_attempt_success,
                     "patterns_detected": o.patterns_detected,
                     "timestamp": o.timestamp.isoformat(),
+                    # Semantic validation fields (Evolution: Deep Validation-Learning)
+                    "failure_category_counts": o.failure_category_counts,
+                    "semantic_patterns": o.semantic_patterns,
+                    "fix_suggestions": o.fix_suggestions,
                 }
                 for o in self._outcomes
             ]
@@ -247,6 +272,10 @@ class JsonOutcomeStore:
                 first_attempt_success=o["first_attempt_success"],
                 patterns_detected=o.get("patterns_detected", []),
                 timestamp=datetime.fromisoformat(o["timestamp"]),
+                # Semantic validation fields (Evolution: Deep Validation-Learning)
+                failure_category_counts=o.get("failure_category_counts", {}),
+                semantic_patterns=o.get("semantic_patterns", []),
+                fix_suggestions=o.get("fix_suggestions", []),
             )
             for o in data.get("outcomes", [])
         ]
