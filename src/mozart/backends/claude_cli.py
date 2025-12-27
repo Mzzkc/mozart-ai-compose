@@ -477,6 +477,8 @@ class ClaudeCliBackend(Backend):
             r"429",
             r"capacity",
             r"try again later",
+            r"hit.{0,10}limit",  # "You've hit your limit"
+            r"limit.{0,10}resets?",  # "limit · resets 9pm"
         ]
         combined = f"{stdout}\n{stderr}".lower()
         return any(re.search(p, combined, re.IGNORECASE) for p in patterns)
