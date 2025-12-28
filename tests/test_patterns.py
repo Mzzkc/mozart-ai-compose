@@ -692,9 +692,24 @@ class TestSemanticPatterns:
         # After strip, whitespace becomes ""
         assert result == ""
 
-        # Test very long strings are ignored (too specific)
+        # Test very long strings without keywords are ignored (too specific)
         long_reason = "A" * 100
         assert detector._normalize_failure_reason(long_reason) == ""
+
+        # Test that long strings WITH keywords extract the keyword (Issue #8 fix)
+        long_with_timeout = "connection to database at localhost:5432 failed with timeout after 30s"
+        assert detector._normalize_failure_reason(long_with_timeout) == "timeout"
+
+        long_with_rate_limit = "API request failed: rate limit exceeded after 5 retries, please wait before trying again"
+        assert detector._normalize_failure_reason(long_with_rate_limit) == "rate limit"
+
+        long_with_connection = "Unable to establish connection to the remote server at https://api.example.com"
+        assert detector._normalize_failure_reason(long_with_connection) == "connection"
+
+        # Test new keywords added in Issue #8 fix
+        assert detector._normalize_failure_reason("connection refused by host") == "connection refused"
+        assert detector._normalize_failure_reason("authentication required") == "authentication"
+        assert detector._normalize_failure_reason("access denied for user") == "access denied"
 
     def test_semantic_patterns_with_pre_aggregated_data(self) -> None:
         """Test semantic pattern detection using pre-aggregated SheetOutcome fields."""
@@ -742,3 +757,224 @@ class TestSemanticPatterns:
         )
         assert stale_pattern is not None
         assert stale_pattern.frequency >= 5
+
+
+# =============================================================================
+# TestPatternEffectiveness (Evolution: Pattern Effectiveness Tracking)
+# =============================================================================
+
+
+class TestPatternEffectiveness:
+    """Tests for pattern effectiveness tracking."""
+
+    def test_effectiveness_rate_default_with_few_applications(self) -> None:
+        """Test that effectiveness_rate returns 0.4 with < 3 applications.
+
+        Returns 0.4 (slightly below neutral) to prefer proven patterns
+        over unproven ones.
+        """
+        pattern = DetectedPattern(
+            pattern_type=PatternType.VALIDATION_FAILURE,
+            description="test pattern",
+            applications=2,
+            successes_after_application=2,  # Would be 100% but too few samples
+        )
+
+        # Should return default 0.4 because applications < 3
+        # 0.4 is below neutral to slightly penalize unproven patterns
+        assert pattern.effectiveness_rate == 0.4
+
+    def test_effectiveness_rate_calculated_with_enough_applications(self) -> None:
+        """Test that effectiveness_rate is calculated with >= 3 applications."""
+        pattern = DetectedPattern(
+            pattern_type=PatternType.VALIDATION_FAILURE,
+            description="test pattern",
+            applications=5,
+            successes_after_application=3,
+        )
+
+        # 3/5 = 0.6
+        assert pattern.effectiveness_rate == 0.6
+
+    def test_effectiveness_weight_ramps_up(self) -> None:
+        """Test that effectiveness_weight increases with applications."""
+        pattern_0 = DetectedPattern(
+            pattern_type=PatternType.VALIDATION_FAILURE,
+            description="test",
+            applications=0,
+        )
+        pattern_2 = DetectedPattern(
+            pattern_type=PatternType.VALIDATION_FAILURE,
+            description="test",
+            applications=2,
+        )
+        pattern_5 = DetectedPattern(
+            pattern_type=PatternType.VALIDATION_FAILURE,
+            description="test",
+            applications=5,
+        )
+        pattern_10 = DetectedPattern(
+            pattern_type=PatternType.VALIDATION_FAILURE,
+            description="test",
+            applications=10,
+        )
+
+        assert pattern_0.effectiveness_weight == 0.0
+        assert pattern_2.effectiveness_weight == 0.4
+        assert pattern_5.effectiveness_weight == 1.0
+        assert pattern_10.effectiveness_weight == 1.0  # Capped at 1.0
+
+    def test_effectiveness_calculated_from_patterns_applied(self) -> None:
+        """Test that detector calculates effectiveness from patterns_applied."""
+        # Create outcomes where a specific pattern was applied
+        # The pattern description must match exactly what to_prompt_guidance() generates
+        # With 4 outcomes that have file_exists failures, frequency=4, so "(seen 4x)"
+        pattern_desc = "⚠️ Common issue: 'file_exists' validation tends to fail (seen 4x)"
+
+        outcomes = [
+            # Outcome 1: pattern applied, succeeded
+            SheetOutcome(
+                sheet_id="job1-sheet1",
+                job_id="job1",
+                validation_results=[
+                    {"rule_type": "file_exists", "passed": False}
+                ],
+                execution_duration=30.0,
+                retry_count=0,
+                completion_mode_used=False,
+                final_status=SheetStatus.COMPLETED,
+                validation_pass_rate=0.0,
+                first_attempt_success=True,
+                patterns_applied=[pattern_desc],
+            ),
+            # Outcome 2: pattern applied, succeeded
+            SheetOutcome(
+                sheet_id="job1-sheet2",
+                job_id="job1",
+                validation_results=[
+                    {"rule_type": "file_exists", "passed": False}
+                ],
+                execution_duration=30.0,
+                retry_count=0,
+                completion_mode_used=False,
+                final_status=SheetStatus.COMPLETED,
+                validation_pass_rate=0.0,
+                first_attempt_success=True,
+                patterns_applied=[pattern_desc],
+            ),
+            # Outcome 3: pattern applied, failed
+            SheetOutcome(
+                sheet_id="job1-sheet3",
+                job_id="job1",
+                validation_results=[
+                    {"rule_type": "file_exists", "passed": False}
+                ],
+                execution_duration=30.0,
+                retry_count=1,
+                completion_mode_used=False,
+                final_status=SheetStatus.FAILED,
+                validation_pass_rate=0.0,
+                first_attempt_success=False,
+                patterns_applied=[pattern_desc],
+            ),
+            # Outcome 4: pattern applied, succeeded
+            SheetOutcome(
+                sheet_id="job1-sheet4",
+                job_id="job1",
+                validation_results=[
+                    {"rule_type": "file_exists", "passed": False}
+                ],
+                execution_duration=30.0,
+                retry_count=0,
+                completion_mode_used=False,
+                final_status=SheetStatus.COMPLETED,
+                validation_pass_rate=0.0,
+                first_attempt_success=True,
+                patterns_applied=[pattern_desc],
+            ),
+        ]
+
+        detector = PatternDetector(outcomes)
+        patterns = detector.detect_all()
+
+        # Find the file_exists pattern
+        file_exists_pattern = next(
+            (
+                p
+                for p in patterns
+                if p.pattern_type == PatternType.VALIDATION_FAILURE
+                and "file_exists" in p.description
+            ),
+            None,
+        )
+
+        assert file_exists_pattern is not None
+        # The pattern_desc matches the generated guidance, so should be tracked
+        # 4 applications, 3 successes = 75%
+        assert file_exists_pattern.applications == 4
+        assert file_exists_pattern.successes_after_application == 3
+        assert file_exists_pattern.effectiveness_rate == 0.75
+
+    def test_effective_patterns_weighted_higher_in_matching(self) -> None:
+        """Test that patterns with high effectiveness score higher in matching."""
+        # Create two patterns with same base properties but different effectiveness
+        low_eff_pattern = DetectedPattern(
+            pattern_type=PatternType.VALIDATION_FAILURE,
+            description="low effectiveness pattern",
+            frequency=5,
+            confidence=0.7,
+            applications=10,
+            successes_after_application=2,  # 20% effectiveness
+        )
+        high_eff_pattern = DetectedPattern(
+            pattern_type=PatternType.VALIDATION_FAILURE,
+            description="high effectiveness pattern",
+            frequency=5,
+            confidence=0.7,
+            applications=10,
+            successes_after_application=9,  # 90% effectiveness
+        )
+
+        matcher = PatternMatcher([low_eff_pattern, high_eff_pattern])
+        matched = matcher.match({}, limit=2)
+
+        # High effectiveness pattern should rank higher
+        assert len(matched) == 2
+        assert matched[0].description == "high effectiveness pattern"
+
+    def test_patterns_applied_recorded_in_outcome(self) -> None:
+        """Test that patterns_applied field is properly stored."""
+        outcome = SheetOutcome(
+            sheet_id="job1-sheet1",
+            job_id="job1",
+            validation_results=[],
+            execution_duration=30.0,
+            retry_count=0,
+            completion_mode_used=False,
+            final_status=SheetStatus.COMPLETED,
+            validation_pass_rate=1.0,
+            first_attempt_success=True,
+            patterns_applied=[
+                "⚠️ Common issue: test pattern (seen 3x)",
+                "✓ Tip: another pattern (works 80% of the time)",
+            ],
+        )
+
+        assert len(outcome.patterns_applied) == 2
+        assert "Common issue" in outcome.patterns_applied[0]
+
+    def test_zero_applications_returns_default_effectiveness(self) -> None:
+        """Test that zero applications returns default 0.4 effectiveness.
+
+        Returns 0.4 (slightly below neutral) to prefer proven patterns
+        over completely untested ones.
+        """
+        pattern = DetectedPattern(
+            pattern_type=PatternType.RETRY_SUCCESS,
+            description="untested pattern",
+            applications=0,
+            successes_after_application=0,
+        )
+
+        assert pattern.effectiveness_rate == 0.4
+        assert pattern.effectiveness_weight == 0.0

@@ -7,6 +7,7 @@ Tests cover:
 - Retry recommendations for each pattern
 - Confidence calculations
 - Configuration handling
+- Delay learning (Evolution: Dynamic Retry Delay Learning)
 """
 
 import time
@@ -17,6 +18,8 @@ import pytest
 from mozart.core.errors import ClassifiedError, ErrorCategory, ErrorCode, RetryBehavior
 from mozart.execution.retry_strategy import (
     AdaptiveRetryStrategy,
+    DelayHistory,
+    DelayOutcome,
     ErrorRecord,
     RetryPattern,
     RetryRecommendation,
@@ -975,3 +978,357 @@ class TestErrorCodeSpecificRetry:
         assert rec3.should_retry is True
         # Delay should be at least the ErrorCode-specific base
         assert rec3.delay_seconds >= 30.0
+
+
+# ============================================================================
+# Delay Learning Tests (Evolution: Dynamic Retry Delay Learning)
+# ============================================================================
+
+
+class TestDelayOutcome:
+    """Tests for DelayOutcome dataclass."""
+
+    def test_create_delay_outcome(self) -> None:
+        """Test creating a delay outcome."""
+        outcome = DelayOutcome(
+            error_code=ErrorCode.NETWORK_TIMEOUT,
+            delay_seconds=30.0,
+            succeeded_after=True,
+        )
+
+        assert outcome.error_code == ErrorCode.NETWORK_TIMEOUT
+        assert outcome.delay_seconds == 30.0
+        assert outcome.succeeded_after is True
+        assert outcome.timestamp.tzinfo is not None
+
+
+class TestDelayHistory:
+    """Tests for DelayHistory class."""
+
+    def test_record_and_query(self) -> None:
+        """Test recording and querying delay outcomes."""
+        history = DelayHistory()
+
+        # Record some outcomes
+        history.record(
+            DelayOutcome(
+                error_code=ErrorCode.NETWORK_TIMEOUT,
+                delay_seconds=30.0,
+                succeeded_after=True,
+            )
+        )
+        history.record(
+            DelayOutcome(
+                error_code=ErrorCode.NETWORK_TIMEOUT,
+                delay_seconds=60.0,
+                succeeded_after=True,
+            )
+        )
+
+        # Query for this error code
+        outcomes = history.query_for_error_code(ErrorCode.NETWORK_TIMEOUT)
+        assert len(outcomes) == 2
+
+        # Query for different error code
+        outcomes = history.query_for_error_code(ErrorCode.EXECUTION_TIMEOUT)
+        assert len(outcomes) == 0
+
+    def test_get_average_successful_delay(self) -> None:
+        """Test computing average successful delay."""
+        history = DelayHistory()
+
+        # Add successful outcomes
+        history.record(
+            DelayOutcome(
+                error_code=ErrorCode.NETWORK_TIMEOUT,
+                delay_seconds=20.0,
+                succeeded_after=True,
+            )
+        )
+        history.record(
+            DelayOutcome(
+                error_code=ErrorCode.NETWORK_TIMEOUT,
+                delay_seconds=40.0,
+                succeeded_after=True,
+            )
+        )
+        # Add a failure (should not be counted)
+        history.record(
+            DelayOutcome(
+                error_code=ErrorCode.NETWORK_TIMEOUT,
+                delay_seconds=10.0,
+                succeeded_after=False,
+            )
+        )
+
+        avg = history.get_average_successful_delay(ErrorCode.NETWORK_TIMEOUT)
+        assert avg == 30.0  # (20 + 40) / 2
+
+    def test_get_average_returns_none_when_no_successes(self) -> None:
+        """Test that average returns None when no successful samples."""
+        history = DelayHistory()
+
+        # Only failures
+        history.record(
+            DelayOutcome(
+                error_code=ErrorCode.NETWORK_TIMEOUT,
+                delay_seconds=30.0,
+                succeeded_after=False,
+            )
+        )
+
+        avg = history.get_average_successful_delay(ErrorCode.NETWORK_TIMEOUT)
+        assert avg is None
+
+    def test_get_sample_count(self) -> None:
+        """Test counting samples for an error code."""
+        history = DelayHistory()
+
+        assert history.get_sample_count(ErrorCode.NETWORK_TIMEOUT) == 0
+
+        history.record(
+            DelayOutcome(
+                error_code=ErrorCode.NETWORK_TIMEOUT,
+                delay_seconds=30.0,
+                succeeded_after=True,
+            )
+        )
+        history.record(
+            DelayOutcome(
+                error_code=ErrorCode.NETWORK_TIMEOUT,
+                delay_seconds=60.0,
+                succeeded_after=False,
+            )
+        )
+
+        assert history.get_sample_count(ErrorCode.NETWORK_TIMEOUT) == 2
+
+    def test_record_none_outcome_raises(self) -> None:
+        """Test that recording None outcome raises ValueError."""
+        history = DelayHistory()
+
+        with pytest.raises(ValueError, match="outcome cannot be None"):
+            history.record(None)  # type: ignore[arg-type]
+
+    def test_record_negative_delay_raises(self) -> None:
+        """Test that recording negative delay raises ValueError."""
+        history = DelayHistory()
+
+        with pytest.raises(ValueError, match="delay_seconds must be >= 0"):
+            history.record(
+                DelayOutcome(
+                    error_code=ErrorCode.NETWORK_TIMEOUT,
+                    delay_seconds=-1.0,
+                    succeeded_after=True,
+                )
+            )
+
+
+class TestDelayLearning:
+    """Tests for delay learning in AdaptiveRetryStrategy."""
+
+    def test_no_history_uses_static_delay(self) -> None:
+        """Test that without history, static delay is used."""
+        strategy = AdaptiveRetryStrategy(
+            config=RetryStrategyConfig(jitter_factor=0.0)
+        )
+
+        delay, strategy_name = strategy.blend_historical_delay(
+            ErrorCode.NETWORK_TIMEOUT,
+            static_delay=60.0,
+        )
+
+        assert delay == 60.0
+        assert strategy_name == "static"
+
+    def test_bootstrap_uses_static_delay(self) -> None:
+        """Test that with no successful samples, static delay is used."""
+        history = DelayHistory()
+        strategy = AdaptiveRetryStrategy(
+            config=RetryStrategyConfig(jitter_factor=0.0),
+            delay_history=history,
+        )
+
+        delay, strategy_name = strategy.blend_historical_delay(
+            ErrorCode.NETWORK_TIMEOUT,
+            static_delay=60.0,
+        )
+
+        assert delay == 60.0
+        assert strategy_name == "static_bootstrap"
+
+    def test_learned_delay_blending(self) -> None:
+        """Test that learned delay is blended with static."""
+        history = DelayHistory()
+        strategy = AdaptiveRetryStrategy(
+            config=RetryStrategyConfig(jitter_factor=0.0),
+            delay_history=history,
+        )
+
+        # Add 10 successful samples with average delay of 20s
+        for _ in range(10):
+            history.record(
+                DelayOutcome(
+                    error_code=ErrorCode.NETWORK_TIMEOUT,
+                    delay_seconds=20.0,
+                    succeeded_after=True,
+                )
+            )
+
+        # With 10 samples, weight = 1.0, so fully learned delay
+        # learned = 20.0, static = 60.0
+        # blended = 1.0 * 20.0 + 0.0 * 60.0 = 20.0
+        delay, strategy_name = strategy.blend_historical_delay(
+            ErrorCode.NETWORK_TIMEOUT,
+            static_delay=60.0,
+        )
+
+        assert delay == 20.0
+        assert strategy_name == "learned_blend"
+
+    def test_learned_delay_weight_increases_with_samples(self) -> None:
+        """Test that learned delay weight increases with sample count."""
+        history = DelayHistory()
+        strategy = AdaptiveRetryStrategy(
+            config=RetryStrategyConfig(jitter_factor=0.0),
+            delay_history=history,
+        )
+
+        # Add 5 samples (weight = 0.5)
+        for _ in range(5):
+            history.record(
+                DelayOutcome(
+                    error_code=ErrorCode.NETWORK_TIMEOUT,
+                    delay_seconds=20.0,
+                    succeeded_after=True,
+                )
+            )
+
+        # weight = 5/10 = 0.5
+        # blended = 0.5 * 20.0 + 0.5 * 60.0 = 10.0 + 30.0 = 40.0
+        delay, _ = strategy.blend_historical_delay(
+            ErrorCode.NETWORK_TIMEOUT,
+            static_delay=60.0,
+        )
+
+        assert delay == 40.0
+
+    def test_circuit_breaker_reverts_to_static(self) -> None:
+        """Test that circuit breaker reverts to static after failures."""
+        history = DelayHistory()
+        strategy = AdaptiveRetryStrategy(
+            config=RetryStrategyConfig(jitter_factor=0.0),
+            delay_history=history,
+        )
+
+        # Add successful samples to enable learned delays
+        for _ in range(10):
+            history.record(
+                DelayOutcome(
+                    error_code=ErrorCode.NETWORK_TIMEOUT,
+                    delay_seconds=20.0,
+                    succeeded_after=True,
+                )
+            )
+
+        # Verify learned delay is being used
+        delay, strategy_name = strategy.blend_historical_delay(
+            ErrorCode.NETWORK_TIMEOUT,
+            static_delay=60.0,
+        )
+        assert strategy_name == "learned_blend"
+        assert delay == 20.0
+
+        # Record 4 consecutive failures (> 3 triggers circuit breaker)
+        for _ in range(4):
+            strategy.record_delay_outcome(
+                ErrorCode.NETWORK_TIMEOUT,
+                delay_used=20.0,
+                succeeded=False,
+            )
+
+        # Now circuit breaker should be tripped
+        delay, strategy_name = strategy.blend_historical_delay(
+            ErrorCode.NETWORK_TIMEOUT,
+            static_delay=60.0,
+        )
+        assert strategy_name == "static_circuit_breaker"
+        assert delay == 60.0
+
+    def test_circuit_breaker_reset(self) -> None:
+        """Test that circuit breaker can be reset."""
+        history = DelayHistory()
+        strategy = AdaptiveRetryStrategy(
+            config=RetryStrategyConfig(jitter_factor=0.0),
+            delay_history=history,
+        )
+
+        # Set up learned delay
+        for _ in range(10):
+            history.record(
+                DelayOutcome(
+                    error_code=ErrorCode.NETWORK_TIMEOUT,
+                    delay_seconds=20.0,
+                    succeeded_after=True,
+                )
+            )
+
+        # Trip circuit breaker
+        for _ in range(4):
+            strategy.record_delay_outcome(
+                ErrorCode.NETWORK_TIMEOUT,
+                delay_used=20.0,
+                succeeded=False,
+            )
+
+        # Verify circuit breaker is tripped
+        _, strategy_name = strategy.blend_historical_delay(
+            ErrorCode.NETWORK_TIMEOUT,
+            static_delay=60.0,
+        )
+        assert strategy_name == "static_circuit_breaker"
+
+        # Reset circuit breaker
+        strategy.reset_circuit_breaker(ErrorCode.NETWORK_TIMEOUT)
+
+        # Should use learned delay again
+        _, strategy_name = strategy.blend_historical_delay(
+            ErrorCode.NETWORK_TIMEOUT,
+            static_delay=60.0,
+        )
+        assert strategy_name == "learned_blend"
+
+    def test_record_delay_outcome_success_resets_failures(self) -> None:
+        """Test that successful outcome resets failure count."""
+        history = DelayHistory()
+        strategy = AdaptiveRetryStrategy(
+            config=RetryStrategyConfig(jitter_factor=0.0),
+            delay_history=history,
+        )
+
+        # Record 3 failures (not quite circuit breaker threshold)
+        for _ in range(3):
+            strategy.record_delay_outcome(
+                ErrorCode.NETWORK_TIMEOUT,
+                delay_used=20.0,
+                succeeded=False,
+            )
+
+        # Record a success (should reset count)
+        strategy.record_delay_outcome(
+            ErrorCode.NETWORK_TIMEOUT,
+            delay_used=20.0,
+            succeeded=True,
+        )
+
+        # Record 3 more failures (should not trip circuit breaker)
+        for _ in range(3):
+            strategy.record_delay_outcome(
+                ErrorCode.NETWORK_TIMEOUT,
+                delay_used=20.0,
+                succeeded=False,
+            )
+
+        # Circuit breaker should NOT be tripped
+        assert strategy._learned_delay_failures.get(ErrorCode.NETWORK_TIMEOUT, 0) == 3
+        assert strategy._use_learned_delay.get(ErrorCode.NETWORK_TIMEOUT, True) is True

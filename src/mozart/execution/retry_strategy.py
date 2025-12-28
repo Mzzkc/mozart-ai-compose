@@ -29,6 +29,7 @@ Example usage:
 
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -40,6 +41,124 @@ from mozart.core.logging import get_logger
 
 if TYPE_CHECKING:
     pass
+
+
+# =============================================================================
+# Delay Learning Types (Evolution: Dynamic Retry Delay Learning)
+# =============================================================================
+
+
+@dataclass
+class DelayOutcome:
+    """Record of a delay used and its outcome for learning.
+
+    Captures the relationship between delay duration and subsequent success/failure,
+    enabling the system to learn optimal delays for each error type.
+
+    Attributes:
+        error_code: The ErrorCode that triggered the retry.
+        delay_seconds: The delay that was actually used before retrying.
+        succeeded_after: Whether the retry succeeded after this delay.
+        timestamp: When this delay was recorded.
+    """
+
+    error_code: ErrorCode
+    delay_seconds: float
+    succeeded_after: bool
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+
+class DelayHistory:
+    """Tracks historical delay outcomes for learning optimal delays.
+
+    Maintains a record of (error_code, delay, success) tuples to enable
+    the system to learn which delays work best for each error type.
+
+    Thread-safe: Uses a threading.Lock to protect all mutable operations.
+    Pruning maintains chronological order by sorting retained outcomes
+    by timestamp after grouping by error code.
+    """
+
+    def __init__(self, max_history: int = 100) -> None:
+        """Initialize delay history.
+
+        Args:
+            max_history: Maximum number of outcomes to retain per error code.
+        """
+        self._history: list[DelayOutcome] = []
+        self._max_history = max_history
+        self._lock = threading.Lock()
+
+    def record(self, outcome: DelayOutcome) -> None:
+        """Record a delay outcome.
+
+        Thread-safe: Uses lock to protect append and pruning operations.
+
+        Args:
+            outcome: The delay outcome to record.
+
+        Raises:
+            ValueError: If outcome is None or outcome.delay_seconds is negative.
+        """
+        if outcome is None:
+            raise ValueError("outcome cannot be None")
+        if outcome.delay_seconds < 0:
+            raise ValueError(f"delay_seconds must be >= 0, got {outcome.delay_seconds}")
+
+        with self._lock:
+            self._history.append(outcome)
+
+            # Prune old history if needed (keep most recent per error code)
+            if len(self._history) > self._max_history * 10:
+                # Keep last N for each error code
+                from collections import defaultdict
+
+                by_code: defaultdict[ErrorCode, list[DelayOutcome]] = defaultdict(list)
+                for o in self._history:
+                    by_code[o.error_code].append(o)
+
+                self._history = []
+                for outcomes in by_code.values():
+                    self._history.extend(outcomes[-self._max_history :])
+
+                # Restore chronological order after grouping by error code
+                self._history.sort(key=lambda o: o.timestamp)
+
+    def query_for_error_code(self, code: ErrorCode) -> list[DelayOutcome]:
+        """Query outcomes for a specific error code.
+
+        Args:
+            code: The error code to query.
+
+        Returns:
+            List of DelayOutcome for this error code.
+        """
+        return [o for o in self._history if o.error_code == code]
+
+    def get_average_successful_delay(self, code: ErrorCode) -> float | None:
+        """Get average delay that led to success for an error code.
+
+        Args:
+            code: The error code to query.
+
+        Returns:
+            Average successful delay in seconds, or None if no successful samples.
+        """
+        successful = [o for o in self._history if o.error_code == code and o.succeeded_after]
+        if not successful:
+            return None
+        return sum(o.delay_seconds for o in successful) / len(successful)
+
+    def get_sample_count(self, code: ErrorCode) -> int:
+        """Get number of samples for an error code.
+
+        Args:
+            code: The error code to query.
+
+        Returns:
+            Number of delay outcomes recorded for this code.
+        """
+        return len([o for o in self._history if o.error_code == code])
 
 # Module-level logger
 _logger = get_logger("retry_strategy")
@@ -272,6 +391,31 @@ class AdaptiveRetryStrategy:
     5. **Recovery Detection**: If recent attempts succeeded after failures,
        uses shorter delays to capitalize on recovery.
 
+    6. **Delay Learning with Circuit Breaker**: When a DelayHistory is provided,
+       the strategy learns optimal delays from past outcomes. A circuit breaker
+       protects against bad learned delays by reverting to static delays after
+       3 consecutive failures.
+
+    Circuit Breaker State Design:
+        The circuit breaker state (_learned_delay_failures, _use_learned_delay)
+        is intentionally ephemeral and NOT persisted. This is a deliberate design
+        choice with the following trade-offs:
+
+        Benefits:
+        - After restart, the system gets a "fresh start" to try learned delays
+        - Avoids persisting potentially stale circuit breaker state
+        - Simple implementation without additional state management
+
+        Trade-offs:
+        - After restart, may retry with a previously-failed learned delay once
+        - Circuit breaker will re-trigger after 3 failures if the learned delay
+          is still problematic
+
+        The DelayHistory itself CAN be persisted (it's just delay outcomes), but
+        the circuit breaker resets on each AdaptiveRetryStrategy instantiation.
+        Use reset_circuit_breaker() to manually reset circuit breaker state for
+        a specific error code during runtime.
+
     Thread-safe: No mutable state; all analysis is based on input history.
 
     Example:
@@ -290,13 +434,28 @@ class AdaptiveRetryStrategy:
         )
     """
 
-    def __init__(self, config: RetryStrategyConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: RetryStrategyConfig | None = None,
+        delay_history: DelayHistory | None = None,
+    ) -> None:
         """Initialize the adaptive retry strategy.
 
         Args:
             config: Optional configuration. Uses defaults if not provided.
+            delay_history: Optional delay history for learning. If not provided,
+                learning features are disabled (purely static delays).
         """
         self.config = config or RetryStrategyConfig()
+        self._delay_history = delay_history
+
+        # Circuit breaker state: track consecutive failures when using learned delays.
+        # If > 3 failures with learned delay, revert to static for that error code.
+        #
+        # NOTE: This state is intentionally ephemeral (not persisted). See class
+        # docstring "Circuit Breaker State Design" section for rationale.
+        self._learned_delay_failures: dict[ErrorCode, int] = {}
+        self._use_learned_delay: dict[ErrorCode, bool] = {}
 
     def analyze(
         self,
@@ -709,6 +868,128 @@ class AdaptiveRetryStrategy:
             strategy_used="cascading_retry",
         )
 
+    def blend_historical_delay(
+        self,
+        error_code: ErrorCode,
+        static_delay: float,
+    ) -> tuple[float, str]:
+        """Blend learned delay with static delay for an error code.
+
+        Uses historical delay outcomes to compute an optimal learned delay,
+        then blends it with the static (ErrorCode-based) delay based on
+        sample size. Respects circuit breaker state.
+
+        Args:
+            error_code: The error code to get delay for.
+            static_delay: The static delay from ErrorCode.get_retry_behavior().
+
+        Returns:
+            Tuple of (blended_delay, strategy_name).
+            - If no history or circuit breaker triggered: (static_delay, "static")
+            - If history available: (blended_delay, "learned_blend")
+        """
+        # No history → use static
+        if self._delay_history is None:
+            return static_delay, "static"
+
+        # Circuit breaker check: if we've reverted to static for this code, use static
+        if not self._use_learned_delay.get(error_code, True):
+            return static_delay, "static_circuit_breaker"
+
+        # Get learned delay from history
+        learned_delay = self._delay_history.get_average_successful_delay(error_code)
+        if learned_delay is None:
+            # No successful samples yet → use static (bootstrap)
+            return static_delay, "static_bootstrap"
+
+        # Calculate blend weight based on sample count
+        # weight = min(sample_count / 10, 1.0)
+        # Full weight to learned delay only after 10 samples
+        sample_count = self._delay_history.get_sample_count(error_code)
+        weight = min(sample_count / 10.0, 1.0)
+
+        # Blend: weight * learned + (1 - weight) * static
+        blended = weight * learned_delay + (1 - weight) * static_delay
+
+        return blended, "learned_blend"
+
+    def record_delay_outcome(
+        self,
+        error_code: ErrorCode,
+        delay_used: float,
+        succeeded: bool,
+    ) -> None:
+        """Record the outcome of a retry delay for learning.
+
+        Should be called after each retry attempt to update the delay history.
+        Also updates circuit breaker state.
+
+        Args:
+            error_code: The error code that was being retried.
+            delay_used: The delay in seconds that was used.
+            succeeded: Whether the retry succeeded after this delay.
+        """
+        if self._delay_history is None:
+            return
+
+        # Record the outcome
+        outcome = DelayOutcome(
+            error_code=error_code,
+            delay_seconds=delay_used,
+            succeeded_after=succeeded,
+        )
+        self._delay_history.record(outcome)
+
+        # Update circuit breaker state
+        if self._use_learned_delay.get(error_code, True):
+            # We were using learned delay
+            if succeeded:
+                # Success: reset failure count
+                self._learned_delay_failures[error_code] = 0
+            else:
+                # Failure: increment and check threshold
+                failures = self._learned_delay_failures.get(error_code, 0) + 1
+                self._learned_delay_failures[error_code] = failures
+
+                if failures > 3:
+                    # Circuit breaker triggers: revert to static
+                    self._use_learned_delay[error_code] = False
+                    _logger.warning(
+                        "circuit_breaker.triggered",
+                        error_code=error_code.value,
+                        consecutive_failures=failures,
+                        message="Reverting to static delay for this error code",
+                    )
+
+    def reset_circuit_breaker(self, error_code: ErrorCode) -> None:
+        """Reset circuit breaker for an error code, re-enabling learned delays.
+
+        Call this method when you want to give learned delays another chance
+        after the circuit breaker has tripped. Common scenarios:
+
+        - After manual intervention that fixed the underlying issue
+        - After a cooling-off period with successful static delays
+        - At the start of a new batch/job where conditions may have changed
+
+        Note: The circuit breaker state is ephemeral (not persisted), so it
+        automatically resets when a new AdaptiveRetryStrategy is instantiated.
+        This method is for resetting during runtime without reinstantiation.
+
+        Args:
+            error_code: The error code to reset circuit breaker for.
+
+        Example:
+            # After manual fix, give learned delays another chance
+            strategy.reset_circuit_breaker(ErrorCode.E101)
+        """
+        self._use_learned_delay[error_code] = True
+        self._learned_delay_failures[error_code] = 0
+        _logger.info(
+            "circuit_breaker.reset",
+            error_code=error_code.value,
+            message="Circuit breaker reset, learned delays re-enabled",
+        )
+
     def _recommend_standard_retry(
         self,
         error: ErrorRecord,
@@ -747,10 +1028,20 @@ class AdaptiveRetryStrategy:
         if retry_behavior.delay_seconds > 0:
             # Use ErrorCode-specific delay as base, scale with attempt count
             base_delay = retry_behavior.delay_seconds
-            # Mild exponential increase for repeated errors (1.5x per attempt, capped)
-            delay = base_delay * min(1.5 ** (attempt_count - 1), 4.0)
-            strategy_used = "error_code_specific"
-            reason_detail = retry_behavior.reason
+            # Mild exponential increase for repeated errors (1.5x per attempt)
+            # Final delay is capped by config.max_delay below for consistency
+            static_delay = base_delay * (1.5 ** (attempt_count - 1))
+
+            # Try to blend with learned delay (Evolution: Dynamic Retry Delay Learning)
+            delay, blend_strategy = self.blend_historical_delay(
+                error.error_code, static_delay
+            )
+            if blend_strategy == "learned_blend":
+                strategy_used = "learned_delay"
+                reason_detail = f"{retry_behavior.reason} (learned blend)"
+            else:
+                strategy_used = "error_code_specific"
+                reason_detail = retry_behavior.reason
         elif error.suggested_wait:
             # Fall back to classifier's suggested wait
             delay = error.suggested_wait
@@ -854,6 +1145,8 @@ class AdaptiveRetryStrategy:
 # Re-export for convenience
 __all__ = [
     "AdaptiveRetryStrategy",
+    "DelayHistory",
+    "DelayOutcome",
     "ErrorRecord",
     "RetryBehavior",
     "RetryPattern",

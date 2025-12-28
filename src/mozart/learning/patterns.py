@@ -81,6 +81,39 @@ class DetectedPattern:
     confidence: float = 0.5
     """Confidence in this pattern (0.0-1.0). Higher = more reliable."""
 
+    # Effectiveness tracking fields (Evolution: Pattern Effectiveness)
+    applications: int = 0
+    """Number of times this pattern was applied (included in prompts)."""
+
+    successes_after_application: int = 0
+    """Number of first_attempt_success outcomes when this pattern was applied."""
+
+    @property
+    def effectiveness_rate(self) -> float:
+        """Compute effectiveness rate from applications and successes.
+
+        Returns:
+            Effectiveness rate (0.0-1.0). Returns 0.4 (slightly below neutral)
+            when applications < 3 to prefer proven patterns over unproven ones.
+            This prevents unproven patterns from being treated equally with
+            patterns that have demonstrated moderate (50%) success.
+        """
+        if self.applications < 3:
+            return 0.4  # Slightly below neutral to prefer proven patterns
+        return self.successes_after_application / self.applications
+
+    @property
+    def effectiveness_weight(self) -> float:
+        """Compute weight for blending effectiveness into relevance scoring.
+
+        Uses gradual ramp-up: full weight only after 5 applications.
+        This prevents new patterns from being over-weighted.
+
+        Returns:
+            Weight (0.0-1.0) based on sample size.
+        """
+        return min(self.applications / 5.0, 1.0)
+
     def to_prompt_guidance(self) -> str:
         """Format this pattern as guidance for prompts.
 
@@ -150,10 +183,41 @@ class PatternDetector:
         patterns.extend(self._detect_confidence_patterns())
         patterns.extend(self._detect_semantic_patterns())
 
+        # Calculate effectiveness for each pattern from outcomes
+        self._calculate_effectiveness(patterns)
+
         # Sort by confidence (highest first)
         patterns.sort(key=lambda p: p.confidence, reverse=True)
 
         return patterns
+
+    def _calculate_effectiveness(self, patterns: list[DetectedPattern]) -> None:
+        """Calculate effectiveness metrics for patterns based on outcomes.
+
+        For each pattern, counts how many times it was applied (via patterns_applied)
+        and how many of those applications resulted in first_attempt_success.
+
+        This creates the feedback loop: patterns that lead to success get
+        higher effectiveness_rate, which then influences relevance scoring.
+
+        Args:
+            patterns: List of patterns to update with effectiveness data.
+        """
+        # Build a lookup from pattern description to pattern object
+        # (patterns are matched by their prompt guidance string)
+        pattern_lookup: dict[str, DetectedPattern] = {}
+        for pattern in patterns:
+            guidance = pattern.to_prompt_guidance()
+            pattern_lookup[guidance] = pattern
+
+        # Scan outcomes for patterns_applied
+        for outcome in self.outcomes:
+            for applied_desc in outcome.patterns_applied:
+                if applied_desc in pattern_lookup:
+                    pattern = pattern_lookup[applied_desc]
+                    pattern.applications += 1
+                    if outcome.first_attempt_success:
+                        pattern.successes_after_application += 1
 
     def _detect_validation_patterns(self) -> list[DetectedPattern]:
         """Detect recurring validation failure patterns.
@@ -474,7 +538,7 @@ class PatternDetector:
         # Lowercase and trim
         normalized = reason.lower().strip()
 
-        # Common patterns to extract
+        # Common patterns to extract - ordered by specificity (more specific first)
         patterns = [
             "file not created",
             "file not modified",
@@ -484,10 +548,17 @@ class PatternDetector:
             "command failed",
             "timeout",
             "permission denied",
+            "rate limit",
+            "connection refused",
+            "connection failed",
+            "connection",
             "not found",
             "syntax error",
             "import error",
             "type error",
+            "authentication",
+            "authorization",
+            "access denied",
         ]
 
         for pattern in patterns:
@@ -574,25 +645,38 @@ class PatternMatcher:
         """
         score = 0.0
 
+        # Weights normalized to sum to 1.0:
+        # confidence=0.25, frequency=0.20, context_tags=0.25,
+        # recency=0.15, effectiveness=0.15 (max)
+
         # Base score from pattern confidence
-        score += pattern.confidence * 0.3
+        score += pattern.confidence * 0.25
 
         # Score from frequency (more frequent = more relevant)
         frequency_score = min(1.0, pattern.frequency / 10.0)
-        score += frequency_score * 0.2
+        score += frequency_score * 0.20
 
         # Score from context tag matching
         context_tags = context.get("tags", [])
         if isinstance(context_tags, list):
             matching_tags = len(set(pattern.context_tags) & set(context_tags))
             if matching_tags > 0:
-                score += min(1.0, matching_tags * 0.2) * 0.3
+                score += min(1.0, matching_tags * 0.2) * 0.25
 
         # Score from recency (more recent = more relevant)
         # Exponential decay: 50% weight loss per week
         age_days = (datetime.now() - pattern.last_seen).days
         recency_score = 0.5 ** (age_days / 7)
-        score += recency_score * 0.2
+        score += recency_score * 0.15
+
+        # Score from effectiveness (Evolution: Pattern Effectiveness)
+        # Blend effectiveness into score, weighted by sample size
+        # effectiveness_weight = min(applications / 5, 1.0)
+        # effectiveness_rate = successes / applications (or 0.4 if < 3 samples)
+        effectiveness_boost = (
+            pattern.effectiveness_rate * pattern.effectiveness_weight * 0.15
+        )
+        score += effectiveness_boost
 
         return float(min(1.0, score))
 
