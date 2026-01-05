@@ -44,7 +44,12 @@ class JsonStateBackend(StateBackend):
         return self.state_dir / f"{safe_id}.json"
 
     async def load(self, job_id: str) -> CheckpointState | None:
-        """Load state from JSON file."""
+        """Load state from JSON file.
+
+        Automatically detects and recovers zombie jobs (RUNNING status but
+        process dead). When a zombie is detected, the state is updated to
+        PAUSED and saved before returning.
+        """
         state_file = self._get_state_file(job_id)
         if not state_file.exists():
             _logger.debug("state_file_not_found", job_id=job_id, path=str(state_file))
@@ -54,6 +59,21 @@ class JsonStateBackend(StateBackend):
             with open(state_file) as f:
                 data = json.load(f)
             state = CheckpointState.model_validate(data)
+
+            # Check for zombie state and auto-recover
+            if state.is_zombie():
+                _logger.warning(
+                    "zombie_auto_recovery",
+                    job_id=job_id,
+                    pid=state.pid,
+                    status=state.status.value,
+                )
+                state.mark_zombie_detected(
+                    reason="Detected on state load - process no longer running"
+                )
+                # Save the recovered state
+                await self.save(state)
+
             _logger.debug(
                 "checkpoint_loaded",
                 job_id=job_id,

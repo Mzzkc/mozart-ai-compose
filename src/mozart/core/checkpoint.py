@@ -321,6 +321,17 @@ class CheckpointState(BaseModel):
 
     This is the primary state object that gets persisted and restored
     for resumable job execution.
+
+    Zombie Detection:
+        A job is considered a "zombie" when the state shows RUNNING status
+        but the associated process (tracked by `pid`) is no longer alive.
+        This can happen when:
+        - External timeout wrapper sends SIGKILL
+        - System crash or forced termination
+        - WSL shutdown while job running
+
+        Use `is_zombie()` to detect this state, and `mark_zombie_detected()`
+        to recover from it.
     """
 
     # Job identification
@@ -539,3 +550,121 @@ class CheckpointState(BaseModel):
         """Get progress as percentage."""
         completed, total = self.get_progress()
         return (completed / total * 100) if total > 0 else 0.0
+
+    def is_zombie(self, stale_threshold_seconds: float = 300.0) -> bool:
+        """Check if this job is a zombie (RUNNING but process dead).
+
+        A zombie state occurs when:
+        1. Status is RUNNING
+        2. PID is set
+        3. Process with that PID is no longer alive
+
+        Additionally, if the PID is alive but belongs to a different process
+        (PID recycling), we check if updated_at is stale (default 5 minutes).
+
+        Args:
+            stale_threshold_seconds: Time after which a running job with no
+                updates is considered potentially stale (default 300s = 5min).
+
+        Returns:
+            True if job appears to be a zombie, False otherwise.
+        """
+        import os
+
+        # Only RUNNING jobs can be zombies
+        if self.status != JobStatus.RUNNING:
+            return False
+
+        # If no PID recorded, can't determine - not a zombie by this check
+        if self.pid is None:
+            return False
+
+        # Check if process is alive
+        try:
+            # os.kill with signal 0 checks if process exists without killing it
+            os.kill(self.pid, 0)
+            # Process exists - check for stale updates (PID recycling protection)
+            if self.updated_at:
+                now = _utc_now()
+                elapsed = (now - self.updated_at).total_seconds()
+                # If process is alive but updates are stale, might be recycled PID
+                # This is a heuristic - real process would update more frequently
+                if elapsed > stale_threshold_seconds:
+                    _logger.warning(
+                        "zombie_stale_pid_detected",
+                        job_id=self.job_id,
+                        pid=self.pid,
+                        elapsed_seconds=round(elapsed, 1),
+                        threshold_seconds=stale_threshold_seconds,
+                    )
+                    return True
+            return False  # Process alive and recent updates
+        except ProcessLookupError:
+            # Process doesn't exist - definite zombie
+            _logger.warning(
+                "zombie_dead_pid_detected",
+                job_id=self.job_id,
+                pid=self.pid,
+            )
+            return True
+        except PermissionError:
+            # Can't check (different user) - assume not zombie
+            return False
+        except OSError:
+            # Other OS error - assume not zombie to be safe
+            return False
+
+    def mark_zombie_detected(self, reason: str | None = None) -> None:
+        """Mark this job as recovered from zombie state.
+
+        Changes status from RUNNING to PAUSED, clears PID, and records
+        the zombie recovery in the error message.
+
+        Args:
+            reason: Optional additional context about why zombie was detected.
+        """
+        previous_status = self.status
+        previous_pid = self.pid
+
+        self.status = JobStatus.PAUSED
+        self.pid = None
+        self.updated_at = _utc_now()
+
+        # Build zombie recovery message
+        zombie_msg = f"Zombie recovery: job was RUNNING (PID {previous_pid}) but process dead"
+        if reason:
+            zombie_msg += f". {reason}"
+
+        # Preserve any existing error message
+        if self.error_message:
+            self.error_message = f"{zombie_msg}. Previous error: {self.error_message}"
+        else:
+            self.error_message = zombie_msg
+
+        _logger.warning(
+            "zombie_recovered",
+            job_id=self.job_id,
+            previous_status=previous_status.value,
+            previous_pid=previous_pid,
+            reason=reason,
+        )
+
+    def set_running_pid(self, pid: int | None = None) -> None:
+        """Set the PID of the running orchestrator process.
+
+        Call this when starting job execution to enable zombie detection.
+        If pid is None, uses the current process PID.
+
+        Args:
+            pid: Process ID to record. Defaults to current process.
+        """
+        import os
+
+        self.pid = pid if pid is not None else os.getpid()
+        self.updated_at = _utc_now()
+
+        _logger.debug(
+            "running_pid_set",
+            job_id=self.job_id,
+            pid=self.pid,
+        )

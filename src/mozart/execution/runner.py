@@ -288,6 +288,10 @@ class JobRunner:
         state = await self._initialize_state(start_sheet, config_path)
         self._current_state = state
 
+        # Set running PID for zombie detection
+        state.set_running_pid()
+        await self.state_backend.save(state)
+
         # Initialize run summary
         self._summary = RunSummary(
             job_id=state.job_id,
@@ -359,6 +363,7 @@ class JobRunner:
             # Mark job complete if we processed all sheets
             if state.status == JobStatus.RUNNING:
                 state.status = JobStatus.COMPLETED
+                state.pid = None  # Clear PID on completion
                 await self.state_backend.save(state)
 
             # Finalize summary

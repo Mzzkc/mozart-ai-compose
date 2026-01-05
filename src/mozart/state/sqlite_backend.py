@@ -238,7 +238,12 @@ class SQLiteStateBackend(StateBackend):
             return None
 
     async def load(self, job_id: str) -> CheckpointState | None:
-        """Load state for a job from SQLite."""
+        """Load state for a job from SQLite.
+
+        Automatically detects and recovers zombie jobs (RUNNING status but
+        process dead). When a zombie is detected, the state is updated to
+        PAUSED and saved before returning.
+        """
         await self._ensure_initialized()
 
         async with aiosqlite.connect(self.db_path) as db:
@@ -319,6 +324,20 @@ class SQLiteStateBackend(StateBackend):
                 total_retry_count=job_row["total_retry_count"],
                 rate_limit_waits=job_row["rate_limit_waits"],
             )
+
+            # Check for zombie state and auto-recover
+            if state.is_zombie():
+                _logger.warning(
+                    "zombie_auto_recovery",
+                    job_id=job_id,
+                    pid=state.pid,
+                    status=state.status.value,
+                )
+                state.mark_zombie_detected(
+                    reason="Detected on state load - process no longer running"
+                )
+                # Save the recovered state
+                await self.save(state)
 
             _logger.debug(
                 "checkpoint_loaded",

@@ -623,3 +623,250 @@ class TestConfigSnapshot:
 
         assert len(loaded.config_snapshot["validations"]) == 2
         assert loaded.config_snapshot["notifications"][0]["type"] == "slack"
+
+
+class TestZombieDetection:
+    """Tests for zombie state detection and recovery."""
+
+    def test_is_zombie_returns_false_for_pending_jobs(self):
+        """Test that PENDING jobs are never zombies."""
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test",
+            total_sheets=3,
+            status=JobStatus.PENDING,
+            pid=12345,  # Even with PID set
+        )
+        assert state.is_zombie() is False
+
+    def test_is_zombie_returns_false_for_completed_jobs(self):
+        """Test that COMPLETED jobs are never zombies."""
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test",
+            total_sheets=3,
+            status=JobStatus.COMPLETED,
+            pid=12345,
+        )
+        assert state.is_zombie() is False
+
+    def test_is_zombie_returns_false_for_paused_jobs(self):
+        """Test that PAUSED jobs are never zombies."""
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test",
+            total_sheets=3,
+            status=JobStatus.PAUSED,
+            pid=12345,
+        )
+        assert state.is_zombie() is False
+
+    def test_is_zombie_returns_false_when_no_pid(self):
+        """Test that RUNNING jobs without PID are not detected as zombies."""
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test",
+            total_sheets=3,
+            status=JobStatus.RUNNING,
+            pid=None,  # No PID recorded
+        )
+        assert state.is_zombie() is False
+
+    def test_is_zombie_returns_true_for_dead_pid(self):
+        """Test that RUNNING job with dead PID is detected as zombie."""
+        # Use a PID that definitely doesn't exist (max int)
+        dead_pid = 2147483647  # Max 32-bit int, unlikely to be a real process
+
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test",
+            total_sheets=3,
+            status=JobStatus.RUNNING,
+            pid=dead_pid,
+        )
+        assert state.is_zombie() is True
+
+    def test_is_zombie_returns_false_for_current_process(self):
+        """Test that current process PID is not detected as zombie."""
+        import os
+
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test",
+            total_sheets=3,
+            status=JobStatus.RUNNING,
+            pid=os.getpid(),  # Current process
+        )
+        # Current process is alive, so not a zombie
+        assert state.is_zombie() is False
+
+    def test_set_running_pid_uses_current_process_by_default(self):
+        """Test that set_running_pid uses os.getpid() when no pid provided."""
+        import os
+
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test",
+            total_sheets=3,
+            status=JobStatus.RUNNING,
+        )
+        state.set_running_pid()
+
+        assert state.pid == os.getpid()
+
+    def test_set_running_pid_accepts_explicit_pid(self):
+        """Test that set_running_pid can accept an explicit PID."""
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test",
+            total_sheets=3,
+            status=JobStatus.RUNNING,
+        )
+        state.set_running_pid(pid=99999)
+
+        assert state.pid == 99999
+
+    def test_set_running_pid_updates_timestamp(self):
+        """Test that set_running_pid updates updated_at."""
+        from datetime import UTC, datetime, timedelta
+
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test",
+            total_sheets=3,
+            status=JobStatus.RUNNING,
+        )
+        # Set an old timestamp
+        old_time = datetime.now(UTC) - timedelta(hours=1)
+        state.updated_at = old_time
+
+        state.set_running_pid()
+
+        # Timestamp should be updated to now
+        assert state.updated_at > old_time
+
+    def test_mark_zombie_detected_changes_status_to_paused(self):
+        """Test that mark_zombie_detected sets status to PAUSED."""
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test",
+            total_sheets=3,
+            status=JobStatus.RUNNING,
+            pid=12345,
+        )
+        state.mark_zombie_detected()
+
+        assert state.status == JobStatus.PAUSED
+
+    def test_mark_zombie_detected_clears_pid(self):
+        """Test that mark_zombie_detected clears the PID."""
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test",
+            total_sheets=3,
+            status=JobStatus.RUNNING,
+            pid=12345,
+        )
+        state.mark_zombie_detected()
+
+        assert state.pid is None
+
+    def test_mark_zombie_detected_sets_error_message(self):
+        """Test that mark_zombie_detected sets an error message."""
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test",
+            total_sheets=3,
+            status=JobStatus.RUNNING,
+            pid=12345,
+        )
+        state.mark_zombie_detected()
+
+        assert state.error_message is not None
+        assert "Zombie recovery" in state.error_message
+        assert "PID 12345" in state.error_message
+
+    def test_mark_zombie_detected_with_reason(self):
+        """Test that mark_zombie_detected includes custom reason."""
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test",
+            total_sheets=3,
+            status=JobStatus.RUNNING,
+            pid=12345,
+        )
+        state.mark_zombie_detected(reason="External SIGKILL detected")
+
+        assert "External SIGKILL detected" in state.error_message
+
+    def test_mark_zombie_detected_preserves_existing_error(self):
+        """Test that mark_zombie_detected preserves existing error message."""
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test",
+            total_sheets=3,
+            status=JobStatus.RUNNING,
+            pid=12345,
+            error_message="Rate limit exceeded",
+        )
+        state.mark_zombie_detected()
+
+        assert "Zombie recovery" in state.error_message
+        assert "Rate limit exceeded" in state.error_message
+
+    def test_is_zombie_stale_pid_detection(self):
+        """Test that stale updates with alive PID are detected as zombies."""
+        import os
+        from datetime import UTC, datetime, timedelta
+
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test",
+            total_sheets=3,
+            status=JobStatus.RUNNING,
+            pid=os.getpid(),  # Current process, so it's alive
+        )
+
+        # Set updated_at to be very old (10 minutes ago)
+        state.updated_at = datetime.now(UTC) - timedelta(minutes=10)
+
+        # With a stale threshold of 5 minutes, this should be a zombie
+        # (process alive but no updates for too long = potential PID recycling)
+        assert state.is_zombie(stale_threshold_seconds=300.0) is True
+
+    def test_is_zombie_fresh_updates_not_zombie(self):
+        """Test that recent updates prevent zombie detection even with matching PID."""
+        import os
+        from datetime import UTC, datetime
+
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test",
+            total_sheets=3,
+            status=JobStatus.RUNNING,
+            pid=os.getpid(),
+            updated_at=datetime.now(UTC),  # Just updated
+        )
+
+        # Fresh updates should not be zombie
+        assert state.is_zombie() is False
+
+    def test_zombie_detection_serialization_roundtrip(self):
+        """Test that zombie state survives serialization."""
+        state = CheckpointState(
+            job_id="zombie-job",
+            job_name="Zombie Test",
+            total_sheets=3,
+            status=JobStatus.RUNNING,
+            pid=2147483647,  # Non-existent PID
+        )
+
+        # Verify it's a zombie
+        assert state.is_zombie() is True
+
+        # Serialize and deserialize
+        data = state.model_dump(mode="json")
+        loaded = CheckpointState.model_validate(data)
+
+        # Should still be detected as zombie after deserialization
+        assert loaded.is_zombie() is True
