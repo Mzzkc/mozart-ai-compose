@@ -251,6 +251,12 @@ class ValidationRule(BaseModel):
         le=10,
         description="Validation stage (1-10). Lower stages run first; fail-fast on failure.",
     )
+    condition: str | None = Field(
+        default=None,
+        description="Condition expression for when this validation applies. "
+        "Supports: 'sheet_num >= N', 'sheet_num == N', 'sheet_num <= N'. "
+        "If None, validation always applies.",
+    )
 
 
 class NotificationConfig(BaseModel):

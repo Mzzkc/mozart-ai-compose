@@ -274,11 +274,87 @@ class ValidationEngine:
         ]
         self._mtime_tracker.snapshot(paths)
 
+    def _check_condition(self, condition: str | None) -> bool:
+        """Check if a validation condition is satisfied.
+
+        Supports simple expressions like:
+        - "sheet_num >= 6"
+        - "sheet_num == 3"
+        - "sheet_num <= 5"
+        - "sheet_num > 2"
+        - "sheet_num < 8"
+
+        Args:
+            condition: Condition expression string, or None to always match.
+
+        Returns:
+            True if condition is satisfied or None, False otherwise.
+        """
+        if condition is None:
+            return True
+
+        sheet_num = self.sheet_context.get("sheet_num", 0)
+
+        # Parse simple comparison expressions
+        condition = condition.strip()
+
+        # Try to match pattern: variable operator value
+        match = re.match(r"(\w+)\s*(>=|<=|==|!=|>|<)\s*(\d+)", condition)
+        if not match:
+            # Unknown condition format - default to True (don't skip)
+            return True
+
+        var_name, operator, value_str = match.groups()
+        value = int(value_str)
+
+        # Get the variable value
+        var_value: int
+        if var_name == "sheet_num":
+            var_value = sheet_num
+        else:
+            # Unknown variable - check if it's in context
+            ctx_value = self.sheet_context.get(var_name)
+            if ctx_value is None or not isinstance(ctx_value, int):
+                return True  # Unknown or non-int variable - don't skip
+            var_value = ctx_value
+
+        # Evaluate the condition
+        if operator == ">=":
+            return bool(var_value >= value)
+        elif operator == "<=":
+            return bool(var_value <= value)
+        elif operator == "==":
+            return bool(var_value == value)
+        elif operator == "!=":
+            return bool(var_value != value)
+        elif operator == ">":
+            return bool(var_value > value)
+        elif operator == "<":
+            return bool(var_value < value)
+        else:
+            return True  # Unknown operator - don't skip
+
+    def _filter_applicable_rules(
+        self, rules: list[ValidationRule]
+    ) -> list[ValidationRule]:
+        """Filter rules to only those whose conditions are satisfied.
+
+        Args:
+            rules: List of all validation rules.
+
+        Returns:
+            List of rules that apply to the current sheet.
+        """
+        return [r for r in rules if self._check_condition(r.condition)]
+
     def run_validations(self, rules: list[ValidationRule]) -> SheetValidationResult:
         """Execute all validation rules and return aggregate result.
 
         This method runs all validations without staging. For staged execution
         (fail-fast on stage failure), use run_staged_validations() instead.
+
+        Rules with conditions that don't match the current sheet context are
+        automatically skipped (e.g., condition="sheet_num >= 6" on sheet 1).
 
         Args:
             rules: List of validation rules to execute.
@@ -286,9 +362,11 @@ class ValidationEngine:
         Returns:
             SheetValidationResult with all individual results.
         """
+        # Filter to only applicable rules based on conditions
+        applicable_rules = self._filter_applicable_rules(rules)
         results: list[ValidationResult] = []
 
-        for rule in rules:
+        for rule in applicable_rules:
             result = self._run_single_validation(rule)
             results.append(result)
 
@@ -305,6 +383,9 @@ class ValidationEngine:
         Validations are grouped by stage and run in ascending order.
         If any validation in a stage fails, higher stages are skipped.
 
+        Rules with conditions that don't match the current sheet context are
+        automatically skipped (e.g., condition="sheet_num >= 6" on sheet 1).
+
         Args:
             rules: List of validation rules to execute.
 
@@ -312,7 +393,10 @@ class ValidationEngine:
             Tuple of (SheetValidationResult, failed_stage or None).
             failed_stage is the stage number that failed, or None if all passed.
         """
-        if not rules:
+        # Filter to only applicable rules based on conditions
+        applicable_rules = self._filter_applicable_rules(rules)
+
+        if not applicable_rules:
             return SheetValidationResult(
                 sheet_num=self.sheet_context.get("sheet_num", 0),
                 results=[],
@@ -320,7 +404,7 @@ class ValidationEngine:
 
         # Group rules by stage
         stages: dict[int, list[ValidationRule]] = {}
-        for rule in rules:
+        for rule in applicable_rules:
             stage = rule.stage
             if stage not in stages:
                 stages[stage] = []

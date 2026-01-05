@@ -551,7 +551,7 @@ class CheckpointState(BaseModel):
         completed, total = self.get_progress()
         return (completed / total * 100) if total > 0 else 0.0
 
-    def is_zombie(self, stale_threshold_seconds: float = 300.0) -> bool:
+    def is_zombie(self) -> bool:
         """Check if this job is a zombie (RUNNING but process dead).
 
         A zombie state occurs when:
@@ -559,12 +559,8 @@ class CheckpointState(BaseModel):
         2. PID is set
         3. Process with that PID is no longer alive
 
-        Additionally, if the PID is alive but belongs to a different process
-        (PID recycling), we check if updated_at is stale (default 5 minutes).
-
-        Args:
-            stale_threshold_seconds: Time after which a running job with no
-                updates is considered potentially stale (default 300s = 5min).
+        Note: This only checks if the PID is dead. It does NOT use time-based
+        stale detection, as jobs can legitimately run for hours or days.
 
         Returns:
             True if job appears to be a zombie, False otherwise.
@@ -583,22 +579,8 @@ class CheckpointState(BaseModel):
         try:
             # os.kill with signal 0 checks if process exists without killing it
             os.kill(self.pid, 0)
-            # Process exists - check for stale updates (PID recycling protection)
-            if self.updated_at:
-                now = _utc_now()
-                elapsed = (now - self.updated_at).total_seconds()
-                # If process is alive but updates are stale, might be recycled PID
-                # This is a heuristic - real process would update more frequently
-                if elapsed > stale_threshold_seconds:
-                    _logger.warning(
-                        "zombie_stale_pid_detected",
-                        job_id=self.job_id,
-                        pid=self.pid,
-                        elapsed_seconds=round(elapsed, 1),
-                        threshold_seconds=stale_threshold_seconds,
-                    )
-                    return True
-            return False  # Process alive and recent updates
+            # Process exists - not a zombie
+            return False
         except ProcessLookupError:
             # Process doesn't exist - definite zombie
             _logger.warning(

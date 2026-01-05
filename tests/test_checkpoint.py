@@ -814,8 +814,8 @@ class TestZombieDetection:
         assert "Zombie recovery" in state.error_message
         assert "Rate limit exceeded" in state.error_message
 
-    def test_is_zombie_stale_pid_detection(self):
-        """Test that stale updates with alive PID are detected as zombies."""
+    def test_is_zombie_alive_pid_never_zombie(self):
+        """Test that alive PID is never detected as zombie regardless of update time."""
         import os
         from datetime import UTC, datetime, timedelta
 
@@ -827,15 +827,13 @@ class TestZombieDetection:
             pid=os.getpid(),  # Current process, so it's alive
         )
 
-        # Set updated_at to be very old (10 minutes ago)
-        state.updated_at = datetime.now(UTC) - timedelta(minutes=10)
-
-        # With a stale threshold of 5 minutes, this should be a zombie
-        # (process alive but no updates for too long = potential PID recycling)
-        assert state.is_zombie(stale_threshold_seconds=300.0) is True
+        # Even with very old updated_at, alive PID should not be zombie
+        # Jobs can legitimately run for hours or days
+        state.updated_at = datetime.now(UTC) - timedelta(hours=24)
+        assert state.is_zombie() is False
 
     def test_is_zombie_fresh_updates_not_zombie(self):
-        """Test that recent updates prevent zombie detection even with matching PID."""
+        """Test that alive process with recent updates is not zombie."""
         import os
         from datetime import UTC, datetime
 
@@ -848,7 +846,7 @@ class TestZombieDetection:
             updated_at=datetime.now(UTC),  # Just updated
         )
 
-        # Fresh updates should not be zombie
+        # Alive process should not be zombie
         assert state.is_zombie() is False
 
     def test_zombie_detection_serialization_roundtrip(self):
