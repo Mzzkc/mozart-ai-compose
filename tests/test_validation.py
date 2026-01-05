@@ -482,3 +482,63 @@ class TestStagedValidation:
 
         assert failed_stage is None
         assert result.all_passed is True
+
+    def test_executed_pass_percentage_excludes_skipped(self, temp_workspace: Path):
+        """Test that executed_pass_percentage excludes skipped validations.
+
+        This is critical for completion mode decisions - skipped validations
+        should not count against the pass percentage.
+        """
+        (temp_workspace / "file.txt").write_text("content")
+        # missing.txt doesn't exist
+
+        rules = [
+            # Stage 1: 1 pass, 1 fail
+            ValidationRule(
+                type="file_exists",
+                path=str(temp_workspace / "file.txt"),
+                stage=1,
+                description="Stage 1 - exists",
+            ),
+            ValidationRule(
+                type="file_exists",
+                path=str(temp_workspace / "missing.txt"),
+                stage=1,
+                description="Stage 1 - missing",
+            ),
+            # Stage 2: will be skipped
+            ValidationRule(
+                type="command_succeeds",
+                command="echo stage2",
+                stage=2,
+                description="Stage 2 - skipped",
+            ),
+            # Stage 3: will be skipped
+            ValidationRule(
+                type="command_succeeds",
+                command="echo stage3",
+                stage=3,
+                description="Stage 3 - skipped",
+            ),
+        ]
+        engine = ValidationEngine(
+            workspace=temp_workspace,
+            sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
+        )
+        result, failed_stage = engine.run_staged_validations(rules)
+
+        # Stage 1 failed (1/2 passed), stages 2-3 skipped
+        assert failed_stage == 1
+        assert len(result.results) == 4
+
+        # Counts
+        assert result.passed_count == 1
+        assert result.failed_count == 1  # Only actual failures, not skipped
+        assert result.skipped_count == 2
+        assert result.executed_count == 2  # Only stage 1 ran
+
+        # Percentages
+        # pass_percentage includes skipped as failures: 1/4 = 25%
+        assert result.pass_percentage == 25.0
+        # executed_pass_percentage excludes skipped: 1/2 = 50%
+        assert result.executed_pass_percentage == 50.0

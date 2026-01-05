@@ -107,15 +107,47 @@ class SheetValidationResult:
 
     @property
     def failed_count(self) -> int:
-        """Count of failed validations."""
-        return sum(1 for r in self.results if not r.passed)
+        """Count of failed validations (excluding skipped)."""
+        return sum(
+            1 for r in self.results
+            if not r.passed and r.failure_category != "skipped"
+        )
+
+    @property
+    def skipped_count(self) -> int:
+        """Count of skipped validations (due to staged fail-fast)."""
+        return sum(
+            1 for r in self.results
+            if r.failure_category == "skipped"
+        )
+
+    @property
+    def executed_count(self) -> int:
+        """Count of validations that actually executed (not skipped)."""
+        return len(self.results) - self.skipped_count
 
     @property
     def pass_percentage(self) -> float:
-        """Percentage of validations that passed."""
+        """Percentage of validations that passed (including skipped as failed).
+
+        For staged validation decisions, use executed_pass_percentage instead.
+        """
         if not self.results:
             return 100.0  # No validations = all passed
         return (self.passed_count / len(self.results)) * 100
+
+    @property
+    def executed_pass_percentage(self) -> float:
+        """Percentage of EXECUTED validations that passed.
+
+        Excludes skipped validations from the calculation. This is more
+        appropriate for completion mode decisions with staged validations,
+        since skipped validations weren't given a chance to run.
+        """
+        executed = self.executed_count
+        if executed == 0:
+            return 100.0  # All skipped = nothing to judge
+        return (self.passed_count / executed) * 100
 
     @property
     def majority_passed(self) -> bool:

@@ -1432,7 +1432,11 @@ class JobRunner:
             Tuple of (SheetExecutionMode, reason string explaining the decision).
         """
         confidence = validation_result.aggregate_confidence
-        pass_pct = validation_result.pass_percentage
+        # Use executed_pass_percentage to exclude skipped validations from staged runs.
+        # This prevents cascading stage failures from blocking completion mode.
+        # Example: if stage 1 fails (1/2 executed pass), stages 2-4 are skipped,
+        # pass_percentage would be 1/5=20%, but executed_pass_percentage is 1/2=50%.
+        pass_pct = validation_result.executed_pass_percentage
         completion_threshold = self.config.retry.completion_threshold_percent
         max_completion = self.config.retry.max_completion_attempts
 
