@@ -1,0 +1,1639 @@
+# Recursive Light Phase 4: Advanced Features
+#
+# This config implements advanced/differentiating features:
+# - HLIP (Hypnotic LLM Integration Protocol)
+# - Volumetric Configurations (Full 3D/4D)
+# - CAM Full (Collective Learning with Privacy)
+# - Advanced Pattern Recognition
+# - Custom Domain Training (Enterprise)
+# - Advanced Visualization
+#
+# Prerequisites:
+# - Phase 1-3 complete
+# - Pro tier with feature gating
+#
+# Estimated Duration: 16-22 weeks (solo), 8-11 weeks (2-person team)
+# Total Batches: 12
+
+name: "recursive-light-phase4-advanced"
+description: "Advanced features: HLIP, Volumetric, CAM Full, Custom Domains"
+
+workspace: "/home/emzi/Projects/mozart-ai-compose/recursive-light-phase4-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  working_directory: "/home/emzi/Projects/recursive-light"
+  timeout_seconds: 2700  # 45 min per batch for complex features
+
+sheet:
+  size: 1
+  total_items: 12
+  start_item: 1
+
+prompt:
+  template: |
+    {{ preamble }}
+
+    {% if sheet_num == 1 %}
+    ============================================================
+    BATCH 1: HLIP COMMAND PARSER
+    ============================================================
+
+    GOAL: Implement HLIP command parsing system.
+
+    STEP 1: Read HLIP design documents
+
+    Read:
+    - /home/emzi/Projects/recursive-light/memory-bank/projectbrief.md (HLIP section)
+    - /home/emzi/Projects/recursive-light/memory-bank/designs/**/*.md (HLIP specs)
+
+    STEP 2: Create HLIP module structure
+
+    Create: api/src/hlip/mod.rs
+    Create: api/src/hlip/parser.rs
+    Create: api/src/hlip/commands.rs
+    Create: api/src/hlip/executor.rs
+
+    STEP 3: Define HLIP command types
+
+    ```rust
+    // api/src/hlip/commands.rs
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub enum HlipCommand {
+        // Domain Focus
+        DomainFocus {
+            domain: Domain,
+            intensity: f32,  // 0.0-1.0
+        },
+
+        // Boundary Control
+        BoundaryPermeability {
+            boundary: Boundary,
+            permeability: f32,  // 0.0-1.0
+        },
+
+        // Depth Control
+        ProcessingDepth {
+            depth: DepthLevel,  // Surface, Moderate, Deep, Profound
+        },
+
+        // Flow Control
+        FlowControl {
+            aspect: FlowAspect,  // Precision, Fluidity, Ambiguity, Phase
+            value: f32,
+        },
+
+        // Compound Commands
+        Compound {
+            commands: Vec<HlipCommand>,
+        },
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    pub enum Domain {
+        Computational,
+        Scientific,
+        Cultural,
+        Experiential,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    pub enum Boundary {
+        CompSci,
+        CompCult,
+        CompExp,
+        SciCult,
+        SciExp,
+        CultExp,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    pub enum DepthLevel {
+        Surface,    // D¹
+        Moderate,   // D²
+        Deep,       // D³
+        Profound,   // D⁴
+    }
+    ```
+
+    STEP 4: Implement command parser
+
+    ```rust
+    // api/src/hlip/parser.rs
+    use pest::Parser;
+    use pest_derive::Parser;
+
+    #[derive(Parser)]
+    #[grammar = "hlip/grammar.pest"]
+    pub struct HlipParser;
+
+    impl HlipParser {
+        pub fn parse_command(input: &str) -> Result<HlipCommand, ParseError> {
+            let pairs = Self::parse(Rule::command, input)?;
+            // Convert pest pairs to HlipCommand
+        }
+
+        pub fn parse_natural_language(input: &str) -> Option<HlipCommand> {
+            // Pattern matching for natural language hints
+            // "think deeply" -> DomainFocus { Computational, 0.8 }
+            // "be creative" -> DomainFocus { Cultural, 0.7 }
+            // "stay grounded" -> DomainFocus { Scientific, 0.6 }
+        }
+    }
+    ```
+
+    STEP 5: Create HLIP grammar
+
+    Create: api/src/hlip/grammar.pest
+    ```pest
+    command = { "@" ~ command_name ~ "(" ~ params? ~ ")" }
+    command_name = { "D" | "B" | "P" | "F" | "A" | "φ" }
+    params = { param ~ ("," ~ param)* }
+    param = { number | domain | boundary }
+    number = { "-"? ~ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
+    domain = { "COMP" | "SCI" | "CULT" | "EXP" }
+    boundary = { "CS" | "CC" | "CE" | "SC" | "SE" | "CE" }
+    ```
+
+    STEP 6: Write tests (8-10 tests)
+    - test_parse_domain_focus
+    - test_parse_boundary_permeability
+    - test_parse_depth_level
+    - test_parse_compound_command
+    - test_natural_language_think_deeply
+    - test_natural_language_be_creative
+    - test_invalid_command_rejected
+    - test_parameter_validation
+
+    STEP 7: Write batch result
+
+    {% elif sheet_num == 2 %}
+    ============================================================
+    BATCH 2: HLIP STATE MANAGEMENT
+    ============================================================
+
+    GOAL: Apply HLIP commands to FlowContext state.
+
+    STEP 1: Create HLIP executor
+
+    ```rust
+    // api/src/hlip/executor.rs
+    pub struct HlipExecutor;
+
+    impl HlipExecutor {
+        pub fn apply_command(
+            context: &mut FlowContext,
+            command: &HlipCommand,
+        ) -> Result<HlipEffect, ExecutionError> {
+            match command {
+                HlipCommand::DomainFocus { domain, intensity } => {
+                    Self::apply_domain_focus(context, *domain, *intensity)
+                }
+                HlipCommand::BoundaryPermeability { boundary, permeability } => {
+                    Self::apply_boundary_permeability(context, *boundary, *permeability)
+                }
+                HlipCommand::ProcessingDepth { depth } => {
+                    Self::apply_processing_depth(context, *depth)
+                }
+                HlipCommand::FlowControl { aspect, value } => {
+                    Self::apply_flow_control(context, *aspect, *value)
+                }
+                HlipCommand::Compound { commands } => {
+                    let effects: Vec<_> = commands.iter()
+                        .map(|c| Self::apply_command(context, c))
+                        .collect::<Result<_, _>>()?;
+                    Ok(HlipEffect::Compound(effects))
+                }
+            }
+        }
+
+        fn apply_domain_focus(
+            context: &mut FlowContext,
+            domain: Domain,
+            intensity: f32,
+        ) -> Result<HlipEffect, ExecutionError> {
+            // Validate intensity range
+            if !(0.0..=1.0).contains(&intensity) {
+                return Err(ExecutionError::InvalidParameter("intensity must be 0.0-1.0"));
+            }
+
+            // Apply to domain activations
+            let activations = &mut context.domain_activations;
+            match domain {
+                Domain::Computational => activations.computational = intensity,
+                Domain::Scientific => activations.scientific = intensity,
+                Domain::Cultural => activations.cultural = intensity,
+                Domain::Experiential => activations.experiential = intensity,
+            }
+
+            // Recalculate gestalt resonance
+            context.recalculate_gestalt();
+
+            Ok(HlipEffect::DomainFocusApplied { domain, intensity })
+        }
+    }
+    ```
+
+    STEP 2: Create HLIP effect types
+
+    ```rust
+    // api/src/hlip/effects.rs
+    #[derive(Debug, Clone, Serialize)]
+    pub enum HlipEffect {
+        DomainFocusApplied { domain: Domain, intensity: f32 },
+        BoundaryPermeabilityApplied { boundary: Boundary, permeability: f32 },
+        ProcessingDepthApplied { depth: DepthLevel },
+        FlowControlApplied { aspect: FlowAspect, value: f32 },
+        Compound(Vec<HlipEffect>),
+    }
+
+    impl HlipEffect {
+        pub fn to_prompt_modifier(&self) -> String {
+            // Generate prompt text to inject into LLM #1
+            match self {
+                Self::DomainFocusApplied { domain, intensity } => {
+                    format!(
+                        "Focus {:.0}% on {} perspective.",
+                        intensity * 100.0,
+                        domain.display_name()
+                    )
+                }
+                // ... other effects
+            }
+        }
+    }
+    ```
+
+    STEP 3: Integrate with VifApi
+
+    ```rust
+    // In VifApi.process_input
+    pub async fn process_input_with_hlip(
+        &mut self,
+        user_input: &str,
+        hlip_commands: Option<Vec<HlipCommand>>,
+        relationship: &RelationshipMemory,
+    ) -> Result<ProcessingResult, VifError> {
+        // Apply HLIP commands if provided
+        let effects = if let Some(commands) = hlip_commands {
+            commands.iter()
+                .map(|c| HlipExecutor::apply_command(&mut self.flow_context, c))
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            vec![]
+        };
+
+        // Generate HLIP modifier for LLM prompt
+        let hlip_modifier = effects.iter()
+            .map(|e| e.to_prompt_modifier())
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        // Proceed with enhanced prompt
+        self.process_input_internal(user_input, Some(&hlip_modifier), relationship).await
+    }
+    ```
+
+    STEP 4: Create HLIP endpoint
+
+    ```rust
+    // POST /api/v1/chat with HLIP
+    #[derive(Deserialize)]
+    pub struct ChatRequest {
+        message: String,
+        #[serde(default)]
+        hlip_commands: Option<Vec<HlipCommandRequest>>,
+        #[serde(default)]
+        context_id: Option<String>,
+    }
+    ```
+
+    STEP 5: Write tests
+    - test_apply_domain_focus
+    - test_apply_boundary_permeability
+    - test_apply_depth_level
+    - test_compound_command_execution
+    - test_prompt_modifier_generation
+    - test_integration_with_vifapi
+
+    STEP 6: Write batch result
+
+    {% elif sheet_num == 3 %}
+    ============================================================
+    BATCH 3: HLIP UI COMPONENTS
+    ============================================================
+
+    GOAL: Create HLIP command palette and visual feedback.
+
+    STEP 1: Create HLIP store
+
+    Create: frontend/src/stores/hlip.ts
+    ```typescript
+    interface HlipState {
+      activeCommands: HlipCommand[];
+      commandHistory: HlipCommand[];
+      currentDomainFocus: DomainFocus;
+      currentBoundaries: BoundarySettings;
+      addCommand: (command: HlipCommand) => void;
+      removeCommand: (id: string) => void;
+      clearCommands: () => void;
+    }
+    ```
+
+    STEP 2: Create command palette
+
+    Create: frontend/src/components/hlip/CommandPalette.tsx
+    ```typescript
+    export function CommandPalette() {
+      const [isOpen, setIsOpen] = useState(false);
+      const [search, setSearch] = useState('');
+      const { addCommand } = useHlipStore();
+
+      const commands = useMemo(() => filterCommands(search), [search]);
+
+      return (
+        <Dialog open={isOpen} onOpenChange={setIsOpen}>
+          <DialogTrigger asChild>
+            <Button variant="outline">
+              <Wand2 className="mr-2 h-4 w-4" />
+              HLIP Commands
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <Input
+              placeholder="Search commands... (e.g., 'think deeply')"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <CommandList>
+              {commands.map((cmd) => (
+                <CommandItem key={cmd.id} onSelect={() => addCommand(cmd)}>
+                  {cmd.name}
+                  <span className="text-muted-foreground">{cmd.description}</span>
+                </CommandItem>
+              ))}
+            </CommandList>
+          </DialogContent>
+        </Dialog>
+      );
+    }
+    ```
+
+    STEP 3: Create domain focus sliders
+
+    Create: frontend/src/components/hlip/DomainSliders.tsx
+    ```typescript
+    export function DomainSliders() {
+      const { currentDomainFocus, addCommand } = useHlipStore();
+
+      const domains = [
+        { key: 'computational', label: 'Computational', color: 'blue' },
+        { key: 'scientific', label: 'Scientific', color: 'green' },
+        { key: 'cultural', label: 'Cultural', color: 'purple' },
+        { key: 'experiential', label: 'Experiential', color: 'orange' },
+      ];
+
+      return (
+        <div className="space-y-4">
+          {domains.map(({ key, label, color }) => (
+            <div key={key}>
+              <Label>{label}</Label>
+              <Slider
+                value={[currentDomainFocus[key] * 100]}
+                onValueChange={([value]) => {
+                  addCommand({
+                    type: 'DomainFocus',
+                    domain: key,
+                    intensity: value / 100,
+                  });
+                }}
+                max={100}
+                step={5}
+                className={`slider-${color}`}
+              />
+            </div>
+          ))}
+        </div>
+      );
+    }
+    ```
+
+    STEP 4: Create active commands display
+
+    Create: frontend/src/components/hlip/ActiveCommands.tsx
+    - Show currently active HLIP commands
+    - Allow removal of individual commands
+    - Clear all button
+
+    STEP 5: Create command effectiveness visualization
+
+    Create: frontend/src/components/hlip/EffectivenessIndicator.tsx
+    - Show how HLIP commands affected the response
+    - Highlight which domains were engaged
+    - Display boundary activity
+
+    STEP 6: Integrate with chat
+
+    Update chat input to:
+    - Show HLIP palette trigger
+    - Display active commands badge
+    - Send HLIP commands with message
+
+    STEP 7: Write tests
+    - Command palette opens/closes
+    - Command search works
+    - Sliders update state
+    - Commands sent with message
+
+    STEP 8: Write batch result
+
+    {% elif sheet_num == 4 %}
+    ============================================================
+    BATCH 4: VOLUMETRIC CONFIGURATIONS - PERSISTENCE
+    ============================================================
+
+    GOAL: Persist volumetric configurations across conversations.
+
+    STEP 1: Create volumetric database schema
+
+    ```sql
+    CREATE TABLE volumetric_configs (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        conversation_id UUID NOT NULL REFERENCES conversations(id),
+        turn_number INTEGER NOT NULL,
+        domain_activations JSONB NOT NULL,
+        boundary_permeabilities JSONB NOT NULL,
+        gestalt_resonance FLOAT NOT NULL,
+        emergent_dimension INTEGER,
+        volumetric_signature TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(conversation_id, turn_number)
+    );
+
+    CREATE INDEX idx_volumetric_conversation ON volumetric_configs(conversation_id);
+    ```
+
+    STEP 2: Create volumetric storage
+
+    ```rust
+    // api/src/volumetric/storage.rs
+    pub struct VolumetricStorage {
+        pool: PgPool,
+    }
+
+    impl VolumetricStorage {
+        pub async fn store_config(
+            &self,
+            conversation_id: Uuid,
+            turn_number: i32,
+            config: &VolumetricConfiguration,
+        ) -> Result<Uuid, StorageError>;
+
+        pub async fn get_config(
+            &self,
+            conversation_id: Uuid,
+            turn_number: i32,
+        ) -> Result<Option<VolumetricConfiguration>, StorageError>;
+
+        pub async fn get_config_history(
+            &self,
+            conversation_id: Uuid,
+            limit: i32,
+        ) -> Result<Vec<VolumetricConfiguration>, StorageError>;
+
+        pub async fn get_volumetric_trajectory(
+            &self,
+            conversation_id: Uuid,
+        ) -> Result<VolumetricTrajectory, StorageError> {
+            // Analyze how volumetric config evolved over conversation
+        }
+    }
+    ```
+
+    STEP 3: Update VifApi to persist volumetric state
+
+    ```rust
+    // In process_input, after LLM #1 analysis
+    if let Some(volumetric) = &llm1_output.volumetric_configuration {
+        self.volumetric_storage.store_config(
+            conversation_id,
+            turn_number,
+            volumetric,
+        ).await?;
+    }
+    ```
+
+    STEP 4: Create volumetric analysis functions
+
+    ```rust
+    // api/src/volumetric/analysis.rs
+    pub fn calculate_volumetric_signature(config: &VolumetricConfiguration) -> String {
+        // Create a unique signature representing the volumetric state
+        // e.g., "C0.7S0.5U0.3E0.8|CS0.6CC0.4CE0.7|D3|GR0.72"
+    }
+
+    pub fn detect_emergence_pattern(trajectory: &VolumetricTrajectory) -> Option<EmergencePattern> {
+        // Analyze trajectory for emergence indicators
+        // - Stable high gestalt (>0.7) for 5+ turns
+        // - Boundary oscillation patterns
+        // - Domain convergence
+    }
+
+    pub fn calculate_emergence_dimension(config: &VolumetricConfiguration) -> i32 {
+        // Calculate emergent dimension (3, 4, or 5+)
+        // Based on domain activation patterns and gestalt resonance
+    }
+    ```
+
+    STEP 5: Create volumetric API endpoints
+
+    ```rust
+    // GET /api/v1/conversations/:id/volumetric
+    pub async fn get_volumetric_history(
+        State(state): State<AppState>,
+        claims: Claims,
+        Path(conversation_id): Path<Uuid>,
+    ) -> Result<Json<VolumetricHistory>, ApiError>;
+
+    // GET /api/v1/conversations/:id/volumetric/trajectory
+    pub async fn get_volumetric_trajectory(
+        State(state): State<AppState>,
+        claims: Claims,
+        Path(conversation_id): Path<Uuid>,
+    ) -> Result<Json<VolumetricTrajectory>, ApiError>;
+    ```
+
+    STEP 6: Write tests
+    - test_store_volumetric_config
+    - test_retrieve_config_history
+    - test_volumetric_signature_generation
+    - test_emergence_pattern_detection
+    - test_dimension_calculation
+
+    STEP 7: Write batch result
+
+    {% elif sheet_num == 5 %}
+    ============================================================
+    BATCH 5: VOLUMETRIC 3D/4D VISUALIZATION
+    ============================================================
+
+    GOAL: Create advanced 3D/4D volumetric visualization.
+
+    STEP 1: Update framework store for volumetric
+
+    Update: frontend/src/stores/framework.ts
+    ```typescript
+    interface VolumetricState extends FrameworkState {
+      gestaltResonance: number;
+      emergentDimension: number;
+      volumetricTrajectory: VolumetricPoint[];
+      boundaryOscillations: OscillationState[];
+    }
+    ```
+
+    STEP 2: Create enhanced tetrahedron visualization
+
+    Update: frontend/src/components/framework/Tetrahedron.tsx
+    ```typescript
+    export function EnhancedTetrahedron() {
+      const { gestaltResonance, emergentDimension } = useFrameworkStore();
+
+      return (
+        <group>
+          {/* Base tetrahedron */}
+          <Tetrahedron />
+
+          {/* Gestalt resonance glow */}
+          <GestaltGlow intensity={gestaltResonance} />
+
+          {/* Boundary oscillation animations */}
+          <BoundaryOscillations />
+
+          {/* Emergent dimension indicator */}
+          {emergentDimension > 3 && (
+            <EmergentDimensionIndicator dimension={emergentDimension} />
+          )}
+        </group>
+      );
+    }
+    ```
+
+    STEP 3: Create gestalt resonance visualization
+
+    Create: frontend/src/components/framework/GestaltGlow.tsx
+    ```typescript
+    export function GestaltGlow({ intensity }: { intensity: number }) {
+      const meshRef = useRef<THREE.Mesh>(null);
+
+      useFrame((state) => {
+        if (meshRef.current) {
+          // Pulsing glow based on gestalt resonance
+          const scale = 1 + Math.sin(state.clock.elapsedTime * 2) * 0.05 * intensity;
+          meshRef.current.scale.setScalar(scale);
+        }
+      });
+
+      return (
+        <mesh ref={meshRef}>
+          <icosahedronGeometry args={[1.5, 2]} />
+          <meshStandardMaterial
+            color={interpolateColor(intensity)}
+            transparent
+            opacity={intensity * 0.3}
+            wireframe
+          />
+        </mesh>
+      );
+    }
+    ```
+
+    STEP 4: Create boundary oscillation animation
+
+    Create: frontend/src/components/framework/BoundaryOscillations.tsx
+    - Animate edges with frequency, amplitude, phase
+    - Show permeability changes over time
+    - Highlight active boundaries
+
+    STEP 5: Create 4D hyperspace projection
+
+    Create: frontend/src/components/framework/HyperspaceProjection.tsx
+    ```typescript
+    export function HyperspaceProjection({ dimension }: { dimension: number }) {
+      // Project 4D/5D space onto 3D using rotation
+      const [rotationAngle, setRotationAngle] = useState(0);
+
+      useFrame(() => {
+        setRotationAngle((prev) => prev + 0.005);
+      });
+
+      // Generate 4D simplex vertices and project to 3D
+      const vertices = useMemo(() => {
+        return generate4DSimplex().map(v => project4Dto3D(v, rotationAngle));
+      }, [rotationAngle]);
+
+      return (
+        <group>
+          {vertices.map((v, i) => (
+            <mesh key={i} position={v}>
+              <sphereGeometry args={[0.1]} />
+              <meshStandardMaterial color="cyan" />
+            </mesh>
+          ))}
+          {/* Draw edges */}
+        </group>
+      );
+    }
+    ```
+
+    STEP 6: Add mobile 2D fallback
+
+    Create: frontend/src/components/framework/Framework2D.tsx
+    - SVG-based 2D representation
+    - Simpler for mobile performance
+    - Still shows domain activations
+
+    STEP 7: Write tests
+    - 3D visualization renders
+    - Gestalt glow responds to state
+    - 4D projection works
+    - Mobile fallback renders
+
+    STEP 8: Write batch result
+
+    {% elif sheet_num == 6 %}
+    ============================================================
+    BATCH 6: CAM FULL - INSIGHT EVALUATION
+    ============================================================
+
+    GOAL: Implement LLM-based insight evaluation for CAM.
+
+    STEP 1: Create insight evaluator
+
+    ```rust
+    // api/src/cam/evaluation.rs
+    pub struct InsightEvaluator {
+        llm_provider: Arc<dyn LlmProvider>,
+    }
+
+    impl InsightEvaluator {
+        pub async fn evaluate(
+            &self,
+            insight: &Insight,
+            context: &EvaluationContext,
+        ) -> Result<InsightEvaluation, EvaluationError> {
+            // Use LLM #1 Stage 6 to evaluate insight
+            let prompt = self.build_evaluation_prompt(insight, context);
+            let response = self.llm_provider.complete(&prompt).await?;
+
+            // Parse evaluation response
+            let evaluation = self.parse_evaluation(&response)?;
+
+            Ok(evaluation)
+        }
+
+        fn build_evaluation_prompt(&self, insight: &Insight, context: &EvaluationContext) -> String {
+            format!(
+                r#"
+                Evaluate this insight for collective memory:
+
+                INSIGHT: {}
+
+                CONTEXT:
+                - Domain: {}
+                - Source: {}
+                - Related insights: {}
+
+                Evaluate on:
+                1. Novelty (0-1): Is this genuinely new vs. derivative?
+                2. Accuracy (0-1): Is this factually correct?
+                3. Generalizability (0-1): Does this apply broadly?
+                4. Domain coherence (0-1): Does it fit the claimed domain?
+                5. Collective value (0-1): Would this benefit others?
+
+                Output JSON:
+                {{
+                    "novelty": X.X,
+                    "accuracy": X.X,
+                    "generalizability": X.X,
+                    "domain_coherence": X.X,
+                    "collective_value": X.X,
+                    "reasoning": "..."
+                }}
+                "#,
+                insight.content,
+                insight.domain.display_name(),
+                insight.source.description(),
+                context.related_insights.len(),
+            )
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct InsightEvaluation {
+        pub novelty: f32,
+        pub accuracy: f32,
+        pub generalizability: f32,
+        pub domain_coherence: f32,
+        pub collective_value: f32,
+        pub reasoning: String,
+        pub overall_score: f32,  // Weighted average
+    }
+    ```
+
+    STEP 2: Integrate with conscious signals
+
+    ```rust
+    // In process_input, when detecting [REMEMBER:] markers
+    if let Some(signals) = detect_conscious_signals(&llm2_response) {
+        for signal in signals {
+            let insight = Insight::from_conscious_signal(&signal);
+
+            // Evaluate insight
+            let evaluation = self.insight_evaluator.evaluate(
+                &insight,
+                &EvaluationContext::from_conversation(&conversation),
+            ).await?;
+
+            // Only store if evaluation passes threshold
+            if evaluation.overall_score >= 0.6 {
+                insight.evaluation = Some(evaluation);
+                self.cam_manager.store_insight(insight).await?;
+            }
+        }
+    }
+    ```
+
+    STEP 3: Add confidence decay
+
+    ```rust
+    // api/src/cam/decay.rs
+    pub fn calculate_confidence_decay(
+        original_confidence: f32,
+        age_days: i64,
+        validation_count: i32,
+    ) -> f32 {
+        // Decay formula:
+        // confidence = original * (0.95 ^ age_days) * (1 + 0.1 * validations)
+        let age_factor = 0.95_f32.powi(age_days as i32);
+        let validation_factor = 1.0 + 0.1 * validation_count as f32;
+
+        (original_confidence * age_factor * validation_factor).min(1.0)
+    }
+
+    // Scheduled job to update confidence scores
+    pub struct ConfidenceDecayHandler { ... }
+    ```
+
+    STEP 4: Create evaluation database schema
+
+    ```sql
+    ALTER TABLE insights ADD COLUMN evaluation JSONB;
+    ALTER TABLE insights ADD COLUMN confidence_score FLOAT;
+    ALTER TABLE insights ADD COLUMN validation_count INTEGER DEFAULT 0;
+    ALTER TABLE insights ADD COLUMN last_validated_at TIMESTAMPTZ;
+    ```
+
+    STEP 5: Write tests
+    - test_insight_evaluation
+    - test_evaluation_threshold
+    - test_confidence_decay
+    - test_validation_boosts_confidence
+    - test_evaluation_prompt_generation
+
+    STEP 6: Write batch result
+
+    {% elif sheet_num == 7 %}
+    ============================================================
+    BATCH 7: CAM FULL - PRIVACY CONTROLS
+    ============================================================
+
+    GOAL: Implement privacy controls for collective learning.
+
+    STEP 1: Create privacy settings schema
+
+    ```sql
+    CREATE TYPE insight_visibility AS ENUM ('private', 'anonymous', 'public');
+
+    ALTER TABLE insights ADD COLUMN visibility insight_visibility DEFAULT 'private';
+    ALTER TABLE insights ADD COLUMN contributor_id UUID;  -- null for anonymous
+
+    CREATE TABLE user_privacy_settings (
+        user_id UUID PRIMARY KEY REFERENCES users(id),
+        default_insight_visibility insight_visibility DEFAULT 'private',
+        allow_anonymous_contribution BOOLEAN DEFAULT true,
+        allow_public_contribution BOOLEAN DEFAULT false,
+        opt_out_collective_learning BOOLEAN DEFAULT false,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    ```
+
+    STEP 2: Create privacy service
+
+    ```rust
+    // api/src/cam/privacy.rs
+    pub struct PrivacyService {
+        pool: PgPool,
+    }
+
+    impl PrivacyService {
+        pub async fn get_user_settings(&self, user_id: Uuid) -> Result<PrivacySettings, Error>;
+        pub async fn update_settings(&self, user_id: Uuid, settings: PrivacySettings) -> Result<(), Error>;
+
+        pub async fn determine_insight_visibility(
+            &self,
+            user_id: Uuid,
+            explicit_visibility: Option<InsightVisibility>,
+        ) -> Result<InsightVisibility, Error> {
+            if let Some(explicit) = explicit_visibility {
+                return Ok(explicit);
+            }
+
+            let settings = self.get_user_settings(user_id).await?;
+
+            if settings.opt_out_collective_learning {
+                return Ok(InsightVisibility::Private);
+            }
+
+            Ok(settings.default_insight_visibility)
+        }
+
+        pub async fn anonymize_contributor(
+            &self,
+            insight: &mut Insight,
+            user_settings: &PrivacySettings,
+        ) {
+            if insight.visibility == InsightVisibility::Anonymous {
+                insight.contributor_id = None;
+            }
+        }
+    }
+    ```
+
+    STEP 3: Create opt-in/out UI
+
+    Create: frontend/src/components/settings/PrivacySettings.tsx
+    ```typescript
+    export function PrivacySettings() {
+      const { settings, updateSettings } = usePrivacySettings();
+
+      return (
+        <Card>
+          <CardHeader>
+            <CardTitle>Collective Learning Privacy</CardTitle>
+            <CardDescription>
+              Control how your insights contribute to collective knowledge
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <Label>Opt out of collective learning</Label>
+                <Switch
+                  checked={settings.optOutCollectiveLearning}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ optOutCollectiveLearning: checked })
+                  }
+                />
+              </div>
+
+              <div>
+                <Label>Default insight visibility</Label>
+                <Select
+                  value={settings.defaultVisibility}
+                  onValueChange={(value) =>
+                    updateSettings({ defaultVisibility: value })
+                  }
+                >
+                  <SelectItem value="private">Private (only you)</SelectItem>
+                  <SelectItem value="anonymous">Anonymous (contributes without identity)</SelectItem>
+                  <SelectItem value="public">Public (attributed to you)</SelectItem>
+                </Select>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      );
+    }
+    ```
+
+    STEP 4: Add privacy to insight display
+
+    Create: frontend/src/components/insights/InsightPrivacyBadge.tsx
+    - Show visibility status
+    - Allow visibility change for own insights
+
+    STEP 5: Filter collective search by visibility
+
+    ```rust
+    // In CAMManager.semantic_search
+    pub async fn semantic_search_collective(
+        &self,
+        query: &str,
+        user_id: Uuid,
+        limit: usize,
+    ) -> Result<Vec<Insight>, CamError> {
+        // Get insights that are:
+        // 1. Public OR
+        // 2. Anonymous OR
+        // 3. Private but owned by user
+
+        let filter = SearchFilter::Or(vec![
+            SearchFilter::Visibility(InsightVisibility::Public),
+            SearchFilter::Visibility(InsightVisibility::Anonymous),
+            SearchFilter::And(vec![
+                SearchFilter::Visibility(InsightVisibility::Private),
+                SearchFilter::UserId(user_id),
+            ]),
+        ]);
+
+        self.search_with_filter(query, filter, limit).await
+    }
+    ```
+
+    STEP 6: Write tests
+    - test_privacy_settings_crud
+    - test_opt_out_prevents_contribution
+    - test_anonymous_hides_contributor
+    - test_search_respects_visibility
+    - test_user_sees_own_private
+
+    STEP 7: Write batch result
+
+    {% elif sheet_num == 8 %}
+    ============================================================
+    BATCH 8: CAM FULL - SEARCH & EXPLORATION UI
+    ============================================================
+
+    GOAL: Create collective insight search and exploration interface.
+
+    STEP 1: Create insights page
+
+    Create: frontend/src/app/(dashboard)/insights/page.tsx
+    - Search bar for semantic search
+    - Domain filter tabs
+    - Insight cards with evaluation scores
+    - Trending insights section
+
+    STEP 2: Create insight search component
+
+    Create: frontend/src/components/insights/InsightSearch.tsx
+    ```typescript
+    export function InsightSearch() {
+      const [query, setQuery] = useState('');
+      const [filters, setFilters] = useState<SearchFilters>({});
+      const { data, isLoading } = useInsightSearch(query, filters);
+
+      return (
+        <div className="space-y-4">
+          <div className="flex gap-2">
+            <Input
+              placeholder="Search collective insights..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            <Button onClick={() => /* trigger search */}>
+              <Search className="h-4 w-4" />
+            </Button>
+          </div>
+
+          <DomainFilters
+            selected={filters.domains}
+            onChange={(domains) => setFilters({ ...filters, domains })}
+          />
+
+          <InsightGrid insights={data?.insights} isLoading={isLoading} />
+        </div>
+      );
+    }
+    ```
+
+    STEP 3: Create insight card
+
+    Create: frontend/src/components/insights/InsightCard.tsx
+    ```typescript
+    export function InsightCard({ insight }: { insight: Insight }) {
+      return (
+        <Card>
+          <CardContent className="pt-4">
+            <p className="text-sm">{insight.content}</p>
+
+            <div className="mt-2 flex items-center gap-2">
+              <DomainBadge domain={insight.domain} />
+              <ConfidenceScore score={insight.confidenceScore} />
+            </div>
+
+            {insight.contributor && (
+              <p className="text-xs text-muted-foreground mt-2">
+                by {insight.contributor}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      );
+    }
+    ```
+
+    STEP 4: Create trending insights
+
+    Create: frontend/src/components/insights/TrendingInsights.tsx
+    - Show most validated/accessed insights
+    - Time-based trending
+
+    STEP 5: Create insight detail view
+
+    Create: frontend/src/app/(dashboard)/insights/[id]/page.tsx
+    - Full insight content
+    - Evaluation breakdown
+    - Related insights
+    - Source information (if not anonymous)
+
+    STEP 6: Create contribution UI
+
+    Create: frontend/src/components/insights/ContributeInsight.tsx
+    - Manual insight contribution
+    - Visibility selection
+    - Domain selection
+
+    STEP 7: Write tests
+    - Insight search works
+    - Domain filter works
+    - Insight cards render
+    - Privacy badges display correctly
+
+    STEP 8: Write batch result
+
+    {% elif sheet_num == 9 %}
+    ============================================================
+    BATCH 9: ADVANCED PATTERN RECOGNITION
+    ============================================================
+
+    GOAL: Implement temporal and behavioral pattern analysis.
+
+    STEP 1: Create pattern analyzer
+
+    ```rust
+    // api/src/patterns/analyzer.rs
+    pub struct PatternAnalyzer {
+        pool: PgPool,
+        cam_manager: Arc<CAMManager>,
+    }
+
+    impl PatternAnalyzer {
+        pub async fn analyze_user_patterns(
+            &self,
+            user_id: Uuid,
+        ) -> Result<UserPatterns, AnalysisError> {
+            // Analyze user's conversation history
+            let conversations = self.pool.get_user_conversations(user_id).await?;
+            let volumetric_history = self.get_volumetric_history(user_id).await?;
+
+            Ok(UserPatterns {
+                dominant_domains: self.calculate_domain_preferences(&conversations),
+                boundary_patterns: self.analyze_boundary_usage(&volumetric_history),
+                thinking_style: self.classify_thinking_style(&conversations),
+                temporal_patterns: self.analyze_temporal_usage(&conversations),
+            })
+        }
+
+        fn classify_thinking_style(&self, conversations: &[Conversation]) -> ThinkingStyle {
+            // Classify based on domain usage patterns:
+            // - Analytical: High COMP + SCI, low permeability
+            // - Creative: High CULT + EXP, high permeability
+            // - Balanced: Even distribution
+            // - Intuitive: High EXP, oscillating boundaries
+        }
+
+        fn analyze_boundary_usage(&self, history: &[VolumetricConfiguration]) -> Vec<BoundaryPattern> {
+            // Identify patterns in how user navigates boundaries
+            // - Frequent COMP-SCI oscillation = technical explorer
+            // - CULT-EXP focus = creative type
+        }
+    }
+    ```
+
+    STEP 2: Create collective pattern discovery
+
+    ```rust
+    // api/src/patterns/collective.rs
+    pub struct CollectivePatternDiscovery {
+        cam_manager: Arc<CAMManager>,
+    }
+
+    impl CollectivePatternDiscovery {
+        pub async fn discover_meta_patterns(&self) -> Result<Vec<MetaPattern>, Error> {
+            // Analyze patterns across all users (anonymized)
+            // - Common domain progression paths
+            // - Frequently co-occurring insights
+            // - Emergent collective knowledge structures
+        }
+
+        pub async fn suggest_patterns_for_user(
+            &self,
+            user_id: Uuid,
+            user_patterns: &UserPatterns,
+        ) -> Result<Vec<PatternSuggestion>, Error> {
+            // Based on user's patterns, suggest:
+            // - Unexplored domains that similar users find valuable
+            // - Boundary crossings that often lead to insights
+        }
+    }
+    ```
+
+    STEP 3: Create pattern visualization
+
+    Create: frontend/src/components/patterns/PatternVisualization.tsx
+    - Radial chart showing domain preferences
+    - Boundary usage heatmap
+    - Temporal activity chart
+
+    STEP 4: Create pattern insights component
+
+    Create: frontend/src/components/patterns/PatternInsights.tsx
+    ```typescript
+    export function PatternInsights() {
+      const { data: patterns } = useUserPatterns();
+
+      return (
+        <Card>
+          <CardHeader>
+            <CardTitle>Your Thinking Patterns</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ThinkingStyleBadge style={patterns.thinkingStyle} />
+
+            <h4>Domain Preferences</h4>
+            <DomainPreferenceChart domains={patterns.dominantDomains} />
+
+            <h4>Suggestions</h4>
+            {patterns.suggestions.map((suggestion) => (
+              <SuggestionCard key={suggestion.id} suggestion={suggestion} />
+            ))}
+          </CardContent>
+        </Card>
+      );
+    }
+    ```
+
+    STEP 5: Add patterns to user profile
+
+    Update settings page to include pattern visualization.
+
+    STEP 6: Write tests
+    - test_user_pattern_analysis
+    - test_thinking_style_classification
+    - test_collective_pattern_discovery
+    - test_pattern_suggestions
+
+    STEP 7: Write batch result
+
+    {% elif sheet_num == 10 %}
+    ============================================================
+    BATCH 10: CUSTOM DOMAIN TRAINING (ENTERPRISE)
+    ============================================================
+
+    GOAL: Allow Enterprise users to define custom domains.
+
+    STEP 1: Create custom domain schema
+
+    ```sql
+    CREATE TABLE custom_domains (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        organization_id UUID NOT NULL REFERENCES organizations(id),
+        name VARCHAR(100) NOT NULL,
+        description TEXT,
+        example_prompts JSONB,
+        embedding_seed_texts TEXT[],
+        status VARCHAR(50) DEFAULT 'pending',
+        created_by UUID NOT NULL REFERENCES users(id),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(organization_id, name)
+    );
+
+    CREATE TABLE custom_domain_training_data (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        domain_id UUID NOT NULL REFERENCES custom_domains(id),
+        text_content TEXT NOT NULL,
+        embedding VECTOR(1536),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    ```
+
+    STEP 2: Create domain trainer
+
+    ```rust
+    // api/src/custom_domains/trainer.rs
+    pub struct CustomDomainTrainer {
+        embedding_service: Arc<EmbeddingService>,
+        qdrant: Arc<QdrantCAMStore>,
+    }
+
+    impl CustomDomainTrainer {
+        pub async fn train_domain(
+            &self,
+            domain: &CustomDomain,
+            training_data: Vec<String>,
+        ) -> Result<TrainingResult, TrainingError> {
+            // Generate embeddings for all training data
+            let embeddings = self.embedding_service
+                .embed_batch(&training_data)
+                .await?;
+
+            // Store in Qdrant with domain-specific collection
+            let collection_name = format!("custom_domain_{}", domain.id);
+            self.qdrant.create_collection(&collection_name).await?;
+
+            for (text, embedding) in training_data.iter().zip(embeddings.iter()) {
+                self.qdrant.store_embedding(&collection_name, text, embedding).await?;
+            }
+
+            Ok(TrainingResult {
+                domain_id: domain.id,
+                documents_processed: training_data.len(),
+                embedding_count: embeddings.len(),
+            })
+        }
+
+        pub async fn classify_input(
+            &self,
+            input: &str,
+            custom_domains: &[CustomDomain],
+        ) -> Result<Option<CustomDomain>, ClassificationError> {
+            // Check if input matches any custom domain
+            let input_embedding = self.embedding_service.embed(input).await?;
+
+            for domain in custom_domains {
+                let collection = format!("custom_domain_{}", domain.id);
+                let similarity = self.qdrant
+                    .max_similarity(&collection, &input_embedding)
+                    .await?;
+
+                if similarity > 0.75 {
+                    return Ok(Some(domain.clone()));
+                }
+            }
+
+            Ok(None)
+        }
+    }
+    ```
+
+    STEP 3: Create domain management endpoints
+
+    ```rust
+    // POST /api/v1/admin/domains (Enterprise only)
+    pub async fn create_custom_domain(
+        State(state): State<AppState>,
+        claims: Claims,
+        Json(request): Json<CreateDomainRequest>,
+    ) -> Result<Json<CustomDomain>, ApiError>;
+
+    // POST /api/v1/admin/domains/:id/train
+    pub async fn train_domain(
+        State(state): State<AppState>,
+        claims: Claims,
+        Path(domain_id): Path<Uuid>,
+        multipart: Multipart,  // Training documents
+    ) -> Result<Json<TrainingResult>, ApiError>;
+    ```
+
+    STEP 4: Integrate with VifApi
+
+    ```rust
+    // In process_input, check for custom domains
+    if let Some(org_id) = user.organization_id {
+        let custom_domains = self.db.get_org_custom_domains(org_id).await?;
+        if let Some(matched) = self.trainer.classify_input(input, &custom_domains).await? {
+            // Adjust framework to include custom domain
+            self.flow_context.add_custom_domain(&matched);
+        }
+    }
+    ```
+
+    STEP 5: Create domain management UI
+
+    Create: frontend/src/app/(admin)/admin/domains/page.tsx
+    - List custom domains
+    - Create new domain
+    - Upload training documents
+    - View training status
+
+    STEP 6: Write tests
+    - test_create_custom_domain
+    - test_train_with_documents
+    - test_classify_input_matches_domain
+    - test_custom_domain_in_framework
+
+    STEP 7: Write batch result
+
+    {% elif sheet_num == 11 %}
+    ============================================================
+    BATCH 11: INTEGRATION TESTING
+    ============================================================
+
+    GOAL: Comprehensive integration testing for all Phase 4 features.
+
+    STEP 1: Create HLIP integration tests
+
+    Create: api/tests/integration_hlip.rs
+    - test_hlip_command_affects_response
+    - test_hlip_natural_language_parsing
+    - test_hlip_compound_commands
+    - test_hlip_with_streaming
+
+    STEP 2: Create volumetric integration tests
+
+    Create: api/tests/integration_volumetric.rs
+    - test_volumetric_persists_across_turns
+    - test_volumetric_trajectory_calculation
+    - test_emergence_detection
+    - test_volumetric_visualization_data
+
+    STEP 3: Create CAM integration tests
+
+    Create: api/tests/integration_cam.rs
+    - test_insight_evaluation_flow
+    - test_privacy_controls_enforced
+    - test_collective_search_respects_visibility
+    - test_confidence_decay_over_time
+
+    STEP 4: Create pattern recognition tests
+
+    Create: api/tests/integration_patterns.rs
+    - test_user_pattern_analysis
+    - test_collective_pattern_discovery
+    - test_pattern_suggestions
+
+    STEP 5: Create custom domain tests
+
+    Create: api/tests/integration_custom_domains.rs
+    - test_domain_creation_enterprise_only
+    - test_domain_training
+    - test_domain_classification
+    - test_domain_in_framework
+
+    STEP 6: Run full test suite
+
+    ```bash
+    cargo test --workspace
+    cargo test --test integration_*
+
+    cd frontend
+    npm test
+    npx playwright test
+    ```
+
+    STEP 7: Performance benchmarks
+
+    ```rust
+    #[bench]
+    fn bench_hlip_command_parsing(b: &mut Bencher);
+
+    #[bench]
+    fn bench_insight_evaluation(b: &mut Bencher);
+
+    #[bench]
+    fn bench_pattern_analysis(b: &mut Bencher);
+    ```
+
+    STEP 8: Write batch result
+
+    {% elif sheet_num == 12 %}
+    ============================================================
+    BATCH 12: PHASE 4 COMPLETION
+    ============================================================
+
+    GOAL: Final validation, documentation, and release.
+
+    STEP 1: Feature validation checklist
+
+    - [ ] HLIP commands work end-to-end
+    - [ ] Volumetric visualization updates in real-time
+    - [ ] CAM insights are evaluated and stored
+    - [ ] Privacy controls are enforced
+    - [ ] Collective search works
+    - [ ] Pattern analysis provides insights
+    - [ ] Custom domains work for Enterprise
+
+    STEP 2: Security review
+
+    - [ ] Custom domain data isolated per organization
+    - [ ] Privacy settings cannot be bypassed
+    - [ ] CAM queries don't leak private insights
+    - [ ] HLIP commands validated
+
+    STEP 3: Performance validation
+
+    Targets:
+    - HLIP parsing: <10ms
+    - Volumetric calculation: <50ms
+    - CAM search: <200ms
+    - Pattern analysis: <500ms
+    - Custom domain classification: <100ms
+
+    STEP 4: Update documentation
+
+    Create: docs/hlip-guide.md
+    Create: docs/volumetric-visualization.md
+    Create: docs/collective-learning.md
+    Create: docs/custom-domains.md
+
+    Update: STATUS.md
+    - Mark Phase 4 complete
+    - Full feature inventory
+
+    STEP 5: Create release notes
+
+    Create: {{ workspace }}/phase4-release-notes.md
+
+    STEP 6: Commit and tag
+
+    ```bash
+    git add .
+    git commit -m "feat: Complete Phase 4 Advanced Features
+
+    Implements:
+    - HLIP command parsing and execution
+    - Natural language HLIP bridges
+    - Full volumetric configuration persistence
+    - 3D/4D visualization with emergence indicators
+    - CAM insight evaluation with LLM
+    - Privacy controls (private/anonymous/public)
+    - Collective insight search and exploration
+    - User pattern analysis
+    - Collective pattern discovery
+    - Custom domain training (Enterprise)
+
+    Performance:
+    - HLIP: <10ms parsing
+    - CAM: <200ms search
+    - Patterns: <500ms analysis
+
+    Security:
+    - Multi-tenant domain isolation
+    - Privacy enforcement verified
+
+    Co-Authored-By: Mozart AI Compose <mozart@example.com>"
+    ```
+
+    STEP 7: Write final batch result
+    ```markdown
+    PHASE: Phase 4 Advanced Features Complete
+    BATCH: {{ sheet_num }}
+    IMPLEMENTATION_COMPLETE: yes
+    ALL_TESTS_PASS: yes
+    INTEGRATION_TESTS_PASS: yes
+    SECURITY_AUDIT: complete
+    PERFORMANCE_VALIDATED: yes
+
+    COMPONENTS_COMPLETED:
+    - HLIP Command System ✅
+    - Volumetric Persistence ✅
+    - 3D/4D Visualization ✅
+    - CAM Insight Evaluation ✅
+    - Privacy Controls ✅
+    - Collective Search ✅
+    - Pattern Recognition ✅
+    - Custom Domains ✅
+
+    PROJECT STATUS: FEATURE COMPLETE
+    READY_FOR: Production deployment
+    ```
+
+    {% endif %}
+
+    {{ stakes }}
+
+  variables:
+    preamble: |
+      You are implementing Phase 4 (Advanced Features) of the Recursive Light project.
+
+      CONTEXT:
+      - Phases 1-3 complete: Foundation, Core Product, Monetization
+      - This phase implements differentiating advanced features
+      - These features are what make Recursive Light unique
+
+      ADVANCED FEATURES:
+      - HLIP: Hypnotic LLM Integration Protocol for conscious control
+      - Volumetric: Full 3D/4D emergence tracking and visualization
+      - CAM Full: Collective learning with privacy and evaluation
+      - Patterns: User and collective pattern recognition
+      - Custom Domains: Enterprise domain training
+
+      PROJECTS:
+      - Backend: /home/emzi/Projects/recursive-light/api
+      - Frontend: /home/emzi/Projects/recursive-light/frontend
+
+      QUALITY:
+      - These are premium features - highest quality
+      - Performance is critical
+      - Security is paramount (especially privacy)
+
+    stakes: |
+      STAKES:
+      - These features define the product's uniqueness
+      - HLIP enables conscious interaction with the framework
+      - CAM privacy is essential for user trust
+      - Custom domains are key Enterprise value
+
+validations:
+  # Stage 1: Basic file checks
+  - type: file_exists
+    path: "{workspace}/batch{sheet_num}-result.md"
+    description: "Batch result file exists"
+    stage: 1
+
+  - type: content_contains
+    path: "{workspace}/batch{sheet_num}-result.md"
+    pattern: "IMPLEMENTATION_COMPLETE: yes"
+    description: "Batch marked complete"
+    stage: 1
+
+  # Stage 2: Backend tests (including advanced features)
+  - type: command_succeeds
+    command: "cd /home/emzi/Projects/recursive-light/api && cargo test --lib --quiet 2>&1 | tail -1 | grep -q 'ok'"
+    description: "All Rust tests pass"
+    stage: 2
+
+  # Stage 3: Code quality
+  - type: command_succeeds
+    command: "cd /home/emzi/Projects/recursive-light/api && cargo clippy --quiet -- -D warnings 2>&1 | grep -c 'error' | grep -q '^0$' || [ $? -eq 1 ]"
+    description: "No clippy warnings"
+    stage: 3
+
+  # Stage 4: Full stack build
+  - type: command_succeeds
+    command: "cd /home/emzi/Projects/recursive-light/frontend && npm run build 2>&1 | tail -5 | grep -v 'error'"
+    description: "Frontend builds successfully"
+    stage: 4
+
+# AI code review configuration
+ai_review:
+  enabled: false
+  min_score: 60
+  target_score: 80
+  on_low_score: warn
+
+retry:
+  max_retries: 3
+  max_completion_attempts: 2
+  completion_threshold_percent: 60.0
+  base_delay_seconds: 15
+
+rate_limit:
+  wait_minutes: 60
+  max_waits: 10
+
+learning:
+  enabled: true
+  outcome_store_type: json
+  min_confidence_threshold: 0.4
+  high_confidence_threshold: 0.8
+
+notifications:
+  - type: desktop
+    on_events: [job_complete, job_failed, sheet_failed]
+
+state_backend: json
+pause_between_batches_seconds: 10

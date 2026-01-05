@@ -1,0 +1,1736 @@
+# Recursive Light Phase 3: Monetization & Scale
+#
+# This config implements monetization and scaling features:
+# - Stripe Payment Integration
+# - Usage Tracking & Quotas
+# - Feature Gating by Tier
+# - Document Processing Pipeline
+# - Monitoring & Observability
+# - Admin Dashboard
+#
+# Prerequisites:
+# - Phase 1 Foundation complete
+# - Phase 2 Core Product complete
+#
+# Estimated Duration: 10-14 weeks (solo), 5-7 weeks (2-person team)
+# Total Batches: 12
+
+name: "recursive-light-phase3-monetization"
+description: "Monetization layer: Payments, Usage, Gating, Documents, Monitoring"
+
+workspace: "/home/emzi/Projects/mozart-ai-compose/recursive-light-phase3-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  working_directory: "/home/emzi/Projects/recursive-light"
+  timeout_seconds: 2400
+
+sheet:
+  size: 1
+  total_items: 12
+  start_item: 1
+
+prompt:
+  template: |
+    {{ preamble }}
+
+    {% if sheet_num == 1 %}
+    ============================================================
+    BATCH 1: STRIPE SETUP & SUBSCRIPTION SCHEMA
+    ============================================================
+
+    GOAL: Set up Stripe integration and subscription database schema.
+
+    STEP 1: Research Stripe integration
+    - Stripe Checkout for payment
+    - Stripe Customer Portal for self-service
+    - Webhooks for subscription lifecycle
+    - Test mode setup
+
+    STEP 2: Create database schema
+
+    Create migration: api/migrations/postgres/010_subscriptions.sql
+    ```sql
+    -- Subscription tiers
+    CREATE TYPE subscription_tier AS ENUM ('free', 'pro', 'enterprise');
+    CREATE TYPE subscription_status AS ENUM (
+        'active', 'past_due', 'canceled', 'trialing', 'paused'
+    );
+
+    -- Stripe customer mapping
+    CREATE TABLE stripe_customers (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+        stripe_customer_id VARCHAR(255) NOT NULL UNIQUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    -- Subscriptions
+    CREATE TABLE subscriptions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        stripe_subscription_id VARCHAR(255) UNIQUE,
+        tier subscription_tier NOT NULL DEFAULT 'free',
+        status subscription_status NOT NULL DEFAULT 'active',
+        current_period_start TIMESTAMPTZ,
+        current_period_end TIMESTAMPTZ,
+        cancel_at_period_end BOOLEAN NOT NULL DEFAULT false,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX idx_subscriptions_user ON subscriptions(user_id);
+    CREATE INDEX idx_subscriptions_stripe ON subscriptions(stripe_subscription_id);
+
+    -- Usage tracking
+    CREATE TABLE usage_records (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        period_start DATE NOT NULL,
+        period_end DATE NOT NULL,
+        tokens_used BIGINT NOT NULL DEFAULT 0,
+        api_calls INTEGER NOT NULL DEFAULT 0,
+        documents_processed INTEGER NOT NULL DEFAULT 0,
+        storage_bytes BIGINT NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(user_id, period_start)
+    );
+
+    CREATE INDEX idx_usage_user_period ON usage_records(user_id, period_start);
+    ```
+
+    STEP 3: Create subscription module
+
+    Create: api/src/billing/mod.rs
+    Create: api/src/billing/subscription.rs
+    Create: api/src/billing/stripe_client.rs
+
+    STEP 4: Define tier limits
+
+    ```rust
+    // api/src/billing/tiers.rs
+    pub struct TierLimits {
+        pub monthly_tokens: u64,
+        pub daily_api_calls: u32,
+        pub max_documents: u32,
+        pub max_storage_bytes: u64,
+        pub features: Vec<Feature>,
+    }
+
+    impl TierLimits {
+        pub fn free() -> Self {
+            Self {
+                monthly_tokens: 50_000,
+                daily_api_calls: 100,
+                max_documents: 5,
+                max_storage_bytes: 10 * 1024 * 1024, // 10MB
+                features: vec![Feature::BasicChat, Feature::BasicVisualization],
+            }
+        }
+
+        pub fn pro() -> Self {
+            Self {
+                monthly_tokens: 500_000,
+                daily_api_calls: 1000,
+                max_documents: 50,
+                max_storage_bytes: 500 * 1024 * 1024, // 500MB
+                features: vec![
+                    Feature::BasicChat,
+                    Feature::BasicVisualization,
+                    Feature::AdvancedVisualization,
+                    Feature::HLIP,
+                    Feature::PrivateInsights,
+                ],
+            }
+        }
+
+        pub fn enterprise() -> Self {
+            Self {
+                monthly_tokens: 5_000_000,
+                daily_api_calls: 10_000,
+                max_documents: 500,
+                max_storage_bytes: 10 * 1024 * 1024 * 1024, // 10GB
+                features: vec![Feature::All],
+            }
+        }
+    }
+    ```
+
+    STEP 5: Add Stripe dependencies
+
+    ```toml
+    [dependencies]
+    stripe-rust = { version = "0.23", features = ["runtime-tokio-hyper"] }
+    ```
+
+    STEP 6: Write tests
+    - test_tier_limits_correct
+    - test_subscription_creation
+    - test_subscription_status_transitions
+
+    STEP 7: Write batch result
+
+    {% elif sheet_num == 2 %}
+    ============================================================
+    BATCH 2: STRIPE CHECKOUT FLOW
+    ============================================================
+
+    GOAL: Implement Stripe Checkout for subscription creation.
+
+    STEP 1: Create Stripe client
+
+    ```rust
+    // api/src/billing/stripe_client.rs
+    pub struct StripeClient {
+        client: stripe::Client,
+        price_ids: PriceIds,
+    }
+
+    struct PriceIds {
+        pro_monthly: String,
+        pro_yearly: String,
+        enterprise_monthly: String,
+        enterprise_yearly: String,
+    }
+
+    impl StripeClient {
+        pub fn new(api_key: &str) -> Self;
+
+        pub async fn create_checkout_session(
+            &self,
+            user: &User,
+            tier: SubscriptionTier,
+            interval: BillingInterval,
+            success_url: &str,
+            cancel_url: &str,
+        ) -> Result<CheckoutSession, BillingError>;
+
+        pub async fn create_portal_session(
+            &self,
+            customer_id: &str,
+            return_url: &str,
+        ) -> Result<PortalSession, BillingError>;
+
+        pub async fn get_subscription(
+            &self,
+            subscription_id: &str,
+        ) -> Result<stripe::Subscription, BillingError>;
+    }
+    ```
+
+    STEP 2: Create checkout endpoints
+
+    ```rust
+    // POST /api/v1/billing/checkout
+    pub async fn create_checkout(
+        State(state): State<AppState>,
+        claims: Claims,
+        Json(request): Json<CheckoutRequest>,
+    ) -> Result<Json<CheckoutResponse>, ApiError> {
+        let session = state.stripe_client.create_checkout_session(
+            &user,
+            request.tier,
+            request.interval,
+            &format!("{}/billing/success", state.frontend_url),
+            &format!("{}/billing/cancel", state.frontend_url),
+        ).await?;
+
+        Ok(Json(CheckoutResponse {
+            checkout_url: session.url,
+        }))
+    }
+
+    #[derive(Deserialize)]
+    pub struct CheckoutRequest {
+        tier: SubscriptionTier,
+        interval: BillingInterval,  // Monthly or Yearly
+    }
+    ```
+
+    STEP 3: Create customer portal endpoint
+
+    ```rust
+    // POST /api/v1/billing/portal
+    pub async fn create_portal(
+        State(state): State<AppState>,
+        claims: Claims,
+    ) -> Result<Json<PortalResponse>, ApiError> {
+        let customer = state.db.get_stripe_customer(claims.sub).await?;
+        let session = state.stripe_client.create_portal_session(
+            &customer.stripe_customer_id,
+            &format!("{}/settings", state.frontend_url),
+        ).await?;
+
+        Ok(Json(PortalResponse {
+            portal_url: session.url,
+        }))
+    }
+    ```
+
+    STEP 4: Create subscription status endpoint
+
+    ```rust
+    // GET /api/v1/billing/subscription
+    pub async fn get_subscription(
+        State(state): State<AppState>,
+        claims: Claims,
+    ) -> Result<Json<SubscriptionInfo>, ApiError>;
+    ```
+
+    STEP 5: Add billing routes
+
+    ```rust
+    fn billing_routes() -> Router {
+        Router::new()
+            .route("/checkout", post(create_checkout))
+            .route("/portal", post(create_portal))
+            .route("/subscription", get(get_subscription))
+    }
+    ```
+
+    STEP 6: Write tests
+    - test_checkout_session_created
+    - test_portal_session_created
+    - test_subscription_info_returned
+
+    STEP 7: Write batch result
+
+    {% elif sheet_num == 3 %}
+    ============================================================
+    BATCH 3: STRIPE WEBHOOKS
+    ============================================================
+
+    GOAL: Handle Stripe webhook events for subscription lifecycle.
+
+    STEP 1: Create webhook handler
+
+    ```rust
+    // api/src/billing/webhooks.rs
+    pub async fn handle_stripe_webhook(
+        State(state): State<AppState>,
+        headers: HeaderMap,
+        body: Bytes,
+    ) -> Result<StatusCode, ApiError> {
+        // Verify webhook signature
+        let signature = headers
+            .get("Stripe-Signature")
+            .ok_or(ApiError::BadRequest("Missing signature"))?;
+
+        let event = stripe::Webhook::construct_event(
+            &body,
+            signature,
+            &state.config.stripe_webhook_secret,
+        )?;
+
+        // Handle event
+        match event.type_ {
+            EventType::CheckoutSessionCompleted => {
+                handle_checkout_completed(&state, event).await?;
+            }
+            EventType::CustomerSubscriptionUpdated => {
+                handle_subscription_updated(&state, event).await?;
+            }
+            EventType::CustomerSubscriptionDeleted => {
+                handle_subscription_deleted(&state, event).await?;
+            }
+            EventType::InvoicePaymentFailed => {
+                handle_payment_failed(&state, event).await?;
+            }
+            EventType::InvoicePaymentSucceeded => {
+                handle_payment_succeeded(&state, event).await?;
+            }
+            _ => {
+                // Log unhandled event
+            }
+        }
+
+        Ok(StatusCode::OK)
+    }
+    ```
+
+    STEP 2: Implement checkout completion handler
+
+    ```rust
+    async fn handle_checkout_completed(
+        state: &AppState,
+        event: Event,
+    ) -> Result<(), BillingError> {
+        let session = extract_checkout_session(&event)?;
+
+        // Get or create Stripe customer record
+        let user_id = session.client_reference_id.parse()?;
+        state.db.upsert_stripe_customer(user_id, &session.customer).await?;
+
+        // Create subscription record
+        let tier = determine_tier_from_price(&session.subscription)?;
+        state.db.create_subscription(
+            user_id,
+            &session.subscription,
+            tier,
+            SubscriptionStatus::Active,
+        ).await?;
+
+        // Send welcome email (via job queue)
+        state.job_queue.enqueue(JobType::EmailNotification {
+            user_id,
+            template: "welcome_pro".to_string(),
+        }).await?;
+
+        Ok(())
+    }
+    ```
+
+    STEP 3: Implement subscription update handler
+
+    ```rust
+    async fn handle_subscription_updated(
+        state: &AppState,
+        event: Event,
+    ) -> Result<(), BillingError> {
+        let subscription = extract_subscription(&event)?;
+
+        // Update local subscription record
+        state.db.update_subscription(
+            &subscription.id,
+            subscription.status.into(),
+            subscription.current_period_end,
+            subscription.cancel_at_period_end,
+        ).await?;
+
+        Ok(())
+    }
+    ```
+
+    STEP 4: Implement payment failure handler
+
+    ```rust
+    async fn handle_payment_failed(
+        state: &AppState,
+        event: Event,
+    ) -> Result<(), BillingError> {
+        let invoice = extract_invoice(&event)?;
+
+        // Mark subscription as past_due
+        if let Some(subscription_id) = invoice.subscription {
+            state.db.update_subscription_status(
+                &subscription_id,
+                SubscriptionStatus::PastDue,
+            ).await?;
+
+            // Send payment failed email
+            let user = state.db.get_user_by_stripe_customer(&invoice.customer).await?;
+            state.job_queue.enqueue(JobType::EmailNotification {
+                user_id: user.id,
+                template: "payment_failed".to_string(),
+            }).await?;
+        }
+
+        Ok(())
+    }
+    ```
+
+    STEP 5: Add idempotency
+
+    ```rust
+    // Prevent duplicate processing
+    CREATE TABLE webhook_events (
+        event_id VARCHAR(255) PRIMARY KEY,
+        processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    // Check before processing
+    async fn is_event_processed(&self, event_id: &str) -> bool;
+    async fn mark_event_processed(&self, event_id: &str);
+    ```
+
+    STEP 6: Add webhook route
+
+    ```rust
+    .route("/webhook/stripe", post(handle_stripe_webhook))
+    ```
+
+    STEP 7: Write tests
+    - test_checkout_completed_creates_subscription
+    - test_subscription_updated_syncs
+    - test_subscription_deleted_cancels
+    - test_payment_failed_marks_past_due
+    - test_idempotent_processing
+
+    STEP 8: Write batch result
+
+    {% elif sheet_num == 4 %}
+    ============================================================
+    BATCH 4: USAGE TRACKING
+    ============================================================
+
+    GOAL: Implement real-time usage tracking.
+
+    STEP 1: Create usage tracker
+
+    ```rust
+    // api/src/billing/usage.rs
+    pub struct UsageTracker {
+        pool: PgPool,
+        redis: RedisPool,
+    }
+
+    impl UsageTracker {
+        pub async fn track_tokens(&self, user_id: Uuid, tokens: u64) -> Result<(), UsageError> {
+            // Increment in Redis for real-time
+            let key = format!("usage:{}:{}", user_id, current_period());
+            self.redis.incrby(&key, tokens).await?;
+
+            // Also log to database (can be async/batched)
+            self.log_usage(user_id, UsageType::Tokens(tokens)).await?;
+
+            Ok(())
+        }
+
+        pub async fn track_api_call(&self, user_id: Uuid) -> Result<(), UsageError> {
+            let key = format!("api_calls:{}:{}", user_id, today());
+            self.redis.incr(&key).await?;
+            Ok(())
+        }
+
+        pub async fn track_document(&self, user_id: Uuid, bytes: u64) -> Result<(), UsageError>;
+
+        pub async fn get_current_usage(&self, user_id: Uuid) -> Result<UsageSnapshot, UsageError> {
+            let period = current_period();
+            let today = today();
+
+            let tokens = self.redis.get::<u64>(&format!("usage:{}:{}", user_id, period)).await?;
+            let api_calls = self.redis.get::<u32>(&format!("api_calls:{}:{}", user_id, today)).await?;
+
+            Ok(UsageSnapshot {
+                tokens_used: tokens.unwrap_or(0),
+                api_calls_today: api_calls.unwrap_or(0),
+                period_start: period.start,
+                period_end: period.end,
+            })
+        }
+    }
+    ```
+
+    STEP 2: Integrate with token counting
+
+    ```rust
+    // In chat handler, after LLM response
+    pub async fn chat(
+        State(state): State<AppState>,
+        claims: Claims,
+        Json(request): Json<ChatRequest>,
+    ) -> Result<Json<ChatResponse>, ApiError> {
+        // ... existing chat logic ...
+
+        // Count tokens (tiktoken compatible)
+        let input_tokens = count_tokens(&request.message);
+        let output_tokens = count_tokens(&response.message);
+        let total_tokens = input_tokens + output_tokens;
+
+        // Track usage
+        state.usage_tracker.track_tokens(claims.sub, total_tokens).await?;
+        state.usage_tracker.track_api_call(claims.sub).await?;
+
+        Ok(Json(response))
+    }
+    ```
+
+    STEP 3: Add tiktoken-compatible token counting
+
+    ```toml
+    [dependencies]
+    tiktoken-rs = "0.5"
+    ```
+
+    ```rust
+    // api/src/billing/tokens.rs
+    use tiktoken_rs::cl100k_base;
+
+    pub fn count_tokens(text: &str) -> u64 {
+        let bpe = cl100k_base().unwrap();
+        bpe.encode_with_special_tokens(text).len() as u64
+    }
+    ```
+
+    STEP 4: Create usage sync job
+
+    ```rust
+    // Periodic job to sync Redis usage to PostgreSQL
+    pub struct UsageSyncHandler {
+        pool: PgPool,
+        redis: RedisPool,
+    }
+
+    #[async_trait]
+    impl JobHandler for UsageSyncHandler {
+        async fn handle(&self, job: &Job) -> Result<(), JobError> {
+            // Get all usage keys from Redis
+            // Batch insert/update to PostgreSQL
+            // Clear synced Redis keys
+        }
+    }
+    ```
+
+    STEP 5: Create usage API endpoint
+
+    ```rust
+    // GET /api/v1/billing/usage
+    pub async fn get_usage(
+        State(state): State<AppState>,
+        claims: Claims,
+    ) -> Result<Json<UsageInfo>, ApiError> {
+        let usage = state.usage_tracker.get_current_usage(claims.sub).await?;
+        let limits = state.db.get_user_tier_limits(claims.sub).await?;
+
+        Ok(Json(UsageInfo {
+            tokens: UsageDetail {
+                used: usage.tokens_used,
+                limit: limits.monthly_tokens,
+                percentage: (usage.tokens_used as f64 / limits.monthly_tokens as f64) * 100.0,
+            },
+            api_calls: UsageDetail {
+                used: usage.api_calls_today as u64,
+                limit: limits.daily_api_calls as u64,
+                percentage: (usage.api_calls_today as f64 / limits.daily_api_calls as f64) * 100.0,
+            },
+            // ... documents, storage
+        }))
+    }
+    ```
+
+    STEP 6: Write tests
+    - test_token_tracking
+    - test_api_call_tracking
+    - test_usage_snapshot_accurate
+    - test_usage_sync_to_db
+
+    STEP 7: Write batch result
+
+    {% elif sheet_num == 5 %}
+    ============================================================
+    BATCH 5: QUOTA ENFORCEMENT
+    ============================================================
+
+    GOAL: Enforce usage limits based on subscription tier.
+
+    STEP 1: Create quota middleware
+
+    ```rust
+    // api/src/http/middleware/quota.rs
+    pub async fn check_quota(
+        State(state): State<AppState>,
+        claims: Claims,
+        request: Request,
+        next: Next,
+    ) -> Result<Response, ApiError> {
+        let user_id = claims.sub;
+
+        // Get current usage and limits
+        let usage = state.usage_tracker.get_current_usage(user_id).await?;
+        let subscription = state.db.get_subscription(user_id).await?;
+        let limits = TierLimits::for_tier(subscription.tier);
+
+        // Check token quota
+        if usage.tokens_used >= limits.monthly_tokens {
+            return Err(ApiError::QuotaExceeded {
+                resource: "tokens",
+                used: usage.tokens_used,
+                limit: limits.monthly_tokens,
+                resets_at: usage.period_end,
+            });
+        }
+
+        // Check API call quota
+        if usage.api_calls_today >= limits.daily_api_calls {
+            return Err(ApiError::QuotaExceeded {
+                resource: "api_calls",
+                used: usage.api_calls_today as u64,
+                limit: limits.daily_api_calls as u64,
+                resets_at: end_of_day(),
+            });
+        }
+
+        Ok(next.run(request).await)
+    }
+    ```
+
+    STEP 2: Create soft limit warnings
+
+    ```rust
+    // Return warning headers when approaching limits
+    fn add_quota_headers(
+        response: &mut Response,
+        usage: &UsageSnapshot,
+        limits: &TierLimits,
+    ) {
+        let token_remaining = limits.monthly_tokens.saturating_sub(usage.tokens_used);
+        let calls_remaining = limits.daily_api_calls.saturating_sub(usage.api_calls_today);
+
+        response.headers_mut().insert(
+            "X-Token-Limit-Remaining",
+            token_remaining.to_string().parse().unwrap(),
+        );
+        response.headers_mut().insert(
+            "X-API-Calls-Remaining",
+            calls_remaining.to_string().parse().unwrap(),
+        );
+
+        // Add warning if <20% remaining
+        if token_remaining < limits.monthly_tokens / 5 {
+            response.headers_mut().insert(
+                "X-Token-Warning",
+                "Approaching token limit".parse().unwrap(),
+            );
+        }
+    }
+    ```
+
+    STEP 3: Create quota reset job
+
+    ```rust
+    // Scheduled job: Run at start of each month
+    pub struct MonthlyQuotaResetHandler {
+        pool: PgPool,
+        redis: RedisPool,
+    }
+
+    #[async_trait]
+    impl JobHandler for MonthlyQuotaResetHandler {
+        async fn handle(&self, job: &Job) -> Result<(), JobError> {
+            // Archive current period usage
+            // Reset Redis counters
+            // Create new usage_records row
+        }
+    }
+    ```
+
+    STEP 4: Add daily API call reset job
+
+    ```rust
+    // Scheduled job: Run at midnight UTC
+    pub struct DailyCallResetHandler { ... }
+    ```
+
+    STEP 5: Update error response
+
+    ```rust
+    #[derive(Debug, Serialize)]
+    pub struct QuotaExceededError {
+        pub code: String,  // "QUOTA_EXCEEDED"
+        pub resource: String,  // "tokens", "api_calls", etc.
+        pub used: u64,
+        pub limit: u64,
+        pub resets_at: DateTime<Utc>,
+        pub upgrade_url: String,
+    }
+    ```
+
+    STEP 6: Wire middleware into routes
+
+    ```rust
+    .nest("/api/v1/chat", chat_routes())
+        .layer(middleware::from_fn(check_quota))
+    ```
+
+    STEP 7: Write tests
+    - test_quota_allows_under_limit
+    - test_quota_blocks_over_limit
+    - test_quota_headers_added
+    - test_monthly_reset
+    - test_daily_reset
+
+    STEP 8: Write batch result
+
+    {% elif sheet_num == 6 %}
+    ============================================================
+    BATCH 6: FEATURE GATING
+    ============================================================
+
+    GOAL: Implement feature flags based on subscription tier.
+
+    STEP 1: Define features
+
+    ```rust
+    // api/src/billing/features.rs
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+    pub enum Feature {
+        BasicChat,
+        BasicVisualization,
+        AdvancedVisualization,
+        HLIP,
+        PrivateInsights,
+        DocumentUpload,
+        CollectiveSearch,
+        APIAccess,
+        CustomDomains,
+        PrioritySupport,
+    }
+
+    impl Feature {
+        pub fn available_for_tier(tier: SubscriptionTier) -> HashSet<Feature> {
+            match tier {
+                SubscriptionTier::Free => hashset! {
+                    Feature::BasicChat,
+                    Feature::BasicVisualization,
+                },
+                SubscriptionTier::Pro => hashset! {
+                    Feature::BasicChat,
+                    Feature::BasicVisualization,
+                    Feature::AdvancedVisualization,
+                    Feature::HLIP,
+                    Feature::PrivateInsights,
+                    Feature::DocumentUpload,
+                    Feature::CollectiveSearch,
+                },
+                SubscriptionTier::Enterprise => hashset! {
+                    Feature::BasicChat,
+                    Feature::BasicVisualization,
+                    Feature::AdvancedVisualization,
+                    Feature::HLIP,
+                    Feature::PrivateInsights,
+                    Feature::DocumentUpload,
+                    Feature::CollectiveSearch,
+                    Feature::APIAccess,
+                    Feature::CustomDomains,
+                    Feature::PrioritySupport,
+                },
+            }
+        }
+    }
+    ```
+
+    STEP 2: Create feature check middleware
+
+    ```rust
+    // api/src/http/middleware/features.rs
+    pub fn require_feature(feature: Feature) -> impl Fn(
+        State<AppState>,
+        Claims,
+        Request,
+        Next,
+    ) -> impl Future<Output = Result<Response, ApiError>> {
+        move |state, claims, request, next| async move {
+            let subscription = state.db.get_subscription(claims.sub).await?;
+            let available = Feature::available_for_tier(subscription.tier);
+
+            if !available.contains(&feature) {
+                return Err(ApiError::FeatureNotAvailable {
+                    feature: feature.to_string(),
+                    required_tier: feature.minimum_tier().to_string(),
+                    current_tier: subscription.tier.to_string(),
+                    upgrade_url: format!("{}/pricing", state.config.frontend_url),
+                });
+            }
+
+            Ok(next.run(request).await)
+        }
+    }
+    ```
+
+    STEP 3: Apply to routes
+
+    ```rust
+    // HLIP routes require Pro+
+    .nest("/api/v1/hlip", hlip_routes())
+        .layer(middleware::from_fn(require_feature(Feature::HLIP)))
+
+    // Document routes require Pro+
+    .nest("/api/v1/documents", document_routes())
+        .layer(middleware::from_fn(require_feature(Feature::DocumentUpload)))
+
+    // API key routes require Enterprise
+    .nest("/api/v1/api-keys", api_key_routes())
+        .layer(middleware::from_fn(require_feature(Feature::APIAccess)))
+    ```
+
+    STEP 4: Create features endpoint
+
+    ```rust
+    // GET /api/v1/billing/features
+    pub async fn get_features(
+        State(state): State<AppState>,
+        claims: Claims,
+    ) -> Result<Json<FeaturesResponse>, ApiError> {
+        let subscription = state.db.get_subscription(claims.sub).await?;
+        let available = Feature::available_for_tier(subscription.tier);
+        let all_features = Feature::all();
+
+        Ok(Json(FeaturesResponse {
+            tier: subscription.tier,
+            features: all_features.iter().map(|f| FeatureInfo {
+                name: f.to_string(),
+                available: available.contains(f),
+                required_tier: f.minimum_tier(),
+            }).collect(),
+        }))
+    }
+    ```
+
+    STEP 5: Update frontend to check features
+
+    - Create useFeature hook
+    - Conditionally render features
+    - Show upgrade prompts
+
+    STEP 6: Write tests
+    - test_free_tier_basic_features
+    - test_pro_tier_advanced_features
+    - test_enterprise_all_features
+    - test_feature_blocked_returns_upgrade_url
+
+    STEP 7: Write batch result
+
+    {% elif sheet_num == 7 %}
+    ============================================================
+    BATCH 7: DOCUMENT UPLOAD & STORAGE
+    ============================================================
+
+    GOAL: Implement document upload with S3/R2 storage.
+
+    STEP 1: Add S3 dependencies
+
+    ```toml
+    [dependencies]
+    aws-sdk-s3 = "1.0"
+    aws-config = "1.0"
+    mime_guess = "2"
+    ```
+
+    STEP 2: Create storage client
+
+    ```rust
+    // api/src/documents/storage.rs
+    pub struct DocumentStorage {
+        client: aws_sdk_s3::Client,
+        bucket: String,
+    }
+
+    impl DocumentStorage {
+        pub async fn new(config: &StorageConfig) -> Self {
+            let sdk_config = aws_config::from_env()
+                .endpoint_url(&config.endpoint)
+                .load()
+                .await;
+            let client = aws_sdk_s3::Client::new(&sdk_config);
+            Self { client, bucket: config.bucket.clone() }
+        }
+
+        pub async fn upload(
+            &self,
+            key: &str,
+            content: Bytes,
+            content_type: &str,
+        ) -> Result<String, StorageError> {
+            self.client.put_object()
+                .bucket(&self.bucket)
+                .key(key)
+                .body(content.into())
+                .content_type(content_type)
+                .send()
+                .await?;
+
+            Ok(format!("{}/{}", self.bucket, key))
+        }
+
+        pub async fn download(&self, key: &str) -> Result<Bytes, StorageError>;
+        pub async fn delete(&self, key: &str) -> Result<(), StorageError>;
+        pub async fn generate_presigned_url(&self, key: &str, expires_in: Duration) -> Result<String, StorageError>;
+    }
+    ```
+
+    STEP 3: Create document upload endpoint
+
+    ```rust
+    // POST /api/v1/documents
+    pub async fn upload_document(
+        State(state): State<AppState>,
+        claims: Claims,
+        mut multipart: Multipart,
+    ) -> Result<Json<DocumentResponse>, ApiError> {
+        // Check document quota
+        let usage = state.usage_tracker.get_document_count(claims.sub).await?;
+        let limits = state.db.get_user_tier_limits(claims.sub).await?;
+        if usage >= limits.max_documents {
+            return Err(ApiError::QuotaExceeded { resource: "documents", ... });
+        }
+
+        // Extract file from multipart
+        let field = multipart.next_field().await?
+            .ok_or(ApiError::BadRequest("No file provided"))?;
+
+        let filename = field.file_name().unwrap_or("document").to_string();
+        let content_type = field.content_type().unwrap_or("application/octet-stream").to_string();
+        let data = field.bytes().await?;
+
+        // Validate file type
+        if !is_supported_document_type(&content_type) {
+            return Err(ApiError::BadRequest("Unsupported file type"));
+        }
+
+        // Check file size
+        if data.len() > MAX_DOCUMENT_SIZE {
+            return Err(ApiError::BadRequest("File too large"));
+        }
+
+        // Generate storage key
+        let document_id = Uuid::new_v4();
+        let key = format!("{}/{}/{}", claims.sub, document_id, filename);
+
+        // Upload to S3
+        state.storage.upload(&key, data.clone(), &content_type).await?;
+
+        // Create database record
+        let document = state.db.create_document(Document {
+            id: document_id,
+            user_id: claims.sub,
+            filename,
+            content_type,
+            storage_key: key,
+            size_bytes: data.len() as i64,
+            status: DocumentStatus::Pending,
+        }).await?;
+
+        // Enqueue processing job
+        state.job_queue.enqueue(JobType::DocumentProcessing {
+            document_id,
+        }).await?;
+
+        Ok(Json(DocumentResponse::from(document)))
+    }
+    ```
+
+    STEP 4: Create document database schema
+
+    ```sql
+    CREATE TABLE documents (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id),
+        filename VARCHAR(255) NOT NULL,
+        content_type VARCHAR(100) NOT NULL,
+        storage_key TEXT NOT NULL,
+        size_bytes BIGINT NOT NULL,
+        status VARCHAR(50) NOT NULL DEFAULT 'pending',
+        chunk_count INTEGER,
+        processed_at TIMESTAMPTZ,
+        error TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    ```
+
+    STEP 5: Create document list/delete endpoints
+
+    ```rust
+    // GET /api/v1/documents
+    // GET /api/v1/documents/:id
+    // DELETE /api/v1/documents/:id
+    ```
+
+    STEP 6: Write tests
+    - test_document_upload
+    - test_document_quota_enforced
+    - test_unsupported_type_rejected
+    - test_file_size_limit
+
+    STEP 7: Write batch result
+
+    {% elif sheet_num == 8 %}
+    ============================================================
+    BATCH 8: DOCUMENT PROCESSING PIPELINE
+    ============================================================
+
+    GOAL: Process documents for embedding and CAM integration.
+
+    STEP 1: Create document processor
+
+    ```rust
+    // api/src/documents/processor.rs
+    pub struct DocumentProcessor {
+        storage: Arc<DocumentStorage>,
+        embedding_service: Arc<EmbeddingService>,
+        cam_manager: Arc<CAMManager>,
+    }
+
+    impl DocumentProcessor {
+        pub async fn process(&self, document_id: Uuid) -> Result<(), ProcessingError> {
+            // Fetch document from storage
+            let document = self.db.get_document(document_id).await?;
+            let content = self.storage.download(&document.storage_key).await?;
+
+            // Parse document
+            let text = self.parse_document(&content, &document.content_type)?;
+
+            // Chunk document
+            let chunks = self.chunk_text(&text, ChunkConfig {
+                max_tokens: 512,
+                overlap_tokens: 50,
+            });
+
+            // Generate embeddings (batch)
+            let embeddings = self.embedding_service.embed_batch(
+                chunks.iter().map(|c| c.text.as_str()).collect()
+            ).await?;
+
+            // Store in CAM
+            for (chunk, embedding) in chunks.iter().zip(embeddings.iter()) {
+                let insight = Insight {
+                    content: chunk.text.clone(),
+                    source: InsightSource::Document {
+                        document_id,
+                        chunk_index: chunk.index,
+                    },
+                    ..Default::default()
+                };
+
+                self.cam_manager.store_with_embedding(insight, embedding.clone()).await?;
+            }
+
+            // Update document status
+            self.db.update_document_status(
+                document_id,
+                DocumentStatus::Processed,
+                Some(chunks.len() as i32),
+            ).await?;
+
+            Ok(())
+        }
+    }
+    ```
+
+    STEP 2: Implement document parsers
+
+    ```rust
+    // api/src/documents/parsers/mod.rs
+    pub fn parse_document(content: &Bytes, content_type: &str) -> Result<String, ParseError> {
+        match content_type {
+            "application/pdf" => parse_pdf(content),
+            "text/plain" | "text/markdown" => parse_text(content),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => parse_docx(content),
+            _ => Err(ParseError::UnsupportedType),
+        }
+    }
+    ```
+
+    Add dependencies:
+    ```toml
+    [dependencies]
+    pdf-extract = "0.7"
+    encoding_rs = "0.8"
+    docx-rust = "0.4"  # or alternative
+    ```
+
+    STEP 3: Implement semantic chunking
+
+    ```rust
+    // api/src/documents/chunking.rs
+    pub struct ChunkConfig {
+        pub max_tokens: usize,
+        pub overlap_tokens: usize,
+    }
+
+    pub struct Chunk {
+        pub index: usize,
+        pub text: String,
+        pub start_offset: usize,
+        pub end_offset: usize,
+    }
+
+    pub fn chunk_text(text: &str, config: ChunkConfig) -> Vec<Chunk> {
+        // Semantic chunking:
+        // 1. Split by paragraphs/sections
+        // 2. Merge small chunks
+        // 3. Split large chunks at sentence boundaries
+        // 4. Add overlap between chunks
+    }
+    ```
+
+    STEP 4: Create processing job handler
+
+    ```rust
+    pub struct DocumentProcessingHandler {
+        processor: Arc<DocumentProcessor>,
+    }
+
+    #[async_trait]
+    impl JobHandler for DocumentProcessingHandler {
+        async fn handle(&self, job: &Job) -> Result<(), JobError> {
+            let JobType::DocumentProcessing { document_id } = &job.job_type else {
+                return Err(JobError::InvalidJobType);
+            };
+
+            self.processor.process(*document_id).await
+                .map_err(|e| JobError::ProcessingFailed(e.to_string()))
+        }
+    }
+    ```
+
+    STEP 5: Add document search endpoint
+
+    ```rust
+    // GET /api/v1/documents/search?q=query
+    pub async fn search_documents(
+        State(state): State<AppState>,
+        claims: Claims,
+        Query(params): Query<SearchParams>,
+    ) -> Result<Json<SearchResults>, ApiError> {
+        // Search CAM for document-sourced insights
+        let results = state.cam_manager.semantic_search(
+            &params.query,
+            params.limit.unwrap_or(10),
+            Some(SearchFilters {
+                user_id: Some(claims.sub),
+                source_type: Some(InsightSourceType::Document),
+            }),
+        ).await?;
+
+        Ok(Json(SearchResults::from(results)))
+    }
+    ```
+
+    STEP 6: Write tests
+    - test_pdf_parsing
+    - test_text_parsing
+    - test_chunking
+    - test_document_processing_flow
+    - test_document_search
+
+    STEP 7: Write batch result
+
+    {% elif sheet_num == 9 %}
+    ============================================================
+    BATCH 9: MONITORING & OBSERVABILITY
+    ============================================================
+
+    GOAL: Set up comprehensive monitoring stack.
+
+    STEP 1: Add Prometheus metrics
+
+    ```toml
+    [dependencies]
+    metrics = "0.22"
+    metrics-exporter-prometheus = "0.14"
+    ```
+
+    ```rust
+    // api/src/observability/metrics.rs
+    pub fn setup_metrics() -> PrometheusHandle {
+        let builder = PrometheusBuilder::new();
+        let handle = builder.install_recorder().unwrap();
+
+        // Register metrics
+        describe_counter!("http_requests_total", "Total HTTP requests");
+        describe_histogram!("http_request_duration_seconds", "HTTP request duration");
+        describe_gauge!("active_connections", "Active connections");
+        describe_counter!("llm_tokens_total", "Total LLM tokens used");
+        describe_histogram!("llm_request_duration_seconds", "LLM request duration");
+
+        handle
+    }
+    ```
+
+    STEP 2: Add metrics middleware
+
+    ```rust
+    // api/src/http/middleware/metrics.rs
+    pub async fn metrics_middleware(
+        request: Request,
+        next: Next,
+    ) -> Response {
+        let start = Instant::now();
+        let method = request.method().to_string();
+        let path = request.uri().path().to_string();
+
+        let response = next.run(request).await;
+
+        let duration = start.elapsed().as_secs_f64();
+        let status = response.status().as_u16().to_string();
+
+        counter!("http_requests_total", "method" => method.clone(), "path" => path.clone(), "status" => status).increment(1);
+        histogram!("http_request_duration_seconds", "method" => method, "path" => path).record(duration);
+
+        response
+    }
+    ```
+
+    STEP 3: Add Prometheus endpoint
+
+    ```rust
+    // GET /metrics
+    pub async fn metrics_handler(State(handle): State<PrometheusHandle>) -> String {
+        handle.render()
+    }
+    ```
+
+    STEP 4: Set up Grafana Cloud
+
+    Create: monitoring/grafana-dashboard.json
+    - HTTP request rate
+    - Error rate
+    - Latency percentiles
+    - LLM token usage
+    - Active users
+
+    STEP 5: Set up Loki for logs
+
+    Update tracing to output Loki-compatible format:
+    ```rust
+    use tracing_subscriber::fmt::format::FmtSpan;
+    use tracing_subscriber::prelude::*;
+
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer()
+            .json()
+            .with_span_events(FmtSpan::CLOSE))
+        .init();
+    ```
+
+    STEP 6: Add Sentry for errors
+
+    ```toml
+    [dependencies]
+    sentry = "0.32"
+    sentry-tower = "0.32"
+    ```
+
+    ```rust
+    let _guard = sentry::init((
+        std::env::var("SENTRY_DSN").ok(),
+        sentry::ClientOptions {
+            release: sentry::release_name!(),
+            environment: Some(env.into()),
+            ..Default::default()
+        },
+    ));
+    ```
+
+    STEP 7: Create alerting rules
+
+    Create: monitoring/alerts.yaml
+    ```yaml
+    groups:
+      - name: recursive-light
+        rules:
+          - alert: HighErrorRate
+            expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.05
+            for: 5m
+            labels:
+              severity: critical
+
+          - alert: HighLatency
+            expr: histogram_quantile(0.95, http_request_duration_seconds_bucket) > 1
+            for: 5m
+            labels:
+              severity: warning
+
+          - alert: LLMCostSpike
+            expr: increase(llm_tokens_total[1h]) > 1000000
+            for: 15m
+            labels:
+              severity: warning
+    ```
+
+    STEP 8: Write batch result
+
+    {% elif sheet_num == 10 %}
+    ============================================================
+    BATCH 10: ADMIN DASHBOARD BACKEND
+    ============================================================
+
+    GOAL: Create admin API endpoints for management.
+
+    STEP 1: Create admin module
+
+    Create: api/src/http/routes/admin/mod.rs
+    Create: api/src/http/routes/admin/users.rs
+    Create: api/src/http/routes/admin/subscriptions.rs
+    Create: api/src/http/routes/admin/analytics.rs
+
+    STEP 2: Create admin auth middleware
+
+    ```rust
+    pub async fn require_admin(
+        State(state): State<AppState>,
+        claims: Claims,
+        request: Request,
+        next: Next,
+    ) -> Result<Response, ApiError> {
+        let user = state.db.get_user(claims.sub).await?;
+        if !user.is_admin {
+            return Err(ApiError::Forbidden("Admin access required"));
+        }
+        Ok(next.run(request).await)
+    }
+    ```
+
+    STEP 3: Create user management endpoints
+
+    ```rust
+    // GET /api/v1/admin/users
+    pub async fn list_users(
+        State(state): State<AppState>,
+        Query(params): Query<PaginationParams>,
+    ) -> Result<Json<PaginatedResponse<UserSummary>>, ApiError>;
+
+    // GET /api/v1/admin/users/:id
+    pub async fn get_user_details(
+        State(state): State<AppState>,
+        Path(user_id): Path<Uuid>,
+    ) -> Result<Json<UserDetails>, ApiError>;
+
+    // PUT /api/v1/admin/users/:id/tier
+    pub async fn update_user_tier(
+        State(state): State<AppState>,
+        Path(user_id): Path<Uuid>,
+        Json(request): Json<UpdateTierRequest>,
+    ) -> Result<Json<UserDetails>, ApiError>;
+    ```
+
+    STEP 4: Create analytics endpoints
+
+    ```rust
+    // GET /api/v1/admin/analytics/revenue
+    pub async fn revenue_analytics(
+        State(state): State<AppState>,
+        Query(params): Query<DateRangeParams>,
+    ) -> Result<Json<RevenueAnalytics>, ApiError> {
+        Ok(Json(RevenueAnalytics {
+            mrr: calculate_mrr(&state.db).await?,
+            arr: calculate_arr(&state.db).await?,
+            churn_rate: calculate_churn(&state.db, params.start, params.end).await?,
+            revenue_by_tier: revenue_breakdown(&state.db).await?,
+            growth_rate: calculate_growth(&state.db).await?,
+        }))
+    }
+
+    // GET /api/v1/admin/analytics/usage
+    pub async fn usage_analytics(
+        State(state): State<AppState>,
+        Query(params): Query<DateRangeParams>,
+    ) -> Result<Json<UsageAnalytics>, ApiError> {
+        Ok(Json(UsageAnalytics {
+            dau: daily_active_users(&state.db, params.end).await?,
+            mau: monthly_active_users(&state.db, params.end).await?,
+            total_tokens: total_tokens_used(&state.db, params.start, params.end).await?,
+            avg_session_duration: avg_session(&state.db).await?,
+            top_users: top_users_by_usage(&state.db, 10).await?,
+        }))
+    }
+    ```
+
+    STEP 5: Create subscription management
+
+    ```rust
+    // GET /api/v1/admin/subscriptions
+    pub async fn list_subscriptions(
+        State(state): State<AppState>,
+        Query(params): Query<SubscriptionFilterParams>,
+    ) -> Result<Json<PaginatedResponse<SubscriptionSummary>>, ApiError>;
+
+    // POST /api/v1/admin/subscriptions/:id/cancel
+    pub async fn admin_cancel_subscription(
+        State(state): State<AppState>,
+        Path(subscription_id): Path<Uuid>,
+    ) -> Result<Json<SubscriptionSummary>, ApiError>;
+    ```
+
+    STEP 6: Wire admin routes
+
+    ```rust
+    fn admin_routes() -> Router {
+        Router::new()
+            .nest("/users", admin_user_routes())
+            .nest("/subscriptions", admin_subscription_routes())
+            .nest("/analytics", admin_analytics_routes())
+            .layer(middleware::from_fn(require_admin))
+    }
+    ```
+
+    STEP 7: Write tests
+    - test_admin_required
+    - test_list_users
+    - test_update_tier
+    - test_revenue_analytics
+    - test_usage_analytics
+
+    STEP 8: Write batch result
+
+    {% elif sheet_num == 11 %}
+    ============================================================
+    BATCH 11: ADMIN DASHBOARD FRONTEND
+    ============================================================
+
+    GOAL: Create admin dashboard UI.
+
+    STEP 1: Create admin layout
+
+    Create: frontend/src/app/(admin)/layout.tsx
+    - Admin sidebar navigation
+    - Admin-only access check
+
+    STEP 2: Create users management page
+
+    Create: frontend/src/app/(admin)/admin/users/page.tsx
+    - User list with search/filter
+    - Pagination
+    - Click to view details
+
+    Create: frontend/src/app/(admin)/admin/users/[id]/page.tsx
+    - User profile
+    - Subscription status
+    - Usage statistics
+    - Tier override controls
+
+    STEP 3: Create analytics dashboard
+
+    Create: frontend/src/app/(admin)/admin/analytics/page.tsx
+    - Revenue chart (MRR/ARR over time)
+    - User growth chart
+    - Token usage chart
+    - Key metrics cards
+
+    Use chart library:
+    ```bash
+    npm install recharts
+    ```
+
+    STEP 4: Create subscription management
+
+    Create: frontend/src/app/(admin)/admin/subscriptions/page.tsx
+    - Subscription list
+    - Filter by status/tier
+    - Cancel subscription action
+
+    STEP 5: Create admin hooks
+
+    Create: frontend/src/hooks/useAdmin.ts
+    ```typescript
+    export function useAdminUsers(params?: UserFilterParams) {
+      return useQuery({
+        queryKey: ['admin', 'users', params],
+        queryFn: () => adminApi.getUsers(params),
+      });
+    }
+
+    export function useAdminAnalytics(dateRange: DateRange) {
+      return useQuery({
+        queryKey: ['admin', 'analytics', dateRange],
+        queryFn: () => adminApi.getAnalytics(dateRange),
+      });
+    }
+    ```
+
+    STEP 6: Add admin navigation
+
+    Update sidebar to show admin section for admin users.
+
+    STEP 7: Write tests
+    - Admin page access control
+    - User list renders
+    - Analytics charts render
+
+    STEP 8: Write batch result
+
+    {% elif sheet_num == 12 %}
+    ============================================================
+    BATCH 12: PHASE 3 COMPLETION & SECURITY AUDIT
+    ============================================================
+
+    GOAL: Complete Phase 3 with security audit and documentation.
+
+    STEP 1: Security audit - Payment handling
+
+    Check:
+    - [ ] Stripe webhooks verified with signature
+    - [ ] Customer IDs not exposed in URLs
+    - [ ] Checkout sessions have expiration
+    - [ ] Portal sessions are user-scoped
+    - [ ] No PCI data stored locally
+
+    STEP 2: Security audit - Document handling
+
+    Check:
+    - [ ] User can only access own documents
+    - [ ] Pre-signed URLs expire quickly
+    - [ ] File type validation
+    - [ ] Size limits enforced
+    - [ ] S3 bucket not public
+
+    STEP 3: Security audit - Admin
+
+    Check:
+    - [ ] Admin endpoints require admin role
+    - [ ] Admin actions logged
+    - [ ] No mass update without confirmation
+
+    STEP 4: Run full test suite
+
+    ```bash
+    cd /home/emzi/Projects/recursive-light/api
+    cargo test --workspace
+    cargo clippy --workspace -- -D warnings
+    cargo audit
+    ```
+
+    ```bash
+    cd /home/emzi/Projects/recursive-light/frontend
+    npm run test
+    npm run lint
+    npx playwright test
+    ```
+
+    STEP 5: Performance validation
+
+    - Stripe checkout: <2s
+    - Usage tracking: <10ms overhead
+    - Document upload: <5s for 10MB
+    - Admin analytics: <500ms
+
+    STEP 6: Update documentation
+
+    Update: STATUS.md
+    - Mark Phase 3 complete
+    - Document billing features
+
+    Create: docs/billing.md
+    - Tier comparison
+    - Billing FAQ
+    - API documentation
+
+    STEP 7: Commit and tag
+
+    ```bash
+    git add .
+    git commit -m "feat: Complete Phase 3 Monetization & Scale
+
+    Implements:
+    - Stripe payment integration (Checkout, Portal, Webhooks)
+    - Usage tracking with Redis real-time counters
+    - Tier-based quota enforcement
+    - Feature gating by subscription tier
+    - Document upload and processing pipeline
+    - Prometheus metrics and Grafana dashboards
+    - Sentry error tracking
+    - Admin dashboard (users, subscriptions, analytics)
+
+    Security:
+    - Stripe webhook signature verification
+    - Document access control
+    - Admin role enforcement
+
+    Performance:
+    - <10ms usage tracking overhead
+    - <500ms admin analytics
+
+    Co-Authored-By: Mozart AI Compose <mozart@example.com>"
+    ```
+
+    STEP 8: Write final batch result
+    ```markdown
+    PHASE: Phase 3 Monetization Complete
+    BATCH: {{ sheet_num }}
+    IMPLEMENTATION_COMPLETE: yes
+    ALL_TESTS_PASS: yes
+    SECURITY_AUDIT: complete
+    PERFORMANCE_VALIDATED: yes
+
+    COMPONENTS_COMPLETED:
+    - Stripe Integration ✅
+    - Usage Tracking ✅
+    - Quota Enforcement ✅
+    - Feature Gating ✅
+    - Document Processing ✅
+    - Monitoring Stack ✅
+    - Admin Dashboard ✅
+
+    READY_FOR: Phase 4 (Advanced Features)
+    ```
+
+    {% endif %}
+
+    {{ stakes }}
+
+  variables:
+    preamble: |
+      You are implementing Phase 3 (Monetization & Scale) of the Recursive Light project.
+
+      CONTEXT:
+      - Phase 1 (Foundation) is complete: Auth, HTTP, DB, CAM, CI/CD
+      - Phase 2 (Core Product) is complete: Frontend, Chat, Visualization
+      - This phase adds monetization and operational features
+
+      PROJECTS:
+      - Backend: /home/emzi/Projects/recursive-light/api
+      - Frontend: /home/emzi/Projects/recursive-light/frontend
+
+      TIER STRUCTURE:
+      - Free: 50K tokens/mo, 100 calls/day, 5 documents
+      - Pro ($7/mo): 500K tokens/mo, 1K calls/day, 50 documents
+      - Enterprise ($29/mo): 5M tokens/mo, 10K calls/day, 500 documents
+
+      CRITICAL:
+      - Payment handling must be secure
+      - Usage tracking must be accurate
+      - Admin access must be strictly controlled
+
+    stakes: |
+      STAKES:
+      - This is the revenue engine
+      - Payment bugs = lost revenue or fraud
+      - Usage bugs = angry customers
+      - Security is paramount
+
+validations:
+  # Stage 1: Basic file checks
+  - type: file_exists
+    path: "{workspace}/batch{sheet_num}-result.md"
+    description: "Batch result file exists"
+    stage: 1
+
+  - type: content_contains
+    path: "{workspace}/batch{sheet_num}-result.md"
+    pattern: "IMPLEMENTATION_COMPLETE: yes"
+    description: "Batch marked complete"
+    stage: 1
+
+  # Stage 2: Backend tests
+  - type: command_succeeds
+    command: "cd /home/emzi/Projects/recursive-light/api && cargo test --lib --quiet 2>&1 | tail -1 | grep -q 'ok'"
+    description: "Backend tests pass"
+    stage: 2
+
+  # Stage 3: Frontend build
+  - type: command_succeeds
+    command: "cd /home/emzi/Projects/recursive-light/frontend && npm run build 2>&1 | tail -5 | grep -v 'error'"
+    description: "Frontend builds successfully"
+    stage: 3
+
+# AI code review configuration
+ai_review:
+  enabled: false
+  min_score: 60
+  target_score: 80
+  on_low_score: warn
+
+retry:
+  max_retries: 3
+  max_completion_attempts: 2
+  completion_threshold_percent: 60.0
+  base_delay_seconds: 15
+
+rate_limit:
+  wait_minutes: 60
+  max_waits: 10
+
+learning:
+  enabled: true
+  outcome_store_type: json
+  min_confidence_threshold: 0.4
+  high_confidence_threshold: 0.8
+
+notifications:
+  - type: desktop
+    on_events: [job_complete, job_failed, sheet_failed]
+
+state_backend: json
+pause_between_batches_seconds: 10

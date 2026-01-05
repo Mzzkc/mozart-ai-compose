@@ -1,0 +1,1219 @@
+# Recursive Light Phase 1: Foundation
+#
+# This config implements the critical-path foundation work:
+# - Authentication & Security (OAuth, JWT, sessions)
+# - HTTP Server Layer (Axum wrapping VifApi)
+# - Database Migration (PostgreSQL production)
+# - CAM Query Engine completion
+# - CI/CD Pipeline
+#
+# Prerequisites:
+# - Rust API at ~85-90% (Phase 3B complete)
+# - Discovery phase complete
+#
+# Estimated Duration: 12-15 weeks (solo), 6-8 weeks (2-person team)
+# Total Batches: 12
+
+name: "recursive-light-phase1-foundation"
+description: "Foundation layer: Auth, HTTP Server, Database, CAM, CI/CD"
+
+workspace: "/home/emzi/Projects/mozart-ai-compose/recursive-light-phase1-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  working_directory: "/home/emzi/Projects/recursive-light"
+  timeout_seconds: 2400  # 40 min per batch for complex infrastructure
+
+sheet:
+  size: 1
+  total_items: 12
+  start_item: 1
+
+prompt:
+  template: |
+    {{ preamble }}
+
+    {% if sheet_num == 1 %}
+    ============================================================
+    BATCH 1: PROJECT INVESTIGATION & PLANNING
+    ============================================================
+
+    GOAL: Launch parallel agents to understand current state and plan implementation.
+
+    STEP 1: Read project context
+    - /home/emzi/Projects/recursive-light/STATUS.md
+    - /home/emzi/Projects/recursive-light/memory-bank/activeContext.md
+    - /home/emzi/Projects/recursive-light/api/Cargo.toml
+
+    STEP 2: Launch 3 parallel investigation agents
+
+    **Agent 1: Authentication Research**
+    ```
+    Research authentication best practices for Rust web services:
+    1. OAuth 2.0 with Axum - libraries (oauth2, openidconnect)
+    2. JWT handling in Rust (jsonwebtoken crate)
+    3. Session storage patterns (Redis, tower-sessions)
+    4. Security headers (helmet-rs equivalent)
+    5. Rate limiting strategies
+
+    Output implementation recommendations to:
+    {{ workspace }}/research/auth-recommendations.md
+    ```
+
+    **Agent 2: Axum Server Architecture**
+    ```
+    Research Axum HTTP server patterns:
+    1. How to wrap an existing library (VifApi) in Axum
+    2. SSE streaming for LLM responses
+    3. WebSocket integration
+    4. Middleware patterns (auth, logging, cors)
+    5. Error handling patterns
+
+    Output to: {{ workspace }}/research/axum-architecture.md
+    ```
+
+    **Agent 3: Current Codebase Audit**
+    ```
+    Audit current Recursive Light API:
+    1. Read api/src/lib.rs - understand VifApi interface
+    2. Read api/src/dual_llm/ - understand LLM flow
+    3. Read api/src/personhood/ - understand person management
+    4. Identify all public functions that need HTTP endpoints
+    5. Document current error types
+
+    Output to: {{ workspace }}/research/codebase-audit.md
+    ```
+
+    STEP 3: Write batch result
+    {{ workspace }}/batch{{ sheet_num }}-result.md
+
+    {% elif sheet_num == 2 %}
+    ============================================================
+    BATCH 2: SECRETS MANAGEMENT & PROJECT STRUCTURE
+    ============================================================
+
+    GOAL: Set up secrets management and create HTTP server project structure.
+
+    STEP 1: Read research from Batch 1
+    - {{ workspace }}/research/auth-recommendations.md
+    - {{ workspace }}/research/axum-architecture.md
+    - {{ workspace }}/research/codebase-audit.md
+
+    STEP 2: Create HTTP server module structure
+
+    Create directory: api/src/http/
+    Create files:
+    - api/src/http/mod.rs (module root)
+    - api/src/http/server.rs (Axum server setup)
+    - api/src/http/routes/mod.rs (route definitions)
+    - api/src/http/middleware/mod.rs (middleware)
+    - api/src/http/error.rs (HTTP error types)
+    - api/src/http/extractors.rs (custom extractors)
+
+    STEP 3: Add HTTP dependencies to Cargo.toml
+
+    ```toml
+    [dependencies]
+    axum = { version = "0.7", features = ["macros", "ws"] }
+    axum-extra = { version = "0.9", features = ["typed-header"] }
+    tower = "0.4"
+    tower-http = { version = "0.5", features = ["cors", "trace", "fs", "compression-gzip"] }
+    tokio = { version = "1", features = ["full"] }
+    hyper = { version = "1.0", features = ["full"] }
+
+    # Auth
+    jsonwebtoken = "9"
+    oauth2 = "4"
+
+    # Sessions
+    tower-sessions = "0.12"
+    tower-sessions-redis-store = "0.12"
+
+    # Utilities
+    uuid = { version = "1", features = ["v4", "serde"] }
+    ```
+
+    STEP 4: Set up secrets template
+
+    Create: .env.example
+    ```
+    # OAuth Providers
+    GOOGLE_CLIENT_ID=
+    GOOGLE_CLIENT_SECRET=
+    GITHUB_CLIENT_ID=
+    GITHUB_CLIENT_SECRET=
+
+    # JWT
+    JWT_SECRET=
+    JWT_ISSUER=recursive-light
+
+    # Database
+    DATABASE_URL=postgres://user:pass@localhost/recursive_light
+
+    # Redis
+    REDIS_URL=redis://localhost:6379
+
+    # External APIs
+    OPENAI_API_KEY=
+    ANTHROPIC_API_KEY=
+
+    # Qdrant
+    QDRANT_URL=http://localhost:6333
+    ```
+
+    STEP 5: Create config loader
+
+    Create: api/src/config.rs
+    - Load from environment variables
+    - Validate required secrets
+    - Typed configuration struct
+
+    STEP 6: Run cargo check and fix issues
+    ```bash
+    cd api && cargo check
+    ```
+
+    STEP 7: Write batch result
+
+    {% elif sheet_num == 3 %}
+    ============================================================
+    BATCH 3: JWT TOKEN SYSTEM
+    ============================================================
+
+    GOAL: Implement JWT token generation and validation.
+
+    STEP 1: Create auth module structure
+
+    Create: api/src/http/auth/mod.rs
+    Create: api/src/http/auth/jwt.rs
+    Create: api/src/http/auth/claims.rs
+
+    STEP 2: Implement JWT claims
+
+    ```rust
+    // api/src/http/auth/claims.rs
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct Claims {
+        pub sub: String,         // User ID
+        pub email: String,
+        pub exp: usize,          // Expiration (Unix timestamp)
+        pub iat: usize,          // Issued at
+        pub iss: String,         // Issuer
+        pub tier: SubscriptionTier,
+    }
+
+    #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+    pub enum SubscriptionTier {
+        Free,
+        Pro,
+        Enterprise,
+    }
+    ```
+
+    STEP 3: Implement JWT service
+
+    ```rust
+    // api/src/http/auth/jwt.rs
+    pub struct JwtService {
+        encoding_key: EncodingKey,
+        decoding_key: DecodingKey,
+        issuer: String,
+    }
+
+    impl JwtService {
+        pub fn new(secret: &str, issuer: &str) -> Self;
+        pub fn generate_token(&self, user: &User) -> Result<String, AuthError>;
+        pub fn validate_token(&self, token: &str) -> Result<Claims, AuthError>;
+        pub fn refresh_token(&self, claims: Claims) -> Result<String, AuthError>;
+    }
+    ```
+
+    STEP 4: Add auth error types
+
+    ```rust
+    // api/src/http/auth/error.rs
+    #[derive(Debug, thiserror::Error)]
+    pub enum AuthError {
+        #[error("Invalid token")]
+        InvalidToken,
+        #[error("Token expired")]
+        TokenExpired,
+        #[error("Missing authorization header")]
+        MissingAuth,
+        #[error("Invalid credentials")]
+        InvalidCredentials,
+        #[error("OAuth error: {0}")]
+        OAuthError(String),
+    }
+    ```
+
+    STEP 5: Write tests (6-8 tests)
+    - test_generate_token
+    - test_validate_token
+    - test_expired_token_rejected
+    - test_invalid_signature_rejected
+    - test_claims_roundtrip
+    - test_refresh_token
+    - test_missing_claims_rejected
+
+    STEP 6: Run tests
+    ```bash
+    cargo test auth
+    cargo clippy
+    ```
+
+    STEP 7: Write batch result
+
+    {% elif sheet_num == 4 %}
+    ============================================================
+    BATCH 4: OAUTH 2.0 INTEGRATION (GOOGLE)
+    ============================================================
+
+    GOAL: Implement OAuth 2.0 with Google provider.
+
+    STEP 1: Create OAuth module
+
+    Create: api/src/http/auth/oauth/mod.rs
+    Create: api/src/http/auth/oauth/google.rs
+    Create: api/src/http/auth/oauth/callback.rs
+
+    STEP 2: Implement Google OAuth provider
+
+    ```rust
+    // api/src/http/auth/oauth/google.rs
+    pub struct GoogleOAuth {
+        client: BasicClient,
+        redirect_url: String,
+    }
+
+    impl GoogleOAuth {
+        pub fn new(client_id: &str, client_secret: &str, redirect_url: &str) -> Self;
+        pub fn authorization_url(&self) -> (Url, CsrfToken);
+        pub async fn exchange_code(&self, code: AuthorizationCode) -> Result<GoogleUserInfo, AuthError>;
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct GoogleUserInfo {
+        pub id: String,
+        pub email: String,
+        pub name: String,
+        pub picture: Option<String>,
+    }
+    ```
+
+    STEP 3: Create OAuth routes
+
+    ```rust
+    // Routes:
+    // GET /api/v1/auth/google/login -> Redirect to Google
+    // GET /api/v1/auth/google/callback -> Handle callback
+    // POST /api/v1/auth/logout -> Clear session
+    ```
+
+    STEP 4: Implement callback handler
+
+    - Validate CSRF token
+    - Exchange code for tokens
+    - Fetch user info from Google
+    - Create or update user in database
+    - Generate JWT token
+    - Redirect to frontend with token
+
+    STEP 5: Add session state for CSRF
+
+    ```rust
+    // Store CSRF token in Redis session
+    // TTL: 10 minutes
+    ```
+
+    STEP 6: Write tests (5-6 tests)
+    - test_authorization_url_generated
+    - test_csrf_token_validated
+    - test_callback_exchanges_code
+    - test_user_created_on_first_login
+    - test_user_updated_on_subsequent_login
+
+    STEP 7: Run tests and write batch result
+
+    {% elif sheet_num == 5 %}
+    ============================================================
+    BATCH 5: GITHUB OAUTH + SESSION MANAGEMENT
+    ============================================================
+
+    GOAL: Add GitHub OAuth and Redis session storage.
+
+    STEP 1: Implement GitHub OAuth provider
+
+    Create: api/src/http/auth/oauth/github.rs
+
+    Similar structure to Google:
+    - Authorization URL generation
+    - Code exchange
+    - User info fetch (note: GitHub emails may need separate API call)
+
+    STEP 2: Implement Redis session storage
+
+    ```rust
+    // api/src/http/session.rs
+    pub async fn create_session_layer(redis_url: &str) -> SessionManagerLayer<RedisStore> {
+        let client = fred::client::RedisClient::new(...).await?;
+        let store = RedisStore::new(client);
+        SessionManagerLayer::new(store)
+            .with_secure(true)
+            .with_same_site(SameSite::Lax)
+            .with_expiry(Expiry::OnInactivity(Duration::days(7)))
+    }
+    ```
+
+    STEP 3: Add auth middleware
+
+    ```rust
+    // api/src/http/middleware/auth.rs
+    pub async fn require_auth(
+        State(jwt_service): State<Arc<JwtService>>,
+        headers: HeaderMap,
+        request: Request,
+        next: Next,
+    ) -> Result<Response, AuthError> {
+        let token = extract_bearer_token(&headers)?;
+        let claims = jwt_service.validate_token(&token)?;
+        // Inject claims into request extensions
+        request.extensions_mut().insert(claims);
+        Ok(next.run(request).await)
+    }
+    ```
+
+    STEP 4: Create rate limiting middleware
+
+    ```rust
+    // api/src/http/middleware/rate_limit.rs
+    // Use governor crate or tower-governor
+    // Limits:
+    // - Anonymous: 10 req/min
+    // - Free tier: 30 req/min
+    // - Pro tier: 100 req/min
+    // - Enterprise: 1000 req/min
+    ```
+
+    STEP 5: Write tests (6-7 tests)
+    - test_github_authorization_url
+    - test_github_callback
+    - test_session_created_on_login
+    - test_session_restored
+    - test_session_expired
+    - test_rate_limit_anonymous
+    - test_rate_limit_tier_based
+
+    STEP 6: Run tests and write batch result
+
+    {% elif sheet_num == 6 %}
+    ============================================================
+    BATCH 6: CORE HTTP ENDPOINTS
+    ============================================================
+
+    GOAL: Implement core API endpoints wrapping VifApi.
+
+    STEP 1: Create route handlers
+
+    Create: api/src/http/routes/chat.rs
+    Create: api/src/http/routes/users.rs
+    Create: api/src/http/routes/health.rs
+
+    STEP 2: Implement chat endpoint
+
+    ```rust
+    // POST /api/v1/chat
+    pub async fn chat(
+        State(state): State<AppState>,
+        claims: Claims,
+        Json(request): Json<ChatRequest>,
+    ) -> Result<Json<ChatResponse>, ApiError> {
+        // Get or create relationship
+        let relationship = state.person_manager
+            .get_or_create_relationship(&claims.sub, &state.default_person_id)
+            .await?;
+
+        // Call VifApi.process_input
+        let response = state.vif_api
+            .process_input(&request.message, &relationship)
+            .await?;
+
+        Ok(Json(ChatResponse {
+            message: response.message,
+            framework_state: response.framework_state,
+        }))
+    }
+
+    #[derive(Deserialize)]
+    pub struct ChatRequest {
+        message: String,
+        #[serde(default)]
+        context: Option<ConversationContext>,
+    }
+    ```
+
+    STEP 3: Implement SSE streaming endpoint
+
+    ```rust
+    // GET /api/v1/chat/stream
+    pub async fn chat_stream(
+        State(state): State<AppState>,
+        claims: Claims,
+        Query(params): Query<StreamParams>,
+    ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+        // Return SSE stream with token-by-token response
+        // Events: token, framework_update, done, error
+    }
+    ```
+
+    STEP 4: Implement user endpoints
+
+    ```rust
+    // GET /api/v1/users/me
+    // PUT /api/v1/users/me
+    // GET /api/v1/users/me/relationships
+    // DELETE /api/v1/users/me (GDPR)
+    ```
+
+    STEP 5: Implement health endpoints
+
+    ```rust
+    // GET /health - Basic health check
+    // GET /ready - Readiness (DB, Redis, Qdrant connected)
+    ```
+
+    STEP 6: Wire routes in server.rs
+
+    ```rust
+    pub fn create_router(state: AppState) -> Router {
+        Router::new()
+            .nest("/api/v1/auth", auth_routes())
+            .nest("/api/v1/chat", chat_routes())
+            .nest("/api/v1/users", user_routes())
+            .route("/health", get(health))
+            .route("/ready", get(ready))
+            .layer(TraceLayer::new_for_http())
+            .layer(CorsLayer::permissive())  // Configure properly for prod
+            .with_state(state)
+    }
+    ```
+
+    STEP 7: Write tests (8-10 tests)
+    - test_chat_endpoint_success
+    - test_chat_requires_auth
+    - test_stream_endpoint
+    - test_user_me_endpoint
+    - test_user_update
+    - test_health_endpoint
+    - test_ready_endpoint_all_services
+    - test_ready_endpoint_degraded
+    - test_cors_headers
+
+    STEP 8: Write batch result
+
+    {% elif sheet_num == 7 %}
+    ============================================================
+    BATCH 7: POSTGRESQL MIGRATION
+    ============================================================
+
+    GOAL: Migrate from SQLite to PostgreSQL for production.
+
+    STEP 1: Analyze current SQLite schema
+
+    Read: api/migrations/*.sql
+    Document all tables, indexes, and constraints.
+
+    STEP 2: Create PostgreSQL migrations
+
+    Create: api/migrations/postgres/
+    - 001_initial_schema.sql
+    - 002_users_and_auth.sql
+    - 003_relationships.sql
+    - 004_conversations.sql
+    - 005_cam_tables.sql
+
+    Convert SQLite syntax to PostgreSQL:
+    - INTEGER PRIMARY KEY -> SERIAL PRIMARY KEY
+    - DATETIME -> TIMESTAMPTZ
+    - TEXT -> VARCHAR(n) or TEXT
+    - Add proper constraints and indexes
+
+    STEP 3: Update database connection
+
+    ```rust
+    // api/src/database/mod.rs
+    pub enum DatabasePool {
+        Sqlite(SqlitePool),
+        Postgres(PgPool),
+    }
+
+    impl DatabasePool {
+        pub async fn connect(url: &str) -> Result<Self, DatabaseError> {
+            if url.starts_with("postgres://") {
+                Ok(Self::Postgres(PgPool::connect(url).await?))
+            } else {
+                Ok(Self::Sqlite(SqlitePool::connect(url).await?))
+            }
+        }
+    }
+    ```
+
+    STEP 4: Add connection pooling configuration
+
+    ```rust
+    // Connection pool settings for production
+    let pool = PgPoolOptions::new()
+        .min_connections(5)
+        .max_connections(20)
+        .acquire_timeout(Duration::from_secs(3))
+        .idle_timeout(Duration::from_secs(600))
+        .connect(database_url)
+        .await?;
+    ```
+
+    STEP 5: Create data migration script
+
+    ```bash
+    # scripts/migrate-sqlite-to-postgres.sh
+    # Export SQLite data to CSV
+    # Import to PostgreSQL
+    # Verify row counts
+    ```
+
+    STEP 6: Write tests
+    - test_postgres_connection
+    - test_postgres_migrations
+    - test_connection_pool_limits
+    - test_database_enum_works_for_both
+
+    STEP 7: Write batch result
+
+    {% elif sheet_num == 8 %}
+    ============================================================
+    BATCH 8: CAM QUERY ENGINE COMPLETION
+    ============================================================
+
+    GOAL: Complete CAM query engine with Qdrant integration.
+
+    STEP 1: Read current CAM state
+
+    - api/src/cam/types.rs
+    - api/src/cam/manager.rs
+    - api/src/cam/storage.rs
+    - Check which tests are currently ignored
+
+    STEP 2: Implement Qdrant client wrapper
+
+    ```rust
+    // api/src/cam/qdrant.rs
+    pub struct QdrantCAMStore {
+        client: QdrantClient,
+        collection_name: String,
+    }
+
+    impl QdrantCAMStore {
+        pub async fn new(url: &str, collection_name: &str) -> Result<Self, CamError>;
+        pub async fn ensure_collection(&self) -> Result<(), CamError>;
+        pub async fn store_embedding(&self, insight: &Insight, embedding: Vec<f32>) -> Result<Uuid, CamError>;
+        pub async fn search_similar(&self, embedding: Vec<f32>, limit: usize) -> Result<Vec<Insight>, CamError>;
+    }
+    ```
+
+    STEP 3: Implement semantic search
+
+    ```rust
+    impl CAMManager {
+        pub async fn semantic_search(
+            &self,
+            query: &str,
+            limit: usize,
+            filters: Option<SearchFilters>,
+        ) -> Result<Vec<Insight>, CamError> {
+            // Generate query embedding
+            let embedding = self.embedding_service.embed(query).await?;
+
+            // Search Qdrant with HNSW
+            let results = self.qdrant_store.search_similar(embedding, limit).await?;
+
+            // Apply additional filters
+            self.filter_results(results, filters)
+        }
+    }
+    ```
+
+    STEP 4: Implement structural graph traversal
+
+    ```rust
+    pub async fn traverse_hyperedges(
+        &self,
+        starting_insight: Uuid,
+        depth: usize,
+    ) -> Result<Vec<Insight>, CamError> {
+        // BFS/DFS through insight relationships
+        // Follow domain connections
+    }
+    ```
+
+    STEP 5: Enable previously ignored Qdrant tests
+
+    Find all `#[ignore]` tests related to Qdrant and enable them.
+    Fix any issues found.
+
+    STEP 6: Performance optimization
+
+    - Add caching for frequent queries
+    - Batch embedding generation
+    - Connection pooling for Qdrant
+
+    STEP 7: Write tests (8-10 tests)
+    - test_semantic_search_returns_relevant
+    - test_semantic_search_respects_limit
+    - test_hyperedge_traversal
+    - test_domain_intersection_query
+    - test_temporal_query_recent
+    - test_performance_under_100ms
+    - test_batch_embedding_generation
+    - test_qdrant_connection_resilience
+
+    STEP 8: Write batch result
+
+    {% elif sheet_num == 9 %}
+    ============================================================
+    BATCH 9: CI/CD PIPELINE
+    ============================================================
+
+    GOAL: Create comprehensive CI/CD pipeline with GitHub Actions.
+
+    STEP 1: Create test workflow
+
+    Create: .github/workflows/test.yml
+    ```yaml
+    name: Test
+
+    on:
+      push:
+        branches: [main, develop]
+      pull_request:
+        branches: [main]
+
+    jobs:
+      test:
+        runs-on: ubuntu-latest
+        services:
+          postgres:
+            image: postgres:14
+            env:
+              POSTGRES_PASSWORD: postgres
+            ports:
+              - 5432:5432
+          redis:
+            image: redis:7
+            ports:
+              - 6379:6379
+          qdrant:
+            image: qdrant/qdrant:latest
+            ports:
+              - 6333:6333
+
+        steps:
+          - uses: actions/checkout@v4
+          - uses: dtolnay/rust-toolchain@stable
+          - uses: Swatinem/rust-cache@v2
+
+          - name: Run tests
+            run: cargo test --workspace
+            env:
+              DATABASE_URL: postgres://postgres:postgres@localhost/test
+              REDIS_URL: redis://localhost:6379
+              QDRANT_URL: http://localhost:6333
+
+          - name: Run clippy
+            run: cargo clippy --workspace -- -D warnings
+
+          - name: Check formatting
+            run: cargo fmt --check
+    ```
+
+    STEP 2: Create security workflow
+
+    Create: .github/workflows/security.yml
+    ```yaml
+    name: Security
+
+    on:
+      push:
+        branches: [main]
+      schedule:
+        - cron: '0 0 * * 0'  # Weekly
+
+    jobs:
+      audit:
+        runs-on: ubuntu-latest
+        steps:
+          - uses: actions/checkout@v4
+          - uses: rustsec/audit-check@v1
+            with:
+              token: ${{ secrets.GITHUB_TOKEN }}
+
+          - name: Run cargo deny
+            uses: EmbarkStudios/cargo-deny-action@v1
+    ```
+
+    STEP 3: Create build workflow
+
+    Create: .github/workflows/build.yml
+    ```yaml
+    name: Build
+
+    on:
+      push:
+        branches: [main]
+        tags: ['v*']
+
+    jobs:
+      build:
+        runs-on: ubuntu-latest
+        steps:
+          - uses: actions/checkout@v4
+          - uses: dtolnay/rust-toolchain@stable
+
+          - name: Build release
+            run: cargo build --release
+
+          - name: Build Docker image
+            run: |
+              docker build -t ghcr.io/${{ github.repository }}:${{ github.sha }} .
+              docker push ghcr.io/${{ github.repository }}:${{ github.sha }}
+    ```
+
+    STEP 4: Create Dockerfile
+
+    Create: Dockerfile
+    ```dockerfile
+    # Multi-stage build for minimal image
+    FROM rust:1.75-slim-bookworm AS builder
+    WORKDIR /app
+    COPY . .
+    RUN cargo build --release
+
+    FROM debian:bookworm-slim
+    RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+    COPY --from=builder /app/target/release/recursive-light /usr/local/bin/
+    EXPOSE 8080
+    CMD ["recursive-light"]
+    ```
+
+    STEP 5: Create coverage workflow
+
+    Create: .github/workflows/coverage.yml
+    - Use cargo-tarpaulin
+    - Upload to Codecov
+
+    STEP 6: Create deploy workflow stub
+
+    Create: .github/workflows/deploy.yml
+    - Trigger on main branch
+    - Deploy to staging (Fly.io placeholder)
+
+    STEP 7: Test locally
+    ```bash
+    docker build -t recursive-light-test .
+    docker run --rm recursive-light-test --version
+    ```
+
+    STEP 8: Write batch result
+
+    {% elif sheet_num == 10 %}
+    ============================================================
+    BATCH 10: CORS, SECURITY HEADERS & INPUT VALIDATION
+    ============================================================
+
+    GOAL: Harden the HTTP layer with security best practices.
+
+    STEP 1: Configure CORS properly
+
+    ```rust
+    // api/src/http/middleware/cors.rs
+    pub fn cors_layer(allowed_origins: &[String]) -> CorsLayer {
+        CorsLayer::new()
+            .allow_origin(AllowOrigin::list(allowed_origins.iter().map(|o| o.parse().unwrap())))
+            .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+            .allow_headers([AUTHORIZATION, CONTENT_TYPE])
+            .allow_credentials(true)
+            .max_age(Duration::from_secs(3600))
+    }
+    ```
+
+    STEP 2: Add security headers
+
+    ```rust
+    // api/src/http/middleware/security.rs
+    pub fn security_headers() -> SetResponseHeadersLayer {
+        // Headers:
+        // - X-Content-Type-Options: nosniff
+        // - X-Frame-Options: DENY
+        // - X-XSS-Protection: 1; mode=block
+        // - Strict-Transport-Security: max-age=31536000; includeSubDomains
+        // - Content-Security-Policy: default-src 'self'
+        // - Referrer-Policy: strict-origin-when-cross-origin
+    }
+    ```
+
+    STEP 3: Create input validation layer
+
+    ```rust
+    // api/src/http/validation.rs
+    use validator::Validate;
+
+    #[derive(Deserialize, Validate)]
+    pub struct ChatRequest {
+        #[validate(length(min = 1, max = 10000))]
+        message: String,
+
+        #[validate(length(max = 100))]
+        context_id: Option<String>,
+    }
+
+    // Validate in handler:
+    pub async fn chat(
+        Json(request): Json<ChatRequest>,
+    ) -> Result<Json<Response>, ApiError> {
+        request.validate()?;
+        // ... rest of handler
+    }
+    ```
+
+    STEP 4: Add request size limits
+
+    ```rust
+    // Limit request body size
+    // - Chat: 50KB (messages can be long)
+    // - User update: 10KB
+    // - File upload: 10MB (documents)
+    ```
+
+    STEP 5: Implement request logging
+
+    ```rust
+    // Log: method, path, status, latency, user_id (if authenticated)
+    // Use tracing with structured fields
+    ```
+
+    STEP 6: Write tests (6-8 tests)
+    - test_cors_rejects_unauthorized_origin
+    - test_cors_allows_configured_origin
+    - test_security_headers_present
+    - test_validation_rejects_too_long
+    - test_validation_rejects_empty
+    - test_request_size_limit
+    - test_request_logging
+
+    STEP 7: Write batch result
+
+    {% elif sheet_num == 11 %}
+    ============================================================
+    BATCH 11: INTEGRATION TESTING & ERROR HANDLING
+    ============================================================
+
+    GOAL: Create comprehensive integration tests and standardize error handling.
+
+    STEP 1: Standardize API error responses
+
+    ```rust
+    // api/src/http/error.rs
+    #[derive(Debug, Serialize)]
+    pub struct ApiError {
+        pub code: String,
+        pub message: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub details: Option<serde_json::Value>,
+    }
+
+    impl IntoResponse for ApiError {
+        fn into_response(self) -> Response {
+            let status = match self.code.as_str() {
+                "UNAUTHORIZED" => StatusCode::UNAUTHORIZED,
+                "FORBIDDEN" => StatusCode::FORBIDDEN,
+                "NOT_FOUND" => StatusCode::NOT_FOUND,
+                "VALIDATION_ERROR" => StatusCode::BAD_REQUEST,
+                "RATE_LIMITED" => StatusCode::TOO_MANY_REQUESTS,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            (status, Json(self)).into_response()
+        }
+    }
+    ```
+
+    STEP 2: Create integration test infrastructure
+
+    Create: api/tests/common/mod.rs
+    ```rust
+    pub struct TestApp {
+        pub address: String,
+        pub db_pool: PgPool,
+        pub redis_pool: RedisPool,
+    }
+
+    impl TestApp {
+        pub async fn spawn() -> Self {
+            // Start test server on random port
+            // Use test database
+            // Return client configured for testing
+        }
+
+        pub async fn create_test_user(&self) -> (String, String) {
+            // Create user and return (user_id, jwt_token)
+        }
+    }
+    ```
+
+    STEP 3: Create integration tests
+
+    Create: api/tests/integration_auth.rs
+    - test_oauth_flow_google
+    - test_oauth_flow_github
+    - test_jwt_refresh
+    - test_logout_clears_session
+
+    Create: api/tests/integration_chat.rs
+    - test_chat_full_flow
+    - test_chat_stream_full_flow
+    - test_chat_maintains_context
+    - test_chat_rate_limited
+
+    Create: api/tests/integration_user.rs
+    - test_user_profile_crud
+    - test_user_deletion_cascade
+    - test_gdpr_data_export
+
+    STEP 4: Add test utilities
+
+    ```rust
+    // Mock LLM for testing
+    pub struct MockLlmProvider {
+        responses: HashMap<String, String>,
+    }
+
+    // Test fixtures
+    pub fn sample_user() -> User;
+    pub fn sample_relationship() -> RelationshipMemory;
+    ```
+
+    STEP 5: Run full test suite
+    ```bash
+    cargo test --workspace
+    cargo test --test integration_*
+    ```
+
+    STEP 6: Write batch result
+
+    {% elif sheet_num == 12 %}
+    ============================================================
+    BATCH 12: SECURITY AUDIT & PHASE 1 COMPLETION
+    ============================================================
+
+    GOAL: Security audit, documentation, and Phase 1 sign-off.
+
+    STEP 1: Security audit checklist
+
+    Run through OWASP Top 10 for APIs:
+    - [ ] A01: Broken Object Level Authorization
+    - [ ] A02: Broken Authentication
+    - [ ] A03: Excessive Data Exposure
+    - [ ] A04: Lack of Resources & Rate Limiting
+    - [ ] A05: Broken Function Level Authorization
+    - [ ] A06: Mass Assignment
+    - [ ] A07: Security Misconfiguration
+    - [ ] A08: Injection
+    - [ ] A09: Improper Assets Management
+    - [ ] A10: Insufficient Logging & Monitoring
+
+    Document findings in: {{ workspace }}/security-audit.md
+
+    STEP 2: Run cargo audit
+    ```bash
+    cargo audit
+    cargo deny check
+    ```
+    Fix any vulnerabilities found.
+
+    STEP 3: Create API documentation
+
+    Create: api/docs/openapi.yaml (or generate with utoipa)
+    - Document all endpoints
+    - Include request/response schemas
+    - Document auth requirements
+    - Include error responses
+
+    STEP 4: Update project documentation
+
+    Update: STATUS.md
+    - Mark Phase 1 as complete
+    - Document API endpoints added
+    - List remaining work
+
+    Update: README.md
+    - Add API documentation link
+    - Add deployment instructions
+    - Add development setup
+
+    STEP 5: Performance validation
+    ```bash
+    # Run benchmarks
+    cargo bench
+
+    # Basic load test
+    wrk -t12 -c400 -d30s http://localhost:8080/health
+    ```
+
+    STEP 6: Create release checklist
+
+    Write: {{ workspace }}/phase1-release-checklist.md
+    - [ ] All tests passing
+    - [ ] Security audit complete
+    - [ ] API documentation complete
+    - [ ] Docker image builds
+    - [ ] CI/CD pipeline working
+    - [ ] No cargo audit warnings
+    - [ ] Performance acceptable
+
+    STEP 7: Commit and tag
+    ```bash
+    git add .
+    git commit -m "feat: Complete Phase 1 Foundation
+
+    Implements:
+    - OAuth 2.0 authentication (Google, GitHub)
+    - JWT token system with refresh
+    - Redis session management
+    - Axum HTTP server wrapping VifApi
+    - SSE streaming for LLM responses
+    - PostgreSQL production database
+    - CAM query engine with Qdrant
+    - CI/CD pipeline with GitHub Actions
+    - Security hardening
+
+    Tests: [X] passing
+    Coverage: [Y]%
+
+    Co-Authored-By: Mozart AI Compose <mozart@example.com>"
+    ```
+
+    STEP 8: Write final batch result
+    ```markdown
+    PHASE: Phase 1 Foundation Complete
+    BATCH: {{ sheet_num }}
+    IMPLEMENTATION_COMPLETE: yes
+    ALL_TESTS_PASS: yes
+    SECURITY_AUDIT: complete
+    API_DOCUMENTED: yes
+    CI_CD_WORKING: yes
+    PERFORMANCE_VALIDATED: yes
+
+    COMPONENTS_COMPLETED:
+    - Authentication & Security ✅
+    - HTTP Server Layer ✅
+    - PostgreSQL Migration ✅
+    - CAM Query Engine ✅
+    - CI/CD Pipeline ✅
+
+    READY_FOR: Phase 2 (Core Product)
+    ```
+
+    {% endif %}
+
+    {{ stakes }}
+
+  variables:
+    preamble: |
+      You are implementing Phase 1 (Foundation) of the Recursive Light project.
+
+      CONTEXT:
+      - Recursive Light is a Volumetric Integration Framework
+      - The Rust API is ~85-90% complete
+      - This phase establishes production-ready infrastructure
+      - All code must be production-grade
+
+      PROJECT: /home/emzi/Projects/recursive-light
+      LANGUAGE: Rust
+      QUALITY: Production-grade, 80%+ coverage, 0 clippy warnings
+
+      CRITICAL PRIORITIES:
+      1. Security-first design
+      2. Performance under load
+      3. Comprehensive testing
+      4. Clean error handling
+
+      SKILL FILES (read first):
+      - /home/emzi/.claude/skills/wolf-prevention-patterns.md
+      - /home/emzi/.claude/skills/tetrahedral-decision-framework.md
+
+    stakes: |
+      STAKES:
+      - This foundation determines the quality of everything built on top
+      - Security mistakes here propagate everywhere
+      - Performance issues at this layer multiply
+      - Complete each batch fully before moving on
+
+validations:
+  # Stage 1: Basic file checks
+  - type: file_exists
+    path: "{workspace}/batch{sheet_num}-result.md"
+    description: "Batch result file exists"
+    stage: 1
+
+  - type: content_contains
+    path: "{workspace}/batch{sheet_num}-result.md"
+    pattern: "IMPLEMENTATION_COMPLETE: yes"
+    description: "Batch marked complete"
+    stage: 1
+
+  # Stage 2: Code formatting
+  - type: command_succeeds
+    command: "cd /home/emzi/Projects/recursive-light/api && cargo fmt --check"
+    description: "Code formatting is correct"
+    stage: 2
+
+  # Stage 3: Tests pass
+  - type: command_succeeds
+    command: "cd /home/emzi/Projects/recursive-light/api && cargo test --lib --quiet 2>&1 | tail -1 | grep -q 'ok'"
+    description: "All Rust tests pass"
+    stage: 3
+
+  # Stage 4: Code quality (clippy with warnings as errors)
+  - type: command_succeeds
+    command: "cd /home/emzi/Projects/recursive-light/api && cargo clippy --quiet -- -D warnings 2>&1 | grep -c 'error' | grep -q '^0$' || [ $? -eq 1 ]"
+    description: "No clippy warnings"
+    stage: 4
+
+# AI code review configuration (optional, disabled by default)
+ai_review:
+  enabled: false
+  min_score: 60
+  target_score: 80
+  on_low_score: warn
+  max_retry_for_review: 2
+
+retry:
+  max_retries: 3
+  max_completion_attempts: 2
+  completion_threshold_percent: 60.0
+  base_delay_seconds: 15
+
+rate_limit:
+  wait_minutes: 60
+  max_waits: 10
+
+learning:
+  enabled: true
+  outcome_store_type: json
+  min_confidence_threshold: 0.4
+  high_confidence_threshold: 0.8
+
+notifications:
+  - type: desktop
+    on_events: [job_complete, job_failed, sheet_failed]
+
+state_backend: json
+pause_between_batches_seconds: 10
