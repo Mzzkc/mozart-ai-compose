@@ -52,6 +52,16 @@ class SheetOutcome:
     Example: ['Ensure file is created in workspace/', 'Add missing import']
     """
 
+    patterns_applied: list[str] = field(default_factory=list)
+    """Pattern descriptions that were applied/injected for this sheet execution.
+
+    These are the patterns from get_relevant_patterns() that were included
+    in the prompt. Used for effectiveness tracking: correlate patterns_applied
+    with first_attempt_success to measure which patterns actually help.
+
+    Example: ['⚠️ Common issue: file_exists validation tends to fail (seen 3x)']
+    """
+
 
 @runtime_checkable
 class OutcomeStore(Protocol):
@@ -231,6 +241,8 @@ class JsonOutcomeStore:
                     "failure_category_counts": o.failure_category_counts,
                     "semantic_patterns": o.semantic_patterns,
                     "fix_suggestions": o.fix_suggestions,
+                    # Effectiveness tracking field (Evolution: Pattern Effectiveness)
+                    "patterns_applied": o.patterns_applied,
                 }
                 for o in self._outcomes
             ]
@@ -276,6 +288,8 @@ class JsonOutcomeStore:
                 failure_category_counts=o.get("failure_category_counts", {}),
                 semantic_patterns=o.get("semantic_patterns", []),
                 fix_suggestions=o.get("fix_suggestions", []),
+                # Effectiveness tracking field (Evolution: Pattern Effectiveness)
+                patterns_applied=o.get("patterns_applied", []),
             )
             for o in data.get("outcomes", [])
         ]
