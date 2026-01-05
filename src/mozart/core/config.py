@@ -174,7 +174,18 @@ class CircuitBreakerConfig(BaseModel):
 
 
 class ValidationRule(BaseModel):
-    """A single validation rule for checking sheet outputs."""
+    """A single validation rule for checking sheet outputs.
+
+    Supports staged execution via the `stage` field. Validations are run
+    in stage order (1, 2, 3...). If any validation in a stage fails,
+    higher stages are skipped (fail-fast behavior).
+
+    Typical stage layout:
+    - Stage 1: Syntax & compilation (cargo check, cargo fmt --check)
+    - Stage 2: Testing (cargo test, pytest)
+    - Stage 3: Code quality (clippy -D warnings, ruff check)
+    - Stage 4: Security (cargo audit, npm audit)
+    """
 
     type: Literal[
         "file_exists",
@@ -195,6 +206,12 @@ class ValidationRule(BaseModel):
     working_directory: str | None = Field(
         default=None,
         description="Working directory for command (defaults to workspace)",
+    )
+    stage: int = Field(
+        default=1,
+        ge=1,
+        le=10,
+        description="Validation stage (1-10). Lower stages run first; fail-fast on failure.",
     )
 
 

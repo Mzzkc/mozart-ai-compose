@@ -324,3 +324,161 @@ class TestValidationEngine:
         )
         sheet_result = engine.run_validations([rule])
         assert sheet_result.results[0].passed is True
+
+
+class TestStagedValidation:
+    """Tests for staged validation with fail-fast behavior."""
+
+    def test_staged_validation_all_pass(self, temp_workspace: Path):
+        """Test staged validation when all stages pass."""
+        # Create test files
+        (temp_workspace / "file1.txt").write_text("content1")
+        (temp_workspace / "file2.txt").write_text("content2")
+
+        rules = [
+            ValidationRule(
+                type="file_exists",
+                path=str(temp_workspace / "file1.txt"),
+                stage=1,
+                description="Stage 1 check",
+            ),
+            ValidationRule(
+                type="file_exists",
+                path=str(temp_workspace / "file2.txt"),
+                stage=2,
+                description="Stage 2 check",
+            ),
+        ]
+        engine = ValidationEngine(
+            workspace=temp_workspace,
+            sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
+        )
+        result, failed_stage = engine.run_staged_validations(rules)
+
+        assert failed_stage is None
+        assert result.all_passed is True
+        assert len(result.results) == 2
+
+    def test_staged_validation_fail_fast(self, temp_workspace: Path):
+        """Test that failure in stage 1 skips stage 2."""
+        # Create only file2, not file1
+        (temp_workspace / "file2.txt").write_text("content2")
+
+        rules = [
+            ValidationRule(
+                type="file_exists",
+                path=str(temp_workspace / "missing.txt"),
+                stage=1,
+                description="Stage 1 - missing",
+            ),
+            ValidationRule(
+                type="file_exists",
+                path=str(temp_workspace / "file2.txt"),
+                stage=2,
+                description="Stage 2 - exists",
+            ),
+        ]
+        engine = ValidationEngine(
+            workspace=temp_workspace,
+            sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
+        )
+        result, failed_stage = engine.run_staged_validations(rules)
+
+        assert failed_stage == 1
+        assert result.all_passed is False
+        assert len(result.results) == 2
+        # Stage 1 failed
+        assert result.results[0].passed is False
+        # Stage 2 was skipped
+        assert result.results[1].passed is False
+        assert result.results[1].failure_category == "skipped"
+
+    def test_staged_validation_multiple_in_same_stage(self, temp_workspace: Path):
+        """Test multiple validations in the same stage."""
+        (temp_workspace / "file1.txt").write_text("content1")
+        # file2 doesn't exist
+
+        rules = [
+            ValidationRule(
+                type="file_exists",
+                path=str(temp_workspace / "file1.txt"),
+                stage=1,
+                description="Stage 1 - exists",
+            ),
+            ValidationRule(
+                type="file_exists",
+                path=str(temp_workspace / "missing.txt"),
+                stage=1,
+                description="Stage 1 - missing",
+            ),
+            ValidationRule(
+                type="command_succeeds",
+                command="echo 'stage 2'",
+                stage=2,
+                description="Stage 2 - command",
+            ),
+        ]
+        engine = ValidationEngine(
+            workspace=temp_workspace,
+            sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
+        )
+        result, failed_stage = engine.run_staged_validations(rules)
+
+        assert failed_stage == 1
+        assert len(result.results) == 3
+        # First in stage 1 passed
+        assert result.results[0].passed is True
+        # Second in stage 1 failed
+        assert result.results[1].passed is False
+        # Stage 2 was skipped
+        assert result.results[2].failure_category == "skipped"
+
+    def test_staged_validation_empty_rules(self, temp_workspace: Path):
+        """Test staged validation with empty rules."""
+        engine = ValidationEngine(
+            workspace=temp_workspace,
+            sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
+        )
+        result, failed_stage = engine.run_staged_validations([])
+
+        assert failed_stage is None
+        assert len(result.results) == 0
+
+    def test_staged_validation_default_stage(self, temp_workspace: Path):
+        """Test that rules without explicit stage default to stage 1."""
+        (temp_workspace / "file.txt").write_text("content")
+
+        rule = ValidationRule(
+            type="file_exists",
+            path=str(temp_workspace / "file.txt"),
+            description="Default stage check",
+            # Note: no stage specified, should default to 1
+        )
+        assert rule.stage == 1
+
+    def test_staged_validation_non_sequential_stages(self, temp_workspace: Path):
+        """Test staged validation with non-sequential stage numbers."""
+        (temp_workspace / "file.txt").write_text("content")
+
+        rules = [
+            ValidationRule(
+                type="file_exists",
+                path=str(temp_workspace / "file.txt"),
+                stage=5,  # Jump to stage 5
+                description="Stage 5 check",
+            ),
+            ValidationRule(
+                type="command_succeeds",
+                command="echo hello",
+                stage=10,  # Jump to stage 10
+                description="Stage 10 check",
+            ),
+        ]
+        engine = ValidationEngine(
+            workspace=temp_workspace,
+            sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
+        )
+        result, failed_stage = engine.run_staged_validations(rules)
+
+        assert failed_stage is None
+        assert result.all_passed is True

@@ -277,6 +277,9 @@ class ValidationEngine:
     def run_validations(self, rules: list[ValidationRule]) -> SheetValidationResult:
         """Execute all validation rules and return aggregate result.
 
+        This method runs all validations without staging. For staged execution
+        (fail-fast on stage failure), use run_staged_validations() instead.
+
         Args:
             rules: List of validation rules to execute.
 
@@ -293,6 +296,72 @@ class ValidationEngine:
             sheet_num=self.sheet_context.get("sheet_num", 0),
             results=results,
         )
+
+    def run_staged_validations(
+        self, rules: list[ValidationRule]
+    ) -> tuple[SheetValidationResult, int | None]:
+        """Execute validations in stage order with fail-fast behavior.
+
+        Validations are grouped by stage and run in ascending order.
+        If any validation in a stage fails, higher stages are skipped.
+
+        Args:
+            rules: List of validation rules to execute.
+
+        Returns:
+            Tuple of (SheetValidationResult, failed_stage or None).
+            failed_stage is the stage number that failed, or None if all passed.
+        """
+        if not rules:
+            return SheetValidationResult(
+                sheet_num=self.sheet_context.get("sheet_num", 0),
+                results=[],
+            ), None
+
+        # Group rules by stage
+        stages: dict[int, list[ValidationRule]] = {}
+        for rule in rules:
+            stage = rule.stage
+            if stage not in stages:
+                stages[stage] = []
+            stages[stage].append(rule)
+
+        # Run stages in order
+        all_results: list[ValidationResult] = []
+        failed_stage: int | None = None
+
+        for stage_num in sorted(stages.keys()):
+            stage_rules = stages[stage_num]
+            stage_passed = True
+
+            for rule in stage_rules:
+                result = self._run_single_validation(rule)
+                all_results.append(result)
+                if not result.passed:
+                    stage_passed = False
+
+            if not stage_passed:
+                # Stage failed - record and skip remaining stages
+                failed_stage = stage_num
+                # Mark remaining rules as skipped
+                for remaining_stage in sorted(stages.keys()):
+                    if remaining_stage > stage_num:
+                        for rule in stages[remaining_stage]:
+                            skipped_result = ValidationResult(
+                                rule=rule,
+                                passed=False,
+                                error_message=f"Skipped: Stage {stage_num} failed",
+                                failure_reason=f"Skipped due to failure in stage {stage_num}",
+                                failure_category="skipped",
+                                confidence=0.0,
+                            )
+                            all_results.append(skipped_result)
+                break
+
+        return SheetValidationResult(
+            sheet_num=self.sheet_context.get("sheet_num", 0),
+            results=all_results,
+        ), failed_stage
 
     def _run_single_validation(self, rule: ValidationRule) -> ValidationResult:
         """Execute a single validation rule.
