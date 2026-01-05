@@ -394,6 +394,69 @@ class TestClaudeCliBackendRateLimitDetection:
             ), f"Failed for: {message}"
 
 
+class TestClaudeCliBackendOperatorImperative:
+    """Test Mozart operator imperative injection."""
+
+    @pytest.fixture
+    def backend(self) -> ClaudeCliBackend:
+        """Create backend for testing."""
+        return ClaudeCliBackend()
+
+    def test_operator_imperative_injected(self, backend: ClaudeCliBackend) -> None:
+        """Test that operator imperative is injected into prompts."""
+        original_prompt = "Do something interesting"
+        result = backend._inject_operator_imperative(original_prompt)
+
+        # Should contain the original prompt
+        assert original_prompt in result
+
+        # Should contain the operator imperative markers
+        assert "<mozart-operator-imperative>" in result
+        assert "</mozart-operator-imperative>" in result
+
+        # Should contain the critical timeout warning
+        assert "NEVER WRAP MOZART WITH TIMEOUT" in result
+
+    def test_operator_imperative_contains_correct_examples(
+        self, backend: ClaudeCliBackend
+    ) -> None:
+        """Test that operator imperative includes correct Mozart usage examples."""
+        result = backend._inject_operator_imperative("test")
+
+        # Should show wrong examples
+        assert "timeout 600 mozart run" in result
+        assert "NEVER DO THIS" in result
+
+        # Should show correct examples
+        assert "mozart run config.yaml" in result
+        assert "mozart resume" in result
+
+    def test_operator_imperative_explains_consequences(
+        self, backend: ClaudeCliBackend
+    ) -> None:
+        """Test that operator imperative explains why the rules matter."""
+        result = backend._inject_operator_imperative("test")
+
+        # Should explain the consequences
+        assert "SIGKILL" in result
+        assert "checkpoint" in result.lower() or "state" in result.lower()
+        assert "corrupt" in result.lower() or "crash" in result.lower()
+
+    def test_build_command_includes_imperative(self, backend: ClaudeCliBackend) -> None:
+        """Test that _build_command injects the operator imperative."""
+        # Mock claude path to avoid "not found" error
+        backend._claude_path = "/usr/bin/claude"
+
+        cmd = backend._build_command("My original prompt")
+
+        # The prompt should be in the command (second element after -p)
+        prompt_arg = cmd[cmd.index("-p") + 1]
+
+        # Should contain both imperative and original prompt
+        assert "<mozart-operator-imperative>" in prompt_arg
+        assert "My original prompt" in prompt_arg
+
+
 # ============================================================================
 # Backend Logging Tests
 # ============================================================================

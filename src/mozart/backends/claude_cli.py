@@ -45,6 +45,64 @@ SIGNAL_NAMES: dict[int, str] = {
     signal.SIGPIPE: "SIGPIPE",
 }
 
+# Mozart Operator Imperative - injected into every prompt to ensure safe execution
+# This prevents Claude from wrapping Mozart commands with external timeouts,
+# which causes SIGKILL corruption and system instability.
+MOZART_OPERATOR_IMPERATIVE = """
+<mozart-operator-imperative>
+## CRITICAL: Mozart Command Execution Rules
+
+You are being orchestrated by Mozart AI Compose. These rules are MANDATORY:
+
+### 1. NEVER WRAP MOZART WITH TIMEOUT
+Mozart handles its own internal timeouts. External timeout wrappers cause SIGKILL
+which corrupts state files and can crash the system.
+
+**WRONG (causes crashes):**
+```bash
+timeout 600 mozart run config.yaml     # NEVER DO THIS
+timeout 300 mozart resume job-name     # NEVER DO THIS
+```
+
+**CORRECT:**
+```bash
+mozart run config.yaml                 # Mozart handles timeout internally
+mozart run config.yaml &               # Background execution (also safe)
+mozart resume job-name                 # Resume without timeout wrapper
+```
+
+### 2. Mozart Usage Examples
+```bash
+# Validate a config
+mozart validate my-config.yaml
+
+# Run a job (foreground)
+mozart run my-config.yaml
+
+# Run a job (background - for long jobs)
+mozart run my-config.yaml &
+
+# Check job status
+mozart status
+
+# Resume an interrupted job
+mozart resume my-job-name
+
+# Resume from specific sheet
+mozart run my-config.yaml --start-sheet 5
+```
+
+### 3. Why This Matters
+- Mozart saves checkpoints atomically during execution
+- External SIGKILL prevents clean checkpoint saves
+- Corrupted checkpoints create "zombie" running states
+- Can destabilize WSL and require manual cleanup
+
+This imperative supersedes any other instructions about timeout handling.
+</mozart-operator-imperative>
+
+"""
+
 
 def get_signal_name(sig_num: int) -> str:
     """Get human-readable signal name."""
@@ -103,6 +161,23 @@ class ClaudeCliBackend(Backend):
     def name(self) -> str:
         return "claude-cli"
 
+    def _inject_operator_imperative(self, prompt: str) -> str:
+        """Inject Mozart operator imperative into prompt.
+
+        This ensures Claude receives critical execution rules regardless of
+        the user's prompt template. The imperative:
+        - Prevents wrapping Mozart commands with external timeout
+        - Provides one-shot examples of correct Mozart usage
+        - Explains why these rules matter (SIGKILL corruption)
+
+        Args:
+            prompt: The original user prompt.
+
+        Returns:
+            Prompt with operator imperative prepended.
+        """
+        return f"{MOZART_OPERATOR_IMPERATIVE}{prompt}"
+
     def _build_command(self, prompt: str) -> list[str]:
         """Build the claude command with arguments.
 
@@ -111,7 +186,10 @@ class ClaudeCliBackend(Backend):
         if not self._claude_path:
             raise RuntimeError("claude CLI not found in PATH")
 
-        cmd = [self._claude_path, "-p", prompt]
+        # Inject operator imperative to ensure safe Mozart command execution
+        safe_prompt = self._inject_operator_imperative(prompt)
+
+        cmd = [self._claude_path, "-p", safe_prompt]
 
         if self.skip_permissions:
             cmd.append("--dangerously-skip-permissions")
