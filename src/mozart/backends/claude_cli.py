@@ -14,7 +14,6 @@ the CLI to show "Still running... 5.2KB received, 3m elapsed" during long execut
 """
 
 import asyncio
-import re
 import shutil
 import signal
 import time
@@ -24,6 +23,7 @@ from typing import Any
 
 from mozart.backends.base import Backend, ExecutionResult, ExitReason
 from mozart.core.config import BackendConfig
+from mozart.core.errors import ErrorCategory, ErrorClassifier
 from mozart.core.logging import get_logger
 
 # Module-level logger for Claude CLI backend
@@ -146,6 +146,10 @@ class ClaudeCliBackend(Backend):
 
         # Verify claude CLI is available
         self._claude_path = shutil.which("claude")
+
+        # Use shared ErrorClassifier for rate limit detection
+        # This ensures consistent classification with the runner
+        self._error_classifier = ErrorClassifier()
 
     @classmethod
     def from_config(cls, config: BackendConfig) -> "ClaudeCliBackend":
@@ -546,20 +550,18 @@ class ClaudeCliBackend(Backend):
         return await self.run_prompt(prompt)
 
     def _detect_rate_limit(self, stdout: str, stderr: str) -> bool:
-        """Check output for rate limit indicators."""
-        patterns = [
-            r"rate.?limit",
-            r"usage.?limit",
-            r"quota",
-            r"too many requests",
-            r"429",
-            r"capacity",
-            r"try again later",
-            r"hit.{0,10}limit",  # "You've hit your limit"
-            r"limit.{0,10}resets?",  # "limit · resets 9pm"
-        ]
-        combined = f"{stdout}\n{stderr}".lower()
-        return any(re.search(p, combined, re.IGNORECASE) for p in patterns)
+        """Check output for rate limit indicators.
+
+        Uses the shared ErrorClassifier to ensure consistent detection
+        with the runner's error classification.
+        """
+        # Use ErrorClassifier for unified rate limit detection
+        classified = self._error_classifier.classify(
+            stdout=stdout,
+            stderr=stderr,
+            exit_code=1,  # Assume failure for classification
+        )
+        return classified.category == ErrorCategory.RATE_LIMIT
 
     async def health_check(self) -> bool:
         """Check if claude CLI is available and responsive."""

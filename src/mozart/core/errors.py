@@ -567,6 +567,9 @@ class ErrorClassifier:
                 r"capacity",
                 r"try again later",
                 r"overloaded",
+                r"hit.{0,10}limit",  # "You've hit your limit"
+                r"limit.{0,10}resets?",  # "limit · resets 9pm"
+                r"daily.{0,10}limit",  # "daily limit reached"
             ])
         ]
 

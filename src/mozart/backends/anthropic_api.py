@@ -9,13 +9,13 @@ SENSITIVE_PATTERNS to automatically redact fields containing 'api_key', 'token',
 """
 
 import os
-import re
 import time
 
 import anthropic
 
 from mozart.backends.base import Backend, ExecutionResult
 from mozart.core.config import BackendConfig
+from mozart.core.errors import ErrorCategory, ErrorClassifier
 from mozart.core.logging import get_logger
 
 # Module-level logger for Anthropic API backend
@@ -57,6 +57,9 @@ class AnthropicApiBackend(Backend):
 
         # Create async client (lazily initialized in execute)
         self._client: anthropic.AsyncAnthropic | None = None
+
+        # Use shared ErrorClassifier for consistent error detection
+        self._error_classifier = ErrorClassifier()
 
     @classmethod
     def from_config(cls, config: BackendConfig) -> "AnthropicApiBackend":
@@ -330,17 +333,16 @@ class AnthropicApiBackend(Backend):
             )
 
     def _detect_rate_limit(self, message: str) -> bool:
-        """Check output for rate limit indicators."""
-        patterns = [
-            r"rate.?limit",
-            r"usage.?limit",
-            r"quota",
-            r"too many requests",
-            r"429",
-            r"capacity",
-            r"try again later",
-        ]
-        return any(re.search(p, message.lower(), re.IGNORECASE) for p in patterns)
+        """Check output for rate limit indicators.
+
+        Uses the shared ErrorClassifier to ensure consistent detection
+        with the runner's error classification.
+        """
+        classified = self._error_classifier.classify(
+            stderr=message,  # Error messages go to stderr conceptually
+            exit_code=1,
+        )
+        return classified.category == ErrorCategory.RATE_LIMIT
 
     async def health_check(self) -> bool:
         """Check if the API is available and authenticated.
