@@ -724,6 +724,18 @@ def status(
         "-j",
         help="Output status as JSON for machine parsing",
     ),
+    watch: bool = typer.Option(
+        False,
+        "--watch",
+        "-W",
+        help="Continuously monitor status with live updates",
+    ),
+    watch_interval: int = typer.Option(
+        5,
+        "--interval",
+        "-i",
+        help="Refresh interval in seconds for --watch mode (default: 5)",
+    ),
     workspace: Path | None = typer.Option(
         None,
         "--workspace",
@@ -735,8 +747,18 @@ def status(
 
     Displays job progress, sheet states, timing information, and any errors.
     Use --json for machine-readable output in scripts.
+    Use --watch for continuous monitoring (updates every 5 seconds by default).
+
+    Examples:
+        mozart status my-job
+        mozart status my-job --json
+        mozart status my-job --watch
+        mozart status my-job --watch --interval 10
     """
-    asyncio.run(_status_job(job_id, json_output, workspace))
+    if watch:
+        asyncio.run(_status_job_watch(job_id, json_output, watch_interval, workspace))
+    else:
+        asyncio.run(_status_job(job_id, json_output, workspace))
 
 
 @app.command()
@@ -1238,6 +1260,95 @@ async def _list_jobs(
 
     console.print(table)
     console.print(f"\n[dim]Showing {len(unique_jobs)} job(s)[/dim]")
+
+
+async def _status_job_watch(
+    job_id: str,
+    json_output: bool,
+    interval: int,
+    workspace: Path | None,
+) -> None:
+    """Continuously monitor job status with live updates.
+
+    Args:
+        job_id: Job ID to monitor.
+        json_output: Output as JSON instead of rich formatting.
+        interval: Refresh interval in seconds.
+        workspace: Optional workspace directory to search.
+    """
+    from rich.live import Live
+    from rich.panel import Panel
+    from rich.text import Text
+
+    console.print(f"[dim]Watching job [bold]{job_id}[/bold] (Ctrl+C to stop)[/dim]\n")
+
+    try:
+        while True:
+            # Find and load job state
+            backends: list[StateBackend] = []
+
+            if workspace:
+                if not workspace.exists():
+                    console.print(f"[red]Workspace not found:[/red] {workspace}")
+                    raise typer.Exit(1)
+
+                sqlite_path = workspace / ".mozart-state.db"
+                if sqlite_path.exists():
+                    backends.append(SQLiteStateBackend(sqlite_path))
+                backends.append(JsonStateBackend(workspace))
+            else:
+                cwd = Path.cwd()
+                backends.append(JsonStateBackend(cwd))
+                sqlite_cwd = cwd / ".mozart-state.db"
+                if sqlite_cwd.exists():
+                    backends.append(SQLiteStateBackend(sqlite_cwd))
+
+            found_job: CheckpointState | None = None
+            for backend in backends:
+                try:
+                    job = await backend.load(job_id)
+                    if job:
+                        found_job = job
+                        break
+                except Exception:
+                    continue
+
+            # Clear screen and show status
+            console.clear()
+
+            if not found_job:
+                if json_output:
+                    console.print(json.dumps({"error": f"Job not found: {job_id}"}, indent=2))
+                else:
+                    console.print(f"[red]Job not found:[/red] {job_id}")
+                    console.print(
+                        "\n[dim]Hint: Use --workspace to specify the directory "
+                        "containing the job state.[/dim]"
+                    )
+            else:
+                if json_output:
+                    _output_status_json(found_job)
+                else:
+                    _output_status_rich(found_job)
+
+                # Show watch mode indicator
+                now = datetime.now(UTC)
+                console.print(
+                    f"\n[dim]Last updated: {now.strftime('%H:%M:%S')} "
+                    f"| Refreshing every {interval}s | Press Ctrl+C to stop[/dim]"
+                )
+
+                # Exit watch mode if job is completed or failed
+                if found_job.status in (JobStatus.COMPLETED, JobStatus.FAILED):
+                    console.print(
+                        f"\n[yellow]Job {found_job.status.value} - exiting watch mode[/yellow]"
+                    )
+                    break
+
+            await asyncio.sleep(interval)
+
+    except KeyboardInterrupt:
+        console.print("\n[dim]Watch mode stopped[/dim]")
 
 
 async def _status_job(
