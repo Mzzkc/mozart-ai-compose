@@ -81,6 +81,44 @@ class LogConfig(BaseModel):
     )
 
 
+class AIReviewConfig(BaseModel):
+    """Configuration for AI-powered code review after batch execution.
+
+    Enables automated quality assessment of code changes with scoring.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable AI code review after each batch",
+    )
+    min_score: int = Field(
+        default=60,
+        ge=0,
+        le=100,
+        description="Minimum score to pass (0-100). Below this triggers retry.",
+    )
+    target_score: int = Field(
+        default=80,
+        ge=0,
+        le=100,
+        description="Target score for high quality (0-100). 60-target logs warning.",
+    )
+    on_low_score: Literal["retry", "warn", "fail"] = Field(
+        default="warn",
+        description="Action when score < min_score: retry, warn, or fail",
+    )
+    max_retry_for_review: int = Field(
+        default=2,
+        ge=0,
+        le=5,
+        description="Maximum retries when score is too low",
+    )
+    review_prompt_template: str | None = Field(
+        default=None,
+        description="Custom prompt template for review (uses default if None)",
+    )
+
+
 class LearningConfig(BaseModel):
     """Configuration for learning and outcome tracking (Phase 2).
 
@@ -364,6 +402,7 @@ class JobConfig(BaseModel):
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
     circuit_breaker: CircuitBreakerConfig = Field(default_factory=CircuitBreakerConfig)
     learning: LearningConfig = Field(default_factory=LearningConfig)
+    ai_review: AIReviewConfig = Field(default_factory=AIReviewConfig)
     logging: LogConfig = Field(default_factory=LogConfig)
 
     validations: list[ValidationRule] = Field(default_factory=list)
