@@ -112,6 +112,9 @@ class ErrorCode(str, Enum):
     CONFIG_PARSE_ERROR = "E304"
     """Failed to parse configuration file (YAML/JSON syntax error)."""
 
+    CONFIG_MCP_ERROR = "E305"
+    """MCP server/plugin configuration error (missing env vars, invalid config)."""
+
     # E4xx: State errors
     STATE_CORRUPTION = "E401"
     """Checkpoint state file is corrupted or inconsistent."""
@@ -456,6 +459,9 @@ class ErrorCategory(str, Enum):
     FATAL = "fatal"
     """Non-retriable - stop job immediately."""
 
+    CONFIGURATION = "configuration"
+    """Non-retriable - configuration error needs user intervention (e.g., MCP setup)."""
+
 
 # Signals that indicate the process should be retried
 RETRIABLE_SIGNALS: set[int] = {
@@ -632,6 +638,18 @@ class ErrorClassifier:
             ]
         ]
 
+        # MCP/Plugin configuration errors (non-retriable)
+        self.mcp_patterns = [
+            re.compile(p, re.IGNORECASE)
+            for p in [
+                r"MCP server error",
+                r"mcp-config-invalid",
+                r"Missing environment variables:",
+                r"Plugin MCP server",
+                r"MCP server .+ invalid",
+            ]
+        ]
+
     def classify(
         self,
         stdout: str = "",
@@ -750,6 +768,29 @@ class ErrorClassifier:
                 exit_code=exit_code,
                 retriable=result.retriable,
                 message=result.message,
+            )
+            return result
+
+        # Check for MCP/Plugin configuration errors (non-retriable)
+        if self._matches_any(combined, self.mcp_patterns):
+            result = ClassifiedError(
+                category=ErrorCategory.CONFIGURATION,
+                message="MCP server configuration error - check environment variables",
+                error_code=ErrorCode.CONFIG_MCP_ERROR,
+                original_error=exception,
+                exit_code=exit_code,
+                exit_signal=None,
+                exit_reason=exit_reason,
+                retriable=False,
+            )
+            _logger.error(
+                "error_classified",
+                category=result.category.value,
+                error_code=result.error_code.value,
+                exit_code=exit_code,
+                retriable=result.retriable,
+                message=result.message,
+                hint="MCP plugins may need environment variables. Check your shell environment or disable the plugin.",
             )
             return result
 

@@ -14,6 +14,7 @@ the CLI to show "Still running... 5.2KB received, 3m elapsed" during long execut
 """
 
 import asyncio
+import os
 import shutil
 import signal
 import time
@@ -261,6 +262,7 @@ class ClaudeCliBackend(Backend):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self.working_directory,
+                env=os.environ.copy(),  # Explicit env passthrough for MCP plugins
             )
 
             # Notify starting phase
