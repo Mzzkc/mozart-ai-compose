@@ -125,6 +125,7 @@ class ClaudeCliBackend(Backend):
         timeout_seconds: float = 1800.0,  # 30 minute default
         progress_callback: ProgressCallback | None = None,
         progress_interval_seconds: float = 5.0,
+        cli_extra_args: list[str] | None = None,
     ):
         """Initialize CLI backend.
 
@@ -137,6 +138,7 @@ class ClaudeCliBackend(Backend):
                 Called with dict containing: bytes_received, lines_received,
                 elapsed_seconds, phase.
             progress_interval_seconds: How often to call progress callback (default 5s).
+            cli_extra_args: Extra arguments to pass to claude CLI.
         """
         self.skip_permissions = skip_permissions
         self.output_format = output_format
@@ -144,6 +146,7 @@ class ClaudeCliBackend(Backend):
         self.timeout_seconds = timeout_seconds
         self.progress_callback = progress_callback
         self.progress_interval_seconds = progress_interval_seconds
+        self.cli_extra_args = cli_extra_args or []
 
         # Verify claude CLI is available
         self._claude_path = shutil.which("claude")
@@ -157,6 +160,7 @@ class ClaudeCliBackend(Backend):
         """Create backend from configuration."""
         return cls(
             skip_permissions=config.skip_permissions,
+            cli_extra_args=config.cli_extra_args,
             output_format=config.output_format,
             working_directory=config.working_directory,
             timeout_seconds=config.timeout_seconds,
@@ -201,6 +205,10 @@ class ClaudeCliBackend(Backend):
 
         if self.output_format:
             cmd.extend(["--output-format", self.output_format])
+
+        # Add any extra CLI arguments (e.g., --strict-mcp-config)
+        if self.cli_extra_args:
+            cmd.extend(self.cli_extra_args)
 
         return cmd
 

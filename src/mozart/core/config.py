@@ -211,6 +211,63 @@ class CircuitBreakerConfig(BaseModel):
     )
 
 
+class CostLimitConfig(BaseModel):
+    """Configuration for cost tracking and limits.
+
+    Prevents runaway costs by tracking token usage and optionally enforcing
+    cost limits per sheet or per job. Cost is estimated from token counts
+    using configurable rates.
+
+    When cost limits are exceeded:
+    - The current sheet is marked as failed with reason "cost_limit"
+    - For per-job limits, the job is paused to prevent further execution
+    - All cost data is recorded in checkpoint state for analysis
+
+    Example:
+        cost_limits:
+          enabled: true
+          max_cost_per_sheet: 5.00
+          max_cost_per_job: 100.00
+          cost_per_1k_input_tokens: 0.003
+          cost_per_1k_output_tokens: 0.015
+
+    Note: Default rates are for Claude Sonnet. For Opus, use:
+        cost_per_1k_input_tokens: 0.015
+        cost_per_1k_output_tokens: 0.075
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable cost tracking and limit enforcement",
+    )
+    max_cost_per_sheet: float | None = Field(
+        default=None,
+        gt=0,
+        description="Maximum allowed cost per sheet in USD. None = no limit.",
+    )
+    max_cost_per_job: float | None = Field(
+        default=None,
+        gt=0,
+        description="Maximum allowed cost for entire job in USD. None = no limit.",
+    )
+    cost_per_1k_input_tokens: float = Field(
+        default=0.003,
+        gt=0,
+        description="Cost per 1000 input tokens in USD (Claude Sonnet default: $0.003)",
+    )
+    cost_per_1k_output_tokens: float = Field(
+        default=0.015,
+        gt=0,
+        description="Cost per 1000 output tokens in USD (Claude Sonnet default: $0.015)",
+    )
+    warn_at_percent: float = Field(
+        default=80.0,
+        gt=0,
+        le=100,
+        description="Emit warning when this percentage of limit is reached",
+    )
+
+
 class ValidationRule(BaseModel):
     """A single validation rule for checking sheet outputs.
 
@@ -325,6 +382,11 @@ class BackendConfig(BaseModel):
         gt=0,
         description="Maximum time allowed per prompt execution (seconds). Default: 30 minutes.",
     )
+    cli_extra_args: list[str] = Field(
+        default_factory=list,
+        description="Extra arguments to pass to claude CLI. "
+        "Example: ['--strict-mcp-config', '{}'] to disable MCP plugins.",
+    )
 
     # API-specific options
     model: str = Field(
@@ -407,6 +469,7 @@ class JobConfig(BaseModel):
     retry: RetryConfig = Field(default_factory=RetryConfig)
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
     circuit_breaker: CircuitBreakerConfig = Field(default_factory=CircuitBreakerConfig)
+    cost_limits: CostLimitConfig = Field(default_factory=CostLimitConfig)
     learning: LearningConfig = Field(default_factory=LearningConfig)
     ai_review: AIReviewConfig = Field(default_factory=AIReviewConfig)
     logging: LogConfig = Field(default_factory=LogConfig)
