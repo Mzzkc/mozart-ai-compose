@@ -18,9 +18,9 @@ from typing import Any
 from rich.console import Console
 
 from mozart.backends.base import Backend, ExecutionResult
-from mozart.core.checkpoint import CheckpointState, JobStatus, SheetStatus
+from mozart.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
 from mozart.core.config import JobConfig
-from mozart.core.errors import ClassifiedError, ErrorClassifier
+from mozart.core.errors import ClassifiedError, ErrorCategory, ErrorClassifier
 from mozart.core.logging import ExecutionContext, MozartLogger, get_logger
 from mozart.execution.circuit_breaker import CircuitBreaker
 from mozart.execution.escalation import EscalationContext, EscalationHandler, EscalationResponse
@@ -51,6 +51,7 @@ class RunSummary:
     - Sheet success/failure counts
     - Validation pass rate
     - Retry statistics
+    - Cost tracking
     """
 
     job_id: str
@@ -67,6 +68,12 @@ class RunSummary:
     validation_fail_count: int = 0
     first_attempt_successes: int = 0
     final_status: JobStatus = field(default=JobStatus.PENDING)
+
+    # Cost tracking (v4 evolution: Cost Circuit Breaker)
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_estimated_cost: float = 0.0
+    cost_limit_hit: bool = False
 
     @property
     def success_rate(self) -> float:
@@ -263,6 +270,133 @@ class JobRunner:
                 jitter_factor=0.25,  # 25% jitter
             )
         )
+
+    def _track_cost(
+        self,
+        result: ExecutionResult,
+        sheet_state: "SheetState",
+        state: CheckpointState,
+    ) -> tuple[int, int, float, float]:
+        """Track token usage and cost from an execution result.
+
+        Records cost in:
+        - sheet_state: Per-sheet token/cost tracking
+        - state: Cumulative job totals
+        - circuit_breaker: Real-time cost enforcement
+        - summary: Final run statistics
+
+        Args:
+            result: Execution result from backend.
+            sheet_state: Current sheet's state object.
+            state: Job checkpoint state.
+
+        Returns:
+            Tuple of (input_tokens, output_tokens, estimated_cost, confidence).
+            confidence is 1.0 for exact API counts, lower for estimates.
+        """
+        config = self.config.cost_limits
+
+        # Get token counts from result or estimate from output length
+        input_tokens = 0
+        output_tokens = 0
+        confidence = 1.0
+
+        if result.tokens_used is not None:
+            # Exact count from API backend
+            output_tokens = result.tokens_used
+            # Estimate input from prompt (roughly 4 chars per token)
+            input_tokens = len(result.stdout or "") // 4
+            confidence = 0.9  # High confidence but not perfect
+        else:
+            # Estimate from output length (CLI backend, ~4 chars per token)
+            output_chars = len(result.stdout or "") + len(result.stderr or "")
+            output_tokens = output_chars // 4
+            # No way to know input tokens from CLI - estimate from output
+            input_tokens = output_tokens // 2  # Rough heuristic
+            confidence = 0.7  # Lower confidence for estimates
+
+        # Calculate estimated cost
+        estimated_cost = (
+            (input_tokens / 1000 * config.cost_per_1k_input_tokens)
+            + (output_tokens / 1000 * config.cost_per_1k_output_tokens)
+        )
+
+        # Update sheet state
+        sheet_state.input_tokens = (sheet_state.input_tokens or 0) + input_tokens
+        sheet_state.output_tokens = (sheet_state.output_tokens or 0) + output_tokens
+        sheet_state.estimated_cost = (sheet_state.estimated_cost or 0.0) + estimated_cost
+        sheet_state.cost_confidence = min(sheet_state.cost_confidence, confidence)
+
+        # Update job state cumulative totals
+        state.total_input_tokens += input_tokens
+        state.total_output_tokens += output_tokens
+        state.total_estimated_cost += estimated_cost
+
+        # Update circuit breaker for real-time tracking
+        if self._circuit_breaker is not None:
+            self._circuit_breaker.record_cost(input_tokens, output_tokens, estimated_cost)
+
+        # Update summary
+        if self._summary is not None:
+            self._summary.total_input_tokens += input_tokens
+            self._summary.total_output_tokens += output_tokens
+            self._summary.total_estimated_cost += estimated_cost
+
+        return input_tokens, output_tokens, estimated_cost, confidence
+
+    def _check_cost_limits(
+        self,
+        sheet_state: "SheetState",
+        state: CheckpointState,
+    ) -> tuple[bool, str | None]:
+        """Check if any cost limits have been exceeded.
+
+        Args:
+            sheet_state: Current sheet's state with cost tracking.
+            state: Job checkpoint state with cumulative costs.
+
+        Returns:
+            Tuple of (exceeded: bool, reason: str | None).
+            If exceeded is True, reason contains the limit that was hit.
+        """
+        config = self.config.cost_limits
+        if not config.enabled:
+            return False, None
+
+        # Check per-sheet limit
+        if config.max_cost_per_sheet is not None:
+            sheet_cost = sheet_state.estimated_cost or 0.0
+            if sheet_cost > config.max_cost_per_sheet:
+                return True, (
+                    f"Sheet cost ${sheet_cost:.4f} exceeded limit "
+                    f"${config.max_cost_per_sheet:.2f}"
+                )
+
+        # Check per-job limit
+        if config.max_cost_per_job is not None:
+            job_cost = state.total_estimated_cost
+            if job_cost > config.max_cost_per_job:
+                return True, (
+                    f"Job cost ${job_cost:.4f} exceeded limit "
+                    f"${config.max_cost_per_job:.2f}"
+                )
+
+            # Emit warning at threshold
+            warn_threshold = config.max_cost_per_job * config.warn_at_percent / 100
+            if job_cost > warn_threshold and not state.cost_limit_reached:
+                self._logger.warning(
+                    "cost.warning_threshold",
+                    job_cost=round(job_cost, 4),
+                    max_cost=config.max_cost_per_job,
+                    warn_percent=config.warn_at_percent,
+                )
+                self.console.print(
+                    f"[yellow]Cost warning: ${job_cost:.4f} of "
+                    f"${config.max_cost_per_job:.2f} limit "
+                    f"({job_cost/config.max_cost_per_job*100:.0f}%)[/yellow]"
+                )
+
+        return False, None
 
     async def run(
         self,
@@ -781,6 +915,30 @@ class JobRunner:
             # Capture raw output for debugging (Task 1: Raw Output Capture)
             sheet_state.capture_output(result.stdout, result.stderr)
 
+            # Track cost (v4 evolution: Cost Circuit Breaker)
+            if self.config.cost_limits.enabled:
+                self._track_cost(result, sheet_state, state)
+
+                # Check cost limits after tracking
+                cost_exceeded, cost_reason = self._check_cost_limits(sheet_state, state)
+                if cost_exceeded:
+                    state.cost_limit_reached = True
+                    if self._summary is not None:
+                        self._summary.cost_limit_hit = True
+                    self._logger.warning(
+                        "cost.limit_exceeded",
+                        sheet_num=sheet_num,
+                        reason=cost_reason,
+                        job_cost=round(state.total_estimated_cost, 4),
+                    )
+                    self.console.print(f"[red]Cost limit exceeded: {cost_reason}[/red]")
+
+                    # Mark job as paused due to cost limit
+                    state.mark_job_paused()
+                    state.error_message = f"Cost limit: {cost_reason}"
+                    await self.state_backend.save(state)
+                    raise GracefulShutdownError(f"Cost limit exceeded: {cost_reason}")
+
             # Track execution result for judgment (Phase 4)
             execution_history.append(result)
 
@@ -1032,8 +1190,11 @@ class JobRunner:
                     original_prompt=original_prompt,
                     workspace=self.config.workspace,
                 )
+                # Pass semantic hints (prompt_modifications) to completion prompt
+                # These come from either local _decide_next_action or RL judgment
                 current_prompt = self.prompt_builder.build_completion_prompt(
-                    completion_ctx
+                    completion_ctx,
+                    semantic_hints=prompt_modifications,
                 )
 
                 self.console.print(
@@ -1275,12 +1436,29 @@ class JobRunner:
     def _classify_error(self, result: ExecutionResult) -> ClassifiedError:
         """Classify execution error.
 
+        Trust the backend's rate_limited flag if set, as the backend sees
+        real-time output during execution. The rate limit message may be
+        followed by CLI crash stack traces that obscure it in final output.
+
         Args:
             result: Execution result with error details.
 
         Returns:
             ClassifiedError with category and retry info.
         """
+        # Trust backend's rate limit detection (it classifies real-time output)
+        if result.rate_limited:
+            return ClassifiedError(
+                category=ErrorCategory.RATE_LIMIT,
+                error_code="E101",
+                message="Rate limit detected by backend",
+                exit_code=result.exit_code,
+                exit_signal=result.exit_signal,
+                exit_reason=result.exit_reason,
+                retriable=True,
+                suggested_wait_seconds=self.config.rate_limit.wait_minutes * 60,
+            )
+
         return self.error_classifier.classify(
             stdout=result.stdout,
             stderr=result.stderr,
@@ -1412,16 +1590,22 @@ class JobRunner:
         validation_result: SheetValidationResult,
         normal_attempts: int,
         completion_attempts: int,
-    ) -> tuple[SheetExecutionMode, str]:
-        """Decide the next action based on confidence and pass percentage.
+    ) -> tuple[SheetExecutionMode, str, list[str]]:
+        """Decide the next action based on confidence, pass percentage, and semantic info.
 
-        This method implements adaptive retry strategy using validation confidence
-        and pass percentage to decide between COMPLETION, RETRY, or ESCALATE modes.
+        This method implements adaptive retry strategy using validation confidence,
+        pass percentage, and semantic failure categories to decide between
+        COMPLETION, RETRY, or ESCALATE modes.
 
         Decision logic:
         - If confidence > high_threshold AND pass_pct > threshold: COMPLETION mode
         - If confidence < min_threshold: ESCALATE if handler exists, else RETRY
         - Otherwise: Use existing logic (RETRY or COMPLETION based on pass_pct)
+
+        Semantic-aware enhancements:
+        - Extracts failure_category to inform retry strategy
+        - Returns actionable hints for injection into completion prompts
+        - Adjusts decision reason based on dominant failure category
 
         Args:
             validation_result: Results from validation engine with confidence scores.
@@ -1429,7 +1613,8 @@ class JobRunner:
             completion_attempts: Number of completion mode attempts already made.
 
         Returns:
-            Tuple of (SheetExecutionMode, reason string explaining the decision).
+            Tuple of (SheetExecutionMode, reason string, semantic_hints list).
+            semantic_hints contains suggested fixes for prompt injection.
         """
         confidence = validation_result.aggregate_confidence
         # Use executed_pass_percentage to exclude skipped validations from staged runs.
@@ -1444,20 +1629,32 @@ class JobRunner:
         high_threshold = self.config.learning.high_confidence_threshold
         min_threshold = self.config.learning.min_confidence_threshold
 
+        # Get semantic information for enhanced decision-making
+        semantic_summary = validation_result.get_semantic_summary()
+        semantic_hints = validation_result.get_actionable_hints(limit=3)
+        dominant_category = semantic_summary.get("dominant_category")
+
+        # Build category-specific reason suffix
+        category_suffix = ""
+        if dominant_category:
+            category_suffix = f" (dominant: {dominant_category})"
+
         # High confidence + majority passed -> completion mode (focused approach)
         if confidence > high_threshold and pass_pct > completion_threshold:
             if completion_attempts < max_completion:
                 return (
                     SheetExecutionMode.COMPLETION,
                     f"high confidence ({confidence:.2f}) with {pass_pct:.0f}% passed, "
-                    f"attempting focused completion",
+                    f"attempting focused completion{category_suffix}",
+                    semantic_hints,
                 )
             else:
                 # Completion attempts exhausted, fall back to retry
                 return (
                     SheetExecutionMode.RETRY,
                     f"completion attempts exhausted ({completion_attempts}/{max_completion}), "
-                    f"falling back to full retry",
+                    f"falling back to full retry{category_suffix}",
+                    semantic_hints,
                 )
 
         # Low confidence -> escalate if enabled and handler available, else retry
@@ -1469,13 +1666,15 @@ class JobRunner:
             if escalation_available:
                 return (
                     SheetExecutionMode.ESCALATE,
-                    f"low confidence ({confidence:.2f}) requires escalation",
+                    f"low confidence ({confidence:.2f}) requires escalation{category_suffix}",
+                    semantic_hints,
                 )
             else:
                 return (
                     SheetExecutionMode.RETRY,
                     f"low confidence ({confidence:.2f}) but escalation not available, "
-                    f"attempting retry",
+                    f"attempting retry{category_suffix}",
+                    semantic_hints,
                 )
 
         # Medium confidence zone: use pass percentage to decide
@@ -1483,13 +1682,15 @@ class JobRunner:
             return (
                 SheetExecutionMode.COMPLETION,
                 f"medium confidence ({confidence:.2f}) with {pass_pct:.0f}% passed, "
-                f"attempting completion mode",
+                f"attempting completion mode{category_suffix}",
+                semantic_hints,
             )
         else:
             return (
                 SheetExecutionMode.RETRY,
                 f"medium confidence ({confidence:.2f}) with {pass_pct:.0f}% passed, "
-                f"full retry needed",
+                f"full retry needed{category_suffix}",
+                semantic_hints,
             )
 
     async def _decide_with_judgment(
@@ -1519,10 +1720,10 @@ class JobRunner:
         """
         # Fall back to local decision if no judgment client
         if self.judgment_client is None:
-            mode, reason = self._decide_next_action(
+            mode, reason, semantic_hints = self._decide_next_action(
                 validation_result, normal_attempts, completion_attempts
             )
-            return mode, reason, None
+            return mode, reason, semantic_hints
 
         # Build JudgmentQuery from current state
         query = self._build_judgment_query(
@@ -1555,10 +1756,10 @@ class JobRunner:
                 f"[yellow]Sheet {sheet_num}: Judgment client error: {e}, "
                 f"falling back to local decision[/yellow]"
             )
-            mode, reason = self._decide_next_action(
+            mode, reason, semantic_hints = self._decide_next_action(
                 validation_result, normal_attempts, completion_attempts
             )
-            return mode, reason + " (judgment fallback)", None
+            return mode, reason + " (judgment fallback)", semantic_hints
 
     def _build_judgment_query(
         self,
