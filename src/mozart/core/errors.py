@@ -115,6 +115,9 @@ class ErrorCode(str, Enum):
     CONFIG_MCP_ERROR = "E305"
     """MCP server/plugin configuration error (missing env vars, invalid config)."""
 
+    CONFIG_CLI_MODE_ERROR = "E306"
+    """Claude CLI mode mismatch (e.g., streaming mode incompatible with operation)."""
+
     # E4xx: State errors
     STATE_CORRUPTION = "E401"
     """Checkpoint state file is corrupted or inconsistent."""
@@ -650,6 +653,16 @@ class ErrorClassifier:
             ]
         ]
 
+        # CLI mode mismatch errors (non-retriable configuration issue)
+        self.cli_mode_patterns = [
+            re.compile(p, re.IGNORECASE)
+            for p in [
+                r"only prompt commands are supported in streaming mode",
+                r"streaming mode.*not supported",
+                r"output format.*not compatible",
+            ]
+        ]
+
     def classify(
         self,
         stdout: str = "",
@@ -746,6 +759,30 @@ class ErrorClassifier:
                 retriable=result.retriable,
                 suggested_wait=result.suggested_wait_seconds,
                 message=result.message,
+            )
+            return result
+
+        # Check for CLI mode mismatch (must be before auth check)
+        # "streaming mode" error can look like auth failure but is config issue
+        if self._matches_any(combined, self.cli_mode_patterns):
+            result = ClassifiedError(
+                category=ErrorCategory.CONFIGURATION,
+                message="CLI mode mismatch - streaming mode incompatible with operation",
+                error_code=ErrorCode.CONFIG_CLI_MODE_ERROR,
+                original_error=exception,
+                exit_code=exit_code,
+                exit_signal=None,
+                exit_reason=exit_reason,
+                retriable=False,
+            )
+            _logger.error(
+                "error_classified",
+                category=result.category.value,
+                error_code=result.error_code.value,
+                exit_code=exit_code,
+                retriable=result.retriable,
+                message=result.message,
+                hint="Mozart now defaults to JSON output format. This error should not recur.",
             )
             return result
 

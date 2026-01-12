@@ -203,8 +203,11 @@ class ClaudeCliBackend(Backend):
         if self.skip_permissions:
             cmd.append("--dangerously-skip-permissions")
 
-        if self.output_format:
-            cmd.extend(["--output-format", self.output_format])
+        # Always specify output format for subprocess execution.
+        # The Claude CLI auto-detects non-TTY and defaults to streaming mode,
+        # but streaming mode only supports prompt commands. JSON mode is safe.
+        output_format = self.output_format or "json"
+        cmd.extend(["--output-format", output_format])
 
         # Add any extra CLI arguments (e.g., --strict-mcp-config)
         if self.cli_extra_args:
