@@ -120,7 +120,11 @@ class ClaudeCliBackend(Backend):
     def __init__(
         self,
         skip_permissions: bool = True,
-        output_format: str | None = None,
+        disable_mcp: bool = True,
+        output_format: str = "json",
+        cli_model: str | None = None,
+        allowed_tools: list[str] | None = None,
+        system_prompt_file: Path | None = None,
         working_directory: Path | None = None,
         timeout_seconds: float = 1800.0,  # 30 minute default
         progress_callback: ProgressCallback | None = None,
@@ -131,17 +135,25 @@ class ClaudeCliBackend(Backend):
 
         Args:
             skip_permissions: Pass --dangerously-skip-permissions
+            disable_mcp: Disable MCP servers for faster execution (--strict-mcp-config)
             output_format: Output format (json, text, stream-json)
+            cli_model: Model to use (--model flag), None uses default
+            allowed_tools: Restrict to specific tools (--allowedTools)
+            system_prompt_file: Custom system prompt file (--system-prompt)
             working_directory: Working directory for running commands
             timeout_seconds: Maximum time allowed per prompt
             progress_callback: Optional callback for progress updates during execution.
                 Called with dict containing: bytes_received, lines_received,
                 elapsed_seconds, phase.
             progress_interval_seconds: How often to call progress callback (default 5s).
-            cli_extra_args: Extra arguments to pass to claude CLI.
+            cli_extra_args: Extra arguments to pass to claude CLI (escape hatch).
         """
         self.skip_permissions = skip_permissions
+        self.disable_mcp = disable_mcp
         self.output_format = output_format
+        self.cli_model = cli_model
+        self.allowed_tools = allowed_tools
+        self.system_prompt_file = system_prompt_file
         self.working_directory = working_directory
         self.timeout_seconds = timeout_seconds
         self.progress_callback = progress_callback
@@ -160,10 +172,14 @@ class ClaudeCliBackend(Backend):
         """Create backend from configuration."""
         return cls(
             skip_permissions=config.skip_permissions,
-            cli_extra_args=config.cli_extra_args,
+            disable_mcp=config.disable_mcp,
             output_format=config.output_format,
+            cli_model=config.cli_model,
+            allowed_tools=config.allowed_tools,
+            system_prompt_file=config.system_prompt_file,
             working_directory=config.working_directory,
             timeout_seconds=config.timeout_seconds,
+            cli_extra_args=config.cli_extra_args,
         )
 
     @property
@@ -203,13 +219,27 @@ class ClaudeCliBackend(Backend):
         if self.skip_permissions:
             cmd.append("--dangerously-skip-permissions")
 
-        # Always specify output format for subprocess execution.
-        # The Claude CLI auto-detects non-TTY and defaults to streaming mode,
-        # but streaming mode only supports prompt commands. JSON mode is safe.
-        output_format = self.output_format or "json"
-        cmd.extend(["--output-format", output_format])
+        # Output format for subprocess execution
+        cmd.extend(["--output-format", self.output_format])
 
-        # Add any extra CLI arguments (e.g., --strict-mcp-config)
+        # Disable MCP servers for faster, isolated execution
+        # This prevents resource contention and provides ~2x speedup
+        if self.disable_mcp:
+            cmd.append("--strict-mcp-config")
+
+        # Model selection
+        if self.cli_model:
+            cmd.extend(["--model", self.cli_model])
+
+        # Tool restrictions for security-constrained execution
+        if self.allowed_tools:
+            cmd.extend(["--allowedTools", ",".join(self.allowed_tools)])
+
+        # Custom system prompt
+        if self.system_prompt_file:
+            cmd.extend(["--system-prompt", str(self.system_prompt_file)])
+
+        # Escape hatch - applied last so it can override anything above
         if self.cli_extra_args:
             cmd.extend(self.cli_extra_args)
 

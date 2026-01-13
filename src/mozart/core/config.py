@@ -490,15 +490,43 @@ class BackendConfig(BaseModel):
     # CLI-specific options
     skip_permissions: bool = Field(
         default=True,
-        description="Pass --dangerously-skip-permissions to claude CLI",
+        description="Skip permission prompts for unattended execution. "
+        "Maps to --dangerously-skip-permissions flag.",
     )
-    output_format: Literal["json", "text", "stream-json"] | None = Field(
+    disable_mcp: bool = Field(
+        default=True,
+        description="Disable MCP server loading for faster, isolated execution. "
+        "Provides ~2x speedup and prevents resource contention errors. "
+        "Maps to --strict-mcp-config {} flag. Set to False to use MCP servers.",
+    )
+    output_format: Literal["json", "text", "stream-json"] = Field(
+        default="json",
+        description="Claude CLI output format. "
+        "'json' for structured automation output (recommended), "
+        "'text' for human-readable output, "
+        "'stream-json' for real-time streaming events.",
+    )
+    cli_model: str | None = Field(
         default=None,
-        description="Output format for claude CLI",
+        description="Model for Claude CLI execution. "
+        "Maps to --model flag. If None, uses Claude Code's default model. "
+        "Example: 'claude-sonnet-4-20250514'",
+    )
+    allowed_tools: list[str] | None = Field(
+        default=None,
+        description="Restrict Claude to specific tools. "
+        "Maps to --allowedTools flag. If None, all tools are available. "
+        "Example: ['Read', 'Grep', 'Glob'] for read-only execution.",
+    )
+    system_prompt_file: Path | None = Field(
+        default=None,
+        description="Path to custom system prompt file. "
+        "Maps to --system-prompt flag. Overrides Claude's default system prompt.",
     )
     working_directory: Path | None = Field(
         default=None,
-        description="Working directory for claude CLI execution",
+        description="Working directory for Claude CLI execution. "
+        "If None, uses the directory containing the Mozart config file.",
     )
     timeout_seconds: float = Field(
         default=1800.0,
@@ -507,8 +535,9 @@ class BackendConfig(BaseModel):
     )
     cli_extra_args: list[str] = Field(
         default_factory=list,
-        description="Extra arguments to pass to claude CLI. "
-        "Example: ['--strict-mcp-config', '{}'] to disable MCP plugins.",
+        description="Escape hatch for CLI flags not yet exposed as named options. "
+        "Applied last, can override other settings. "
+        "Example: ['--verbose', '--some-new-flag']",
     )
 
     # API-specific options

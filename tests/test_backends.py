@@ -319,7 +319,11 @@ class TestClaudeCliBackendInit:
         """Test default initialization values."""
         backend = ClaudeCliBackend()
         assert backend.skip_permissions is True
-        assert backend.output_format is None
+        assert backend.disable_mcp is True  # Default for faster execution
+        assert backend.output_format == "json"  # Explicit default for automation
+        assert backend.cli_model is None
+        assert backend.allowed_tools is None
+        assert backend.system_prompt_file is None
         assert backend.working_directory is None
         assert backend.timeout_seconds == 1800.0
         assert backend.name == "claude-cli"
