@@ -334,6 +334,129 @@ class NotificationConfig(BaseModel):
     )
 
 
+class PostSuccessHookConfig(BaseModel):
+    """Configuration for a post-success hook.
+
+    Hooks execute after a job completes successfully (all sheets pass validation).
+    They run in Mozart's Python process, NOT inside a Claude CLI instance.
+
+    Use cases:
+    - Chain to another job (Concert orchestration - improvisational composition)
+    - Run cleanup/deployment commands after successful completion
+    - Notify external systems or trigger CI/CD pipelines
+    - Generate reports or update dashboards
+    - A sheet can dynamically create the next job config for self-evolution
+
+    Example:
+        on_success:
+          - type: run_job
+            job_path: "{workspace}/next-phase.yaml"
+            description: "Chain to next evolution phase"
+          - type: run_command
+            command: "curl -X POST https://api.example.com/notify"
+            description: "Notify deployment system"
+    """
+
+    type: Literal["run_job", "run_command", "run_script"] = Field(
+        description="Hook type: run_job chains to another Mozart job, "
+        "run_command executes a shell command, run_script runs an executable",
+    )
+
+    # For run_job type
+    job_path: Path | None = Field(
+        default=None,
+        description="Path to job config YAML. Supports {workspace} template. "
+        "A sheet can create this file dynamically for self-evolution.",
+    )
+    job_workspace: Path | None = Field(
+        default=None,
+        description="Override workspace for chained job (default: inherits parent workspace)",
+    )
+    inherit_learning: bool = Field(
+        default=True,
+        description="Whether chained job shares outcome store with parent",
+    )
+
+    # For run_command/run_script types
+    command: str | None = Field(
+        default=None,
+        description="Shell command (run_command) or script path (run_script). "
+        "Supports {workspace}, {job_id}, {sheet_count} templates.",
+    )
+    working_directory: Path | None = Field(
+        default=None,
+        description="Working directory for command execution (default: job workspace)",
+    )
+
+    # Common options
+    description: str | None = Field(
+        default=None,
+        description="Human-readable description of this hook's purpose",
+    )
+    on_failure: Literal["continue", "abort"] = Field(
+        default="continue",
+        description="What to do if hook fails: continue to next hook, or abort remaining hooks",
+    )
+    timeout_seconds: float = Field(
+        default=300.0,
+        gt=0,
+        description="Maximum time for hook execution (seconds). Default: 5 minutes.",
+    )
+
+
+class ConcertConfig(BaseModel):
+    """Configuration for concert orchestration (job chaining).
+
+    A Concert is a sequence of jobs that execute in succession, where each job
+    can dynamically generate the configuration for the next. This enables
+    Mozart to compose entire workflows improvisationally.
+
+    Safety limits prevent runaway orchestration and manage system resources.
+
+    Example:
+        concert:
+          enabled: true
+          max_chain_depth: 10
+          cooldown_between_jobs_seconds: 60
+          concert_log_path: "./concert.log"
+
+    The concert pattern enables:
+    - Multi-phase self-evolution (Phase 1 generates Phase 2 config)
+    - Progressive refinement (each run improves on the last)
+    - Conditional branching (sheets can choose which job runs next)
+    - Emergent workflows (the full path isn't predetermined)
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable concert mode (job chaining via on_success hooks)",
+    )
+    max_chain_depth: int = Field(
+        default=5,
+        ge=1,
+        le=100,
+        description="Maximum number of chained jobs in a single concert. "
+        "Prevents infinite loops. Use with caution for values > 10.",
+    )
+    cooldown_between_jobs_seconds: float = Field(
+        default=30.0,
+        ge=0,
+        description="Minimum wait time between job transitions (resource management)",
+    )
+    inherit_workspace: bool = Field(
+        default=True,
+        description="Child jobs inherit parent workspace if not explicitly specified",
+    )
+    concert_log_path: Path | None = Field(
+        default=None,
+        description="Consolidated log for the entire concert (default: workspace/concert.log)",
+    )
+    abort_concert_on_hook_failure: bool = Field(
+        default=False,
+        description="If any hook fails, abort the entire concert (not just remaining hooks)",
+    )
+
+
 class RecursiveLightConfig(BaseModel):
     """Configuration for Recursive Light HTTP API backend (Phase 3).
 
@@ -476,6 +599,17 @@ class JobConfig(BaseModel):
 
     validations: list[ValidationRule] = Field(default_factory=list)
     notifications: list[NotificationConfig] = Field(default_factory=list)
+
+    # Concert orchestration (job chaining)
+    on_success: list[PostSuccessHookConfig] = Field(
+        default_factory=list,
+        description="Hooks to run after successful job completion. "
+        "Enables chaining jobs into a Concert.",
+    )
+    concert: ConcertConfig = Field(
+        default_factory=ConcertConfig,
+        description="Configuration for concert orchestration (job chaining)",
+    )
 
     state_backend: Literal["json", "sqlite"] = Field(
         default="sqlite",

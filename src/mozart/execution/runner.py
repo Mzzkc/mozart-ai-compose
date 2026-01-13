@@ -20,10 +20,11 @@ from rich.console import Console
 from mozart.backends.base import Backend, ExecutionResult
 from mozart.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
 from mozart.core.config import JobConfig
-from mozart.core.errors import ClassifiedError, ErrorCategory, ErrorClassifier
+from mozart.core.errors import ClassifiedError, ErrorCategory, ErrorClassifier, ErrorCode
 from mozart.core.logging import ExecutionContext, MozartLogger, get_logger
 from mozart.execution.circuit_breaker import CircuitBreaker
 from mozart.execution.escalation import EscalationContext, EscalationHandler, EscalationResponse
+from mozart.execution.hooks import HookExecutor, HookResult
 from mozart.execution.preflight import PreflightChecker, PreflightResult
 from mozart.execution.retry_strategy import (
     AdaptiveRetryStrategy,
@@ -74,6 +75,12 @@ class RunSummary:
     total_output_tokens: int = 0
     total_estimated_cost: float = 0.0
     cost_limit_hit: bool = False
+
+    # Hook execution results (Concert orchestration)
+    hook_results: list[HookResult] = field(default_factory=list)
+    hooks_executed: int = 0
+    hooks_succeeded: int = 0
+    hooks_failed: int = 0
 
     @property
     def success_rate(self) -> float:
@@ -296,23 +303,28 @@ class JobRunner:
         """
         config = self.config.cost_limits
 
-        # Get token counts from result or estimate from output length
+        # Get token counts from result - prefer explicit fields, fall back to estimates
         input_tokens = 0
         output_tokens = 0
         confidence = 1.0
 
-        if result.tokens_used is not None:
-            # Exact count from API backend
+        if result.input_tokens is not None and result.output_tokens is not None:
+            # Exact counts from API backend (v4 evolution: precise cost tracking)
+            input_tokens = result.input_tokens
+            output_tokens = result.output_tokens
+            confidence = 1.0  # Exact counts from API
+        elif result.tokens_used is not None:
+            # Legacy: only total tokens available (deprecated field)
             output_tokens = result.tokens_used
-            # Estimate input from prompt (roughly 4 chars per token)
-            input_tokens = len(result.stdout or "") // 4
-            confidence = 0.9  # High confidence but not perfect
+            # Estimate input from output (rough heuristic: input ~= 2x output for prompts)
+            input_tokens = output_tokens * 2
+            confidence = 0.85  # Reasonable estimate but not exact
         else:
             # Estimate from output length (CLI backend, ~4 chars per token)
             output_chars = len(result.stdout or "") + len(result.stderr or "")
-            output_tokens = output_chars // 4
+            output_tokens = max(output_chars // 4, 1)  # At least 1 token
             # No way to know input tokens from CLI - estimate from output
-            input_tokens = output_tokens // 2  # Rough heuristic
+            input_tokens = output_tokens * 2  # Rough heuristic
             confidence = 0.7  # Lower confidence for estimates
 
         # Calculate estimated cost
@@ -516,6 +528,10 @@ class JobRunner:
                 total_retries=self._summary.total_retries,
             )
 
+            # Execute post-success hooks if job completed successfully
+            if state.status == JobStatus.COMPLETED and self.config.on_success:
+                await self._execute_post_success_hooks(state)
+
             return state, self._summary
         finally:
             # Remove signal handlers
@@ -560,6 +576,52 @@ class JobRunner:
 
         # Copy rate limit waits from state
         self._summary.rate_limit_waits = state.rate_limit_waits
+
+    async def _execute_post_success_hooks(self, state: CheckpointState) -> None:
+        """Execute post-success hooks after job completion.
+
+        This enables concert orchestration where jobs can chain to other jobs.
+        Hooks run in Mozart's Python process, not inside Claude CLI.
+
+        Args:
+            state: Final job state (must have COMPLETED status).
+        """
+        if not self.config.on_success:
+            return
+
+        self._logger.info(
+            "hooks.executing",
+            job_id=state.job_id,
+            hook_count=len(self.config.on_success),
+            concert_enabled=self.config.concert.enabled,
+        )
+
+        # Create hook executor
+        executor = HookExecutor(
+            config=self.config,
+            workspace=self.config.workspace,
+            concert_context=None,  # TODO: Pass concert context for chaining
+        )
+
+        # Execute hooks
+        results = await executor.execute_hooks()
+
+        # Update summary with hook results
+        if self._summary:
+            self._summary.hook_results = results
+            self._summary.hooks_executed = len(results)
+            self._summary.hooks_succeeded = sum(1 for r in results if r.success)
+            self._summary.hooks_failed = sum(1 for r in results if not r.success)
+
+        # Log summary
+        if results:
+            self._logger.info(
+                "hooks.summary",
+                job_id=state.job_id,
+                hooks_executed=len(results),
+                hooks_succeeded=sum(1 for r in results if r.success),
+                hooks_failed=sum(1 for r in results if not r.success),
+            )
 
     def get_summary(self) -> RunSummary | None:
         """Get the current run summary.
@@ -1450,7 +1512,7 @@ class JobRunner:
         if result.rate_limited:
             return ClassifiedError(
                 category=ErrorCategory.RATE_LIMIT,
-                error_code="E101",
+                error_code=ErrorCode.RATE_LIMIT_API,
                 message="Rate limit detected by backend",
                 exit_code=result.exit_code,
                 exit_signal=result.exit_signal,

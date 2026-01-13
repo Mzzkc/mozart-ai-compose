@@ -1,0 +1,471 @@
+"""Post-success hook execution for concert orchestration.
+
+Executes hooks after successful job completion, enabling job chaining
+and concert orchestration where jobs can spawn other jobs.
+
+Security Note:
+--------------
+This module intentionally supports shell command execution via run_command hooks.
+This is a DESIGN DECISION because:
+1. Commands come from user-authored YAML config files (not user input at runtime)
+2. Users explicitly opt-in by adding on_success hooks to their config
+3. Shell features (pipes, redirects, env vars) are needed for real-world hooks
+4. Mozart runs with the same permissions as the user who invokes it
+
+The run_script hook type uses subprocess_exec (no shell) for cases where
+shell features aren't needed.
+"""
+
+import asyncio
+import os
+import shlex
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
+
+from mozart.core.config import JobConfig, PostSuccessHookConfig
+from mozart.core.logging import get_logger
+
+_logger = get_logger("hooks")
+
+
+@dataclass
+class HookResult:
+    """Result of executing a single hook."""
+
+    hook_type: str
+    description: str | None
+    success: bool
+    exit_code: int | None = None
+    error_message: str | None = None
+    duration_seconds: float = 0.0
+    output: str | None = None
+
+    # For run_job hooks
+    chained_job_path: Path | None = None
+    chained_job_workspace: Path | None = None
+
+
+@dataclass
+class ConcertContext:
+    """Context passed through concert job chains.
+
+    Tracks the concert's progress across multiple jobs to enforce
+    safety limits and enable coordinated logging.
+    """
+
+    concert_id: str
+    chain_depth: int = 0
+    parent_job_id: str | None = None
+    root_workspace: Path | None = None
+    started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    # Accumulated stats
+    total_jobs_run: int = 0
+    total_sheets_completed: int = 0
+    jobs_in_chain: list[str] = field(default_factory=list)
+
+
+class HookExecutor:
+    """Executes post-success hooks and manages concert orchestration.
+
+    Responsible for:
+    - Executing hooks after successful job completion
+    - Managing job chaining (run_job hooks)
+    - Enforcing concert safety limits
+    - Logging hook execution
+
+    Hook execution runs in Mozart's Python process, not inside Claude CLI.
+    This allows hooks to trigger new Mozart runs without recursion issues.
+    """
+
+    def __init__(
+        self,
+        config: JobConfig,
+        workspace: Path,
+        concert_context: ConcertContext | None = None,
+    ):
+        self.config = config
+        self.workspace = workspace
+        self.concert = config.concert
+        self.concert_context = concert_context
+
+        # Track results
+        self.hook_results: list[HookResult] = []
+
+    def _expand_template(self, template: str) -> str:
+        """Expand template variables in hook paths/commands."""
+        return (
+            template.replace("{workspace}", str(self.workspace))
+            .replace("{job_id}", self.config.name)
+            .replace("{sheet_count}", str(self.config.sheet.total_sheets))
+        )
+
+    async def execute_hooks(self) -> list[HookResult]:
+        """Execute all configured on_success hooks.
+
+        Returns list of HookResults for each hook executed.
+        Stops early if a hook fails and on_failure="abort".
+        """
+        if not self.config.on_success:
+            _logger.debug("no_hooks_configured", job_id=self.config.name)
+            return []
+
+        _logger.info(
+            "hooks.starting",
+            job_id=self.config.name,
+            hook_count=len(self.config.on_success),
+        )
+
+        for i, hook in enumerate(self.config.on_success):
+            _logger.info(
+                "hook.executing",
+                hook_index=i + 1,
+                hook_type=hook.type,
+                description=hook.description or "(no description)",
+            )
+
+            try:
+                result = await self._execute_hook(hook)
+                self.hook_results.append(result)
+
+                if result.success:
+                    _logger.info(
+                        "hook.succeeded",
+                        hook_type=hook.type,
+                        duration_seconds=round(result.duration_seconds, 2),
+                    )
+                else:
+                    _logger.warning(
+                        "hook.failed",
+                        hook_type=hook.type,
+                        error=result.error_message,
+                        exit_code=result.exit_code,
+                    )
+
+                    # Check if we should abort remaining hooks
+                    if hook.on_failure == "abort":
+                        _logger.warning(
+                            "hooks.aborted",
+                            reason="hook failure with on_failure=abort",
+                            remaining_hooks=len(self.config.on_success) - i - 1,
+                        )
+                        break
+
+                    # Check concert-level abort
+                    if self.concert.abort_concert_on_hook_failure:
+                        _logger.warning(
+                            "concert.aborted",
+                            reason="hook failure with abort_concert_on_hook_failure=true",
+                        )
+                        break
+
+            except Exception as e:
+                result = HookResult(
+                    hook_type=hook.type,
+                    description=hook.description,
+                    success=False,
+                    error_message=f"Exception: {e!s}",
+                )
+                self.hook_results.append(result)
+                _logger.error(
+                    "hook.exception",
+                    hook_type=hook.type,
+                    error=str(e),
+                )
+
+                if hook.on_failure == "abort":
+                    break
+
+        _logger.info(
+            "hooks.completed",
+            job_id=self.config.name,
+            hooks_run=len(self.hook_results),
+            hooks_succeeded=sum(1 for r in self.hook_results if r.success),
+            hooks_failed=sum(1 for r in self.hook_results if not r.success),
+        )
+
+        return self.hook_results
+
+    async def _execute_hook(self, hook: PostSuccessHookConfig) -> HookResult:
+        """Execute a single hook based on its type."""
+        start_time = asyncio.get_event_loop().time()
+
+        if hook.type == "run_job":
+            result = await self._execute_run_job(hook)
+        elif hook.type == "run_command":
+            result = await self._execute_shell_command(hook)
+        elif hook.type == "run_script":
+            result = await self._execute_script(hook)
+        else:
+            result = HookResult(
+                hook_type=hook.type,
+                description=hook.description,
+                success=False,
+                error_message=f"Unknown hook type: {hook.type}",
+            )
+
+        result.duration_seconds = asyncio.get_event_loop().time() - start_time
+        return result
+
+    async def _execute_run_job(self, hook: PostSuccessHookConfig) -> HookResult:
+        """Execute a run_job hook by spawning a new Mozart run.
+
+        This checks concert limits before spawning and prepares
+        the context for the chained job.
+        """
+        if not hook.job_path:
+            return HookResult(
+                hook_type="run_job",
+                description=hook.description,
+                success=False,
+                error_message="job_path is required for run_job hooks",
+            )
+
+        # Expand template variables in job path
+        job_path = Path(self._expand_template(str(hook.job_path)))
+
+        # Check if job config exists
+        if not job_path.exists():
+            return HookResult(
+                hook_type="run_job",
+                description=hook.description,
+                success=False,
+                error_message=f"Job config not found: {job_path}",
+                chained_job_path=job_path,
+            )
+
+        # Check concert chain depth limit
+        if self.concert.enabled:
+            current_depth = (
+                self.concert_context.chain_depth if self.concert_context else 0
+            )
+            if current_depth >= self.concert.max_chain_depth:
+                return HookResult(
+                    hook_type="run_job",
+                    description=hook.description,
+                    success=False,
+                    error_message=f"Concert chain depth limit reached ({self.concert.max_chain_depth})",
+                    chained_job_path=job_path,
+                )
+
+        # Determine workspace for chained job
+        chained_workspace = hook.job_workspace
+        if not chained_workspace and self.concert.inherit_workspace:
+            chained_workspace = self.workspace
+
+        # Cooldown between jobs
+        if self.concert.cooldown_between_jobs_seconds > 0:
+            _logger.info(
+                "concert.cooldown",
+                seconds=self.concert.cooldown_between_jobs_seconds,
+            )
+            await asyncio.sleep(self.concert.cooldown_between_jobs_seconds)
+
+        # Build mozart command as argument list (safe, no shell injection)
+        cmd = ["mozart", "run", str(job_path)]
+        if chained_workspace:
+            cmd.extend(["--workspace", str(chained_workspace)])
+
+        _logger.info(
+            "hook.spawning_job",
+            job_path=str(job_path),
+            workspace=str(chained_workspace) if chained_workspace else "(default)",
+            chain_depth=(self.concert_context.chain_depth + 1 if self.concert_context else 1),
+        )
+
+        # Run the chained job using subprocess_exec (safe, no shell)
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=self.workspace,
+                env=os.environ.copy(),
+            )
+
+            # Wait for completion with timeout
+            try:
+                stdout_bytes, _ = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=hook.timeout_seconds,
+                )
+                stdout = stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
+                exit_code = process.returncode
+            except asyncio.TimeoutError:
+                process.kill()
+                return HookResult(
+                    hook_type="run_job",
+                    description=hook.description,
+                    success=False,
+                    error_message=f"Timeout after {hook.timeout_seconds}s",
+                    chained_job_path=job_path,
+                    chained_job_workspace=chained_workspace,
+                )
+
+            return HookResult(
+                hook_type="run_job",
+                description=hook.description,
+                success=(exit_code == 0),
+                exit_code=exit_code,
+                output=stdout[-2000:] if stdout else None,  # Tail of output
+                chained_job_path=job_path,
+                chained_job_workspace=chained_workspace,
+            )
+
+        except FileNotFoundError:
+            return HookResult(
+                hook_type="run_job",
+                description=hook.description,
+                success=False,
+                error_message="mozart command not found in PATH",
+                chained_job_path=job_path,
+            )
+
+    async def _execute_shell_command(self, hook: PostSuccessHookConfig) -> HookResult:
+        """Execute a run_command hook via shell.
+
+        Security: Commands come from user-authored YAML config files,
+        not runtime user input. Shell features are intentionally supported
+        for pipes, redirects, and environment variable expansion.
+        """
+        if not hook.command:
+            return HookResult(
+                hook_type="run_command",
+                description=hook.description,
+                success=False,
+                error_message="command is required for run_command hooks",
+            )
+
+        # Expand template variables
+        command = self._expand_template(hook.command)
+
+        # Determine working directory
+        cwd = hook.working_directory or self.workspace
+
+        try:
+            # Shell execution for run_command (intentional - see module docstring)
+            process = await asyncio.create_subprocess_shell(
+                command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=cwd,
+                env=os.environ.copy(),
+            )
+
+            # Wait with timeout
+            try:
+                stdout_bytes, _ = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=hook.timeout_seconds,
+                )
+                stdout = stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
+                exit_code = process.returncode
+            except asyncio.TimeoutError:
+                process.kill()
+                return HookResult(
+                    hook_type="run_command",
+                    description=hook.description,
+                    success=False,
+                    error_message=f"Timeout after {hook.timeout_seconds}s",
+                )
+
+            return HookResult(
+                hook_type="run_command",
+                description=hook.description,
+                success=(exit_code == 0),
+                exit_code=exit_code,
+                output=stdout[-2000:] if stdout else None,
+            )
+
+        except Exception as e:
+            return HookResult(
+                hook_type="run_command",
+                description=hook.description,
+                success=False,
+                error_message=str(e),
+            )
+
+    async def _execute_script(self, hook: PostSuccessHookConfig) -> HookResult:
+        """Execute a run_script hook without shell (safer).
+
+        Uses subprocess_exec which doesn't invoke a shell, making it
+        safer for scripts that don't need shell features.
+        """
+        if not hook.command:
+            return HookResult(
+                hook_type="run_script",
+                description=hook.description,
+                success=False,
+                error_message="command is required for run_script hooks",
+            )
+
+        # Expand template variables
+        command = self._expand_template(hook.command)
+
+        # Determine working directory
+        cwd = hook.working_directory or self.workspace
+
+        try:
+            # Parse command into arguments (no shell)
+            args = shlex.split(command)
+
+            process = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=cwd,
+                env=os.environ.copy(),
+            )
+
+            # Wait with timeout
+            try:
+                stdout_bytes, _ = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=hook.timeout_seconds,
+                )
+                stdout = stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
+                exit_code = process.returncode
+            except asyncio.TimeoutError:
+                process.kill()
+                return HookResult(
+                    hook_type="run_script",
+                    description=hook.description,
+                    success=False,
+                    error_message=f"Timeout after {hook.timeout_seconds}s",
+                )
+
+            return HookResult(
+                hook_type="run_script",
+                description=hook.description,
+                success=(exit_code == 0),
+                exit_code=exit_code,
+                output=stdout[-2000:] if stdout else None,
+            )
+
+        except Exception as e:
+            return HookResult(
+                hook_type="run_script",
+                description=hook.description,
+                success=False,
+                error_message=str(e),
+            )
+
+    def get_next_job_to_chain(self) -> tuple[Path, Path | None] | None:
+        """Get the next job to chain from successful run_job hooks.
+
+        Returns (job_path, workspace) for the first successful run_job hook,
+        or None if no chaining should occur.
+
+        Note: This is for the synchronous chaining mode where Mozart
+        itself manages the concert. For async/background chaining,
+        hooks execute the jobs directly.
+        """
+        for result in self.hook_results:
+            if (
+                result.hook_type == "run_job"
+                and result.success
+                and result.chained_job_path
+            ):
+                return (result.chained_job_path, result.chained_job_workspace)
+        return None
