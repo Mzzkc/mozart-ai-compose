@@ -663,6 +663,19 @@ class ErrorClassifier:
             ]
         ]
 
+        # Missing binary/file errors (ENOENT) - check BEFORE streaming mode
+        # These are often the REAL cause when CLI reports misleading errors
+        self.enoent_patterns = [
+            re.compile(p, re.IGNORECASE)
+            for p in [
+                r"ENOENT",
+                r"spawn .+ ENOENT",
+                r"no such file or directory",
+                r"command not found",
+                r"not found in PATH",
+            ]
+        ]
+
     def classify(
         self,
         stdout: str = "",
@@ -759,6 +772,31 @@ class ErrorClassifier:
                 retriable=result.retriable,
                 suggested_wait=result.suggested_wait_seconds,
                 message=result.message,
+            )
+            return result
+
+        # Check for ENOENT (missing binary/file) FIRST
+        # This is often the REAL cause when CLI reports misleading errors like "streaming mode"
+        if self._matches_any(combined, self.enoent_patterns):
+            result = ClassifiedError(
+                category=ErrorCategory.CONFIGURATION,
+                message="Missing file or binary (ENOENT) - CLI dependency may be missing or being updated",
+                error_code=ErrorCode.BACKEND_NOT_FOUND,
+                original_error=exception,
+                exit_code=exit_code,
+                exit_signal=None,
+                exit_reason=exit_reason,
+                retriable=True,  # Retriable - the file might appear after reinstall/update
+                suggested_wait_seconds=30,
+            )
+            _logger.error(
+                "error_classified",
+                category=result.category.value,
+                error_code=result.error_code.value,
+                exit_code=exit_code,
+                retriable=result.retriable,
+                message=result.message,
+                hint="A required file or binary is missing. Check Claude CLI installation.",
             )
             return result
 
