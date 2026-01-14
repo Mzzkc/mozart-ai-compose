@@ -884,14 +884,10 @@ class JobRunner:
                     error=str(e),
                 )
 
-        # Get applicable validation rules for this sheet
-        applicable_rules = validation_engine.get_applicable_rules(self.config.validations)
-
-        # Build original prompt with learned patterns and validation requirements
+        # Build original prompt with learned patterns
         original_prompt = self.prompt_builder.build_sheet_prompt(
             sheet_context,
             patterns=relevant_patterns if relevant_patterns else None,
-            validation_rules=applicable_rules if applicable_rules else None,
         )
         current_prompt = original_prompt
         current_mode = SheetExecutionMode.NORMAL
