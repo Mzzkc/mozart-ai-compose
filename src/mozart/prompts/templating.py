@@ -13,7 +13,7 @@ import jinja2
 from mozart.core.config import PromptConfig, ValidationRule
 
 if TYPE_CHECKING:
-    from mozart.execution.validation import ValidationResult
+    from mozart.execution.validation import HistoricalFailure, ValidationResult
 
 
 @dataclass
@@ -119,6 +119,7 @@ class PromptBuilder:
         context: SheetContext,
         patterns: list[str] | None = None,
         validation_rules: list[ValidationRule] | None = None,
+        failure_history: list["HistoricalFailure"] | None = None,
     ) -> str:
         """Build the standard sheet prompt from config.
 
@@ -129,6 +130,9 @@ class PromptBuilder:
                 requirements. These are the rules that will be checked after
                 sheet execution - injecting them helps Claude understand
                 exactly what success looks like.
+            failure_history: Optional list of historical failures from previous
+                sheets. Injected to help Claude learn from past mistakes and
+                avoid repeating the same errors (Evolution v6).
 
         Returns:
             Rendered prompt string.
@@ -152,6 +156,11 @@ class PromptBuilder:
         else:
             prompt = self._build_default_prompt(context)
 
+        # Inject failure history first (lessons learned from past)
+        if failure_history:
+            history_section = self._format_historical_failures(failure_history)
+            prompt = f"{prompt}\n\n{history_section}"
+
         # Inject learned patterns if available
         if patterns:
             pattern_section = self._format_patterns_section(patterns)
@@ -165,6 +174,56 @@ class PromptBuilder:
             prompt = f"{prompt}\n\n{validation_section}"
 
         return prompt
+
+    def _format_historical_failures(
+        self, failures: list["HistoricalFailure"]
+    ) -> str:
+        """Format historical validation failures for prompt injection.
+
+        Creates a "lessons learned" section from past validation failures
+        to help Claude avoid repeating the same mistakes.
+
+        Args:
+            failures: List of HistoricalFailure objects from previous sheets.
+
+        Returns:
+            Formatted markdown section for prompt injection.
+        """
+        if not failures:
+            return ""
+
+        lines = ["## Lessons From Previous Sheets", ""]
+        lines.append(
+            "Previous sheets encountered these validation failures. "
+            "Avoid repeating these mistakes:"
+        )
+        lines.append("")
+
+        for i, failure in enumerate(failures[:5], 1):
+            # Build failure summary
+            category_tag = (
+                f"[{failure.failure_category.upper()}]"
+                if failure.failure_category
+                else "[FAILED]"
+            )
+
+            lines.append(f"{i}. **Sheet {failure.sheet_num}** {category_tag}")
+            lines.append(f"   - {failure.description}")
+
+            if failure.failure_reason:
+                lines.append(f"   - Issue: {failure.failure_reason}")
+
+            if failure.suggested_fix:
+                lines.append(f"   - Fix: {failure.suggested_fix}")
+
+            lines.append("")
+
+        lines.append(
+            "**Learn from these failures** - ensure similar issues don't recur."
+        )
+        lines.append("")
+
+        return "\n".join(lines)
 
     def _format_patterns_section(self, patterns: list[str]) -> str:
         """Format learned patterns as a prompt section.

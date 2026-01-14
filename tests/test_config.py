@@ -118,6 +118,138 @@ class TestBackendConfig:
         assert config.type == "anthropic_api"
         assert config.model == "claude-sonnet-4-20250514"
 
+    def test_disable_mcp_default(self):
+        """Test disable_mcp defaults to True for faster batch execution."""
+        config = BackendConfig()
+        assert config.disable_mcp is True
+
+    def test_disable_mcp_can_be_disabled(self):
+        """Test MCP can be re-enabled when needed."""
+        config = BackendConfig(disable_mcp=False)
+        assert config.disable_mcp is False
+
+    def test_output_format_default(self):
+        """Test output_format defaults to json for automation."""
+        config = BackendConfig()
+        assert config.output_format == "json"
+
+    def test_output_format_json(self):
+        """Test output_format can be json."""
+        config = BackendConfig(output_format="json")
+        assert config.output_format == "json"
+
+    def test_output_format_text(self):
+        """Test output_format can be text."""
+        config = BackendConfig(output_format="text")
+        assert config.output_format == "text"
+
+    def test_output_format_stream_json(self):
+        """Test output_format can be stream-json."""
+        config = BackendConfig(output_format="stream-json")
+        assert config.output_format == "stream-json"
+
+    def test_cli_model_default_none(self):
+        """Test cli_model defaults to None (uses Claude Code default)."""
+        config = BackendConfig()
+        assert config.cli_model is None
+
+    def test_cli_model_override(self):
+        """Test cli_model can be set to specific model."""
+        config = BackendConfig(cli_model="claude-sonnet-4-20250514")
+        assert config.cli_model == "claude-sonnet-4-20250514"
+
+    def test_allowed_tools_default_none(self):
+        """Test allowed_tools defaults to None (all tools available)."""
+        config = BackendConfig()
+        assert config.allowed_tools is None
+
+    def test_allowed_tools_restriction(self):
+        """Test allowed_tools can restrict to specific tools."""
+        config = BackendConfig(allowed_tools=["Read", "Grep", "Glob"])
+        assert config.allowed_tools == ["Read", "Grep", "Glob"]
+
+    def test_allowed_tools_empty_list(self):
+        """Test allowed_tools as empty list (very restrictive)."""
+        config = BackendConfig(allowed_tools=[])
+        assert config.allowed_tools == []
+
+    def test_system_prompt_file_default_none(self):
+        """Test system_prompt_file defaults to None (default prompt)."""
+        config = BackendConfig()
+        assert config.system_prompt_file is None
+
+    def test_system_prompt_file_path(self):
+        """Test system_prompt_file accepts Path."""
+        config = BackendConfig(system_prompt_file=Path("/custom/prompt.md"))
+        assert config.system_prompt_file == Path("/custom/prompt.md")
+
+    def test_timeout_seconds_default(self):
+        """Test timeout_seconds default is 30 minutes."""
+        config = BackendConfig()
+        assert config.timeout_seconds == 1800.0
+
+    def test_cli_extra_args_default_empty(self):
+        """Test cli_extra_args defaults to empty list."""
+        config = BackendConfig()
+        assert config.cli_extra_args == []
+
+    def test_cli_extra_args_escape_hatch(self):
+        """Test cli_extra_args allows raw flags as escape hatch."""
+        config = BackendConfig(cli_extra_args=["--verbose", "--some-new-flag"])
+        assert config.cli_extra_args == ["--verbose", "--some-new-flag"]
+
+    def test_backwards_compatibility_minimal(self):
+        """Test minimal config (pre-new-fields) still works."""
+        # This is what old configs would look like
+        config = BackendConfig(
+            type="claude_cli",
+            skip_permissions=True,
+        )
+        assert config.type == "claude_cli"
+        assert config.skip_permissions is True
+        # New fields should have sensible defaults
+        assert config.disable_mcp is True
+        assert config.output_format == "json"
+        assert config.cli_model is None
+        assert config.allowed_tools is None
+
+    def test_backwards_compatibility_with_cli_extra_args(self):
+        """Test old configs using cli_extra_args still work."""
+        # This simulates configs that used cli_extra_args for MCP disable
+        config = BackendConfig(
+            type="claude_cli",
+            skip_permissions=True,
+            cli_extra_args=["--strict-mcp-config", "{}"],
+        )
+        assert config.cli_extra_args == ["--strict-mcp-config", "{}"]
+        # Note: Both disable_mcp=True default AND cli_extra_args will
+        # add the flag, but CLI should handle duplicate gracefully
+
+    def test_full_cli_config(self):
+        """Test fully specified CLI config with all new options."""
+        config = BackendConfig(
+            type="claude_cli",
+            skip_permissions=True,
+            disable_mcp=False,  # Explicitly enable MCP
+            output_format="stream-json",
+            cli_model="claude-sonnet-4-20250514",
+            allowed_tools=["Read", "Edit", "Write"],
+            system_prompt_file=Path("./prompts/custom.md"),
+            working_directory=Path("/project"),
+            timeout_seconds=3600,
+            cli_extra_args=["--verbose"],
+        )
+        assert config.type == "claude_cli"
+        assert config.skip_permissions is True
+        assert config.disable_mcp is False
+        assert config.output_format == "stream-json"
+        assert config.cli_model == "claude-sonnet-4-20250514"
+        assert config.allowed_tools == ["Read", "Edit", "Write"]
+        assert config.system_prompt_file == Path("./prompts/custom.md")
+        assert config.working_directory == Path("/project")
+        assert config.timeout_seconds == 3600
+        assert config.cli_extra_args == ["--verbose"]
+
 
 class TestPromptConfig:
     """Tests for PromptConfig model."""

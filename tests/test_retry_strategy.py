@@ -15,7 +15,13 @@ from datetime import UTC, datetime
 
 import pytest
 
-from mozart.core.errors import ClassifiedError, ErrorCategory, ErrorCode, RetryBehavior
+from mozart.core.errors import (
+    ClassificationResult,
+    ClassifiedError,
+    ErrorCategory,
+    ErrorCode,
+    RetryBehavior,
+)
 from mozart.execution.retry_strategy import (
     AdaptiveRetryStrategy,
     DelayHistory,
@@ -101,6 +107,109 @@ class TestErrorRecord:
         assert d["sheet_num"] == 3
         assert d["attempt_num"] == 2
         assert "2024-01-15" in d["timestamp"]
+
+    def test_from_classification_result_captures_root_cause_info(self) -> None:
+        """Test creating ErrorRecord from ClassificationResult captures confidence."""
+        primary = ClassifiedError(
+            category=ErrorCategory.CONFIGURATION,
+            message="Binary not found",
+            error_code=ErrorCode.BACKEND_NOT_FOUND,
+            exit_code=127,
+            retriable=False,
+        )
+        secondary = ClassifiedError(
+            category=ErrorCategory.RATE_LIMIT,
+            message="Rate limit exceeded",
+            error_code=ErrorCode.RATE_LIMIT_API,
+            retriable=True,
+            suggested_wait_seconds=3600.0,
+        )
+        result = ClassificationResult(
+            primary=primary,
+            secondary=[secondary],
+            confidence=0.85,
+            classification_method="structured",
+        )
+
+        record = ErrorRecord.from_classification_result(
+            result=result,
+            sheet_num=3,
+            attempt_num=2,
+        )
+
+        # Should use primary error's properties
+        assert record.error_code == ErrorCode.BACKEND_NOT_FOUND
+        assert record.category == ErrorCategory.CONFIGURATION
+        assert record.message == "Binary not found"
+        assert record.retriable is False
+
+        # Should capture root cause analysis metadata
+        assert record.root_cause_confidence == 0.85
+        assert record.secondary_error_count == 1
+        assert record.sheet_num == 3
+        assert record.attempt_num == 2
+
+    def test_from_classification_result_single_error(self) -> None:
+        """Test ClassificationResult with only primary error (no secondary)."""
+        primary = ClassifiedError(
+            category=ErrorCategory.TIMEOUT,
+            message="Command timed out",
+            error_code=ErrorCode.EXECUTION_TIMEOUT,
+            exit_code=124,
+            retriable=True,
+            suggested_wait_seconds=60.0,
+        )
+        result = ClassificationResult(
+            primary=primary,
+            secondary=[],
+            confidence=1.0,  # 100% confidence when only one error
+            classification_method="exit_code",
+        )
+
+        record = ErrorRecord.from_classification_result(result=result)
+
+        assert record.error_code == ErrorCode.EXECUTION_TIMEOUT
+        assert record.root_cause_confidence == 1.0
+        assert record.secondary_error_count == 0
+        assert record.suggested_wait == 60.0
+
+    def test_to_dict_includes_root_cause_fields(self) -> None:
+        """Test to_dict includes root_cause_confidence and secondary_error_count."""
+        record = ErrorRecord(
+            timestamp=datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
+            error_code=ErrorCode.BACKEND_NOT_FOUND,
+            category=ErrorCategory.CONFIGURATION,
+            message="ENOENT",
+            exit_code=127,
+            retriable=False,
+            root_cause_confidence=0.75123,  # Use value that needs rounding
+            secondary_error_count=2,
+        )
+
+        d = record.to_dict()
+
+        assert d["root_cause_confidence"] == 0.751  # Should be rounded to 3 decimals
+        assert d["secondary_error_count"] == 2
+
+    def test_from_classification_result_invalid_confidence_raises(self) -> None:
+        """Test that invalid confidence values raise ValueError."""
+        primary = ClassifiedError(
+            category=ErrorCategory.TIMEOUT,
+            message="Command timed out",
+            error_code=ErrorCode.EXECUTION_TIMEOUT,
+            exit_code=124,
+            retriable=True,
+        )
+        # Create result with invalid confidence > 1.0
+        result = ClassificationResult(
+            primary=primary,
+            secondary=[],
+            confidence=1.5,  # Invalid!
+            classification_method="structured",
+        )
+
+        with pytest.raises(ValueError, match="root_cause_confidence must be 0.0-1.0"):
+            ErrorRecord.from_classification_result(result=result)
 
 
 # ============================================================================

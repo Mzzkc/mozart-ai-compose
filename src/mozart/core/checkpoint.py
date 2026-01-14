@@ -217,6 +217,26 @@ class SheetState(BaseModel):
         description="History of errors encountered during sheet execution (max 10)",
     )
 
+    # Cost tracking (v4 evolution: Cost Circuit Breaker)
+    input_tokens: int | None = Field(
+        default=None,
+        description="Input tokens consumed by this sheet execution",
+    )
+    output_tokens: int | None = Field(
+        default=None,
+        description="Output tokens produced by this sheet execution",
+    )
+    estimated_cost: float | None = Field(
+        default=None,
+        description="Estimated cost in USD for this sheet",
+    )
+    cost_confidence: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Confidence in cost estimate (1.0=exact, 0.7=estimated from chars)",
+    )
+
     def capture_output(
         self,
         stdout: str,
@@ -371,6 +391,24 @@ class CheckpointState(BaseModel):
     error_message: str | None = None
     total_retry_count: int = Field(default=0, description="Total retries across all sheets")
     rate_limit_waits: int = Field(default=0, description="Number of rate limit waits")
+
+    # Cumulative cost tracking (v4 evolution: Cost Circuit Breaker)
+    total_input_tokens: int = Field(
+        default=0,
+        description="Total input tokens consumed across all sheets",
+    )
+    total_output_tokens: int = Field(
+        default=0,
+        description="Total output tokens produced across all sheets",
+    )
+    total_estimated_cost: float = Field(
+        default=0.0,
+        description="Total estimated cost in USD for the job",
+    )
+    cost_limit_reached: bool = Field(
+        default=False,
+        description="Whether a cost limit was hit, causing job pause",
+    )
 
     def get_next_sheet(self) -> int | None:
         """Determine the next sheet to process.

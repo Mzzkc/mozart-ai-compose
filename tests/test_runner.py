@@ -16,7 +16,8 @@ from mozart.execution.runner import (
     RunSummary,
 )
 from mozart.execution.preflight import PreflightResult, PromptMetrics
-from mozart.execution.validation import SheetValidationResult
+from mozart.core.config import ValidationRule
+from mozart.execution.validation import SheetValidationResult, ValidationResult
 
 
 def make_mock_preflight_result() -> PreflightResult:
@@ -942,6 +943,34 @@ class TestRunnerLoggingIntegration:
             state_backend=mock_state_backend,
         )
 
+        # Track validation calls to fail first, pass second
+        validation_call_count = 0
+        test_rule = ValidationRule(
+            type="file_exists",
+            path="{workspace}/output.txt",
+            description="Output file must exist",
+        )
+
+        def validation_side_effect(*args: Any, **kwargs: Any) -> SheetValidationResult:
+            nonlocal validation_call_count
+            validation_call_count += 1
+            if validation_call_count == 1:
+                # First validation fails
+                return SheetValidationResult(
+                    sheet_num=1,
+                    results=[
+                        ValidationResult(rule=test_rule, passed=False)
+                    ],
+                )
+            else:
+                # Subsequent validations pass
+                return SheetValidationResult(
+                    sheet_num=1,
+                    results=[
+                        ValidationResult(rule=test_rule, passed=True)
+                    ],
+                )
+
         # Patch validation and preflight to pass
         with (
             patch(
@@ -954,7 +983,7 @@ class TestRunnerLoggingIntegration:
                 runner, "_run_preflight_checks", return_value=make_mock_preflight_result()
             ),
         ):
-            mock_validation.return_value = SheetValidationResult(sheet_num=1, results=[])
+            mock_validation.side_effect = validation_side_effect
             # Run only one sheet to limit complexity
             sample_config.sheet.total_items = 10
             await runner.run()
@@ -1015,6 +1044,34 @@ class TestRunnerLoggingIntegration:
             state_backend=mock_state_backend,
         )
 
+        # Track validation calls to fail during rate-limit, pass after recovery
+        validation_call_count = 0
+        test_rule = ValidationRule(
+            type="file_exists",
+            path="{workspace}/output.txt",
+            description="Output file must exist",
+        )
+
+        def validation_side_effect(*args: Any, **kwargs: Any) -> SheetValidationResult:
+            nonlocal validation_call_count
+            validation_call_count += 1
+            if validation_call_count == 1:
+                # First validation fails (during rate-limit execution)
+                return SheetValidationResult(
+                    sheet_num=1,
+                    results=[
+                        ValidationResult(rule=test_rule, passed=False)
+                    ],
+                )
+            else:
+                # After rate-limit wait, validation passes
+                return SheetValidationResult(
+                    sheet_num=1,
+                    results=[
+                        ValidationResult(rule=test_rule, passed=True)
+                    ],
+                )
+
         # Patch validation and preflight to pass
         with (
             patch(
@@ -1027,7 +1084,7 @@ class TestRunnerLoggingIntegration:
                 runner, "_run_preflight_checks", return_value=make_mock_preflight_result()
             ),
         ):
-            mock_validation.return_value = SheetValidationResult(sheet_num=1, results=[])
+            mock_validation.side_effect = validation_side_effect
             sample_config.sheet.total_items = 10
             await runner.run()
 
@@ -1330,6 +1387,34 @@ class TestLoggingLevelFiltering:
             state_backend=mock_state_backend,
         )
 
+        # Track validation calls to fail during rate-limit, pass after recovery
+        validation_call_count = 0
+        test_rule = ValidationRule(
+            type="file_exists",
+            path="{workspace}/output.txt",
+            description="Output file must exist",
+        )
+
+        def validation_side_effect(*args: Any, **kwargs: Any) -> SheetValidationResult:
+            nonlocal validation_call_count
+            validation_call_count += 1
+            if validation_call_count == 1:
+                # First validation fails (during rate-limit execution)
+                return SheetValidationResult(
+                    sheet_num=1,
+                    results=[
+                        ValidationResult(rule=test_rule, passed=False)
+                    ],
+                )
+            else:
+                # After rate-limit wait, validation passes
+                return SheetValidationResult(
+                    sheet_num=1,
+                    results=[
+                        ValidationResult(rule=test_rule, passed=True)
+                    ],
+                )
+
         with (
             patch(
                 "mozart.execution.runner.ValidationEngine.run_validations"
@@ -1341,7 +1426,7 @@ class TestLoggingLevelFiltering:
                 runner, "_run_preflight_checks", return_value=make_mock_preflight_result()
             ),
         ):
-            mock_validation.return_value = SheetValidationResult(sheet_num=1, results=[])
+            mock_validation.side_effect = validation_side_effect
             sample_config.sheet.total_items = 10
             await runner.run()
 

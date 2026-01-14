@@ -1712,6 +1712,21 @@ ai_review:
   target_score: 80
   on_low_score: warn
 
+# Circuit breaker to prevent cascading failures
+circuit_breaker:
+  enabled: true
+  failure_threshold: 5
+  recovery_timeout_seconds: 300
+
+# Cost limits for long-running phase
+cost_limits:
+  enabled: true
+  max_cost_per_sheet: 15.00
+  max_cost_per_job: 200.00
+  warn_at_percent: 80.0
+  cost_per_1k_input_tokens: 0.003
+  cost_per_1k_output_tokens: 0.015
+
 retry:
   max_retries: 3
   max_completion_attempts: 2

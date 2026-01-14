@@ -1,0 +1,348 @@
+"""Pattern aggregation for merging outcomes into global patterns.
+
+This module implements the pattern aggregation strategy designed in Movement III:
+- Immediate aggregation on job completion (CV 0.83)
+- Conflict resolution for merging patterns
+- Integration with PatternDetector and GlobalLearningStore
+
+The aggregator runs after each job completion to detect new patterns and
+merge them with existing patterns in the global store.
+"""
+
+import logging
+from datetime import datetime
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from mozart.learning.global_store import GlobalLearningStore, PatternRecord
+from mozart.learning.outcomes import SheetOutcome
+from mozart.learning.patterns import DetectedPattern, PatternDetector
+from mozart.learning.weighter import PatternWeighter
+
+if TYPE_CHECKING:
+    pass
+
+logger = logging.getLogger(__name__)
+
+
+class AggregationResult:
+    """Result of a pattern aggregation operation."""
+
+    def __init__(self) -> None:
+        self.outcomes_recorded: int = 0
+        self.patterns_detected: int = 0
+        self.patterns_merged: int = 0
+        self.priorities_updated: bool = False
+        self.errors: list[str] = []
+
+    def __repr__(self) -> str:
+        return (
+            f"AggregationResult(outcomes={self.outcomes_recorded}, "
+            f"detected={self.patterns_detected}, merged={self.patterns_merged})"
+        )
+
+
+class PatternAggregator:
+    """Aggregates patterns from executions into the global store.
+
+    Implements the aggregation strategy defined in Movement III:
+    1. Record all sheet outcomes to executions table
+    2. Run PatternDetector.detect_all() on new outcomes
+    3. Merge detected patterns with existing patterns in global store
+    4. Update priority_score for all affected patterns
+    5. Record pattern_applications for any patterns that were applied
+    6. Update error_recoveries for any error learning
+
+    Conflict resolution strategy:
+    - Same pattern: merge by increasing counts and updating timestamps
+    - Different suggested_actions: keep action with higher effectiveness
+    """
+
+    def __init__(
+        self,
+        global_store: GlobalLearningStore,
+        weighter: PatternWeighter | None = None,
+    ) -> None:
+        """Initialize the pattern aggregator.
+
+        Args:
+            global_store: The global learning store for persistence.
+            weighter: Pattern weighter for priority calculation.
+        """
+        self.global_store = global_store
+        self.weighter = weighter or PatternWeighter()
+
+    def aggregate_outcomes(
+        self,
+        outcomes: list[SheetOutcome],
+        workspace_path: Path,
+        model: str | None = None,
+    ) -> AggregationResult:
+        """Aggregate a batch of outcomes into the global store.
+
+        This is the main entry point called after job completion.
+
+        Args:
+            outcomes: List of sheet outcomes from the completed job.
+            workspace_path: Path to the workspace for hashing.
+            model: Optional model name used for execution.
+
+        Returns:
+            AggregationResult with statistics about the aggregation.
+        """
+        result = AggregationResult()
+
+        if not outcomes:
+            return result
+
+        # Step 1: Record all outcomes to executions table
+        execution_ids = []
+        for outcome in outcomes:
+            exec_id = self.global_store.record_outcome(
+                outcome=outcome,
+                workspace_path=workspace_path,
+                model=model,
+            )
+            execution_ids.append(exec_id)
+            result.outcomes_recorded += 1
+
+        # Step 2: Run pattern detection on new outcomes
+        detector = PatternDetector(outcomes)
+        detected_patterns = detector.detect_all()
+        result.patterns_detected = len(detected_patterns)
+
+        # Step 3: Merge detected patterns with global store
+        for pattern in detected_patterns:
+            pattern_id = self._merge_pattern(pattern)
+            if pattern_id:
+                result.patterns_merged += 1
+
+        # Step 4: Update priority scores for affected patterns
+        self._update_all_priorities()
+        result.priorities_updated = True
+
+        # Step 5: Record pattern applications for effectiveness tracking
+        for outcome in outcomes:
+            self._record_pattern_applications(outcome, execution_ids)
+
+        logger.info(
+            f"Aggregated {result.outcomes_recorded} outcomes, "
+            f"detected {result.patterns_detected} patterns, "
+            f"merged {result.patterns_merged}"
+        )
+
+        return result
+
+    def _merge_pattern(self, detected: DetectedPattern) -> str | None:
+        """Merge a detected pattern into the global store.
+
+        If pattern exists, updates counts and timestamps.
+        If new, creates the pattern.
+
+        Args:
+            detected: The detected pattern to merge.
+
+        Returns:
+            The pattern ID if successful, None otherwise.
+        """
+        # Map PatternType to string for storage
+        pattern_type = detected.pattern_type.value
+        pattern_name = self._generate_pattern_name(detected)
+
+        try:
+            pattern_id = self.global_store.record_pattern(
+                pattern_type=pattern_type,
+                pattern_name=pattern_name,
+                description=detected.description,
+                context_tags=detected.context_tags,
+                suggested_action=detected.to_prompt_guidance(),
+            )
+            return pattern_id
+        except Exception as e:
+            logger.warning(f"Failed to merge pattern {pattern_name}: {e}")
+            return None
+
+    def _generate_pattern_name(self, pattern: DetectedPattern) -> str:
+        """Generate a unique name for a pattern.
+
+        The name is used as a stable identifier for merging.
+
+        Args:
+            pattern: The detected pattern.
+
+        Returns:
+            A unique pattern name.
+        """
+        # Use pattern type and first context tag for uniqueness
+        base = pattern.pattern_type.value
+        if pattern.context_tags:
+            tag = pattern.context_tags[0]
+            return f"{base}:{tag}"
+        # Fall back to truncated description
+        desc = pattern.description[:30].replace(" ", "_").lower()
+        return f"{base}:{desc}"
+
+    def _update_all_priorities(self) -> None:
+        """Update priority scores for all patterns in the store.
+
+        Uses the weighter to recalculate priorities based on current
+        effectiveness and recency.
+        """
+        # Get all patterns (even low priority ones for recalculation)
+        patterns = self.global_store.get_patterns(min_priority=0.0, limit=1000)
+
+        # Update each pattern's priority
+        with self.global_store._get_connection() as conn:
+            for pattern in patterns:
+                new_priority = self.weighter.calculate_priority(
+                    occurrence_count=pattern.occurrence_count,
+                    led_to_success_count=pattern.led_to_success_count,
+                    led_to_failure_count=pattern.led_to_failure_count,
+                    last_confirmed=pattern.last_confirmed,
+                    variance=pattern.variance,
+                )
+
+                conn.execute(
+                    "UPDATE patterns SET priority_score = ? WHERE id = ?",
+                    (new_priority, pattern.id),
+                )
+
+    def _record_pattern_applications(
+        self,
+        outcome: SheetOutcome,
+        execution_ids: list[str],  # noqa: ARG002 - reserved for future use
+    ) -> None:
+        """Record which patterns were applied to an outcome.
+
+        This creates the effectiveness feedback loop.
+
+        Args:
+            outcome: The sheet outcome with patterns_applied field.
+            execution_ids: List of execution IDs for this batch.
+        """
+        if not outcome.patterns_applied:
+            return
+
+        # Pattern applications are tracked during execution when patterns
+        # are matched and applied. This method is a placeholder for future
+        # enhancement where we correlate applied patterns with outcomes.
+
+    def merge_with_conflict_resolution(
+        self,
+        existing: PatternRecord,
+        new: DetectedPattern,
+    ) -> dict[str, object]:
+        """Merge a new pattern with an existing one using conflict resolution.
+
+        Resolution strategy from design document:
+        - occurrence_count: sum
+        - effectiveness_score: weighted average by occurrence_count
+        - last_seen: max
+        - last_confirmed: max
+        - suggested_action: keep action with higher effectiveness
+
+        Args:
+            existing: The existing pattern record.
+            new: The newly detected pattern.
+
+        Returns:
+            Dict of updated field values.
+        """
+        # Sum occurrence counts
+        merged_count = existing.occurrence_count + new.frequency
+
+        # Weighted average for effectiveness
+        total = existing.occurrence_count + new.frequency
+        if total > 0:
+            weighted_effectiveness = (
+                existing.effectiveness_score * existing.occurrence_count
+                + new.success_rate * new.frequency
+            ) / total
+        else:
+            weighted_effectiveness = 0.5
+
+        # Max for timestamps
+        merged_last_seen = max(existing.last_seen, new.last_seen)
+
+        # Determine suggested action
+        merged_action: str | None
+        if new.success_rate > existing.effectiveness_score:
+            merged_action = new.to_prompt_guidance()
+        else:
+            merged_action = existing.suggested_action
+
+        # Format last_seen as ISO string
+        last_seen_str = (
+            merged_last_seen.isoformat()
+            if isinstance(merged_last_seen, datetime)
+            else str(merged_last_seen)
+        )
+
+        return {
+            "occurrence_count": merged_count,
+            "effectiveness_score": weighted_effectiveness,
+            "last_seen": last_seen_str,
+            "suggested_action": merged_action,
+        }
+
+    def prune_deprecated_patterns(self) -> int:
+        """Remove patterns that are below the effectiveness threshold.
+
+        Patterns are deprecated (not deleted) if:
+        - They have enough application data (>= 3)
+        - Their effectiveness is below 0.3
+
+        Returns:
+            Number of patterns deprecated.
+        """
+        deprecated_count = 0
+        patterns = self.global_store.get_patterns(min_priority=0.0, limit=1000)
+
+        with self.global_store._get_connection() as conn:
+            for pattern in patterns:
+                if self.weighter.is_deprecated(
+                    pattern.led_to_success_count,
+                    pattern.led_to_failure_count,
+                ):
+                    # Set priority to 0 to effectively deprecate
+                    conn.execute(
+                        "UPDATE patterns SET priority_score = 0 WHERE id = ?",
+                        (pattern.id,),
+                    )
+                    deprecated_count += 1
+
+        if deprecated_count > 0:
+            logger.info(f"Deprecated {deprecated_count} low-effectiveness patterns")
+
+        return deprecated_count
+
+
+def aggregate_job_outcomes(
+    outcomes: list[SheetOutcome],
+    workspace_path: Path,
+    global_store: GlobalLearningStore | None = None,
+    model: str | None = None,
+) -> AggregationResult:
+    """Convenience function to aggregate outcomes after job completion.
+
+    This is the main entry point for the aggregation system.
+
+    Args:
+        outcomes: List of sheet outcomes from the completed job.
+        workspace_path: Path to the workspace for hashing.
+        global_store: Optional global store (uses default if None).
+        model: Optional model name used for execution.
+
+    Returns:
+        AggregationResult with statistics.
+    """
+    from mozart.learning.global_store import get_global_store
+
+    store = global_store or get_global_store()
+    aggregator = PatternAggregator(store)
+
+    return aggregator.aggregate_outcomes(
+        outcomes=outcomes,
+        workspace_path=workspace_path,
+        model=model,
+    )

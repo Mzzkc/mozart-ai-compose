@@ -5,7 +5,10 @@ from pathlib import Path
 import pytest
 
 from mozart.core.config import ValidationRule
+from mozart.core.checkpoint import CheckpointState, SheetState, SheetStatus
 from mozart.execution.validation import (
+    FailureHistoryStore,
+    HistoricalFailure,
     SheetValidationResult,
     ValidationEngine,
     ValidationResult,
@@ -542,3 +545,255 @@ class TestStagedValidation:
         assert result.pass_percentage == 25.0
         # executed_pass_percentage excludes skipped: 1/2 = 50%
         assert result.executed_pass_percentage == 50.0
+
+
+# =============================================================================
+# HistoricalFailure and FailureHistoryStore Tests (Evolution v6)
+# =============================================================================
+
+
+class TestHistoricalFailure:
+    """Tests for HistoricalFailure dataclass."""
+
+    def test_create_historical_failure(self) -> None:
+        """Test creating a historical failure record."""
+        failure = HistoricalFailure(
+            sheet_num=2,
+            rule_type="file_exists",
+            description="Test file must exist",
+            failure_reason="File 'output.txt' does not exist",
+            failure_category="missing",
+            suggested_fix="Create file at: workspace/output.txt",
+        )
+
+        assert failure.sheet_num == 2
+        assert failure.rule_type == "file_exists"
+        assert failure.description == "Test file must exist"
+        assert failure.failure_reason == "File 'output.txt' does not exist"
+        assert failure.failure_category == "missing"
+        assert failure.suggested_fix == "Create file at: workspace/output.txt"
+
+    def test_historical_failure_minimal(self) -> None:
+        """Test creating historical failure with minimal info."""
+        failure = HistoricalFailure(
+            sheet_num=1,
+            rule_type="command_succeeds",
+            description="Build must pass",
+        )
+
+        assert failure.sheet_num == 1
+        assert failure.rule_type == "command_succeeds"
+        assert failure.failure_reason is None
+        assert failure.failure_category is None
+
+
+class TestFailureHistoryStore:
+    """Tests for FailureHistoryStore."""
+
+    def _create_state_with_failures(self) -> CheckpointState:
+        """Create a checkpoint state with validation failures for testing."""
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="test-job",
+            total_sheets=4,
+        )
+
+        # Sheet 1: completed with one failure
+        sheet1 = SheetState(sheet_num=1, status=SheetStatus.COMPLETED)
+        sheet1.validation_details = [
+            {
+                "rule_type": "file_exists",
+                "description": "Output file exists",
+                "passed": True,
+            },
+            {
+                "rule_type": "content_contains",
+                "description": "Contains marker",
+                "passed": False,
+                "failure_reason": "Marker 'DONE' not found",
+                "failure_category": "incomplete",
+                "suggested_fix": "Add 'DONE' marker at end of file",
+            },
+        ]
+        state.sheets[1] = sheet1
+
+        # Sheet 2: completed with two failures
+        sheet2 = SheetState(sheet_num=2, status=SheetStatus.COMPLETED)
+        sheet2.validation_details = [
+            {
+                "rule_type": "file_exists",
+                "description": "Report file",
+                "passed": False,
+                "failure_reason": "File 'report.md' does not exist",
+                "failure_category": "missing",
+                "suggested_fix": "Create report.md",
+            },
+            {
+                "rule_type": "command_succeeds",
+                "description": "Tests pass",
+                "passed": False,
+                "failure_reason": "Command failed with exit 1",
+                "failure_category": "error",
+            },
+        ]
+        state.sheets[2] = sheet2
+
+        # Sheet 3: completed with no failures
+        sheet3 = SheetState(sheet_num=3, status=SheetStatus.COMPLETED)
+        sheet3.validation_details = [
+            {
+                "rule_type": "file_exists",
+                "description": "Final output",
+                "passed": True,
+            },
+        ]
+        state.sheets[3] = sheet3
+
+        return state
+
+    def test_query_similar_failures_all(self) -> None:
+        """Test querying all failures without filters."""
+        state = self._create_state_with_failures()
+        store = FailureHistoryStore(state)
+
+        failures = store.query_similar_failures(
+            current_sheet=4,
+            limit=10,
+        )
+
+        # Should get 3 failures from sheets 1 and 2, most recent first
+        assert len(failures) == 3
+        # Sheet 2 failures come first (most recent)
+        assert failures[0].sheet_num == 2
+        assert failures[1].sheet_num == 2
+        # Sheet 1 failure last
+        assert failures[2].sheet_num == 1
+
+    def test_query_similar_failures_by_rule_type(self) -> None:
+        """Test filtering by rule type."""
+        state = self._create_state_with_failures()
+        store = FailureHistoryStore(state)
+
+        failures = store.query_similar_failures(
+            current_sheet=4,
+            rule_types=["file_exists"],
+            limit=10,
+        )
+
+        # Only one file_exists failure (sheet 2)
+        assert len(failures) == 1
+        assert failures[0].rule_type == "file_exists"
+        assert failures[0].failure_category == "missing"
+
+    def test_query_similar_failures_by_category(self) -> None:
+        """Test filtering by failure category."""
+        state = self._create_state_with_failures()
+        store = FailureHistoryStore(state)
+
+        failures = store.query_similar_failures(
+            current_sheet=4,
+            failure_categories=["incomplete", "missing"],
+            limit=10,
+        )
+
+        # Should match: sheet 1 incomplete, sheet 2 missing
+        assert len(failures) == 2
+        categories = {f.failure_category for f in failures}
+        assert categories == {"incomplete", "missing"}
+
+    def test_query_similar_failures_with_limit(self) -> None:
+        """Test that limit restricts results."""
+        state = self._create_state_with_failures()
+        store = FailureHistoryStore(state)
+
+        failures = store.query_similar_failures(
+            current_sheet=4,
+            limit=2,
+        )
+
+        assert len(failures) == 2
+
+    def test_query_similar_failures_excludes_current_sheet(self) -> None:
+        """Test that current sheet is excluded from results."""
+        state = self._create_state_with_failures()
+        store = FailureHistoryStore(state)
+
+        # Query as if we're on sheet 3
+        failures = store.query_similar_failures(
+            current_sheet=3,
+            limit=10,
+        )
+
+        # Sheet 3 has no failures anyway, but shouldn't include it
+        sheet_nums = {f.sheet_num for f in failures}
+        assert 3 not in sheet_nums
+        assert len(failures) == 3  # Only from sheets 1 and 2
+
+    def test_query_recent_failures(self) -> None:
+        """Test querying recent failures with lookback."""
+        state = self._create_state_with_failures()
+        store = FailureHistoryStore(state)
+
+        failures = store.query_recent_failures(
+            current_sheet=4,
+            lookback_sheets=2,  # Only look at sheets 3 and 2
+            limit=10,
+        )
+
+        # Sheet 3 has no failures, sheet 2 has 2 failures
+        assert len(failures) == 2
+        assert all(f.sheet_num == 2 for f in failures)
+
+    def test_query_recent_failures_limited_lookback(self) -> None:
+        """Test that lookback_sheets limits which sheets are checked."""
+        state = self._create_state_with_failures()
+        store = FailureHistoryStore(state)
+
+        failures = store.query_recent_failures(
+            current_sheet=4,
+            lookback_sheets=1,  # Only look at sheet 3
+            limit=10,
+        )
+
+        # Sheet 3 has no failures
+        assert len(failures) == 0
+
+    def test_has_failures_true(self) -> None:
+        """Test has_failures returns True when failures exist."""
+        state = self._create_state_with_failures()
+        store = FailureHistoryStore(state)
+
+        assert store.has_failures(current_sheet=4) is True
+        assert store.has_failures(current_sheet=3) is True  # Sheets 1, 2 have failures
+
+    def test_has_failures_false(self) -> None:
+        """Test has_failures returns False when no failures exist."""
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="test-job",
+            total_sheets=2,
+        )
+
+        # Sheet with only passing validations
+        sheet = SheetState(sheet_num=1, status=SheetStatus.COMPLETED)
+        sheet.validation_details = [
+            {"rule_type": "file_exists", "passed": True},
+        ]
+        state.sheets[1] = sheet
+
+        store = FailureHistoryStore(state)
+        assert store.has_failures(current_sheet=2) is False
+
+    def test_empty_state(self) -> None:
+        """Test queries on empty state."""
+        state = CheckpointState(
+            job_id="empty-job",
+            job_name="empty-job",
+            total_sheets=1,
+        )
+        store = FailureHistoryStore(state)
+
+        failures = store.query_similar_failures(current_sheet=1)
+        assert failures == []
+
+        assert store.has_failures(current_sheet=1) is False

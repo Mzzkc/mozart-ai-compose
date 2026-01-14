@@ -58,7 +58,7 @@ mozart errors job-id -V           # 3. Error details
 | Never | Always |
 |-------|--------|
 | `timeout 600 mozart run ...` | `mozart run ...` (internal timeout) |
-| `mozart run job.yaml &` | `nohup mozart run ... &` (detached) |
+| `mozart run job.yaml &` | `setsid mozart run ... &` (fully detached) |
 | Assume exit_code=0 → success | Check `validation_details` |
 | Debug manually first | Use Mozart tools first |
 
@@ -238,22 +238,94 @@ Job:   PENDING → RUNNING → COMPLETED | FAILED | PAUSED
 
 ## Error Codes
 
-| Code | Category | Retry? | Meaning |
-|------|----------|--------|---------|
-| E001 | Execution | Yes | Timeout |
-| E002 | Execution | Yes | Killed by signal |
-| E003 | Execution | No | Crash (segfault) |
-| E101 | Rate Limit | Yes | API quota (wait 1hr) |
-| E102 | Rate Limit | Yes | CLI throttle (wait 15min) |
-| E201 | Validation | Yes | File missing |
-| E202 | Validation | Yes | Content mismatch |
-| E203 | Validation | Yes | Command failed |
-| E301 | Config | No | Invalid config |
-| E305 | Config | No | MCP/plugin error |
-| E401 | State | No | Checkpoint corruption |
-| E502 | Backend | No | Auth failed |
-| E505 | Backend | No | Claude CLI not found |
-| E9xx | Network | Yes | Connection/DNS/SSL |
+Error codes are organized by category (first digit after E):
+
+### E0xx: Execution Errors
+
+| Code | Retry? | Meaning |
+|------|--------|---------|
+| E001 | Yes | Timeout (command exceeded time limit) |
+| E002 | Yes | Killed by signal (external termination) |
+| E003 | No | Crash (segfault, bus error, abort) |
+| E004 | No | Interrupted by user (SIGINT/Ctrl+C) |
+| E005 | No | Out of memory (OOM killer) |
+| E009 | Yes | Unknown execution error |
+
+### E1xx: Rate Limit / Capacity
+
+| Code | Retry? | Meaning |
+|------|--------|---------|
+| E101 | Yes | API rate limit (wait ~1hr) |
+| E102 | Yes | CLI rate limit (wait ~15min) |
+| E103 | Yes | Capacity exceeded (wait ~5min) |
+
+### E2xx: Validation Errors
+
+| Code | Retry? | Meaning |
+|------|--------|---------|
+| E201 | Yes | Expected file missing |
+| E202 | Yes | Content doesn't match pattern |
+| E203 | Yes | Validation command failed |
+| E204 | Yes | Validation timed out |
+| E209 | Yes | Generic validation needed |
+
+### E3xx: Configuration Errors
+
+| Code | Retry? | Meaning |
+|------|--------|---------|
+| E301 | No | Invalid configuration |
+| E302 | No | Missing required field |
+| E303 | No | Config file not found |
+| E304 | No | YAML/JSON parse error |
+| E305 | No | MCP/plugin error |
+| E306 | No | CLI mode mismatch |
+
+### E4xx: State Errors
+
+| Code | Retry? | Meaning |
+|------|--------|---------|
+| E401 | No | Checkpoint corruption |
+| E402 | Yes | State load failed |
+| E403 | Yes | State save failed |
+| E404 | No | State version mismatch |
+
+### E5xx: Backend Errors
+
+| Code | Retry? | Meaning |
+|------|--------|---------|
+| E501 | Yes | Connection failed |
+| E502 | No | Auth/authorization failed |
+| E503 | Yes | Invalid response |
+| E504 | Yes | Backend timeout |
+| E505 | No | Backend not found (ENOENT) |
+
+### E6xx: Preflight Errors
+
+| Code | Retry? | Meaning |
+|------|--------|---------|
+| E601 | No | Required path missing |
+| E602 | No | Prompt too large |
+| E603 | No | Working directory invalid |
+| E604 | No | Validation setup invalid |
+
+### E9xx: Network Errors
+
+| Code | Retry? | Meaning |
+|------|--------|---------|
+| E901 | Yes | Connection failed/refused |
+| E902 | Yes | DNS resolution failed |
+| E903 | Yes | SSL/TLS error |
+| E904 | Yes | Network timeout |
+| E999 | Yes | Unknown error |
+
+### Quick Category Reference
+
+```
+E0xx Execution    E4xx State
+E1xx Rate Limit   E5xx Backend
+E2xx Validation   E6xx Preflight
+E3xx Config       E9xx Network
+```
 
 ---
 
@@ -578,12 +650,52 @@ mozart run job.yaml --start-sheet N
 | Don't | Why | Do Instead |
 |-------|-----|------------|
 | `timeout 600 mozart run ...` | SIGKILL corrupts state | Mozart handles timeout internally |
-| `mozart run job.yaml &` | Dies on session end | `nohup mozart --log-file ws/mozart.log run job.yaml &` |
+| `mozart run job.yaml &` | Dies on session end | `setsid mozart --log-file ws/mozart.log run job.yaml &` |
 | Check `exit_code` for success | Validations may have failed | Check `validation_details` |
 | Debug manually first | Mozart tools provide context | `status` → `diagnose` → `errors` |
 | `pattern: ".*"` | Matches everything | Specific regex patterns |
 | Omit `description` | Hard to debug | Always describe validations |
 | `source .venv/bin/activate && ...` in validations | `source` is bash-only, fails on `/bin/sh` | Use `python` directly (venv is on PATH) |
+| Edit YAML then `resume` | Config is **cached** in state file | Update config_snapshot or delete state |
+
+---
+
+## Config Caching (Major Footgun!)
+
+**Mozart caches the config snapshot in the state file on first run.** Subsequent `resume` commands use this cached snapshot, NOT the current YAML file.
+
+### When This Bites You
+
+1. You run `mozart run job.yaml` - config is snapshotted to state
+2. Sheet fails validation due to a bad command
+3. You fix the YAML file
+4. You run `mozart resume job-id` - **uses the OLD cached config**
+5. Same validation keeps failing despite your fix
+
+### How to Fix
+
+**Option 1: Update config_snapshot manually**
+```python
+import json, yaml
+with open('job.yaml') as f:
+    yaml_config = yaml.safe_load(f)
+with open('workspace/job.json') as f:
+    state = json.load(f)
+state['config_snapshot']['validations'] = yaml_config['validations']
+with open('workspace/job.json', 'w') as f:
+    json.dump(state, f, indent=2)
+```
+
+**Option 2: Delete state and restart**
+```bash
+rm workspace/job.json
+mozart run job.yaml
+```
+
+**Option 3: Start fresh on specific sheet**
+```bash
+mozart run job.yaml --start-sheet 5
+```
 
 ---
 
@@ -592,7 +704,7 @@ mozart run job.yaml --start-sheet N
 ### Long-Running Jobs
 
 ```bash
-nohup mozart --log-file workspace/mozart.log run job.yaml &
+setsid mozart --log-file workspace/mozart.log run job.yaml &
 mozart status job-id --watch -w ./workspace
 ```
 
@@ -745,16 +857,17 @@ dashboard        Web UI           E1xx Rate limit
 GLOBAL OPTIONS                    E3xx Config
 ──────────────                    E4xx State
 -v, --verbose    Detailed         E5xx Backend
--q, --quiet      Errors only      E9xx Network
--L, --log-level  Level filter
---log-file       Log path         NOTIFICATION EVENTS
---log-format     json/console     ───────────────────
-                                  job_start, job_complete
-COMMON OPTIONS                    job_failed, job_paused
-──────────────                    sheet_start, sheet_complete
--w, --workspace  Directory        sheet_failed
--j, --json       JSON output
--V, --verbose    Details
+-q, --quiet      Errors only      E6xx Preflight
+-L, --log-level  Level filter     E9xx Network
+--log-file       Log path
+--log-format     json/console
+
+COMMON OPTIONS                    NOTIFICATION EVENTS
+──────────────                    ───────────────────
+-w, --workspace  Directory        job_start, job_complete
+-j, --json       JSON output      job_failed, job_paused
+-V, --verbose    Details          sheet_start, sheet_complete
+                                  sheet_failed
 ```
 
 ---

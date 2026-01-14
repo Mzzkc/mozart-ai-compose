@@ -74,7 +74,13 @@ class ExecutionResult:
     """Model used for execution."""
 
     tokens_used: int | None = None
-    """Tokens consumed (API backend only)."""
+    """Total tokens consumed (API backend only). Deprecated: use input_tokens + output_tokens."""
+
+    input_tokens: int | None = None
+    """Input tokens consumed (prompt tokens). None if not available from backend."""
+
+    output_tokens: int | None = None
+    """Output tokens consumed (completion tokens). None if not available from backend."""
 
     # Recursive Light metadata (Phase 3 Language Bridge)
     confidence_score: float | None = None

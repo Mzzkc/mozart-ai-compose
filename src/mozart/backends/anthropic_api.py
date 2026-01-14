@@ -158,7 +158,9 @@ class AnthropicApiBackend(Backend):
                 stderr="",
                 duration_seconds=duration,
                 model=self.model,
-                tokens_used=tokens_used,
+                tokens_used=tokens_used,  # Legacy field for backwards compatibility
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
             )
 
         except anthropic.RateLimitError as e:

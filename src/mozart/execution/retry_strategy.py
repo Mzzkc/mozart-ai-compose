@@ -36,11 +36,17 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from mozart.core.errors import ClassifiedError, ErrorCategory, ErrorCode, RetryBehavior
+from mozart.core.errors import (
+    ClassificationResult,
+    ClassifiedError,
+    ErrorCategory,
+    ErrorCode,
+    RetryBehavior,
+)
 from mozart.core.logging import get_logger
 
 if TYPE_CHECKING:
-    pass
+    from mozart.learning.global_store import GlobalLearningStore
 
 
 # =============================================================================
@@ -212,6 +218,8 @@ class ErrorRecord:
         sheet_num: Sheet number where error occurred.
         attempt_num: Which attempt number this was (1-indexed).
         monotonic_time: Monotonic timestamp for precise timing calculations.
+        root_cause_confidence: Confidence in root cause identification (0.0-1.0).
+        secondary_error_count: Number of secondary errors detected.
     """
 
     timestamp: datetime
@@ -225,6 +233,8 @@ class ErrorRecord:
     sheet_num: int | None = None
     attempt_num: int = 1
     monotonic_time: float = field(default_factory=time.monotonic)
+    root_cause_confidence: float | None = None
+    secondary_error_count: int = 0
 
     @classmethod
     def from_classified_error(
@@ -259,6 +269,53 @@ class ErrorRecord:
             attempt_num=attempt_num,
         )
 
+    @classmethod
+    def from_classification_result(
+        cls,
+        result: ClassificationResult,
+        sheet_num: int | None = None,
+        attempt_num: int = 1,
+    ) -> ErrorRecord:
+        """Create an ErrorRecord from a ClassificationResult.
+
+        This factory method captures root cause information from the multi-error
+        classification, including confidence in root cause identification and
+        the count of secondary errors. This enables the retry strategy to
+        consider root cause confidence when making retry decisions.
+
+        Args:
+            result: ClassificationResult from classify_execution().
+            sheet_num: Optional sheet number for context.
+            attempt_num: Which retry attempt this represents.
+
+        Returns:
+            ErrorRecord with root cause confidence and secondary error count.
+
+        Raises:
+            ValueError: If confidence is not in valid range [0.0, 1.0].
+        """
+        # Validate confidence is in valid range (defensive check)
+        if not 0.0 <= result.confidence <= 1.0:
+            raise ValueError(
+                f"root_cause_confidence must be 0.0-1.0, got {result.confidence}"
+            )
+
+        primary = result.primary
+        return cls(
+            timestamp=datetime.now(UTC),
+            error_code=primary.error_code,
+            category=primary.category,
+            message=primary.message,
+            exit_code=primary.exit_code,
+            exit_signal=primary.exit_signal,
+            retriable=primary.retriable,
+            suggested_wait=primary.suggested_wait_seconds,
+            sheet_num=sheet_num,
+            attempt_num=attempt_num,
+            root_cause_confidence=result.confidence,
+            secondary_error_count=len(result.secondary),
+        )
+
     def to_dict(self) -> dict[str, object]:
         """Convert to dictionary for logging/serialization.
 
@@ -276,6 +333,12 @@ class ErrorRecord:
             "suggested_wait": self.suggested_wait,
             "sheet_num": self.sheet_num,
             "attempt_num": self.attempt_num,
+            "root_cause_confidence": (
+                round(self.root_cause_confidence, 3)
+                if self.root_cause_confidence is not None
+                else None
+            ),
+            "secondary_error_count": self.secondary_error_count,
         }
 
 
@@ -293,6 +356,7 @@ class RetryRecommendation:
         confidence: Confidence in this recommendation (0.0-1.0).
         detected_pattern: The pattern that influenced this decision.
         strategy_used: Name of the strategy/heuristic that was applied.
+        root_cause_confidence: Confidence in root cause identification (0.0-1.0, None if N/A).
     """
 
     should_retry: bool
@@ -301,6 +365,7 @@ class RetryRecommendation:
     confidence: float
     detected_pattern: RetryPattern = RetryPattern.NONE
     strategy_used: str = "default"
+    root_cause_confidence: float | None = None
 
     def __post_init__(self) -> None:
         """Validate confidence is in valid range."""
@@ -322,6 +387,11 @@ class RetryRecommendation:
             "confidence": round(self.confidence, 3),
             "detected_pattern": self.detected_pattern.value,
             "strategy_used": self.strategy_used,
+            "root_cause_confidence": (
+                round(self.root_cause_confidence, 3)
+                if self.root_cause_confidence is not None
+                else None
+            ),
         }
 
 
@@ -438,6 +508,7 @@ class AdaptiveRetryStrategy:
         self,
         config: RetryStrategyConfig | None = None,
         delay_history: DelayHistory | None = None,
+        global_learning_store: GlobalLearningStore | None = None,
     ) -> None:
         """Initialize the adaptive retry strategy.
 
@@ -445,9 +516,15 @@ class AdaptiveRetryStrategy:
             config: Optional configuration. Uses defaults if not provided.
             delay_history: Optional delay history for learning. If not provided,
                 learning features are disabled (purely static delays).
+            global_learning_store: Optional global learning store for cross-workspace
+                learned delays (Evolution #3: Learned Wait Time Injection).
+                If provided, blend_historical_delay() will query global store
+                for cross-workspace learned delays when in-memory history is
+                insufficient.
         """
         self.config = config or RetryStrategyConfig()
         self._delay_history = delay_history
+        self._global_store = global_learning_store
 
         # Circuit breaker state: track consecutive failures when using learned delays.
         # If > 3 failures with learned delay, revert to static for that error code.
@@ -511,7 +588,10 @@ class AdaptiveRetryStrategy:
             max_retries=max_retries,
         )
 
-        # Log the decision
+        # Propagate root cause confidence from latest error to recommendation
+        recommendation.root_cause_confidence = latest_error.root_cause_confidence
+
+        # Log the decision including root cause confidence
         _logger.info(
             "retry_strategy.decision",
             should_retry=recommendation.should_retry,
@@ -522,6 +602,12 @@ class AdaptiveRetryStrategy:
             attempt_count=attempt_count,
             latest_error_code=latest_error.error_code.value,
             reason=recommendation.reason,
+            root_cause_confidence=(
+                round(latest_error.root_cause_confidence, 3)
+                if latest_error.root_cause_confidence is not None
+                else None
+            ),
+            secondary_error_count=latest_error.secondary_error_count,
         )
 
         return recommendation
@@ -879,6 +965,16 @@ class AdaptiveRetryStrategy:
         then blends it with the static (ErrorCode-based) delay based on
         sample size. Respects circuit breaker state.
 
+        Evolution #3: Learned Wait Time Injection - now also queries the
+        global learning store for cross-workspace learned delays when
+        in-memory history is insufficient. This enables new jobs to benefit
+        from delays learned by previous jobs across all workspaces.
+
+        Priority order:
+        1. In-memory delay history (if sufficient samples)
+        2. Global learning store (cross-workspace learned delays)
+        3. Static delay (fallback)
+
         Args:
             error_code: The error code to get delay for.
             static_delay: The static delay from ErrorCode.get_retry_behavior().
@@ -887,31 +983,65 @@ class AdaptiveRetryStrategy:
             Tuple of (blended_delay, strategy_name).
             - If no history or circuit breaker triggered: (static_delay, "static")
             - If history available: (blended_delay, "learned_blend")
+            - If global store has data: (delay, "global_learned" or "global_learned_blend")
         """
-        # No history → use static
-        if self._delay_history is None:
-            return static_delay, "static"
-
         # Circuit breaker check: if we've reverted to static for this code, use static
         if not self._use_learned_delay.get(error_code, True):
             return static_delay, "static_circuit_breaker"
 
-        # Get learned delay from history
-        learned_delay = self._delay_history.get_average_successful_delay(error_code)
-        if learned_delay is None:
-            # No successful samples yet → use static (bootstrap)
+        # First, try in-memory delay history (highest priority - job-specific learning)
+        if self._delay_history is not None:
+            learned_delay = self._delay_history.get_average_successful_delay(error_code)
+            if learned_delay is not None:
+                # Calculate blend weight based on sample count
+                sample_count = self._delay_history.get_sample_count(error_code)
+                weight = min(sample_count / 10.0, 1.0)
+
+                # Blend: weight * learned + (1 - weight) * static
+                blended = weight * learned_delay + (1 - weight) * static_delay
+                return blended, "learned_blend"
+            else:
+                # History exists but no successful samples yet -> bootstrap phase
+                # Fall through to check global store, but if global store also
+                # has no data, return "static_bootstrap" instead of "static"
+                pass
+
+        # Second, try global learning store (Evolution #3: cross-workspace learning)
+        if self._global_store is not None:
+            try:
+                global_delay, confidence, strategy = (
+                    self._global_store.get_learned_wait_time_with_fallback(
+                        error_code=error_code.value,
+                        static_delay=static_delay,
+                        min_samples=3,
+                        min_confidence=0.7,
+                    )
+                )
+                # Only use global store result if it's not just a static fallback
+                if strategy != "static_fallback":
+                    _logger.debug(
+                        "retry_strategy.global_learned_delay",
+                        error_code=error_code.value,
+                        delay=round(global_delay, 2),
+                        confidence=round(confidence, 3),
+                        strategy=strategy,
+                    )
+                    return global_delay, strategy
+            except Exception as e:
+                # Global store query failure shouldn't block retry
+                _logger.warning(
+                    "retry_strategy.global_store_error",
+                    error_code=error_code.value,
+                    error=str(e),
+                )
+
+        # Fallback: distinguish between "no history at all" vs "history but no samples"
+        if self._delay_history is not None:
+            # History exists but no successful samples -> bootstrap phase
             return static_delay, "static_bootstrap"
-
-        # Calculate blend weight based on sample count
-        # weight = min(sample_count / 10, 1.0)
-        # Full weight to learned delay only after 10 samples
-        sample_count = self._delay_history.get_sample_count(error_code)
-        weight = min(sample_count / 10.0, 1.0)
-
-        # Blend: weight * learned + (1 - weight) * static
-        blended = weight * learned_delay + (1 - weight) * static_delay
-
-        return blended, "learned_blend"
+        else:
+            # No history at all -> static
+            return static_delay, "static"
 
     def record_delay_outcome(
         self,

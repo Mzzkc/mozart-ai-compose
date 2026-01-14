@@ -933,7 +933,7 @@ ROOT_CAUSE_PRIORITY: dict[ErrorCode, int] = {
 # =============================================================================
 
 
-def try_parse_json_errors(stdout: str) -> list[ParsedCliError]:
+def try_parse_json_errors(output: str, stderr: str = "") -> list[ParsedCliError]:
     """Extract errors[] array from JSON output.
 
     Claude CLI returns structured JSON with an `errors[]` array:
@@ -948,44 +948,124 @@ def try_parse_json_errors(stdout: str) -> list[ParsedCliError]:
     }
     ```
 
-    This function parses that structure, handling non-JSON preamble.
+    This function parses that structure, handling:
+    - Non-JSON preamble (CLI startup messages)
+    - Multiple JSON objects (takes first valid one with errors[])
+    - JSON in stderr (some error modes write there)
+    - Truncated JSON (tries to recover)
 
     Args:
-        stdout: Raw stdout from Claude CLI execution.
+        output: Raw stdout from Claude CLI execution.
+        stderr: Optional stderr output (some errors appear here).
 
     Returns:
         List of ParsedCliError objects, or empty list if parsing fails.
     """
-    if not stdout:
-        return []
+    errors: list[ParsedCliError] = []
 
-    try:
-        # Find JSON object in output (may have non-JSON preamble)
-        json_start = stdout.find("{")
+    # Try both stdout and stderr - errors can appear in either
+    for text in [output, stderr]:
+        if not text:
+            continue
+
+        found_errors = _extract_json_errors_from_text(text)
+        if found_errors:
+            errors.extend(found_errors)
+
+    # Deduplicate by message (same error might appear in both streams)
+    seen_messages: set[str] = set()
+    unique_errors: list[ParsedCliError] = []
+    for error in errors:
+        if error.message not in seen_messages:
+            seen_messages.add(error.message)
+            unique_errors.append(error)
+
+    return unique_errors
+
+
+def _extract_json_errors_from_text(text: str) -> list[ParsedCliError]:
+    """Extract errors from a single text stream.
+
+    Handles multiple JSON objects and partial parsing.
+
+    Args:
+        text: Text that may contain JSON with errors[] array.
+
+    Returns:
+        List of ParsedCliError objects found.
+    """
+    errors: list[ParsedCliError] = []
+
+    # Find all potential JSON object starts
+    idx = 0
+    while idx < len(text):
+        json_start = text.find("{", idx)
         if json_start == -1:
-            return []
+            break
 
-        # Try to parse from first { to end
-        data = json.loads(stdout[json_start:])
+        # Try to find matching closing brace with bracket counting
+        depth = 0
+        json_end = json_start
+        in_string = False
+        escape_next = False
 
-        if "errors" in data and isinstance(data["errors"], list):
-            errors: list[ParsedCliError] = []
-            for item in data["errors"]:
-                if not isinstance(item, dict):
-                    continue
-                error = ParsedCliError(
-                    error_type=item.get("type", "unknown"),
-                    message=item.get("message", ""),
-                    tool_name=item.get("tool_name"),
-                    metadata=item.get("metadata", {}),
-                )
-                errors.append(error)
-            return errors
+        for i in range(json_start, len(text)):
+            char = text[i]
 
-    except (json.JSONDecodeError, TypeError, KeyError):
-        pass
+            if escape_next:
+                escape_next = False
+                continue
 
-    return []
+            if char == "\\":
+                escape_next = True
+                continue
+
+            if char == '"':
+                in_string = not in_string
+                continue
+
+            if in_string:
+                continue
+
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    json_end = i + 1
+                    break
+
+        if depth != 0:
+            # Incomplete JSON, try parsing anyway (might work for simple cases)
+            json_end = len(text)
+
+        try:
+            json_str = text[json_start:json_end]
+            data = json.loads(json_str)
+
+            if "errors" in data and isinstance(data["errors"], list):
+                for item in data["errors"]:
+                    if not isinstance(item, dict):
+                        continue
+                    error = ParsedCliError(
+                        error_type=item.get("type", "unknown"),
+                        message=item.get("message", ""),
+                        tool_name=item.get("tool_name"),
+                        metadata=item.get("metadata", {}),
+                    )
+                    errors.append(error)
+
+                # Found valid errors, return them
+                if errors:
+                    return errors
+
+        except (json.JSONDecodeError, TypeError, KeyError):
+            pass
+
+        # Move past this JSON object to find next potential one
+        idx = json_end if json_end > json_start else json_start + 1
+
+    return errors
 
 
 def classify_single_json_error(
@@ -1057,7 +1137,8 @@ def classify_single_json_error(
     elif error_type == "user":
         # User errors are usually environment/config issues
         # ENOENT is critical - often the root cause
-        if "enoent" in message or "spawn" in message and "enoent" in message:
+        # Common patterns: "ENOENT", "spawn claude ENOENT", "command not found"
+        if "enoent" in message or "command not found" in message:
             return ClassifiedError(
                 category=ErrorCategory.CONFIGURATION,
                 message=parsed_error.message,
@@ -1189,13 +1270,25 @@ def select_root_cause(errors: list[ClassifiedError]) -> tuple[ClassifiedError, l
     """Select the most likely root cause from multiple errors.
 
     Uses priority-based scoring where lower score = more fundamental cause.
-    Applies context modifiers for specific error combinations.
+    Applies context modifiers for specific error combinations that commonly
+    mask root causes.
+
+    Known masking patterns:
+    - ENOENT masks everything (missing binary causes cascading failures)
+    - Auth errors mask rate limits (can't hit rate limit if auth fails)
+    - Network errors mask service errors (can't reach service to get errors)
+    - Config errors mask execution errors (bad config causes execution failure)
+    - Timeout masks completion (timed out = never got to complete)
 
     Args:
         errors: List of classified errors to analyze.
 
     Returns:
         Tuple of (root_cause, symptoms, confidence).
+        - root_cause: The most fundamental error that likely caused others
+        - symptoms: Other errors that are likely consequences
+        - confidence: 0.0-1.0 confidence in root cause identification
+          (higher when there's a clear priority gap)
     """
     if not errors:
         # Return an unknown error as fallback
@@ -1218,15 +1311,45 @@ def select_root_cause(errors: list[ClassifiedError]) -> tuple[ClassifiedError, l
     for error in errors:
         priority = ROOT_CAUSE_PRIORITY.get(error.error_code, 99)
 
-        # ENOENT with other errors is almost always root cause
+        # === Priority Modifiers for Common Masking Patterns ===
+
+        # ENOENT (missing binary) masks everything - it's almost always root cause
         if error.error_code == ErrorCode.BACKEND_NOT_FOUND:
             if any(e.error_code != ErrorCode.BACKEND_NOT_FOUND for e in errors):
-                priority -= 5
+                priority -= 10  # Strong boost - ENOENT is very fundamental
 
-        # Auth errors with rate limits: auth is more fundamental
+        # Config path not found is similar - can't run without config
+        if error.error_code == ErrorCode.CONFIG_PATH_NOT_FOUND:
+            priority -= 5
+
+        # Auth errors mask rate limits (can't be rate limited if auth fails)
         if error.error_code == ErrorCode.BACKEND_AUTH:
             if ErrorCode.RATE_LIMIT_API in error_codes_present or ErrorCode.RATE_LIMIT_CLI in error_codes_present:
                 priority -= 5
+
+        # Network errors mask service errors
+        if error.error_code in (
+            ErrorCode.NETWORK_CONNECTION_FAILED,
+            ErrorCode.NETWORK_DNS_ERROR,
+            ErrorCode.NETWORK_SSL_ERROR,
+        ):
+            if ErrorCode.BACKEND_TIMEOUT in error_codes_present or ErrorCode.RATE_LIMIT_API in error_codes_present:
+                priority -= 3
+
+        # MCP config errors mask tool execution errors
+        if error.error_code == ErrorCode.CONFIG_MCP_ERROR:
+            if ErrorCode.VALIDATION_COMMAND_FAILED in error_codes_present:
+                priority -= 3
+
+        # CLI mode errors (streaming vs JSON) are config issues that mask execution
+        if error.error_code == ErrorCode.CONFIG_CLI_MODE_ERROR:
+            if any(e.error_code.category == "execution" for e in errors):
+                priority -= 3
+
+        # Timeout is a symptom when paired with rate limits (waited too long)
+        if error.error_code == ErrorCode.EXECUTION_TIMEOUT:
+            if ErrorCode.RATE_LIMIT_API in error_codes_present:
+                priority += 5  # Demote timeout - rate limit is root cause
 
         priorities.append(priority)
 
@@ -1240,11 +1363,26 @@ def select_root_cause(errors: list[ClassifiedError]) -> tuple[ClassifiedError, l
     symptom_priorities = [priorities[i] for i in range(len(errors)) if i != min_idx]
 
     # Calculate confidence based on priority gap
+    # Higher gap = clearer root cause = more confidence
     if symptom_priorities:
         next_priority = min(symptom_priorities)
         gap = next_priority - root_priority
-        # Higher gap = more confidence (up to 1.0)
+
+        # Base confidence starts at 0.5 for multiple errors
+        # Each priority tier gap adds 5% confidence
         confidence = min(0.5 + (gap * 0.05), 1.0)
+
+        # Boost confidence for known high-signal root causes
+        if root_cause.error_code in (
+            ErrorCode.BACKEND_NOT_FOUND,  # ENOENT is almost always correct
+            ErrorCode.BACKEND_AUTH,  # Auth failures are clear
+            ErrorCode.CONFIG_PATH_NOT_FOUND,  # Missing config is clear
+        ):
+            confidence = min(confidence + 0.15, 1.0)
+
+        # Lower confidence when all errors are in same tier (ambiguous)
+        if gap == 0:
+            confidence = 0.4  # Significant ambiguity
     else:
         confidence = 1.0
 
@@ -1256,8 +1394,15 @@ def select_root_cause(errors: list[ClassifiedError]) -> tuple[ClassifiedError, l
 # =============================================================================
 
 
-def _deprecation_warning(old_name: str, new_name: str) -> None:
-    """Issue a deprecation warning for old API usage."""
+def _emit_deprecation_warning(old_name: str, new_name: str) -> None:
+    """Issue a deprecation warning for old API usage.
+
+    Used internally to warn callers about deprecated API methods.
+
+    Args:
+        old_name: Name of the deprecated method/function.
+        new_name: Name of the replacement method/function.
+    """
     warnings.warn(
         f"{old_name} is deprecated, use {new_name} instead",
         DeprecationWarning,
@@ -1948,7 +2093,8 @@ class ErrorClassifier:
         classification_method = "structured"
 
         # === PHASE 1: Parse Structured JSON ===
-        json_errors = try_parse_json_errors(stdout)
+        # Pass both stdout and stderr - errors can appear in either stream
+        json_errors = try_parse_json_errors(stdout, stderr)
         raw_errors = json_errors
 
         if json_errors:

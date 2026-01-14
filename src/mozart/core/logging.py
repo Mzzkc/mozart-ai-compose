@@ -770,36 +770,36 @@ def configure_logging(
         console_handler.setLevel(log_level)
         handlers.append(console_handler)
 
-    if format == "json" or format == "both":
-        if file_path:
-            # Ensure parent directory exists
-            file_path.parent.mkdir(parents=True, exist_ok=True)
+    # File handler - created whenever file_path is set, regardless of format
+    if file_path:
+        # Ensure parent directory exists
+        file_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Store current log path for CLI access
-            _current_log_path = file_path
+        # Store current log path for CLI access
+        _current_log_path = file_path
 
-            # Use compressing handler or standard rotating handler
-            if compress_logs:
-                file_handler: logging.Handler = CompressingRotatingFileHandler(
-                    file_path,
-                    maxBytes=max_file_size_mb * 1024 * 1024,
-                    backupCount=backup_count,
-                    encoding="utf-8",
-                )
-            else:
-                file_handler = RotatingFileHandler(
-                    file_path,
-                    maxBytes=max_file_size_mb * 1024 * 1024,
-                    backupCount=backup_count,
-                    encoding="utf-8",
-                )
-            file_handler.setLevel(log_level)
-            handlers.append(file_handler)
-        elif format == "json":
-            # JSON to stdout if no file specified
-            json_handler = logging.StreamHandler(sys.stdout)
-            json_handler.setLevel(log_level)
-            handlers.append(json_handler)
+        # Use compressing handler or standard rotating handler
+        if compress_logs:
+            file_handler: logging.Handler = CompressingRotatingFileHandler(
+                file_path,
+                maxBytes=max_file_size_mb * 1024 * 1024,
+                backupCount=backup_count,
+                encoding="utf-8",
+            )
+        else:
+            file_handler = RotatingFileHandler(
+                file_path,
+                maxBytes=max_file_size_mb * 1024 * 1024,
+                backupCount=backup_count,
+                encoding="utf-8",
+            )
+        file_handler.setLevel(log_level)
+        handlers.append(file_handler)
+    elif format == "json":
+        # JSON to stdout if no file specified
+        json_handler = logging.StreamHandler(sys.stdout)
+        json_handler.setLevel(log_level)
+        handlers.append(json_handler)
 
     # Configure root logger
     root_logger = logging.getLogger()

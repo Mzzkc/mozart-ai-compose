@@ -275,12 +275,14 @@ class HookExecutor:
         )
 
         # Run the chained job using subprocess_exec (safe, no shell)
+        # Use parent process cwd (not workspace) so relative job_path finds the config
+        # This allows on_success hooks to reference sibling config files correctly
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
-                cwd=self.workspace,
+                # Don't override cwd - inherit from parent process to find config files
                 env=os.environ.copy(),
             )
 

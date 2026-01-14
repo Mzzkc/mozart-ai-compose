@@ -121,7 +121,7 @@ class ClaudeCliBackend(Backend):
         self,
         skip_permissions: bool = True,
         disable_mcp: bool = True,
-        output_format: str = "json",
+        output_format: str = "text",
         cli_model: str | None = None,
         allowed_tools: list[str] | None = None,
         system_prompt_file: Path | None = None,

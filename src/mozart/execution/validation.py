@@ -2,6 +2,12 @@
 
 Executes validation rules against sheet outputs and tracks results
 for partial completion recovery.
+
+This module provides:
+- ValidationResult: Result of a single validation check
+- SheetValidationResult: Aggregate result for a sheet
+- ValidationEngine: Runs validation rules against outputs
+- FailureHistoryStore: Queries past validation failures for history-aware prompts
 """
 
 import re
@@ -10,9 +16,12 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from mozart.core.config import ValidationRule
+
+if TYPE_CHECKING:
+    from mozart.core.checkpoint import CheckpointState
 
 
 def _utc_now() -> datetime:
@@ -968,3 +977,211 @@ class ValidationEngine:
                 failure_category="error",
                 suggested_fix="Check command syntax and permissions",
             )
+
+
+# =============================================================================
+# Failure History Store (Evolution v6: History-Aware Prompt Generation)
+# =============================================================================
+
+
+@dataclass
+class HistoricalFailure:
+    """A single historical validation failure for prompt injection.
+
+    Captures the essential information from a past validation failure
+    to help Claude avoid repeating the same mistakes.
+
+    Attributes:
+        sheet_num: Sheet number where the failure occurred.
+        rule_type: Type of validation rule (file_exists, content_contains, etc.).
+        description: Human-readable description of the validation.
+        failure_reason: Why the validation failed.
+        failure_category: Category of failure (missing, malformed, etc.).
+        suggested_fix: Hint for how to fix the issue.
+    """
+
+    sheet_num: int
+    rule_type: str
+    description: str
+    failure_reason: str | None = None
+    failure_category: str | None = None
+    suggested_fix: str | None = None
+
+
+class FailureHistoryStore:
+    """Queries past validation failures from checkpoint state.
+
+    This class enables history-aware prompt generation by extracting
+    validation failures from previous sheets and finding similar failures
+    that might inform the current sheet's execution.
+
+    The similarity matching uses rule-based heuristics:
+    - Same validation rule type (e.g., both file_exists)
+    - Same failure category (e.g., both "missing")
+    - Recent failures are prioritized (more relevant to current context)
+
+    Example:
+        ```python
+        store = FailureHistoryStore(state)
+        failures = store.query_similar_failures(
+            current_sheet=5,
+            rule_types=["file_exists", "content_contains"],
+            limit=3,
+        )
+        # Inject failures into prompt
+        prompt = builder.build_sheet_prompt(
+            context=ctx,
+            failure_history=failures,
+        )
+        ```
+    """
+
+    def __init__(self, state: "CheckpointState") -> None:
+        """Initialize failure history store.
+
+        Args:
+            state: Current checkpoint state with sheet validation details.
+        """
+        self._state = state
+
+    def query_similar_failures(
+        self,
+        current_sheet: int,
+        rule_types: list[str] | None = None,
+        failure_categories: list[str] | None = None,
+        limit: int = 3,
+    ) -> list[HistoricalFailure]:
+        """Query past validation failures similar to expected patterns.
+
+        Searches completed and failed sheets for validation failures that
+        match the specified criteria. Returns the most recent matching
+        failures first.
+
+        Args:
+            current_sheet: Current sheet number (excludes this sheet from results).
+            rule_types: Filter by validation rule types (e.g., ["file_exists"]).
+                        If None, matches all rule types.
+            failure_categories: Filter by failure categories (e.g., ["missing"]).
+                               If None, matches all categories.
+            limit: Maximum number of failures to return.
+
+        Returns:
+            List of HistoricalFailure objects, most recent first.
+        """
+        failures: list[HistoricalFailure] = []
+
+        # Iterate through sheets in reverse order (most recent first)
+        for sheet_num in sorted(self._state.sheets.keys(), reverse=True):
+            if sheet_num >= current_sheet:
+                # Skip current and future sheets
+                continue
+
+            # Use defensive .get() pattern for safety
+            sheet = self._state.sheets.get(sheet_num)
+            if not sheet or not sheet.validation_details:
+                continue
+
+            validation_details = sheet.validation_details
+
+            # Extract failures from validation_details
+            for detail in validation_details:
+                # Skip passed validations
+                if detail.get("passed", False):
+                    continue
+
+                rule_type = detail.get("rule_type", "")
+                failure_category = detail.get("failure_category")
+
+                # Apply filters
+                if rule_types and rule_type not in rule_types:
+                    continue
+                if failure_categories and failure_category not in failure_categories:
+                    continue
+
+                failure = HistoricalFailure(
+                    sheet_num=sheet_num,
+                    rule_type=rule_type,
+                    description=detail.get("description", ""),
+                    failure_reason=detail.get("failure_reason"),
+                    failure_category=failure_category,
+                    suggested_fix=detail.get("suggested_fix"),
+                )
+                failures.append(failure)
+
+                if len(failures) >= limit:
+                    return failures
+
+        return failures
+
+    def query_recent_failures(
+        self,
+        current_sheet: int,
+        lookback_sheets: int = 3,
+        limit: int = 3,
+    ) -> list[HistoricalFailure]:
+        """Query recent validation failures from nearby sheets.
+
+        A simpler query that just returns recent failures without
+        type/category filtering. Useful for general history awareness.
+
+        Args:
+            current_sheet: Current sheet number.
+            lookback_sheets: How many previous sheets to check.
+            limit: Maximum number of failures to return.
+
+        Returns:
+            List of HistoricalFailure objects from recent sheets.
+        """
+        failures: list[HistoricalFailure] = []
+
+        # Check sheets immediately before current
+        for offset in range(1, lookback_sheets + 1):
+            sheet_num = current_sheet - offset
+            if sheet_num <= 0:
+                break
+
+            sheet = self._state.sheets.get(sheet_num)
+            if not sheet or not sheet.validation_details:
+                continue
+
+            for detail in sheet.validation_details:
+                if detail.get("passed", False):
+                    continue
+
+                failure = HistoricalFailure(
+                    sheet_num=sheet_num,
+                    rule_type=detail.get("rule_type", ""),
+                    description=detail.get("description", ""),
+                    failure_reason=detail.get("failure_reason"),
+                    failure_category=detail.get("failure_category"),
+                    suggested_fix=detail.get("suggested_fix"),
+                )
+                failures.append(failure)
+
+                if len(failures) >= limit:
+                    return failures
+
+        return failures
+
+    def has_failures(self, current_sheet: int) -> bool:
+        """Check if there are any historical failures to query.
+
+        Args:
+            current_sheet: Current sheet number.
+
+        Returns:
+            True if there are failures from previous sheets.
+        """
+        for sheet_num in self._state.sheets:
+            if sheet_num >= current_sheet:
+                continue
+
+            sheet = self._state.sheets[sheet_num]
+            if not sheet.validation_details:
+                continue
+
+            for detail in sheet.validation_details:
+                if not detail.get("passed", False):
+                    return True
+
+        return False

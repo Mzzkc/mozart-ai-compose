@@ -754,7 +754,7 @@ prompt:
           - uses: actions/checkout@v4
           - uses: rustsec/audit-check@v1
             with:
-              token: ${{ secrets.GITHUB_TOKEN }}
+              token: {{ '${{ secrets.GITHUB_TOKEN }}' }}
 
           - name: Run cargo deny
             uses: EmbarkStudios/cargo-deny-action@v1
@@ -783,8 +783,8 @@ prompt:
 
           - name: Build Docker image
             run: |
-              docker build -t ghcr.io/${{ github.repository }}:${{ github.sha }} .
-              docker push ghcr.io/${{ github.repository }}:${{ github.sha }}
+              docker build -t ghcr.io/{{ '${{ github.repository }}' }}:{{ '${{ github.sha }}' }} .
+              docker push ghcr.io/{{ '${{ github.repository }}' }}:{{ '${{ github.sha }}' }}
     ```
 
     STEP 4: Create Dockerfile
@@ -1177,7 +1177,7 @@ validations:
 
   # Stage 3: Tests pass
   - type: command_succeeds
-    command: "cd /home/emzi/Projects/recursive-light/api && cargo test --lib --quiet 2>&1 | tail -1 | grep -q 'ok'"
+    command: "cd /home/emzi/Projects/recursive-light/api && cargo test --lib --quiet 2>&1 | grep -q 'test result: ok'"
     description: "All Rust tests pass"
     stage: 3
 
@@ -1194,6 +1194,16 @@ ai_review:
   target_score: 80
   on_low_score: warn
   max_retry_for_review: 2
+
+# Circuit breaker to prevent cascading failures
+circuit_breaker:
+  enabled: true
+  failure_threshold: 5
+  recovery_timeout_seconds: 300
+
+# Cost limits for long-running phase
+cost_limits:
+  enabled: false  # Claude Max x20 plan - no cost concerns
 
 retry:
   max_retries: 3
