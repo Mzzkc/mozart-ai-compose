@@ -1492,3 +1492,18 @@ notifications:
 
 state_backend: json
 pause_between_batches_seconds: 10
+
+# Chain to Phase 3 on success
+on_success:
+  - type: run_job
+    job_path: "./recursive-light-phase3.yaml"
+    job_workspace: "/home/emzi/Projects/mozart-ai-compose/recursive-light-phase3-workspace"
+    inherit_learning: true
+    on_failure: abort
+    timeout_seconds: 86400
+    description: "Phase 3: Monetization (12 batches)"
+
+concert:
+  enabled: true
+  max_chain_depth: 10
+  cooldown_between_jobs_seconds: 60

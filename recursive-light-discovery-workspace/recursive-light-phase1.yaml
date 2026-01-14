@@ -1227,3 +1227,18 @@ notifications:
 
 state_backend: json
 pause_between_batches_seconds: 10
+
+# Chain to Phase 2 on success
+on_success:
+  - type: run_job
+    job_path: "./recursive-light-phase2.yaml"
+    job_workspace: "/home/emzi/Projects/mozart-ai-compose/recursive-light-phase2-workspace"
+    inherit_learning: true
+    on_failure: abort
+    timeout_seconds: 86400
+    description: "Phase 2: Core Product (15 batches)"
+
+concert:
+  enabled: true
+  max_chain_depth: 10
+  cooldown_between_jobs_seconds: 60
