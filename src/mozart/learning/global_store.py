@@ -788,6 +788,7 @@ class GlobalLearningStore:
         pattern_type: str | None = None,
         min_priority: float = 0.3,
         limit: int = 20,
+        context_tags: list[str] | None = None,
     ) -> list[PatternRecord]:
         """Get patterns from the global store.
 
@@ -795,31 +796,45 @@ class GlobalLearningStore:
             pattern_type: Optional filter by pattern type.
             min_priority: Minimum priority score to include.
             limit: Maximum number of patterns to return.
+            context_tags: Optional list of tags for context-based filtering.
+                         Patterns match if ANY of their tags match ANY query tag.
+                         If None or empty, no tag filtering is applied.
 
         Returns:
             List of PatternRecord objects sorted by priority.
         """
         with self._get_connection() as conn:
+            # Build query dynamically based on filters
+            where_clauses = ["priority_score >= ?"]
+            params: list[Any] = [min_priority]
+
             if pattern_type:
-                cursor = conn.execute(
-                    """
-                    SELECT * FROM patterns
-                    WHERE pattern_type = ? AND priority_score >= ?
-                    ORDER BY priority_score DESC
-                    LIMIT ?
-                    """,
-                    (pattern_type, min_priority, limit),
+                where_clauses.append("pattern_type = ?")
+                params.append(pattern_type)
+
+            # Context tag filtering: match if ANY pattern tag matches ANY query tag
+            # Uses json_each() to iterate over the JSON array stored in context_tags
+            # Note: Explicitly check for non-empty list to handle [] vs None correctly
+            # Safe from SQL injection: placeholders only contain "?" characters,
+            # actual tag values are bound via params.extend()
+            if context_tags is not None and len(context_tags) > 0:
+                tag_placeholders = ", ".join("?" for _ in context_tags)
+                where_clauses.append(
+                    f"""EXISTS (
+                        SELECT 1 FROM json_each(context_tags)
+                        WHERE json_each.value IN ({tag_placeholders})
+                    )"""
                 )
-            else:
-                cursor = conn.execute(
-                    """
-                    SELECT * FROM patterns
-                    WHERE priority_score >= ?
-                    ORDER BY priority_score DESC
-                    LIMIT ?
-                    """,
-                    (min_priority, limit),
-                )
+                params.extend(context_tags)
+
+            params.append(limit)
+            query = f"""
+                SELECT * FROM patterns
+                WHERE {" AND ".join(where_clauses)}
+                ORDER BY priority_score DESC
+                LIMIT ?
+            """
+            cursor = conn.execute(query, tuple(params))
 
             records = []
             for row in cursor.fetchall():

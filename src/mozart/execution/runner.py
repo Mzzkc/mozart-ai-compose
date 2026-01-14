@@ -1708,11 +1708,38 @@ class JobRunner:
             return [], []
 
         try:
-            # Query patterns from global store with minimum priority
+            # Build context tags from execution context for filtering
+            # This enables selective pattern retrieval based on current job type
+            query_context_tags = context_tags or []
+            if not query_context_tags:
+                # Auto-generate tags from job context if not provided
+                query_context_tags = [
+                    f"sheet:{sheet_num}",
+                ]
+                # Add job name as tag for similar job matching
+                if job_id:
+                    query_context_tags.append(f"job:{job_id}")
+
+            # Query patterns from global store with context filtering
             patterns = self._global_learning_store.get_patterns(
                 min_priority=0.3,
                 limit=5,
+                context_tags=query_context_tags if query_context_tags else None,
             )
+
+            # If no patterns match with context filtering, fall back to unfiltered
+            if not patterns:
+                self._logger.debug(
+                    "patterns.query_global_fallback",
+                    job_id=job_id,
+                    sheet_num=sheet_num,
+                    context_tags=query_context_tags,
+                    reason="no_patterns_matched_context",
+                )
+                patterns = self._global_learning_store.get_patterns(
+                    min_priority=0.3,
+                    limit=5,
+                )
 
             if not patterns:
                 return [], []
@@ -1745,6 +1772,7 @@ class JobRunner:
                 sheet_num=sheet_num,
                 patterns_found=len(descriptions),
                 pattern_ids=pattern_ids,
+                context_tags_used=query_context_tags,
             )
 
             return descriptions, pattern_ids

@@ -750,3 +750,160 @@ class TestLearningActivationIntegration:
         )
         assert updated_pattern is not None
         assert updated_pattern.led_to_success_count == 1
+
+
+# =============================================================================
+# TestSelectivePatternRetrieval
+# =============================================================================
+
+
+class TestSelectivePatternRetrieval:
+    """Tests for Selective Pattern Retrieval (SPR) - context_tags filtering.
+
+    Evolution v7: Tests the context_tags filtering capability in get_patterns().
+    """
+
+    def test_get_patterns_filters_by_context_tags(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that get_patterns filters by context_tags correctly."""
+        # Create patterns with different context tags
+        global_store.record_pattern(
+            pattern_type="validation_failure",
+            pattern_name="sheet_specific",
+            description="Pattern for sheet 5",
+            context_tags=["sheet:5", "job:test-job"],
+        )
+        global_store.record_pattern(
+            pattern_type="validation_failure",
+            pattern_name="different_context",
+            description="Pattern for sheet 10",
+            context_tags=["sheet:10", "job:other-job"],
+        )
+        global_store.record_pattern(
+            pattern_type="validation_failure",
+            pattern_name="no_tags",
+            description="Pattern without tags",
+            context_tags=None,
+        )
+
+        # Query with context_tags that match first pattern
+        patterns = global_store.get_patterns(
+            min_priority=0.0,
+            context_tags=["sheet:5"],
+        )
+
+        # Should only return the pattern with matching tag
+        assert len(patterns) == 1
+        assert patterns[0].pattern_name == "sheet_specific"
+
+    def test_get_patterns_any_tag_matches(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that ANY tag match returns the pattern (OR semantics)."""
+        global_store.record_pattern(
+            pattern_type="test_pattern",
+            pattern_name="multi_tag_pattern",
+            description="Pattern with multiple tags",
+            context_tags=["sheet:1", "sheet:2", "job:my-job"],
+        )
+
+        # Query with a tag that matches one of the pattern's tags
+        patterns = global_store.get_patterns(
+            min_priority=0.0,
+            context_tags=["sheet:2", "unrelated:tag"],
+        )
+
+        assert len(patterns) == 1
+        assert patterns[0].pattern_name == "multi_tag_pattern"
+
+    def test_get_patterns_no_match_returns_empty(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that non-matching context_tags returns empty list."""
+        global_store.record_pattern(
+            pattern_type="test_pattern",
+            pattern_name="tagged_pattern",
+            description="Pattern with tags",
+            context_tags=["sheet:5", "job:specific-job"],
+        )
+
+        # Query with non-matching tags
+        patterns = global_store.get_patterns(
+            min_priority=0.0,
+            context_tags=["sheet:99", "job:nonexistent"],
+        )
+
+        assert len(patterns) == 0
+
+    def test_get_patterns_none_context_tags_returns_all(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that context_tags=None returns all patterns (no filtering)."""
+        global_store.record_pattern(
+            pattern_type="test_pattern",
+            pattern_name="pattern_with_tags",
+            context_tags=["sheet:5"],
+        )
+        global_store.record_pattern(
+            pattern_type="test_pattern",
+            pattern_name="pattern_without_tags",
+            context_tags=None,
+        )
+
+        # Query without context_tags filter
+        patterns = global_store.get_patterns(min_priority=0.0, context_tags=None)
+
+        # Should return all patterns
+        assert len(patterns) >= 2
+        pattern_names = {p.pattern_name for p in patterns}
+        assert "pattern_with_tags" in pattern_names
+        assert "pattern_without_tags" in pattern_names
+
+    def test_get_patterns_empty_list_same_as_none(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that context_tags=[] behaves same as context_tags=None."""
+        global_store.record_pattern(
+            pattern_type="test_pattern",
+            pattern_name="any_pattern",
+            context_tags=["some:tag"],
+        )
+
+        # Empty list should NOT filter
+        patterns_empty = global_store.get_patterns(min_priority=0.0, context_tags=[])
+        patterns_none = global_store.get_patterns(min_priority=0.0, context_tags=None)
+
+        # Both should return the same results
+        assert len(patterns_empty) == len(patterns_none)
+
+    def test_get_patterns_combines_type_and_tag_filters(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that pattern_type and context_tags filters work together."""
+        global_store.record_pattern(
+            pattern_type="type_a",
+            pattern_name="type_a_tagged",
+            context_tags=["sheet:5"],
+        )
+        global_store.record_pattern(
+            pattern_type="type_b",
+            pattern_name="type_b_tagged",
+            context_tags=["sheet:5"],
+        )
+        global_store.record_pattern(
+            pattern_type="type_a",
+            pattern_name="type_a_different_tag",
+            context_tags=["sheet:10"],
+        )
+
+        # Query with both filters
+        patterns = global_store.get_patterns(
+            pattern_type="type_a",
+            min_priority=0.0,
+            context_tags=["sheet:5"],
+        )
+
+        # Should only match type_a with sheet:5 tag
+        assert len(patterns) == 1
+        assert patterns[0].pattern_name == "type_a_tagged"
