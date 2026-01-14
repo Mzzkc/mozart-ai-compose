@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 import jinja2
 
-from mozart.core.config import PromptConfig
+from mozart.core.config import PromptConfig, ValidationRule
 
 if TYPE_CHECKING:
     from mozart.execution.validation import ValidationResult
@@ -118,12 +118,17 @@ class PromptBuilder:
         self,
         context: SheetContext,
         patterns: list[str] | None = None,
+        validation_rules: list[ValidationRule] | None = None,
     ) -> str:
         """Build the standard sheet prompt from config.
 
         Args:
             context: Sheet context with item range and workspace.
             patterns: Optional list of learned pattern descriptions to inject.
+            validation_rules: Optional list of validation rules to inject as
+                requirements. These are the rules that will be checked after
+                sheet execution - injecting them helps Claude understand
+                exactly what success looks like.
 
         Returns:
             Rendered prompt string.
@@ -152,6 +157,13 @@ class PromptBuilder:
             pattern_section = self._format_patterns_section(patterns)
             prompt = f"{prompt}\n\n{pattern_section}"
 
+        # Inject validation requirements if available
+        if validation_rules:
+            validation_section = self._format_validation_requirements(
+                validation_rules, template_context
+            )
+            prompt = f"{prompt}\n\n{validation_section}"
+
         return prompt
 
     def _format_patterns_section(self, patterns: list[str]) -> str:
@@ -179,6 +191,103 @@ class PromptBuilder:
 
         return "\n".join(lines)
 
+    def _format_validation_requirements(
+        self,
+        rules: list[ValidationRule],
+        template_context: dict[str, Any],
+    ) -> str:
+        """Format validation rules as success requirements for prompt injection.
+
+        Converts validation rules into clear requirements that help Claude
+        understand exactly what success looks like. Expands template variables
+        in paths/patterns to show actual expected values.
+
+        Args:
+            rules: List of validation rules to format.
+            template_context: Template variables for path expansion.
+
+        Returns:
+            Formatted markdown section for prompt injection.
+        """
+        if not rules:
+            return ""
+
+        lines = ["---", "## Success Requirements (Validated Automatically)", ""]
+        lines.append(
+            "Your output will be validated against these requirements. "
+            "All must pass for success:"
+        )
+        lines.append("")
+
+        for i, rule in enumerate(rules, 1):
+            # Expand template variables in paths and patterns
+            expanded_path = self._expand_template(
+                rule.path or "", template_context
+            )
+            expanded_pattern = self._expand_template(
+                rule.pattern or "", template_context
+            )
+
+            desc = rule.description or f"Requirement {i}"
+
+            if rule.type == "file_exists":
+                lines.append(f"{i}. **{desc}**")
+                lines.append(f"   - Create file: `{expanded_path}`")
+
+            elif rule.type == "file_modified":
+                lines.append(f"{i}. **{desc}**")
+                lines.append(f"   - Modify file: `{expanded_path}` (must update it during execution)")
+
+            elif rule.type == "content_contains":
+                lines.append(f"{i}. **{desc}**")
+                lines.append(f"   - File: `{expanded_path}`")
+                lines.append(f"   - Must contain exactly: `{expanded_pattern}`")
+
+            elif rule.type == "content_regex":
+                lines.append(f"{i}. **{desc}**")
+                lines.append(f"   - File: `{expanded_path}`")
+                lines.append(f"   - Must match pattern: `{expanded_pattern}`")
+
+            elif rule.type == "command_succeeds":
+                command = rule.command or ""
+                display_cmd = command[:60] + "..." if len(command) > 60 else command
+                lines.append(f"{i}. **{desc}**")
+                lines.append(f"   - Command must succeed: `{display_cmd}`")
+
+            lines.append("")
+
+        lines.append(
+            "**Important**: These validations run automatically. Ensure your output "
+            "matches exactly - partial matches or variations may fail validation."
+        )
+
+        return "\n".join(lines)
+
+    def _expand_template(self, value: str, context: dict[str, Any]) -> str:
+        """Expand template variables in a string.
+
+        Args:
+            value: String potentially containing {workspace}, {sheet_num}, etc.
+            context: Template variables to substitute.
+
+        Returns:
+            Expanded string with variables replaced.
+        """
+        if not value:
+            return value
+
+        try:
+            # Handle simple {variable} format
+            result = value
+            for key, val in context.items():
+                placeholder = f"{{{key}}}"
+                if placeholder in result:
+                    result = result.replace(placeholder, str(val))
+            return result
+        except Exception:
+            # If expansion fails, return original
+            return value
+
     def _build_default_prompt(self, context: SheetContext) -> str:
         """Build a simple default prompt when no template is provided.
 
@@ -201,22 +310,32 @@ class PromptBuilder:
 
         return prompt
 
-    def build_completion_prompt(self, ctx: CompletionContext) -> str:
+    def build_completion_prompt(
+        self,
+        ctx: CompletionContext,
+        semantic_hints: list[str] | None = None,
+    ) -> str:
         """Generate auto-completion prompt for partial failures.
 
         This prompt tells the agent:
         1. What validations already passed (don't redo)
         2. What validations failed (focus on these)
-        3. Clear instruction to complete only missing items
+        3. Semantic hints for focused recovery
+        4. Clear instruction to complete only missing items
 
         Args:
             ctx: Completion context with passed/failed validations.
+            semantic_hints: Optional list of actionable hints from semantic
+                validation analysis. These are suggested fixes derived from
+                the failure_category and suggested_fix fields of failed
+                ValidationResults.
 
         Returns:
             Completion prompt string.
         """
         passed_section = self._format_passed_validations(ctx.passed_validations)
         failed_section = self._format_failed_validations(ctx.failed_validations)
+        hints_section = self._format_semantic_hints(semantic_hints)
 
         # Truncate original prompt if very long
         original_context = ctx.original_prompt
@@ -240,7 +359,7 @@ These files exist and are valid. DO NOT recreate or modify them unless absolutel
 ### INCOMPLETE ITEMS (FOCUS HERE)
 The following validations failed and need to be completed:
 {failed_section}
-
+{hints_section}
 ### INSTRUCTIONS
 1. Review what already exists to understand the context
 2. Complete ONLY the missing items listed above
@@ -254,6 +373,28 @@ The following validations failed and need to be completed:
 Focus on completing the missing items. Do not start over from scratch."""
 
         return completion_prompt.strip()
+
+    def _format_semantic_hints(self, hints: list[str] | None) -> str:
+        """Format semantic hints for injection into completion prompt.
+
+        Args:
+            hints: List of actionable hints from semantic validation analysis.
+
+        Returns:
+            Formatted string with hints section, or empty string if no hints.
+        """
+        if not hints:
+            return ""
+
+        lines = [
+            "",
+            "### SUGGESTED FIXES (from validation analysis)",
+        ]
+        for i, hint in enumerate(hints, 1):
+            lines.append(f"  {i}. {hint}")
+        lines.append("")
+
+        return "\n".join(lines)
 
     def _format_passed_validations(
         self, results: list["ValidationResult"]
