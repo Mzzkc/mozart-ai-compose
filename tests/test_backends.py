@@ -320,7 +320,7 @@ class TestClaudeCliBackendInit:
         backend = ClaudeCliBackend()
         assert backend.skip_permissions is True
         assert backend.disable_mcp is True  # Default for faster execution
-        assert backend.output_format == "json"  # Explicit default for automation
+        assert backend.output_format == "text"  # Default for human-readable output
         assert backend.cli_model is None
         assert backend.allowed_tools is None
         assert backend.system_prompt_file is None
