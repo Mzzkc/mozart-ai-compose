@@ -3479,11 +3479,22 @@ def learning_stats(
     success_rate = stats.get("first_attempt_success_rate", 0) * 100
     console.print(f"  First-attempt success: [{'green' if success_rate > 70 else 'yellow'}]{success_rate:.1f}%[/]")
 
-    # Pattern stats
+    # Pattern stats with data source breakdown
     console.print("\n[bold cyan]Patterns[/bold cyan]")
     console.print(f"  Total learned: [yellow]{stats.get('total_patterns', 0)}[/yellow]")
     avg_eff = stats.get("avg_pattern_effectiveness", 0)
     console.print(f"  Avg effectiveness: [{'green' if avg_eff > 0.6 else 'yellow'}]{avg_eff:.2f}[/]")
+
+    # Count patterns by type for data source visibility
+    all_patterns = store.get_patterns(limit=1000)
+    output_patterns = sum(1 for p in all_patterns if p.pattern_type == "output_pattern")
+    error_code_patterns = sum(1 for p in all_patterns if "error_code" in (p.pattern_name or ""))
+    semantic_patterns = sum(1 for p in all_patterns if p.pattern_type == "semantic_failure")
+
+    console.print("\n[bold cyan]Data Sources[/bold cyan]")
+    console.print(f"  Output patterns extracted: [cyan]{output_patterns}[/cyan]")
+    console.print(f"  Error code patterns: [cyan]{error_code_patterns}[/cyan]")
+    console.print(f"  Semantic failure patterns: [cyan]{semantic_patterns}[/cyan]")
 
     # Workspace coverage
     console.print("\n[bold cyan]Workspaces[/bold cyan]")
@@ -3501,6 +3512,58 @@ def learning_stats(
             "\n[yellow]⚠ Migration needed:[/yellow] Run 'mozart aggregate-patterns' "
             "to import workspace-local outcomes"
         )
+
+
+@app.command("learning-insights")
+def learning_insights(
+    limit: Annotated[int, typer.Option(help="Max patterns to show")] = 10,
+    pattern_type: Annotated[str | None, typer.Option(help="Filter by type")] = None,
+) -> None:
+    """Show actionable insights from learning data.
+
+    Displays patterns extracted from execution history including:
+    - Output patterns (from stdout/stderr analysis)
+    - Error code patterns (aggregated error statistics)
+    - Success predictors (factors that correlate with success)
+
+    Examples:
+        mozart learning-insights
+        mozart learning-insights --pattern-type output_pattern
+        mozart learning-insights --limit 20
+    """
+    from mozart.learning.global_store import GlobalLearningStore
+
+    console.print("[bold]Learning Insights[/bold]")
+    console.print()
+
+    store = GlobalLearningStore()
+    patterns = store.get_patterns(
+        pattern_type=pattern_type,
+        limit=limit,
+    )
+
+    if not patterns:
+        console.print("[dim]No patterns learned yet. Run some jobs![/dim]")
+        return
+
+    # Display table of patterns
+    table = Table(title="Learned Patterns")
+    table.add_column("Type", style="cyan")
+    table.add_column("Description")
+    table.add_column("Freq", justify="right")
+    table.add_column("Effectiveness", justify="right")
+
+    for p in patterns:
+        desc_str = p.description or ""
+        desc = desc_str[:45] + "..." if len(desc_str) > 45 else desc_str
+        table.add_row(
+            p.pattern_type,
+            desc or "[no description]",
+            str(p.occurrence_count),
+            f"{p.effectiveness_score:.0%}" if p.effectiveness_score else "-",
+        )
+
+    console.print(table)
 
 
 @app.command("learning-activity")
