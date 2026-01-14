@@ -16,7 +16,13 @@ from typing import TYPE_CHECKING
 
 from mozart.learning.global_store import GlobalLearningStore, PatternRecord
 from mozart.learning.outcomes import SheetOutcome
-from mozart.learning.patterns import DetectedPattern, PatternDetector
+from mozart.learning.patterns import (
+    DetectedPattern,
+    ExtractedPattern,
+    OutputPatternExtractor,
+    PatternDetector,
+    PatternType,
+)
 from mozart.learning.weighter import PatternWeighter
 
 if TYPE_CHECKING:
@@ -317,6 +323,174 @@ class PatternAggregator:
         return deprecated_count
 
 
+class EnhancedAggregationResult(AggregationResult):
+    """Extended aggregation result including output pattern extraction.
+
+    Adds fields for tracking patterns extracted from stdout/stderr output
+    in addition to the standard validation-based patterns.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.output_patterns: list[ExtractedPattern] = []
+        self.output_pattern_summary: dict[str, int] = {}
+
+    def __repr__(self) -> str:
+        return (
+            f"EnhancedAggregationResult(outcomes={self.outcomes_recorded}, "
+            f"detected={self.patterns_detected}, merged={self.patterns_merged}, "
+            f"output_patterns={len(self.output_patterns)})"
+        )
+
+
+class EnhancedPatternAggregator(PatternAggregator):
+    """Extended aggregator that integrates OutputPatternExtractor.
+
+    Combines validation-based pattern detection with stdout/stderr output
+    analysis to provide comprehensive learning data collection.
+
+    This aggregator:
+    1. Runs standard pattern detection (validation, retry, completion patterns)
+    2. Extracts patterns from stdout_tail/stderr_tail in outcomes
+    3. Creates DetectedPatterns from output patterns for global store
+    4. Merges all patterns into unified learning store
+    """
+
+    def __init__(
+        self,
+        global_store: GlobalLearningStore,
+        weighter: PatternWeighter | None = None,
+    ) -> None:
+        """Initialize the enhanced pattern aggregator.
+
+        Args:
+            global_store: The global learning store for persistence.
+            weighter: Pattern weighter for priority calculation.
+        """
+        super().__init__(global_store, weighter)
+        self.output_extractor = OutputPatternExtractor()
+
+    def aggregate_with_all_sources(
+        self,
+        outcomes: list[SheetOutcome],
+        workspace_path: Path,
+        model: str | None = None,
+    ) -> EnhancedAggregationResult:
+        """Aggregate outcomes using all pattern sources.
+
+        Extends standard aggregation by also extracting patterns from
+        stdout/stderr output in outcomes.
+
+        Args:
+            outcomes: List of sheet outcomes from the completed job.
+            workspace_path: Path to the workspace for hashing.
+            model: Optional model name used for execution.
+
+        Returns:
+            EnhancedAggregationResult with output pattern statistics.
+        """
+        result = EnhancedAggregationResult()
+
+        if not outcomes:
+            return result
+
+        # Step 1: Extract output patterns from all outcomes
+        all_output_patterns: list[ExtractedPattern] = []
+        for outcome in outcomes:
+            # Extract from stdout_tail if available
+            stdout_tail = getattr(outcome, "stdout_tail", None)
+            if stdout_tail:
+                stdout_patterns = self.output_extractor.extract_from_output(
+                    stdout_tail, source="stdout"
+                )
+                all_output_patterns.extend(stdout_patterns)
+
+            # Extract from stderr_tail if available
+            stderr_tail = getattr(outcome, "stderr_tail", None)
+            if stderr_tail:
+                stderr_patterns = self.output_extractor.extract_from_output(
+                    stderr_tail, source="stderr"
+                )
+                all_output_patterns.extend(stderr_patterns)
+
+        result.output_patterns = all_output_patterns
+        result.output_pattern_summary = self.output_extractor.get_pattern_summary(
+            all_output_patterns
+        )
+
+        # Step 2: Record all outcomes to executions table
+        execution_ids = []
+        for outcome in outcomes:
+            exec_id = self.global_store.record_outcome(
+                outcome=outcome,
+                workspace_path=workspace_path,
+                model=model,
+            )
+            execution_ids.append(exec_id)
+            result.outcomes_recorded += 1
+
+        # Step 3: Run standard pattern detection on new outcomes
+        detector = PatternDetector(outcomes)
+        detected_patterns = detector.detect_all()
+        result.patterns_detected = len(detected_patterns)
+
+        # Step 4: Convert output patterns to DetectedPatterns for storage
+        output_detected = self._convert_output_patterns_to_detected(
+            result.output_pattern_summary
+        )
+        detected_patterns.extend(output_detected)
+        result.patterns_detected += len(output_detected)
+
+        # Step 5: Merge all detected patterns with global store
+        for pattern in detected_patterns:
+            pattern_id = self._merge_pattern(pattern)
+            if pattern_id:
+                result.patterns_merged += 1
+
+        # Step 6: Update priority scores for affected patterns
+        self._update_all_priorities()
+        result.priorities_updated = True
+
+        # Step 7: Record pattern applications for effectiveness tracking
+        for outcome in outcomes:
+            self._record_pattern_applications(outcome, execution_ids)
+
+        logger.info(
+            f"Enhanced aggregation: {result.outcomes_recorded} outcomes, "
+            f"{result.patterns_detected} patterns (incl. {len(output_detected)} from output), "
+            f"{result.patterns_merged} merged, {len(all_output_patterns)} output patterns extracted"
+        )
+
+        return result
+
+    def _convert_output_patterns_to_detected(
+        self,
+        pattern_summary: dict[str, int],
+    ) -> list[DetectedPattern]:
+        """Convert output pattern summary to DetectedPattern objects.
+
+        Args:
+            pattern_summary: Dict mapping pattern_name to occurrence count.
+
+        Returns:
+            List of DetectedPattern objects for output patterns.
+        """
+        detected = []
+        for pattern_name, count in pattern_summary.items():
+            if count >= 2:  # Only create patterns for recurring issues
+                detected.append(
+                    DetectedPattern(
+                        pattern_type=PatternType.OUTPUT_PATTERN,
+                        description=f"Output error '{pattern_name}' detected ({count}x)",
+                        frequency=count,
+                        success_rate=0.0,
+                        context_tags=[f"output_pattern:{pattern_name}"],
+                        confidence=min(0.85, 0.5 + (count * 0.1)),
+                    )
+                )
+        return detected
+
+
 def aggregate_job_outcomes(
     outcomes: list[SheetOutcome],
     workspace_path: Path,
@@ -342,6 +516,38 @@ def aggregate_job_outcomes(
     aggregator = PatternAggregator(store)
 
     return aggregator.aggregate_outcomes(
+        outcomes=outcomes,
+        workspace_path=workspace_path,
+        model=model,
+    )
+
+
+def aggregate_job_outcomes_enhanced(
+    outcomes: list[SheetOutcome],
+    workspace_path: Path,
+    global_store: GlobalLearningStore | None = None,
+    model: str | None = None,
+) -> EnhancedAggregationResult:
+    """Enhanced aggregation including output pattern extraction.
+
+    Uses EnhancedPatternAggregator to also extract patterns from
+    stdout/stderr output in outcomes.
+
+    Args:
+        outcomes: List of sheet outcomes from the completed job.
+        workspace_path: Path to the workspace for hashing.
+        global_store: Optional global store (uses default if None).
+        model: Optional model name used for execution.
+
+    Returns:
+        EnhancedAggregationResult with output pattern statistics.
+    """
+    from mozart.learning.global_store import get_global_store
+
+    store = global_store or get_global_store()
+    aggregator = EnhancedPatternAggregator(store)
+
+    return aggregator.aggregate_with_all_sources(
         outcomes=outcomes,
         workspace_path=workspace_path,
         model=model,

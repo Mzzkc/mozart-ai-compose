@@ -221,6 +221,7 @@ class PatternDetector:
         patterns.extend(self._detect_success_patterns())
         patterns.extend(self._detect_confidence_patterns())
         patterns.extend(self._detect_semantic_patterns())
+        patterns.extend(self._detect_error_code_patterns())
 
         # Calculate effectiveness for each pattern from outcomes
         self._calculate_effectiveness(patterns)
@@ -432,6 +433,90 @@ class PatternDetector:
                     confidence=0.6,
                 )
             )
+
+        return patterns
+
+    def _detect_error_code_patterns(self) -> list[DetectedPattern]:
+        """Detect patterns from error codes in outcomes.
+
+        Analyzes error_code and error_history fields in SheetOutcome to identify
+        recurring execution errors that can inform retry strategies and error
+        handling improvements.
+
+        Error codes are categorized (E0xx, E1xx, etc.) and aggregated across
+        outcomes to identify recurring issues.
+
+        Returns:
+            List of error code patterns.
+        """
+        patterns: list[DetectedPattern] = []
+
+        # Aggregate error codes across outcomes
+        error_counts: dict[str, int] = {}
+        error_evidence: dict[str, list[str]] = {}
+        error_categories: dict[str, int] = {}
+
+        for outcome in self.outcomes:
+            # Extract error codes from error_history if available
+            error_history = getattr(outcome, "error_history", None)
+            if error_history and isinstance(error_history, list):
+                for error_entry in error_history:
+                    if isinstance(error_entry, dict):
+                        error_code = error_entry.get("error_code")
+                        if error_code:
+                            error_counts[error_code] = (
+                                error_counts.get(error_code, 0) + 1
+                            )
+                            if error_code not in error_evidence:
+                                error_evidence[error_code] = []
+                            if outcome.sheet_id not in error_evidence[error_code]:
+                                error_evidence[error_code].append(outcome.sheet_id)
+
+                            # Track by category (first 2 chars after E)
+                            if error_code.startswith("E") and len(error_code) >= 3:
+                                category = error_code[:3] + "x"  # E00x, E10x, etc.
+                                error_categories[category] = (
+                                    error_categories.get(category, 0) + 1
+                                )
+
+            # Also check validation_results for error_code fields
+            for vr in outcome.validation_results:
+                error_code = vr.get("error_code")
+                if error_code:
+                    error_counts[error_code] = error_counts.get(error_code, 0) + 1
+                    if error_code not in error_evidence:
+                        error_evidence[error_code] = []
+                    if outcome.sheet_id not in error_evidence[error_code]:
+                        error_evidence[error_code].append(outcome.sheet_id)
+
+        # Create patterns for recurring error codes (seen >= 2 times)
+        for code, count in error_counts.items():
+            if count >= 2:
+                patterns.append(
+                    DetectedPattern(
+                        pattern_type=PatternType.VALIDATION_FAILURE,
+                        description=f"Error code '{code}' occurs frequently ({count}x)",
+                        frequency=count,
+                        success_rate=0.0,
+                        context_tags=[f"error_code:{code}"],
+                        evidence=error_evidence.get(code, [])[:5],
+                        confidence=min(0.85, 0.5 + (count * 0.1)),
+                    )
+                )
+
+        # Create patterns for error categories (aggregated)
+        for category, count in error_categories.items():
+            if count >= 3:
+                patterns.append(
+                    DetectedPattern(
+                        pattern_type=PatternType.VALIDATION_FAILURE,
+                        description=f"Error category '{category}' is common ({count}x)",
+                        frequency=count,
+                        success_rate=0.0,
+                        context_tags=[f"error_category:{category}"],
+                        confidence=min(0.80, 0.45 + (count * 0.08)),
+                    )
+                )
 
         return patterns
 

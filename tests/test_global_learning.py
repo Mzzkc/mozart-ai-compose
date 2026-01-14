@@ -14,7 +14,12 @@ from pathlib import Path
 import pytest
 
 from mozart.core.checkpoint import SheetStatus
-from mozart.learning.aggregator import AggregationResult, PatternAggregator
+from mozart.learning.aggregator import (
+    AggregationResult,
+    EnhancedAggregationResult,
+    EnhancedPatternAggregator,
+    PatternAggregator,
+)
 from mozart.learning.global_store import (
     GlobalLearningStore,
     PatternRecord,
@@ -1174,3 +1179,462 @@ class TestPatternTypeEnumOutputPattern:
 
         for ptype in expected_types:
             assert hasattr(PatternType, ptype)
+
+
+# =============================================================================
+# TestErrorCodePatterns
+# =============================================================================
+
+
+class TestErrorCodePatterns:
+    """Tests for _detect_error_code_patterns() method (Sheet 6 implementation)."""
+
+    def test_detect_error_code_patterns_empty_outcomes(self) -> None:
+        """Test error code detection with empty outcomes."""
+        from mozart.learning.patterns import PatternDetector
+
+        detector = PatternDetector([])
+        patterns = detector._detect_error_code_patterns()
+        assert patterns == []
+
+    def test_detect_error_code_patterns_no_error_codes(self) -> None:
+        """Test error code detection when outcomes have no error codes."""
+        from mozart.learning.patterns import PatternDetector
+
+        outcomes = [
+            SheetOutcome(
+                sheet_id="test-1",
+                job_id="test-job",
+                validation_results=[
+                    {"rule_type": "file_exists", "passed": True}
+                ],
+                execution_duration=30.0,
+                retry_count=0,
+                completion_mode_used=False,
+                final_status=SheetStatus.COMPLETED,
+                validation_pass_rate=1.0,
+                first_attempt_success=True,
+            )
+        ]
+
+        detector = PatternDetector(outcomes)
+        patterns = detector._detect_error_code_patterns()
+        assert patterns == []
+
+    def test_detect_error_code_patterns_single_occurrence(self) -> None:
+        """Test error code detection with single occurrence (not pattern)."""
+        from mozart.learning.patterns import PatternDetector
+
+        outcomes = [
+            SheetOutcome(
+                sheet_id="test-1",
+                job_id="test-job",
+                validation_results=[
+                    {"rule_type": "file_exists", "passed": False, "error_code": "E009"}
+                ],
+                execution_duration=30.0,
+                retry_count=0,
+                completion_mode_used=False,
+                final_status=SheetStatus.FAILED,
+                validation_pass_rate=0.0,
+                first_attempt_success=False,
+            )
+        ]
+
+        detector = PatternDetector(outcomes)
+        patterns = detector._detect_error_code_patterns()
+        # Single occurrence should not create a pattern
+        assert patterns == []
+
+    def test_detect_error_code_patterns_recurring(self) -> None:
+        """Test error code detection with recurring error codes."""
+        from mozart.learning.patterns import PatternDetector
+
+        outcomes = [
+            SheetOutcome(
+                sheet_id="test-1",
+                job_id="test-job",
+                validation_results=[
+                    {"rule_type": "file_exists", "passed": False, "error_code": "E009"}
+                ],
+                execution_duration=30.0,
+                retry_count=0,
+                completion_mode_used=False,
+                final_status=SheetStatus.FAILED,
+                validation_pass_rate=0.0,
+                first_attempt_success=False,
+            ),
+            SheetOutcome(
+                sheet_id="test-2",
+                job_id="test-job",
+                validation_results=[
+                    {"rule_type": "file_exists", "passed": False, "error_code": "E009"}
+                ],
+                execution_duration=45.0,
+                retry_count=1,
+                completion_mode_used=False,
+                final_status=SheetStatus.FAILED,
+                validation_pass_rate=0.0,
+                first_attempt_success=False,
+            ),
+        ]
+
+        detector = PatternDetector(outcomes)
+        patterns = detector._detect_error_code_patterns()
+
+        # Should have at least one pattern for E009
+        assert len(patterns) >= 1
+        error_pattern = next(
+            (p for p in patterns if "E009" in p.description), None
+        )
+        assert error_pattern is not None
+        assert error_pattern.frequency >= 2
+        assert "error_code:E009" in error_pattern.context_tags
+
+    def test_detect_error_code_confidence_scaling(self) -> None:
+        """Test that error code pattern confidence scales with frequency."""
+        from mozart.learning.patterns import PatternDetector
+
+        # Create 5 outcomes with same error code
+        outcomes = []
+        for i in range(5):
+            outcomes.append(
+                SheetOutcome(
+                    sheet_id=f"test-{i}",
+                    job_id="test-job",
+                    validation_results=[
+                        {"rule_type": "file_exists", "passed": False, "error_code": "E103"}
+                    ],
+                    execution_duration=30.0,
+                    retry_count=0,
+                    completion_mode_used=False,
+                    final_status=SheetStatus.FAILED,
+                    validation_pass_rate=0.0,
+                    first_attempt_success=False,
+                )
+            )
+
+        detector = PatternDetector(outcomes)
+        patterns = detector._detect_error_code_patterns()
+
+        error_pattern = next(
+            (p for p in patterns if "E103" in p.description), None
+        )
+        assert error_pattern is not None
+        # Higher frequency should have higher confidence
+        assert error_pattern.confidence >= 0.85
+
+    def test_error_patterns_in_detect_all(self) -> None:
+        """Test that error code patterns are included in detect_all()."""
+        from mozart.learning.patterns import PatternDetector
+
+        outcomes = [
+            SheetOutcome(
+                sheet_id="test-1",
+                job_id="test-job",
+                validation_results=[
+                    {"rule_type": "file_exists", "passed": False, "error_code": "E201"}
+                ],
+                execution_duration=30.0,
+                retry_count=0,
+                completion_mode_used=False,
+                final_status=SheetStatus.FAILED,
+                validation_pass_rate=0.0,
+                first_attempt_success=False,
+            ),
+            SheetOutcome(
+                sheet_id="test-2",
+                job_id="test-job",
+                validation_results=[
+                    {"rule_type": "file_exists", "passed": False, "error_code": "E201"}
+                ],
+                execution_duration=45.0,
+                retry_count=1,
+                completion_mode_used=False,
+                final_status=SheetStatus.FAILED,
+                validation_pass_rate=0.0,
+                first_attempt_success=False,
+            ),
+        ]
+
+        detector = PatternDetector(outcomes)
+        all_patterns = detector.detect_all()
+
+        # Should include error code pattern
+        error_pattern = next(
+            (p for p in all_patterns if "E201" in p.description), None
+        )
+        assert error_pattern is not None
+
+
+# =============================================================================
+# TestEnhancedPatternAggregator
+# =============================================================================
+
+
+class TestEnhancedPatternAggregator:
+    """Tests for EnhancedPatternAggregator class (Sheet 6 implementation)."""
+
+    @pytest.fixture
+    def enhanced_aggregator(
+        self, global_store: GlobalLearningStore
+    ) -> EnhancedPatternAggregator:
+        """Create an enhanced pattern aggregator with test store."""
+        return EnhancedPatternAggregator(global_store)
+
+    def test_aggregate_empty_outcomes(
+        self, enhanced_aggregator: EnhancedPatternAggregator
+    ) -> None:
+        """Test enhanced aggregation with empty outcomes list."""
+        result = enhanced_aggregator.aggregate_with_all_sources(
+            outcomes=[],
+            workspace_path=Path("/tmp/test"),
+        )
+
+        assert isinstance(result, EnhancedAggregationResult)
+        assert result.outcomes_recorded == 0
+        assert result.patterns_detected == 0
+        assert result.output_patterns == []
+        assert result.output_pattern_summary == {}
+
+    def test_aggregate_with_output_patterns(
+        self, enhanced_aggregator: EnhancedPatternAggregator
+    ) -> None:
+        """Test enhanced aggregation extracts output patterns."""
+        # Create outcome with stdout containing patterns
+        outcome = SheetOutcome(
+            sheet_id="test-1",
+            job_id="test-job",
+            validation_results=[
+                {"rule_type": "file_exists", "passed": False}
+            ],
+            execution_duration=30.0,
+            retry_count=0,
+            completion_mode_used=False,
+            final_status=SheetStatus.FAILED,
+            validation_pass_rate=0.0,
+            first_attempt_success=False,
+        )
+        # Add stdout_tail with error patterns
+        outcome.stdout_tail = """Error: rate limit exceeded
+Traceback (most recent call last):
+  File "test.py", line 10
+ImportError: No module named 'requests'"""
+
+        result = enhanced_aggregator.aggregate_with_all_sources(
+            outcomes=[outcome],
+            workspace_path=Path("/tmp/test"),
+        )
+
+        assert result.outcomes_recorded == 1
+        assert len(result.output_patterns) >= 1
+        assert "rate_limit" in result.output_pattern_summary or \
+               "import_error" in result.output_pattern_summary or \
+               "traceback" in result.output_pattern_summary
+
+    def test_enhanced_aggregation_result_repr(self) -> None:
+        """Test EnhancedAggregationResult string representation."""
+        result = EnhancedAggregationResult()
+        result.outcomes_recorded = 5
+        result.patterns_detected = 10
+        result.patterns_merged = 8
+        result.output_patterns = []  # empty for test
+
+        repr_str = repr(result)
+
+        assert "outcomes=5" in repr_str
+        assert "detected=10" in repr_str
+        assert "merged=8" in repr_str
+        assert "output_patterns=0" in repr_str
+
+
+# =============================================================================
+# TestFullDataCollectionPipeline
+# =============================================================================
+
+
+class TestFullDataCollectionPipeline:
+    """Integration tests for full learning data collection flow (Sheet 6).
+
+    Tests the complete pipeline from SheetOutcome creation through
+    pattern extraction, aggregation, and global store storage.
+    """
+
+    def test_full_data_collection_pipeline(
+        self, temp_db_path: Path
+    ) -> None:
+        """Test complete learning data collection flow."""
+        # 1. Create outcomes with realistic stdout/stderr and error codes
+        outcomes = [
+            SheetOutcome(
+                sheet_id="test:1",
+                job_id="test-job",
+                validation_results=[
+                    {
+                        "rule_type": "file_exists",
+                        "passed": False,
+                        "error_code": "E009",
+                        "failure_category": "missing",
+                        "failure_reason": "File not created in workspace",
+                    }
+                ],
+                execution_duration=30.0,
+                retry_count=1,
+                completion_mode_used=False,
+                final_status=SheetStatus.FAILED,
+                validation_pass_rate=0.0,
+                first_attempt_success=False,
+            ),
+            SheetOutcome(
+                sheet_id="test:2",
+                job_id="test-job",
+                validation_results=[
+                    {
+                        "rule_type": "file_exists",
+                        "passed": False,
+                        "error_code": "E009",
+                        "failure_category": "missing",
+                        "failure_reason": "File not created in workspace",
+                    }
+                ],
+                execution_duration=45.0,
+                retry_count=2,
+                completion_mode_used=True,
+                final_status=SheetStatus.FAILED,
+                validation_pass_rate=0.0,
+                first_attempt_success=False,
+            ),
+            SheetOutcome(
+                sheet_id="test:3",
+                job_id="test-job",
+                validation_results=[
+                    {
+                        "rule_type": "content_contains",
+                        "passed": True,
+                    }
+                ],
+                execution_duration=20.0,
+                retry_count=0,
+                completion_mode_used=False,
+                final_status=SheetStatus.COMPLETED,
+                validation_pass_rate=1.0,
+                first_attempt_success=True,
+            ),
+        ]
+
+        # Add stdout_tail with error patterns to first outcome
+        outcomes[0].stdout_tail = (
+            "Error: FileNotFoundError: config.yaml not found\n"
+            "Traceback (most recent call last):\n"
+            "  File 'main.py', line 10\n"
+        )
+        outcomes[1].stdout_tail = (
+            "FileNotFoundError: config.yaml not found\n"
+            "Process failed\n"
+        )
+
+        # 2. Run enhanced aggregator
+        store = GlobalLearningStore(temp_db_path)
+        aggregator = EnhancedPatternAggregator(store)
+        result = aggregator.aggregate_with_all_sources(
+            outcomes, Path("/tmp/test-workspace")
+        )
+
+        # 3. Verify outcomes recorded
+        assert result.outcomes_recorded == 3
+
+        # 4. Verify patterns extracted (including output patterns)
+        assert result.patterns_detected >= 1
+
+        # 5. Verify output patterns extracted
+        assert len(result.output_patterns) >= 1
+        # Check that file_not_found pattern was detected from stdout
+        pattern_names = {p.pattern_name for p in result.output_patterns}
+        assert "file_not_found" in pattern_names or "traceback" in pattern_names
+
+        # 6. Verify stored in global store
+        patterns = store.get_patterns(min_priority=0.0)
+        assert len(patterns) >= 1
+
+        # 7. Verify error code pattern was detected
+        # Check that E009 pattern exists (from recurring error code)
+        error_pattern = next(
+            (p for p in patterns if p.description and "E009" in p.description), None
+        )
+        assert error_pattern is not None
+
+        # Cleanup
+        if temp_db_path.exists():
+            temp_db_path.unlink()
+
+    def test_pipeline_with_semantic_patterns(
+        self, temp_db_path: Path
+    ) -> None:
+        """Test pipeline detects semantic patterns from failure categories."""
+        outcomes = [
+            SheetOutcome(
+                sheet_id=f"test:{i}",
+                job_id="test-job",
+                validation_results=[
+                    {
+                        "rule_type": "file_exists",
+                        "passed": False,
+                        "failure_category": "stale",
+                        "failure_reason": "File not modified recently",
+                    }
+                ],
+                execution_duration=30.0,
+                retry_count=0,
+                completion_mode_used=False,
+                final_status=SheetStatus.FAILED,
+                validation_pass_rate=0.0,
+                first_attempt_success=False,
+            )
+            for i in range(3)  # 3 outcomes with same failure category
+        ]
+
+        store = GlobalLearningStore(temp_db_path)
+        aggregator = EnhancedPatternAggregator(store)
+        result = aggregator.aggregate_with_all_sources(
+            outcomes, Path("/tmp/test-workspace")
+        )
+
+        # Verify semantic patterns detected
+        assert result.patterns_detected >= 1
+
+        # Check patterns in store include semantic failure
+        patterns = store.get_patterns(min_priority=0.0)
+        stale_pattern = next(
+            (
+                p for p in patterns
+                if p.description and "stale" in p.description.lower()
+            ),
+            None,
+        )
+        assert stale_pattern is not None
+
+        # Cleanup
+        if temp_db_path.exists():
+            temp_db_path.unlink()
+
+    def test_import_verification(self) -> None:
+        """Verify all learning module imports work correctly."""
+        # Test all key imports
+        from mozart.learning import (
+            aggregator,
+            global_store,
+            outcomes,
+            patterns,
+            weighter,
+        )
+
+        # Verify key classes are accessible
+        assert hasattr(patterns, "OutputPatternExtractor")
+        assert hasattr(patterns, "ExtractedPattern")
+        assert hasattr(patterns, "PatternDetector")
+        assert hasattr(patterns, "PatternType")
+        assert hasattr(aggregator, "EnhancedPatternAggregator")
+        assert hasattr(aggregator, "EnhancedAggregationResult")
+        assert hasattr(outcomes, "SheetOutcome")
+        assert hasattr(global_store, "GlobalLearningStore")
+        assert hasattr(weighter, "PatternWeighter")

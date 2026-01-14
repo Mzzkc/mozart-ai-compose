@@ -62,6 +62,30 @@ class SheetOutcome:
     Example: ['⚠️ Common issue: file_exists validation tends to fail (seen 3x)']
     """
 
+    # Output capture fields (Evolution: Learning Data Collection)
+    stdout_tail: str = ""
+    """Captured tail of stdout from execution.
+
+    Stores the last N characters of stdout for pattern extraction.
+    Used by OutputPatternExtractor to detect error patterns.
+    """
+
+    stderr_tail: str = ""
+    """Captured tail of stderr from execution.
+
+    Stores the last N characters of stderr for pattern extraction.
+    Used by OutputPatternExtractor to detect error patterns.
+    """
+
+    error_history: list[dict[str, Any]] = field(default_factory=list)
+    """History of errors encountered during execution.
+
+    Each entry is a dict with error_code, category, message, etc.
+    Used by _detect_error_code_patterns() for recurring error analysis.
+
+    Example: [{'error_code': 'E009', 'category': 'transient', 'message': 'Rate limited'}]
+    """
+
 
 @runtime_checkable
 class OutcomeStore(Protocol):
@@ -243,6 +267,10 @@ class JsonOutcomeStore:
                     "fix_suggestions": o.fix_suggestions,
                     # Effectiveness tracking field (Evolution: Pattern Effectiveness)
                     "patterns_applied": o.patterns_applied,
+                    # Output capture fields (Evolution: Learning Data Collection)
+                    "stdout_tail": o.stdout_tail,
+                    "stderr_tail": o.stderr_tail,
+                    "error_history": o.error_history,
                 }
                 for o in self._outcomes
             ]
@@ -290,6 +318,10 @@ class JsonOutcomeStore:
                 fix_suggestions=o.get("fix_suggestions", []),
                 # Effectiveness tracking field (Evolution: Pattern Effectiveness)
                 patterns_applied=o.get("patterns_applied", []),
+                # Output capture fields (Evolution: Learning Data Collection)
+                stdout_tail=o.get("stdout_tail", ""),
+                stderr_tail=o.get("stderr_tail", ""),
+                error_history=o.get("error_history", []),
             )
             for o in data.get("outcomes", [])
         ]
