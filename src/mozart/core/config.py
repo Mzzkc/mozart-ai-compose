@@ -3,11 +3,97 @@
 Defines Pydantic models for loading and validating YAML job configurations.
 """
 
+from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
+
+
+class IsolationMode(str, Enum):
+    """Isolation method for parallel job execution."""
+
+    NONE = "none"  # Default: no isolation
+    WORKTREE = "worktree"  # Git worktree isolation
+
+
+class IsolationConfig(BaseModel):
+    """Configuration for execution isolation.
+
+    Worktree isolation creates a separate git working directory for each job,
+    enabling safe parallel execution where multiple jobs can modify code
+    without interfering with each other.
+
+    Example YAML:
+        isolation:
+          enabled: true
+          mode: worktree
+          branch_prefix: mozart
+          cleanup_on_success: true
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable execution isolation for parallel-safe jobs. "
+        "When true, creates isolated worktree before execution.",
+    )
+
+    mode: IsolationMode = Field(
+        default=IsolationMode.WORKTREE,
+        description="Isolation method. Currently only 'worktree' is supported.",
+    )
+
+    worktree_base: Path | None = Field(
+        default=None,
+        description="Directory for worktrees. Default: <workspace>/.worktrees",
+    )
+
+    branch_prefix: str = Field(
+        default="mozart",
+        description="Prefix for worktree branch names. "
+        "Branch format: {prefix}/{job-id}",
+        pattern=r"^[a-zA-Z][a-zA-Z0-9_-]*$",  # Valid git ref prefix
+    )
+
+    source_branch: str | None = Field(
+        default=None,
+        description="Branch to base worktree on. Default: current branch (HEAD).",
+    )
+
+    cleanup_on_success: bool = Field(
+        default=True,
+        description="Remove worktree after successful job completion. "
+        "Branch is preserved for review/merge.",
+    )
+
+    cleanup_on_failure: bool = Field(
+        default=False,
+        description="Remove worktree when job fails. "
+        "Default False to enable debugging.",
+    )
+
+    lock_during_execution: bool = Field(
+        default=True,
+        description="Lock worktree during execution to prevent accidental removal. "
+        "Uses 'git worktree lock' with job info as reason.",
+    )
+
+    fallback_on_error: bool = Field(
+        default=True,
+        description="If worktree creation fails, continue without isolation. "
+        "When False, job fails if isolation cannot be established.",
+    )
+
+    def get_worktree_base(self, workspace: Path) -> Path:
+        """Get the directory where worktrees are created."""
+        if self.worktree_base:
+            return self.worktree_base
+        return workspace / ".worktrees"
+
+    def get_branch_name(self, job_id: str) -> str:
+        """Generate branch name for a job."""
+        return f"{self.branch_prefix}/{job_id}"
 
 
 class RetryConfig(BaseModel):
@@ -166,6 +252,37 @@ class LearningConfig(BaseModel):
     )
 
 
+class GroundingHookConfig(BaseModel):
+    """Configuration for a single grounding hook.
+
+    Grounding hooks validate sheet outputs against external sources.
+    Each hook type has specific configuration options.
+
+    Example:
+        grounding:
+          hooks:
+            - type: file_checksum
+              expected_checksums:
+                "output.txt": "abc123..."
+    """
+
+    type: Literal["file_checksum"] = Field(
+        description="Hook type: file_checksum validates file integrity",
+    )
+    name: str | None = Field(
+        default=None,
+        description="Custom name for this hook instance (uses type if not specified)",
+    )
+    expected_checksums: dict[str, str] = Field(
+        default_factory=dict,
+        description="For file_checksum: map of file path to expected checksum",
+    )
+    checksum_algorithm: Literal["md5", "sha256"] = Field(
+        default="sha256",
+        description="For file_checksum: algorithm for checksums",
+    )
+
+
 class GroundingConfig(BaseModel):
     """Configuration for external grounding hooks.
 
@@ -173,11 +290,23 @@ class GroundingConfig(BaseModel):
     databases, file checksums) to prevent model drift and ensure output quality.
     This addresses the mathematical necessity of external validators documented
     in arXiv 2601.05280 (entropy decay in self-training).
+
+    Example:
+        grounding:
+          enabled: true
+          hooks:
+            - type: file_checksum
+              expected_checksums:
+                "critical_file.py": "sha256hash..."
     """
 
     enabled: bool = Field(
         default=False,
         description="Enable external grounding hooks",
+    )
+    hooks: list[GroundingHookConfig] = Field(
+        default_factory=list,
+        description="List of grounding hook configurations to register",
     )
     fail_on_grounding_failure: bool = Field(
         default=True,
@@ -462,6 +591,11 @@ class PostSuccessHookConfig(BaseModel):
         gt=0,
         description="Maximum time for hook execution (seconds). Default: 5 minutes.",
     )
+    detached: bool = Field(
+        default=False,
+        description="For run_job hooks: if true, spawn the job and don't wait for completion. "
+        "Use this for infinite chaining where each job spawns the next.",
+    )
 
 
 class ConcertConfig(BaseModel):
@@ -686,6 +820,11 @@ class JobConfig(BaseModel):
     grounding: GroundingConfig = Field(default_factory=GroundingConfig)
     ai_review: AIReviewConfig = Field(default_factory=AIReviewConfig)
     logging: LogConfig = Field(default_factory=LogConfig)
+    isolation: IsolationConfig = Field(
+        default_factory=IsolationConfig,
+        description="Execution isolation configuration. "
+        "Enables parallel-safe job execution via git worktrees.",
+    )
 
     validations: list[ValidationRule] = Field(default_factory=list)
     notifications: list[NotificationConfig] = Field(default_factory=list)
