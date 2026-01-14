@@ -2353,7 +2353,7 @@ class JobRunner:
             return
 
         # Import here to avoid circular imports
-        from mozart.learning.aggregator import PatternAggregator
+        from mozart.learning.aggregator import EnhancedPatternAggregator
         from mozart.learning.outcomes import SheetOutcome
 
         try:
@@ -2375,14 +2375,17 @@ class JobRunner:
                     ),
                     first_attempt_success=sheet_state.first_attempt_success,
                     timestamp=sheet_state.completed_at or _utc_now(),
+                    # Output capture for pattern extraction (Evolution: Learning Data Collection)
+                    stdout_tail=sheet_state.stdout_tail or "",
+                    stderr_tail=sheet_state.stderr_tail or "",
                 )
                 outcomes.append(outcome)
 
             if not outcomes:
                 return
 
-            # Create aggregator and aggregate outcomes
-            aggregator = PatternAggregator(self._global_learning_store)
+            # Create aggregator and aggregate outcomes (use enhanced for output pattern extraction)
+            aggregator = EnhancedPatternAggregator(self._global_learning_store)
             result = aggregator.aggregate_outcomes(
                 outcomes=outcomes,
                 workspace_path=self.config.workspace,
