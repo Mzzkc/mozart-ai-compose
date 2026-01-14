@@ -20,7 +20,12 @@ from mozart.learning.global_store import (
     PatternRecord,
 )
 from mozart.learning.outcomes import SheetOutcome
-from mozart.learning.patterns import DetectedPattern, PatternType
+from mozart.learning.patterns import (
+    DetectedPattern,
+    ExtractedPattern,
+    OutputPatternExtractor,
+    PatternType,
+)
 from mozart.learning.weighter import PatternWeighter, WeightingConfig
 
 
@@ -907,3 +912,265 @@ class TestSelectivePatternRetrieval:
         # Should only match type_a with sheet:5 tag
         assert len(patterns) == 1
         assert patterns[0].pattern_name == "type_a_tagged"
+
+
+# =============================================================================
+# TestOutputPatternExtractor
+# =============================================================================
+
+
+class TestOutputPatternExtractor:
+    """Tests for OutputPatternExtractor class (Sheet 5 implementation)."""
+
+    @pytest.fixture
+    def extractor(self) -> OutputPatternExtractor:
+        """Create an OutputPatternExtractor instance."""
+        return OutputPatternExtractor()
+
+    def test_empty_output_returns_empty_list(
+        self, extractor: OutputPatternExtractor
+    ) -> None:
+        """Test that empty output returns no patterns."""
+        assert extractor.extract_from_output("") == []
+        assert extractor.extract_from_output("   ") == []
+        assert extractor.extract_from_output(None) == []  # type: ignore[arg-type]
+
+    def test_extract_rate_limit_pattern(
+        self, extractor: OutputPatternExtractor
+    ) -> None:
+        """Test extraction of rate limit patterns."""
+        output = "Error: rate limit exceeded for API calls"
+        patterns = extractor.extract_from_output(output)
+
+        assert len(patterns) == 1
+        assert patterns[0].pattern_name == "rate_limit"
+        assert "rate limit" in patterns[0].matched_text.lower()
+        assert patterns[0].confidence == 0.95
+
+    def test_extract_import_error_pattern(
+        self, extractor: OutputPatternExtractor
+    ) -> None:
+        """Test extraction of import error patterns."""
+        output = """Traceback (most recent call last):
+  File "test.py", line 1, in <module>
+    import nonexistent_module
+ModuleNotFoundError: No module named 'nonexistent_module'"""
+        patterns = extractor.extract_from_output(output)
+
+        # Should find both traceback and import_error
+        pattern_names = {p.pattern_name for p in patterns}
+        assert "traceback" in pattern_names
+        assert "import_error" in pattern_names
+
+    def test_extract_permission_denied(
+        self, extractor: OutputPatternExtractor
+    ) -> None:
+        """Test extraction of permission denied patterns."""
+        output = "Error: Permission denied: /etc/passwd"
+        patterns = extractor.extract_from_output(output)
+
+        assert len(patterns) == 1
+        assert patterns[0].pattern_name == "permission_denied"
+        assert patterns[0].confidence == 0.95
+
+    def test_extract_file_not_found(
+        self, extractor: OutputPatternExtractor
+    ) -> None:
+        """Test extraction of file not found patterns."""
+        output = "FileNotFoundError: [Errno 2] No such file or directory: 'missing.txt'"
+        patterns = extractor.extract_from_output(output)
+
+        assert len(patterns) >= 1
+        file_not_found = next(
+            (p for p in patterns if p.pattern_name == "file_not_found"), None
+        )
+        assert file_not_found is not None
+        assert file_not_found.confidence == 0.95
+
+    def test_extract_timeout_pattern(
+        self, extractor: OutputPatternExtractor
+    ) -> None:
+        """Test extraction of timeout patterns."""
+        output = "Connection timed out after 30s"
+        patterns = extractor.extract_from_output(output)
+
+        assert len(patterns) == 1
+        assert patterns[0].pattern_name == "timeout"
+
+    def test_extract_multiple_patterns(
+        self, extractor: OutputPatternExtractor
+    ) -> None:
+        """Test extraction of multiple different patterns."""
+        output = """ImportError: No module named 'requests'
+Connection refused: localhost:8080
+TypeError: 'NoneType' object is not callable"""
+        patterns = extractor.extract_from_output(output)
+
+        pattern_names = {p.pattern_name for p in patterns}
+        assert "import_error" in pattern_names
+        assert "connection_refused" in pattern_names
+        assert "type_error" in pattern_names
+        assert len(patterns) >= 3
+
+    def test_line_context_extraction(
+        self, extractor: OutputPatternExtractor
+    ) -> None:
+        """Test that context lines are extracted correctly."""
+        output = """Line 1: Starting process
+Line 2: Loading config
+Line 3: ImportError: No module named 'flask'
+Line 4: Process failed
+Line 5: Cleanup complete"""
+        patterns = extractor.extract_from_output(output)
+
+        import_pattern = next(
+            (p for p in patterns if p.pattern_name == "import_error"), None
+        )
+        assert import_pattern is not None
+        assert import_pattern.line_number == 3
+        assert len(import_pattern.context_before) == 2
+        assert "Loading config" in import_pattern.context_before[-1]
+        assert len(import_pattern.context_after) == 2
+        assert "Process failed" in import_pattern.context_after[0]
+
+    def test_source_parameter(
+        self, extractor: OutputPatternExtractor
+    ) -> None:
+        """Test that source parameter is correctly set."""
+        output = "Permission denied"
+        stdout_patterns = extractor.extract_from_output(output, source="stdout")
+        stderr_patterns = extractor.extract_from_output(output, source="stderr")
+
+        assert stdout_patterns[0].source == "stdout"
+        assert stderr_patterns[0].source == "stderr"
+
+    def test_deduplication_same_line(
+        self, extractor: OutputPatternExtractor
+    ) -> None:
+        """Test that duplicate patterns at same line are deduplicated."""
+        # Rate limit appears multiple times on same line
+        output = "rate limit rate limit rate limit"
+        patterns = extractor.extract_from_output(output)
+
+        # Should only have one rate_limit pattern
+        rate_limit_count = sum(
+            1 for p in patterns if p.pattern_name == "rate_limit"
+        )
+        assert rate_limit_count == 1
+
+    def test_get_pattern_summary(
+        self, extractor: OutputPatternExtractor
+    ) -> None:
+        """Test pattern summary generation."""
+        output = """TypeError: bad arg
+TypeError: another bad arg
+ImportError: missing module"""
+        patterns = extractor.extract_from_output(output)
+
+        summary = extractor.get_pattern_summary(patterns)
+
+        assert "type_error" in summary
+        assert summary["type_error"] == 2
+        assert "import_error" in summary
+        assert summary["import_error"] == 1
+
+    def test_confidence_scoring(
+        self, extractor: OutputPatternExtractor
+    ) -> None:
+        """Test that confidence scores are correctly assigned."""
+
+        # High confidence patterns
+        high_conf = ["rate limit", "ImportError", "Permission denied"]
+        # Lower confidence patterns
+        lower_conf = ["Traceback (most recent call last)"]
+
+        for text in high_conf:
+            patterns = extractor.extract_from_output(text)
+            assert patterns[0].confidence >= 0.90
+
+        for text in lower_conf:
+            patterns = extractor.extract_from_output(text)
+            assert patterns[0].confidence < 0.90
+
+    def test_case_insensitive_matching(
+        self, extractor: OutputPatternExtractor
+    ) -> None:
+        """Test that matching is case insensitive where appropriate."""
+        variants = ["RATE LIMIT", "Rate Limit", "rate limit", "RaTe LiMiT"]
+
+        for variant in variants:
+            patterns = extractor.extract_from_output(variant)
+            assert len(patterns) >= 1
+            assert any(p.pattern_name == "rate_limit" for p in patterns)
+
+
+# =============================================================================
+# TestExtractedPattern
+# =============================================================================
+
+
+class TestExtractedPattern:
+    """Tests for ExtractedPattern dataclass (Sheet 5 implementation)."""
+
+    def test_extracted_pattern_creation(self) -> None:
+        """Test basic ExtractedPattern creation."""
+        pattern = ExtractedPattern(
+            pattern_name="rate_limit",
+            matched_text="rate limit exceeded",
+            line_number=42,
+        )
+
+        assert pattern.pattern_name == "rate_limit"
+        assert pattern.matched_text == "rate limit exceeded"
+        assert pattern.line_number == 42
+        assert pattern.context_before == []
+        assert pattern.context_after == []
+        assert pattern.confidence == 0.8  # Default
+        assert pattern.source == "stdout"  # Default
+
+    def test_extracted_pattern_with_context(self) -> None:
+        """Test ExtractedPattern with context lines."""
+        pattern = ExtractedPattern(
+            pattern_name="import_error",
+            matched_text="ImportError: No module named 'x'",
+            line_number=5,
+            context_before=["import sys", "import os"],
+            context_after=["# More code", "exit(1)"],
+            confidence=0.95,
+            source="stderr",
+        )
+
+        assert len(pattern.context_before) == 2
+        assert len(pattern.context_after) == 2
+        assert pattern.confidence == 0.95
+        assert pattern.source == "stderr"
+
+
+# =============================================================================
+# TestPatternTypeEnum
+# =============================================================================
+
+
+class TestPatternTypeEnumOutputPattern:
+    """Tests for OUTPUT_PATTERN enum value (Sheet 5 implementation)."""
+
+    def test_output_pattern_enum_exists(self) -> None:
+        """Test that OUTPUT_PATTERN exists in PatternType enum."""
+        assert hasattr(PatternType, "OUTPUT_PATTERN")
+        assert PatternType.OUTPUT_PATTERN.value == "output_pattern"
+
+    def test_all_pattern_types_accessible(self) -> None:
+        """Test that all pattern types are accessible."""
+        expected_types = [
+            "VALIDATION_FAILURE",
+            "RETRY_SUCCESS",
+            "COMPLETION_MODE",
+            "FIRST_ATTEMPT_SUCCESS",
+            "HIGH_CONFIDENCE",
+            "LOW_CONFIDENCE",
+            "SEMANTIC_FAILURE",
+            "OUTPUT_PATTERN",
+        ]
+
+        for ptype in expected_types:
+            assert hasattr(PatternType, ptype)

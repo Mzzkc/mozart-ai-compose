@@ -9,6 +9,7 @@ The pattern system enables Mozart to learn from past executions
 and apply that learning to improve future sheet executions.
 """
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -48,6 +49,44 @@ class PatternType(Enum):
     - 'stale' category appearing frequently (files not modified)
     - 'file not created' reason appearing across multiple sheets
     """
+
+    OUTPUT_PATTERN = "output_pattern"
+    """Pattern extracted from stdout/stderr output during execution.
+
+    These patterns are detected by analyzing the raw output text for common
+    error signatures, stack traces, and failure indicators. Useful for learning
+    from execution-level failures that may not be captured by validation.
+    """
+
+
+@dataclass
+class ExtractedPattern:
+    """A pattern extracted from stdout/stderr output analysis.
+
+    Represents a specific error or failure pattern found in execution output,
+    with context about where it appeared and confidence in the detection.
+    """
+
+    pattern_name: str
+    """Canonical name for this pattern (e.g., 'rate_limit', 'import_error')."""
+
+    matched_text: str
+    """The actual text that matched the pattern."""
+
+    line_number: int
+    """Line number in the output where pattern was found."""
+
+    context_before: list[str] = field(default_factory=list)
+    """Lines of context before the match (up to 2 lines)."""
+
+    context_after: list[str] = field(default_factory=list)
+    """Lines of context after the match (up to 2 lines)."""
+
+    confidence: float = 0.8
+    """Confidence in this pattern detection (0.0-1.0)."""
+
+    source: str = "stdout"
+    """Source of the pattern: 'stdout' or 'stderr'."""
 
 
 @dataclass
@@ -728,3 +767,220 @@ class PatternApplicator:
             List of pattern guidance strings.
         """
         return [p.to_prompt_guidance() for p in self.patterns[:5]]
+
+
+class OutputPatternExtractor:
+    """Extracts patterns from stdout/stderr output for learning.
+
+    Analyzes execution output to detect common failure patterns, error signatures,
+    and other indicators that can inform future executions. This enables Mozart
+    to learn from the raw output of failed executions, not just validation results.
+
+    The extractor uses a dictionary of regex patterns to identify common error
+    types like rate limits, import errors, permission denied, etc.
+    """
+
+    # Common failure patterns to detect in output
+    # Each key is a pattern name, value is a tuple of (regex, confidence)
+    FAILURE_PATTERNS: dict[str, tuple[str, float]] = {
+        # Rate limiting and API errors
+        "rate_limit": (
+            r"(?i)(rate\s*limit|too\s*many\s*requests|429|quota\s*exceeded)",
+            0.95,
+        ),
+        "api_error": (
+            r"(?i)(api\s*error|service\s*unavailable|503|500\s*internal)",
+            0.90,
+        ),
+        "timeout": (
+            r"(?i)(timeout|timed?\s*out|connection\s*timed?\s*out|deadline\s*exceeded)",
+            0.90,
+        ),
+        # Python-specific errors
+        "import_error": (
+            r"(?i)(ImportError|ModuleNotFoundError|No\s*module\s*named)",
+            0.95,
+        ),
+        "syntax_error": (
+            r"(?i)(SyntaxError|IndentationError|TabError)",
+            0.95,
+        ),
+        "type_error": (
+            r"(?i)(TypeError:\s*[^\n]+)",
+            0.90,
+        ),
+        "attribute_error": (
+            r"(?i)(AttributeError:\s*[^\n]+)",
+            0.90,
+        ),
+        "key_error": (
+            r"(?i)(KeyError:\s*[^\n]+)",
+            0.85,
+        ),
+        "value_error": (
+            r"(?i)(ValueError:\s*[^\n]+)",
+            0.85,
+        ),
+        "name_error": (
+            r"(?i)(NameError:\s*name\s*'[^']+'\s*is\s*not\s*defined)",
+            0.95,
+        ),
+        # File system errors
+        "permission_denied": (
+            r"(?i)(permission\s*denied|access\s*denied|EACCES)",
+            0.95,
+        ),
+        "file_not_found": (
+            r"(?i)(FileNotFoundError|No\s*such\s*file|ENOENT)",
+            0.95,
+        ),
+        "disk_full": (
+            r"(?i)(no\s*space\s*left|disk\s*full|ENOSPC)",
+            0.95,
+        ),
+        # Network errors
+        "connection_refused": (
+            r"(?i)(connection\s*refused|ECONNREFUSED)",
+            0.90,
+        ),
+        "connection_reset": (
+            r"(?i)(connection\s*reset|ECONNRESET)",
+            0.85,
+        ),
+        "dns_error": (
+            r"(?i)(could\s*not\s*resolve\s*host|dns\s*error|NXDOMAIN)",
+            0.90,
+        ),
+        # Authentication errors
+        "auth_failure": (
+            r"(?i)(authentication\s*fail|invalid\s*credential|unauthorized|401)",
+            0.90,
+        ),
+        "token_expired": (
+            r"(?i)(token\s*expired|session\s*expired|jwt\s*expired)",
+            0.90,
+        ),
+        # Generic errors with stack traces
+        "traceback": (
+            r"Traceback\s*\(most\s*recent\s*call\s*last\)",
+            0.75,
+        ),
+        "assertion_error": (
+            r"(?i)(AssertionError:\s*[^\n]*)",
+            0.85,
+        ),
+        # Memory errors
+        "out_of_memory": (
+            r"(?i)(out\s*of\s*memory|MemoryError|OOM|killed\s*by\s*kernel)",
+            0.95,
+        ),
+    }
+
+    def __init__(self) -> None:
+        """Initialize the output pattern extractor.
+
+        Compiles all regex patterns for efficient matching.
+        """
+        self._compiled_patterns: dict[str, tuple[re.Pattern[str], float]] = {}
+        for name, (pattern, confidence) in self.FAILURE_PATTERNS.items():
+            self._compiled_patterns[name] = (re.compile(pattern), confidence)
+
+    def extract_from_output(
+        self,
+        output: str,
+        source: str = "stdout",
+    ) -> list[ExtractedPattern]:
+        """Extract patterns from execution output.
+
+        Scans the output text for known failure patterns and returns
+        a list of ExtractedPattern objects with context.
+
+        Args:
+            output: The stdout or stderr text to analyze.
+            source: Source identifier ('stdout' or 'stderr').
+
+        Returns:
+            List of extracted patterns found in the output.
+        """
+        if not output or not output.strip():
+            return []
+
+        patterns: list[ExtractedPattern] = []
+        lines = output.splitlines()
+
+        for name, (compiled_pattern, confidence) in self._compiled_patterns.items():
+            for match in compiled_pattern.finditer(output):
+                # Calculate line number
+                line_num = output[:match.start()].count('\n') + 1
+
+                # Get context lines
+                context_before, context_after = self._get_line_context(
+                    lines, line_num - 1  # Convert to 0-indexed
+                )
+
+                patterns.append(
+                    ExtractedPattern(
+                        pattern_name=name,
+                        matched_text=match.group(0),
+                        line_number=line_num,
+                        context_before=context_before,
+                        context_after=context_after,
+                        confidence=confidence,
+                        source=source,
+                    )
+                )
+
+        # Sort by line number to maintain order of occurrence
+        patterns.sort(key=lambda p: p.line_number)
+
+        # Deduplicate patterns with same name at same line
+        seen: set[tuple[str, int]] = set()
+        deduped: list[ExtractedPattern] = []
+        for p in patterns:
+            key = (p.pattern_name, p.line_number)
+            if key not in seen:
+                seen.add(key)
+                deduped.append(p)
+
+        return deduped
+
+    def _get_line_context(
+        self,
+        lines: list[str],
+        line_index: int,
+        context_size: int = 2,
+    ) -> tuple[list[str], list[str]]:
+        """Get context lines before and after a given line.
+
+        Args:
+            lines: All lines of the output.
+            line_index: Index of the line (0-based).
+            context_size: Number of context lines to include.
+
+        Returns:
+            Tuple of (lines_before, lines_after).
+        """
+        start = max(0, line_index - context_size)
+        end = min(len(lines), line_index + context_size + 1)
+
+        before = lines[start:line_index] if line_index > 0 else []
+        after = lines[line_index + 1:end] if line_index < len(lines) - 1 else []
+
+        return before, after
+
+    def get_pattern_summary(
+        self,
+        patterns: list[ExtractedPattern],
+    ) -> dict[str, int]:
+        """Get a summary count of pattern types found.
+
+        Args:
+            patterns: List of extracted patterns.
+
+        Returns:
+            Dict mapping pattern_name to occurrence count.
+        """
+        summary: dict[str, int] = {}
+        for p in patterns:
+            summary[p.pattern_name] = summary.get(p.pattern_name, 0) + 1
+        return summary
