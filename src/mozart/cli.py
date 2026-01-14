@@ -43,8 +43,8 @@ from mozart.notifications import (
 )
 from mozart.state import JsonStateBackend, SQLiteStateBackend, StateBackend
 
-# Get logger for CLI module - will be configured in main()
-logger = get_logger("cli")
+# Module-level logger for CLI
+_logger = get_logger("cli")
 
 
 class OutputLevel(str, Enum):
@@ -155,7 +155,7 @@ def create_notifiers_from_config(
                 config=config.config,
             )
         else:
-            logger.warning(f"Unknown notification type: {config.type}")
+            _logger.warning(f"Unknown notification type: {config.type}")
             continue
 
         if notifier:
@@ -554,14 +554,27 @@ async def _run_job(
             )
 
     # Setup grounding engine if enabled (v8 Evolution: External Grounding Hooks)
+    # v9 Evolution: Wire up hook registration from config
     grounding_engine = None
     if config.grounding.enabled:
-        from mozart.execution.grounding import GroundingEngine
+        from mozart.execution.grounding import GroundingEngine, create_hook_from_config
 
         grounding_engine = GroundingEngine(hooks=[], config=config.grounding)
+
+        # Register hooks from configuration (v9: Integration-only completion)
+        for hook_config in config.grounding.hooks:
+            try:
+                hook = create_hook_from_config(hook_config)
+                grounding_engine.add_hook(hook)
+                if is_verbose() and not json_output:
+                    console.print(f"[dim]  Registered hook: {hook.name}[/dim]")
+            except ValueError as e:
+                console.print(f"[yellow]Warning: Failed to create hook: {e}[/yellow]")
+
         if is_verbose() and not json_output:
+            hook_count = grounding_engine.get_hook_count()
             console.print(
-                "[dim]Grounding enabled: external validation hooks will run[/dim]"
+                f"[dim]Grounding enabled: {hook_count} hook(s) registered[/dim]"
             )
 
     # Create runner with progress callback
@@ -924,7 +937,7 @@ async def _resume_job(
                 found_backend = state_bknd
                 break
         except Exception as e:
-            logger.debug(f"Error querying backend for {job_id}: {e}")
+            _logger.debug(f"Error querying backend for {job_id}: {e}")
             continue
 
     if found_state is None or found_backend is None:
@@ -1126,14 +1139,27 @@ async def _resume_job(
             )
 
     # Setup grounding engine if enabled (v8 Evolution: External Grounding Hooks)
+    # v9 Evolution: Wire up hook registration from config
     grounding_engine = None
     if config.grounding.enabled:
-        from mozart.execution.grounding import GroundingEngine
+        from mozart.execution.grounding import GroundingEngine, create_hook_from_config
 
         grounding_engine = GroundingEngine(hooks=[], config=config.grounding)
+
+        # Register hooks from configuration (v9: Integration-only completion)
+        for hook_config in config.grounding.hooks:
+            try:
+                hook = create_hook_from_config(hook_config)
+                grounding_engine.add_hook(hook)
+                if is_verbose():
+                    console.print(f"[dim]  Registered hook: {hook.name}[/dim]")
+            except ValueError as e:
+                console.print(f"[yellow]Warning: Failed to create hook: {e}[/yellow]")
+
         if is_verbose():
+            hook_count = grounding_engine.get_hook_count()
             console.print(
-                "[dim]Grounding enabled: external validation hooks will run[/dim]"
+                f"[dim]Grounding enabled: {hook_count} hook(s) registered[/dim]"
             )
 
     # Create runner with progress callback
@@ -1501,7 +1527,7 @@ async def _list_jobs(
             for job in jobs:
                 all_jobs.append((source, job))
         except Exception as e:
-            logger.debug(f"Error querying backend {source}: {e}")
+            _logger.debug(f"Error querying backend {source}: {e}")
             continue
 
     # Remove duplicates (same job_id from different backends)
@@ -1694,7 +1720,7 @@ async def _status_job(
                 found_job = job
                 break
         except Exception as e:
-            logger.debug(f"Error querying backend for {job_id}: {e}")
+            _logger.debug(f"Error querying backend for {job_id}: {e}")
             continue
 
     if not found_job:

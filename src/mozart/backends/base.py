@@ -2,16 +2,13 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any, Literal
+
+from mozart.utils.time import utc_now
 
 # Type alias for exit reasons - provides exhaustive pattern matching
 ExitReason = Literal["completed", "timeout", "killed", "error"]
-
-
-def _utc_now() -> datetime:
-    """Return current UTC time as timezone-aware datetime."""
-    return datetime.now(UTC)
 
 
 @dataclass
@@ -56,7 +53,7 @@ class ExecutionResult:
     - error: Internal error prevented execution
     """
 
-    started_at: datetime = field(default_factory=_utc_now)
+    started_at: datetime = field(default_factory=utc_now)
     """When execution started."""
 
     # Error classification hints

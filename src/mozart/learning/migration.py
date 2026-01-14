@@ -15,20 +15,21 @@ Migration Flow:
 """
 
 import json
-import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from mozart.core.checkpoint import SheetStatus
+from mozart.core.logging import get_logger
 from mozart.learning.outcomes import SheetOutcome
 
 if TYPE_CHECKING:
     from mozart.learning.aggregator import PatternAggregator
     from mozart.learning.global_store import GlobalLearningStore
 
-logger = logging.getLogger(__name__)
+# Module-level logger for migration operations
+_logger = get_logger("learning.migration")
 
 
 @dataclass
@@ -163,7 +164,7 @@ class OutcomeMigrator:
         unique_files = list({f.resolve() for f in outcome_files})
         result.workspaces_found = len(unique_files)
 
-        logger.info(f"Found {len(unique_files)} workspace outcome files to migrate")
+        _logger.info(f"Found {len(unique_files)} workspace outcome files to migrate")
 
         # Import each file
         for outcome_file in unique_files:
@@ -176,7 +177,7 @@ class OutcomeMigrator:
                     result.skipped_workspaces.append(str(outcome_file.parent))
             except Exception as e:
                 error_msg = f"Error migrating {outcome_file}: {e}"
-                logger.warning(error_msg)
+                _logger.warning(error_msg)
                 result.errors.append(error_msg)
 
         # Run pattern detection on imported data if aggregator available
@@ -187,7 +188,7 @@ class OutcomeMigrator:
             except Exception as e:
                 result.errors.append(f"Pattern detection error: {e}")
 
-        logger.info(
+        _logger.info(
             f"Migration complete: {result.outcomes_imported} outcomes, "
             f"{result.patterns_detected} patterns"
         )
@@ -240,7 +241,7 @@ class OutcomeMigrator:
         # Check if already imported
         workspace_hash = self._store.hash_workspace(workspace_path)
         if workspace_hash in self._imported_workspace_hashes:
-            logger.debug(f"Skipping already-imported workspace: {workspace_path}")
+            _logger.debug(f"Skipping already-imported workspace: {workspace_path}")
             return 0
 
         # Load outcomes from JSON file
@@ -265,13 +266,13 @@ class OutcomeMigrator:
                     )
                     imported_count += 1
             except Exception as e:
-                logger.debug(f"Skipping invalid outcome: {e}")
+                _logger.debug(f"Skipping invalid outcome: {e}")
                 continue
 
         # Mark workspace as imported
         self._imported_workspace_hashes.add(workspace_hash)
 
-        logger.info(
+        _logger.info(
             f"Imported {imported_count} outcomes from {workspace_path.name}"
         )
 
@@ -336,7 +337,7 @@ class OutcomeMigrator:
                 timestamp=parsed_timestamp,
             )
         except Exception as e:
-            logger.debug(f"Failed to parse outcome: {e}")
+            _logger.debug(f"Failed to parse outcome: {e}")
             return None
 
     def _detect_patterns_from_store(self) -> int:

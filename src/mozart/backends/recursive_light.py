@@ -8,21 +8,20 @@ Phase 3: Language Bridge implementation.
 
 import time
 import uuid
-from datetime import UTC, datetime
-from typing import Any
+from datetime import datetime
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
+if TYPE_CHECKING:
+    from mozart.core.config import BackendConfig
+
 from mozart.backends.base import Backend, ExecutionResult
 from mozart.core.logging import get_logger
+from mozart.utils.time import utc_now
 
 # Module-level logger for Recursive Light backend
 _logger = get_logger("backend.recursive_light")
-
-
-def _utc_now() -> datetime:
-    """Return current UTC time as timezone-aware datetime."""
-    return datetime.now(UTC)
 
 
 class RecursiveLightBackend(Backend):
@@ -61,6 +60,25 @@ class RecursiveLightBackend(Backend):
         self.user_id = user_id or str(uuid.uuid4())
         self.timeout = timeout
         self._client: httpx.AsyncClient | None = None
+
+    @classmethod
+    def from_config(cls, config: "BackendConfig") -> "RecursiveLightBackend":
+        """Create backend from configuration.
+
+        Args:
+            config: Backend configuration containing recursive_light settings.
+
+        Returns:
+            Configured RecursiveLightBackend instance.
+        """
+        from mozart.core.config import BackendConfig  # noqa: F811
+
+        rl_config = config.recursive_light
+        return cls(
+            rl_endpoint=rl_config.endpoint,
+            user_id=rl_config.user_id,
+            timeout=rl_config.timeout,
+        )
 
     @property
     def name(self) -> str:
@@ -102,7 +120,7 @@ class RecursiveLightBackend(Backend):
             error handling (not raising exceptions).
         """
         start_time = time.monotonic()
-        started_at = _utc_now()
+        started_at = utc_now()
 
         # Log HTTP request details at DEBUG level
         _logger.debug(

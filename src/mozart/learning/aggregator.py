@@ -9,11 +9,11 @@ The aggregator runs after each job completion to detect new patterns and
 merge them with existing patterns in the global store.
 """
 
-import logging
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from mozart.core.logging import get_logger
 from mozart.learning.global_store import GlobalLearningStore, PatternRecord
 from mozart.learning.outcomes import SheetOutcome
 from mozart.learning.patterns import (
@@ -28,7 +28,8 @@ from mozart.learning.weighter import PatternWeighter
 if TYPE_CHECKING:
     pass
 
-logger = logging.getLogger(__name__)
+# Module-level logger for pattern aggregation
+_logger = get_logger("learning.aggregator")
 
 
 class AggregationResult:
@@ -131,7 +132,7 @@ class PatternAggregator:
         for outcome in outcomes:
             self._record_pattern_applications(outcome, execution_ids)
 
-        logger.info(
+        _logger.info(
             f"Aggregated {result.outcomes_recorded} outcomes, "
             f"detected {result.patterns_detected} patterns, "
             f"merged {result.patterns_merged}"
@@ -165,7 +166,7 @@ class PatternAggregator:
             )
             return pattern_id
         except Exception as e:
-            logger.warning(f"Failed to merge pattern {pattern_name}: {e}")
+            _logger.warning(f"Failed to merge pattern {pattern_name}: {e}")
             return None
 
     def _generate_pattern_name(self, pattern: DetectedPattern) -> str:
@@ -318,7 +319,7 @@ class PatternAggregator:
                     deprecated_count += 1
 
         if deprecated_count > 0:
-            logger.info(f"Deprecated {deprecated_count} low-effectiveness patterns")
+            _logger.info(f"Deprecated {deprecated_count} low-effectiveness patterns")
 
         return deprecated_count
 
@@ -455,7 +456,7 @@ class EnhancedPatternAggregator(PatternAggregator):
         for outcome in outcomes:
             self._record_pattern_applications(outcome, execution_ids)
 
-        logger.info(
+        _logger.info(
             f"Enhanced aggregation: {result.outcomes_recorded} outcomes, "
             f"{result.patterns_detected} patterns (incl. {len(output_detected)} from output), "
             f"{result.patterns_merged} merged, {len(all_output_patterns)} output patterns extracted"

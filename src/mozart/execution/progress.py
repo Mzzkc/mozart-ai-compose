@@ -12,13 +12,10 @@ and provides the data needed for execution history analysis.
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
-
-def _utc_now() -> datetime:
-    """Return current UTC time as timezone-aware datetime."""
-    return datetime.now(UTC)
+from mozart.utils.time import utc_now
 
 
 @dataclass
@@ -46,13 +43,13 @@ class ExecutionProgress:
     @property
     def elapsed_seconds(self) -> float:
         """Calculate seconds elapsed since execution started."""
-        delta = _utc_now() - self.started_at
+        delta = utc_now() - self.started_at
         return delta.total_seconds()
 
     @property
     def idle_seconds(self) -> float:
         """Calculate seconds since last activity."""
-        delta = _utc_now() - self.last_activity_at
+        delta = utc_now() - self.last_activity_at
         return delta.total_seconds()
 
     def format_bytes(self) -> str:
@@ -137,7 +134,7 @@ class ProgressTracker:
 
     def __post_init__(self) -> None:
         """Initialize progress tracking state."""
-        now = _utc_now()
+        now = utc_now()
         self._progress = ExecutionProgress(
             started_at=now,
             last_activity_at=now,
@@ -162,7 +159,7 @@ class ProgressTracker:
             new_lines: Number of new lines received.
             force_snapshot: Force a snapshot even if interval hasn't passed.
         """
-        now = _utc_now()
+        now = utc_now()
         self._progress.bytes_received += new_bytes
         self._progress.lines_received += new_lines
         self._progress.last_activity_at = now
@@ -191,10 +188,10 @@ class ProgressTracker:
         """
         if self._progress.phase != phase:
             self._progress.phase = phase
-            self._progress.last_activity_at = _utc_now()
+            self._progress.last_activity_at = utc_now()
             # Record snapshot on phase change
             self._record_snapshot()
-            self._last_snapshot_at = _utc_now()
+            self._last_snapshot_at = utc_now()
 
             if self.callback is not None:
                 self.callback(self._progress)
@@ -224,7 +221,7 @@ class ProgressTracker:
     def _record_snapshot(self) -> None:
         """Record a progress snapshot for persistence."""
         snapshot = self._progress.to_dict()
-        snapshot["snapshot_at"] = _utc_now().isoformat()
+        snapshot["snapshot_at"] = utc_now().isoformat()
         self._snapshots.append(snapshot)
 
     def reset(self) -> None:
@@ -232,7 +229,7 @@ class ProgressTracker:
 
         Clears all counters and snapshots but preserves callback.
         """
-        now = _utc_now()
+        now = utc_now()
         self._progress = ExecutionProgress(
             started_at=now,
             last_activity_at=now,

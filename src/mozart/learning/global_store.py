@@ -12,7 +12,6 @@ patterns and error recoveries to improve over time.
 
 import hashlib
 import json
-import logging
 import sqlite3
 import uuid
 from collections.abc import Generator
@@ -22,9 +21,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from mozart.core.logging import get_logger
 from mozart.learning.outcomes import SheetOutcome
 
-logger = logging.getLogger(__name__)
+# Module-level logger for global learning store
+_logger = get_logger("learning.global_store")
 
 
 # Default location following XDG conventions
@@ -320,7 +321,7 @@ class GlobalLearningStore:
         conn.execute("DELETE FROM schema_version")
         conn.execute("INSERT INTO schema_version (version) VALUES (?)", (self.SCHEMA_VERSION,))
 
-        logger.info(f"Created global learning schema v{self.SCHEMA_VERSION}")
+        _logger.info(f"Created global learning schema v{self.SCHEMA_VERSION}")
 
     @staticmethod
     def hash_workspace(workspace_path: Path) -> str:
@@ -399,7 +400,7 @@ class GlobalLearningStore:
                 ),
             )
 
-        logger.debug(
+        _logger.debug(
             f"Recorded outcome {execution_id} for sheet {outcome.sheet_id}"
         )
         return execution_id
@@ -1030,7 +1031,7 @@ class GlobalLearningStore:
                 ),
             )
 
-        logger.info(
+        _logger.info(
             f"Recorded rate limit event {record_id}: {error_code} "
             f"expires in {duration_seconds * 0.8:.0f}s"
         )
@@ -1091,7 +1092,7 @@ class GlobalLearningStore:
             if seconds_until_expiry <= 0:
                 return False, None
 
-            logger.debug(
+            _logger.debug(
                 f"Rate limit active: {row['error_code']} "
                 f"(expires in {seconds_until_expiry:.0f}s)"
             )
@@ -1166,7 +1167,7 @@ class GlobalLearningStore:
             deleted_count = cursor.rowcount
 
         if deleted_count > 0:
-            logger.debug(f"Cleaned up {deleted_count} expired rate limit events")
+            _logger.debug(f"Cleaned up {deleted_count} expired rate limit events")
 
         return deleted_count
 
@@ -1433,7 +1434,7 @@ class GlobalLearningStore:
             conn.execute("DELETE FROM workspace_clusters")
             conn.execute("DELETE FROM rate_limit_events")
 
-        logger.warning("Cleared all data from global learning store")
+        _logger.warning("Cleared all data from global learning store")
 
 
 # Convenience function for getting the singleton store

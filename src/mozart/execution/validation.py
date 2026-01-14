@@ -14,19 +14,15 @@ import re
 import subprocess
 import time
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from mozart.core.config import ValidationRule
+from mozart.utils.time import utc_now
 
 if TYPE_CHECKING:
     from mozart.core.checkpoint import CheckpointState
-
-
-def _utc_now() -> datetime:
-    """Return current UTC time as timezone-aware datetime."""
-    return datetime.now(UTC)
 
 
 @dataclass
@@ -38,7 +34,7 @@ class ValidationResult:
     actual_value: str | None = None
     expected_value: str | None = None
     error_message: str | None = None
-    checked_at: datetime = field(default_factory=_utc_now)
+    checked_at: datetime = field(default_factory=utc_now)
     check_duration_ms: float = 0.0
     # Learning metadata (Phase 1: Learning Foundation)
     confidence: float = 1.0

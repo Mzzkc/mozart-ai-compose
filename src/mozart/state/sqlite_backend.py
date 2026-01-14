@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -17,17 +17,13 @@ import aiosqlite
 from mozart.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
 from mozart.core.logging import get_logger
 from mozart.state.base import StateBackend
+from mozart.utils.time import utc_now
 
 if TYPE_CHECKING:
     pass
 
 # Module-level logger for state operations
 _logger = get_logger("state.sqlite")
-
-
-def _utc_now() -> datetime:
-    """Return current UTC time as timezone-aware datetime."""
-    return datetime.now(UTC)
 
 # Current schema version for migration support
 SCHEMA_VERSION = 2
@@ -186,7 +182,7 @@ class SQLiteStateBackend(StateBackend):
         # Record migration
         await db.execute(
             "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
-            (1, _utc_now().isoformat()),
+            (1, utc_now().isoformat()),
         )
 
         await db.commit()
@@ -204,7 +200,7 @@ class SQLiteStateBackend(StateBackend):
         # Record migration
         await db.execute(
             "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
-            (2, _utc_now().isoformat()),
+            (2, utc_now().isoformat()),
         )
 
         await db.commit()
@@ -309,9 +305,9 @@ class SQLiteStateBackend(StateBackend):
                 config_snapshot=self._json_loads(job_row["config_snapshot"]),
                 config_path=config_path_value,
                 created_at=self._str_to_datetime(job_row["created_at"])
-                or _utc_now(),
+                or utc_now(),
                 updated_at=self._str_to_datetime(job_row["updated_at"])
-                or _utc_now(),
+                or utc_now(),
                 started_at=self._str_to_datetime(job_row["started_at"]),
                 completed_at=self._str_to_datetime(job_row["completed_at"]),
                 total_sheets=job_row["total_sheets"],
@@ -353,7 +349,7 @@ class SQLiteStateBackend(StateBackend):
         """Save job state to SQLite."""
         await self._ensure_initialized()
 
-        state.updated_at = _utc_now()
+        state.updated_at = utc_now()
 
         async with aiosqlite.connect(self.db_path) as db:
             # Upsert job record
@@ -587,7 +583,7 @@ class SQLiteStateBackend(StateBackend):
                     output,
                     exit_code,
                     duration_seconds,
-                    _utc_now().isoformat(),
+                    utc_now().isoformat(),
                 ),
             )
             await db.commit()

@@ -41,6 +41,45 @@ ExitReason = Literal["completed", "timeout", "killed", "error"]
 
 
 # =============================================================================
+# Retry Delay Constants
+# =============================================================================
+
+
+class RetryDelays:
+    """Constants for retry delay durations.
+
+    Centralizes magic numbers for retry timing to ensure consistency
+    across the codebase and make timing decisions discoverable.
+
+    These values represent standard delays for different error scenarios.
+    Actual delays may be adjusted dynamically based on error context,
+    parsed reset times, or learning from previous attempts.
+    """
+
+    # Rate limit delays
+    API_RATE_LIMIT: float = 3600.0  # 1 hour for API rate limits
+    CLI_RATE_LIMIT: float = 900.0  # 15 minutes for CLI rate limits
+    CAPACITY_OVERLOAD: float = 300.0  # 5 minutes for service capacity issues
+
+    # Token/quota delays
+    QUOTA_EXHAUSTED_MIN: float = 300.0  # Minimum 5 minutes for quota resets
+    QUOTA_EXHAUSTED_DEFAULT: float = 3600.0  # Default 1 hour if no reset time
+
+    # Transient error delays
+    NETWORK_ERROR: float = 30.0  # Network connectivity issues
+    SERVICE_ERROR: float = 60.0  # Service unavailable / 5xx errors
+    TIMEOUT_ERROR: float = 60.0  # Execution timeout recovery
+
+    # Short delays for quick retries
+    TRANSIENT_SHORT: float = 5.0  # Brief transient errors
+    TRANSIENT_MEDIUM: float = 10.0  # Medium transient errors
+    TRANSIENT_LONG: float = 30.0  # Longer transient errors
+
+    # No delay (immediate retry or non-retriable)
+    NONE: float = 0.0
+
+
+# =============================================================================
 # Severity Levels
 # =============================================================================
 

@@ -11,7 +11,7 @@ import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
@@ -51,11 +51,7 @@ from mozart.learning.judgment import JudgmentClient, JudgmentQuery, JudgmentResp
 from mozart.learning.outcomes import OutcomeStore, SheetOutcome
 from mozart.prompts.templating import CompletionContext, PromptBuilder, SheetContext
 from mozart.state.base import StateBackend
-
-
-def _utc_now() -> datetime:
-    """Return current UTC time as timezone-aware datetime."""
-    return datetime.now(UTC)
+from mozart.utils.time import utc_now
 
 
 @dataclass
@@ -814,7 +810,7 @@ class JobRunner:
         if should_snapshot:
             snapshot = {
                 **progress_with_sheet,
-                "snapshot_at": _utc_now().isoformat(),
+                "snapshot_at": utc_now().isoformat(),
             }
             self._execution_progress_snapshots.append(snapshot)
 
@@ -1140,7 +1136,7 @@ class JobRunner:
             # Store execution progress snapshots in sheet state (Task 4)
             if self._execution_progress_snapshots:
                 sheet_state.progress_snapshots = self._execution_progress_snapshots.copy()
-                sheet_state.last_activity_at = _utc_now()
+                sheet_state.last_activity_at = utc_now()
 
             # Capture raw output for debugging (Task 1: Raw Output Capture)
             sheet_state.capture_output(result.stdout, result.stderr)
@@ -1272,6 +1268,17 @@ class JobRunner:
                 sheet_state.first_attempt_success = first_attempt_success
                 sheet_state.outcome_category = outcome_category
                 sheet_state.confidence_score = validation_result.pass_percentage / 100.0
+                # v9 Evolution: Pattern Feedback Loop - save both IDs and descriptions
+                sheet_state.applied_pattern_ids = self._applied_pattern_ids.copy()
+                sheet_state.applied_pattern_descriptions = self._current_sheet_patterns.copy()
+
+                # Record pattern feedback to global store (v9 Evolution)
+                await self._record_pattern_feedback(
+                    pattern_ids=self._applied_pattern_ids,
+                    validation_passed=True,
+                    first_attempt_success=first_attempt_success,
+                    sheet_num=sheet_num,
+                )
 
                 state.mark_sheet_completed(
                     sheet_num,
@@ -1444,6 +1451,17 @@ class JobRunner:
 
                 # Check both max retries and adaptive strategy recommendation
                 if normal_attempts >= max_retries:
+                    # v9 Evolution: Record pattern feedback for failure
+                    sheet_state = state.sheets[sheet_num]
+                    sheet_state.applied_pattern_ids = self._applied_pattern_ids.copy()
+                    sheet_state.applied_pattern_descriptions = self._current_sheet_patterns.copy()
+                    await self._record_pattern_feedback(
+                        pattern_ids=self._applied_pattern_ids,
+                        validation_passed=False,
+                        first_attempt_success=False,
+                        sheet_num=sheet_num,
+                    )
+
                     state.mark_sheet_failed(
                         sheet_num,
                         f"Failed after {max_retries} retries: {error.message}",
@@ -1677,6 +1695,17 @@ class JobRunner:
                 # RETRY MODE: Fall through to full retry
                 normal_attempts += 1
                 if normal_attempts >= max_retries:
+                    # v9 Evolution: Record pattern feedback for validation failure
+                    sheet_state = state.sheets[sheet_num]
+                    sheet_state.applied_pattern_ids = self._applied_pattern_ids.copy()
+                    sheet_state.applied_pattern_descriptions = self._current_sheet_patterns.copy()
+                    await self._record_pattern_feedback(
+                        pattern_ids=self._applied_pattern_ids,
+                        validation_passed=False,
+                        first_attempt_success=False,
+                        sheet_num=sheet_num,
+                    )
+
                     state.mark_sheet_failed(
                         sheet_num,
                         f"Validation failed after {max_retries} retries and "
@@ -2334,10 +2363,62 @@ class JobRunner:
             validation_pass_rate=validation_result.pass_percentage,
             first_attempt_success=first_attempt_success,
             patterns_detected=[],  # Future: pattern detection logic
-            timestamp=_utc_now(),
+            timestamp=utc_now(),
         )
 
         await self.outcome_store.record(outcome)
+
+    async def _record_pattern_feedback(
+        self,
+        pattern_ids: list[str],
+        validation_passed: bool,
+        first_attempt_success: bool,
+        sheet_num: int,
+    ) -> None:
+        """Record pattern application feedback to global learning store.
+
+        This closes the pattern feedback loop by recording whether patterns
+        that were applied to a sheet execution led to a successful outcome.
+
+        Args:
+            pattern_ids: List of pattern IDs that were applied.
+            validation_passed: Whether the sheet validations passed.
+            first_attempt_success: Whether the sheet succeeded on first attempt.
+            sheet_num: Sheet number for logging context.
+        """
+        if self._global_learning_store is None or not pattern_ids:
+            return
+
+        # Determine outcome improvement:
+        # - outcome_improved=True if validation passed AND first_attempt
+        # - outcome_improved=False if validation failed (patterns didn't help)
+        outcome_improved = validation_passed and first_attempt_success
+
+        for pattern_id in pattern_ids:
+            try:
+                self._global_learning_store.record_pattern_application(
+                    pattern_id=pattern_id,
+                    execution_id=f"sheet_{sheet_num}",
+                    outcome_improved=outcome_improved,
+                    retry_count_before=0,  # We don't track this per-pattern
+                    retry_count_after=0 if first_attempt_success else 1,
+                )
+                self._logger.debug(
+                    "learning.pattern_feedback_recorded",
+                    pattern_id=pattern_id,
+                    sheet_num=sheet_num,
+                    outcome_improved=outcome_improved,
+                    validation_passed=validation_passed,
+                    first_attempt_success=first_attempt_success,
+                )
+            except Exception as e:
+                # Pattern feedback recording should not block execution
+                self._logger.warning(
+                    "learning.pattern_feedback_failed",
+                    pattern_id=pattern_id,
+                    sheet_num=sheet_num,
+                    error=str(e),
+                )
 
     async def _aggregate_to_global_store(self, state: CheckpointState) -> None:
         """Aggregate job outcomes to the global learning store.
@@ -2374,10 +2455,12 @@ class JobRunner:
                         else 50.0  # Unknown
                     ),
                     first_attempt_success=sheet_state.first_attempt_success,
-                    timestamp=sheet_state.completed_at or _utc_now(),
+                    timestamp=sheet_state.completed_at or utc_now(),
                     # Output capture for pattern extraction (Evolution: Learning Data Collection)
                     stdout_tail=sheet_state.stdout_tail or "",
                     stderr_tail=sheet_state.stderr_tail or "",
+                    # v9 Evolution: Pattern Feedback Loop - pass applied pattern descriptions
+                    patterns_applied=sheet_state.applied_pattern_descriptions,
                 )
                 outcomes.append(outcome)
 

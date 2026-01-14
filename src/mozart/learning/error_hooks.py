@@ -18,7 +18,6 @@ Error Learning Hook Integration Points:
 3. on_auth_failure: Distinguishes transient vs permanent auth failures
 """
 
-import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -31,11 +30,13 @@ from mozart.core.errors import (
     ErrorClassifier,
     ErrorCode,
 )
+from mozart.core.logging import get_logger
 
 if TYPE_CHECKING:
     from mozart.learning.global_store import GlobalLearningStore
 
-logger = logging.getLogger(__name__)
+# Module-level logger for error learning hooks
+_logger = get_logger("learning.error_hooks")
 
 
 @dataclass
@@ -162,7 +163,7 @@ class ErrorLearningHooks:
         if error.category == ErrorCategory.RATE_LIMIT:
             adjusted_wait = self._get_learned_wait(context)
             if adjusted_wait is not None:
-                logger.info(
+                _logger.info(
                     f"Adjusted wait for {error.error_code.value}: "
                     f"{error.suggested_wait_seconds}s -> {adjusted_wait}s (learned)"
                 )
@@ -216,7 +217,7 @@ class ErrorLearningHooks:
                 model=context.model,
             )
 
-            logger.debug(
+            _logger.debug(
                 f"Recorded error recovery: {error.error_code.value} "
                 f"actual_wait={context.actual_wait}s success={success}"
             )

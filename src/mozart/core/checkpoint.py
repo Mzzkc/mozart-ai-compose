@@ -3,16 +3,20 @@
 Defines the state that gets persisted between runs for resumable orchestration.
 """
 
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from mozart.core.logging import get_logger
+from mozart.utils.time import utc_now
 
 # Module-level logger for checkpoint operations
 _logger = get_logger("checkpoint")
+
+# Alias for backward compatibility with existing code using _utc_now
+_utc_now = utc_now
 
 # Constants for output capture
 MAX_OUTPUT_CAPTURE_BYTES: int = 10240  # 10KB - last N bytes of stdout/stderr to capture
@@ -22,14 +26,6 @@ MAX_ERROR_HISTORY: int = 10  # Maximum number of error records to keep per sheet
 
 # Type alias for error types
 ErrorType = Literal["transient", "rate_limit", "permanent"]
-
-
-def _utc_now() -> datetime:
-    """Return current UTC time as timezone-aware datetime.
-
-    Replacement for deprecated datetime.utcnow().
-    """
-    return datetime.now(UTC)
 
 
 class SheetStatus(str, Enum):
@@ -53,7 +49,7 @@ class JobStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class ErrorRecord(BaseModel):
+class CheckpointErrorRecord(BaseModel):
     """Record of a single error occurrence during sheet execution.
 
     Stores structured error information for debugging and pattern analysis.
@@ -62,7 +58,7 @@ class ErrorRecord(BaseModel):
     """
 
     timestamp: datetime = Field(
-        default_factory=_utc_now,
+        default_factory=utc_now,
         description="When the error occurred (UTC)",
     )
     error_type: ErrorType = Field(
@@ -94,6 +90,10 @@ class ErrorRecord(BaseModel):
         default=None,
         description="Stack trace if exception was caught",
     )
+
+
+# Backward compatibility alias (renamed from ErrorRecord to CheckpointErrorRecord)
+ErrorRecord = CheckpointErrorRecord
 
 
 class SheetState(BaseModel):
@@ -212,9 +212,19 @@ class SheetState(BaseModel):
     )
 
     # Error history tracking (Task 10: Error History Model)
-    error_history: list[ErrorRecord] = Field(
+    error_history: list[CheckpointErrorRecord] = Field(
         default_factory=list,
         description="History of errors encountered during sheet execution (max 10)",
+    )
+
+    # Pattern feedback loop tracking (v9 evolution: Pattern Feedback Loop Closure)
+    applied_pattern_ids: list[str] = Field(
+        default_factory=list,
+        description="IDs of patterns that were applied/injected for this sheet execution",
+    )
+    applied_pattern_descriptions: list[str] = Field(
+        default_factory=list,
+        description="Descriptions of patterns that were applied/injected (for display/logging)",
     )
 
     # Cost tracking (v4 evolution: Cost Circuit Breaker)
@@ -306,7 +316,7 @@ class SheetState(BaseModel):
             stack_trace: Optional stack trace if exception was caught.
             **context: Additional context to store (exit_code, signal, etc.).
         """
-        record = ErrorRecord(
+        record = CheckpointErrorRecord(
             error_type=error_type,
             error_code=error_code,
             error_message=error_message,
@@ -370,8 +380,8 @@ class CheckpointState(BaseModel):
     )
 
     # Timestamps
-    created_at: datetime = Field(default_factory=_utc_now)
-    updated_at: datetime = Field(default_factory=_utc_now)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
     started_at: datetime | None = None
     completed_at: datetime | None = None
 
@@ -440,14 +450,14 @@ class CheckpointState(BaseModel):
         previous_status = self.status
         self.current_sheet = sheet_num
         self.status = JobStatus.RUNNING
-        self.updated_at = _utc_now()
+        self.updated_at = utc_now()
 
         if sheet_num not in self.sheets:
             self.sheets[sheet_num] = SheetState(sheet_num=sheet_num)
 
         sheet = self.sheets[sheet_num]
         sheet.status = SheetStatus.IN_PROGRESS
-        sheet.started_at = _utc_now()
+        sheet.started_at = utc_now()
         sheet.attempt_count += 1
 
         _logger.debug(
@@ -466,11 +476,11 @@ class CheckpointState(BaseModel):
         validation_details: list[dict[str, Any]] | None = None,
     ) -> None:
         """Mark a sheet as completed."""
-        self.updated_at = _utc_now()
+        self.updated_at = utc_now()
 
         sheet = self.sheets[sheet_num]
         sheet.status = SheetStatus.COMPLETED
-        sheet.completed_at = _utc_now()
+        sheet.completed_at = utc_now()
         sheet.exit_code = 0
         sheet.validation_passed = validation_passed
         sheet.validation_details = validation_details
@@ -482,7 +492,7 @@ class CheckpointState(BaseModel):
         job_completed = sheet_num >= self.total_sheets
         if job_completed:
             self.status = JobStatus.COMPLETED
-            self.completed_at = _utc_now()
+            self.completed_at = utc_now()
 
         _logger.debug(
             "sheet_completed",
@@ -515,11 +525,11 @@ class CheckpointState(BaseModel):
             exit_reason: Why execution ended ("completed", "timeout", "killed", "error").
             execution_duration_seconds: How long the sheet execution took.
         """
-        self.updated_at = _utc_now()
+        self.updated_at = utc_now()
 
         sheet = self.sheets[sheet_num]
         sheet.status = SheetStatus.FAILED
-        sheet.completed_at = _utc_now()
+        sheet.completed_at = utc_now()
         sheet.error_message = error_message
         sheet.error_category = error_category
         sheet.exit_code = exit_code
@@ -549,8 +559,8 @@ class CheckpointState(BaseModel):
         previous_status = self.status
         self.status = JobStatus.FAILED
         self.error_message = error_message
-        self.completed_at = _utc_now()
-        self.updated_at = _utc_now()
+        self.completed_at = utc_now()
+        self.updated_at = utc_now()
 
         _logger.error(
             "job_failed",
@@ -566,7 +576,7 @@ class CheckpointState(BaseModel):
         """Mark the job as paused."""
         previous_status = self.status
         self.status = JobStatus.PAUSED
-        self.updated_at = _utc_now()
+        self.updated_at = utc_now()
 
         _logger.info(
             "job_paused",
@@ -649,7 +659,7 @@ class CheckpointState(BaseModel):
 
         self.status = JobStatus.PAUSED
         self.pid = None
-        self.updated_at = _utc_now()
+        self.updated_at = utc_now()
 
         # Build zombie recovery message
         zombie_msg = f"Zombie recovery: job was RUNNING (PID {previous_pid}) but process dead"
@@ -682,7 +692,7 @@ class CheckpointState(BaseModel):
         import os
 
         self.pid = pid if pid is not None else os.getpid()
-        self.updated_at = _utc_now()
+        self.updated_at = utc_now()
 
         _logger.debug(
             "running_pid_set",
