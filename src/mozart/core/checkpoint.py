@@ -391,6 +391,7 @@ class CheckpointState(BaseModel):
     error_message: str | None = None
     total_retry_count: int = Field(default=0, description="Total retries across all sheets")
     rate_limit_waits: int = Field(default=0, description="Number of rate limit waits")
+    quota_waits: int = Field(default=0, description="Number of token quota exhaustion waits")
 
     # Cumulative cost tracking (v4 evolution: Cost Circuit Breaker)
     total_input_tokens: int = Field(

@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 from rich.console import Console
 
 if TYPE_CHECKING:
+    from mozart.execution.grounding import GroundingEngine
     from mozart.learning.global_store import GlobalLearningStore
 
 from mozart.backends.base import Backend, ExecutionResult
@@ -217,6 +218,7 @@ class JobRunner:
         progress_callback: Callable[[int, int, float | None], None] | None = None,
         execution_progress_callback: Callable[[dict[str, Any]], None] | None = None,
         global_learning_store: "GlobalLearningStore | None" = None,
+        grounding_engine: "GroundingEngine | None" = None,
     ) -> None:
         """Initialize job runner.
 
@@ -242,6 +244,8 @@ class JobRunner:
                 learning (Evolution #3: Learned Wait Time, #8: Cross-WS Circuit Breaker).
                 If provided, enables learned wait time injection and cross-workspace
                 rate limit coordination.
+            grounding_engine: Optional grounding engine for external validation of
+                sheet outputs. Provides external validators to prevent model drift.
         """
         self.config = config
         self.backend = backend
@@ -264,6 +268,10 @@ class JobRunner:
         # Global learning store for cross-workspace learning
         # (Evolution #3: Learned Wait Time, #8: Cross-WS Circuit Breaker)
         self._global_learning_store = global_learning_store
+
+        # Grounding engine for external validation of sheet outputs
+        # (v8 Evolution: External Grounding Hooks)
+        self._grounding_engine = grounding_engine
 
         # Track applied patterns for feedback loop (Learning Activation)
         self._current_sheet_patterns: list[str] = []
@@ -1196,6 +1204,29 @@ class JobRunner:
                         f"all {len(validation_result.results)} validations passed[/yellow]"
                     )
 
+                # ===== GROUNDING: External validation hooks (v8 Evolution) =====
+                # Run external grounding hooks to validate output against external
+                # sources (APIs, checksums, etc.). This prevents model drift.
+                grounding_passed, grounding_message = await self._run_grounding_hooks(
+                    sheet_num=sheet_num,
+                    prompt=current_prompt,
+                    output=result.stdout or "",
+                    validation_result=validation_result,
+                )
+
+                if not grounding_passed and self.config.grounding.fail_on_grounding_failure:
+                    self._logger.warning(
+                        "sheet.grounding_failed",
+                        sheet_num=sheet_num,
+                        message=grounding_message,
+                    )
+                    self.console.print(
+                        f"[yellow]Sheet {sheet_num}: Grounding failed - {grounding_message}[/yellow]"
+                    )
+                    # Treat grounding failure like validation failure (triggers retry/escalation)
+                    # Don't modify validation_result directly (it may have immutable props)
+                    continue  # Retry the sheet
+
                 # Record success in circuit breaker (Task 12)
                 if self._circuit_breaker is not None:
                     self._circuit_breaker.record_success()
@@ -1352,10 +1383,15 @@ class JobRunner:
                     self._circuit_breaker.record_failure()
 
                 if error.is_rate_limit:
-                    # Rate limit handling uses its own strategy
+                    # Rate limit/quota exhaustion handling uses its own strategy
                     error_history.clear()  # Reset on rate limit
                     # Evolution #8: Pass error code for cross-workspace recording
-                    await self._handle_rate_limit(state, error_code=error.error_code.value)
+                    # Pass suggested_wait_seconds for quota exhaustion (E104)
+                    await self._handle_rate_limit(
+                        state,
+                        error_code=error.error_code.value,
+                        suggested_wait_seconds=error.suggested_wait_seconds,
+                    )
                     continue  # Retry same execution
 
                 if not error.should_retry:
@@ -1979,6 +2015,76 @@ class JobRunner:
                 for r in result.get_failed_results()
             ]
 
+    async def _run_grounding_hooks(
+        self,
+        sheet_num: int,
+        prompt: str,
+        output: str,
+        validation_result: SheetValidationResult,
+    ) -> tuple[bool, str]:
+        """Run external grounding hooks to validate sheet output.
+
+        Executes registered grounding hooks to validate the sheet output against
+        external sources. This addresses the mathematical necessity of external
+        validators to prevent model drift (arXiv 2601.05280).
+
+        Args:
+            sheet_num: Sheet number being validated.
+            prompt: The prompt used for execution.
+            output: The raw output from execution.
+            validation_result: Results from internal validation engine.
+
+        Returns:
+            Tuple of (passed, message) where passed is True if all hooks pass.
+        """
+        if self._grounding_engine is None or not self.config.grounding.enabled:
+            return True, "Grounding not enabled"
+
+        from mozart.execution.grounding import GroundingContext, GroundingPhase
+
+        # Build grounding context
+        context = GroundingContext(
+            job_id=self.config.name,
+            sheet_num=sheet_num,
+            prompt=prompt,
+            output=output,
+            validation_passed=validation_result.all_passed,
+            validation_details=validation_result.to_dict_list(),
+            metadata={
+                "backend": self.config.backend.type,
+                "workspace": str(self.config.workspace),
+            },
+        )
+
+        # Run post-validation hooks (the most common phase)
+        results = await self._grounding_engine.run_hooks(
+            context, GroundingPhase.POST_VALIDATION
+        )
+
+        # Aggregate results
+        passed, message = self._grounding_engine.aggregate_results(results)
+
+        # Log grounding results
+        self._logger.info(
+            "grounding.hooks_completed",
+            sheet_num=sheet_num,
+            hooks_run=len(results),
+            passed=passed,
+            message=message,
+        )
+
+        # Handle escalation on grounding failure
+        if not passed and self.config.grounding.escalate_on_failure:
+            should_escalate = any(r.should_escalate for r in results)
+            if should_escalate:
+                self._logger.warning(
+                    "grounding.escalation_triggered",
+                    sheet_num=sheet_num,
+                    message=message,
+                )
+
+        return passed, message
+
     def _classify_execution(self, result: ExecutionResult) -> ClassificationResult:
         """Classify execution errors using multi-error root cause analysis.
 
@@ -2071,8 +2177,9 @@ class JobRunner:
         self,
         state: CheckpointState,
         error_code: str = "E101",
+        suggested_wait_seconds: float | None = None,
     ) -> None:
-        """Handle rate limit by waiting and health checking.
+        """Handle rate limit or quota exhaustion by waiting and health checking.
 
         Evolution #8: Cross-Workspace Circuit Breaker - Records rate limit events
         to the global learning store so other parallel jobs can avoid hitting
@@ -2081,13 +2188,29 @@ class JobRunner:
         Args:
             state: Current job state.
             error_code: The error code that triggered the rate limit (default: E101).
+            suggested_wait_seconds: Dynamic wait time (for quota exhaustion with
+                parsed reset time). If None, uses config.rate_limit.wait_minutes.
 
         Raises:
             FatalError: If max waits exceeded or health check fails.
         """
-        wait_minutes = self.config.rate_limit.wait_minutes
-        wait_seconds = wait_minutes * 60
-        state.rate_limit_waits += 1
+        # Determine if this is quota exhaustion (E104) vs regular rate limit
+        is_quota_exhaustion = error_code == "E104"
+
+        if suggested_wait_seconds is not None and suggested_wait_seconds > 0:
+            # Use dynamic wait time (from parsed reset time)
+            wait_seconds = suggested_wait_seconds
+            wait_minutes = wait_seconds / 60
+        else:
+            # Use configured wait time
+            wait_minutes = self.config.rate_limit.wait_minutes
+            wait_seconds = wait_minutes * 60
+
+        # Track separately for quota exhaustion vs rate limits
+        if is_quota_exhaustion:
+            state.quota_waits += 1
+        else:
+            state.rate_limit_waits += 1
         await self.state_backend.save(state)
 
         # Evolution #8: Record rate limit event to global store for cross-workspace
@@ -2115,45 +2238,62 @@ class JobRunner:
                     error=str(e),
                 )
 
-        # Log rate limit detection
-        self._logger.warning(
-            "rate_limit.detected",
-            job_id=state.job_id,
-            wait_count=state.rate_limit_waits,
-            max_waits=self.config.rate_limit.max_waits,
-            wait_minutes=wait_minutes,
-        )
-
-        if state.rate_limit_waits >= self.config.rate_limit.max_waits:
-            self._logger.error(
-                "rate_limit.exhausted",
+        # Log detection - different event for quota vs rate limit
+        if is_quota_exhaustion:
+            self._logger.warning(
+                "quota_exhausted.detected",
+                job_id=state.job_id,
+                wait_count=state.quota_waits,
+                wait_minutes=wait_minutes,
+                wait_seconds=wait_seconds,
+            )
+            # Quota exhaustion has no max waits - always wait until reset
+            self.console.print(
+                f"[yellow]Token quota exhausted. Waiting {wait_minutes:.1f} minutes until reset... "
+                f"(quota wait #{state.quota_waits})[/yellow]"
+            )
+        else:
+            self._logger.warning(
+                "rate_limit.detected",
                 job_id=state.job_id,
                 wait_count=state.rate_limit_waits,
                 max_waits=self.config.rate_limit.max_waits,
+                wait_minutes=wait_minutes,
             )
-            raise FatalError(
-                f"Exceeded maximum rate limit waits ({self.config.rate_limit.max_waits})"
+            # Check max waits only for regular rate limits
+            if state.rate_limit_waits >= self.config.rate_limit.max_waits:
+                self._logger.error(
+                    "rate_limit.exhausted",
+                    job_id=state.job_id,
+                    wait_count=state.rate_limit_waits,
+                    max_waits=self.config.rate_limit.max_waits,
+                )
+                raise FatalError(
+                    f"Exceeded maximum rate limit waits ({self.config.rate_limit.max_waits})"
+                )
+            self.console.print(
+                f"[yellow]Rate limited. Waiting {wait_minutes:.0f} minutes... "
+                f"(wait {state.rate_limit_waits}/{self.config.rate_limit.max_waits})[/yellow]"
             )
 
-        self.console.print(
-            f"[yellow]Rate limited. Waiting {wait_minutes} minutes... "
-            f"(wait {state.rate_limit_waits}/{self.config.rate_limit.max_waits})[/yellow]"
-        )
         await asyncio.sleep(wait_seconds)
 
         # Health check before resuming
         self.console.print("[blue]Running health check...[/blue]")
         if not await self.backend.health_check():
+            event_type = "quota_exhausted" if is_quota_exhaustion else "rate_limit"
             self._logger.error(
-                "rate_limit.health_check_failed",
+                f"{event_type}.health_check_failed",
                 job_id=state.job_id,
             )
-            raise FatalError("Backend health check failed after rate limit wait")
+            raise FatalError(f"Backend health check failed after {event_type} wait")
 
+        wait_count = state.quota_waits if is_quota_exhaustion else state.rate_limit_waits
+        event_type = "quota_exhausted" if is_quota_exhaustion else "rate_limit"
         self._logger.info(
-            "rate_limit.resumed",
+            f"{event_type}.resumed",
             job_id=state.job_id,
-            wait_count=state.rate_limit_waits,
+            wait_count=wait_count,
         )
         self.console.print("[green]Health check passed, resuming...[/green]")
 

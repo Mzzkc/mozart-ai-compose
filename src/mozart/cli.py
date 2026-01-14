@@ -326,6 +326,12 @@ def run(
         "-j",
         help="Output result as JSON for machine parsing",
     ),
+    escalation: bool = typer.Option(
+        False,
+        "--escalation",
+        "-e",
+        help="Enable human-in-the-loop escalation for low-confidence sheets",
+    ),
 ) -> None:
     """Run a job from a YAML configuration file."""
     from mozart.core.config import JobConfig
@@ -351,6 +357,14 @@ def run(
             title="Job Configuration",
         ))
 
+    # Validate flag compatibility
+    if json_output and escalation:
+        console.print(json.dumps({
+            "error": "--escalation is incompatible with --json output mode. "
+            "Escalation requires interactive console prompts."
+        }, indent=2))
+        raise typer.Exit(1)
+
     if dry_run:
         if not json_output:
             console.print("\n[yellow]Dry run - not executing[/yellow]")
@@ -366,13 +380,14 @@ def run(
     # Actually run the job
     if not is_quiet() and not json_output:
         console.print("\n[green]Starting job...[/green]")
-    asyncio.run(_run_job(config, start_sheet, json_output))
+    asyncio.run(_run_job(config, start_sheet, json_output, escalation))
 
 
 async def _run_job(
     config: JobConfig,
     start_sheet: int | None,
     json_output: bool = False,
+    escalation: bool = False,
 ) -> None:
     """Run the job asynchronously using the JobRunner with progress display."""
     from mozart.backends.anthropic_api import AnthropicApiBackend
@@ -521,6 +536,34 @@ async def _run_job(
     if isinstance(backend, ClaudeCliBackend) and not is_quiet() and not json_output:
         backend.progress_callback = update_execution_display
 
+    # Setup escalation handler if enabled
+    escalation_handler = None
+    if escalation:
+        from mozart.execution.escalation import ConsoleEscalationHandler
+
+        # Enable escalation in config - required for runner to use the handler
+        config.learning.escalation_enabled = True
+
+        escalation_handler = ConsoleEscalationHandler(
+            confidence_threshold=config.learning.min_confidence_threshold,
+            auto_retry_on_first_failure=True,
+        )
+        if is_verbose() and not json_output:
+            console.print(
+                "[dim]Escalation enabled: low-confidence sheets will prompt for decisions[/dim]"
+            )
+
+    # Setup grounding engine if enabled (v8 Evolution: External Grounding Hooks)
+    grounding_engine = None
+    if config.grounding.enabled:
+        from mozart.execution.grounding import GroundingEngine
+
+        grounding_engine = GroundingEngine(hooks=[], config=config.grounding)
+        if is_verbose() and not json_output:
+            console.print(
+                "[dim]Grounding enabled: external validation hooks will run[/dim]"
+            )
+
     # Create runner with progress callback
     runner = JobRunner(
         config=config,
@@ -528,8 +571,10 @@ async def _run_job(
         state_backend=state_backend,
         console=console if not json_output else Console(quiet=True),
         outcome_store=outcome_store,
+        escalation_handler=escalation_handler,
         progress_callback=update_progress if progress else None,
         global_learning_store=global_learning_store,
+        grounding_engine=grounding_engine,
     )
 
     job_id = config.name  # Use job name as ID for now
@@ -804,6 +849,12 @@ def resume(
         "-f",
         help="Force resume even if job appears completed",
     ),
+    escalation: bool = typer.Option(
+        False,
+        "--escalation",
+        "-e",
+        help="Enable human-in-the-loop escalation for low-confidence sheets",
+    ),
 ) -> None:
     """Resume a paused or failed job.
 
@@ -815,8 +866,9 @@ def resume(
         mozart resume my-job
         mozart resume my-job --config job.yaml
         mozart resume my-job --workspace ./workspace
+        mozart resume my-job --escalation
     """
-    asyncio.run(_resume_job(job_id, config_file, workspace, force))
+    asyncio.run(_resume_job(job_id, config_file, workspace, force, escalation))
 
 
 async def _resume_job(
@@ -824,6 +876,7 @@ async def _resume_job(
     config_file: Path | None,
     workspace: Path | None,
     force: bool,
+    escalation: bool = False,
 ) -> None:
     """Resume a paused or failed job.
 
@@ -832,6 +885,7 @@ async def _resume_job(
         config_file: Optional path to config file.
         workspace: Optional workspace directory to search.
         force: Force resume even if job appears completed.
+        escalation: Enable human-in-the-loop escalation for low-confidence sheets.
     """
     from mozart.backends.anthropic_api import AnthropicApiBackend
     from mozart.backends.base import Backend
@@ -1054,6 +1108,34 @@ async def _resume_job(
                 eta=eta_str,
             )
 
+    # Setup escalation handler if enabled
+    escalation_handler = None
+    if escalation:
+        from mozart.execution.escalation import ConsoleEscalationHandler
+
+        # Enable escalation in config - required for runner to use the handler
+        config.learning.escalation_enabled = True
+
+        escalation_handler = ConsoleEscalationHandler(
+            confidence_threshold=config.learning.min_confidence_threshold,
+            auto_retry_on_first_failure=True,
+        )
+        if is_verbose():
+            console.print(
+                "[dim]Escalation enabled: low-confidence sheets will prompt for decisions[/dim]"
+            )
+
+    # Setup grounding engine if enabled (v8 Evolution: External Grounding Hooks)
+    grounding_engine = None
+    if config.grounding.enabled:
+        from mozart.execution.grounding import GroundingEngine
+
+        grounding_engine = GroundingEngine(hooks=[], config=config.grounding)
+        if is_verbose():
+            console.print(
+                "[dim]Grounding enabled: external validation hooks will run[/dim]"
+            )
+
     # Create runner with progress callback
     runner = JobRunner(
         config=config,
@@ -1061,8 +1143,10 @@ async def _resume_job(
         state_backend=found_backend,
         console=console,
         outcome_store=outcome_store,
+        escalation_handler=escalation_handler,
         progress_callback=update_progress,
         global_learning_store=global_learning_store,
+        grounding_engine=grounding_engine,
     )
 
     try:
@@ -1858,10 +1942,13 @@ def _output_status_rich(job: CheckpointState) -> None:
         console.print(f"  Completed: {job.completed_at.strftime('%Y-%m-%d %H:%M:%S UTC')}")
 
     # Execution stats
-    if job.total_retry_count > 0 or job.rate_limit_waits > 0:
+    quota_waits = getattr(job, "quota_waits", 0)
+    if job.total_retry_count > 0 or job.rate_limit_waits > 0 or quota_waits > 0:
         console.print("\n[bold]Execution Stats[/bold]")
         console.print(f"  Total retries: {job.total_retry_count}")
         console.print(f"  Rate limit waits: {job.rate_limit_waits}")
+        if quota_waits > 0:
+            console.print(f"  Quota exhaustion waits: {quota_waits}")
 
     # Recent errors section - show last 3 errors from any sheet
     recent_errors = _collect_recent_errors(job, limit=3)

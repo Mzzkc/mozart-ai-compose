@@ -224,6 +224,9 @@ class ErrorCode(str, Enum):
     CAPACITY_EXCEEDED = "E103"
     """Service capacity exceeded (overloaded, try again later)."""
 
+    QUOTA_EXHAUSTED = "E104"
+    """Token/usage quota exhausted - wait until reset time."""
+
     # E2xx: Validation errors
     VALIDATION_FILE_MISSING = "E201"
     """Expected output file does not exist."""
@@ -420,6 +423,11 @@ class ErrorCode(str, Enum):
                 delay_seconds=300.0,  # 5 minutes for capacity
                 is_retriable=True,
                 reason="Service overloaded - wait for capacity",
+            ),
+            ErrorCode.QUOTA_EXHAUSTED: RetryBehavior(
+                delay_seconds=0.0,  # Dynamic - parsed from reset time in message
+                is_retriable=True,
+                reason="Token quota exhausted - wait until reset time",
             ),
             # E2xx: Validation errors
             ErrorCode.VALIDATION_FILE_MISSING: RetryBehavior(
@@ -896,8 +904,9 @@ ROOT_CAUSE_PRIORITY: dict[ErrorCode, int] = {
     ErrorCode.RATE_LIMIT_API: 50,
     ErrorCode.RATE_LIMIT_CLI: 51,
     ErrorCode.CAPACITY_EXCEEDED: 52,
-    ErrorCode.BACKEND_TIMEOUT: 53,
-    ErrorCode.NETWORK_TIMEOUT: 54,
+    ErrorCode.QUOTA_EXHAUSTED: 53,
+    ErrorCode.BACKEND_TIMEOUT: 54,
+    ErrorCode.NETWORK_TIMEOUT: 55,
 
     # Tier 6: Execution Issues (priority 60-69)
     ErrorCode.EXECUTION_TIMEOUT: 60,
@@ -1511,6 +1520,34 @@ class ErrorClassifier:
             ]
         ]
 
+        # Token quota exhaustion patterns (Claude Max token budgets)
+        # These indicate daily/hourly token quotas are exhausted with a reset time
+        self.quota_exhaustion_patterns = [
+            re.compile(p, re.IGNORECASE)
+            for p in [
+                r"token.{0,10}exhausted",  # "tokens exhausted"
+                r"token.{0,10}budget.{0,10}(used|exhausted|depleted)",
+                r"usage.{0,10}(will\s+)?reset.{0,10}(at|in)",  # "usage will reset at 9pm"
+                r"resets?.{0,10}\d+\s*[ap]m",  # "resets 9pm" or "reset at 9 pm"
+                r"resets?.{0,10}in\s+\d+\s*(hour|minute|min|hr)",  # "resets in 3 hours"
+                r"daily.{0,10}(token|usage).{0,10}limit",
+                r"hourly.{0,10}(token|usage).{0,10}limit",
+                r"(used|consumed).{0,10}all.{0,10}(token|credit)",
+                r"no.{0,10}(token|credit).{0,10}(left|remaining)",
+                r"token.{0,10}allowance.{0,10}(used|exhausted)",
+                r"recharge.{0,10}(at|in)",  # "recharge at midnight"
+            ]
+        ]
+
+        # Regex to extract reset time from messages
+        # Captures patterns like "9pm", "9 pm", "21:00", "in 3 hours"
+        self.reset_time_patterns = [
+            re.compile(r"resets?\s+(?:at\s+)?(\d{1,2})\s*([ap]m)", re.IGNORECASE),  # "resets at 9pm"
+            re.compile(r"resets?\s+(?:at\s+)?(\d{1,2}):(\d{2})", re.IGNORECASE),  # "resets at 21:00"
+            re.compile(r"resets?\s+in\s+(\d+)\s*(hour|hr|minute|min)s?", re.IGNORECASE),  # "resets in 3 hours"
+            re.compile(r"reset.{0,20}(\d{1,2})\s*([ap]m)", re.IGNORECASE),  # "reset ... 9pm"
+        ]
+
         # MCP/Plugin configuration errors (non-retriable)
         self.mcp_patterns = [
             re.compile(p, re.IGNORECASE)
@@ -1545,6 +1582,70 @@ class ErrorClassifier:
                 r"not found in PATH",
             ]
         ]
+
+    def parse_reset_time(self, text: str) -> float | None:
+        """Parse reset time from message and return seconds until reset.
+
+        Supports patterns like:
+        - "resets at 9pm" -> seconds until 9pm (or next day if past)
+        - "resets at 21:00" -> seconds until 21:00
+        - "resets in 3 hours" -> 3 * 3600 seconds
+        - "resets in 30 minutes" -> 30 * 60 seconds
+
+        Args:
+            text: Error message that may contain reset time info.
+
+        Returns:
+            Seconds until reset, or None if no reset time found.
+            Returns minimum of 300 seconds (5 min) to avoid immediate retries.
+        """
+        from datetime import datetime, timedelta
+
+        for pattern in self.reset_time_patterns:
+            match = pattern.search(text)
+            if not match:
+                continue
+
+            groups = match.groups()
+
+            # Pattern: "resets in X hours/minutes"
+            if len(groups) == 2 and groups[1] and groups[1].lower() in ("hour", "hr", "minute", "min"):
+                amount = int(groups[0])
+                unit = groups[1].lower()
+                if unit in ("hour", "hr"):
+                    seconds = amount * 3600
+                else:  # minute, min
+                    seconds = amount * 60
+                return max(seconds, 300.0)  # At least 5 minutes
+
+            # Pattern: "resets at X:XX" (24-hour time)
+            if len(groups) == 2 and groups[1] and groups[1].isdigit():
+                hour = int(groups[0])
+                minute = int(groups[1])
+                now = datetime.now()
+                reset_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                if reset_time <= now:
+                    reset_time += timedelta(days=1)  # Next day
+                seconds = (reset_time - now).total_seconds()
+                return max(seconds, 300.0)
+
+            # Pattern: "resets at Xpm/Xam"
+            if len(groups) == 2 and groups[1] and groups[1].lower() in ("am", "pm"):
+                hour = int(groups[0])
+                meridiem = groups[1].lower()
+                if meridiem == "pm" and hour != 12:
+                    hour += 12
+                elif meridiem == "am" and hour == 12:
+                    hour = 0
+                now = datetime.now()
+                reset_time = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+                if reset_time <= now:
+                    reset_time += timedelta(days=1)  # Next day
+                seconds = (reset_time - now).total_seconds()
+                return max(seconds, 300.0)
+
+        # No pattern matched, return default wait
+        return None
 
     def classify(
         self,
@@ -1616,7 +1717,37 @@ class ErrorClassifier:
             )
             return result
 
-        # Check for rate limiting first (most common retriable)
+        # Check for token quota exhaustion FIRST (more specific than rate limit)
+        # This is when Claude Max says "tokens exhausted, resets at 9pm"
+        if self._matches_any(combined, self.quota_exhaustion_patterns):
+            # Try to parse reset time from message
+            wait_seconds = self.parse_reset_time(combined)
+            if wait_seconds is None:
+                wait_seconds = 3600.0  # Default 1 hour if no time found
+
+            result = ClassifiedError(
+                category=ErrorCategory.RATE_LIMIT,  # Same category, different handling
+                message="Token quota exhausted - waiting until reset",
+                error_code=ErrorCode.QUOTA_EXHAUSTED,
+                original_error=exception,
+                exit_code=exit_code,
+                exit_signal=None,
+                exit_reason=exit_reason,
+                retriable=True,
+                suggested_wait_seconds=wait_seconds,
+            )
+            _logger.warning(
+                "quota_exhausted",
+                component="errors",
+                error_code=result.error_code.value,
+                exit_code=exit_code,
+                retriable=result.retriable,
+                suggested_wait_seconds=wait_seconds,
+                message=result.message,
+            )
+            return result
+
+        # Check for rate limiting (most common retriable)
         if self._matches_any(combined, self.rate_limit_patterns):
             # Differentiate between capacity vs rate limit
             if self._matches_any(combined, self.capacity_patterns):

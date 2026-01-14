@@ -166,6 +166,34 @@ class LearningConfig(BaseModel):
     )
 
 
+class GroundingConfig(BaseModel):
+    """Configuration for external grounding hooks.
+
+    Grounding hooks validate sheet outputs against external sources (APIs,
+    databases, file checksums) to prevent model drift and ensure output quality.
+    This addresses the mathematical necessity of external validators documented
+    in arXiv 2601.05280 (entropy decay in self-training).
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable external grounding hooks",
+    )
+    fail_on_grounding_failure: bool = Field(
+        default=True,
+        description="Whether to fail validation if grounding fails",
+    )
+    escalate_on_failure: bool = Field(
+        default=True,
+        description="Whether to escalate to human if grounding fails (requires escalation handler)",
+    )
+    timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        description="Maximum time to wait for each grounding hook",
+    )
+
+
 class RateLimitConfig(BaseModel):
     """Configuration for rate limit detection and handling."""
 
@@ -655,6 +683,7 @@ class JobConfig(BaseModel):
     circuit_breaker: CircuitBreakerConfig = Field(default_factory=CircuitBreakerConfig)
     cost_limits: CostLimitConfig = Field(default_factory=CostLimitConfig)
     learning: LearningConfig = Field(default_factory=LearningConfig)
+    grounding: GroundingConfig = Field(default_factory=GroundingConfig)
     ai_review: AIReviewConfig = Field(default_factory=AIReviewConfig)
     logging: LogConfig = Field(default_factory=LogConfig)
 
