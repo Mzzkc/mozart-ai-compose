@@ -884,10 +884,14 @@ class JobRunner:
                     error=str(e),
                 )
 
-        # Build original prompt with learned patterns
+        # Get applicable validation rules for this sheet
+        applicable_rules = validation_engine.get_applicable_rules(self.config.validations)
+
+        # Build original prompt with learned patterns and validation requirements
         original_prompt = self.prompt_builder.build_sheet_prompt(
             sheet_context,
             patterns=relevant_patterns if relevant_patterns else None,
+            validation_rules=applicable_rules if applicable_rules else None,
         )
         current_prompt = original_prompt
         current_mode = SheetExecutionMode.NORMAL
@@ -1004,8 +1008,127 @@ class JobRunner:
             # Track execution result for judgment (Phase 4)
             execution_history.append(result)
 
-            if not result.success:
-                # Execution failed (not validation failure)
+            # ===== VALIDATION-FIRST APPROACH =====
+            # Always run validations regardless of exit code.
+            # Claude CLI may return exit_code=1 with warnings in JSON even when
+            # work was completed successfully. Trust validation results over exit codes.
+            # This fixes the "streaming mode" error masking successful execution.
+            validation_start = time.monotonic()
+            validation_result = validation_engine.run_validations(
+                self.config.validations
+            )
+            validation_duration = time.monotonic() - validation_start
+
+            # Update state with validation details
+            self._update_sheet_validation_state(state, sheet_num, validation_result)
+            await self.state_backend.save(state)
+
+            if validation_result.all_passed:
+                # ===== SUCCESS: All validations passed =====
+                # Regardless of exit code, if validations pass, the work was done.
+                if not result.success:
+                    # Log warning about exit code for debugging, but don't fail
+                    self._logger.warning(
+                        "sheet.exit_code_ignored_validations_passed",
+                        sheet_num=sheet_num,
+                        exit_code=result.exit_code,
+                        exit_reason=result.exit_reason,
+                        validation_count=len(validation_result.results),
+                    )
+                    self.console.print(
+                        f"[yellow]Sheet {sheet_num}: CLI exit {result.exit_code} ignored - "
+                        f"all {len(validation_result.results)} validations passed[/yellow]"
+                    )
+
+                # Record success in circuit breaker (Task 12)
+                if self._circuit_breaker is not None:
+                    self._circuit_breaker.record_success()
+
+                execution_duration = time.monotonic() - execution_start_time
+
+                # Determine outcome category based on execution path
+                first_attempt_success = (normal_attempts == 1 and completion_attempts == 0)
+                if first_attempt_success:
+                    outcome_category = "success_first_try"
+                elif completion_attempts > 0:
+                    outcome_category = "success_completion"
+                else:
+                    outcome_category = "success_retry"
+
+                # Populate SheetState learning fields
+                sheet_state = state.sheets[sheet_num]
+                sheet_state.first_attempt_success = first_attempt_success
+                sheet_state.outcome_category = outcome_category
+                sheet_state.confidence_score = validation_result.pass_percentage / 100.0
+
+                state.mark_sheet_completed(
+                    sheet_num,
+                    validation_passed=True,
+                    validation_details=validation_result.to_dict_list(),
+                )
+
+                # Record outcome for learning if store is available
+                await self._record_sheet_outcome(
+                    sheet_num=sheet_num,
+                    job_id=state.job_id,
+                    validation_result=validation_result,
+                    execution_duration=execution_duration,
+                    normal_attempts=normal_attempts,
+                    completion_attempts=completion_attempts,
+                    first_attempt_success=first_attempt_success,
+                    final_status=SheetStatus.COMPLETED,
+                )
+
+                await self.state_backend.save(state)
+                # Log successful sheet completion
+                self._logger.info(
+                    "sheet.completed",
+                    sheet_num=sheet_num,
+                    duration_seconds=round(execution_duration, 2),
+                    validation_duration_seconds=round(validation_duration, 3),
+                    validation_count=len(validation_result.results),
+                    validation_pass_rate=100.0,
+                    outcome_category=outcome_category,
+                    retry_count=normal_attempts - 1 if normal_attempts > 0 else 0,
+                    completion_attempts=completion_attempts,
+                    first_attempt_success=first_attempt_success,
+                    exit_code_was_nonzero=not result.success,
+                )
+                self.console.print(
+                    f"[green]Sheet {sheet_num}: All {len(validation_result.results)} "
+                    f"validations passed[/green]"
+                )
+                return
+
+            # ===== VALIDATIONS INCOMPLETE =====
+            # Some validations failed - decide between retry/completion/failure
+
+            # Show validation summary for user visibility
+            passed_count = len(validation_result.get_passed_results())
+            failed_count = len(validation_result.get_failed_results())
+            pass_pct = validation_result.executed_pass_percentage
+            completion_threshold = self.config.retry.completion_threshold_percent
+
+            self.console.print(
+                f"[yellow]Sheet {sheet_num}: Validations {passed_count}/{passed_count + failed_count} passed ({pass_pct:.0f}%)[/yellow]"
+            )
+            for failed in validation_result.get_failed_results():
+                self.console.print(
+                    f"  [red]✗[/red] {failed.rule.description}"
+                )
+
+            # Check if pass_pct is high enough for completion mode
+            # This applies regardless of exit_code - partial success is still progress
+            if pass_pct >= completion_threshold:
+                # Jump to judgment/completion logic even if exit_code != 0
+                self.console.print(
+                    f"[blue]Sheet {sheet_num}: Pass rate ({pass_pct:.0f}%) >= threshold ({completion_threshold}%) - "
+                    f"using completion mode[/blue]"
+                )
+                # Fall through to judgment-based decision below
+            elif not result.success:
+                # Execution returned non-zero AND some validations failed
+                # Check if this is a real error or just a warning
                 error = self._classify_error(result)
 
                 # Track error for adaptive retry (Task 13)
@@ -1028,9 +1151,19 @@ class JobRunner:
                     continue  # Retry same execution
 
                 if not error.should_retry:
+                    # Build informative error message including validation status
+                    failed_validations = validation_result.get_failed_results()
+                    validation_info = ""
+                    if failed_validations:
+                        failed_names = [
+                            f.rule.description or "unnamed validation"
+                            for f in failed_validations
+                        ]
+                        validation_info = f" (validations failed: {', '.join(failed_names)})"
+
                     state.mark_sheet_failed(
                         sheet_num,
-                        error.message,
+                        error.message + validation_info,
                         error.category.value,
                         exit_code=result.exit_code,
                         exit_signal=result.exit_signal,
@@ -1038,7 +1171,7 @@ class JobRunner:
                         execution_duration_seconds=result.duration_seconds,
                     )
                     await self.state_backend.save(state)
-                    # Log fatal sheet failure
+                    # Log fatal sheet failure with validation details
                     self._logger.error(
                         "sheet.failed",
                         sheet_num=sheet_num,
@@ -1048,9 +1181,14 @@ class JobRunner:
                         exit_signal=result.exit_signal,
                         exit_reason=result.exit_reason,
                         duration_seconds=round(result.duration_seconds or 0, 2),
+                        validations_passed=passed_count,
+                        validations_failed=failed_count,
+                        failed_validation_names=[f.rule.description for f in failed_validations],
                         stdout_tail=result.stdout[-500:] if result.stdout else None,
                     )
-                    raise FatalError(f"Sheet {sheet_num}: {error.message}")
+                    raise FatalError(
+                        f"Sheet {sheet_num}: {error.message}{validation_info}"
+                    )
 
                 # Transient error - get adaptive retry recommendation (Task 13)
                 retry_recommendation = self._retry_strategy.analyze(
@@ -1137,77 +1275,11 @@ class JobRunner:
                 await asyncio.sleep(retry_recommendation.delay_seconds)
                 continue
 
-            # Execution succeeded - record success in circuit breaker (Task 12)
-            if self._circuit_breaker is not None:
-                self._circuit_breaker.record_success()
-
-            # Execution succeeded - run validations
-            validation_start = time.monotonic()
-            validation_result = validation_engine.run_validations(
-                self.config.validations
-            )
-            validation_duration = time.monotonic() - validation_start
-
-            # Update state with validation details
-            self._update_sheet_validation_state(state, sheet_num, validation_result)
-            await self.state_backend.save(state)
-
-            if validation_result.all_passed:
-                # SUCCESS - all validations passed
-                execution_duration = time.monotonic() - execution_start_time
-
-                # Determine outcome category based on execution path
-                first_attempt_success = (normal_attempts == 1 and completion_attempts == 0)
-                if first_attempt_success:
-                    outcome_category = "success_first_try"
-                elif completion_attempts > 0:
-                    outcome_category = "success_completion"
-                else:
-                    outcome_category = "success_retry"
-
-                # Populate SheetState learning fields
-                sheet_state = state.sheets[sheet_num]
-                sheet_state.first_attempt_success = first_attempt_success
-                sheet_state.outcome_category = outcome_category
-                sheet_state.confidence_score = validation_result.pass_percentage / 100.0
-
-                state.mark_sheet_completed(
-                    sheet_num,
-                    validation_passed=True,
-                    validation_details=validation_result.to_dict_list(),
-                )
-
-                # Record outcome for learning if store is available
-                await self._record_sheet_outcome(
-                    sheet_num=sheet_num,
-                    job_id=state.job_id,
-                    validation_result=validation_result,
-                    execution_duration=execution_duration,
-                    normal_attempts=normal_attempts,
-                    completion_attempts=completion_attempts,
-                    first_attempt_success=first_attempt_success,
-                    final_status=SheetStatus.COMPLETED,
-                )
-
-                await self.state_backend.save(state)
-                # Log successful sheet completion
-                self._logger.info(
-                    "sheet.completed",
-                    sheet_num=sheet_num,
-                    duration_seconds=round(execution_duration, 2),
-                    validation_duration_seconds=round(validation_duration, 3),
-                    validation_count=len(validation_result.results),
-                    validation_pass_rate=100.0,
-                    outcome_category=outcome_category,
-                    retry_count=normal_attempts - 1 if normal_attempts > 0 else 0,
-                    completion_attempts=completion_attempts,
-                    first_attempt_success=first_attempt_success,
-                )
-                self.console.print(
-                    f"[green]Sheet {sheet_num}: All {len(validation_result.results)} "
-                    f"validations passed[/green]"
-                )
-                return
+            # ===== JUDGMENT/COMPLETION MODE =====
+            # Reached when:
+            # - pass_pct >= completion_threshold (regardless of exit_code), OR
+            # - exit_code == 0 but validations incomplete
+            # Use judgment to decide between completion mode, retry, or escalation.
 
             # Some validations failed - use judgment-based decision logic (Phase 4)
             next_mode, decision_reason, prompt_modifications = await self._decide_with_judgment(
@@ -1217,7 +1289,7 @@ class JobRunner:
                 normal_attempts=normal_attempts,
                 completion_attempts=completion_attempts,
             )
-            pass_pct = validation_result.pass_percentage
+            # pass_pct already set above
 
             self.console.print(
                 f"[dim]Sheet {sheet_num}: Decision: {next_mode.value} - {decision_reason}[/dim]"

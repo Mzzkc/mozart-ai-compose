@@ -201,6 +201,71 @@ class SheetValidationResult:
         """Convert all results to serializable list."""
         return [r.to_dict() for r in self.results]
 
+    def get_semantic_summary(self) -> dict[str, Any]:
+        """Aggregate semantic information from failed validations.
+
+        Returns a summary of failure categories and their counts,
+        useful for making retry strategy decisions.
+
+        Returns:
+            Dictionary with:
+            - category_counts: dict mapping category to count
+            - dominant_category: the most common failure category
+            - has_semantic_info: whether any result has semantic fields
+        """
+        category_counts: dict[str, int] = {}
+        has_semantic_info = False
+
+        for result in self.results:
+            if not result.passed and result.failure_category:
+                has_semantic_info = True
+                category = result.failure_category
+                category_counts[category] = category_counts.get(category, 0) + 1
+
+        # Find dominant category
+        dominant_category: str | None = None
+        if category_counts:
+            dominant_category = max(category_counts, key=lambda k: category_counts[k])
+
+        return {
+            "category_counts": category_counts,
+            "dominant_category": dominant_category,
+            "has_semantic_info": has_semantic_info,
+            "total_failures": self.failed_count,
+        }
+
+    def get_actionable_hints(self, limit: int = 3) -> list[str]:
+        """Extract actionable hints from failed validations.
+
+        Collects suggested_fix values from failed ValidationResults,
+        useful for injecting into completion prompts.
+
+        Args:
+            limit: Maximum number of hints to return. Defaults to 3
+                   to avoid overwhelming the completion prompt.
+
+        Returns:
+            List of suggested_fix strings, deduplicated and limited.
+        """
+        hints: list[str] = []
+        seen: set[str] = set()
+
+        for result in self.results:
+            if not result.passed and result.suggested_fix:
+                # Truncate long hints for prompt brevity
+                hint = result.suggested_fix
+                if len(hint) > 100:
+                    hint = hint[:97] + "..."
+
+                if hint not in seen:
+                    seen.add(hint)
+                    hints.append(hint)
+
+                if len(hints) >= limit:
+                    break
+
+        return hints
+
 
 class FileModificationTracker:
     """Tracks file mtimes before sheet execution for file_modified checks.
@@ -378,6 +443,22 @@ class ValidationEngine:
             List of rules that apply to the current sheet.
         """
         return [r for r in rules if self._check_condition(r.condition)]
+
+    def get_applicable_rules(
+        self, rules: list[ValidationRule]
+    ) -> list[ValidationRule]:
+        """Get rules that apply to the current sheet context.
+
+        Public wrapper around _filter_applicable_rules for use by PromptBuilder
+        to inject validation requirements into prompts.
+
+        Args:
+            rules: List of all validation rules.
+
+        Returns:
+            List of rules that apply to the current sheet (condition satisfied).
+        """
+        return self._filter_applicable_rules(rules)
 
     def run_validations(self, rules: list[ValidationRule]) -> SheetValidationResult:
         """Execute all validation rules and return aggregate result.
@@ -561,7 +642,7 @@ class ValidationEngine:
             error_message=f"File not found: {path}",
             failure_reason=f"File '{display_path}' does not exist",
             failure_category="missing",
-            suggested_fix="Ensure the task creates this file",
+            suggested_fix=f"Create file at: {path}",
         )
 
     def _check_file_modified(self, rule: ValidationRule) -> ValidationResult:
@@ -662,7 +743,7 @@ class ValidationEngine:
                 error_message=f"File not found: {path}",
                 failure_reason=f"File '{display_path}' does not exist (cannot check content)",
                 failure_category="missing",
-                suggested_fix="Create the file with the required content",
+                suggested_fix=f"Create file '{display_path}' containing '{rule.pattern}'",
             )
 
         try:
@@ -693,7 +774,7 @@ class ValidationEngine:
             error_message=f"Pattern not found in {path}: {rule.pattern}",
             failure_reason=f"File '{display_path}' missing expected content: '{display_pattern}'",
             failure_category="incomplete",
-            suggested_fix="Add the required content to the file",
+            suggested_fix=f"Add exactly '{rule.pattern}' to the file (this exact text is validated)",
         )
 
     def _check_content_regex(self, rule: ValidationRule) -> ValidationResult:

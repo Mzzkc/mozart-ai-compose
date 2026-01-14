@@ -74,7 +74,7 @@ class CircuitBreakerStats:
     """Statistics for circuit breaker monitoring.
 
     Provides visibility into the circuit breaker's behavior for
-    observability and debugging.
+    observability and debugging, including cost tracking.
     """
 
     total_successes: int = 0
@@ -101,6 +101,16 @@ class CircuitBreakerStats:
     consecutive_failures: int = 0
     """Current count of consecutive failures (resets on success)."""
 
+    # Cost tracking (v4 evolution: Cost Circuit Breaker)
+    total_input_tokens: int = 0
+    """Total input tokens consumed across all executions."""
+
+    total_output_tokens: int = 0
+    """Total output tokens consumed across all executions."""
+
+    total_estimated_cost: float = 0.0
+    """Total estimated cost in USD across all executions."""
+
     def to_dict(self) -> dict[str, Any]:
         """Convert stats to dictionary for logging/serialization.
 
@@ -116,6 +126,9 @@ class CircuitBreakerStats:
             "consecutive_failures": self.consecutive_failures,
             "last_failure_at": self.last_failure_at,
             "last_state_change_at": self.last_state_change_at,
+            "total_input_tokens": self.total_input_tokens,
+            "total_output_tokens": self.total_output_tokens,
+            "total_estimated_cost": self.total_estimated_cost,
         }
 
 
@@ -364,6 +377,71 @@ class CircuitBreaker:
             remaining = self._recovery_timeout - elapsed
             return max(0.0, remaining)
 
+    def record_cost(
+        self,
+        input_tokens: int,
+        output_tokens: int,
+        estimated_cost: float,
+    ) -> None:
+        """Record token usage and estimated cost from an execution.
+
+        Updates running totals for cost tracking. Call this after each
+        successful or failed execution that consumed tokens.
+
+        Args:
+            input_tokens: Number of input tokens consumed.
+            output_tokens: Number of output tokens consumed.
+            estimated_cost: Estimated cost in USD for this execution.
+        """
+        with self._lock:
+            self._stats.total_input_tokens += input_tokens
+            self._stats.total_output_tokens += output_tokens
+            self._stats.total_estimated_cost += estimated_cost
+
+            _logger.debug(
+                "circuit_breaker.cost_recorded",
+                name=self._name,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                estimated_cost=round(estimated_cost, 6),
+                total_input_tokens=self._stats.total_input_tokens,
+                total_output_tokens=self._stats.total_output_tokens,
+                total_estimated_cost=round(self._stats.total_estimated_cost, 4),
+            )
+
+    def check_cost_threshold(self, max_cost: float) -> bool:
+        """Check if total estimated cost exceeds a threshold.
+
+        Args:
+            max_cost: Maximum allowed cost in USD.
+
+        Returns:
+            True if threshold is exceeded (should stop), False otherwise.
+        """
+        with self._lock:
+            exceeded = self._stats.total_estimated_cost > max_cost
+            if exceeded:
+                _logger.warning(
+                    "circuit_breaker.cost_threshold_exceeded",
+                    name=self._name,
+                    total_estimated_cost=round(self._stats.total_estimated_cost, 4),
+                    max_cost=max_cost,
+                )
+            return exceeded
+
+    def get_cost_summary(self) -> dict[str, float]:
+        """Get cost summary for reporting.
+
+        Returns:
+            Dictionary with input_tokens, output_tokens, and estimated_cost.
+        """
+        with self._lock:
+            return {
+                "input_tokens": self._stats.total_input_tokens,
+                "output_tokens": self._stats.total_output_tokens,
+                "estimated_cost_usd": round(self._stats.total_estimated_cost, 4),
+            }
+
     def get_stats(self) -> CircuitBreakerStats:
         """Get current statistics.
 
@@ -381,6 +459,9 @@ class CircuitBreaker:
                 last_failure_at=self._stats.last_failure_at,
                 last_state_change_at=self._stats.last_state_change_at,
                 consecutive_failures=self._stats.consecutive_failures,
+                total_input_tokens=self._stats.total_input_tokens,
+                total_output_tokens=self._stats.total_output_tokens,
+                total_estimated_cost=self._stats.total_estimated_cost,
             )
 
     def reset(self) -> None:

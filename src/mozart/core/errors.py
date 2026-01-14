@@ -1,21 +1,162 @@
 """Error classification and handling.
 
 Categorizes errors to determine appropriate retry behavior.
+
+This module provides:
+- ErrorCode: Structured error codes (E0xx-E9xx) for machine-readable classification
+- ErrorCategory: High-level categories for retry behavior
+- ClassifiedError: Single error with classification and metadata
+- ClassificationResult: Multi-error result with root cause identification
+- ErrorChain: Error chain from symptom to root cause
+- ParsedCliError: Structured error from CLI JSON output
+- ErrorInfo: Machine-readable error metadata (Google AIP-193 inspired)
+
+The classification algorithm:
+1. Parse structured JSON errors[] from CLI output
+2. Classify each error independently (no short-circuiting)
+3. Select root cause using priority scoring
+4. Return all errors with primary/secondary designation
 """
 
+from __future__ import annotations
+
+import json
 import re
 import signal
+import warnings
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Literal, NamedTuple
+from enum import Enum, IntEnum
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from mozart.core.logging import get_logger
+
+if TYPE_CHECKING:
+    from typing import Any
 
 # Module-level logger for error classification
 _logger = get_logger("errors")
 
 # Type alias for exit reasons (matches backend)
 ExitReason = Literal["completed", "timeout", "killed", "error"]
+
+
+# =============================================================================
+# Severity Levels
+# =============================================================================
+
+
+class Severity(IntEnum):
+    """Severity levels for error classification.
+
+    Lower numeric value = higher severity. This allows comparisons like
+    `if severity <= Severity.ERROR` to check for serious issues.
+
+    Assignments:
+    - CRITICAL: Job cannot continue, requires immediate attention
+      (E003 crash, E005 OOM, E401 corruption, E502 auth, E505 binary not found)
+    - ERROR: Operation failed, may be retriable (most error codes)
+    - WARNING: Degraded operation, job may continue (E103 capacity, E204 validation timeout)
+    - INFO: Informational, no action required (reserved for future diagnostic codes)
+    """
+
+    CRITICAL = 1
+    ERROR = 2
+    WARNING = 3
+    INFO = 4
+
+
+# =============================================================================
+# Parsed CLI Error (from JSON output)
+# =============================================================================
+
+
+@dataclass
+class ParsedCliError:
+    """A single error extracted from CLI JSON output.
+
+    Claude CLI returns structured JSON with an `errors[]` array:
+    ```json
+    {
+      "result": "...",
+      "errors": [
+        {"type": "system", "message": "Rate limit exceeded"},
+        {"type": "user", "message": "spawn claude ENOENT"}
+      ],
+      "cost_usd": 0.05
+    }
+    ```
+
+    This dataclass represents one item from that array.
+
+    Attributes:
+        error_type: Error type from CLI: "system", "user", "tool".
+        message: Human-readable error message.
+        tool_name: For tool errors, the name of the failed tool.
+        metadata: Additional structured metadata from the error.
+    """
+
+    error_type: str
+    """Error type from CLI: "system", "user", "tool"."""
+
+    message: str
+    """Human-readable error message."""
+
+    tool_name: str | None = None
+    """For tool errors, the name of the failed tool."""
+
+    metadata: dict[str, Any] = field(default_factory=dict)
+    """Additional structured metadata."""
+
+
+# =============================================================================
+# Error Info (Google AIP-193 inspired)
+# =============================================================================
+
+
+@dataclass
+class ErrorInfo:
+    """Machine-readable error identification (Google AIP-193 inspired).
+
+    Provides structured metadata for programmatic error handling.
+
+    Example:
+    ```python
+    error_info = ErrorInfo(
+        reason="BINARY_NOT_FOUND",
+        domain="mozart.backend.claude_cli",
+        metadata={
+            "expected_binary": "claude",
+            "search_path": "/usr/bin:/usr/local/bin",
+            "suggestion": "Ensure claude CLI is installed and in PATH",
+        }
+    )
+    ```
+
+    Attributes:
+        reason: UPPER_SNAKE_CASE identifier for the specific error reason.
+        domain: Service/component identifier (e.g., "mozart.backend.claude_cli").
+        metadata: Dynamic contextual information as key-value pairs.
+    """
+
+    reason: str
+    """UPPER_SNAKE_CASE identifier for the specific error reason.
+    Example: "RATE_LIMIT_EXCEEDED", "BINARY_NOT_FOUND"
+    """
+
+    domain: str
+    """Service/component identifier.
+    Example: "mozart.backend.claude_cli", "mozart.execution"
+    """
+
+    metadata: dict[str, str] = field(default_factory=dict)
+    """Dynamic contextual information.
+    Example: {"binary_path": "/usr/bin/claude", "exit_code": "127"}
+    """
+
+
+# =============================================================================
+# Retry Behavior
+# =============================================================================
 
 
 class RetryBehavior(NamedTuple):
@@ -434,6 +575,40 @@ class ErrorCode(str, Enum):
             ),
         )
 
+    def get_severity(self) -> Severity:
+        """Get the severity level for this error code.
+
+        Severity assignments:
+        - CRITICAL: Fatal errors requiring immediate attention
+        - ERROR: Most error codes (default)
+        - WARNING: Degraded but potentially temporary conditions
+        - INFO: Reserved for future diagnostic codes
+
+        Returns:
+            Severity level for this error code.
+        """
+        # Critical errors - job cannot continue
+        critical_codes = {
+            ErrorCode.EXECUTION_CRASHED,
+            ErrorCode.EXECUTION_OOM,
+            ErrorCode.STATE_CORRUPTION,
+            ErrorCode.BACKEND_AUTH,
+            ErrorCode.BACKEND_NOT_FOUND,
+        }
+        if self in critical_codes:
+            return Severity.CRITICAL
+
+        # Warning level - degraded but potentially temporary
+        warning_codes = {
+            ErrorCode.CAPACITY_EXCEEDED,
+            ErrorCode.VALIDATION_TIMEOUT,
+        }
+        if self in warning_codes:
+            return Severity.WARNING
+
+        # Default to ERROR for most codes
+        return Severity.ERROR
+
 
 class ErrorCategory(str, Enum):
     """Categories of errors with different retry behaviors."""
@@ -518,6 +693,8 @@ class ClassifiedError:
     exit_reason: ExitReason | None = None
     retriable: bool = True
     suggested_wait_seconds: float | None = None
+    error_info: ErrorInfo | None = None
+    """Optional structured metadata for this error."""
 
     @property
     def is_rate_limit(self) -> bool:
@@ -543,6 +720,554 @@ class ClassifiedError:
     def code(self) -> str:
         """Get the error code string value (e.g., 'E001')."""
         return self.error_code.value
+
+    @property
+    def severity(self) -> Severity:
+        """Get the severity level for this error."""
+        return self.error_code.get_severity()
+
+
+# =============================================================================
+# Error Chain (for multi-error scenarios)
+# =============================================================================
+
+
+@dataclass
+class ErrorChain:
+    """Represents a chain of errors from symptom to root cause.
+
+    When multiple errors occur, this class helps identify the actual
+    root cause vs symptoms. For example, if ENOENT and rate limit both
+    appear, ENOENT is likely the root cause (missing binary prevents
+    any operation).
+
+    Attributes:
+        errors: All errors in order of detection (first = earliest).
+        root_cause: The error identified as the most fundamental cause.
+        symptoms: Errors that are likely consequences of the root cause.
+        confidence: 0.0-1.0 confidence in root cause identification.
+    """
+
+    errors: list[ClassifiedError]
+    """All errors in order of detection (first = earliest)."""
+
+    root_cause: ClassifiedError
+    """The error identified as the most fundamental cause."""
+
+    symptoms: list[ClassifiedError] = field(default_factory=list)
+    """Errors that are likely consequences of the root cause."""
+
+    confidence: float = 1.0
+    """0.0-1.0 confidence in root cause identification."""
+
+
+# =============================================================================
+# Classification Result (new multi-error result type)
+# =============================================================================
+
+
+@dataclass
+class ClassificationResult:
+    """Complete classification result with root cause and context.
+
+    This is the new result type from the classifier, providing access
+    to all detected errors while maintaining backward compatibility
+    through the `primary` attribute.
+
+    Example:
+    ```python
+    # New code - returns ClassificationResult
+    classification = classifier.classify(stdout, stderr, exit_code)
+    result = classification.primary  # Backward compatible
+
+    # Access all errors
+    for error in classification.all_errors:
+        log.info(f"Error: {error.error_code.value} - {error.message}")
+    ```
+
+    Attributes:
+        primary: The identified root cause error.
+        secondary: Secondary/symptom errors for debugging.
+        raw_errors: Original parsed errors from CLI JSON.
+        confidence: 0.0-1.0 confidence in root cause identification.
+        classification_method: How classification was done.
+    """
+
+    primary: ClassifiedError
+    """The identified root cause error."""
+
+    secondary: list[ClassifiedError] = field(default_factory=list)
+    """Secondary/symptom errors for debugging."""
+
+    raw_errors: list[ParsedCliError] = field(default_factory=list)
+    """Original parsed errors from CLI JSON."""
+
+    confidence: float = 1.0
+    """0.0-1.0 confidence in root cause identification."""
+
+    classification_method: str = "structured"
+    """How classification was done: "structured", "exit_code", "regex_fallback"."""
+
+    @property
+    def all_errors(self) -> list[ClassifiedError]:
+        """All errors including primary and secondary."""
+        return [self.primary] + self.secondary
+
+    @property
+    def error_codes(self) -> list[str]:
+        """All error codes for logging/metrics."""
+        return [e.error_code.value for e in self.all_errors]
+
+    @property
+    def category(self) -> ErrorCategory:
+        """Category of the primary error (backward compatibility)."""
+        return self.primary.category
+
+    @property
+    def message(self) -> str:
+        """Message of the primary error (backward compatibility)."""
+        return self.primary.message
+
+    @property
+    def error_code(self) -> ErrorCode:
+        """Error code of the primary error (backward compatibility)."""
+        return self.primary.error_code
+
+    @property
+    def retriable(self) -> bool:
+        """Whether the primary error is retriable (backward compatibility)."""
+        return self.primary.retriable
+
+    @property
+    def should_retry(self) -> bool:
+        """Whether to retry based on primary error (backward compatibility)."""
+        return self.primary.should_retry
+
+    def to_error_chain(self) -> ErrorChain:
+        """Convert to ErrorChain for detailed analysis."""
+        return ErrorChain(
+            errors=self.all_errors,
+            root_cause=self.primary,
+            symptoms=self.secondary,
+            confidence=self.confidence,
+        )
+
+
+# =============================================================================
+# Root Cause Priority (for selecting root cause from multiple errors)
+# =============================================================================
+
+
+# Priority scores for root cause selection.
+# Lower score = more likely to be root cause.
+# Tier 1 (10-19): Environment issues - prevent execution entirely
+# Tier 2 (20-29): Configuration issues - bad config causes cascading failures
+# Tier 3 (30-39): Authentication - auth failures cause downstream errors
+# Tier 4 (40-49): Network/Connection - network issues cause service errors
+# Tier 5 (50-59): Service issues - specific service problems
+# Tier 6 (60-69): Execution issues - runtime problems
+# Tier 7 (70-79): State issues - checkpoint problems
+# Tier 8 (80-89): Validation/Output - usually symptoms, not causes
+# Tier 9 (90+): Unknown/Generic
+ROOT_CAUSE_PRIORITY: dict[ErrorCode, int] = {
+    # Tier 1: Environment issues (priority 10-19)
+    ErrorCode.BACKEND_NOT_FOUND: 10,
+    ErrorCode.PREFLIGHT_PATH_MISSING: 11,
+    ErrorCode.PREFLIGHT_WORKING_DIR_INVALID: 12,
+    ErrorCode.CONFIG_PATH_NOT_FOUND: 13,
+
+    # Tier 2: Configuration issues (priority 20-29)
+    ErrorCode.CONFIG_INVALID: 20,
+    ErrorCode.CONFIG_MISSING_FIELD: 21,
+    ErrorCode.CONFIG_PARSE_ERROR: 22,
+    ErrorCode.CONFIG_MCP_ERROR: 23,
+    ErrorCode.CONFIG_CLI_MODE_ERROR: 24,
+
+    # Tier 3: Authentication (priority 30-39)
+    ErrorCode.BACKEND_AUTH: 30,
+
+    # Tier 4: Network/Connection (priority 40-49)
+    ErrorCode.NETWORK_CONNECTION_FAILED: 40,
+    ErrorCode.NETWORK_DNS_ERROR: 41,
+    ErrorCode.NETWORK_SSL_ERROR: 42,
+    ErrorCode.BACKEND_CONNECTION: 43,
+
+    # Tier 5: Service Issues (priority 50-59)
+    ErrorCode.RATE_LIMIT_API: 50,
+    ErrorCode.RATE_LIMIT_CLI: 51,
+    ErrorCode.CAPACITY_EXCEEDED: 52,
+    ErrorCode.BACKEND_TIMEOUT: 53,
+    ErrorCode.NETWORK_TIMEOUT: 54,
+
+    # Tier 6: Execution Issues (priority 60-69)
+    ErrorCode.EXECUTION_TIMEOUT: 60,
+    ErrorCode.EXECUTION_OOM: 61,
+    ErrorCode.EXECUTION_CRASHED: 62,
+    ErrorCode.EXECUTION_KILLED: 63,
+    ErrorCode.EXECUTION_INTERRUPTED: 64,
+
+    # Tier 7: State Issues (priority 70-79)
+    ErrorCode.STATE_CORRUPTION: 70,
+    ErrorCode.STATE_VERSION_MISMATCH: 71,
+    ErrorCode.STATE_LOAD_FAILED: 72,
+    ErrorCode.STATE_SAVE_FAILED: 73,
+
+    # Tier 8: Validation/Output Issues (priority 80-89)
+    ErrorCode.VALIDATION_FILE_MISSING: 80,
+    ErrorCode.VALIDATION_CONTENT_MISMATCH: 81,
+    ErrorCode.VALIDATION_COMMAND_FAILED: 82,
+    ErrorCode.VALIDATION_TIMEOUT: 83,
+    ErrorCode.VALIDATION_GENERIC: 84,
+    ErrorCode.PREFLIGHT_PROMPT_TOO_LARGE: 85,
+    ErrorCode.PREFLIGHT_VALIDATION_SETUP: 86,
+
+    # Tier 9: Unknown/Generic (priority 90+)
+    ErrorCode.EXECUTION_UNKNOWN: 90,
+    ErrorCode.BACKEND_RESPONSE: 91,
+    ErrorCode.UNKNOWN: 99,
+}
+
+
+# =============================================================================
+# JSON Parsing Utilities
+# =============================================================================
+
+
+def try_parse_json_errors(stdout: str) -> list[ParsedCliError]:
+    """Extract errors[] array from JSON output.
+
+    Claude CLI returns structured JSON with an `errors[]` array:
+    ```json
+    {
+      "result": "...",
+      "errors": [
+        {"type": "system", "message": "Rate limit exceeded"},
+        {"type": "user", "message": "spawn claude ENOENT"}
+      ],
+      "cost_usd": 0.05
+    }
+    ```
+
+    This function parses that structure, handling non-JSON preamble.
+
+    Args:
+        stdout: Raw stdout from Claude CLI execution.
+
+    Returns:
+        List of ParsedCliError objects, or empty list if parsing fails.
+    """
+    if not stdout:
+        return []
+
+    try:
+        # Find JSON object in output (may have non-JSON preamble)
+        json_start = stdout.find("{")
+        if json_start == -1:
+            return []
+
+        # Try to parse from first { to end
+        data = json.loads(stdout[json_start:])
+
+        if "errors" in data and isinstance(data["errors"], list):
+            errors: list[ParsedCliError] = []
+            for item in data["errors"]:
+                if not isinstance(item, dict):
+                    continue
+                error = ParsedCliError(
+                    error_type=item.get("type", "unknown"),
+                    message=item.get("message", ""),
+                    tool_name=item.get("tool_name"),
+                    metadata=item.get("metadata", {}),
+                )
+                errors.append(error)
+            return errors
+
+    except (json.JSONDecodeError, TypeError, KeyError):
+        pass
+
+    return []
+
+
+def classify_single_json_error(
+    parsed_error: ParsedCliError,
+    exit_code: int | None = None,
+    exit_reason: ExitReason | None = None,
+) -> ClassifiedError:
+    """Classify a single error from the JSON errors[] array.
+
+    This function uses type-based classification first, then falls back to
+    message pattern matching. The error type from CLI ("system", "user", "tool")
+    guides initial classification.
+
+    Args:
+        parsed_error: A ParsedCliError extracted from CLI JSON output.
+        exit_code: Optional exit code for context.
+        exit_reason: Optional exit reason for context.
+
+    Returns:
+        ClassifiedError with appropriate category and error code.
+    """
+    message = parsed_error.message.lower()
+    error_type = parsed_error.error_type.lower()
+
+    # === Type-based classification ===
+
+    if error_type == "system":
+        # System errors are usually API/service level
+        # Check rate limit patterns
+        rate_limit_indicators = [
+            "rate limit", "rate_limit", "quota", "too many requests",
+            "429", "hit your limit", "limit exceeded", "daily limit",
+        ]
+        if any(indicator in message for indicator in rate_limit_indicators):
+            # Differentiate capacity vs rate limit
+            capacity_indicators = ["capacity", "overloaded", "try again later", "unavailable"]
+            if any(indicator in message for indicator in capacity_indicators):
+                return ClassifiedError(
+                    category=ErrorCategory.RATE_LIMIT,
+                    message=parsed_error.message,
+                    error_code=ErrorCode.CAPACITY_EXCEEDED,
+                    exit_code=exit_code,
+                    exit_reason=exit_reason,
+                    retriable=True,
+                    suggested_wait_seconds=300.0,
+                )
+            return ClassifiedError(
+                category=ErrorCategory.RATE_LIMIT,
+                message=parsed_error.message,
+                error_code=ErrorCode.RATE_LIMIT_API,
+                exit_code=exit_code,
+                exit_reason=exit_reason,
+                retriable=True,
+                suggested_wait_seconds=3600.0,
+            )
+
+        # Check auth patterns
+        auth_indicators = ["unauthorized", "authentication", "invalid api key", "401", "403"]
+        if any(indicator in message for indicator in auth_indicators):
+            return ClassifiedError(
+                category=ErrorCategory.AUTH,
+                message=parsed_error.message,
+                error_code=ErrorCode.BACKEND_AUTH,
+                exit_code=exit_code,
+                exit_reason=exit_reason,
+                retriable=False,
+            )
+
+    elif error_type == "user":
+        # User errors are usually environment/config issues
+        # ENOENT is critical - often the root cause
+        if "enoent" in message or "spawn" in message and "enoent" in message:
+            return ClassifiedError(
+                category=ErrorCategory.CONFIGURATION,
+                message=parsed_error.message,
+                error_code=ErrorCode.BACKEND_NOT_FOUND,
+                exit_code=exit_code,
+                exit_reason=exit_reason,
+                retriable=True,  # Might recover after reinstall
+                suggested_wait_seconds=30.0,
+                error_info=ErrorInfo(
+                    reason="BINARY_NOT_FOUND",
+                    domain="mozart.backend.claude_cli",
+                    metadata={"original_message": parsed_error.message},
+                ),
+            )
+
+        if "permission denied" in message or "access denied" in message:
+            return ClassifiedError(
+                category=ErrorCategory.AUTH,
+                message=parsed_error.message,
+                error_code=ErrorCode.BACKEND_AUTH,
+                exit_code=exit_code,
+                exit_reason=exit_reason,
+                retriable=False,
+            )
+
+        if "no such file" in message or "not found" in message:
+            return ClassifiedError(
+                category=ErrorCategory.CONFIGURATION,
+                message=parsed_error.message,
+                error_code=ErrorCode.CONFIG_PATH_NOT_FOUND,
+                exit_code=exit_code,
+                exit_reason=exit_reason,
+                retriable=False,
+            )
+
+    elif error_type == "tool":
+        # Tool errors need message analysis
+        if "mcp" in message or "server" in message:
+            return ClassifiedError(
+                category=ErrorCategory.CONFIGURATION,
+                message=parsed_error.message,
+                error_code=ErrorCode.CONFIG_MCP_ERROR,
+                exit_code=exit_code,
+                exit_reason=exit_reason,
+                retriable=False,
+            )
+
+        # Tool execution failures are often validation issues
+        return ClassifiedError(
+            category=ErrorCategory.VALIDATION,
+            message=parsed_error.message,
+            error_code=ErrorCode.VALIDATION_COMMAND_FAILED,
+            exit_code=exit_code,
+            exit_reason=exit_reason,
+            retriable=True,
+            suggested_wait_seconds=10.0,
+        )
+
+    # === Message pattern fallback ===
+
+    # Network errors
+    network_indicators = [
+        "connection refused", "connection reset", "econnrefused",
+        "etimedout", "network unreachable",
+    ]
+    if any(indicator in message for indicator in network_indicators):
+        return ClassifiedError(
+            category=ErrorCategory.NETWORK,
+            message=parsed_error.message,
+            error_code=ErrorCode.NETWORK_CONNECTION_FAILED,
+            exit_code=exit_code,
+            exit_reason=exit_reason,
+            retriable=True,
+            suggested_wait_seconds=30.0,
+        )
+
+    # DNS errors
+    dns_indicators = ["dns", "getaddrinfo", "enotfound", "resolve"]
+    if any(indicator in message for indicator in dns_indicators):
+        return ClassifiedError(
+            category=ErrorCategory.NETWORK,
+            message=parsed_error.message,
+            error_code=ErrorCode.NETWORK_DNS_ERROR,
+            exit_code=exit_code,
+            exit_reason=exit_reason,
+            retriable=True,
+            suggested_wait_seconds=30.0,
+        )
+
+    # SSL/TLS errors
+    ssl_indicators = ["ssl", "tls", "certificate", "handshake"]
+    if any(indicator in message for indicator in ssl_indicators):
+        return ClassifiedError(
+            category=ErrorCategory.NETWORK,
+            message=parsed_error.message,
+            error_code=ErrorCode.NETWORK_SSL_ERROR,
+            exit_code=exit_code,
+            exit_reason=exit_reason,
+            retriable=True,
+            suggested_wait_seconds=30.0,
+        )
+
+    # Timeout patterns
+    timeout_indicators = ["timeout", "timed out"]
+    if any(indicator in message for indicator in timeout_indicators):
+        return ClassifiedError(
+            category=ErrorCategory.TIMEOUT,
+            message=parsed_error.message,
+            error_code=ErrorCode.EXECUTION_TIMEOUT,
+            exit_code=exit_code,
+            exit_reason=exit_reason,
+            retriable=True,
+            suggested_wait_seconds=60.0,
+        )
+
+    # Default: unknown error with the original message
+    return ClassifiedError(
+        category=ErrorCategory.TRANSIENT,
+        message=parsed_error.message,
+        error_code=ErrorCode.UNKNOWN,
+        exit_code=exit_code,
+        exit_reason=exit_reason,
+        retriable=True,
+        suggested_wait_seconds=30.0,
+    )
+
+
+def select_root_cause(errors: list[ClassifiedError]) -> tuple[ClassifiedError, list[ClassifiedError], float]:
+    """Select the most likely root cause from multiple errors.
+
+    Uses priority-based scoring where lower score = more fundamental cause.
+    Applies context modifiers for specific error combinations.
+
+    Args:
+        errors: List of classified errors to analyze.
+
+    Returns:
+        Tuple of (root_cause, symptoms, confidence).
+    """
+    if not errors:
+        # Return an unknown error as fallback
+        unknown = ClassifiedError(
+            category=ErrorCategory.FATAL,
+            message="No errors provided",
+            error_code=ErrorCode.UNKNOWN,
+            retriable=False,
+        )
+        return (unknown, [], 0.0)
+
+    if len(errors) == 1:
+        return (errors[0], [], 1.0)
+
+    # Calculate modified priorities using index-based lookup
+    # (ClassifiedError is a mutable dataclass and not hashable)
+    error_codes_present = {e.error_code for e in errors}
+    priorities: list[int] = []
+
+    for error in errors:
+        priority = ROOT_CAUSE_PRIORITY.get(error.error_code, 99)
+
+        # ENOENT with other errors is almost always root cause
+        if error.error_code == ErrorCode.BACKEND_NOT_FOUND:
+            if any(e.error_code != ErrorCode.BACKEND_NOT_FOUND for e in errors):
+                priority -= 5
+
+        # Auth errors with rate limits: auth is more fundamental
+        if error.error_code == ErrorCode.BACKEND_AUTH:
+            if ErrorCode.RATE_LIMIT_API in error_codes_present or ErrorCode.RATE_LIMIT_CLI in error_codes_present:
+                priority -= 5
+
+        priorities.append(priority)
+
+    # Find minimum priority (root cause)
+    min_idx = min(range(len(errors)), key=lambda i: priorities[i])
+    root_cause = errors[min_idx]
+    root_priority = priorities[min_idx]
+
+    # Build symptoms list (all errors except root cause)
+    symptoms = [errors[i] for i in range(len(errors)) if i != min_idx]
+    symptom_priorities = [priorities[i] for i in range(len(errors)) if i != min_idx]
+
+    # Calculate confidence based on priority gap
+    if symptom_priorities:
+        next_priority = min(symptom_priorities)
+        gap = next_priority - root_priority
+        # Higher gap = more confidence (up to 1.0)
+        confidence = min(0.5 + (gap * 0.05), 1.0)
+    else:
+        confidence = 1.0
+
+    return (root_cause, symptoms, confidence)
+
+
+# =============================================================================
+# Deprecation Helpers
+# =============================================================================
+
+
+def _deprecation_warning(old_name: str, new_name: str) -> None:
+    """Issue a deprecation warning for old API usage."""
+    warnings.warn(
+        f"{old_name} is deprecated, use {new_name} instead",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+
+
+# =============================================================================
+# Error Classifier
+# =============================================================================
 
 
 class ErrorClassifier:
@@ -1171,6 +1896,175 @@ class ErrorClassifier:
     def _matches_any(self, text: str, patterns: list[re.Pattern[str]]) -> bool:
         """Check if text matches any of the patterns."""
         return any(p.search(text) for p in patterns)
+
+    def classify_execution(
+        self,
+        stdout: str = "",
+        stderr: str = "",
+        exit_code: int | None = None,
+        exit_signal: int | None = None,
+        exit_reason: ExitReason | None = None,
+        exception: Exception | None = None,
+    ) -> ClassificationResult:
+        """Classify execution errors using structured JSON parsing with fallback.
+
+        This is the new multi-error classification method that:
+        1. Parses structured JSON errors[] from CLI output (if present)
+        2. Classifies each error independently (no short-circuiting)
+        3. Analyzes exit code and signal for additional context
+        4. Selects root cause using priority-based scoring
+        5. Returns all errors with primary/secondary designation
+
+        This method returns ClassificationResult which provides access to
+        all detected errors while maintaining backward compatibility through
+        the `primary` attribute.
+
+        Args:
+            stdout: Standard output from the command (may contain JSON).
+            stderr: Standard error from the command.
+            exit_code: Process exit code (0 = success), None if killed by signal.
+            exit_signal: Signal number if killed by signal.
+            exit_reason: Why execution ended (completed, timeout, killed, error).
+            exception: Optional exception that was raised.
+
+        Returns:
+            ClassificationResult with primary error, secondary errors, and metadata.
+
+        Example:
+            ```python
+            result = classifier.classify_execution(stdout, stderr, exit_code)
+
+            # Access primary (root cause) error
+            if result.primary.category == ErrorCategory.RATE_LIMIT:
+                wait_time = result.primary.suggested_wait_seconds
+
+            # Access all errors for debugging
+            for error in result.all_errors:
+                logger.info(f"{error.error_code.value}: {error.message}")
+            ```
+        """
+        all_errors: list[ClassifiedError] = []
+        raw_errors: list[ParsedCliError] = []
+        classification_method = "structured"
+
+        # === PHASE 1: Parse Structured JSON ===
+        json_errors = try_parse_json_errors(stdout)
+        raw_errors = json_errors
+
+        if json_errors:
+            for parsed_error in json_errors:
+                classified = classify_single_json_error(
+                    parsed_error,
+                    exit_code=exit_code,
+                    exit_reason=exit_reason,
+                )
+                all_errors.append(classified)
+
+        # === PHASE 2: Exit Code / Signal Analysis ===
+        if exit_signal is not None:
+            signal_error = self._classify_signal(
+                exit_signal=exit_signal,
+                exit_reason=exit_reason,
+                exception=exception,
+                stdout=stdout,
+                stderr=stderr,
+            )
+            # Only add if not duplicating an existing error code
+            if not any(e.error_code == signal_error.error_code for e in all_errors):
+                all_errors.append(signal_error)
+                if not json_errors:
+                    classification_method = "exit_code"
+
+        elif exit_reason == "timeout":
+            timeout_error = ClassifiedError(
+                category=ErrorCategory.TIMEOUT,
+                message="Command timed out",
+                error_code=ErrorCode.EXECUTION_TIMEOUT,
+                exit_code=exit_code,
+                exit_signal=None,
+                exit_reason=exit_reason,
+                retriable=True,
+                suggested_wait_seconds=60.0,
+            )
+            if not any(e.error_code == ErrorCode.EXECUTION_TIMEOUT for e in all_errors):
+                all_errors.append(timeout_error)
+                if not json_errors:
+                    classification_method = "exit_code"
+
+        # === PHASE 3: Exception Analysis ===
+        if exception is not None:
+            exc_str = str(exception).lower()
+            # Try to classify based on exception message
+            if "timeout" in exc_str:
+                exc_error = ClassifiedError(
+                    category=ErrorCategory.TIMEOUT,
+                    message=str(exception),
+                    error_code=ErrorCode.EXECUTION_TIMEOUT,
+                    original_error=exception,
+                    exit_code=exit_code,
+                    exit_reason=exit_reason,
+                    retriable=True,
+                    suggested_wait_seconds=60.0,
+                )
+            elif "connection" in exc_str or "network" in exc_str:
+                exc_error = ClassifiedError(
+                    category=ErrorCategory.NETWORK,
+                    message=str(exception),
+                    error_code=ErrorCode.NETWORK_CONNECTION_FAILED,
+                    original_error=exception,
+                    exit_code=exit_code,
+                    exit_reason=exit_reason,
+                    retriable=True,
+                    suggested_wait_seconds=30.0,
+                )
+            else:
+                exc_error = ClassifiedError(
+                    category=ErrorCategory.TRANSIENT,
+                    message=str(exception),
+                    error_code=ErrorCode.UNKNOWN,
+                    original_error=exception,
+                    exit_code=exit_code,
+                    exit_reason=exit_reason,
+                    retriable=True,
+                    suggested_wait_seconds=30.0,
+                )
+            # Only add if we don't have the same error code already
+            if not any(e.error_code == exc_error.error_code for e in all_errors):
+                all_errors.append(exc_error)
+
+        # === PHASE 4: Regex Fallback (only if no structured errors) ===
+        if not all_errors:
+            classification_method = "regex_fallback"
+            fallback_error = self.classify(
+                stdout=stdout,
+                stderr=stderr,
+                exit_code=exit_code,
+                exit_signal=exit_signal,
+                exit_reason=exit_reason,
+                exception=exception,
+            )
+            all_errors.append(fallback_error)
+
+        # === PHASE 5: Root Cause Selection ===
+        root_cause, symptoms, confidence = select_root_cause(all_errors)
+
+        # Log the classification result
+        _logger.info(
+            "execution_classified",
+            method=classification_method,
+            primary_code=root_cause.error_code.value,
+            error_count=len(all_errors),
+            confidence=confidence,
+            all_codes=[e.error_code.value for e in all_errors],
+        )
+
+        return ClassificationResult(
+            primary=root_cause,
+            secondary=symptoms,
+            raw_errors=raw_errors,
+            confidence=confidence,
+            classification_method=classification_method,
+        )
 
     @classmethod
     def from_config(cls, rate_limit_patterns: list[str]) -> "ErrorClassifier":
