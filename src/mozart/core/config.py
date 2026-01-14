@@ -123,6 +123,7 @@ class LearningConfig(BaseModel):
     """Configuration for learning and outcome tracking (Phase 2).
 
     Controls outcome recording, confidence thresholds, and escalation behavior.
+    Learning Activation adds global learning store integration and time-aware scheduling.
     """
 
     enabled: bool = Field(
@@ -152,6 +153,16 @@ class LearningConfig(BaseModel):
     escalation_enabled: bool = Field(
         default=False,
         description="Enable escalation for low-confidence decisions (requires handler)",
+    )
+    # Learning Activation: Global learning integration
+    use_global_patterns: bool = Field(
+        default=True,
+        description="Query and apply patterns from global learning store",
+    )
+    time_aware_scheduling: bool = Field(
+        default=False,
+        description="Enable time-aware scheduling based on historical success patterns. "
+        "When enabled, warns if executing during historically problematic hours.",
     )
 
 
@@ -186,11 +197,17 @@ class CircuitBreakerConfig(BaseModel):
     - OPEN (blocking): Requests are blocked after failure_threshold exceeded
     - HALF_OPEN (testing): Single request allowed to test recovery
 
+    Evolution #8: Cross-Workspace Circuit Breaker adds coordination between
+    parallel Mozart jobs via the global learning store. When one job hits a
+    rate limit, other jobs will honor that limit and wait.
+
     Example:
         circuit_breaker:
           enabled: true
           failure_threshold: 5
           recovery_timeout_seconds: 300
+          cross_workspace_coordination: true
+          honor_other_jobs_rate_limits: true
     """
 
     enabled: bool = Field(
@@ -208,6 +225,21 @@ class CircuitBreakerConfig(BaseModel):
         gt=0,
         le=3600,
         description="Seconds to wait in OPEN state before testing recovery (max 1 hour)",
+    )
+    # Evolution #8: Cross-Workspace Circuit Breaker options
+    cross_workspace_coordination: bool = Field(
+        default=True,
+        description=(
+            "Enable cross-workspace coordination via global learning store. "
+            "When enabled, rate limit events are shared between parallel jobs."
+        ),
+    )
+    honor_other_jobs_rate_limits: bool = Field(
+        default=True,
+        description=(
+            "When enabled, honor rate limits detected by other parallel jobs. "
+            "This prevents redundant rate limit hits when multiple jobs are running."
+        ),
     )
 
 
@@ -500,10 +532,10 @@ class BackendConfig(BaseModel):
         "Maps to --strict-mcp-config {} flag. Set to False to use MCP servers.",
     )
     output_format: Literal["json", "text", "stream-json"] = Field(
-        default="json",
+        default="text",
         description="Claude CLI output format. "
-        "'json' for structured automation output (recommended), "
-        "'text' for human-readable output, "
+        "'text' for human-readable real-time output (default), "
+        "'json' for structured automation output, "
         "'stream-json' for real-time streaming events.",
     )
     cli_model: str | None = Field(

@@ -13,14 +13,23 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
+
+if TYPE_CHECKING:
+    from mozart.learning.global_store import GlobalLearningStore
 
 from mozart.backends.base import Backend, ExecutionResult
 from mozart.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
 from mozart.core.config import JobConfig
-from mozart.core.errors import ClassifiedError, ErrorCategory, ErrorClassifier, ErrorCode
+from mozart.core.errors import (
+    ClassificationResult,
+    ClassifiedError,
+    ErrorCategory,
+    ErrorClassifier,
+    ErrorCode,
+)
 from mozart.core.logging import ExecutionContext, MozartLogger, get_logger
 from mozart.execution.circuit_breaker import CircuitBreaker
 from mozart.execution.escalation import EscalationContext, EscalationHandler, EscalationResponse
@@ -31,7 +40,12 @@ from mozart.execution.retry_strategy import (
     ErrorRecord,
     RetryStrategyConfig,
 )
-from mozart.execution.validation import SheetValidationResult, ValidationEngine
+from mozart.execution.validation import (
+    FailureHistoryStore,
+    HistoricalFailure,
+    SheetValidationResult,
+    ValidationEngine,
+)
 from mozart.learning.judgment import JudgmentClient, JudgmentQuery, JudgmentResponse
 from mozart.learning.outcomes import OutcomeStore, SheetOutcome
 from mozart.prompts.templating import CompletionContext, PromptBuilder, SheetContext
@@ -202,6 +216,7 @@ class JobRunner:
         judgment_client: JudgmentClient | None = None,
         progress_callback: Callable[[int, int, float | None], None] | None = None,
         execution_progress_callback: Callable[[dict[str, Any]], None] | None = None,
+        global_learning_store: "GlobalLearningStore | None" = None,
     ) -> None:
         """Initialize job runner.
 
@@ -223,6 +238,10 @@ class JobRunner:
                 progress during long-running sheet executions. Called with dict
                 containing: sheet_num, bytes_received, lines_received, elapsed_seconds,
                 phase. Used by CLI to show "Still running... 5.2KB received".
+            global_learning_store: Optional global learning store for cross-workspace
+                learning (Evolution #3: Learned Wait Time, #8: Cross-WS Circuit Breaker).
+                If provided, enables learned wait time injection and cross-workspace
+                rate limit coordination.
         """
         self.config = config
         self.backend = backend
@@ -241,6 +260,14 @@ class JobRunner:
             workspace=config.workspace,
             working_directory=config.backend.working_directory or config.workspace,
         )
+
+        # Global learning store for cross-workspace learning
+        # (Evolution #3: Learned Wait Time, #8: Cross-WS Circuit Breaker)
+        self._global_learning_store = global_learning_store
+
+        # Track applied patterns for feedback loop (Learning Activation)
+        self._current_sheet_patterns: list[str] = []
+        self._applied_pattern_ids: list[str] = []
 
         # Graceful shutdown state
         self._shutdown_requested = False
@@ -269,13 +296,15 @@ class JobRunner:
             )
 
         # Adaptive retry strategy (Task 13)
+        # Evolution #3: Pass global learning store for learned wait time injection
         self._retry_strategy = AdaptiveRetryStrategy(
             config=RetryStrategyConfig(
                 base_delay=config.retry.base_delay_seconds,
                 max_delay=config.retry.max_delay_seconds,
                 exponential_base=config.retry.exponential_base,
                 jitter_factor=0.25,  # 25% jitter
-            )
+            ),
+            global_learning_store=global_learning_store,
         )
 
     def _track_cost(
@@ -514,6 +543,9 @@ class JobRunner:
 
             # Finalize summary
             self._finalize_summary(state)
+
+            # Aggregate outcomes to global learning store (Movement IV-B integration)
+            await self._aggregate_to_global_store(state)
 
             # Log job completion with summary
             self._logger.info(
@@ -812,6 +844,29 @@ class JobRunner:
             await self.state_backend.save(state)
             self.console.print("[green]Created new job state[/green]")
         else:
+            # Check if another process is already running this job
+            if state.status == JobStatus.RUNNING and state.pid is not None:
+                import os
+                try:
+                    os.kill(state.pid, 0)  # Check if process is alive
+                    # Process is alive - refuse to start
+                    raise FatalError(
+                        f"Job is already running (PID {state.pid}). "
+                        f"Use 'mozart status {job_id}' to check, or kill the other process first."
+                    )
+                except ProcessLookupError:
+                    # Process is dead - zombie state, recover it
+                    state.mark_zombie_detected("Detected on state load - process no longer running")
+                    await self.state_backend.save(state)
+                except PermissionError:
+                    # Can't check (different user) - warn but continue
+                    self._logger.warning(
+                        "cannot_check_running_process",
+                        job_id=job_id,
+                        pid=state.pid,
+                        reason="permission denied",
+                    )
+
             self.console.print(
                 f"[yellow]Resuming from sheet {state.last_completed_sheet + 1}[/yellow]"
             )
@@ -865,8 +920,19 @@ class JobRunner:
         # Track error history for adaptive retry (Task 13)
         error_history: list[ErrorRecord] = []
 
-        # Query learned patterns before building prompt (Priority 1 Evolution)
+        # Evolution #3: Track pending recovery outcome for global learning store
+        # After a retry with wait, we record the outcome (success/failure) to the
+        # global store so future jobs can learn from our experience.
+        pending_recovery: dict[str, Any] | None = None
+
+        # Query learned patterns before building prompt (Learning Activation)
+        # Priority 1: Query from local outcome store (workspace-specific patterns)
+        # Priority 2: Query from global learning store (cross-workspace patterns)
         relevant_patterns: list[str] = []
+        self._current_sheet_patterns = []
+        self._applied_pattern_ids = []
+
+        # Query from local outcome store first (workspace-specific)
         if self.outcome_store is not None:
             try:
                 relevant_patterns = await self.outcome_store.get_relevant_patterns(
@@ -879,19 +945,74 @@ class JobRunner:
             except Exception as e:
                 # Pattern detection failure shouldn't block execution
                 self._logger.debug(
-                    "patterns.query_failed",
+                    "patterns.query_local_failed",
                     sheet_num=sheet_num,
                     error=str(e),
                 )
 
+        # Query from global learning store (cross-workspace patterns)
+        global_patterns, global_pattern_ids = self._query_relevant_patterns(
+            job_id=state.job_id,
+            sheet_num=sheet_num,
+        )
+
+        # Combine patterns (local first, then global, deduplicated)
+        if global_patterns:
+            # Add global patterns that aren't already covered by local patterns
+            for i, gp in enumerate(global_patterns):
+                if gp not in relevant_patterns:
+                    relevant_patterns.append(gp)
+                    self._applied_pattern_ids.append(global_pattern_ids[i])
+
+        # Store applied patterns for feedback tracking
+        self._current_sheet_patterns = relevant_patterns.copy()
+
+        if relevant_patterns:
+            self._logger.debug(
+                "patterns.combined",
+                sheet_num=sheet_num,
+                local_count=len(relevant_patterns) - len(global_patterns),
+                global_count=len(global_patterns),
+                total_patterns=len(relevant_patterns),
+            )
+
         # Get applicable validation rules for this sheet
         applicable_rules = validation_engine.get_applicable_rules(self.config.validations)
 
-        # Build original prompt with learned patterns and validation requirements
+        # Query historical validation failures for history-aware prompts (Evolution v6)
+        # This helps Claude learn from past mistakes and avoid repeating them.
+        # Note: Returns empty list for sheet 1 (no prior history to learn from).
+        historical_failures: list[HistoricalFailure] = []
+        try:
+            failure_history_store = FailureHistoryStore(state)
+            historical_failures = failure_history_store.query_recent_failures(
+                current_sheet=sheet_num,
+                lookback_sheets=3,
+                limit=3,
+            )
+
+            if historical_failures:
+                self._logger.debug(
+                    "history.failures_found",
+                    sheet_num=sheet_num,
+                    failure_count=len(historical_failures),
+                    sheets=[f.sheet_num for f in historical_failures],
+                )
+        except Exception as e:
+            # Failure history query shouldn't block execution
+            self._logger.debug(
+                "history.query_failed",
+                sheet_num=sheet_num,
+                error=str(e),
+            )
+
+        # Build original prompt with learned patterns, validation requirements,
+        # and historical failures (Evolution v6: History-Aware Prompt Generation)
         original_prompt = self.prompt_builder.build_sheet_prompt(
             sheet_context,
             patterns=relevant_patterns if relevant_patterns else None,
             validation_rules=applicable_rules if applicable_rules else None,
+            failure_history=historical_failures if historical_failures else None,
         )
         current_prompt = original_prompt
         current_mode = SheetExecutionMode.NORMAL
@@ -966,6 +1087,41 @@ class JobRunner:
                 if wait_time and wait_time > 0:
                     await self._interruptible_sleep(wait_time)
                 continue  # Re-check circuit breaker after wait
+
+            # Evolution #8: Check cross-workspace rate limits before execution
+            # If another job has already hit a rate limit, honor it to avoid
+            # redundant rate limit hits.
+            cross_ws_enabled = (
+                self.config.circuit_breaker.cross_workspace_coordination
+                and self.config.circuit_breaker.honor_other_jobs_rate_limits
+            )
+            if cross_ws_enabled and self._global_learning_store is not None:
+                try:
+                    is_limited, wait_seconds = (
+                        self._global_learning_store.is_rate_limited(
+                            model=self.config.backend.model,
+                        )
+                    )
+                    if is_limited and wait_seconds and wait_seconds > 0:
+                        self._logger.info(
+                            "rate_limit.cross_workspace_honored",
+                            sheet_num=sheet_num,
+                            wait_seconds=round(wait_seconds, 0),
+                        )
+                        self.console.print(
+                            f"[yellow]Sheet {sheet_num}: Honoring cross-workspace rate limit - "
+                            f"waiting {wait_seconds:.0f}s[/yellow]"
+                        )
+                        await self._interruptible_sleep(wait_seconds)
+                        # Don't count this as a rate limit wait for this job
+                        # since we're just honoring another job's limit
+                except Exception as e:
+                    # Global store query failure shouldn't block execution
+                    self._logger.warning(
+                        "rate_limit.cross_workspace_check_failed",
+                        sheet_num=sheet_num,
+                        error=str(e),
+                    )
 
             # Execute
             self.console.print(
@@ -1043,6 +1199,31 @@ class JobRunner:
                 # Record success in circuit breaker (Task 12)
                 if self._circuit_breaker is not None:
                     self._circuit_breaker.record_success()
+
+                # Evolution #3: Record recovery outcome if we had a pending retry
+                if pending_recovery is not None and self._global_learning_store is not None:
+                    try:
+                        self._global_learning_store.record_error_recovery(
+                            error_code=pending_recovery["error_code"],
+                            suggested_wait=pending_recovery["suggested_wait"],
+                            actual_wait=pending_recovery["actual_wait"],
+                            recovery_success=True,  # Success!
+                            model=self.config.backend.model,
+                        )
+                        self._logger.debug(
+                            "learning.recovery_recorded",
+                            sheet_num=sheet_num,
+                            error_code=pending_recovery["error_code"],
+                            actual_wait=pending_recovery["actual_wait"],
+                            recovery_success=True,
+                        )
+                    except Exception as e:
+                        self._logger.warning(
+                            "learning.recovery_record_failed",
+                            sheet_num=sheet_num,
+                            error=str(e),
+                        )
+                    pending_recovery = None
 
                 execution_duration = time.monotonic() - execution_start_time
 
@@ -1128,12 +1309,38 @@ class JobRunner:
                 # Fall through to judgment-based decision below
             elif not result.success:
                 # Execution returned non-zero AND some validations failed
-                # Check if this is a real error or just a warning
-                error = self._classify_error(result)
+                # Use root-cause-aware classification (Evolution v6)
+                classification = self._classify_execution(result)
+                error = classification.primary
 
-                # Track error for adaptive retry (Task 13)
-                error_record = ErrorRecord.from_classified_error(
-                    error=error,
+                # Evolution #3: Record recovery outcome as failure if we had a pending retry
+                if pending_recovery is not None and self._global_learning_store is not None:
+                    try:
+                        self._global_learning_store.record_error_recovery(
+                            error_code=pending_recovery["error_code"],
+                            suggested_wait=pending_recovery["suggested_wait"],
+                            actual_wait=pending_recovery["actual_wait"],
+                            recovery_success=False,  # Failure
+                            model=self.config.backend.model,
+                        )
+                        self._logger.debug(
+                            "learning.recovery_recorded",
+                            sheet_num=sheet_num,
+                            error_code=pending_recovery["error_code"],
+                            actual_wait=pending_recovery["actual_wait"],
+                            recovery_success=False,
+                        )
+                    except Exception as e:
+                        self._logger.warning(
+                            "learning.recovery_record_failed",
+                            sheet_num=sheet_num,
+                            error=str(e),
+                        )
+                    pending_recovery = None
+
+                # Track error for adaptive retry with root cause info (Evolution v6)
+                error_record = ErrorRecord.from_classification_result(
+                    result=classification,
                     sheet_num=sheet_num,
                     attempt_num=normal_attempts + 1,
                 )
@@ -1147,7 +1354,8 @@ class JobRunner:
                 if error.is_rate_limit:
                     # Rate limit handling uses its own strategy
                     error_history.clear()  # Reset on rate limit
-                    await self._handle_rate_limit(state)
+                    # Evolution #8: Pass error code for cross-workspace recording
+                    await self._handle_rate_limit(state, error_code=error.error_code.value)
                     continue  # Retry same execution
 
                 if not error.should_retry:
@@ -1272,6 +1480,16 @@ class JobRunner:
                     f"(delay: {retry_recommendation.delay_seconds:.1f}s, "
                     f"confidence: {retry_recommendation.confidence:.0%})[/yellow]"
                 )
+
+                # Evolution #3: Track pending recovery for learning outcome
+                # We'll record whether this retry succeeds or fails in the next iteration
+                if self._global_learning_store is not None:
+                    pending_recovery = {
+                        "error_code": error.error_code.value,
+                        "suggested_wait": error.suggested_wait_seconds or 0.0,
+                        "actual_wait": retry_recommendation.delay_seconds,
+                    }
+
                 await asyncio.sleep(retry_recommendation.delay_seconds)
                 continue
 
@@ -1463,6 +1681,172 @@ class JobRunner:
             workspace=self.config.workspace,
         )
 
+    def _query_relevant_patterns(
+        self,
+        job_id: str,
+        sheet_num: int,
+        context_tags: list[str] | None = None,
+    ) -> tuple[list[str], list[str]]:
+        """Query relevant patterns from the global learning store.
+
+        Learning Activation: This method bridges the global learning store's
+        pattern knowledge with the prompt injection system. It queries patterns
+        that are relevant to the current execution context and formats them
+        for injection into sheet prompts.
+
+        Args:
+            job_id: Current job identifier for similar job matching.
+            sheet_num: Current sheet number.
+            context_tags: Optional tags for context-based filtering.
+
+        Returns:
+            Tuple of (pattern_descriptions, pattern_ids).
+            - pattern_descriptions: Human-readable strings for prompt injection
+            - pattern_ids: IDs for tracking pattern application outcomes
+        """
+        if self._global_learning_store is None:
+            return [], []
+
+        try:
+            # Query patterns from global store with minimum priority
+            patterns = self._global_learning_store.get_patterns(
+                min_priority=0.3,
+                limit=5,
+            )
+
+            if not patterns:
+                return [], []
+
+            # Format patterns for prompt injection
+            descriptions: list[str] = []
+            pattern_ids: list[str] = []
+
+            for pattern in patterns:
+                # Build description based on pattern type and effectiveness
+                if pattern.effectiveness_score > 0.7:
+                    effectiveness_indicator = "✓"
+                elif pattern.effectiveness_score > 0.4:
+                    effectiveness_indicator = "○"
+                else:
+                    effectiveness_indicator = "⚠"
+
+                # Format: [indicator] description (occurrence count)
+                desc = (
+                    f"{effectiveness_indicator} {pattern.description or pattern.pattern_name} "
+                    f"(seen {pattern.occurrence_count}x, "
+                    f"{pattern.effectiveness_score:.0%} effective)"
+                )
+                descriptions.append(desc)
+                pattern_ids.append(pattern.id)
+
+            self._logger.debug(
+                "patterns.query_global",
+                job_id=job_id,
+                sheet_num=sheet_num,
+                patterns_found=len(descriptions),
+                pattern_ids=pattern_ids,
+            )
+
+            return descriptions, pattern_ids
+
+        except Exception as e:
+            # Pattern query failure shouldn't block execution
+            self._logger.warning(
+                "patterns.query_global_failed",
+                job_id=job_id,
+                sheet_num=sheet_num,
+                error=str(e),
+            )
+            return [], []
+
+    def _assess_failure_risk(
+        self,
+        job_id: str,
+        sheet_num: int,
+    ) -> dict[str, Any]:
+        """Assess failure risk based on historical execution data.
+
+        Learning Activation: Analyzes past executions to assess the risk
+        of failure for the current sheet, enabling proactive adjustments
+        to retry strategy and confidence thresholds.
+
+        Args:
+            job_id: Current job identifier.
+            sheet_num: Current sheet number.
+
+        Returns:
+            Dict with risk assessment:
+            - risk_level: "low", "medium", or "high"
+            - confidence: Confidence in assessment (0.0-1.0)
+            - factors: List of contributing factors
+            - recommended_adjustments: Suggested parameter changes
+        """
+        if self._global_learning_store is None:
+            return {
+                "risk_level": "unknown",
+                "confidence": 0.0,
+                "factors": ["no global store available"],
+                "recommended_adjustments": [],
+            }
+
+        try:
+            stats = self._global_learning_store.get_execution_stats()
+            first_attempt_rate = stats.get("first_attempt_success_rate", 0.0)
+            total_executions = stats.get("total_executions", 0)
+
+            # Assess risk based on historical success rate
+            if total_executions < 10:
+                risk_level = "unknown"
+                confidence = 0.2
+                factors = [f"insufficient data ({total_executions} executions)"]
+            elif first_attempt_rate > 0.7:
+                risk_level = "low"
+                confidence = min(0.9, total_executions / 100)
+                factors = [f"high first-attempt success rate ({first_attempt_rate:.0%})"]
+            elif first_attempt_rate > 0.4:
+                risk_level = "medium"
+                confidence = min(0.8, total_executions / 100)
+                factors = [f"moderate first-attempt success rate ({first_attempt_rate:.0%})"]
+            else:
+                risk_level = "high"
+                confidence = min(0.9, total_executions / 100)
+                factors = [f"low first-attempt success rate ({first_attempt_rate:.0%})"]
+
+            # Check for active rate limits
+            is_limited, wait_time = self._global_learning_store.is_rate_limited()
+            if is_limited:
+                risk_level = "high"
+                factors.append(f"active rate limit (expires in {wait_time:.0f}s)")
+
+            # Build recommendations based on risk level
+            recommendations: list[str] = []
+            if risk_level == "high":
+                recommendations.append("consider increasing retry delays")
+                recommendations.append("enable completion mode aggressively")
+            elif risk_level == "medium":
+                recommendations.append("monitor validation confidence closely")
+
+            return {
+                "risk_level": risk_level,
+                "confidence": confidence,
+                "factors": factors,
+                "recommended_adjustments": recommendations,
+            }
+
+        except Exception as e:
+            self._logger.warning(
+                "risk_assessment.failed",
+                job_id=job_id,
+                sheet_num=sheet_num,
+                error=str(e),
+            )
+            return {
+                "risk_level": "unknown",
+                "confidence": 0.0,
+                "factors": [f"assessment failed: {e}"],
+                "recommended_adjustments": [],
+            }
+
     def _run_preflight_checks(
         self,
         prompt: str,
@@ -1567,9 +1951,10 @@ class JobRunner:
                 for r in result.get_failed_results()
             ]
 
-    def _classify_error(self, result: ExecutionResult) -> ClassifiedError:
-        """Classify execution error.
+    def _classify_execution(self, result: ExecutionResult) -> ClassificationResult:
+        """Classify execution errors using multi-error root cause analysis.
 
+        Uses classify_execution() to detect all errors and identify the root cause.
         Trust the backend's rate_limited flag if set, as the backend sees
         real-time output during execution. The rate limit message may be
         followed by CLI crash stack traces that obscure it in final output.
@@ -1578,11 +1963,12 @@ class JobRunner:
             result: Execution result with error details.
 
         Returns:
-            ClassifiedError with category and retry info.
+            ClassificationResult with primary (root cause), secondary errors,
+            and confidence in root cause identification.
         """
         # Trust backend's rate limit detection (it classifies real-time output)
         if result.rate_limited:
-            return ClassifiedError(
+            primary = ClassifiedError(
                 category=ErrorCategory.RATE_LIMIT,
                 error_code=ErrorCode.RATE_LIMIT_API,
                 message="Rate limit detected by backend",
@@ -1592,14 +1978,45 @@ class JobRunner:
                 retriable=True,
                 suggested_wait_seconds=self.config.rate_limit.wait_minutes * 60,
             )
+            return ClassificationResult(
+                primary=primary,
+                secondary=[],
+                confidence=1.0,
+                classification_method="backend_rate_limit",
+            )
 
-        return self.error_classifier.classify(
+        classification = self.error_classifier.classify_execution(
             stdout=result.stdout,
             stderr=result.stderr,
             exit_code=result.exit_code,
             exit_signal=result.exit_signal,
             exit_reason=result.exit_reason,
         )
+
+        # Log secondary errors for debugging if any were detected
+        if classification.secondary:
+            self._logger.debug(
+                "runner.secondary_errors_detected",
+                primary_code=classification.primary.error_code.value,
+                secondary_codes=[e.error_code.value for e in classification.secondary],
+                confidence=round(classification.confidence, 3),
+            )
+
+        return classification
+
+    def _classify_error(self, result: ExecutionResult) -> ClassifiedError:
+        """Classify execution error (backward compatible wrapper).
+
+        This method is maintained for backward compatibility. New code should
+        use _classify_execution() to get full root cause analysis.
+
+        Args:
+            result: Execution result with error details.
+
+        Returns:
+            ClassifiedError (primary error from classification result).
+        """
+        return self._classify_execution(result).primary
 
     def _get_retry_delay(self, attempt: int) -> float:
         """Calculate retry delay with exponential backoff and jitter.
@@ -1622,18 +2039,53 @@ class JobRunner:
 
         return delay
 
-    async def _handle_rate_limit(self, state: CheckpointState) -> None:
+    async def _handle_rate_limit(
+        self,
+        state: CheckpointState,
+        error_code: str = "E101",
+    ) -> None:
         """Handle rate limit by waiting and health checking.
+
+        Evolution #8: Cross-Workspace Circuit Breaker - Records rate limit events
+        to the global learning store so other parallel jobs can avoid hitting
+        the same rate limit.
 
         Args:
             state: Current job state.
+            error_code: The error code that triggered the rate limit (default: E101).
 
         Raises:
             FatalError: If max waits exceeded or health check fails.
         """
         wait_minutes = self.config.rate_limit.wait_minutes
+        wait_seconds = wait_minutes * 60
         state.rate_limit_waits += 1
         await self.state_backend.save(state)
+
+        # Evolution #8: Record rate limit event to global store for cross-workspace
+        # coordination. Other jobs can query this to avoid hitting the same limit.
+        cross_ws_enabled = self.config.circuit_breaker.cross_workspace_coordination
+        if cross_ws_enabled and self._global_learning_store is not None:
+            try:
+                self._global_learning_store.record_rate_limit_event(
+                    error_code=error_code,
+                    duration_seconds=wait_seconds,
+                    job_id=state.job_id,
+                    model=self.config.backend.model,
+                )
+                self._logger.info(
+                    "rate_limit.cross_workspace_recorded",
+                    job_id=state.job_id,
+                    error_code=error_code,
+                    duration_seconds=wait_seconds,
+                )
+            except Exception as e:
+                # Global store failure shouldn't block rate limit handling
+                self._logger.warning(
+                    "rate_limit.cross_workspace_record_failed",
+                    job_id=state.job_id,
+                    error=str(e),
+                )
 
         # Log rate limit detection
         self._logger.warning(
@@ -1659,7 +2111,7 @@ class JobRunner:
             f"[yellow]Rate limited. Waiting {wait_minutes} minutes... "
             f"(wait {state.rate_limit_waits}/{self.config.rate_limit.max_waits})[/yellow]"
         )
-        await asyncio.sleep(wait_minutes * 60)
+        await asyncio.sleep(wait_seconds)
 
         # Health check before resuming
         self.console.print("[blue]Running health check...[/blue]")
@@ -1718,6 +2170,80 @@ class JobRunner:
         )
 
         await self.outcome_store.record(outcome)
+
+    async def _aggregate_to_global_store(self, state: CheckpointState) -> None:
+        """Aggregate job outcomes to the global learning store.
+
+        Called on job completion to record all outcomes and detect patterns
+        for cross-workspace learning. This is the key integration point for
+        Movement IV-B global learning.
+
+        Args:
+            state: Final job state with all sheet outcomes.
+        """
+        if self._global_learning_store is None:
+            return
+
+        # Import here to avoid circular imports
+        from mozart.learning.aggregator import PatternAggregator
+        from mozart.learning.outcomes import SheetOutcome
+
+        try:
+            # Build SheetOutcome objects from state
+            outcomes: list[SheetOutcome] = []
+            for sheet_num, sheet_state in state.sheets.items():
+                outcome = SheetOutcome(
+                    sheet_id=f"{state.job_id}_sheet_{sheet_num}",
+                    job_id=state.job_id,
+                    validation_results=sheet_state.validation_details or [],
+                    execution_duration=sheet_state.execution_duration_seconds or 0.0,
+                    retry_count=max(0, sheet_state.attempt_count - 1),
+                    completion_mode_used=sheet_state.completion_attempts > 0,
+                    final_status=sheet_state.status,
+                    validation_pass_rate=(
+                        100.0 if sheet_state.validation_passed
+                        else 0.0 if sheet_state.validation_passed is False
+                        else 50.0  # Unknown
+                    ),
+                    first_attempt_success=sheet_state.first_attempt_success,
+                    timestamp=sheet_state.completed_at or _utc_now(),
+                )
+                outcomes.append(outcome)
+
+            if not outcomes:
+                return
+
+            # Create aggregator and aggregate outcomes
+            aggregator = PatternAggregator(self._global_learning_store)
+            result = aggregator.aggregate_outcomes(
+                outcomes=outcomes,
+                workspace_path=self.config.workspace,
+                model=self.config.backend.model,
+            )
+
+            # Log aggregation results
+            self._logger.info(
+                "learning.global_aggregation",
+                job_id=state.job_id,
+                outcomes_recorded=result.outcomes_recorded,
+                patterns_detected=result.patterns_detected,
+                patterns_merged=result.patterns_merged,
+                priorities_updated=result.priorities_updated,
+            )
+
+            if result.outcomes_recorded > 0:
+                self.console.print(
+                    f"[dim]Global learning: {result.outcomes_recorded} outcomes recorded, "
+                    f"{result.patterns_detected} patterns detected[/dim]"
+                )
+
+        except Exception as e:
+            # Global learning failures should not block job completion
+            self._logger.warning(
+                "learning.global_aggregation_failed",
+                job_id=state.job_id,
+                error=str(e),
+            )
 
     def _decide_next_action(
         self,

@@ -11,6 +11,7 @@ Commands:
 
 import asyncio
 import json
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -201,10 +202,18 @@ def log_level_callback(value: str | None) -> str | None:
 
 
 def log_file_callback(value: Path | None) -> Path | None:
-    """Set log file path from CLI option."""
-    global _log_file
+    """Set log file path from CLI option.
+
+    When a log file is specified, logs are written to the file in
+    human-readable format. Rich CLI output (progress bars, status tables)
+    is separate from structured logging and still displays on console.
+    """
+    global _log_file, _log_format
     if value:
         _log_file = value
+        # Keep console format for readable logs
+        # File handler is now created automatically when file_path is set
+        _log_format = "console"
     return value
 
 
@@ -423,6 +432,16 @@ async def _run_job(
                 f"[dim]Learning enabled: outcomes will be stored at {outcome_store_path}[/dim]"
             )
 
+    # Setup global learning store for cross-workspace learning
+    global_learning_store = None
+    if config.learning.enabled:
+        from mozart.learning.global_store import get_global_store
+        global_learning_store = get_global_store()
+        if is_verbose() and not json_output:
+            console.print(
+                "[dim]Global learning enabled: cross-workspace patterns active[/dim]"
+            )
+
     # Setup notification manager from config
     notification_manager: NotificationManager | None = None
     if config.notifications:
@@ -510,6 +529,7 @@ async def _run_job(
         console=console if not json_output else Console(quiet=True),
         outcome_store=outcome_store,
         progress_callback=update_progress if progress else None,
+        global_learning_store=global_learning_store,
     )
 
     job_id = config.name  # Use job name as ID for now
@@ -984,6 +1004,15 @@ async def _resume_job(
             f"[dim]Learning enabled: outcomes will be stored at {outcome_store_path}[/dim]"
         )
 
+    # Setup global learning store for cross-workspace learning
+    global_learning_store = None
+    if config.learning.enabled:
+        from mozart.learning.global_store import get_global_store
+        global_learning_store = get_global_store()
+        console.print(
+            "[dim]Global learning enabled: cross-workspace patterns active[/dim]"
+        )
+
     # Setup notification manager from config
     notification_manager: NotificationManager | None = None
     if config.notifications:
@@ -1033,6 +1062,7 @@ async def _resume_job(
         console=console,
         outcome_store=outcome_store,
         progress_callback=update_progress,
+        global_learning_store=global_learning_store,
     )
 
     try:
@@ -1120,6 +1150,196 @@ async def _resume_job(
 
         if notification_manager:
             await notification_manager.close()
+
+
+@app.command(hidden=True)
+def recover(
+    job_id: str = typer.Argument(..., help="Job ID to recover"),
+    sheet: int | None = typer.Option(
+        None,
+        "--sheet",
+        "-s",
+        help="Specific sheet number to recover (default: all failed sheets)",
+    ),
+    workspace: Path | None = typer.Option(
+        None,
+        "--workspace",
+        "-w",
+        help="Workspace directory containing job state",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        "-n",
+        help="Check validations without modifying state",
+    ),
+) -> None:
+    """Recover sheets that completed work but were incorrectly marked as failed.
+
+    This command runs validations for failed sheets without re-executing them.
+    If validations pass, the sheet is marked as complete.
+
+    This is useful when:
+    - Claude CLI returned a non-zero exit code but the work was done
+    - A transient error caused failure after files were created
+    - You want to check if a failed sheet actually succeeded
+
+    Examples:
+        mozart recover my-job                    # Recover all failed sheets
+        mozart recover my-job --sheet 6         # Recover specific sheet
+        mozart recover my-job --dry-run         # Check without modifying
+    """
+    asyncio.run(_recover_job(job_id, sheet, workspace, dry_run))
+
+
+async def _recover_job(
+    job_id: str,
+    sheet_num: int | None,
+    workspace: Path | None,
+    dry_run: bool,
+) -> None:
+    """Recover sheets by running validations without re-executing.
+
+    Args:
+        job_id: Job ID to recover.
+        sheet_num: Specific sheet to recover, or None for all failed sheets.
+        workspace: Optional workspace directory.
+        dry_run: If True, only check validations without modifying state.
+    """
+    from mozart.core.config import JobConfig
+    from mozart.execution.validation import ValidationEngine
+
+    _configure_global_logging()
+
+    # Find job state
+    state_file = None
+    search_paths = []
+
+    if workspace:
+        search_paths.append(workspace)
+    else:
+        search_paths.extend([
+            Path.cwd(),
+            Path.cwd() / job_id,
+            Path.home() / ".mozart" / "state",
+        ])
+
+    for search_path in search_paths:
+        candidate = search_path / f"{job_id}.json"
+        if candidate.exists():
+            state_file = candidate
+            break
+
+    if not state_file:
+        console.print(f"[red]Job state not found: {job_id}[/red]")
+        console.print(f"[dim]Searched: {', '.join(str(p) for p in search_paths)}[/dim]")
+        raise typer.Exit(1)
+
+    # Load state
+    state_backend = JsonStateBackend(state_file.parent)
+    state = await state_backend.load(job_id)
+
+    if not state:
+        console.print(f"[red]Could not load state for job: {job_id}[/red]")
+        raise typer.Exit(1)
+
+    # Reconstruct config from snapshot
+    if not state.config_snapshot:
+        console.print("[red]No config snapshot in state - cannot run validations[/red]")
+        raise typer.Exit(1)
+
+    config = JobConfig.model_validate(state.config_snapshot)
+
+    # Determine which sheets to check
+    sheets_to_check: list[int] = []
+    if sheet_num is not None:
+        sheets_to_check = [sheet_num]
+    else:
+        # Find all failed sheets
+        for snum, sheet_state in state.sheets.items():
+            if sheet_state.status == SheetStatus.FAILED:
+                sheets_to_check.append(int(snum))
+
+    if not sheets_to_check:
+        console.print("[green]No failed sheets to recover[/green]")
+        raise typer.Exit(0)
+
+    console.print(Panel(
+        f"[bold]Recover Job: {job_id}[/bold]\n"
+        f"Sheets to check: {sheets_to_check}\n"
+        f"Dry run: {dry_run}",
+        title="Recovery",
+    ))
+
+    # Create validation engine
+    validation_engine = ValidationEngine(
+        context_factory=lambda snum: ValidationEngine.create_context(
+            sheet_num=snum,
+            workspace=config.workspace,
+            project_root=config.backend.working_directory or Path.cwd(),
+        )
+    )
+
+    recovered_count = 0
+    for snum in sorted(sheets_to_check):
+        console.print(f"\n[bold]Sheet {snum}:[/bold]")
+
+        # Run validations for this sheet
+        validation_engine.context = ValidationEngine.create_context(
+            sheet_num=snum,
+            workspace=config.workspace,
+            project_root=config.backend.working_directory or Path.cwd(),
+        )
+        result = validation_engine.run_validations(config.validations)
+
+        # Show results
+        for vr in result.results:
+            status = "[green]✓[/green]" if vr.passed else "[red]✗[/red]"
+            console.print(f"  {status} {vr.rule.description}")
+
+        if result.all_passed:
+            console.print(f"  [green]All {len(result.results)} validations passed![/green]")
+
+            if not dry_run:
+                # Update state to mark sheet as completed
+                state.sheets[snum].status = SheetStatus.COMPLETED
+                state.sheets[snum].validation_passed = True
+                state.sheets[snum].validation_details = result.to_dict_list()
+                state.sheets[snum].error_message = None
+                state.sheets[snum].error_category = None
+
+                # Update last_completed_sheet if this extends it
+                if snum > state.last_completed_sheet:
+                    state.last_completed_sheet = snum
+
+                recovered_count += 1
+                console.print(f"  [blue]→ Marked as completed[/blue]")
+            else:
+                console.print(f"  [yellow]→ Would mark as completed (dry-run)[/yellow]")
+        else:
+            failed_count = len([r for r in result.results if not r.passed])
+            console.print(
+                f"  [red]{failed_count} validation(s) failed - cannot recover[/red]"
+            )
+
+    # Save state if not dry run
+    if not dry_run and recovered_count > 0:
+        # Update job status if all sheets now complete
+        all_complete = all(
+            s.status == SheetStatus.COMPLETED
+            for s in state.sheets.values()
+        )
+        if all_complete:
+            state.status = JobStatus.COMPLETED
+        elif state.status == JobStatus.FAILED:
+            state.status = JobStatus.PAUSED  # Allow resume
+
+        await state_backend.save(state)
+        console.print(f"\n[green]Recovered {recovered_count} sheet(s)[/green]")
+    elif dry_run:
+        console.print(f"\n[yellow]Dry run complete - no changes made[/yellow]")
+    else:
+        console.print(f"\n[yellow]No sheets could be recovered[/yellow]")
 
 
 @app.command(name="list")
@@ -1276,9 +1496,6 @@ async def _status_job_watch(
         interval: Refresh interval in seconds.
         workspace: Optional workspace directory to search.
     """
-    from rich.live import Live
-    from rich.panel import Panel
-    from rich.text import Text
 
     console.print(f"[dim]Watching job [bold]{job_id}[/bold] (Ctrl+C to stop)[/dim]\n")
 
@@ -2938,6 +3155,381 @@ def dashboard(
         )
     except KeyboardInterrupt:
         console.print("\n[yellow]Dashboard stopped.[/yellow]")
+
+
+# =============================================================================
+# Global Learning Commands (Movement IV-B)
+# =============================================================================
+
+
+@app.command()
+def patterns(
+    global_patterns: bool = typer.Option(
+        True,
+        "--global/--local",
+        "-g/-l",
+        help="Show global patterns (default) or local workspace patterns",
+    ),
+    min_priority: float = typer.Option(
+        0.0,
+        "--min-priority",
+        "-p",
+        help="Minimum priority score to display (0.0-1.0)",
+    ),
+    limit: int = typer.Option(
+        20,
+        "--limit",
+        "-n",
+        help="Maximum number of patterns to display",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        "-j",
+        help="Output as JSON for machine parsing",
+    ),
+) -> None:
+    """View global learning patterns.
+
+    Displays patterns learned from job executions across all workspaces.
+    These patterns inform retry strategies, wait times, and validation.
+
+    Examples:
+        mozart patterns                  # Show global patterns
+        mozart patterns --min-priority 0.5  # Only high-priority patterns
+        mozart patterns --json           # JSON output for scripting
+        mozart patterns --local          # Local workspace patterns only
+    """
+    from mozart.learning.global_store import get_global_store
+
+    store = get_global_store()
+
+    if json_output:
+        patterns_list = store.get_patterns(min_priority=min_priority)[:limit]
+        import json
+        output = []
+        for p in patterns_list:
+            output.append({
+                "id": p.id,
+                "pattern_type": p.pattern_type,
+                "pattern_name": p.pattern_name,
+                "description": p.description,
+                "occurrence_count": p.occurrence_count,
+                "effectiveness_score": round(p.effectiveness_score, 3),
+                "priority_score": round(p.priority_score, 3),
+                "context_tags": list(p.context_tags) if p.context_tags else [],
+            })
+        console.print(json.dumps(output, indent=2))
+        return
+
+    # Get patterns from global store
+    patterns_list = store.get_patterns(min_priority=min_priority)[:limit]
+
+    if not patterns_list:
+        console.print("[dim]No patterns found in global learning store.[/dim]")
+        console.print(
+            "\n[dim]Hint: Patterns are learned from job executions. "
+            "Run jobs with learning enabled to build patterns.[/dim]"
+        )
+        return
+
+    # Display patterns table
+    table = Table(title="Global Learning Patterns")
+    table.add_column("ID", style="cyan", no_wrap=True, width=10)
+    table.add_column("Type", style="yellow", width=15)
+    table.add_column("Name", style="bold", width=25)
+    table.add_column("Count", justify="right", width=6)
+    table.add_column("Effect", justify="right", width=8)
+    table.add_column("Priority", justify="right", width=8)
+    table.add_column("Tags", style="dim", width=20)
+
+    for p in patterns_list:
+        # Format effectiveness with color
+        eff = p.effectiveness_score
+        eff_color = "green" if eff > 0.7 else "yellow" if eff > 0.4 else "red"
+        eff_str = f"[{eff_color}]{eff:.2f}[/{eff_color}]"
+
+        # Format priority with color
+        pri = p.priority_score
+        pri_color = "green" if pri > 0.7 else "yellow" if pri > 0.4 else "dim"
+        pri_str = f"[{pri_color}]{pri:.2f}[/{pri_color}]"
+
+        # Truncate tags
+        tags = ", ".join(p.context_tags[:3]) if p.context_tags else ""
+        if len(tags) > 20:
+            tags = tags[:17] + "..."
+
+        table.add_row(
+            p.id[:10],
+            p.pattern_type,
+            p.pattern_name[:25],
+            str(p.occurrence_count),
+            eff_str,
+            pri_str,
+            tags,
+        )
+
+    console.print(table)
+    console.print(f"\n[dim]Showing {len(patterns_list)} pattern(s)[/dim]")
+
+
+@app.command("aggregate-patterns")
+def aggregate_patterns(
+    workspace: Path | None = typer.Option(
+        None,
+        "--workspace",
+        "-w",
+        help="Specific workspace to aggregate from (defaults to all discovered)",
+    ),
+    additional_paths: list[Path] = typer.Option(
+        [],
+        "--path",
+        "-p",
+        help="Additional paths to scan for outcomes",
+    ),
+) -> None:
+    """Aggregate patterns from workspace-local outcomes to global store.
+
+    Scans workspaces for .mozart-outcomes.json files and imports them
+    into the global learning store, then runs pattern detection.
+
+    Examples:
+        mozart aggregate-patterns                  # Scan all common locations
+        mozart aggregate-patterns -w ./workspace  # Specific workspace
+        mozart aggregate-patterns -p /path/to/outcomes.json  # Additional path
+    """
+    from mozart.learning.global_store import get_global_store
+    from mozart.learning.migration import OutcomeMigrator
+
+    store = get_global_store()
+    migrator = OutcomeMigrator(store)
+
+    console.print("[bold]Aggregating patterns from workspaces...[/bold]\n")
+
+    if workspace:
+        # Migrate specific workspace
+        result = migrator.migrate_workspace(workspace)
+    else:
+        # Migrate all discovered workspaces
+        result = migrator.migrate_all(additional_paths=list(additional_paths) if additional_paths else None)
+
+    # Display results
+    console.print(Panel(
+        f"Workspaces found: [cyan]{result.workspaces_found}[/cyan]\n"
+        f"Outcomes imported: [green]{result.outcomes_imported}[/green]\n"
+        f"Patterns detected: [yellow]{result.patterns_detected}[/yellow]\n"
+        f"Workspaces imported: [green]{len(result.imported_workspaces)}[/green]\n"
+        f"Workspaces skipped: [dim]{len(result.skipped_workspaces)}[/dim]",
+        title="Aggregation Complete",
+        border_style="green" if result.outcomes_imported > 0 else "yellow",
+    ))
+
+    if result.errors:
+        console.print("\n[yellow]Warnings:[/yellow]")
+        for error in result.errors[:5]:
+            console.print(f"  [dim]• {error}[/dim]")
+
+    if result.imported_workspaces:
+        console.print("\n[dim]Imported from:[/dim]")
+        for ws in result.imported_workspaces[:5]:
+            console.print(f"  [cyan]• {ws}[/cyan]")
+
+
+@app.command("learning-stats")
+def learning_stats(
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        "-j",
+        help="Output as JSON for machine parsing",
+    ),
+) -> None:
+    """View global learning statistics.
+
+    Shows summary statistics about the global learning store including
+    execution counts, pattern counts, and effectiveness metrics.
+
+    Examples:
+        mozart learning-stats         # Human-readable summary
+        mozart learning-stats --json  # JSON output for scripting
+    """
+    from mozart.learning.global_store import get_global_store
+    from mozart.learning.migration import check_migration_status
+
+    store = get_global_store()
+    stats = store.get_execution_stats()
+    migration = check_migration_status(store)
+
+    if json_output:
+        import json
+        output = {
+            "executions": {
+                "total": stats.get("total_executions", 0),
+                "first_attempt_success_rate": round(stats.get("first_attempt_success_rate", 0) * 100, 1),
+            },
+            "patterns": {
+                "total": stats.get("total_patterns", 0),
+                "avg_effectiveness": round(stats.get("avg_pattern_effectiveness", 0), 3),
+            },
+            "workspaces": {
+                "unique": stats.get("unique_workspaces", 0),
+            },
+            "error_recoveries": {
+                "total": stats.get("total_error_recoveries", 0),
+                "success_rate": round(stats.get("error_recovery_success_rate", 0) * 100, 1),
+            },
+            "migration_needed": migration.get("needs_migration", False),
+        }
+        console.print(json.dumps(output, indent=2))
+        return
+
+    # Human-readable output
+    console.print("[bold]Global Learning Statistics[/bold]\n")
+
+    # Execution stats
+    console.print("[bold cyan]Executions[/bold cyan]")
+    console.print(f"  Total recorded: [green]{stats.get('total_executions', 0)}[/green]")
+    success_rate = stats.get("first_attempt_success_rate", 0) * 100
+    console.print(f"  First-attempt success: [{'green' if success_rate > 70 else 'yellow'}]{success_rate:.1f}%[/]")
+
+    # Pattern stats
+    console.print("\n[bold cyan]Patterns[/bold cyan]")
+    console.print(f"  Total learned: [yellow]{stats.get('total_patterns', 0)}[/yellow]")
+    avg_eff = stats.get("avg_pattern_effectiveness", 0)
+    console.print(f"  Avg effectiveness: [{'green' if avg_eff > 0.6 else 'yellow'}]{avg_eff:.2f}[/]")
+
+    # Workspace coverage
+    console.print("\n[bold cyan]Workspaces[/bold cyan]")
+    console.print(f"  Unique workspaces: [cyan]{stats.get('unique_workspaces', 0)}[/cyan]")
+
+    # Error recovery stats
+    console.print("\n[bold cyan]Error Recovery Learning[/bold cyan]")
+    console.print(f"  Recoveries recorded: {stats.get('total_error_recoveries', 0)}")
+    recovery_rate = stats.get("error_recovery_success_rate", 0) * 100
+    console.print(f"  Recovery success rate: [{'green' if recovery_rate > 70 else 'yellow'}]{recovery_rate:.1f}%[/]")
+
+    # Migration status
+    if migration.get("needs_migration"):
+        console.print(
+            "\n[yellow]⚠ Migration needed:[/yellow] Run 'mozart aggregate-patterns' "
+            "to import workspace-local outcomes"
+        )
+
+
+@app.command("learning-activity")
+def learning_activity(
+    hours: int = typer.Option(
+        24,
+        "--hours",
+        "-h",
+        help="Show activity from the last N hours",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        "-j",
+        help="Output as JSON for machine parsing",
+    ),
+) -> None:
+    """View recent learning activity and pattern applications.
+
+    Learning Activation: Shows what patterns have been applied, their
+    effectiveness, and provides insight into how the learning system
+    is improving execution outcomes.
+
+    Examples:
+        mozart learning-activity           # Last 24 hours of activity
+        mozart learning-activity -h 48     # Last 48 hours
+        mozart learning-activity --json    # JSON output
+    """
+    from datetime import datetime, timedelta
+
+    from mozart.learning.global_store import get_global_store
+
+    store = get_global_store()
+    stats = store.get_execution_stats()
+
+    # Get optimal execution window analysis
+    window = store.get_optimal_execution_window()
+
+    # Get recent similar executions for activity display
+    cutoff = datetime.now() - timedelta(hours=hours)
+    recent_executions = store.get_similar_executions(limit=20)
+    recent_count = sum(
+        1 for e in recent_executions
+        if e.completed_at and e.completed_at > cutoff
+    )
+
+    if json_output:
+        import json
+        output = {
+            "period_hours": hours,
+            "recent_executions": recent_count,
+            "first_attempt_success_rate": round(
+                stats.get("first_attempt_success_rate", 0) * 100, 1
+            ),
+            "patterns_active": stats.get("total_patterns", 0),
+            "optimal_hours": window.get("optimal_hours", []),
+            "avoid_hours": window.get("avoid_hours", []),
+            "scheduling_confidence": round(window.get("confidence", 0), 2),
+        }
+        console.print(json.dumps(output, indent=2))
+        return
+
+    # Human-readable output
+    console.print(f"[bold]Learning Activity (last {hours} hours)[/bold]\n")
+
+    # Recent activity
+    console.print("[bold cyan]Recent Executions[/bold cyan]")
+    console.print(f"  Executions in period: [green]{recent_count}[/green]")
+    success_rate = stats.get("first_attempt_success_rate", 0) * 100
+    console.print(
+        f"  First-attempt success: "
+        f"[{'green' if success_rate > 70 else 'yellow'}]{success_rate:.1f}%[/]"
+    )
+
+    # Pattern application info
+    console.print("\n[bold cyan]Pattern Application[/bold cyan]")
+    pattern_count = stats.get("total_patterns", 0)
+    if pattern_count > 0:
+        console.print(f"  Active patterns: [yellow]{pattern_count}[/yellow]")
+        avg_eff = stats.get("avg_pattern_effectiveness", 0)
+        console.print(
+            f"  Avg effectiveness: "
+            f"[{'green' if avg_eff > 0.6 else 'yellow'}]{avg_eff:.2f}[/]"
+        )
+    else:
+        console.print("  [dim]No patterns learned yet[/dim]")
+
+    # Time-aware scheduling insights
+    console.print("\n[bold cyan]Optimal Execution Windows[/bold cyan]")
+    if window.get("confidence", 0) > 0.3:
+        optimal = window.get("optimal_hours", [])
+        avoid = window.get("avoid_hours", [])
+
+        if optimal:
+            optimal_str = ", ".join(f"{h:02d}:00" for h in optimal)
+            console.print(f"  [green]✓ Best hours:[/green] {optimal_str}")
+        if avoid:
+            avoid_str = ", ".join(f"{h:02d}:00" for h in avoid)
+            console.print(f"  [red]✗ Avoid hours:[/red] {avoid_str}")
+
+        console.print(
+            f"  Confidence: [cyan]{window.get('confidence', 0):.0%}[/cyan] "
+            f"(based on {window.get('sample_count', 0)} samples)"
+        )
+    else:
+        console.print("  [dim]Insufficient data for scheduling recommendations[/dim]")
+
+    # Learning status summary
+    console.print("\n[bold cyan]Learning Status[/bold cyan]")
+    total_executions = stats.get("total_executions", 0)
+    if total_executions >= 50:
+        console.print("  [green]✓ Learning system is well-trained[/green]")
+    elif total_executions >= 10:
+        console.print("  [yellow]○ Learning system is gathering data[/yellow]")
+    else:
+        console.print("  [dim]○ Learning system is in early training[/dim]")
 
 
 if __name__ == "__main__":
