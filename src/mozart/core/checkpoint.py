@@ -227,6 +227,22 @@ class SheetState(BaseModel):
         description="Descriptions of patterns that were applied/injected (for display/logging)",
     )
 
+    # Grounding integration (v11 evolution: Grounding→Pattern Integration)
+    grounding_passed: bool | None = Field(
+        default=None,
+        description="Whether all grounding hooks passed (None if not enabled)",
+    )
+    grounding_confidence: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Average confidence across grounding hooks (0.0-1.0)",
+    )
+    grounding_guidance: str | None = Field(
+        default=None,
+        description="Recovery guidance from failed grounding hooks",
+    )
+
     # Cost tracking (v4 evolution: Cost Circuit Breaker)
     input_tokens: int | None = Field(
         default=None,
@@ -362,6 +378,13 @@ class CheckpointState(BaseModel):
 
         Use `is_zombie()` to detect this state, and `mark_zombie_detected()`
         to recover from it.
+
+    Worktree Isolation:
+        When isolation is enabled, jobs execute in a separate git worktree.
+        The worktree tracking fields record the worktree state for:
+        - Resume operations (reuse existing worktree)
+        - Cleanup on completion (remove or preserve based on outcome)
+        - Debugging (know which worktree was used)
     """
 
     # Job identification
@@ -419,6 +442,32 @@ class CheckpointState(BaseModel):
     cost_limit_reached: bool = Field(
         default=False,
         description="Whether a cost limit was hit, causing job pause",
+    )
+
+    # Worktree isolation tracking (v2 evolution: Worktree Isolation)
+    worktree_path: str | None = Field(
+        default=None,
+        description="Path to active worktree for isolated execution",
+    )
+    worktree_branch: str | None = Field(
+        default=None,
+        description="Branch name in the worktree (None or '(detached)' if detached HEAD)",
+    )
+    worktree_locked: bool = Field(
+        default=False,
+        description="Whether worktree is currently locked",
+    )
+    worktree_base_commit: str | None = Field(
+        default=None,
+        description="Commit SHA the worktree was created from",
+    )
+    isolation_mode: str | None = Field(
+        default=None,
+        description="Isolation mode used: 'worktree', 'none', or None (not configured)",
+    )
+    isolation_fallback_used: bool = Field(
+        default=False,
+        description="True if isolation was configured but fell back to workspace",
     )
 
     def get_next_sheet(self) -> int | None:

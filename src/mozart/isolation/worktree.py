@@ -247,6 +247,111 @@ class GitWorktreeManager:
         )
         return exit_code == 0
 
+    async def create_worktree_detached(
+        self,
+        job_id: str,
+        source_ref: str | None = None,
+        worktree_base: Path | None = None,
+        lock: bool = True,
+    ) -> WorktreeResult:
+        """Create isolated worktree in detached HEAD mode.
+
+        Unlike create_worktree(), this creates a worktree without a branch,
+        allowing multiple worktrees to start from the same commit without
+        branch locking conflicts. This is the preferred method for parallel
+        job execution.
+
+        Args:
+            job_id: Unique job identifier for worktree naming.
+            source_ref: Commit/branch to base worktree on (default: HEAD).
+            worktree_base: Directory for worktrees (default: repo/.worktrees).
+            lock: Whether to lock worktree after creation (default: True).
+
+        Returns:
+            WorktreeResult with worktree info on success, error on failure.
+            Note: WorktreeInfo.branch will be "(detached)" for detached HEAD.
+
+        Raises:
+            NotGitRepositoryError: If not in a git repository.
+            WorktreeCreationError: If worktree cannot be created.
+        """
+        _logger.info(
+            "creating_worktree_detached",
+            job_id=job_id,
+            source_ref=source_ref,
+        )
+
+        # Verify prerequisites
+        if not self.is_git_repository():
+            error_msg = f"Not a git repository: {self._repo_path}"
+            _logger.error("not_git_repo", path=str(self._repo_path))
+            raise NotGitRepositoryError(error_msg)
+
+        await self._verify_git_version()
+
+        # Determine paths
+        base_path = worktree_base or (self._repo_path / ".worktrees")
+        worktree_path = base_path / job_id
+
+        # Check if worktree path already exists
+        if worktree_path.exists():
+            error_msg = f"Worktree path already exists: {worktree_path}"
+            _logger.error("worktree_path_exists", path=str(worktree_path))
+            raise WorktreeCreationError(error_msg)
+
+        # Create parent directory
+        base_path.mkdir(parents=True, exist_ok=True)
+
+        # Get the source commit SHA for tracking
+        source_commit: str
+        if source_ref:
+            # Resolve source_ref to a commit
+            try:
+                _, stdout, _ = await self._run_git("rev-parse", "--short", source_ref)
+                source_commit = stdout
+            except WorktreeError as e:
+                raise WorktreeCreationError(f"Cannot resolve ref '{source_ref}': {e}") from e
+        else:
+            source_commit = await self._get_current_commit()
+
+        # Build git worktree add --detach command
+        # Syntax: git worktree add --detach <path> [<commit>]
+        cmd_args = ["worktree", "add", "--detach", str(worktree_path)]
+        if source_ref:
+            cmd_args.append(source_ref)
+
+        try:
+            await self._run_git(*cmd_args)
+        except WorktreeError as e:
+            raise WorktreeCreationError(str(e)) from e
+
+        # Lock if requested
+        locked = False
+        if lock:
+            lock_result = await self.lock_worktree(
+                worktree_path,
+                reason=f"Mozart job {job_id} in progress",
+            )
+            locked = lock_result.success
+
+        worktree_info = WorktreeInfo(
+            path=worktree_path,
+            branch="(detached)",  # Indicate detached HEAD mode
+            commit=source_commit,
+            locked=locked,
+            job_id=job_id,
+        )
+
+        _logger.info(
+            "worktree_created_detached",
+            job_id=job_id,
+            path=str(worktree_path),
+            commit=source_commit,
+            locked=locked,
+        )
+
+        return WorktreeResult(success=True, worktree=worktree_info, error=None)
+
     async def create_worktree(
         self,
         job_id: str,
@@ -639,3 +744,8 @@ class GitWorktreeManager:
                 return wt
 
         return None
+
+
+# Alias for spec compatibility - WorktreeManager is the Protocol name in the design spec
+# GitWorktreeManager is the concrete implementation
+WorktreeManager = GitWorktreeManager

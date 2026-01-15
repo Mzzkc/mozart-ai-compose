@@ -293,6 +293,156 @@ class TestCreateWorktree:
             await manager.create_worktree(job_id="blocked-job")
 
 
+# --- Create Worktree Detached Tests ---
+
+
+class TestCreateWorktreeDetached:
+    """Tests for GitWorktreeManager.create_worktree_detached()."""
+
+    @pytest.mark.asyncio
+    async def test_create_detached_basic(
+        self, manager: GitWorktreeManager, temp_git_repo: Path
+    ) -> None:
+        """Test basic detached worktree creation."""
+        result = await manager.create_worktree_detached(
+            job_id="detached-job",
+            lock=False,
+        )
+
+        assert result.success is True
+        assert result.worktree is not None
+        assert result.error is None
+
+        # Verify worktree was created
+        assert result.worktree.path.exists()
+        assert result.worktree.branch == "(detached)"
+        assert result.worktree.job_id == "detached-job"
+        assert len(result.worktree.commit) > 0  # Should have a commit SHA
+
+    @pytest.mark.asyncio
+    async def test_create_detached_with_source_ref(
+        self, manager: GitWorktreeManager, temp_git_repo: Path
+    ) -> None:
+        """Test detached worktree creation from specific ref."""
+        # Create a second commit
+        test_file = temp_git_repo / "test.txt"
+        test_file.write_text("test content")
+        subprocess.run(["git", "add", "test.txt"], cwd=temp_git_repo, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "Second commit"],
+            cwd=temp_git_repo,
+            check=True,
+            capture_output=True,
+        )
+
+        # Create worktree from HEAD~1 (first commit)
+        result = await manager.create_worktree_detached(
+            job_id="from-ref-job",
+            source_ref="HEAD~1",
+            lock=False,
+        )
+
+        assert result.success is True
+        assert result.worktree is not None
+        assert result.worktree.branch == "(detached)"
+
+    @pytest.mark.asyncio
+    async def test_create_detached_with_lock(
+        self, manager: GitWorktreeManager, temp_git_repo: Path
+    ) -> None:
+        """Test detached worktree creation with locking enabled."""
+        result = await manager.create_worktree_detached(
+            job_id="locked-detached",
+            lock=True,
+        )
+
+        assert result.success is True
+        assert result.worktree is not None
+        assert result.worktree.locked is True
+
+    @pytest.mark.asyncio
+    async def test_create_detached_with_custom_base(
+        self, manager: GitWorktreeManager, temp_git_repo: Path
+    ) -> None:
+        """Test detached worktree creation with custom base directory."""
+        custom_base = temp_git_repo / "custom_worktrees"
+        result = await manager.create_worktree_detached(
+            job_id="custom-base-job",
+            worktree_base=custom_base,
+            lock=False,
+        )
+
+        assert result.success is True
+        assert result.worktree is not None
+        assert result.worktree.path.parent == custom_base
+
+    @pytest.mark.asyncio
+    async def test_create_detached_not_git_repo(self, non_git_path: Path) -> None:
+        """Test detached creation fails for non-git directory."""
+        manager = GitWorktreeManager(non_git_path)
+
+        with pytest.raises(NotGitRepositoryError):
+            await manager.create_worktree_detached(job_id="test")
+
+    @pytest.mark.asyncio
+    async def test_create_detached_path_exists(
+        self, manager: GitWorktreeManager, temp_git_repo: Path
+    ) -> None:
+        """Test detached creation fails when path already exists."""
+        # Create the path first
+        worktree_path = temp_git_repo / ".worktrees" / "blocked-detached"
+        worktree_path.mkdir(parents=True)
+
+        with pytest.raises(WorktreeCreationError):
+            await manager.create_worktree_detached(job_id="blocked-detached")
+
+    @pytest.mark.asyncio
+    async def test_create_detached_invalid_ref(
+        self, manager: GitWorktreeManager, temp_git_repo: Path
+    ) -> None:
+        """Test detached creation fails with invalid source ref."""
+        with pytest.raises(WorktreeCreationError) as exc_info:
+            await manager.create_worktree_detached(
+                job_id="invalid-ref-job",
+                source_ref="nonexistent-branch",
+            )
+        assert "Cannot resolve ref" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_create_detached_multiple_from_same_commit(
+        self, manager: GitWorktreeManager, temp_git_repo: Path
+    ) -> None:
+        """Test multiple detached worktrees can be created from same commit.
+
+        This is the key advantage of detached HEAD mode - no branch conflicts.
+        """
+        result1 = await manager.create_worktree_detached(
+            job_id="parallel-job-1",
+            source_ref="HEAD",
+            lock=False,
+        )
+        result2 = await manager.create_worktree_detached(
+            job_id="parallel-job-2",
+            source_ref="HEAD",
+            lock=False,
+        )
+
+        assert result1.success is True
+        assert result2.success is True
+        assert result1.worktree is not None
+        assert result2.worktree is not None
+
+        # Both should be detached
+        assert result1.worktree.branch == "(detached)"
+        assert result2.worktree.branch == "(detached)"
+
+        # Both should have same base commit
+        assert result1.worktree.commit == result2.worktree.commit
+
+        # But different paths
+        assert result1.worktree.path != result2.worktree.path
+
+
 # --- Remove Worktree Tests ---
 
 
@@ -670,3 +820,94 @@ isolation:
         assert job_config.isolation.enabled is True
         assert job_config.isolation.mode == IsolationMode.WORKTREE
         assert job_config.isolation.branch_prefix == "test"
+
+
+# --- CheckpointState Worktree Tracking Tests ---
+
+
+class TestCheckpointStateWorktreeFields:
+    """Tests for worktree tracking fields in CheckpointState."""
+
+    def test_checkpoint_state_default_worktree_fields(self) -> None:
+        """Test CheckpointState has worktree fields with correct defaults."""
+        from mozart.core.checkpoint import CheckpointState
+
+        state = CheckpointState(
+            job_id="test-123",
+            job_name="test-job",
+            total_sheets=5,
+        )
+
+        # All worktree fields should have None/False defaults
+        assert state.worktree_path is None
+        assert state.worktree_branch is None
+        assert state.worktree_locked is False
+        assert state.worktree_base_commit is None
+        assert state.isolation_mode is None
+        assert state.isolation_fallback_used is False
+
+    def test_checkpoint_state_worktree_fields_populated(self) -> None:
+        """Test CheckpointState worktree fields can be populated."""
+        from mozart.core.checkpoint import CheckpointState
+
+        state = CheckpointState(
+            job_id="isolated-123",
+            job_name="isolated-job",
+            total_sheets=5,
+            worktree_path="/tmp/worktree/isolated-123",
+            worktree_branch="(detached)",
+            worktree_locked=True,
+            worktree_base_commit="abc1234",
+            isolation_mode="worktree",
+            isolation_fallback_used=False,
+        )
+
+        assert state.worktree_path == "/tmp/worktree/isolated-123"
+        assert state.worktree_branch == "(detached)"
+        assert state.worktree_locked is True
+        assert state.worktree_base_commit == "abc1234"
+        assert state.isolation_mode == "worktree"
+        assert state.isolation_fallback_used is False
+
+    def test_checkpoint_state_fallback_tracking(self) -> None:
+        """Test tracking when isolation falls back to workspace."""
+        from mozart.core.checkpoint import CheckpointState
+
+        state = CheckpointState(
+            job_id="fallback-123",
+            job_name="fallback-job",
+            total_sheets=5,
+            # Worktree couldn't be created, fell back to workspace
+            worktree_path=None,
+            isolation_mode="worktree",  # Was configured for worktree
+            isolation_fallback_used=True,  # But fell back
+        )
+
+        assert state.worktree_path is None
+        assert state.isolation_mode == "worktree"
+        assert state.isolation_fallback_used is True
+
+    def test_checkpoint_state_serialization(self) -> None:
+        """Test CheckpointState with worktree fields can be serialized."""
+        from mozart.core.checkpoint import CheckpointState
+
+        state = CheckpointState(
+            job_id="serialize-123",
+            job_name="serialize-job",
+            total_sheets=5,
+            worktree_path="/tmp/worktree/serialize-123",
+            worktree_branch="(detached)",
+            worktree_locked=True,
+            worktree_base_commit="abc1234",
+            isolation_mode="worktree",
+        )
+
+        # Serialize to dict and back
+        state_dict = state.model_dump()
+        restored = CheckpointState.model_validate(state_dict)
+
+        assert restored.worktree_path == state.worktree_path
+        assert restored.worktree_branch == state.worktree_branch
+        assert restored.worktree_locked == state.worktree_locked
+        assert restored.worktree_base_commit == state.worktree_base_commit
+        assert restored.isolation_mode == state.isolation_mode
