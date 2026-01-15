@@ -7,6 +7,9 @@ from pydantic import ValidationError
 
 from mozart.core.config import (
     BackendConfig,
+    ConductorConfig,
+    ConductorPreferences,
+    ConductorRole,
     SheetConfig,
     JobConfig,
     PromptConfig,
@@ -129,9 +132,9 @@ class TestBackendConfig:
         assert config.disable_mcp is False
 
     def test_output_format_default(self):
-        """Test output_format defaults to json for automation."""
+        """Test output_format defaults to text for human-readable output."""
         config = BackendConfig()
-        assert config.output_format == "json"
+        assert config.output_format == "text"
 
     def test_output_format_json(self):
         """Test output_format can be json."""
@@ -209,7 +212,7 @@ class TestBackendConfig:
         assert config.skip_permissions is True
         # New fields should have sensible defaults
         assert config.disable_mcp is True
-        assert config.output_format == "json"
+        assert config.output_format == "text"
         assert config.cli_model is None
         assert config.allowed_tools is None
 
@@ -249,6 +252,158 @@ class TestBackendConfig:
         assert config.working_directory == Path("/project")
         assert config.timeout_seconds == 3600
         assert config.cli_extra_args == ["--verbose"]
+
+
+class TestConductorPreferences:
+    """Tests for ConductorPreferences model."""
+
+    def test_defaults(self):
+        """Test default values for conductor preferences."""
+        prefs = ConductorPreferences()
+        assert prefs.prefer_minimal_output is False
+        assert prefs.escalation_response_timeout_seconds == 300.0
+        assert prefs.auto_retry_on_transient_errors is True
+        assert prefs.notification_channels == []
+
+    def test_custom_values(self):
+        """Test custom conductor preferences."""
+        prefs = ConductorPreferences(
+            prefer_minimal_output=True,
+            escalation_response_timeout_seconds=60.0,
+            auto_retry_on_transient_errors=False,
+            notification_channels=["slack", "desktop"],
+        )
+        assert prefs.prefer_minimal_output is True
+        assert prefs.escalation_response_timeout_seconds == 60.0
+        assert prefs.auto_retry_on_transient_errors is False
+        assert prefs.notification_channels == ["slack", "desktop"]
+
+    def test_timeout_must_be_positive(self):
+        """Test that escalation timeout must be positive."""
+        with pytest.raises(ValidationError):
+            ConductorPreferences(escalation_response_timeout_seconds=0)
+        with pytest.raises(ValidationError):
+            ConductorPreferences(escalation_response_timeout_seconds=-10)
+
+
+class TestConductorConfig:
+    """Tests for ConductorConfig model (Vision.md Phase 2)."""
+
+    def test_defaults(self):
+        """Test default conductor configuration values."""
+        config = ConductorConfig()
+        assert config.name == "default"
+        assert config.role == ConductorRole.HUMAN
+        assert config.identity_context is None
+        assert config.preferences is not None
+        assert isinstance(config.preferences, ConductorPreferences)
+
+    def test_human_conductor(self):
+        """Test human conductor configuration."""
+        config = ConductorConfig(
+            name="Alice",
+            role=ConductorRole.HUMAN,
+            identity_context="Lead engineer on the project",
+        )
+        assert config.name == "Alice"
+        assert config.role == ConductorRole.HUMAN
+        assert config.identity_context == "Lead engineer on the project"
+
+    def test_ai_conductor(self):
+        """Test AI conductor configuration (Vision.md: AI people as peers)."""
+        config = ConductorConfig(
+            name="Claude Evolution Agent",
+            role=ConductorRole.AI,
+            identity_context="Self-improving orchestration agent created by RLF",
+            preferences=ConductorPreferences(
+                prefer_minimal_output=True,
+                auto_retry_on_transient_errors=True,
+            ),
+        )
+        assert config.name == "Claude Evolution Agent"
+        assert config.role == ConductorRole.AI
+        assert config.preferences.prefer_minimal_output is True
+
+    def test_hybrid_conductor(self):
+        """Test hybrid conductor configuration (human+AI collaboration)."""
+        config = ConductorConfig(
+            name="Team Alpha",
+            role=ConductorRole.HYBRID,
+            identity_context="Human-AI pair conducting evolution",
+        )
+        assert config.role == ConductorRole.HYBRID
+
+    def test_role_enum_values(self):
+        """Test all ConductorRole enum values are valid."""
+        assert ConductorRole.HUMAN.value == "human"
+        assert ConductorRole.AI.value == "ai"
+        assert ConductorRole.HYBRID.value == "hybrid"
+
+    def test_role_from_string(self):
+        """Test creating conductor with role as string (YAML loading)."""
+        config = ConductorConfig(name="Test", role="ai")
+        assert config.role == ConductorRole.AI
+
+    def test_invalid_role(self):
+        """Test that invalid role raises ValidationError."""
+        with pytest.raises(ValidationError):
+            ConductorConfig(role="invalid_role")
+
+    def test_name_validation_min_length(self):
+        """Test that name must have at least 1 character."""
+        with pytest.raises(ValidationError):
+            ConductorConfig(name="")
+
+    def test_name_validation_max_length(self):
+        """Test that name is limited to 100 characters."""
+        # 100 chars should work
+        config = ConductorConfig(name="a" * 100)
+        assert len(config.name) == 100
+        # 101 chars should fail
+        with pytest.raises(ValidationError):
+            ConductorConfig(name="a" * 101)
+
+    def test_identity_context_max_length(self):
+        """Test that identity_context is limited to 500 characters."""
+        # 500 chars should work
+        config = ConductorConfig(identity_context="a" * 500)
+        assert len(config.identity_context) == 500
+        # 501 chars should fail
+        with pytest.raises(ValidationError):
+            ConductorConfig(identity_context="a" * 501)
+
+    def test_nested_preferences(self):
+        """Test that nested preferences are properly parsed."""
+        config = ConductorConfig(
+            name="Test",
+            preferences={
+                "prefer_minimal_output": True,
+                "escalation_response_timeout_seconds": 120.0,
+            },
+        )
+        assert config.preferences.prefer_minimal_output is True
+        assert config.preferences.escalation_response_timeout_seconds == 120.0
+
+    def test_serialization_roundtrip(self):
+        """Test that conductor config serializes and deserializes correctly."""
+        original = ConductorConfig(
+            name="Claude Agent",
+            role=ConductorRole.AI,
+            identity_context="Test agent",
+            preferences=ConductorPreferences(
+                prefer_minimal_output=True,
+                notification_channels=["slack"],
+            ),
+        )
+        # Serialize to dict
+        data = original.model_dump()
+        # Deserialize back
+        restored = ConductorConfig.model_validate(data)
+        assert restored.name == original.name
+        assert restored.role == original.role
+        assert restored.identity_context == original.identity_context
+        assert restored.preferences.prefer_minimal_output == original.preferences.prefer_minimal_output
+        assert restored.preferences.notification_channels == original.preferences.notification_channels
 
 
 class TestPromptConfig:
@@ -295,3 +450,26 @@ class TestJobConfig:
         sample_config_dict["workspace"] = "/custom/path"
         config = JobConfig(**sample_config_dict)
         assert config.workspace == Path("/custom/path")
+
+    def test_conductor_default(self, sample_config_dict: dict):
+        """Test conductor has default configuration."""
+        config = JobConfig(**sample_config_dict)
+        assert config.conductor is not None
+        assert config.conductor.name == "default"
+        assert config.conductor.role == ConductorRole.HUMAN
+
+    def test_conductor_custom(self, sample_config_dict: dict):
+        """Test custom conductor configuration."""
+        sample_config_dict["conductor"] = {
+            "name": "Evolution Agent",
+            "role": "ai",
+            "identity_context": "Self-improving orchestration",
+            "preferences": {
+                "prefer_minimal_output": True,
+            },
+        }
+        config = JobConfig(**sample_config_dict)
+        assert config.conductor.name == "Evolution Agent"
+        assert config.conductor.role == ConductorRole.AI
+        assert config.conductor.identity_context == "Self-improving orchestration"
+        assert config.conductor.preferences.prefer_minimal_output is True

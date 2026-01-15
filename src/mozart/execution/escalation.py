@@ -6,11 +6,35 @@ when sheet confidence is too low to proceed automatically.
 Phase 2 of AGI Evolution: Confidence-Based Execution
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from mozart.core.checkpoint import SheetState
 from mozart.execution.validation import SheetValidationResult
+
+
+@dataclass
+class HistoricalSuggestion:
+    """A suggestion from historical escalation decisions.
+
+    Represents a past escalation decision that was similar to the current
+    situation, providing guidance based on what worked (or didn't) before.
+    """
+
+    action: str
+    """Action taken in the past (retry, skip, abort, modify_prompt)."""
+
+    outcome: str | None
+    """Outcome after the action (success, failed, skipped, aborted, unknown)."""
+
+    confidence: float
+    """Confidence level at which this past escalation occurred."""
+
+    validation_pass_rate: float
+    """Validation pass rate at which this past escalation occurred."""
+
+    guidance: str | None
+    """Any guidance or notes recorded with this past decision."""
 
 
 @dataclass
@@ -19,6 +43,9 @@ class EscalationContext:
 
     Contains all relevant information about the sheet execution state
     that led to escalation.
+
+    v15 Evolution: Added historical_suggestions field to surface similar
+    past escalation decisions that may inform the current decision.
     """
 
     job_id: str
@@ -44,6 +71,13 @@ class EscalationContext:
 
     output_summary: str
     """Summary of the sheet execution output."""
+
+    historical_suggestions: list[HistoricalSuggestion] = field(default_factory=list)
+    """Similar past escalation decisions that may inform this decision.
+
+    v15 Evolution: Populated from get_similar_escalation() results.
+    Ordered by relevance (successful outcomes first).
+    """
 
 
 @dataclass
@@ -211,6 +245,28 @@ class ConsoleEscalationHandler:
             if len(context.output_summary) > 200:
                 summary += "..."
             print(f"\nOutput summary: {summary}")
+
+        # v15 Evolution: Display historical suggestions
+        if context.historical_suggestions:
+            print("\n" + "-" * 60)
+            print("HISTORICAL SUGGESTIONS (similar past decisions):")
+            for i, suggestion in enumerate(context.historical_suggestions[:3], 1):
+                outcome_str = suggestion.outcome or "unknown"
+                if outcome_str == "success":
+                    outcome_icon = "✓"
+                elif outcome_str == "failed":
+                    outcome_icon = "✗"
+                else:
+                    outcome_icon = "?"
+                print(f"  {i}. {suggestion.action.upper()} → {outcome_icon} {outcome_str}")
+                conf_pct = f"{suggestion.confidence:.1%}"
+                rate_pct = f"{suggestion.validation_pass_rate:.0f}%"
+                print(f"     (conf={conf_pct}, pass_rate={rate_pct})")
+                if suggestion.guidance:
+                    guidance_short = suggestion.guidance[:80]
+                    if len(suggestion.guidance) > 80:
+                        guidance_short += "..."
+                    print(f"     Notes: {guidance_short}")
 
         print(separator)
 

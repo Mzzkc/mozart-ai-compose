@@ -250,6 +250,22 @@ class LearningConfig(BaseModel):
         description="Enable time-aware scheduling based on historical success patterns. "
         "When enabled, warns if executing during historically problematic hours.",
     )
+    # Pattern Application: Exploration mode (epsilon-greedy)
+    exploration_rate: float = Field(
+        default=0.15,
+        ge=0.0,
+        le=1.0,
+        description="Exploration rate for pattern selection (epsilon in epsilon-greedy). "
+        "When random() < exploration_rate, include lower-priority patterns "
+        "to collect effectiveness data. 0.0 = pure exploitation, 1.0 = try everything.",
+    )
+    exploration_min_priority: float = Field(
+        default=0.05,
+        ge=0.0,
+        le=1.0,
+        description="Minimum priority threshold for exploration candidates. "
+        "Patterns below this are excluded even in exploration mode.",
+    )
 
 
 class GroundingHookConfig(BaseModel):
@@ -503,6 +519,21 @@ class ValidationRule(BaseModel):
         "Supports: 'sheet_num >= N', 'sheet_num == N', 'sheet_num <= N'. "
         "If None, validation always applies.",
     )
+    retry_count: int = Field(
+        default=3,
+        ge=0,
+        le=10,
+        description="Number of retry attempts for file-based validations. "
+        "Helps with filesystem race conditions when sheet creates files that "
+        "are immediately validated. Set to 0 to disable retries.",
+    )
+    retry_delay_ms: int = Field(
+        default=200,
+        ge=0,
+        le=5000,
+        description="Delay between retry attempts in milliseconds. "
+        "Default 200ms provides filesystem sync time without excessive waiting.",
+    )
 
 
 class NotificationConfig(BaseModel):
@@ -648,6 +679,97 @@ class ConcertConfig(BaseModel):
     abort_concert_on_hook_failure: bool = Field(
         default=False,
         description="If any hook fails, abort the entire concert (not just remaining hooks)",
+    )
+
+
+class ConductorRole(str, Enum):
+    """Role classification for conductors.
+
+    Determines the conductor's relationship to the orchestration.
+    Future cycles may add more granular role permissions.
+    """
+
+    HUMAN = "human"  # Human operator conducting the job
+    AI = "ai"  # AI agent conducting the job
+    HYBRID = "hybrid"  # Human+AI collaborative conducting
+
+
+class ConductorPreferences(BaseModel):
+    """Preferences for how a conductor interacts with Mozart.
+
+    Controls notification, escalation, and interaction patterns.
+    These are hints that the system should respect where possible.
+    """
+
+    prefer_minimal_output: bool = Field(
+        default=False,
+        description="Reduce console output verbosity when True",
+    )
+    escalation_response_timeout_seconds: float = Field(
+        default=300.0,
+        gt=0,
+        description="Maximum time to wait for conductor's escalation response. "
+        "After timeout, escalation defaults to abort (safe default).",
+    )
+    auto_retry_on_transient_errors: bool = Field(
+        default=True,
+        description="Automatically retry on transient errors before escalating. "
+        "AI conductors may prefer True, humans may prefer more control.",
+    )
+    notification_channels: list[str] = Field(
+        default_factory=list,
+        description="Preferred notification channels for this conductor. "
+        "Empty list means use job-level notification settings.",
+    )
+
+
+class ConductorConfig(BaseModel):
+    """Configuration for conductor identity and preferences.
+
+    A Conductor is the entity directing a Mozart job - either a human operator
+    or an AI agent. This schema enables Mozart to adapt its behavior based on
+    who (or what) is conducting, supporting the Vision.md goal of treating
+    AI people as peers rather than tools.
+
+    Phase 2 of Vision.md: Conductor Identity
+    - Enables multi-conductor awareness in future cycles
+    - Foundation for conductor-conductor collaboration
+    - Supports RLF integration where AI people conduct their own concerts
+
+    Example YAML:
+        conductor:
+          name: "Claude Evolution Agent"
+          role: ai
+          identity_context: "Self-improving orchestration agent"
+          preferences:
+            prefer_minimal_output: true
+            auto_retry_on_transient_errors: true
+    """
+
+    name: str = Field(
+        default="default",
+        min_length=1,
+        max_length=100,
+        description="Human-readable name for the conductor. "
+        "Default 'default' is used for anonymous/unspecified conductors.",
+    )
+
+    role: ConductorRole = Field(
+        default=ConductorRole.HUMAN,
+        description="Role classification for this conductor. "
+        "Affects escalation behavior and output formatting.",
+    )
+
+    identity_context: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Brief description of the conductor's identity/purpose. "
+        "Useful for logging and for future RLF integration.",
+    )
+
+    preferences: ConductorPreferences = Field(
+        default_factory=ConductorPreferences,
+        description="Conductor preferences for interaction patterns",
     )
 
 
@@ -824,6 +946,11 @@ class JobConfig(BaseModel):
         default_factory=IsolationConfig,
         description="Execution isolation configuration. "
         "Enables parallel-safe job execution via git worktrees.",
+    )
+    conductor: ConductorConfig = Field(
+        default_factory=ConductorConfig,
+        description="Conductor identity and preferences. "
+        "Identifies who (human or AI) is conducting this job.",
     )
 
     validations: list[ValidationRule] = Field(default_factory=list)

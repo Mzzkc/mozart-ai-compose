@@ -1,7 +1,7 @@
 # Mozart AI Compose - Status
 
-**Overall:** Evolution Cycle v14 Complete - v15 Ready
-**Tests:** 1290 passing (1274 baseline + 16 new)
+**Overall:** Evolution Cycle v15 In Progress - Sheet 7 Complete
+**Tests:** 1322+ passing (1290 baseline + 32 new)
 **Vision:** Mozart + Recursive Light = Federated AGI Architecture
 **GitHub:** https://github.com/Mzzkc/mozart-ai-compose
 **Evolved Score:** mozart-opus-evolution-v15.yaml
@@ -60,25 +60,42 @@
 
 ---
 
-## Dashboard Production Concert (2026-01-15)
+## Dashboard Production Concert (2026-01-16)
 
 ### Phase 1: Architecture - COMPLETE
 
 | Sheet | Deliverable | Status |
 |-------|------------|--------|
-| 1 | Current State Audit | Complete |
-| 2 | Production Research | Complete |
-| 3 | Architecture Specification | Complete |
-| 4 | Concert Generation | Complete |
+| 1 | Current State Audit | COMPLETE (359 LOC existing, 6 P0 gaps) |
+| 2 | Production Research | COMPLETE (HTMX+Alpine recommended) |
+| 3 | Architecture Specification | COMPLETE (~8,500 impl LOC planned) |
+| 4 | Concert Generation | COMPLETE (36-sheet concert YAML) |
+
+### Architecture Decisions (Phase 1 Output)
+
+| Component | Decision | Rationale |
+|-----------|----------|-----------|
+| Frontend | HTMX + Alpine.js | Python-native, ~30KB bundle |
+| Real-time | Server-Sent Events | Simple, works with HTMX |
+| Editor | CodeMirror 6 | Industry standard, ~124KB |
+| MCP | 11 tools, 6 resources | Claude Desktop integration |
 
 ### Phases 2-5: Ready for Execution
 
-| Phase | Jobs | Sheets | Focus |
-|-------|------|--------|-------|
-| Phase 2 | 2-3 | 1-11 | Core Dashboard (Backend + Frontend) |
-| Phase 3 | 4-5 | 12-22 | Job Control + MCP Server |
-| Phase 4 | 6-7 | 23-32 | Score Designer + AI Generation |
-| Phase 5 | 8 | 33-36 | Auth, Rate Limiting, Production |
+| Phase | Jobs | Sheets | Focus | Est. LOC |
+|-------|------|--------|-------|----------|
+| Phase 2 | 2-3 | 1-11 | Core Dashboard (Backend + Frontend) | ~2,100 |
+| Phase 3 | 4-5 | 12-22 | Job Control + MCP Server | ~2,200 |
+| Phase 4 | 6-7 | 23-32 | Score Designer + AI Generation | ~2,000 |
+| Phase 5 | 8 | 33-36 | Auth, Rate Limiting, Production | ~2,200 |
+
+### Run Dashboard Production Concert
+
+```bash
+cd ~/Projects/mozart-ai-compose
+source .venv/bin/activate
+mozart run dashboard-production-workspace/dashboard-production-concert.yaml
+```
 
 ---
 

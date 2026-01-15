@@ -35,7 +35,12 @@ from mozart.core.errors import (
 )
 from mozart.core.logging import ExecutionContext, MozartLogger, get_logger
 from mozart.execution.circuit_breaker import CircuitBreaker
-from mozart.execution.escalation import EscalationContext, EscalationHandler, EscalationResponse
+from mozart.execution.escalation import (
+    EscalationContext,
+    EscalationHandler,
+    EscalationResponse,
+    HistoricalSuggestion,
+)
 from mozart.execution.hooks import HookExecutor, HookResult
 from mozart.execution.preflight import PreflightChecker, PreflightResult
 from mozart.execution.retry_strategy import (
@@ -3586,7 +3591,39 @@ class JobRunner:
         if sheet_state is None:
             raise FatalError(f"Sheet {sheet_num}: No sheet state found for escalation")
 
-        # Build escalation context
+        # v15 Evolution: Lookup similar past escalations BEFORE building context
+        # This allows the suggestions to be passed to the escalation handler
+        historical_suggestions: list[HistoricalSuggestion] = []
+        if self._global_learning_store is not None:
+            try:
+                similar = self._global_learning_store.get_similar_escalation(
+                    confidence=validation_result.aggregate_confidence,
+                    validation_pass_rate=validation_result.pass_percentage,
+                    limit=3,
+                )
+                if similar:
+                    self.console.print(
+                        f"[dim]Found {len(similar)} similar past escalation(s)[/dim]"
+                    )
+                    # Convert to HistoricalSuggestion for injection into context
+                    historical_suggestions = [
+                        HistoricalSuggestion(
+                            action=past.action,
+                            outcome=past.outcome_after_action,
+                            confidence=past.confidence,
+                            validation_pass_rate=past.validation_pass_rate,
+                            guidance=past.guidance,
+                        )
+                        for past in similar
+                    ]
+            except Exception as e:
+                self._logger.debug(
+                    "escalation.similar_lookup_failed",
+                    sheet_num=sheet_num,
+                    error=str(e),
+                )
+
+        # Build escalation context with historical suggestions injected
         context = EscalationContext(
             job_id=state.job_id,
             sheet_num=sheet_num,
@@ -3596,37 +3633,13 @@ class JobRunner:
             error_history=error_history,
             prompt_used=current_prompt,
             output_summary=sheet_state.error_message or "",
+            historical_suggestions=historical_suggestions,  # v15: injected
         )
 
         self.console.print(
             f"[yellow]Sheet {sheet_num}: Escalating due to low confidence "
             f"({context.confidence:.1%})[/yellow]"
         )
-
-        # v11 Evolution: Check for similar past escalations for guidance
-        if self._global_learning_store is not None:
-            try:
-                similar = self._global_learning_store.get_similar_escalation(
-                    confidence=context.confidence,
-                    validation_pass_rate=validation_result.pass_percentage,
-                    limit=3,
-                )
-                if similar:
-                    self.console.print(
-                        f"[dim]Found {len(similar)} similar past escalation(s):[/dim]"
-                    )
-                    for past in similar[:2]:
-                        outcome = past.outcome_after_action or "unknown"
-                        self.console.print(
-                            f"[dim]  • {past.action} → {outcome} "
-                            f"(conf={past.confidence:.1%})[/dim]"
-                        )
-            except Exception as e:
-                self._logger.debug(
-                    "escalation.similar_lookup_failed",
-                    sheet_num=sheet_num,
-                    error=str(e),
-                )
 
         # Get response from escalation handler
         response = await self.escalation_handler.escalate(context)

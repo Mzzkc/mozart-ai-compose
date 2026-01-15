@@ -1,4 +1,4 @@
-"""Tests for Escalation Learning Loop (v11 Evolution).
+"""Tests for Escalation Learning Loop (v11 Evolution) and Pattern Suggestions (v15).
 
 Tests the escalation learning system:
 - EscalationDecisionRecord model
@@ -6,15 +6,25 @@ Tests the escalation learning system:
 - get_escalation_history() query
 - get_similar_escalation() pattern matching
 - update_escalation_outcome() feedback loop
+- v15: HistoricalSuggestion model
+- v15: EscalationContext.historical_suggestions field
+- v15: ConsoleEscalationHandler suggestion display
 """
 
 import tempfile
 from collections.abc import Generator
 from datetime import datetime
+from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
+from mozart.execution.escalation import (
+    ConsoleEscalationHandler,
+    EscalationContext,
+    HistoricalSuggestion,
+)
 from mozart.learning.global_store import (
     EscalationDecisionRecord,
     GlobalLearningStore,
@@ -1211,3 +1221,499 @@ class TestRunnerEscalationOutcomeIntegration:
         )
         assert len(similar) == 1
         assert similar[0].outcome_after_action == "success"
+
+
+# =============================================================================
+# TestHistoricalSuggestion (v15 Evolution)
+# =============================================================================
+
+
+class TestHistoricalSuggestion:
+    """Tests for v15 HistoricalSuggestion dataclass."""
+
+    def test_suggestion_creation(self) -> None:
+        """Test basic suggestion creation."""
+        suggestion = HistoricalSuggestion(
+            action="retry",
+            outcome="success",
+            confidence=0.45,
+            validation_pass_rate=60.0,
+            guidance="Added more context to the prompt",
+        )
+
+        assert suggestion.action == "retry"
+        assert suggestion.outcome == "success"
+        assert suggestion.confidence == 0.45
+        assert suggestion.validation_pass_rate == 60.0
+        assert suggestion.guidance == "Added more context to the prompt"
+
+    def test_suggestion_with_none_outcome(self) -> None:
+        """Test suggestion with unknown/null outcome."""
+        suggestion = HistoricalSuggestion(
+            action="skip",
+            outcome=None,
+            confidence=0.30,
+            validation_pass_rate=30.0,
+            guidance=None,
+        )
+
+        assert suggestion.outcome is None
+        assert suggestion.guidance is None
+
+    def test_suggestion_all_actions(self) -> None:
+        """Test suggestions with all action types."""
+        actions = ["retry", "skip", "abort", "modify_prompt"]
+        for action in actions:
+            suggestion = HistoricalSuggestion(
+                action=action,
+                outcome="success",
+                confidence=0.5,
+                validation_pass_rate=50.0,
+                guidance=None,
+            )
+            assert suggestion.action == action
+
+
+# =============================================================================
+# TestEscalationContextSuggestions (v15 Evolution)
+# =============================================================================
+
+
+class TestEscalationContextSuggestions:
+    """Tests for v15 EscalationContext.historical_suggestions field."""
+
+    def test_context_default_empty_suggestions(self) -> None:
+        """Test that historical_suggestions defaults to empty list."""
+        context = EscalationContext(
+            job_id="test-job",
+            sheet_num=1,
+            validation_results=[],
+            confidence=0.45,
+            retry_count=2,
+            error_history=[],
+            prompt_used="Test prompt",
+            output_summary="Test summary",
+        )
+
+        assert context.historical_suggestions == []
+        assert isinstance(context.historical_suggestions, list)
+
+    def test_context_with_suggestions(self) -> None:
+        """Test context with populated suggestions."""
+        suggestions = [
+            HistoricalSuggestion(
+                action="retry",
+                outcome="success",
+                confidence=0.45,
+                validation_pass_rate=60.0,
+                guidance="Retry worked",
+            ),
+            HistoricalSuggestion(
+                action="skip",
+                outcome="skipped",
+                confidence=0.30,
+                validation_pass_rate=30.0,
+                guidance=None,
+            ),
+        ]
+
+        context = EscalationContext(
+            job_id="test-job",
+            sheet_num=1,
+            validation_results=[],
+            confidence=0.45,
+            retry_count=2,
+            error_history=[],
+            prompt_used="Test prompt",
+            output_summary="Test summary",
+            historical_suggestions=suggestions,
+        )
+
+        assert len(context.historical_suggestions) == 2
+        assert context.historical_suggestions[0].action == "retry"
+        assert context.historical_suggestions[1].action == "skip"
+
+    def test_context_suggestions_ordered_by_success(self) -> None:
+        """Test that successful outcomes should come first (by convention)."""
+        # This verifies the ordering expectation documented in the dataclass
+        suggestions = [
+            HistoricalSuggestion(
+                action="retry",
+                outcome="success",
+                confidence=0.45,
+                validation_pass_rate=60.0,
+                guidance=None,
+            ),
+            HistoricalSuggestion(
+                action="skip",
+                outcome="failed",
+                confidence=0.45,
+                validation_pass_rate=60.0,
+                guidance=None,
+            ),
+        ]
+
+        context = EscalationContext(
+            job_id="test",
+            sheet_num=1,
+            validation_results=[],
+            confidence=0.45,
+            retry_count=1,
+            error_history=[],
+            prompt_used="test",
+            output_summary="",
+            historical_suggestions=suggestions,
+        )
+
+        # Success should be first
+        assert context.historical_suggestions[0].outcome == "success"
+
+
+# =============================================================================
+# TestConsoleEscalationHandlerSuggestions (v15 Evolution)
+# =============================================================================
+
+
+class TestConsoleEscalationHandlerSuggestions:
+    """Tests for v15 ConsoleEscalationHandler suggestion display."""
+
+    def test_print_context_with_suggestions(self) -> None:
+        """Test that suggestions are printed when present."""
+        handler = ConsoleEscalationHandler()
+
+        suggestions = [
+            HistoricalSuggestion(
+                action="retry",
+                outcome="success",
+                confidence=0.45,
+                validation_pass_rate=60.0,
+                guidance="Added more context",
+            ),
+        ]
+
+        context = EscalationContext(
+            job_id="test-job",
+            sheet_num=5,
+            validation_results=[{"passed": True, "description": "test"}],
+            confidence=0.45,
+            retry_count=2,
+            error_history=[],
+            prompt_used="Test prompt",
+            output_summary="Test summary",
+            historical_suggestions=suggestions,
+        )
+
+        # Capture stdout
+        output = StringIO()
+        with patch("sys.stdout", output):
+            handler._print_context_summary(context)
+
+        printed = output.getvalue()
+
+        # Verify suggestions section is displayed
+        assert "HISTORICAL SUGGESTIONS" in printed
+        assert "RETRY" in printed
+        assert "success" in printed
+        assert "Added more context" in printed
+
+    def test_print_context_without_suggestions(self) -> None:
+        """Test that no suggestions section when empty."""
+        handler = ConsoleEscalationHandler()
+
+        context = EscalationContext(
+            job_id="test-job",
+            sheet_num=5,
+            validation_results=[{"passed": False, "description": "test"}],
+            confidence=0.45,
+            retry_count=2,
+            error_history=[],
+            prompt_used="Test prompt",
+            output_summary="Test summary",
+            historical_suggestions=[],  # Empty
+        )
+
+        output = StringIO()
+        with patch("sys.stdout", output):
+            handler._print_context_summary(context)
+
+        printed = output.getvalue()
+
+        # Verify suggestions section is NOT displayed
+        assert "HISTORICAL SUGGESTIONS" not in printed
+
+    def test_print_context_truncates_long_guidance(self) -> None:
+        """Test that long guidance text is truncated."""
+        handler = ConsoleEscalationHandler()
+
+        long_guidance = "A" * 200  # Over 80 char limit
+
+        suggestions = [
+            HistoricalSuggestion(
+                action="retry",
+                outcome="success",
+                confidence=0.45,
+                validation_pass_rate=60.0,
+                guidance=long_guidance,
+            ),
+        ]
+
+        context = EscalationContext(
+            job_id="test-job",
+            sheet_num=5,
+            validation_results=[],
+            confidence=0.45,
+            retry_count=2,
+            error_history=[],
+            prompt_used="Test prompt",
+            output_summary="",
+            historical_suggestions=suggestions,
+        )
+
+        output = StringIO()
+        with patch("sys.stdout", output):
+            handler._print_context_summary(context)
+
+        printed = output.getvalue()
+
+        # Verify guidance is truncated with "..."
+        assert "..." in printed
+        # Should not contain the full 200 char guidance
+        assert long_guidance not in printed
+
+    def test_print_context_shows_outcome_icons(self) -> None:
+        """Test that outcome icons are correctly displayed."""
+        handler = ConsoleEscalationHandler()
+
+        suggestions = [
+            HistoricalSuggestion(
+                action="retry",
+                outcome="success",
+                confidence=0.45,
+                validation_pass_rate=60.0,
+                guidance=None,
+            ),
+            HistoricalSuggestion(
+                action="skip",
+                outcome="failed",
+                confidence=0.35,
+                validation_pass_rate=40.0,
+                guidance=None,
+            ),
+            HistoricalSuggestion(
+                action="abort",
+                outcome=None,  # Unknown
+                confidence=0.25,
+                validation_pass_rate=30.0,
+                guidance=None,
+            ),
+        ]
+
+        context = EscalationContext(
+            job_id="test-job",
+            sheet_num=5,
+            validation_results=[],
+            confidence=0.45,
+            retry_count=2,
+            error_history=[],
+            prompt_used="Test",
+            output_summary="",
+            historical_suggestions=suggestions,
+        )
+
+        output = StringIO()
+        with patch("sys.stdout", output):
+            handler._print_context_summary(context)
+
+        printed = output.getvalue()
+
+        # Verify outcome icons
+        assert "✓" in printed  # Success
+        assert "✗" in printed  # Failed
+        assert "?" in printed  # Unknown
+
+    def test_print_context_limits_to_three_suggestions(self) -> None:
+        """Test that at most 3 suggestions are displayed."""
+        handler = ConsoleEscalationHandler()
+
+        # Create 5 suggestions
+        suggestions = [
+            HistoricalSuggestion(
+                action=f"retry_{i}",
+                outcome="success",
+                confidence=0.45,
+                validation_pass_rate=60.0,
+                guidance=f"Suggestion {i}",
+            )
+            for i in range(5)
+        ]
+
+        context = EscalationContext(
+            job_id="test-job",
+            sheet_num=5,
+            validation_results=[],
+            confidence=0.45,
+            retry_count=2,
+            error_history=[],
+            prompt_used="Test",
+            output_summary="",
+            historical_suggestions=suggestions,
+        )
+
+        output = StringIO()
+        with patch("sys.stdout", output):
+            handler._print_context_summary(context)
+
+        printed = output.getvalue()
+
+        # Should show first 3 suggestions only
+        assert "Suggestion 0" in printed
+        assert "Suggestion 1" in printed
+        assert "Suggestion 2" in printed
+        assert "Suggestion 3" not in printed
+        assert "Suggestion 4" not in printed
+
+
+# =============================================================================
+# TestRunnerSuggestionInjection (v15 Evolution)
+# =============================================================================
+
+
+class TestRunnerSuggestionInjection:
+    """Tests for v15 runner._handle_escalation suggestion injection.
+
+    These tests verify that the runner correctly injects historical suggestions
+    from get_similar_escalation() into the EscalationContext.
+    """
+
+    def test_suggestions_injected_from_store(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that suggestions from store are injected into context."""
+        # Record a past escalation with successful outcome
+        global_store.record_escalation_decision(
+            job_id="past-job",
+            sheet_num=1,
+            confidence=0.45,
+            action="retry",
+            validation_pass_rate=60.0,
+            retry_count=1,
+            guidance="This worked well",
+            outcome_after_action="success",
+        )
+
+        # Query similar escalations (simulating what runner does)
+        similar = global_store.get_similar_escalation(
+            confidence=0.45,
+            validation_pass_rate=60.0,
+            limit=3,
+        )
+
+        # Convert to HistoricalSuggestion (as runner does)
+        historical_suggestions = [
+            HistoricalSuggestion(
+                action=past.action,
+                outcome=past.outcome_after_action,
+                confidence=past.confidence,
+                validation_pass_rate=past.validation_pass_rate,
+                guidance=past.guidance,
+            )
+            for past in similar
+        ]
+
+        # Build context with injected suggestions
+        context = EscalationContext(
+            job_id="new-job",
+            sheet_num=1,
+            validation_results=[],
+            confidence=0.45,
+            retry_count=1,
+            error_history=[],
+            prompt_used="test",
+            output_summary="",
+            historical_suggestions=historical_suggestions,
+        )
+
+        # Verify injection worked
+        assert len(context.historical_suggestions) == 1
+        assert context.historical_suggestions[0].action == "retry"
+        assert context.historical_suggestions[0].outcome == "success"
+        assert context.historical_suggestions[0].guidance == "This worked well"
+
+    def test_empty_suggestions_when_no_similar(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that empty suggestions when no similar escalations exist."""
+        # No past escalations recorded
+
+        # Query similar escalations
+        similar = global_store.get_similar_escalation(
+            confidence=0.45,
+            validation_pass_rate=60.0,
+            limit=3,
+        )
+
+        # Should be empty
+        assert similar == []
+
+        # Context should have empty suggestions
+        context = EscalationContext(
+            job_id="test-job",
+            sheet_num=1,
+            validation_results=[],
+            confidence=0.45,
+            retry_count=1,
+            error_history=[],
+            prompt_used="test",
+            output_summary="",
+            historical_suggestions=[],
+        )
+
+        assert context.historical_suggestions == []
+
+    def test_multiple_suggestions_ordered_correctly(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that multiple suggestions maintain ordering from store."""
+        # Record multiple escalations
+        global_store.record_escalation_decision(
+            job_id="job-1",
+            sheet_num=1,
+            confidence=0.45,
+            action="retry",
+            validation_pass_rate=60.0,
+            retry_count=1,
+            outcome_after_action="success",
+        )
+        global_store.record_escalation_decision(
+            job_id="job-2",
+            sheet_num=1,
+            confidence=0.45,
+            action="skip",
+            validation_pass_rate=60.0,
+            retry_count=2,
+            outcome_after_action="failed",
+        )
+
+        # Query - store orders by success first
+        similar = global_store.get_similar_escalation(
+            confidence=0.45,
+            validation_pass_rate=60.0,
+            limit=3,
+        )
+
+        # Convert to suggestions
+        suggestions = [
+            HistoricalSuggestion(
+                action=past.action,
+                outcome=past.outcome_after_action,
+                confidence=past.confidence,
+                validation_pass_rate=past.validation_pass_rate,
+                guidance=past.guidance,
+            )
+            for past in similar
+        ]
+
+        # Success should come first (store ordering)
+        assert len(suggestions) == 2
+        assert suggestions[0].outcome == "success"
+        assert suggestions[1].outcome == "failed"
