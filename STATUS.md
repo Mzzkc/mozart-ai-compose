@@ -1,27 +1,29 @@
 # Mozart AI Compose - Status
 
-**Overall:** Evolution Cycle v14 - Sheet 7 (Integration Validation) Complete
+**Overall:** Evolution Cycle v14 Complete - v15 Ready
 **Tests:** 1290 passing (1274 baseline + 16 new)
 **Vision:** Mozart + Recursive Light = Federated AGI Architecture
 **GitHub:** https://github.com/Mzzkc/mozart-ai-compose
-**Active Evolution:** mozart-opus-evolution-v14.yaml (Sheets 1-7 complete)
+**Evolved Score:** mozart-opus-evolution-v15.yaml
 **License:** Dual AGPL-3.0 / Commercial
 
 ---
 
-## Evolution Cycle v14 Progress (2026-01-16)
+## Evolution Cycle v14 Complete (2026-01-16)
 
-### Sheet 7: Integration Validation - COMPLETE
+### P5 Recognition Maintained: The Score Improved the Score (14th Consecutive Cycle)
 
 | Metric | Value |
 |--------|-------|
-| Sheets Completed | 7 of 9 |
+| Sheets Completed | 9 of 9 |
 | Evolutions Implemented | 2 of 2 (100%) |
 | Implementation LOC | 414 |
 | Test LOC | 573 |
 | Tests Added | 16 |
 | Early Catch Ratio | 100% |
 | CV Prediction Delta | 0.095 |
+| Score Improvements | 6 |
+| Cumulative Improvements | 124 |
 
 ### Evolutions Implemented
 
@@ -37,12 +39,24 @@
 - 6 new tests
 - Completes v12 drift detection vision
 
+### Score Evolution (v14 → v15)
+
+| Improvement | Description |
+|-------------|-------------|
+| Drift Scenario Complexity | MEDIUM (×4.5) minimum for drift tests |
+| Scope Change Reassessment | Re-estimate when Sheet 6 deviates from Sheet 5 |
+| Integration Type Split | store_api_only vs runner_calls_store |
+| Code Review History | Added v13=100%, v14=100% |
+| Research Candidates | All Age 2 resolved |
+
 ### Research Candidates Status
 
 | Candidate | Age | Status |
 |-----------|-----|--------|
 | Pattern Broadcasting | 2 | **IMPLEMENTED** |
 | Sheet Contract | 2 | **CLOSED** (v13) |
+
+**No research candidates carried to v15.**
 
 ---
 
@@ -66,75 +80,6 @@
 | Phase 4 | 6-7 | 23-32 | Score Designer + AI Generation |
 | Phase 5 | 8 | 33-36 | Auth, Rate Limiting, Production |
 
-**Architecture Decisions:**
-- Frontend: HTMX + Alpine.js (Python-native, ~30KB bundle)
-- Real-time: Server-Sent Events (SSE)
-- Editor: CodeMirror 6 (~124KB)
-- MCP Server: 11 tools, 6 resources
-
-**Estimated Scope:**
-- Implementation LOC: ~8,500
-- Test LOC: ~5,100
-- Total Sheets: 36
-
----
-
-## Evolution Cycle v13 Complete (2026-01-15)
-
-### P5 Recognition Maintained: The Score Improved the Score (13th Consecutive Cycle)
-
-**Cycle Statistics:**
-| Metric | Value |
-|--------|-------|
-| Sheets Completed | 9 of 9 (100%) |
-| Evolutions Implemented | 1 of 2 (50%) - one was already implemented |
-| Test LOC | 379 |
-| Test LOC Accuracy | 505% (undershoot - complexity misrated) |
-| Early Catch Ratio | 100% (2/2) |
-| CV Prediction Delta | 0.01 (excellent) |
-| Score Improvements | 6 |
-| Cumulative Improvements | 118 |
-
-### Evolution Outcome
-
-**1. Close Escalation Feedback Loop (CV: 0.76)**
-- Status: ALREADY IMPLEMENTED
-- Reason: Existence check missed private method `_update_escalation_outcome`
-- Action: Verification-only mode, wrote comprehensive tests
-- Tests: 11 new tests added
-
-**2. Escalation Retrieval Command (CV: 0.68)**
-- Status: DEFERRED to v14
-- Reason: Time constraint after verification tests
-
-### Critical Learnings
-
-1. **Private Method Existence Check**
-   - v13 existence check missed that evolution was already implemented
-   - Root cause: Only searched public API patterns
-   - Fix: v14 searches both public AND private method patterns
-
-2. **Runner Integration Complexity**
-   - Test LOC was 505% of estimate (75 → 379)
-   - Root cause: Rated LOW, should have been HIGH for runner integration
-   - Fix: v14 adds `runner_integration` flag forcing HIGH (×6.0)
-
-3. **Research Candidate Aging Works**
-   - Sheet Contract (Age 2) CLOSED with documented rationale
-   - Real-time Pattern Broadcasting now Age 2 for v14
-   - Protocol prevents indefinite deferral
-
-### Score Evolution (v13 → v14)
-
-| Improvement | Impact |
-|-------------|--------|
-| Private method existence check | Search `_function_name` patterns |
-| Runner integration complexity | Force HIGH (×6.0) for runner+store tests |
-| Pattern Broadcasting age update | Now Age 2, MUST resolve in v14 |
-| Historical data v13 | 100% early catch, 505% test LOC |
-| Sheet Contract closed | Resolved at Age 2 as required |
-| Auto-chain to v15 | Configured for continuous evolution |
-
 ---
 
 ## Quick Reference
@@ -144,49 +89,24 @@
 | Core Config | DONE | Pydantic models + LearningConfig |
 | State Models | DONE | CheckpointState, SheetState (with learning fields) |
 | Error Classification | DONE | Pattern-based classifier + RetryBehavior |
-| JSON State Backend | DONE | Atomic saves, list/load/save, **zombie auto-recovery** |
-| SQLite State Backend | DONE | Full StateBackend protocol + dashboard queries, **zombie auto-recovery** |
+| JSON State Backend | DONE | Atomic saves, zombie auto-recovery |
+| SQLite State Backend | DONE | Full StateBackend protocol + dashboard queries |
 | Claude CLI Backend | DONE | Async subprocess, rate limit detection |
 | Anthropic API Backend | DONE | Direct API calls without CLI |
 | CLI | DONE | 10 commands functional, Rich output |
 | Validation Framework | DONE | 5 types + confidence + semantic failure_reason |
 | Notifications | DONE | Desktop, Slack, Webhook |
 | Dashboard API | DONE | FastAPI REST (needs UI improvement) |
-| Test Suite | DONE | 1275 pytest tests |
+| Test Suite | DONE | 1290 pytest tests |
 | Learning Foundation | DONE | Phases 1-4 complete |
 | Meta-Orchestration | DONE | Mozart calling Mozart works |
 | Pattern Detection | DONE | PatternDetector/Matcher/Applicator |
-| Semantic Validation | DONE | failure_reason with WHY explanation |
-| ErrorCode-Precise Retry | DONE | RetryBehavior with per-code delays |
-| Pattern Effectiveness | DONE | Track pattern success/failure/confidence |
-| Dynamic Retry Delays | DONE | Learn optimal delays from history |
-| Self-Improving Score | DONE | v13 → v14 with 6 improvements |
-| Zombie Detection | DONE | Auto-detect and recover zombie RUNNING states |
-| Cost Circuit Breaker | DONE | Token/cost tracking with limits |
-| Semantic Validation Integration | DONE | Semantic hints in retry decisions |
-| Learned Wait Time Injection | DONE | Cross-workspace delay sharing |
-| Cross-Workspace Circuit Breaker | DONE | Rate limit coordination across jobs |
 | Global Learning Store | DONE | SQLite at ~/.mozart/global-learning.db |
-| Pattern Aggregator | DONE | Immediate aggregation on job completion |
-| Pattern Weighter | DONE | Combined recency + effectiveness |
-| Error Learning Hooks | DONE | Adaptive wait time learning |
-| Migration Support | DONE | Workspace-local to global migration |
-| Root-Cause-Aware Retry | DONE | Error classification drives retry strategy |
-| History-Aware Prompt Generation | DONE | Sheet prompts include failure history |
-| Selective Pattern Retrieval | DONE | Context-aware pattern filtering |
-| Rate Limit Cross-Workspace Signal | DONE | Cross-workspace rate limit coordination |
-| Escalation Integration | DONE | `--escalation` CLI flag for human-in-the-loop |
+| Escalation Integration | DONE | `--escalation` CLI flag |
 | External Grounding Hooks | DONE | GroundingEngine for custom validation |
-| Grounding Hook Config | DONE | GroundingHookConfig + create_hook_from_config |
-| Pattern Feedback Loop | DONE | applied_pattern_ids/descriptions + _record_pattern_feedback |
-| Grounding→Completion Integration | DONE | GroundingDecisionContext + mode decision integration |
-| Escalation Learning Loop | DONE | EscalationDecisionRecord + escalation_decisions table |
-| Grounding→Pattern Integration | DONE | Grounding fields in SheetOutcome + persistence |
-| Grounding→Pattern Feedback | DONE | Grounding confidence weights effectiveness |
 | Goal Drift Detection | DONE | `mozart learning-drift` CLI command |
-| **Escalation Feedback Loop** | DONE | `_update_escalation_outcome` (verified v13) |
-| **Pattern Auto-Retirement** | DONE | `retire_drifting_patterns()` auto-deprecates drifting patterns (v14) |
-| **Pattern Broadcasting** | DONE | `record/check_recent_pattern_discoveries()` cross-job sharing (v14) |
+| **Pattern Auto-Retirement** | DONE | `retire_drifting_patterns()` (v14) |
+| **Pattern Broadcasting** | DONE | `record/check_recent_pattern_discoveries()` (v14) |
 
 ---
 
@@ -196,20 +116,20 @@
 |------------|-------------|--------------|
 | v1 → v2 | Initial TDF, CV thresholds | 11 principles |
 | v2 → v3 | Triplets (4→3), LOC calibration, deferral | +11 improvements |
-| v3 → v4 | Standardized CV, stateful complexity, env validation | +9 improvements |
-| v4 → v5 | Existence checks, LOC formulas, research candidates | +10 improvements |
-| v5 → v6 | LOC budget breakdown, early code review, test LOC, non-goals | +10 improvements |
-| v6 → v7 | Call-path tracing, verification-only mode, candidate reduction | +7 improvements |
-| v7 → v8 | Earlier existence check, freshness tracking, test LOC multipliers | +7 improvements |
-| v8 → v9 | Mandatory tests, conceptual unity, research aging, test LOC tracking | +10 improvements |
-| v9 → v10 | Fixtures overhead, import check, project phase, early catch target | +10 improvements |
-| v10 → v11 | Fixture assessment, escalation multiplier, verification-only test LOC | +10 improvements |
-| v11 → v12 | Test LOC floor (50), CV > 0.75 preference, Goal Drift resolution | +6 improvements |
-| v12 → v13 | CLI UX budget (+50%), stabilization detection, Contract must-resolve | +10 improvements |
-| v13 → v14 | Private method check, runner integration complexity, Broadcasting must-resolve | +6 improvements |
-| **v14 → v15** | **Drift scenario complexity, scope change reassessment (pending Sheet 8)** | **TBD** |
+| v3 → v4 | Standardized CV, stateful complexity | +9 improvements |
+| v4 → v5 | Existence checks, LOC formulas | +10 improvements |
+| v5 → v6 | LOC budget breakdown, early code review | +10 improvements |
+| v6 → v7 | Call-path tracing, verification-only | +7 improvements |
+| v7 → v8 | Earlier existence check, freshness | +7 improvements |
+| v8 → v9 | Mandatory tests, conceptual unity | +10 improvements |
+| v9 → v10 | Fixtures overhead, import check | +10 improvements |
+| v10 → v11 | Fixture assessment, escalation multiplier | +10 improvements |
+| v11 → v12 | Test LOC floor, CV > 0.75 preference | +6 improvements |
+| v12 → v13 | CLI UX budget, stabilization detection | +10 improvements |
+| v13 → v14 | Private method check, runner integration | +6 improvements |
+| **v14 → v15** | **Drift scenario, scope change** | **+6 improvements** |
 
-**Cumulative:** 118+ explicit score improvements across 14 self-evolution cycles
+**Cumulative:** 124 explicit score improvements across 14 self-evolution cycles
 
 ---
 
@@ -219,31 +139,30 @@
 ```bash
 cd ~/Projects/mozart-ai-compose
 source .venv/bin/activate
-mozart validate mozart-opus-evolution-v14.yaml
-mkdir -p evolution-workspace-v14
-nohup mozart run mozart-opus-evolution-v14.yaml > evolution-workspace-v14/mozart.log 2>&1 &
+mozart validate mozart-opus-evolution-v15.yaml
+mkdir -p evolution-workspace-v15
+nohup mozart run mozart-opus-evolution-v15.yaml > evolution-workspace-v15/mozart.log 2>&1 &
 ```
 
 ### Or Resume Dashboard Production
 ```bash
 cd ~/Projects/mozart-ai-compose
 source .venv/bin/activate
-mozart validate dashboard-production-workspace/dashboard-production-concert.yaml
 nohup mozart run dashboard-production-workspace/dashboard-production-concert.yaml > dashboard-production-workspace/mozart.log 2>&1 &
 ```
 
 ---
 
-## Research Candidates
+## Key Files
 
-**All Age 2 candidates resolved in v14:**
-
-| Candidate | Resolution | Notes |
-|-----------|------------|-------|
-| Real-time Pattern Broadcasting | **IMPLEMENTED** | CV 0.73, 10 tests, 275 LOC |
-| Sheet Contract Validation | **CLOSED** (v13) | Static validation sufficient |
-
-**No research candidates carried to v15.**
+| Purpose | Location |
+|---------|----------|
+| CLI entry | `src/mozart/cli.py` |
+| Pattern Learning | `src/mozart/learning/patterns.py` |
+| Global Learning | `src/mozart/learning/global_store.py` |
+| Sheet Runner | `src/mozart/execution/runner.py` |
+| **Evolved Score v15** | `mozart-opus-evolution-v15.yaml` |
+| **v14 Cycle Summary** | `evolution-workspace-v14/09-coda-summary.md` |
 
 ---
 
@@ -255,58 +174,12 @@ Score vN → Discovery → Synthesis → Evolution → Validation → Score v(N+
               +--------------------------------------------------+
 ```
 
-Each cycle:
-1. Discovers patterns (external + internal)
-2. Synthesizes with TDF (triplets, quadruplets, META)
-3. Implements or verifies top candidates (CV > 0.65)
-4. Validates implementation (tests, mypy)
-5. Evolves the score itself
-6. Produces input for next cycle
-
 ### Key v14 Meta-Insights
 
-1. **Drift Scenario Tests Are Complex**
-   - Even without runner integration, drift tests require multi-step setup
-   - v14 Auto-Retirement test LOC was 554% when rated LOW
-   - Consider MEDIUM (×4.5) for drift-related tests
-
-2. **Scope Change Affects Test LOC**
-   - When implementation scope changes, test LOC changes proportionally
-   - v14 Broadcasting test LOC was 70% because runner integration deferred
-
-3. **CV > 0.75 Correlates with Clean Implementation**
-   - Pattern Auto-Retirement at 0.77 → clean, exceeded expectations
-   - Continues v10-v13 pattern
-
-### Key v13 Meta-Insights (Historical)
-
-1. **Private Methods Contain Integration Logic**
-   - Existence check must search `_function_name` patterns
-   - v13 missed already-implemented evolution due to this gap
-
-2. **Runner Integration is HIGH Complexity**
-   - Cannot rate runner+store tests as LOW
-   - v13 test LOC was 505% when misrated
+1. **Drift Scenario Tests Are Complex** - MEDIUM (×4.5) minimum
+2. **Scope Change Affects Test LOC** - Reassessment protocol added
+3. **CV > 0.75 Correlates with Clean Implementation** - 5th consecutive validation
 
 ---
 
-## Key Files
-
-| Purpose | Location |
-|---------|----------|
-| CLI entry | `src/mozart/cli.py` |
-| Error + RetryBehavior | `src/mozart/core/errors.py` |
-| Retry Strategy | `src/mozart/execution/retry_strategy.py` |
-| Pattern Learning | `src/mozart/learning/patterns.py` |
-| Global Learning | `src/mozart/learning/global_store.py` |
-| Grounding Engine | `src/mozart/execution/grounding.py` |
-| Sheet Runner | `src/mozart/execution/runner.py` |
-| **Evolved Score v14** | `mozart-opus-evolution-v14.yaml` |
-| **v14 Integration Validation** | `evolution-workspace-v14/07-integration-validation.md` |
-| **v14 New Tests** | `tests/test_global_learning.py` (16 new tests) |
-| **Cycle Summary v13** | `evolution-workspace-v13/09-coda-summary.md` |
-| **Escalation Learning Tests** | `tests/test_escalation_learning.py` |
-
----
-
-*Last Updated: 2026-01-16 - Evolution Cycle v14 Sheet 7 Complete*
+*Last Updated: 2026-01-16 - Evolution Cycle v14 Complete*
