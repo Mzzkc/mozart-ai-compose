@@ -470,6 +470,24 @@ class CheckpointState(BaseModel):
         description="True if isolation was configured but fell back to workspace",
     )
 
+    # Parallel execution tracking (v17 evolution: Parallel Sheet Execution)
+    parallel_enabled: bool = Field(
+        default=False,
+        description="Whether parallel execution mode is enabled for this job",
+    )
+    parallel_max_concurrent: int = Field(
+        default=1,
+        description="Maximum concurrent sheets when parallel mode is enabled",
+    )
+    parallel_batches_executed: int = Field(
+        default=0,
+        description="Number of parallel batches executed so far",
+    )
+    sheets_in_progress: list[int] = Field(
+        default_factory=list,
+        description="Sheet numbers currently executing in parallel (empty if none)",
+    )
+
     def get_next_sheet(self) -> int | None:
         """Determine the next sheet to process.
 

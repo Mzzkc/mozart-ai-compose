@@ -19,6 +19,7 @@ from rich.console import Console
 
 if TYPE_CHECKING:
     from mozart.execution.grounding import GroundingEngine, GroundingResult
+    from mozart.execution.parallel import ParallelExecutor
     from mozart.healing.context import ErrorContext
     from mozart.healing.coordinator import HealingReport, SelfHealingCoordinator
     from mozart.learning.global_store import GlobalLearningStore
@@ -26,6 +27,12 @@ if TYPE_CHECKING:
 from mozart.backends.base import Backend, ExecutionResult
 from mozart.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
 from mozart.core.config import IsolationMode, JobConfig
+from mozart.execution.dag import (
+    CycleDetectedError,
+    DependencyDAG,
+    InvalidDependencyError,
+    build_dag_from_config,
+)
 from mozart.core.errors import (
     ClassificationResult,
     ClassifiedError,
@@ -467,6 +474,27 @@ class JobRunner:
                 name=config.name,
             )
 
+        # Sheet dependency DAG (v17 evolution: Sheet Dependency DAG)
+        # Built at initialization to validate dependencies early
+        # and enable DAG-aware execution order
+        self._dependency_dag: DependencyDAG | None = None
+        if config.sheet.dependencies:
+            try:
+                self._dependency_dag = build_dag_from_config(
+                    total_sheets=config.sheet.total_sheets,
+                    sheet_dependencies=config.sheet.dependencies,
+                )
+                self._logger.info(
+                    "dag.built",
+                    total_sheets=config.sheet.total_sheets,
+                    has_dependencies=self._dependency_dag.has_dependencies(),
+                    parallelizable=self._dependency_dag.is_parallelizable(),
+                )
+            except (CycleDetectedError, InvalidDependencyError) as e:
+                # Log error and re-raise - don't silently proceed with invalid DAG
+                self._logger.error("dag.validation_failed", error=str(e))
+                raise
+
         # Adaptive retry strategy (Task 13)
         # Evolution #3: Pass global learning store for learned wait time injection
         self._retry_strategy = AdaptiveRetryStrategy(
@@ -493,6 +521,27 @@ class JobRunner:
                 registry=registry,
                 auto_confirm=self_healing_auto_confirm,
                 dry_run=False,
+            )
+
+        # Parallel executor (v17 evolution: Parallel Sheet Execution)
+        # Enables concurrent execution of independent sheets based on DAG
+        self._parallel_executor: "ParallelExecutor | None" = None
+        if config.parallel.enabled:
+            from mozart.execution.parallel import (
+                ParallelExecutionConfig,
+                ParallelExecutor,
+            )
+
+            parallel_config = ParallelExecutionConfig(
+                enabled=True,
+                max_concurrent=config.parallel.max_concurrent,
+                fail_fast=config.parallel.fail_fast,
+            )
+            self._parallel_executor = ParallelExecutor(self, parallel_config)
+            self._logger.info(
+                "parallel.initialized",
+                max_concurrent=config.parallel.max_concurrent,
+                fail_fast=config.parallel.fail_fast,
             )
 
     def _track_cost(
@@ -695,46 +744,11 @@ class JobRunner:
             await self.state_backend.save(state)  # Persist worktree state
 
         try:
-            next_sheet = state.get_next_sheet()
-            while next_sheet is not None and next_sheet <= state.total_sheets:
-                # Check for shutdown request before starting sheet
-                if self._shutdown_requested:
-                    await self._handle_graceful_shutdown(state)
-
-                sheet_start = time.monotonic()
-
-                try:
-                    await self._execute_sheet_with_recovery(state, next_sheet)
-                except FatalError as e:
-                    state.mark_job_failed(str(e))
-                    await self.state_backend.save(state)
-                    # Update summary with failure before raising
-                    self._finalize_summary(state)
-                    # Log job failure
-                    self._logger.error(
-                        "job.failed",
-                        job_id=state.job_id,
-                        sheet_num=next_sheet,
-                        error=str(e),
-                        duration_seconds=round(time.monotonic() - self._run_start_time, 2),
-                        completed_sheets=self._summary.completed_sheets if self._summary else 0,
-                    )
-                    raise
-
-                # Track sheet timing for ETA calculation
-                sheet_duration = time.monotonic() - sheet_start
-                self._sheet_times.append(sheet_duration)
-
-                # Update progress callback
-                self._update_progress(state)
-
-                # Pause between sheets
-                if next_sheet < state.total_sheets:
-                    await self._interruptible_sleep(
-                        self.config.pause_between_sheets_seconds
-                    )
-
-                next_sheet = state.get_next_sheet()
+            # Choose execution mode: parallel or sequential (v17 evolution)
+            if self._parallel_executor is not None and self.config.parallel.enabled:
+                await self._execute_parallel_mode(state)
+            else:
+                await self._execute_sequential_mode(state)
 
             # Mark job complete if we processed all sheets
             if state.status == JobStatus.RUNNING:
@@ -898,6 +912,219 @@ class JobRunner:
             "isolation_enabled": self.config.isolation.enabled,
             "isolation_mode": self.config.isolation.mode.value if self.config.isolation.enabled else None,
         }
+
+    # =========================================================================
+    # Sheet Dependency DAG (v17 evolution: Sheet Dependency DAG)
+    # =========================================================================
+
+    def _get_next_sheet_dag_aware(self, state: CheckpointState) -> int | None:
+        """Get the next sheet to execute, respecting DAG dependencies.
+
+        When a dependency DAG is configured, this method ensures sheets only
+        run when all their prerequisites are complete. Without a DAG, falls
+        back to the default sequential behavior.
+
+        Args:
+            state: Current job checkpoint state.
+
+        Returns:
+            Next sheet number to execute, or None if all complete or blocked.
+        """
+        # If no DAG configured, use default sequential behavior
+        if self._dependency_dag is None:
+            return state.get_next_sheet()
+
+        # Build set of completed sheet numbers
+        completed: set[int] = set()
+        for sheet_num in range(1, state.total_sheets + 1):
+            sheet_state = state.sheets.get(sheet_num)
+            if sheet_state and sheet_state.status == SheetStatus.COMPLETED:
+                completed.add(sheet_num)
+
+        # Check for in-progress sheet (resume from crash)
+        if state.current_sheet is not None:
+            sheet_state = state.sheets.get(state.current_sheet)
+            if sheet_state and sheet_state.status == SheetStatus.IN_PROGRESS:
+                # Verify dependencies are still satisfied (they should be)
+                deps = self._dependency_dag.get_dependencies(state.current_sheet)
+                if all(d in completed for d in deps):
+                    return state.current_sheet
+
+        # Get ready sheets (all dependencies satisfied)
+        ready_sheets = self._dependency_dag.get_ready_sheets(completed)
+
+        # Filter out sheets that are already complete
+        pending_ready = [s for s in ready_sheets if s not in completed]
+
+        if not pending_ready:
+            # All sheets either complete or blocked by incomplete dependencies
+            return None
+
+        # Return the first ready sheet (for sequential execution)
+        # Phase 2 (parallel) will return all ready sheets
+        return pending_ready[0]
+
+    def _get_completed_sheets(self, state: CheckpointState) -> set[int]:
+        """Get set of completed sheet numbers.
+
+        Helper method for DAG-aware execution tracking.
+
+        Args:
+            state: Current job checkpoint state.
+
+        Returns:
+            Set of sheet numbers with COMPLETED status.
+        """
+        completed: set[int] = set()
+        for sheet_num in range(1, state.total_sheets + 1):
+            sheet_state = state.sheets.get(sheet_num)
+            if sheet_state and sheet_state.status == SheetStatus.COMPLETED:
+                completed.add(sheet_num)
+        return completed
+
+    @property
+    def dependency_dag(self) -> DependencyDAG | None:
+        """Access the dependency DAG (if configured).
+
+        Returns:
+            DependencyDAG if sheet dependencies are configured, None otherwise.
+        """
+        return self._dependency_dag
+
+    async def _execute_sequential_mode(self, state: CheckpointState) -> None:
+        """Execute sheets sequentially (one at a time).
+
+        This is the traditional execution mode, used when parallel
+        execution is disabled.
+
+        Args:
+            state: Job checkpoint state.
+        """
+        # Use DAG-aware sheet selection (v17 evolution)
+        # Falls back to sequential if no dependencies configured
+        next_sheet = self._get_next_sheet_dag_aware(state)
+        while next_sheet is not None and next_sheet <= state.total_sheets:
+            # Check for shutdown request before starting sheet
+            if self._shutdown_requested:
+                await self._handle_graceful_shutdown(state)
+
+            sheet_start = time.monotonic()
+
+            try:
+                await self._execute_sheet_with_recovery(state, next_sheet)
+            except FatalError as e:
+                state.mark_job_failed(str(e))
+                await self.state_backend.save(state)
+                # Update summary with failure before raising
+                self._finalize_summary(state)
+                # Log job failure
+                self._logger.error(
+                    "job.failed",
+                    job_id=state.job_id,
+                    sheet_num=next_sheet,
+                    error=str(e),
+                    duration_seconds=round(time.monotonic() - self._run_start_time, 2),
+                    completed_sheets=self._summary.completed_sheets if self._summary else 0,
+                )
+                raise
+
+            # Track sheet timing for ETA calculation
+            sheet_duration = time.monotonic() - sheet_start
+            self._sheet_times.append(sheet_duration)
+
+            # Update progress callback
+            self._update_progress(state)
+
+            # Pause between sheets
+            if next_sheet < state.total_sheets:
+                await self._interruptible_sleep(
+                    self.config.pause_between_sheets_seconds
+                )
+
+            # Use DAG-aware sheet selection (v17 evolution)
+            next_sheet = self._get_next_sheet_dag_aware(state)
+
+    async def _execute_parallel_mode(self, state: CheckpointState) -> None:
+        """Execute sheets in parallel when dependencies allow (v17 evolution).
+
+        Uses the ParallelExecutor to run batches of independent sheets
+        concurrently. Batches are determined by the dependency DAG.
+
+        Args:
+            state: Job checkpoint state.
+        """
+        if self._parallel_executor is None:
+            # Fall back to sequential if executor not configured
+            await self._execute_sequential_mode(state)
+            return
+
+        self._logger.info(
+            "parallel.mode_start",
+            total_sheets=state.total_sheets,
+            max_concurrent=self.config.parallel.max_concurrent,
+        )
+
+        batch_count = 0
+        while True:
+            # Check for shutdown request
+            if self._shutdown_requested:
+                await self._handle_graceful_shutdown(state)
+                return
+
+            # Get next batch of sheets that can run in parallel
+            batch = self._parallel_executor.get_next_parallel_batch(state)
+
+            if not batch:
+                # No more sheets to execute
+                break
+
+            batch_count += 1
+            batch_start = time.monotonic()
+
+            self._logger.info(
+                "parallel.batch_executing",
+                batch_number=batch_count,
+                sheets=batch,
+            )
+
+            # Execute the batch
+            result = await self._parallel_executor.execute_batch(batch, state)
+
+            # Track timing (average per sheet in batch)
+            batch_duration = time.monotonic() - batch_start
+            if result.completed:
+                avg_duration = batch_duration / len(result.completed)
+                for _ in result.completed:
+                    self._sheet_times.append(avg_duration)
+
+            # Update progress
+            self._update_progress(state)
+
+            # Handle failures
+            if result.failed and self.config.parallel.fail_fast:
+                first_failed = result.failed[0]
+                error_msg = result.error_details.get(first_failed, "Unknown error")
+                state.mark_job_failed(f"Parallel batch failed: Sheet {first_failed} - {error_msg}")
+                await self.state_backend.save(state)
+                self._finalize_summary(state)
+                self._logger.error(
+                    "parallel.batch_failed",
+                    failed_sheets=result.failed,
+                    completed_sheets=result.completed,
+                )
+                raise FatalError(f"Sheet {first_failed} failed: {error_msg}")
+
+            # Pause between batches
+            completed_count = len(self._get_completed_sheets(state))
+            if completed_count < state.total_sheets:
+                await self._interruptible_sleep(
+                    self.config.pause_between_sheets_seconds
+                )
+
+        self._logger.info(
+            "parallel.mode_complete",
+            batches_executed=batch_count,
+        )
 
     # =========================================================================
     # Worktree Isolation (v2 evolution: Worktree Isolation)

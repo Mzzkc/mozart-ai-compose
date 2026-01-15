@@ -2004,6 +2004,16 @@ def _output_status_rich(job: CheckpointState) -> None:
         # Force refresh to display
         progress.refresh()
 
+    # Parallel execution info (v17 evolution)
+    if job.parallel_enabled:
+        console.print("\n[bold]Parallel Execution[/bold]")
+        console.print(f"  Mode: [cyan]Enabled[/cyan]")
+        console.print(f"  Max concurrent: {job.parallel_max_concurrent}")
+        console.print(f"  Batches executed: {job.parallel_batches_executed}")
+        if job.sheets_in_progress:
+            in_progress_str = ", ".join(str(s) for s in job.sheets_in_progress)
+            console.print(f"  Currently running: [blue]{in_progress_str}[/blue]")
+
     # Sheet details table
     if job.sheets:
         console.print("\n[bold]Sheet Details[/bold]")
@@ -2261,6 +2271,61 @@ def _format_duration(seconds: float) -> str:
         return f"{hours}h {minutes}m"
 
 
+def _show_dag_visualization(config: JobConfig, verbose: bool = False) -> None:
+    """Display DAG visualization for sheet dependencies (v17 evolution).
+
+    Shows dependency relationships between sheets and identifies
+    parallelization opportunities.
+
+    Args:
+        config: Job configuration with sheet dependencies.
+        verbose: If True, show detailed DAG information.
+    """
+    from mozart.execution.dag import (
+        CycleDetectedError,
+        InvalidDependencyError,
+        build_dag_from_config,
+    )
+
+    console.print()
+    console.print("[dim]Sheet dependency DAG:[/dim]")
+
+    try:
+        dag = build_dag_from_config(
+            total_sheets=config.sheet.total_sheets,
+            sheet_dependencies=config.sheet.dependencies,
+        )
+    except CycleDetectedError as e:
+        console.print(f"  [red]Cycle detected:[/red] {e}")
+        return
+    except InvalidDependencyError as e:
+        console.print(f"  [red]Invalid dependency:[/red] {e}")
+        return
+
+    # Show dependencies
+    for sheet_num in range(1, config.sheet.total_sheets + 1):
+        deps = dag.get_dependencies(sheet_num)
+        if deps:
+            deps_str = ", ".join(str(d) for d in deps)
+            console.print(f"  Sheet {sheet_num} → depends on: [{deps_str}]")
+        elif verbose:
+            console.print(f"  Sheet {sheet_num} → [dim]no dependencies[/dim]")
+
+    # Show parallel groups
+    parallel_groups = dag.get_parallel_groups()
+    if dag.is_parallelizable():
+        console.print()
+        groups_str = " → ".join(
+            f"[{', '.join(str(s) for s in g)}]" for g in parallel_groups
+        )
+        console.print(f"  [cyan]Parallel groups:[/cyan] {groups_str}")
+        max_parallel = max(len(g) for g in parallel_groups)
+        console.print(f"  [cyan]Max concurrency:[/cyan] {max_parallel} sheets")
+    else:
+        console.print()
+        console.print("  [dim]Sequential execution (no parallelization)[/dim]")
+
+
 @app.command()
 def validate(
     config_file: Path = typer.Argument(
@@ -2365,6 +2430,10 @@ def validate(
             console.print(f"  Backend: {config.backend.type}")
             console.print(f"  Validations: {len(config.validations)}")
             console.print(f"  Notifications: {len(config.notifications)}")
+
+            # Show DAG visualization if dependencies configured (v17 evolution)
+            if config.sheet.dependencies:
+                _show_dag_visualization(config, verbose)
 
     # Exit with appropriate code
     exit_code = runner.get_exit_code(issues)
@@ -3779,6 +3848,164 @@ def learning_insights(
         )
 
     console.print(table)
+
+
+@app.command("learning-drift")
+def learning_drift(
+    threshold: float = typer.Option(
+        0.2,
+        "--threshold",
+        "-t",
+        help="Drift threshold (0.0-1.0) to flag patterns",
+    ),
+    window: int = typer.Option(
+        5,
+        "--window",
+        "-w",
+        help="Window size for drift comparison",
+    ),
+    limit: int = typer.Option(
+        10,
+        "--limit",
+        "-l",
+        help="Maximum number of patterns to show",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        "-j",
+        help="Output as JSON for machine parsing",
+    ),
+    summary: bool = typer.Option(
+        False,
+        "--summary",
+        "-s",
+        help="Show only summary statistics",
+    ),
+) -> None:
+    """Detect patterns with effectiveness drift.
+
+    v12 Evolution: Goal Drift Detection - monitors pattern health by
+    comparing recent effectiveness to historical effectiveness. Patterns
+    that were once effective but are now declining may need investigation.
+
+    Drift is calculated by comparing the pattern's effectiveness in its
+    last N applications vs the previous N applications. A positive drift
+    means improving, negative means declining.
+
+    Examples:
+        mozart learning-drift                # Show drifting patterns
+        mozart learning-drift -t 0.15        # Lower threshold (more sensitive)
+        mozart learning-drift -w 10          # Larger comparison window
+        mozart learning-drift --summary      # Just show summary stats
+        mozart learning-drift --json         # JSON output for scripting
+    """
+    from mozart.learning.global_store import get_global_store
+
+    store = get_global_store()
+
+    if summary:
+        # Summary mode - just show aggregate stats
+        drift_summary = store.get_pattern_drift_summary()
+
+        if json_output:
+            import json
+            console.print(json.dumps(drift_summary, indent=2))
+            return
+
+        console.print("[bold]Pattern Drift Summary[/bold]\n")
+        console.print(f"  Total patterns: {drift_summary['total_patterns']}")
+        console.print(f"  Patterns analyzed: {drift_summary['patterns_analyzed']}")
+        drifting = drift_summary["patterns_drifting"]
+        color = "red" if drifting > 0 else "green"
+        console.print(f"  Patterns drifting: [{color}]{drifting}[/{color}]")
+        console.print(
+            f"  Avg drift magnitude: {drift_summary['avg_drift_magnitude']:.3f}"
+        )
+        if drift_summary["most_drifted"]:
+            console.print(
+                f"  Most drifted pattern: {drift_summary['most_drifted']}"
+            )
+        return
+
+    # Full drift report
+    drifting_patterns = store.get_drifting_patterns(
+        drift_threshold=threshold,
+        window_size=window,
+        limit=limit,
+    )
+
+    if json_output:
+        import json
+        output = {
+            "threshold": threshold,
+            "window_size": window,
+            "patterns": [
+                {
+                    "pattern_id": m.pattern_id,
+                    "pattern_name": m.pattern_name,
+                    "effectiveness_before": round(m.effectiveness_before, 3),
+                    "effectiveness_after": round(m.effectiveness_after, 3),
+                    "drift_magnitude": round(m.drift_magnitude, 3),
+                    "drift_direction": m.drift_direction,
+                    "grounding_confidence_avg": round(m.grounding_confidence_avg, 3),
+                    "applications_analyzed": m.applications_analyzed,
+                }
+                for m in drifting_patterns
+            ],
+        }
+        console.print(json.dumps(output, indent=2))
+        return
+
+    # Human-readable table output
+    console.print(f"[bold]Patterns with Drift > {threshold:.0%}[/bold]")
+    console.print(f"[dim]Window size: {window} applications per period[/dim]\n")
+
+    if not drifting_patterns:
+        console.print("[green]✓ No patterns exceeding drift threshold[/green]")
+        console.print("[dim]All patterns are stable or improving[/dim]")
+        return
+
+    from rich.table import Table
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Pattern", style="cyan")
+    table.add_column("Before", justify="right")
+    table.add_column("After", justify="right")
+    table.add_column("Drift", justify="right")
+    table.add_column("Direction", justify="center")
+    table.add_column("Grounding", justify="right")
+
+    for m in drifting_patterns:
+        # Color-code drift direction
+        if m.drift_direction == "negative":
+            dir_style = "[red]↓ declining[/red]"
+        elif m.drift_direction == "positive":
+            dir_style = "[green]↑ improving[/green]"
+        else:
+            dir_style = "[dim]→ stable[/dim]"
+
+        # Color-code drift magnitude
+        drift_color = "red" if m.drift_magnitude > 0.3 else "yellow"
+
+        table.add_row(
+            m.pattern_name[:30],  # Truncate long names
+            f"{m.effectiveness_before:.1%}",
+            f"{m.effectiveness_after:.1%}",
+            f"[{drift_color}]{m.drift_magnitude:.1%}[/{drift_color}]",
+            dir_style,
+            f"{m.grounding_confidence_avg:.1%}",
+        )
+
+    console.print(table)
+
+    # Add warning for declining patterns
+    declining = [m for m in drifting_patterns if m.drift_direction == "negative"]
+    if declining:
+        console.print(
+            f"\n[yellow]⚠ {len(declining)} pattern(s) showing declining effectiveness[/yellow]"
+        )
+        console.print("[dim]Consider reviewing these patterns for deprecation[/dim]")
 
 
 @app.command("learning-activity")

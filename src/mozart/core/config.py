@@ -886,10 +886,45 @@ class SheetConfig(BaseModel):
     total_items: int = Field(ge=1, description="Total number of items to process")
     start_item: int = Field(default=1, ge=1, description="First item number (1-indexed)")
 
+    # Sheet dependencies (v17 evolution: Sheet Dependency DAG)
+    dependencies: dict[int, list[int]] = Field(
+        default_factory=dict,
+        description=(
+            "Sheet dependency declarations. Map of sheet_num -> list of prerequisite sheets. "
+            "Example: {3: [1, 2], 4: [3]} means sheet 3 needs 1 and 2, sheet 4 needs 3. "
+            "Sheets without entries are independent (can run immediately or after config order)."
+        ),
+    )
+
     @property
     def total_sheets(self) -> int:
         """Calculate total number of sheets."""
         return (self.total_items - self.start_item + 1 + self.size - 1) // self.size
+
+    @field_validator("dependencies")
+    @classmethod
+    def validate_dependencies(
+        cls, v: dict[int, list[int]], info: ValidationInfo
+    ) -> dict[int, list[int]]:
+        """Validate dependency declarations.
+
+        Note: Full validation (range checks, cycle detection) happens when
+        the DependencyDAG is built at runtime, since total_sheets isn't
+        available during field validation.
+        """
+        for sheet_num, deps in v.items():
+            if not isinstance(sheet_num, int) or sheet_num < 1:
+                raise ValueError(f"Sheet number must be positive integer, got {sheet_num}")
+            if not isinstance(deps, list):
+                raise ValueError(f"Dependencies for sheet {sheet_num} must be a list")
+            for dep in deps:
+                if not isinstance(dep, int) or dep < 1:
+                    raise ValueError(
+                        f"Dependency must be positive integer, got {dep} for sheet {sheet_num}"
+                    )
+                if dep == sheet_num:
+                    raise ValueError(f"Sheet {sheet_num} cannot depend on itself")
+        return v
 
 
 class PromptConfig(BaseModel):
@@ -923,6 +958,54 @@ class PromptConfig(BaseModel):
         return v
 
 
+class ParallelConfig(BaseModel):
+    """Configuration for parallel sheet execution (v17 evolution).
+
+    Enables running multiple sheets concurrently when the dependency DAG
+    permits. Requires sheet dependencies to be configured for meaningful
+    parallel execution.
+
+    Example YAML:
+        parallel:
+          enabled: true
+          max_concurrent: 3
+          fail_fast: true
+
+        sheet:
+          dependencies:
+            2: [1]
+            3: [1]
+            4: [2, 3]
+
+    With this config, sheets 2 and 3 can run in parallel after sheet 1
+    completes, then sheet 4 runs after both 2 and 3 complete.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable parallel sheet execution. "
+        "When true, sheets with satisfied dependencies run concurrently.",
+    )
+    max_concurrent: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Maximum sheets to execute concurrently. "
+        "Higher values use more API quota but complete faster.",
+    )
+    fail_fast: bool = Field(
+        default=True,
+        description="Stop starting new sheets when one fails. "
+        "If False, continues executing remaining parallel sheets.",
+    )
+    budget_partition: bool = Field(
+        default=True,
+        description="Partition cost budget across parallel branches. "
+        "When True, each parallel sheet gets (remaining_budget / max_concurrent). "
+        "When False, each sheet has access to full remaining budget.",
+    )
+
+
 class JobConfig(BaseModel):
     """Complete configuration for an orchestration job."""
 
@@ -951,6 +1034,11 @@ class JobConfig(BaseModel):
         default_factory=ConductorConfig,
         description="Conductor identity and preferences. "
         "Identifies who (human or AI) is conducting this job.",
+    )
+    parallel: ParallelConfig = Field(
+        default_factory=ParallelConfig,
+        description="Parallel sheet execution configuration. "
+        "Enables running independent sheets concurrently.",
     )
 
     validations: list[ValidationRule] = Field(default_factory=list)
