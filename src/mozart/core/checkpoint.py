@@ -488,6 +488,52 @@ class CheckpointState(BaseModel):
         description="Sheet numbers currently executing in parallel (empty if none)",
     )
 
+    # Synthesis tracking (v18 evolution: Result Synthesizer Pattern)
+    synthesis_results: dict[str, dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Synthesis results keyed by batch_id (v18: Result Synthesizer)",
+    )
+
+    def get_synthesis(self, batch_id: str) -> dict[str, Any] | None:
+        """Get synthesis result by batch ID.
+
+        Args:
+            batch_id: The batch identifier.
+
+        Returns:
+            Synthesis result dict or None if not found.
+        """
+        return self.synthesis_results.get(batch_id)
+
+    def add_synthesis(self, batch_id: str, result: dict[str, Any]) -> None:
+        """Add or update a synthesis result.
+
+        Args:
+            batch_id: The batch identifier.
+            result: Synthesis result as dict (from SynthesisResult.to_dict()).
+        """
+        self.synthesis_results[batch_id] = result
+        self.updated_at = utc_now()
+
+        _logger.debug(
+            "synthesis_added",
+            job_id=self.job_id,
+            batch_id=batch_id,
+            status=result.get("status"),
+        )
+
+    def clear_synthesis(self, batch_id: str | None = None) -> None:
+        """Clear synthesis results.
+
+        Args:
+            batch_id: Specific batch to clear. If None, clears all.
+        """
+        if batch_id is None:
+            self.synthesis_results.clear()
+        elif batch_id in self.synthesis_results:
+            del self.synthesis_results[batch_id]
+        self.updated_at = utc_now()
+
     def get_next_sheet(self) -> int | None:
         """Determine the next sheet to process.
 

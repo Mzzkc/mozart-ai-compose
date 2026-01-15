@@ -19,7 +19,7 @@ from rich.console import Console
 
 if TYPE_CHECKING:
     from mozart.execution.grounding import GroundingEngine, GroundingResult
-    from mozart.execution.parallel import ParallelExecutor
+    from mozart.execution.parallel import ParallelBatchResult, ParallelExecutor
     from mozart.healing.context import ErrorContext
     from mozart.healing.coordinator import HealingReport, SelfHealingCoordinator
     from mozart.learning.global_store import GlobalLearningStore
@@ -1100,6 +1100,9 @@ class JobRunner:
             # Update progress
             self._update_progress(state)
 
+            # Synthesize batch outputs (v18 evolution: Result Synthesizer)
+            await self._synthesize_batch_outputs(result, state)
+
             # Handle failures
             if result.failed and self.config.parallel.fail_fast:
                 first_failed = result.failed[0]
@@ -1124,6 +1127,70 @@ class JobRunner:
         self._logger.info(
             "parallel.mode_complete",
             batches_executed=batch_count,
+        )
+
+    async def _synthesize_batch_outputs(
+        self,
+        result: "ParallelBatchResult",
+        state: CheckpointState,
+    ) -> None:
+        """Synthesize outputs from a completed parallel batch (v18 evolution).
+
+        Extracts content from completed sheets and runs synthesis to create
+        a unified result. The synthesis result is stored in checkpoint state.
+
+        Args:
+            result: ParallelBatchResult from batch execution.
+            state: Job checkpoint state.
+        """
+        from mozart.execution.synthesizer import ResultSynthesizer, SynthesisConfig
+
+        # Only synthesize if we have completed sheets
+        if not result.completed:
+            return
+
+        # Collect outputs from completed sheets
+        sheet_outputs: dict[int, str] = {}
+        for sheet_num in result.completed:
+            sheet_state = state.sheets.get(sheet_num)
+            if sheet_state and sheet_state.stdout_tail:
+                # Use stdout_tail as the output reference
+                sheet_outputs[sheet_num] = sheet_state.stdout_tail
+
+        if not sheet_outputs:
+            self._logger.debug(
+                "synthesizer.no_outputs",
+                batch_sheets=result.sheets,
+                completed=result.completed,
+            )
+            return
+
+        # Run synthesis
+        config = SynthesisConfig()
+        synthesizer = ResultSynthesizer(config)
+
+        synthesis_result = synthesizer.prepare_synthesis(
+            batch_sheets=result.sheets,
+            completed_sheets=result.completed,
+            failed_sheets=result.failed,
+            sheet_outputs=sheet_outputs,
+        )
+
+        if synthesis_result.status == "ready":
+            synthesis_result = synthesizer.execute_synthesis(synthesis_result)
+
+        # Store in checkpoint state
+        state.add_synthesis(synthesis_result.batch_id, synthesis_result.to_dict())
+
+        # Mark result as synthesis-ready
+        result.sheet_outputs = sheet_outputs
+        result.synthesis_ready = True
+
+        self._logger.info(
+            "synthesizer.batch_complete",
+            batch_id=synthesis_result.batch_id,
+            status=synthesis_result.status,
+            sheets_synthesized=len(sheet_outputs),
         )
 
     # =========================================================================

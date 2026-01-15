@@ -2014,6 +2014,41 @@ def _output_status_rich(job: CheckpointState) -> None:
             in_progress_str = ", ".join(str(s) for s in job.sheets_in_progress)
             console.print(f"  Currently running: [blue]{in_progress_str}[/blue]")
 
+    # Synthesis results (v18 evolution: Result Synthesizer Pattern)
+    if job.synthesis_results:
+        console.print("\n[bold]Synthesis Results[/bold]")
+        synth_table = Table(show_header=True, header_style="bold")
+        synth_table.add_column("Batch ID", style="cyan", width=12)
+        synth_table.add_column("Sheets", width=15)
+        synth_table.add_column("Strategy", width=12)
+        synth_table.add_column("Status", width=10)
+
+        status_colors = {
+            "pending": "yellow",
+            "ready": "blue",
+            "done": "green",
+            "failed": "red",
+        }
+
+        for batch_id, result in job.synthesis_results.items():
+            sheets = result.get("sheets", [])
+            sheets_str = ", ".join(str(s) for s in sheets[:4])
+            if len(sheets) > 4:
+                sheets_str += f" (+{len(sheets) - 4})"
+
+            strategy = result.get("strategy", "merge")
+            status = result.get("status", "pending")
+            status_color = status_colors.get(status, "white")
+
+            synth_table.add_row(
+                batch_id[:12],
+                sheets_str,
+                strategy,
+                f"[{status_color}]{status}[/{status_color}]",
+            )
+
+        console.print(synth_table)
+
     # Sheet details table
     if job.sheets:
         console.print("\n[bold]Sheet Details[/bold]")

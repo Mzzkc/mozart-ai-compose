@@ -66,6 +66,8 @@ class ParallelBatchResult:
         skipped: Sheet numbers that were skipped (cancelled before starting).
         error_details: Map of sheet_num -> error message for failed sheets.
         duration_seconds: Total time to execute the batch.
+        sheet_outputs: Map of sheet_num -> output reference (v18: synthesizer support).
+        synthesis_ready: Whether outputs are ready for synthesis (v18: synthesizer support).
     """
 
     sheets: list[int] = field(default_factory=list)
@@ -74,6 +76,8 @@ class ParallelBatchResult:
     skipped: list[int] = field(default_factory=list)
     error_details: dict[int, str] = field(default_factory=dict)
     duration_seconds: float = 0.0
+    sheet_outputs: dict[int, str] = field(default_factory=dict)
+    synthesis_ready: bool = False
 
     @property
     def success(self) -> bool:
@@ -95,6 +99,8 @@ class ParallelBatchResult:
             "error_details": self.error_details,
             "duration_seconds": self.duration_seconds,
             "success": self.success,
+            "sheet_outputs": self.sheet_outputs,
+            "synthesis_ready": self.synthesis_ready,
         }
 
 
