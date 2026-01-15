@@ -343,17 +343,30 @@ class OutcomeMigrator:
     def _detect_patterns_from_store(self) -> int:
         """Run pattern detection on data in the store.
 
+        Uses the PatternAggregator to update priority scores for
+        all patterns and prune deprecated ones. This ensures that
+        after migration, patterns are properly weighted.
+
         Returns:
             Number of patterns detected.
         """
         if self._aggregator is None:
             return 0
 
-        # Get recent executions and detect patterns
-        # This is a simplified version - full pattern detection would
-        # need to reconstruct outcomes from execution records
-        stats = self._store.get_execution_stats()
-        return int(stats.get("total_patterns", 0))
+        try:
+            # Update priorities for all existing patterns
+            self._aggregator._update_all_priorities()
+
+            # Prune patterns that have become ineffective
+            pruned_count = self._aggregator.prune_deprecated_patterns()
+            _logger.debug(f"Pruned {pruned_count} deprecated patterns")
+
+            # Return current pattern count
+            stats = self._store.get_execution_stats()
+            return int(stats.get("total_patterns", 0))
+        except Exception as e:
+            _logger.warning(f"Pattern detection error: {e}")
+            return 0
 
 
 def migrate_existing_outcomes(

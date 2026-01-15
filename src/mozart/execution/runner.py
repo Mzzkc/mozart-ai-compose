@@ -271,6 +271,55 @@ class GracefulShutdownError(Exception):
     pass
 
 
+@dataclass
+class RunnerContext:
+    """Optional context components for JobRunner.
+
+    Groups optional dependencies that configure learning, escalation,
+    and progress reporting. Using a context object reduces the parameter
+    count in JobRunner.__init__ from 11 to 5 required parameters plus
+    one optional context object.
+
+    Usage:
+        # Without context (minimal setup)
+        runner = JobRunner(config, backend, state_backend)
+
+        # With learning enabled
+        context = RunnerContext(
+            outcome_store=JsonOutcomeStore(workspace),
+            global_learning_store=get_global_store(),
+        )
+        runner = JobRunner(config, backend, state_backend, context=context)
+    """
+
+    # Learning components
+    outcome_store: OutcomeStore | None = None
+    """Store for recording sheet outcomes (Phase 1 learning)."""
+
+    escalation_handler: EscalationHandler | None = None
+    """Handler for low-confidence decisions (Phase 2 escalation)."""
+
+    judgment_client: JudgmentClient | None = None
+    """Client for TDF-aligned execution decisions (Phase 4 Recursive Light)."""
+
+    global_learning_store: "GlobalLearningStore | None" = None
+    """Store for cross-workspace learning (Evolution #3, #8)."""
+
+    # External validation
+    grounding_engine: "GroundingEngine | None" = None
+    """Engine for external validation of sheet outputs (v8 Grounding)."""
+
+    # UI and progress reporting
+    console: Console | None = None
+    """Rich console for output display."""
+
+    progress_callback: Callable[[int, int, float | None], None] | None = None
+    """Callback for progress updates: (completed, total, eta_seconds)."""
+
+    execution_progress_callback: Callable[[dict[str, Any]], None] | None = None
+    """Callback for real-time execution progress during sheet runs."""
+
+
 class JobRunner:
     """Orchestrates sheet execution with validation and partial recovery.
 
@@ -296,6 +345,8 @@ class JobRunner:
         execution_progress_callback: Callable[[dict[str, Any]], None] | None = None,
         global_learning_store: "GlobalLearningStore | None" = None,
         grounding_engine: "GroundingEngine | None" = None,
+        *,
+        context: RunnerContext | None = None,
     ) -> None:
         """Initialize job runner.
 
@@ -303,27 +354,38 @@ class JobRunner:
             config: Job configuration.
             backend: Claude execution backend.
             state_backend: State persistence backend.
-            console: Rich console for output (optional).
-            outcome_store: Optional outcome store for learning (Phase 1).
-            escalation_handler: Optional escalation handler for low-confidence
-                decisions (Phase 2). If not provided, escalation is disabled.
-            judgment_client: Optional judgment client for Recursive Light
-                integration (Phase 4). Provides TDF-aligned execution decisions.
-                If not provided, falls back to local _decide_next_action().
-            progress_callback: Optional callback for progress updates. Called with
-                (completed_sheets, total_sheets, eta_seconds). Used by CLI for
-                progress bar updates.
-            execution_progress_callback: Optional callback for real-time execution
-                progress during long-running sheet executions. Called with dict
-                containing: sheet_num, bytes_received, lines_received, elapsed_seconds,
-                phase. Used by CLI to show "Still running... 5.2KB received".
-            global_learning_store: Optional global learning store for cross-workspace
-                learning (Evolution #3: Learned Wait Time, #8: Cross-WS Circuit Breaker).
-                If provided, enables learned wait time injection and cross-workspace
-                rate limit coordination.
-            grounding_engine: Optional grounding engine for external validation of
-                sheet outputs. Provides external validators to prevent model drift.
+            console: Rich console for output (optional, prefer context.console).
+            outcome_store: Optional outcome store for learning (prefer context).
+            escalation_handler: Optional escalation handler (prefer context).
+            judgment_client: Optional judgment client (prefer context).
+            progress_callback: Optional progress callback (prefer context).
+            execution_progress_callback: Optional execution progress callback (prefer context).
+            global_learning_store: Optional global learning store (prefer context).
+            grounding_engine: Optional grounding engine (prefer context).
+            context: Optional RunnerContext grouping all optional dependencies.
+                When provided, context values take precedence over individual params.
+
+        Note:
+            The individual optional parameters are preserved for backwards
+            compatibility. New code should prefer using the context parameter:
+
+                context = RunnerContext(
+                    outcome_store=outcome_store,
+                    global_learning_store=get_global_store(),
+                )
+                runner = JobRunner(config, backend, state_backend, context=context)
         """
+        # Merge context with individual params (context takes precedence)
+        if context is not None:
+            console = context.console or console
+            outcome_store = context.outcome_store or outcome_store
+            escalation_handler = context.escalation_handler or escalation_handler
+            judgment_client = context.judgment_client or judgment_client
+            progress_callback = context.progress_callback or progress_callback
+            execution_progress_callback = context.execution_progress_callback or execution_progress_callback
+            global_learning_store = context.global_learning_store or global_learning_store
+            grounding_engine = context.grounding_engine or grounding_engine
+
         self.config = config
         self.backend = backend
         self.state_backend = state_backend

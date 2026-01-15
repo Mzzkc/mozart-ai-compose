@@ -2225,20 +2225,107 @@ def validate(
         exists=True,
         readable=True,
     ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        "-j",
+        help="Output validation results as JSON",
+    ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        "-v",
+        help="Show detailed validation output",
+    ),
 ) -> None:
-    """Validate a job configuration file."""
-    from mozart.core.config import JobConfig
+    """Validate a job configuration file.
 
+    Performs comprehensive validation including:
+    - YAML syntax and Pydantic schema validation
+    - Jinja template syntax checking
+    - Path existence verification
+    - Regex pattern compilation
+    - Configuration completeness checks
+
+    Exit codes:
+      0: Valid (warnings/info OK)
+      1: Invalid (one or more errors)
+      2: Cannot validate (file not found, YAML unparseable)
+    """
+    import yaml
+
+    from mozart.core.config import JobConfig
+    from mozart.validation import (
+        ValidationReporter,
+        ValidationRunner,
+        ValidationSeverity,
+        create_default_checks,
+    )
+
+    # First try to read and parse YAML
+    try:
+        raw_yaml = config_file.read_text()
+    except Exception as e:
+        if json_output:
+            console.print('{"valid": false, "error": "Cannot read file: ' + str(e) + '"}')
+        else:
+            console.print(f"[red]Cannot read config file:[/red] {e}")
+        raise typer.Exit(2) from None
+
+    # Try to parse YAML
+    try:
+        yaml.safe_load(raw_yaml)
+    except yaml.YAMLError as e:
+        if json_output:
+            console.print('{"valid": false, "error": "YAML syntax error: ' + str(e) + '"}')
+        else:
+            console.print(f"[red]YAML syntax error:[/red] {e}")
+        raise typer.Exit(2) from None
+
+    # Try Pydantic validation
     try:
         config = JobConfig.from_yaml(config_file)
-        console.print(f"[green]Valid configuration:[/green] {config.name}")
-        console.print(f"  Sheets: {config.sheet.total_sheets}")
-        console.print(f"  Backend: {config.backend.type}")
-        console.print(f"  Validations: {len(config.validations)}")
-        console.print(f"  Notifications: {len(config.notifications)}")
     except Exception as e:
-        console.print(f"[red]Invalid configuration:[/red] {e}")
-        raise typer.Exit(1) from None
+        if json_output:
+            console.print('{"valid": false, "error": "Schema validation failed: ' + str(e) + '"}')
+        else:
+            console.print(f"[red]Schema validation failed:[/red] {e}")
+        raise typer.Exit(2) from None
+
+    # Show basic info first
+    if not json_output:
+        console.print(f"\nValidating [cyan]{config.name}[/cyan]...")
+        console.print()
+        console.print("[green]✓[/green] YAML syntax valid")
+        console.print("[green]✓[/green] Schema validation passed (Pydantic)")
+        console.print()
+        console.print("Running extended validation checks...")
+
+    # Run extended validation checks
+    runner = ValidationRunner(create_default_checks())
+    issues = runner.validate(config, config_file, raw_yaml)
+
+    # Output results
+    reporter = ValidationReporter(console)
+
+    if json_output:
+        console.print(reporter.report_json(issues))
+    else:
+        reporter.report_terminal(issues, config.name)
+
+        # Show config summary if no errors
+        if not runner.has_errors(issues):
+            console.print()
+            console.print("[dim]Configuration summary:[/dim]")
+            console.print(f"  Sheets: {config.sheet.total_sheets}")
+            console.print(f"  Backend: {config.backend.type}")
+            console.print(f"  Validations: {len(config.validations)}")
+            console.print(f"  Notifications: {len(config.notifications)}")
+
+    # Exit with appropriate code
+    exit_code = runner.get_exit_code(issues)
+    if exit_code != 0:
+        raise typer.Exit(exit_code) from None
 
 
 @app.command()
@@ -3468,9 +3555,12 @@ def aggregate_patterns(
     """
     from mozart.learning.global_store import get_global_store
     from mozart.learning.migration import OutcomeMigrator
+    from mozart.learning.aggregator import PatternAggregator
 
     store = get_global_store()
-    migrator = OutcomeMigrator(store)
+    # Wire up pattern aggregator for pattern detection after migration
+    aggregator = PatternAggregator(store)
+    migrator = OutcomeMigrator(store, aggregator=aggregator)
 
     console.print("[bold]Aggregating patterns from workspaces...[/bold]\n")
 

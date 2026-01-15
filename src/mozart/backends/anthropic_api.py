@@ -263,7 +263,7 @@ class AnthropicApiBackend(Backend):
         except anthropic.APIStatusError as e:
             duration = time.monotonic() - start_time
             # Check if this is a rate limit error by status code or message
-            rate_limited = self._detect_rate_limit(str(e))
+            rate_limited = self._detect_rate_limit(stderr=str(e))
             status_code = e.status_code if hasattr(e, "status_code") else 500
 
             if rate_limited:
@@ -334,14 +334,25 @@ class AnthropicApiBackend(Backend):
                 model=self.model,
             )
 
-    def _detect_rate_limit(self, message: str) -> bool:
+    def _detect_rate_limit(self, stdout: str = "", stderr: str = "") -> bool:
         """Check output for rate limit indicators.
 
         Uses the shared ErrorClassifier to ensure consistent detection
         with the runner's error classification.
+
+        Note: This interface matches ClaudeCliBackend._detect_rate_limit
+        for consistency across backends.
+
+        Args:
+            stdout: Standard output text (often empty for API errors).
+            stderr: Standard error text or error message.
+
+        Returns:
+            True if rate limiting was detected.
         """
         classified = self._error_classifier.classify(
-            stderr=message,  # Error messages go to stderr conceptually
+            stdout=stdout,
+            stderr=stderr,
             exit_code=1,
         )
         return classified.category == ErrorCategory.RATE_LIMIT

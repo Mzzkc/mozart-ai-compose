@@ -595,11 +595,21 @@ class ClaudeCliBackend(Backend):
         """Execute a prompt (Backend protocol implementation)."""
         return await self._execute_impl(prompt)
 
-    def _detect_rate_limit(self, stdout: str, stderr: str) -> bool:
+    def _detect_rate_limit(self, stdout: str = "", stderr: str = "") -> bool:
         """Check output for rate limit indicators.
 
         Uses the shared ErrorClassifier to ensure consistent detection
         with the runner's error classification.
+
+        Note: This interface matches AnthropicBackend._detect_rate_limit
+        for consistency across backends.
+
+        Args:
+            stdout: Standard output text from CLI execution.
+            stderr: Standard error text from CLI execution.
+
+        Returns:
+            True if rate limiting was detected.
         """
         # Use ErrorClassifier for unified rate limit detection
         classified = self._error_classifier.classify(
