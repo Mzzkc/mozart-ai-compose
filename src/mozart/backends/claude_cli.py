@@ -245,8 +245,8 @@ class ClaudeCliBackend(Backend):
 
         return cmd
 
-    async def run_prompt(self, prompt: str) -> ExecutionResult:
-        """Run a prompt via claude CLI.
+    async def _execute_impl(self, prompt: str) -> ExecutionResult:
+        """Execute a prompt via claude CLI (internal implementation).
 
         Uses create_subprocess_exec (safe, no shell) to invoke claude.
 
@@ -587,10 +587,9 @@ class ClaudeCliBackend(Backend):
 
         return b"".join(stdout_chunks), b"".join(stderr_chunks)
 
-    # Alias for Backend protocol
     async def execute(self, prompt: str) -> ExecutionResult:
-        """Execute a prompt (alias for run_prompt)."""
-        return await self.run_prompt(prompt)
+        """Execute a prompt (Backend protocol implementation)."""
+        return await self._execute_impl(prompt)
 
     def _detect_rate_limit(self, stdout: str, stderr: str) -> bool:
         """Check output for rate limit indicators.
@@ -613,7 +612,7 @@ class ClaudeCliBackend(Backend):
 
         try:
             # Simple test prompt
-            result = await self.run_prompt("Say 'ready' and nothing else.")
+            result = await self._execute_impl("Say 'ready' and nothing else.")
             return result.success and "ready" in result.stdout.lower()
         except Exception:
             return False

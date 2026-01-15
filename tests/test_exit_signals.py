@@ -130,7 +130,7 @@ class TestClaudeCliBackendSignalNames:
 
 
 class TestClaudeCliBackendSignalDetection:
-    """Test ClaudeCliBackend signal detection in run_prompt."""
+    """Test ClaudeCliBackend signal detection in execute()."""
 
     @pytest.fixture
     def backend(self) -> ClaudeCliBackend:
@@ -147,7 +147,7 @@ class TestClaudeCliBackendSignalDetection:
         mock_process.communicate = AsyncMock(return_value=(b"output", b""))
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await backend.run_prompt("test")
+            result = await backend.execute("test")
 
         assert result.success is True
         assert result.exit_code == 0
@@ -162,7 +162,7 @@ class TestClaudeCliBackendSignalDetection:
         mock_process.communicate = AsyncMock(return_value=(b"", b"error"))
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await backend.run_prompt("test")
+            result = await backend.execute("test")
 
         assert result.success is False
         assert result.exit_code == 1
@@ -178,7 +178,7 @@ class TestClaudeCliBackendSignalDetection:
         mock_process.communicate = AsyncMock(return_value=(b"partial", b""))
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await backend.run_prompt("test")
+            result = await backend.execute("test")
 
         assert result.success is False
         assert result.exit_code is None
@@ -194,7 +194,7 @@ class TestClaudeCliBackendSignalDetection:
         mock_process.communicate = AsyncMock(return_value=(b"", b""))
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await backend.run_prompt("test")
+            result = await backend.execute("test")
 
         assert result.exit_signal == signal.SIGSEGV
         assert result.exit_reason == "killed"
@@ -213,7 +213,7 @@ class TestClaudeCliBackendSignalDetection:
         mock_process.communicate = AsyncMock(side_effect=TimeoutError())
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await backend.run_prompt("test")
+            result = await backend.execute("test")
 
         assert result.success is False
         assert result.exit_code is None
@@ -227,7 +227,7 @@ class TestClaudeCliBackendSignalDetection:
         with patch(
             "asyncio.create_subprocess_exec", side_effect=FileNotFoundError("not found")
         ):
-            result = await backend.run_prompt("test")
+            result = await backend.execute("test")
 
         assert result.success is False
         assert result.exit_code == 127
@@ -240,7 +240,7 @@ class TestClaudeCliBackendSignalDetection:
         with patch(
             "asyncio.create_subprocess_exec", side_effect=RuntimeError("unexpected")
         ):
-            result = await backend.run_prompt("test")
+            result = await backend.execute("test")
 
         assert result.success is False
         assert result.exit_code is None

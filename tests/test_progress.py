@@ -401,7 +401,7 @@ class TestClaudeCliBackendProgress:
         mock_process.wait = AsyncMock()
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            await backend.run_prompt("test prompt")
+            await backend.execute("test prompt")
 
         # Should have at least starting and completed phases
         assert len(progress_updates) >= 2
@@ -450,7 +450,7 @@ class TestClaudeCliBackendProgress:
         mock_process.wait = AsyncMock()
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            await backend.run_prompt("test prompt")
+            await backend.execute("test prompt")
 
         # Final update should have correct counts
         final = progress_updates[-1]
@@ -471,7 +471,7 @@ class TestClaudeCliBackendProgress:
         mock_process.wait = AsyncMock()
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await backend.run_prompt("test prompt")
+            result = await backend.execute("test prompt")
 
         assert result.success
         assert result.stdout == "output"
