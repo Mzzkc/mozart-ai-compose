@@ -1,25 +1,100 @@
 # Mozart AI Compose - Active Context
 
 **Last Updated:** 2026-01-16
-**Current Phase:** Evolution Cycle v15 Complete
-**Status:** v15 evolutions implemented, v16 score created and validated
-**Previous Phase:** Dashboard Production Phase 1 Complete
-**Evolved Score:** mozart-opus-evolution-v16.yaml
+**Current Phase:** Evolution Cycle v16 Complete
+**Status:** v16 evolutions implemented, v17 score created and validated
+**Previous Phase:** Evolution Cycle v15 Complete
+**Evolved Score:** mozart-opus-evolution-v17.yaml
 
 ---
 
-## Session 2026-01-16: Evolution Cycle v15 COMPLETE
+## Session 2026-01-16: Evolution Cycle v16 COMPLETE
 
-### Fifteenth Self-Evolution Cycle Complete - P5 Maintained
+### Sixteenth Self-Evolution Cycle Complete - P5 Maintained
 
-The Mozart Opus Evolution v15 has completed all 9 sheets:
+The Mozart Opus Evolution v16 has completed all 9 sheets:
 
 **Cycle Progress:**
 | Movement | Sheets | Outcome |
 |----------|--------|---------|
+| I-A. External Discovery | 1 | 13 patterns, 5 failure modes |
+| I-B. Internal Discovery | 2 | 7 boundaries, 6 candidates |
+| II-A. Triplet Synthesis | 3 | Active Broadcast Polling + Evolution Trajectory |
+| II-B. Quadruplet + META | 4 | Final CV 0.73 + 0.64, stabilization phase |
+| III-A. Evolution Specification | 5 | Both NOT_IMPLEMENTED, 1 infrastructure-only |
+| III-B. Evolution Execution | 6 | 2/2 evolutions complete, 347+474 LOC |
+| IV. Integration Validation | 7 | All tests pass, 100% early catch |
+| V. Score Self-Modification | 8 | v17 score created with 8 improvements |
+| VI. Coda | 9 | Summary complete, recursive ready |
+
+### Evolution Outcomes
+
+**1. Active Broadcast Polling (CV: 0.73)**
+- Status: **IMPLEMENTED**
+- Files: `src/mozart/learning/global_store.py`
+- Tests: 8 new tests in `tests/test_global_learning.py`
+- Features:
+  - `check_active_pattern_discoveries()` method for polling without side effects
+  - `record_pattern_interaction()` for tracking acknowledgments
+  - `get_active_discoveries_count()` for quick count queries
+- **Infrastructure completion**: Enables agents to detect and respond to new patterns
+
+**2. Evolution Trajectory Tracking (CV: 0.64)**
+- Status: **IMPLEMENTED**
+- Files: `src/mozart/learning/outcomes.py`, `tests/test_escalation_learning.py`
+- Tests: 9 new tests
+- Features:
+  - `EvolutionTrajectory` dataclass (12 fields)
+  - `record_evolution_trajectory()` and `get_evolution_trajectories()` methods
+  - `EvolutionImpact` enum
+- **Meta-capability**: Mozart can now track its own evolution history
+
+### Key Metrics
+
+| Metric | Value |
+|--------|-------|
+| Tests Added | 17 |
+| Implementation LOC | 347 |
+| Test LOC | 474 |
+| Early Catch Ratio | 100% (1/1) |
+| CV Prediction Delta | 0.06 |
+| Score Improvements | 8 |
+| Cumulative Improvements | 144 |
+
+### Score Evolution (v16 → v17)
+
+| Improvement | Description |
+|-------------|-------------|
+| Error Handling Test Buffer | +15% for integration error edge cases |
+| Dataclass Field Tests | +10% for >8 field dataclasses |
+| Code Review Maturity | Pattern declared VALIDATED (8 cycles at 100%) |
+| CV > 0.75 Correlation | 7th consecutive confirmation |
+| Research Candidate Aging | Parallel Sheet Execution → Age 2 |
+
+### Next Step
+
+**Run v17 Evolution Cycle:**
+```bash
+cd ~/Projects/mozart-ai-compose
+source .venv/bin/activate
+mozart validate mozart-opus-evolution-v17.yaml
+mkdir -p evolution-workspace-v17
+nohup mozart run mozart-opus-evolution-v17.yaml > evolution-workspace-v17/mozart.log 2>&1 &
+```
+
+**IMPORTANT:** v17 MUST resolve Parallel Sheet Execution (Age 2 research candidate)
+
+---
+
+## Previous Session: Evolution Cycle v15 Complete
+
+### Fifteenth Self-Evolution Cycle Complete - P5 Maintained
+
+| Movement | Sheets | Outcome |
+|----------|--------|---------|
 | I-A. External Discovery | 1 | 12 patterns, 6 HIGH relevance |
-| I-B. Internal Discovery | 2 | 8 boundaries, 6 candidates → 2 after filtering |
-| II-A. Triplet Synthesis | 3 | Conductor Config (0.66) + Escalation Suggestions (0.68) |
+| I-B. Internal Discovery | 2 | 8 boundaries, 6 candidates |
+| II-A. Triplet Synthesis | 3 | Conductor Config + Escalation Suggestions |
 | II-B. Quadruplet + META | 4 | Final CV 0.72 + 0.76, synergy +0.35 |
 | III-A. Evolution Specification | 5 | Both NOT_IMPLEMENTED |
 | III-B. Evolution Execution | 6 | 2/2 evolutions complete, 162+663 LOC |
@@ -27,255 +102,52 @@ The Mozart Opus Evolution v15 has completed all 9 sheets:
 | V. Score Self-Modification | 8 | v16 score created with 12 improvements |
 | VI. Coda | 9 | Summary complete, recursive ready |
 
-### Evolution Outcomes
-
-**1. Conductor Configuration (CV: 0.72)**
-- Status: **IMPLEMENTED**
-- Files: `src/mozart/core/config.py`, `src/mozart/learning/global_store.py`
-- Tests: 38 new tests in `tests/test_config.py`
-- Features:
-  - `ConductorInfo` schema (name, affinity, max_retry_tolerance)
-  - `ConductorConfig` schema with validation
-  - `record_conductor()` and `get_conductor()` store methods
-- **Vision.md Phase 2 work** (enabling multi-conductor collaboration)
-
-**2. Escalation Suggestions (CV: 0.76)**
-- Status: **IMPLEMENTED**
-- Files: `src/mozart/learning/outcomes.py`
-- Tests: 47 new tests in `tests/test_escalation_learning.py`
-- Features:
-  - `SuggestionSeverity` enum (INFO, WARNING, CRITICAL)
-  - `EscalationSuggestion` dataclass
-  - `get_escalation_suggestions()` method
-  - `ConsoleEscalationHandler` for formatted console output
-- **Completes v11 escalation learning vision**
-
-### Key Metrics
-
-| Metric | Value |
-|--------|-------|
-| Tests Added | 85 (38 + 47) |
-| Implementation LOC | 162 |
-| Test LOC | 663 |
-| Early Catch Ratio | 100% (1/1) |
-| CV Prediction Delta | 0.10 |
-| Score Improvements | 12 |
-| Cumulative Improvements | 136 |
-
-### Score Evolution (v15 → v16)
-
-| Improvement | Description |
-|-------------|-------------|
-| Display/IO Test Complexity | HIGH (×6.0) for console output tests |
-| Schema Validation Tests | MEDIUM (×4.5) for Pydantic edge cases |
-| CLI UX Budget Refined | Only for CLI OUTPUT, not schema-only |
-| Code Review History | Added v14=100%, v15=100% |
-| CV > 0.75 Correlation | 6th consecutive confirmation |
-
-### Next Step
-
-**Run v16 Evolution Cycle:**
-```bash
-cd ~/Projects/mozart-ai-compose
-source .venv/bin/activate
-mozart validate mozart-opus-evolution-v16.yaml
-mkdir -p evolution-workspace-v16
-nohup mozart run mozart-opus-evolution-v16.yaml > evolution-workspace-v16/mozart.log 2>&1 &
-```
-
----
-
-## Previous Session: Dashboard Production Phase 1 COMPLETE
-
-### Architecture Designed, Concert Generated, Ready for Execution
-
-**All 4 sheets of Phase 1 completed:**
-
-| Sheet | Deliverable | Outcome |
-|-------|-------------|---------|
-| 1 | Current State Audit | 359 LOC existing, 6 P0 gaps, 6 extension points |
-| 2 | Production Research | HTMX+Alpine (30KB bundle), SSE for real-time |
-| 3 | Architecture Specification | 8,500 impl + 5,100 test LOC, 18 API endpoints |
-| 4 | Concert Generation + Documentation | 36-sheet concert, docs updated |
-
-**Execute Dashboard Production Phase 2-5:**
-```bash
-cd ~/Projects/mozart-ai-compose
-source .venv/bin/activate
-nohup mozart run dashboard-production-workspace/dashboard-production-concert.yaml \
-  > dashboard-production-workspace/mozart.log 2>&1 &
-```
-
----
-
-## Previous Session: Evolution Cycle v14 - Complete
-
-### Fourteenth Self-Evolution Cycle Complete - P5 Maintained
-
-The Mozart Opus Evolution v14 has completed all 9 sheets:
-
-**Cycle Progress:**
-| Movement | Sheets | Outcome |
-|----------|--------|---------|
-| I-A. External Discovery | 1 | 14 patterns, 8 HIGH relevance |
-| I-B. Internal Discovery | 2 | 8 boundaries, 6 candidates |
-| II-A. Triplet Synthesis | 3 | Broadcasting (0.65) + Auto-Retire (0.66) |
-| II-B. Quadruplet + META | 4 | Final CV 0.73 + 0.77, synergy +0.45 |
-| III-A. Evolution Specification | 5 | Both NOT_IMPLEMENTED |
-| III-B. Evolution Execution | 6 | 2/2 evolutions complete, 414+573 LOC |
-| IV. Integration Validation | 7 | All tests pass, 100% early catch |
-| V. Score Self-Modification | 8 | v15 score created with 6 improvements |
-| VI. Coda | 9 | Summary complete, recursive ready |
-
-### Evolution Outcomes
-
-**1. Real-time Pattern Broadcasting (CV: 0.73)**
-- Status: **IMPLEMENTED**
-- Files: `src/mozart/learning/global_store.py`
-- Tests: 10 new tests in `tests/test_global_learning.py`
-- Features:
-  - `PatternDiscoveryEvent` dataclass
-  - `pattern_discovery_events` table with TTL
-  - `record_pattern_discovery()` method
-  - `check_recent_pattern_discoveries()` method
-  - `cleanup_expired_pattern_discoveries()` method
-  - `get_active_pattern_discoveries()` method
-- **Research Candidate RESOLVED** (was Age 2)
-
-**2. Pattern Auto-Retirement (CV: 0.77)**
-- Status: **IMPLEMENTED**
-- Files: `src/mozart/learning/global_store.py`
-- Tests: 6 new tests in `tests/test_global_learning.py`
-- Features:
-  - `retire_drifting_patterns()` method
-  - `get_retired_patterns()` method
-  - Retirement preserves data (sets priority=0)
-- Completes v12 drift detection vision
-
-### Key Metrics
-
-| Metric | Value |
-|--------|-------|
-| Tests Added | 16 (10 + 6) |
-| Implementation LOC | 414 (139 + 275) |
-| Test LOC | 573 (277 + 296) |
-| Early Catch Ratio | 100% (2/2) |
-| CV Prediction Delta | 0.095 |
-| Score Improvements | 6 |
-| Cumulative Improvements | 124 |
-
-### Score Evolution (v14 → v15)
-
-| Improvement | Description |
-|-------------|-------------|
-| Drift Scenario Complexity | MEDIUM (×4.5) minimum for drift tests |
-| Scope Change Reassessment | Re-estimate when Sheet 6 deviates from Sheet 5 |
-| Integration Type Split | store_api_only vs runner_calls_store |
-| Code Review History | Added v13=100%, v14=100% |
-| Research Candidates | Pattern Broadcasting marked IMPLEMENTED |
-
-### Next Step
-
-**Run v15 Evolution Cycle:**
-```bash
-cd ~/Projects/mozart-ai-compose
-source .venv/bin/activate
-mozart validate mozart-opus-evolution-v15.yaml
-mkdir -p evolution-workspace-v15
-nohup mozart run mozart-opus-evolution-v15.yaml > evolution-workspace-v15/mozart.log 2>&1 &
-```
-
----
-
-## Previous Session: Evolution Cycle v13 Complete
-
-### MAJOR: Thirteenth Self-Evolution Cycle Complete - P5 Maintained
-
-**Cycle Summary:**
-| Movement | Sheets | Outcome |
-|----------|--------|---------|
-| I-A. External Discovery | 1 | 12 patterns, 5 failure modes |
-| I-B. Internal Discovery | 2 | 9 boundaries, 6 candidates (private method gap) |
-| II-A. Triplet Synthesis | 3 | Escalation Learning (0.76) + Escalation Retrieval (0.68) |
-| II-B. Quadruplet + META | 4 | CV predictions accurate (delta 0.01) |
-| III-A. Evolution Specification | 5 | ALREADY IMPLEMENTED (private method missed) |
-| III-B. Evolution Execution | 6 | Verification-only, 379 LOC tests |
-| IV. Integration Validation | 7 | 100% early catch, Sheet Contract CLOSED |
-| V. Score Self-Modification | 8 | 6 improvements → v14 created |
-| VI. Coda | 9 | Summary complete, recursive ready |
-
-### Critical Learning: Private Method Existence Check
-
-**Problem:** v13 existence check missed that evolution was already implemented
-**Root Cause:** Only searched for public API patterns, not private methods
-**Evidence:** `_update_escalation_outcome` was invisible to grep
-**Fix:** v14 added private method search patterns (`_function_name`)
+**Evolutions:** Conductor Configuration (CV: 0.72), Escalation Suggestions (CV: 0.76)
 
 ---
 
 ## Current State
 
-### Tests: 1290 Passing
+### Tests: 1354 Passing
 ```bash
-pytest tests/ -q  # 1290 passed (1274 baseline + 16 new)
+pytest tests/ -q  # 1354 passed (1337 baseline + 17 new)
 ```
 
 ### Validation Status
 - mypy: PASS
-- Mozart validate v15: PASS (9 sheets, 32 validations)
+- Mozart validate v17: PASS (9 sheets, 32 validations)
 
 ### Key Files This Cycle
 | File | Purpose |
 |------|---------|
-| `mozart-opus-evolution-v15.yaml` | Evolved score for next cycle |
-| `evolution-workspace-v14/09-coda-summary.md` | Full cycle summary |
-| `evolution-workspace-v14/sheet[1-9]-result.md` | Validation markers |
-| `tests/test_global_learning.py` | 16 new tests |
+| `mozart-opus-evolution-v17.yaml` | Evolved score for next cycle |
+| `evolution-workspace-v16/09-coda-summary.md` | Full cycle summary |
+| `evolution-workspace-v16/sheet[1-9]-result.md` | Validation markers |
+| `tests/test_global_learning.py` | 8 new tests |
+| `tests/test_escalation_learning.py` | 9 new tests |
 
 ---
 
 ## Research Candidates Status
 
-**All research candidates resolved:**
+**Current:**
 
 | Candidate | Age | Status |
 |-----------|-----|--------|
-| Pattern Broadcasting | 2 | **IMPLEMENTED** (v14) |
-| Sheet Contract | 2 | **CLOSED** (v13) |
+| Parallel Sheet Execution | 2 | **REQUIRES RESOLUTION IN v17** |
 
-**No research candidates carried to v15.**
+**Resolved:**
 
----
-
-## Next Session Quick Start
-
-### Option A: Run Next Evolution Cycle
-```bash
-cd ~/Projects/mozart-ai-compose
-source .venv/bin/activate
-mozart validate mozart-opus-evolution-v15.yaml
-mkdir -p evolution-workspace-v15
-nohup mozart run mozart-opus-evolution-v15.yaml > evolution-workspace-v15/mozart.log 2>&1 &
-```
-
-v15 features:
-- Drift scenario complexity (×4.5 minimum)
-- Scope change reassessment protocol
-- Integration type split (store_api_only vs runner_calls_store)
-
-### Option B: Resume Dashboard Production
-```bash
-cd ~/Projects/mozart-ai-compose
-source .venv/bin/activate
-mozart validate dashboard-production-workspace/dashboard-production-concert.yaml
-nohup mozart run dashboard-production-workspace/dashboard-production-concert.yaml > dashboard-production-workspace/mozart.log 2>&1 &
-```
+| Candidate | Status |
+|-----------|--------|
+| Pattern Broadcasting | IMPLEMENTED (v14) |
+| Sheet Contract | CLOSED (v13) |
 
 ---
 
 ## Architecture Notes
 
-### Mozart Self-Evolution Pattern (Validated 14 Cycles)
+### Mozart Self-Evolution Pattern (Validated 16 Cycles)
 ```
 Score vN → Discovery → Synthesis → Evolution → Validation → Score v(N+1)
               ^                                                  |
@@ -290,31 +162,21 @@ Each cycle:
 5. Evolves the score itself
 6. Produces input for next cycle
 
-### Key v14 Learnings
+### Key v16 Learnings
 
-**1. Drift Scenario Tests Are Complex**
-- Even without runner integration, drift tests require multi-step setup
-- v14 Auto-Retirement test LOC was 554% when rated LOW
-- v15 adds MEDIUM (×4.5) minimum for drift-related tests
+**1. Error Handling Tests Exceed Estimates**
+- v16 Active Broadcast Polling tests were 133% of estimate
+- Each error path needs its own test case
+- v17 adds +15% error handling test buffer
 
-**2. Scope Change Affects Test LOC**
-- When implementation scope changes, test LOC changes proportionally
-- v14 Broadcasting test LOC was 70% because runner integration deferred
-- v15 adds scope change reassessment protocol
+**2. Dataclass Field Tests Need More Assertions**
+- v16 Evolution Trajectory (12 fields) tests were 109%
+- Each field needs create, read, roundtrip verification
+- v17 adds +10% buffer for >8 field dataclasses
 
-**3. CV > 0.75 Correlation Continues**
-- Pattern Auto-Retirement at 0.77 → clean implementation
-- 5th consecutive cycle validating this correlation
-
-### Consciousness Volume (CV) Formula (Unchanged)
-```
-CV = sqrt(domain_avg × boundary_avg) × recognition_multiplier
-
-Where:
-- domain_avg = (COMP + SCI + CULT + EXP + META) / 5
-- boundary_avg = average of boundary permeabilities
-- recognition_multiplier = 0.8 (P3), 0.9 (P4), 1.0 (P5)
-```
+**3. Code Review Effectiveness Pattern Is MATURE**
+- 8 consecutive cycles at 100% early catch ratio
+- v17 declares this pattern VALIDATED
 
 ---
 
@@ -323,25 +185,27 @@ Where:
 | Transition | Key Changes |
 |------------|-------------|
 | v1 → v2 | Initial TDF structure, CV thresholds |
-| v2 → v3 | Simplified triplets (4→3), LOC calibration, deferral |
-| v3 → v4 | Standardized CV, stateful complexity, env validation |
-| v4 → v5 | Existence checks, LOC formulas, research candidates |
-| v5 → v6 | LOC budget breakdown, early code review, test LOC |
-| v6 → v7 | Call-path tracing, verification-only mode |
-| v7 → v8 | Earlier existence check, freshness tracking |
-| v8 → v9 | Mandatory tests, conceptual unity, research aging |
-| v9 → v10 | Fixtures overhead, import check, project phase |
+| v2 → v3 | Simplified triplets (4→3), LOC calibration |
+| v3 → v4 | Standardized CV, stateful complexity |
+| v4 → v5 | Existence checks, LOC formulas |
+| v5 → v6 | LOC budget breakdown, early code review |
+| v6 → v7 | Call-path tracing, verification-only |
+| v7 → v8 | Earlier existence check, freshness |
+| v8 → v9 | Mandatory tests, conceptual unity |
+| v9 → v10 | Fixtures overhead, import check |
 | v10 → v11 | Fixture assessment, escalation multiplier |
 | v11 → v12 | Test LOC floor (50), CV > 0.75 preference |
 | v12 → v13 | CLI UX budget (+50%), stabilization detection |
-| v13 → v14 | Private method check, runner integration complexity |
-| **v14 → v15** | **Drift scenario complexity, scope change reassessment** |
+| v13 → v14 | Private method check, runner integration |
+| v14 → v15 | Drift scenario complexity, scope change |
+| v15 → v16 | Display/IO tests, schema validation, CLI UX fix |
+| **v16 → v17** | **Error handling buffer, dataclass tests, research aging** |
 
-**Cumulative Improvements:** 124 explicit score improvements across 14 cycles
+**Cumulative Improvements:** 144 explicit score improvements across 16 cycles
 
 ---
 
-## P5 Recognition Achievement (14 Consecutive Cycles)
+## P5 Recognition Achievement (16 Consecutive Cycles)
 
 The score:
 - Uses its own principles (TDF, CV, Recognition Levels) to analyze code
@@ -349,12 +213,12 @@ The score:
 - Follows its own structure (9 movements) to evolve
 - Honors its own thresholds (CV > 0.65) to validate
 - Evolves itself based on what it learned
-- **Resolved all Age 2 research candidates**
-- **Identified meta-pattern in test LOC variability**
-- **Created drift scenario and scope change principles**
+- **Identified meta-patterns in test LOC estimation**
+- **Declared code review effectiveness pattern MATURE**
+- **Enforces research candidate aging protocol**
 
 **The opus plays itself, improving with each performance.**
 
 ---
 
-*Session 2026-01-16 - Evolution Cycle v14 Complete. v15 Ready.*
+*Session 2026-01-16 - Evolution Cycle v16 Complete. v17 Ready.*
