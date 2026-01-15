@@ -103,6 +103,8 @@ mozart status job-id -j              # JSON output
 mozart resume job-id -w ./ws         # Resume from checkpoint
 mozart resume job-id -c new.yaml     # Resume with new config
 mozart resume job-id --force         # Force resume completed job
+mozart resume job-id -r              # Reload config from original YAML
+mozart resume job-id -r -c fix.yaml  # Reload from different YAML file
 ```
 
 | Option | Short | Description |
@@ -110,6 +112,7 @@ mozart resume job-id --force         # Force resume completed job
 | `--workspace` | `-w` | Workspace directory |
 | `--config` | `-c` | Override config file |
 | `--force` | `-f` | Resume even if completed |
+| `--reload-config` | `-r` | Reload config from YAML instead of using cached snapshot |
 
 ### `mozart errors`
 
@@ -656,7 +659,7 @@ mozart run job.yaml --start-sheet N
 | `pattern: ".*"` | Matches everything | Specific regex patterns |
 | Omit `description` | Hard to debug | Always describe validations |
 | `source .venv/bin/activate && ...` in validations | `source` is bash-only, fails on `/bin/sh` | Use `python` directly (venv is on PATH) |
-| Edit YAML then `resume` | Config is **cached** in state file | Update config_snapshot or delete state |
+| Edit YAML then `resume` | Config is **cached** in state file | Use `--reload-config` flag |
 
 ---
 
@@ -674,7 +677,18 @@ mozart run job.yaml --start-sheet N
 
 ### How to Fix
 
-**Option 1: Update config_snapshot manually**
+**Option 1: Use `--reload-config` (Recommended)**
+```bash
+# Reload from the original YAML file
+mozart resume job-id -w ./ws --reload-config
+
+# Or reload from a different/fixed YAML file
+mozart resume job-id -w ./ws --reload-config --config fixed.yaml
+```
+
+This updates the cached `config_snapshot` in the state file with the current YAML contents, then continues execution.
+
+**Option 2: Update config_snapshot manually**
 ```python
 import json, yaml
 with open('job.yaml') as f:
@@ -686,16 +700,145 @@ with open('workspace/job.json', 'w') as f:
     json.dump(state, f, indent=2)
 ```
 
-**Option 2: Delete state and restart**
+**Option 3: Delete state and restart**
 ```bash
 rm workspace/job.json
 mozart run job.yaml
 ```
 
-**Option 3: Start fresh on specific sheet**
+**Option 4: Start fresh on specific sheet**
 ```bash
 mozart run job.yaml --start-sheet 5
 ```
+
+---
+
+## Jinja Template Pitfalls
+
+Mozart uses Jinja2 for template rendering. These are common mistakes that cause template parsing failures:
+
+### Problem: Literal `{{` in Template Content
+
+If your template contains literal `{{` (e.g., in code examples or documentation), Jinja tries to parse it as a variable.
+
+**Error:**
+```
+TemplateSyntaxError: unexpected char '`' at position X
+```
+
+**Wrong:**
+```yaml
+prompt:
+  template: |
+    | Example | Description |
+    | `{{ foo }}` | Shows a variable |  # FAILS - Jinja tries to parse this
+```
+
+**Fix - Use Jinja escaping:**
+```yaml
+prompt:
+  template: |
+    | Example | Description |
+    | `{{ '{{' }} foo {{ '}}' }}` | Shows a variable |  # Outputs: {{ foo }}
+```
+
+**Alternative - Use raw blocks for large sections:**
+```yaml
+prompt:
+  template: |
+    {% raw %}
+    Here's a Jinja example: {{ variable }}
+    And another: {% for item in items %}
+    {% endraw %}
+```
+
+### Problem: Unclosed Tags
+
+**Wrong:**
+```yaml
+prompt:
+  template: |
+    {% if sheet_num == 1 %}
+    Do something
+    # Missing {% endif %}
+```
+
+**Fix:** Always close your control structures:
+- `{% if %}` needs `{% endif %}`
+- `{% for %}` needs `{% endfor %}`
+- `{% block %}` needs `{% endblock %}`
+
+### Problem: Undefined Variables
+
+**Error:**
+```
+UndefinedError: 'unknown_var' is undefined
+```
+
+**Available Variables:**
+| Variable | Example Value |
+|----------|---------------|
+| `sheet_num` | `5` |
+| `total_sheets` | `10` |
+| `start_item` | `41` |
+| `end_item` | `50` |
+| `workspace` | `./workspace` |
+| `job_name` | `my-job` |
+
+Custom variables must be defined in `prompt.variables`.
+
+### Problem: Whitespace Control
+
+Jinja adds whitespace from control structures. Use `-` to strip whitespace:
+
+**Messy output:**
+```yaml
+template: |
+  {% for i in range(3) %}
+  Item {{ i }}
+  {% endfor %}
+```
+
+**Clean output:**
+```yaml
+template: |
+  {%- for i in range(3) %}
+  Item {{ i }}
+  {%- endfor %}
+```
+
+### Problem: YAML Multiline + Jinja
+
+When using `|` for multiline YAML, watch indentation:
+
+**Wrong:**
+```yaml
+prompt:
+  template: |
+{% if condition %}  # No indentation - breaks YAML
+content
+{% endif %}
+```
+
+**Correct:**
+```yaml
+prompt:
+  template: |
+    {% if condition %}
+    content
+    {% endif %}
+```
+
+### Quick Reference: Escaping Jinja Syntax
+
+| To Output | Write |
+|-----------|-------|
+| `{{` | `{{ '{{' }}` |
+| `}}` | `{{ '}}' }}` |
+| `{%` | `{{ '{%' }}` |
+| `%}` | `{{ '%}' }}` |
+| `{#` | `{{ '{#' }}` |
+| `#}` | `{{ '#}' }}` |
 
 ---
 
@@ -836,6 +979,215 @@ Runner (runner.py)
   "total_cost_usd": 0.45
 }
 ```
+
+---
+
+## Self-Improving Jobs: Use What You Build
+
+When running self-improving or evolution jobs (like `mozart-opus-evolution-vN.yaml`), ensure the jobs actually USE the features they implement. This is critical for closing the feedback loop.
+
+### The Problem
+
+Evolution jobs often build infrastructure without enabling it:
+
+| Cycle | Feature Implemented | Enabled in Config? |
+|-------|--------------------|--------------------|
+| v9 | Grounding hooks | No `grounding:` section |
+| v9 | Pattern feedback loop | Learning enabled, but no patterns applied |
+| v11 | Escalation learning | Being implemented (can't use yet) |
+
+This creates "infrastructure without usage" - features that could work but aren't tested in production.
+
+### The Fix
+
+When generating the next evolution config (Sheet 8), enable features from N-1 or earlier:
+
+```yaml
+# v12 should enable v9's grounding hooks:
+grounding:
+  enabled: true
+  hooks:
+    - type: file_checksum
+      paths:
+        - "{workspace}/*.md"
+
+# v12 should enable v10's pattern learning:
+learning:
+  enabled: true
+  pattern_injection: true  # Actually inject patterns into prompts
+```
+
+### Checklist for Evolution Jobs
+
+Before running vN, verify:
+
+1. **Features from v(N-2) are enabled** - Give features one cycle to stabilize
+2. **Config sections exist** - Not just prompt instructions, actual runtime config
+3. **Validations test the features** - Add validation rules that exercise new features
+
+### Anti-Pattern: Building Without Using
+
+```yaml
+# BAD: v12 instructions mention grounding but don't enable it
+prompt:
+  template: |
+    Use the grounding engine to validate...  # Just words
+
+# GOOD: v12 actually configures grounding
+grounding:
+  enabled: true
+  hooks:
+    - type: file_checksum
+```
+
+---
+
+## Self-Healing & Enhanced Validation
+
+Mozart includes two complementary error recovery systems:
+
+### Enhanced Validation (`mozart validate`)
+
+Pre-execution checks that catch configuration issues before jobs run:
+
+```bash
+# Basic validation
+mozart validate job.yaml
+
+# JSON output (for CI/CD)
+mozart validate job.yaml --json
+```
+
+**Exit Codes:**
+| Code | Meaning |
+|------|---------|
+| 0 | Valid (warnings/info OK) |
+| 1 | Invalid (has ERROR-severity issues) |
+| 2 | Cannot validate (file not found, YAML broken) |
+
+**Validation Checks:**
+
+| Check ID | Description | Severity | Auto-fixable |
+|----------|-------------|----------|--------------|
+| V001 | Jinja syntax errors (unclosed blocks, expressions) | ERROR | Manual |
+| V002 | Workspace parent directory missing | ERROR | Yes |
+| V003 | Template file missing | ERROR | Manual |
+| V004 | System prompt file missing | ERROR | Manual |
+| V005 | Working directory invalid | ERROR | Yes |
+| V007 | Invalid regex patterns | ERROR | Suggested |
+| V008 | Missing required validation fields | ERROR | Manual |
+| V101 | Undefined Jinja variable (with typo suggestions) | WARNING | Suggested |
+| V103 | Very short timeout (<60s) | WARNING | Suggested |
+| V104 | Very long timeout (>2h) | INFO | N/A |
+| V106 | Empty pattern in validation | WARNING | Manual |
+| V107 | Referenced files missing | WARNING | Manual |
+
+**Example Output:**
+```
+$ mozart validate my-job.yaml
+
+Validating my-job...
+
+✓ YAML syntax valid
+✓ Schema validation passed (Pydantic)
+
+Running extended validation checks...
+
+ERRORS (must fix before running):
+  ✗ [V001] Line 15: Jinja syntax error - unexpected end of template
+         {{ sheet_num of {{ total_sheets }}
+         Suggestion: Add closing '}}' to the expression
+
+WARNINGS (may cause issues):
+  ! [V101] Undefined variable 'shee_num' in prompt.template
+         Suggestion: Did you mean 'sheet_num'?
+
+Summary: 1 error (must fix), 1 warning (should fix)
+
+Validation: FAILED
+```
+
+### Self-Healing (`--self-healing`)
+
+Automatic diagnosis and remediation when retries are exhausted:
+
+```bash
+# Enable self-healing
+mozart run job.yaml --self-healing
+
+# Auto-confirm suggested fixes (non-interactive)
+mozart run job.yaml --self-healing --yes
+
+# Works with resume too
+mozart resume job-id --self-healing
+```
+
+**How It Works:**
+1. Normal retry flow happens first (retries must be exhausted)
+2. Error context collected (error code, stdout/stderr, config)
+3. Diagnosis engine finds applicable remedies (sorted by confidence)
+4. **Automatic remedies**: Applied without prompting (low-risk, reversible)
+5. **Suggested remedies**: Prompt user unless `--yes` flag
+6. **Diagnostic remedies**: Show guidance only (cannot auto-fix)
+7. If any remedy succeeds, retry counter resets and sheet re-executes
+
+**Built-in Remedies:**
+
+| Remedy | Category | Triggers On | Action |
+|--------|----------|-------------|--------|
+| Create workspace | Automatic | E601 - workspace missing | `mkdir` the workspace |
+| Create parent dirs | Automatic | E601/E201 - path parent missing | `mkdir -p` parents |
+| Fix path separators | Automatic | Backslash paths on Unix | Suggest correction |
+| Suggest Jinja fix | Suggested | E304/E305 - template errors | Typo suggestions |
+| Diagnose auth errors | Diagnostic | E101/E102/E401 | Troubleshooting guidance |
+| Diagnose missing CLI | Diagnostic | CLI not found | Installation guidance |
+
+**Healing Report:**
+```
+═══════════════════════════════════════════════════════════════════════════
+SELF-HEALING REPORT: Sheet 5
+═══════════════════════════════════════════════════════════════════════════
+
+Error Diagnosed:
+  Code: E601 (PREFLIGHT_PATH_MISSING)
+  Message: Workspace directory does not exist: ./my-workspace
+
+Remedies Applied:
+  ✓ [AUTO] mkdir ./my-workspace: Created workspace directory
+
+Result: HEALED - Retrying sheet
+═══════════════════════════════════════════════════════════════════════════
+```
+
+**Configuration (Optional):**
+```yaml
+# In job config YAML
+self_healing:
+  enabled: true                    # Enable without CLI flag
+  auto_confirm: false              # Equivalent to --yes
+  disabled_remedies:               # Skip specific remedies
+    - suggest_jinja_fix            # Don't auto-correct typos
+  max_healing_attempts: 2          # Limit healing cycles
+```
+
+**Key Files:**
+| File | Purpose |
+|------|---------|
+| `src/mozart/validation/` | Enhanced validation module |
+| `src/mozart/healing/` | Self-healing module |
+| `src/mozart/healing/remedies/` | Individual remedy implementations |
+| `tests/test_validation_checks.py` | Validation tests (29 tests) |
+| `tests/test_healing.py` | Healing tests (32 tests) |
+
+### When to Use Which
+
+| Scenario | Use |
+|----------|-----|
+| Before running a new config | `mozart validate job.yaml` |
+| CI/CD pipeline check | `mozart validate job.yaml --json` |
+| Unattended long-running jobs | `mozart run job.yaml --self-healing --yes` |
+| Interactive debugging | `mozart run job.yaml --self-healing` (prompted) |
+| Known-good configs | No flags needed |
 
 ---
 
