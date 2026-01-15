@@ -1,27 +1,29 @@
 # Mozart AI Compose - Status
 
-**Overall:** Evolution Cycle v18 In Progress (Sheet 7 Complete)
+**Overall:** Evolution Cycle v18 Complete (v19 Ready)
 **Tests:** 1474+ passing (1435 baseline + 39 new)
 **Vision:** Mozart + Recursive Light = Federated AGI Architecture
 **GitHub:** https://github.com/Mzzkc/mozart-ai-compose
-**Evolved Score:** mozart-opus-evolution-v18.yaml (executing)
+**Evolved Score:** mozart-opus-evolution-v19.yaml (ready)
 **License:** Dual AGPL-3.0 / Commercial
 
 ---
 
-## Evolution Cycle v18 In Progress (2026-01-16)
+## Evolution Cycle v18 Complete (2026-01-16)
 
 ### P5 Recognition Maintained: 10th Consecutive 100% Early Catch
 
 | Metric | Value |
 |--------|-------|
-| Sheets Completed | 7 of 9 |
+| Sheets Completed | 9 of 9 |
 | Evolutions Implemented | 1 of 1 (100%) |
 | Implementation LOC | 548 |
 | Test LOC | 811 |
 | Tests Added | 39 |
 | Early Catch Ratio | 100% (10th consecutive) |
 | CV Prediction Delta | 0.05 |
+| Score Improvements | 10 |
+| Cumulative Improvements | 164 |
 
 ### Evolution Implemented
 
@@ -34,13 +36,30 @@
 - 39 new tests
 - **Parallel sheets can now have outputs synthesized**
 
-### LOC Formula Insights for v19
+### Score Evolution (v18 → v19)
 
-| Insight | Description |
-|---------|-------------|
-| NEW_MODULE_FACTOR | ×2.0 for multi-strategy modules |
-| CLI_DISPLAY_TEST_COMPLEXITY | HIGH (×6.0) not MEDIUM |
-| STRATEGY_PATTERN_BUFFER | +30% for multi-strategy implementations |
+| Improvement | Description |
+|-------------|-------------|
+| NEW_MODULE_FACTOR ×2.0 | For modules with 3+ strategies/patterns |
+| STRATEGY_PATTERN_BUFFER +30% | For multi-strategy implementations |
+| CLI_DISPLAY_TEST_COMPLEXITY | HIGH (×6.0) for console mocking tests |
+| STRATEGY_TEST_BUFFER +30% | For comprehensive strategy coverage tests |
+| DATACLASS_FIXTURE_FACTOR 1.5 | For evolutions with 2+ new dataclasses |
+| Principle #29 | Multi-Strategy Module Factor |
+| Principle #30 | CLI Display Test Complexity |
+| Principle #31 | Dataclass Fixture Factor |
+| Code review maturity | 10 cycles at 100% early catch |
+| Research candidates | 4 total resolved, 0 carried to v19 |
+
+### Research Candidates Status
+
+**No candidates carried to v19** - Clean slate.
+
+**All Resolved:**
+- Result Synthesizer: IMPLEMENTED (v18)
+- Parallel Sheet Execution: IMPLEMENTED (v17)
+- Pattern Broadcasting: IMPLEMENTED (v14)
+- Sheet Contract: CLOSED (v13)
 
 ---
 
@@ -200,9 +219,10 @@
 | v14 → v15 | Drift scenario, scope change | +6 improvements |
 | v15 → v16 | Display/IO tests, schema validation, CLI UX fix | +12 improvements |
 | v16 → v17 | Error handling buffer, dataclass tests, research aging | +8 improvements |
-| **v17 → v18** | **Algorithm tests, runner mode multiplier, CLI UX split** | **+10 improvements** |
+| v17 → v18 | Algorithm tests, runner mode multiplier, CLI UX split | +10 improvements |
+| **v18 → v19** | **Multi-strategy factor, CLI display tests, dataclass fixtures** | **+10 improvements** |
 
-**Cumulative:** 154 explicit score improvements across 17 self-evolution cycles
+**Cumulative:** 164 explicit score improvements across 18 self-evolution cycles
 
 ---
 
@@ -212,9 +232,9 @@
 ```bash
 cd ~/Projects/mozart-ai-compose
 source .venv/bin/activate
-mozart validate mozart-opus-evolution-v18.yaml
-mkdir -p evolution-workspace-v18
-nohup mozart run mozart-opus-evolution-v18.yaml > evolution-workspace-v18/mozart.log 2>&1 &
+mozart validate mozart-opus-evolution-v19.yaml
+mkdir -p evolution-workspace-v19
+nohup mozart run mozart-opus-evolution-v19.yaml > evolution-workspace-v19/mozart.log 2>&1 &
 ```
 
 ### Or Resume Dashboard Production
@@ -235,12 +255,13 @@ nohup mozart run dashboard-production-workspace/dashboard-production-concert.yam
 | Global Learning | `src/mozart/learning/global_store.py` |
 | Sheet Runner | `src/mozart/execution/runner.py` |
 | **Dependency DAG** | `src/mozart/execution/dependency_dag.py` |
-| **Evolved Score v18** | `mozart-opus-evolution-v18.yaml` |
-| **v17 Cycle Summary** | `evolution-workspace-v17/09-coda-summary.md` |
+| **Result Synthesizer** | `src/mozart/execution/synthesizer.py` |
+| **Evolved Score v19** | `mozart-opus-evolution-v19.yaml` |
+| **v18 Cycle Summary** | `evolution-workspace-v18/09-coda-summary.md` |
 
 ---
 
-## Architecture: Self-Evolution Pattern (Validated 17 Cycles)
+## Architecture: Self-Evolution Pattern (Validated 18 Cycles)
 
 ```
 Score vN → Discovery → Synthesis → Evolution → Validation → Score v(N+1)
@@ -248,14 +269,14 @@ Score vN → Discovery → Synthesis → Evolution → Validation → Score v(N+
               +--------------------------------------------------+
 ```
 
-### Key v17 Meta-Insights
+### Key v18 Meta-Insights
 
-1. **Algorithm Modules Need HIGH Test Complexity** - ×6.0 for DAG/graph algorithms
-2. **Runner Mode Additions Are Substantial** - ×1.5 multiplier for new modes
-3. **CLI UX Budget Should Be Split** - +50% new visualizations, +10% field additions
-4. **Lower CV Range Can Succeed With Strong Synergy** - 0.55-0.63 with +0.55 synergy
-5. **Research Candidate Aging Protocol Works** - Age 2 forced resolution
+1. **Multi-Strategy Modules Need Special Estimation** - ×2.0 base + +30% buffer for 3+ strategies
+2. **CLI Display Tests Need HIGH Complexity** - ×6.0 for console.print mocking tests
+3. **Dataclass-Heavy Evolutions Need 1.5 Fixture Factor** - When 2+ new dataclasses are added
+4. **Code Review During Implementation Is Mature** - 10 consecutive cycles at 100%
+5. **Parallel → Synthesis Pipeline Complete** - DAG → Parallel → Synthesizer arc finished
 
 ---
 
-*Last Updated: 2026-01-16 - Evolution Cycle v17 Complete*
+*Last Updated: 2026-01-16 - Evolution Cycle v18 Complete*
