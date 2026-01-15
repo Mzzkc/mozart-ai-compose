@@ -104,6 +104,88 @@ class RateLimitEvent:
     duration_seconds: float
 
 
+@dataclass
+class EscalationDecisionRecord:
+    """A record of a human/AI escalation decision.
+
+    Evolution v11: Escalation Learning Loop - records escalation decisions
+    to learn from feedback over time and potentially suggest actions for
+    similar future escalations.
+    """
+
+    id: str
+    """Unique identifier for this escalation decision."""
+
+    job_hash: str
+    """Hash of the job that triggered escalation."""
+
+    sheet_num: int
+    """Sheet number that triggered escalation."""
+
+    confidence: float
+    """Aggregate confidence score at time of escalation (0.0-1.0)."""
+
+    action: str
+    """Action taken: retry, skip, abort, modify_prompt."""
+
+    guidance: str | None
+    """Optional guidance/notes from the escalation handler."""
+
+    validation_pass_rate: float
+    """Pass percentage of validations at escalation time."""
+
+    retry_count: int
+    """Number of retries attempted before escalation."""
+
+    outcome_after_action: str | None = None
+    """What happened after the action: success, failed, aborted, skipped."""
+
+    recorded_at: datetime = field(default_factory=datetime.now)
+    """When the escalation decision was recorded."""
+
+    model: str | None = None
+    """Model used for execution (if relevant)."""
+
+
+@dataclass
+class DriftMetrics:
+    """Metrics for pattern effectiveness drift detection.
+
+    v12 Evolution: Goal Drift Detection - tracks how pattern effectiveness
+    changes over time to detect drifting patterns that may need attention.
+    """
+
+    pattern_id: str
+    """Pattern ID being analyzed."""
+
+    pattern_name: str
+    """Human-readable pattern name."""
+
+    window_size: int
+    """Number of applications in each comparison window."""
+
+    effectiveness_before: float
+    """Effectiveness score in the older window (applications N-2W to N-W)."""
+
+    effectiveness_after: float
+    """Effectiveness score in the recent window (applications N-W to N)."""
+
+    grounding_confidence_avg: float
+    """Average grounding confidence across all applications in analysis."""
+
+    drift_magnitude: float
+    """Absolute magnitude of drift: |effectiveness_after - effectiveness_before|."""
+
+    drift_direction: str
+    """Direction of drift: 'positive', 'negative', or 'stable'."""
+
+    applications_analyzed: int
+    """Total number of applications analyzed (should be 2 × window_size)."""
+
+    threshold_exceeded: bool = False
+    """Whether drift_magnitude exceeds the alert threshold."""
+
+
 class GlobalLearningStore:
     """SQLite-based global learning store.
 
@@ -115,7 +197,7 @@ class GlobalLearningStore:
         db_path: Path to the SQLite database file.
     """
 
-    SCHEMA_VERSION = 2  # v2: Added rate_limit_events table
+    SCHEMA_VERSION = 5  # v5: Added grounding_confidence to pattern_applications
 
     def __init__(self, db_path: Path | None = None) -> None:
         """Initialize the global learning store.
@@ -240,15 +322,19 @@ class GlobalLearningStore:
         )
 
         # Pattern applications table (for effectiveness tracking)
+        # Note: execution_id is a string identifier (e.g. "sheet_1"), not a FK to executions
+        # The runner passes simple sheet identifiers for pattern tracking purposes
+        # v12: Added grounding_confidence column for grounding-weighted effectiveness
         conn.execute("""
             CREATE TABLE IF NOT EXISTS pattern_applications (
                 id TEXT PRIMARY KEY,
                 pattern_id TEXT REFERENCES patterns(id),
-                execution_id TEXT REFERENCES executions(id),
+                execution_id TEXT,
                 applied_at TIMESTAMP,
                 outcome_improved BOOLEAN,
                 retry_count_before INTEGER,
-                retry_count_after INTEGER
+                retry_count_after INTEGER,
+                grounding_confidence REAL
             )
         """)
         conn.execute(
@@ -315,6 +401,36 @@ class GlobalLearningStore:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_rate_limit_model "
             "ON rate_limit_events(model)"
+        )
+
+        # Escalation decisions table (Evolution v11: Escalation Learning Loop)
+        # Records human/AI escalation decisions for learning
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS escalation_decisions (
+                id TEXT PRIMARY KEY,
+                job_hash TEXT NOT NULL,
+                sheet_num INTEGER NOT NULL,
+                confidence REAL NOT NULL,
+                action TEXT NOT NULL,
+                guidance TEXT,
+                validation_pass_rate REAL NOT NULL,
+                retry_count INTEGER NOT NULL,
+                outcome_after_action TEXT,
+                recorded_at TIMESTAMP NOT NULL,
+                model TEXT
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_escalation_job "
+            "ON escalation_decisions(job_hash)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_escalation_action "
+            "ON escalation_decisions(action)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_escalation_confidence "
+            "ON escalation_decisions(confidence)"
         )
 
         # Update schema version
@@ -529,10 +645,19 @@ class GlobalLearningStore:
         outcome_improved: bool,
         retry_count_before: int = 0,
         retry_count_after: int = 0,
+        application_mode: str = "exploitation",
+        validation_passed: bool | None = None,
+        grounding_confidence: float | None = None,
     ) -> str:
         """Record that a pattern was applied to an execution.
 
-        This creates the feedback loop for effectiveness tracking.
+        This creates the feedback loop for effectiveness tracking. After recording
+        the application, automatically updates effectiveness_score and priority_score
+        for the pattern.
+
+        v12 Evolution: Grounding→Pattern Feedback - grounding_confidence is now
+        stored and used to weight effectiveness calculations. Patterns applied
+        during high-grounding executions carry more weight.
 
         Args:
             pattern_id: The pattern that was applied.
@@ -540,33 +665,40 @@ class GlobalLearningStore:
             outcome_improved: Whether the outcome was better than baseline.
             retry_count_before: Retry count before pattern applied.
             retry_count_after: Retry count after pattern applied.
+            application_mode: 'exploration' or 'exploitation' - how the pattern was selected.
+            validation_passed: Whether validation passed on first attempt.
+            grounding_confidence: Grounding confidence (0.0-1.0) from external validation.
+                                 None if grounding hooks were not executed.
 
         Returns:
             The application record ID.
         """
         app_id = str(uuid.uuid4())
-        now = datetime.now().isoformat()
+        now = datetime.now()
+        now_iso = now.isoformat()
 
         with self._get_connection() as conn:
             conn.execute(
                 """
                 INSERT INTO pattern_applications (
                     id, pattern_id, execution_id, applied_at,
-                    outcome_improved, retry_count_before, retry_count_after
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    outcome_improved, retry_count_before, retry_count_after,
+                    grounding_confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     app_id,
                     pattern_id,
                     execution_id,
-                    now,
+                    now_iso,
                     outcome_improved,
                     retry_count_before,
                     retry_count_after,
+                    grounding_confidence,
                 ),
             )
 
-            # Update pattern effectiveness
+            # Update pattern counts
             if outcome_improved:
                 conn.execute(
                     """
@@ -575,7 +707,7 @@ class GlobalLearningStore:
                         last_confirmed = ?
                     WHERE id = ?
                     """,
-                    (now, pattern_id),
+                    (now_iso, pattern_id),
                 )
             else:
                 conn.execute(
@@ -587,7 +719,284 @@ class GlobalLearningStore:
                     (pattern_id,),
                 )
 
+            # Fetch updated pattern data for effectiveness/priority recalculation
+            cursor = conn.execute(
+                """
+                SELECT led_to_success_count, led_to_failure_count, last_confirmed,
+                       occurrence_count, variance
+                FROM patterns WHERE id = ?
+                """,
+                (pattern_id,),
+            )
+            row = cursor.fetchone()
+
+            if row:
+                # Calculate new effectiveness score
+                new_effectiveness = self._calculate_effectiveness_v2(
+                    pattern_id=pattern_id,
+                    led_to_success_count=row["led_to_success_count"],
+                    led_to_failure_count=row["led_to_failure_count"],
+                    last_confirmed=datetime.fromisoformat(row["last_confirmed"]),
+                    now=now,
+                    conn=conn,
+                )
+
+                # Calculate new priority score
+                new_priority = self._calculate_priority_score(
+                    effectiveness=new_effectiveness,
+                    occurrence_count=row["occurrence_count"],
+                    variance=row["variance"],
+                )
+
+                # Update both scores in the database
+                conn.execute(
+                    """
+                    UPDATE patterns SET
+                        effectiveness_score = ?,
+                        priority_score = ?
+                    WHERE id = ?
+                    """,
+                    (new_effectiveness, new_priority, pattern_id),
+                )
+
+                _logger.debug(
+                    f"Updated pattern {pattern_id}: effectiveness={new_effectiveness:.3f}, "
+                    f"priority={new_priority:.3f}, mode={application_mode}"
+                )
+
         return app_id
+
+    def _calculate_effectiveness_v2(
+        self,
+        pattern_id: str,
+        led_to_success_count: int,
+        led_to_failure_count: int,
+        last_confirmed: datetime,
+        now: datetime,
+        conn: sqlite3.Connection,
+        min_applications: int = 3,
+    ) -> float:
+        """Calculate effectiveness score using Bayesian moving average with decay.
+
+        This is the v2 formula that combines historical and recent performance
+        with recency weighting. Patterns that haven't proven themselves recently
+        will see their effectiveness decay.
+
+        v12 Evolution: Grounding→Pattern Feedback - effectiveness is now weighted
+        by grounding confidence. High-grounding executions carry more trust weight.
+
+        Formula:
+            base_effectiveness = (α × recent + (1-α) × historical) × recency_decay
+            effectiveness = base_effectiveness × grounding_weight
+
+        Where:
+        - α = 0.7 (weight recent outcomes more heavily)
+        - recent = success rate in last 5 applications
+        - historical = all-time success rate with Laplace smoothing
+        - recency_decay = 0.9^(days_since_last_success / 30)
+        - grounding_weight = 0.7 + 0.3 × avg_grounding (when grounding data exists)
+
+        Args:
+            pattern_id: The pattern being calculated.
+            led_to_success_count: Total successes.
+            led_to_failure_count: Total failures.
+            last_confirmed: When pattern last led to success.
+            now: Current timestamp.
+            conn: Database connection for recent applications query.
+            min_applications: Minimum applications before trusting data.
+
+        Returns:
+            Effectiveness score between 0.0 and 1.0.
+        """
+        total = led_to_success_count + led_to_failure_count
+
+        # Cold start: return optimistic prior to encourage exploration
+        if total < min_applications:
+            return 0.55
+
+        # Historical effectiveness with Laplace smoothing (prevents 0/1 extremes)
+        historical = (led_to_success_count + 0.5) / (total + 1)
+
+        # Query recent applications for recency weighting and grounding confidence
+        cursor = conn.execute(
+            """
+            SELECT outcome_improved, grounding_confidence
+            FROM pattern_applications
+            WHERE pattern_id = ?
+            ORDER BY applied_at DESC
+            LIMIT 5
+            """,
+            (pattern_id,),
+        )
+        recent_apps = cursor.fetchall()
+
+        if recent_apps:
+            recent_successes = sum(1 for app in recent_apps if app["outcome_improved"])
+            recent = recent_successes / len(recent_apps)
+
+            # v12: Calculate average grounding confidence from recent applications
+            grounding_values = [
+                app["grounding_confidence"]
+                for app in recent_apps
+                if app["grounding_confidence"] is not None
+            ]
+            if grounding_values:
+                avg_grounding = sum(grounding_values) / len(grounding_values)
+            else:
+                # No grounding data - use neutral multiplier (1.0)
+                avg_grounding = 1.0
+        else:
+            recent = historical
+            avg_grounding = 1.0
+
+        # Combine with recency weighting: α = 0.7 prioritizes recent outcomes
+        alpha = 0.7
+        combined = alpha * recent + (1 - alpha) * historical
+
+        # Apply recency penalty: patterns decay if not recently confirmed
+        days_since = (now - last_confirmed).days
+        decay = 0.9 ** (days_since / 30.0)
+
+        base_effectiveness = combined * decay
+
+        # v12: Apply grounding weight
+        # Formula: grounding_weight = 0.7 + 0.3 × avg_grounding
+        # This means:
+        # - avg_grounding = 0.0 → weight = 0.70 (30% penalty for ungrounded)
+        # - avg_grounding = 0.5 → weight = 0.85 (15% penalty for low grounding)
+        # - avg_grounding = 1.0 → weight = 1.00 (full trust for high grounding)
+        # When avg_grounding = 1.0 (no grounding data), weight = 1.0 (backward compatible)
+        grounding_weight = 0.7 + 0.3 * avg_grounding
+
+        return base_effectiveness * grounding_weight
+
+    def _calculate_priority_score(
+        self,
+        effectiveness: float,
+        occurrence_count: int,
+        variance: float,
+    ) -> float:
+        """Calculate priority score from effectiveness and other factors.
+
+        Priority determines which patterns get selected first during
+        exploitation mode. Higher priority = more likely to be applied.
+
+        Formula:
+            priority = effectiveness × frequency_factor × (1 - variance)
+
+        Where:
+        - frequency_factor = min(1.0, log10(occurrence_count + 1) / 2)
+          This gives a boost to frequently-seen patterns (up to 100 occurrences)
+        - variance penalizes inconsistent patterns
+
+        Args:
+            effectiveness: Calculated effectiveness score (0.0-1.0).
+            occurrence_count: How many times pattern has been seen.
+            variance: Measure of outcome inconsistency (0.0-1.0).
+
+        Returns:
+            Priority score between 0.0 and 1.0.
+        """
+        import math
+
+        # Frequency factor: log scale to avoid over-weighting very common patterns
+        # log10(1) = 0, log10(10) = 1, log10(100) = 2
+        # Divided by 2 so patterns need ~100 occurrences to reach max frequency boost
+        frequency_factor = min(1.0, math.log10(occurrence_count + 1) / 2.0)
+
+        # Variance penalty: inconsistent patterns should have lower priority
+        variance_penalty = 1 - variance
+
+        # Combine factors
+        priority = effectiveness * frequency_factor * variance_penalty
+
+        # Ensure bounds
+        return max(0.0, min(1.0, priority))
+
+    def update_pattern_effectiveness(
+        self,
+        pattern_id: str,
+    ) -> float | None:
+        """Manually recalculate and update a pattern's effectiveness.
+
+        This can be called independently from record_pattern_application()
+        for batch updates or manual recalculation.
+
+        Args:
+            pattern_id: The pattern to update.
+
+        Returns:
+            New effectiveness score, or None if pattern not found.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT led_to_success_count, led_to_failure_count, last_confirmed,
+                       occurrence_count, variance
+                FROM patterns WHERE id = ?
+                """,
+                (pattern_id,),
+            )
+            row = cursor.fetchone()
+
+            if not row:
+                return None
+
+            now = datetime.now()
+            new_effectiveness = self._calculate_effectiveness_v2(
+                pattern_id=pattern_id,
+                led_to_success_count=row["led_to_success_count"],
+                led_to_failure_count=row["led_to_failure_count"],
+                last_confirmed=datetime.fromisoformat(row["last_confirmed"]),
+                now=now,
+                conn=conn,
+            )
+
+            new_priority = self._calculate_priority_score(
+                effectiveness=new_effectiveness,
+                occurrence_count=row["occurrence_count"],
+                variance=row["variance"],
+            )
+
+            conn.execute(
+                """
+                UPDATE patterns SET
+                    effectiveness_score = ?,
+                    priority_score = ?
+                WHERE id = ?
+                """,
+                (new_effectiveness, new_priority, pattern_id),
+            )
+
+            _logger.debug(
+                f"Manual update pattern {pattern_id}: "
+                f"effectiveness={new_effectiveness:.3f}, priority={new_priority:.3f}"
+            )
+            return new_effectiveness
+
+    def recalculate_all_pattern_priorities(self) -> int:
+        """Recalculate priorities for all patterns.
+
+        Use for batch maintenance, e.g., daily recalculation to apply
+        recency decay to patterns that haven't been used recently.
+
+        Returns:
+            Number of patterns updated.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT id FROM patterns"
+            )
+            pattern_ids = [row["id"] for row in cursor.fetchall()]
+
+        updated = 0
+        for pattern_id in pattern_ids:
+            result = self.update_pattern_effectiveness(pattern_id)
+            if result is not None:
+                updated += 1
+
+        _logger.info(f"Recalculated priorities for {updated} patterns")
+        return updated
 
     def record_error_recovery(
         self,
@@ -1172,6 +1581,505 @@ class GlobalLearningStore:
         return deleted_count
 
     # =========================================================================
+    # Evolution v11: Escalation Learning Loop
+    # =========================================================================
+
+    def record_escalation_decision(
+        self,
+        job_id: str,
+        sheet_num: int,
+        confidence: float,
+        action: str,
+        validation_pass_rate: float,
+        retry_count: int,
+        guidance: str | None = None,
+        outcome_after_action: str | None = None,
+        model: str | None = None,
+    ) -> str:
+        """Record an escalation decision for learning.
+
+        When a sheet triggers escalation and receives a response from
+        a human or AI handler, this method records the decision so that
+        Mozart can learn from it and potentially suggest similar actions
+        for future escalations with similar contexts.
+
+        Evolution v11: Escalation Learning Loop - closes the loop between
+        escalation handlers and learning system.
+
+        Args:
+            job_id: ID of the job that triggered escalation.
+            sheet_num: Sheet number that triggered escalation.
+            confidence: Aggregate confidence score at escalation time (0.0-1.0).
+            action: Action taken (retry, skip, abort, modify_prompt).
+            validation_pass_rate: Pass percentage at escalation time.
+            retry_count: Number of retries before escalation.
+            guidance: Optional guidance/notes from the handler.
+            outcome_after_action: What happened after (success, failed, etc.).
+            model: Optional model name used for execution.
+
+        Returns:
+            The escalation decision record ID.
+        """
+        record_id = str(uuid.uuid4())
+        job_hash = self.hash_job(job_id)
+        now = datetime.now()
+
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO escalation_decisions (
+                    id, job_hash, sheet_num, confidence, action,
+                    guidance, validation_pass_rate, retry_count,
+                    outcome_after_action, recorded_at, model
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record_id,
+                    job_hash,
+                    sheet_num,
+                    confidence,
+                    action,
+                    guidance,
+                    validation_pass_rate,
+                    retry_count,
+                    outcome_after_action,
+                    now.isoformat(),
+                    model,
+                ),
+            )
+
+        _logger.info(
+            f"Recorded escalation decision {record_id}: sheet={sheet_num}, "
+            f"action={action}, confidence={confidence:.1%}"
+        )
+        return record_id
+
+    def get_escalation_history(
+        self,
+        job_id: str | None = None,
+        action: str | None = None,
+        limit: int = 20,
+    ) -> list[EscalationDecisionRecord]:
+        """Get historical escalation decisions.
+
+        Retrieves past escalation decisions for analysis or display.
+        Can filter by job or action type.
+
+        Args:
+            job_id: Optional job ID to filter by.
+            action: Optional action type to filter by.
+            limit: Maximum number of records to return.
+
+        Returns:
+            List of EscalationDecisionRecord objects.
+        """
+        with self._get_connection() as conn:
+            conditions: list[str] = []
+            params: list[str | int] = []
+
+            if job_id is not None:
+                job_hash = self.hash_job(job_id)
+                conditions.append("job_hash = ?")
+                params.append(job_hash)
+
+            if action is not None:
+                conditions.append("action = ?")
+                params.append(action)
+
+            where_clause = " AND ".join(conditions) if conditions else "1=1"
+
+            cursor = conn.execute(
+                f"""
+                SELECT * FROM escalation_decisions
+                WHERE {where_clause}
+                ORDER BY recorded_at DESC
+                LIMIT ?
+                """,
+                (*params, limit),
+            )
+
+            records = []
+            for row in cursor.fetchall():
+                records.append(
+                    EscalationDecisionRecord(
+                        id=row["id"],
+                        job_hash=row["job_hash"],
+                        sheet_num=row["sheet_num"],
+                        confidence=row["confidence"],
+                        action=row["action"],
+                        guidance=row["guidance"],
+                        validation_pass_rate=row["validation_pass_rate"],
+                        retry_count=row["retry_count"],
+                        outcome_after_action=row["outcome_after_action"],
+                        recorded_at=datetime.fromisoformat(row["recorded_at"]),
+                        model=row["model"],
+                    )
+                )
+
+            return records
+
+    def get_similar_escalation(
+        self,
+        confidence: float,
+        validation_pass_rate: float,
+        confidence_tolerance: float = 0.15,
+        pass_rate_tolerance: float = 15.0,
+        limit: int = 5,
+    ) -> list[EscalationDecisionRecord]:
+        """Get similar past escalation decisions for guidance.
+
+        Finds historical escalations with similar context (confidence and
+        pass rate) to help inform the current escalation decision. Can be
+        used to suggest actions or provide guidance to human operators.
+
+        Evolution v11: Escalation Learning Loop - enables pattern-based
+        suggestions for similar escalation contexts.
+
+        Args:
+            confidence: Current confidence level (0.0-1.0).
+            validation_pass_rate: Current validation pass percentage.
+            confidence_tolerance: How much confidence can differ (default 0.15).
+            pass_rate_tolerance: How much pass rate can differ (default 15%).
+            limit: Maximum number of similar records to return.
+
+        Returns:
+            List of EscalationDecisionRecord from similar past escalations,
+            ordered by outcome success (successful outcomes first).
+        """
+        with self._get_connection() as conn:
+            # Find escalations with similar confidence and pass rate
+            # Order by: successful outcomes first, then by how close the match is
+            cursor = conn.execute(
+                """
+                SELECT *,
+                       ABS(confidence - ?) as conf_diff,
+                       ABS(validation_pass_rate - ?) as rate_diff
+                FROM escalation_decisions
+                WHERE ABS(confidence - ?) <= ?
+                  AND ABS(validation_pass_rate - ?) <= ?
+                ORDER BY
+                    CASE WHEN outcome_after_action = 'success' THEN 0
+                         WHEN outcome_after_action = 'skipped' THEN 1
+                         WHEN outcome_after_action IS NULL THEN 2
+                         ELSE 3 END,
+                    conf_diff + (rate_diff / 100.0)
+                LIMIT ?
+                """,
+                (
+                    confidence,
+                    validation_pass_rate,
+                    confidence,
+                    confidence_tolerance,
+                    validation_pass_rate,
+                    pass_rate_tolerance,
+                    limit,
+                ),
+            )
+
+            records = []
+            for row in cursor.fetchall():
+                records.append(
+                    EscalationDecisionRecord(
+                        id=row["id"],
+                        job_hash=row["job_hash"],
+                        sheet_num=row["sheet_num"],
+                        confidence=row["confidence"],
+                        action=row["action"],
+                        guidance=row["guidance"],
+                        validation_pass_rate=row["validation_pass_rate"],
+                        retry_count=row["retry_count"],
+                        outcome_after_action=row["outcome_after_action"],
+                        recorded_at=datetime.fromisoformat(row["recorded_at"]),
+                        model=row["model"],
+                    )
+                )
+
+            return records
+
+    def update_escalation_outcome(
+        self,
+        escalation_id: str,
+        outcome_after_action: str,
+    ) -> bool:
+        """Update the outcome of an escalation decision.
+
+        Called after an escalation action is taken and the result is known.
+        This closes the feedback loop by recording whether the action led
+        to success or failure.
+
+        Args:
+            escalation_id: The escalation record ID to update.
+            outcome_after_action: What happened (success, failed, aborted, skipped).
+
+        Returns:
+            True if the record was updated, False if not found.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE escalation_decisions
+                SET outcome_after_action = ?
+                WHERE id = ?
+                """,
+                (outcome_after_action, escalation_id),
+            )
+            updated = cursor.rowcount > 0
+
+        if updated:
+            _logger.debug(
+                f"Updated escalation {escalation_id} outcome: {outcome_after_action}"
+            )
+
+        return updated
+
+    # =========================================================================
+    # v12 Evolution: Goal Drift Detection
+    # =========================================================================
+
+    def calculate_effectiveness_drift(
+        self,
+        pattern_id: str,
+        window_size: int = 5,
+        drift_threshold: float = 0.2,
+    ) -> DriftMetrics | None:
+        """Calculate effectiveness drift for a pattern.
+
+        Compares the effectiveness of a pattern in its recent applications
+        vs older applications to detect drift. Patterns that were once
+        effective but are now declining may need investigation.
+
+        v12 Evolution: Goal Drift Detection - enables proactive pattern
+        health monitoring.
+
+        Formula:
+            drift = effectiveness_after - effectiveness_before
+            drift_magnitude = |drift|
+            weighted_drift = drift_magnitude / avg_grounding_confidence
+
+        A positive drift means the pattern is improving, negative means declining.
+        The weighted drift amplifies the signal when grounding confidence is low.
+
+        Args:
+            pattern_id: Pattern to analyze.
+            window_size: Number of applications per window (default 5).
+                        Total applications needed = 2 × window_size.
+            drift_threshold: Threshold for flagging drift (default 0.2 = 20%).
+
+        Returns:
+            DriftMetrics if enough data exists, None otherwise.
+        """
+        with self._get_connection() as conn:
+            # Get pattern name
+            cursor = conn.execute(
+                "SELECT pattern_name FROM patterns WHERE id = ?",
+                (pattern_id,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            pattern_name = row["pattern_name"]
+
+            # Fetch 2 × window_size recent applications
+            # Ordered by applied_at DESC to get most recent first
+            cursor = conn.execute(
+                """
+                SELECT outcome_improved, grounding_confidence, applied_at
+                FROM pattern_applications
+                WHERE pattern_id = ?
+                ORDER BY applied_at DESC
+                LIMIT ?
+                """,
+                (pattern_id, window_size * 2),
+            )
+            applications = cursor.fetchall()
+
+            # Need at least 2 × window_size applications for comparison
+            if len(applications) < window_size * 2:
+                _logger.debug(
+                    f"Pattern {pattern_id} has {len(applications)} applications, "
+                    f"need {window_size * 2} for drift analysis"
+                )
+                return None
+
+            # Split into recent (first window_size) and older (second window_size)
+            recent_apps = applications[:window_size]
+            older_apps = applications[window_size : window_size * 2]
+
+            # Calculate effectiveness for each window
+            # effectiveness = success_rate with Laplace smoothing
+            def calc_effectiveness(apps: list) -> tuple[float, list[float]]:
+                successes = sum(1 for a in apps if a["outcome_improved"])
+                eff = (successes + 0.5) / (len(apps) + 1)  # Laplace smoothing
+                grounding_vals = [
+                    a["grounding_confidence"]
+                    for a in apps
+                    if a["grounding_confidence"] is not None
+                ]
+                return eff, grounding_vals
+
+            eff_after, grounding_recent = calc_effectiveness(recent_apps)
+            eff_before, grounding_older = calc_effectiveness(older_apps)
+
+            # Calculate average grounding confidence across all applications
+            all_grounding = grounding_recent + grounding_older
+            if all_grounding:
+                avg_grounding = sum(all_grounding) / len(all_grounding)
+            else:
+                avg_grounding = 1.0  # No grounding data - neutral
+
+            # Calculate drift
+            drift = eff_after - eff_before
+            drift_magnitude = abs(drift)
+
+            # Determine direction
+            if drift > 0.05:  # Small threshold to avoid noise
+                drift_direction = "positive"
+            elif drift < -0.05:
+                drift_direction = "negative"
+            else:
+                drift_direction = "stable"
+
+            # Check if threshold exceeded (weighted by grounding)
+            # Lower grounding confidence amplifies the drift signal
+            weighted_magnitude = drift_magnitude / max(avg_grounding, 0.5)
+            threshold_exceeded = weighted_magnitude > drift_threshold
+
+            return DriftMetrics(
+                pattern_id=pattern_id,
+                pattern_name=pattern_name,
+                window_size=window_size,
+                effectiveness_before=eff_before,
+                effectiveness_after=eff_after,
+                grounding_confidence_avg=avg_grounding,
+                drift_magnitude=drift_magnitude,
+                drift_direction=drift_direction,
+                applications_analyzed=len(applications),
+                threshold_exceeded=threshold_exceeded,
+            )
+
+    def get_drifting_patterns(
+        self,
+        drift_threshold: float = 0.2,
+        window_size: int = 5,
+        limit: int = 20,
+    ) -> list[DriftMetrics]:
+        """Get all patterns with significant drift.
+
+        Scans all patterns with enough application history and returns
+        those that exceed the drift threshold.
+
+        v12 Evolution: Goal Drift Detection - enables CLI display of
+        drifting patterns for operator review.
+
+        Args:
+            drift_threshold: Minimum drift to include (default 0.2).
+            window_size: Applications per window (default 5).
+            limit: Maximum patterns to return.
+
+        Returns:
+            List of DriftMetrics for drifting patterns, sorted by
+            drift_magnitude descending.
+        """
+        drifting: list[DriftMetrics] = []
+
+        with self._get_connection() as conn:
+            # Find patterns with at least 2 × window_size applications
+            cursor = conn.execute(
+                """
+                SELECT pattern_id, COUNT(*) as app_count
+                FROM pattern_applications
+                GROUP BY pattern_id
+                HAVING app_count >= ?
+                """,
+                (window_size * 2,),
+            )
+            pattern_ids = [row["pattern_id"] for row in cursor.fetchall()]
+
+        # Calculate drift for each pattern
+        for pattern_id in pattern_ids:
+            metrics = self.calculate_effectiveness_drift(
+                pattern_id=pattern_id,
+                window_size=window_size,
+                drift_threshold=drift_threshold,
+            )
+            if metrics and metrics.threshold_exceeded:
+                drifting.append(metrics)
+
+        # Sort by drift magnitude descending
+        drifting.sort(key=lambda m: m.drift_magnitude, reverse=True)
+
+        return drifting[:limit]
+
+    def get_pattern_drift_summary(self) -> dict[str, Any]:
+        """Get a summary of pattern drift across all patterns.
+
+        Provides aggregate statistics for monitoring pattern health.
+
+        v12 Evolution: Goal Drift Detection - supports dashboard/reporting.
+
+        Returns:
+            Dict with drift statistics:
+            - total_patterns: Total patterns in the store
+            - patterns_analyzed: Patterns with enough history for analysis
+            - patterns_drifting: Patterns exceeding drift threshold
+            - avg_drift_magnitude: Average drift across analyzed patterns
+            - most_drifted: ID of pattern with highest drift
+        """
+        with self._get_connection() as conn:
+            # Total patterns
+            cursor = conn.execute("SELECT COUNT(*) as count FROM patterns")
+            total_patterns = cursor.fetchone()["count"]
+
+            # Patterns with enough applications (10+ for analysis)
+            cursor = conn.execute(
+                """
+                SELECT pattern_id, COUNT(*) as app_count
+                FROM pattern_applications
+                GROUP BY pattern_id
+                HAVING app_count >= 10
+                """
+            )
+            analyzable_patterns = [row["pattern_id"] for row in cursor.fetchall()]
+
+        patterns_analyzed = len(analyzable_patterns)
+        if patterns_analyzed == 0:
+            return {
+                "total_patterns": total_patterns,
+                "patterns_analyzed": 0,
+                "patterns_drifting": 0,
+                "avg_drift_magnitude": 0.0,
+                "most_drifted": None,
+            }
+
+        # Calculate drift for each
+        all_metrics: list[DriftMetrics] = []
+        for pattern_id in analyzable_patterns:
+            metrics = self.calculate_effectiveness_drift(pattern_id)
+            if metrics:
+                all_metrics.append(metrics)
+
+        if not all_metrics:
+            return {
+                "total_patterns": total_patterns,
+                "patterns_analyzed": patterns_analyzed,
+                "patterns_drifting": 0,
+                "avg_drift_magnitude": 0.0,
+                "most_drifted": None,
+            }
+
+        drifting_count = sum(1 for m in all_metrics if m.threshold_exceeded)
+        avg_drift = sum(m.drift_magnitude for m in all_metrics) / len(all_metrics)
+        most_drifted = max(all_metrics, key=lambda m: m.drift_magnitude)
+
+        return {
+            "total_patterns": total_patterns,
+            "patterns_analyzed": len(all_metrics),
+            "patterns_drifting": drifting_count,
+            "avg_drift_magnitude": avg_drift,
+            "most_drifted": most_drifted.pattern_id if most_drifted else None,
+        }
+
+    # =========================================================================
     # Learning Activation: Similar Executions and Optimal Timing
     # =========================================================================
 
@@ -1433,6 +2341,7 @@ class GlobalLearningStore:
             conn.execute("DELETE FROM executions")
             conn.execute("DELETE FROM workspace_clusters")
             conn.execute("DELETE FROM rate_limit_events")
+            conn.execute("DELETE FROM escalation_decisions")
 
         _logger.warning("Cleared all data from global learning store")
 

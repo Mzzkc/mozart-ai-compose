@@ -1538,6 +1538,15 @@ class JobRunner:
             sheet_state.execution_mode = current_mode.value
             await self.state_backend.save(state)
 
+            # v12 Evolution: Initialize grounding context for pattern feedback
+            # This is overwritten by _run_grounding_hooks when validations pass,
+            # but provides a safe default for the validation failure path.
+            grounding_ctx = GroundingDecisionContext(
+                passed=True,
+                message="No grounding hooks executed",
+                hooks_executed=0,
+            )
+
             # Initialize execution progress tracking (Task 4)
             self._current_sheet_num = sheet_num
             self._execution_progress_snapshots.clear()
@@ -1731,6 +1740,11 @@ class JobRunner:
                                     f"Escalation abort: {response.guidance or 'grounding failure'}",
                                     "escalation",
                                 )
+                                # v13 Evolution: Update escalation outcome to "aborted"
+                                grounding_sheet_state = state.sheets[sheet_num]
+                                self._update_escalation_outcome(
+                                    grounding_sheet_state, "aborted", sheet_num
+                                )
                                 await self.state_backend.save(state)
                                 raise FatalError(
                                     f"Sheet {sheet_num} aborted via escalation: "
@@ -1741,6 +1755,11 @@ class JobRunner:
                                     sheet_num,
                                     validation_passed=False,
                                     validation_details=validation_result.to_dict_list(),
+                                )
+                                # v13 Evolution: Update escalation outcome to "skipped"
+                                grounding_sheet_state = state.sheets[sheet_num]
+                                self._update_escalation_outcome(
+                                    grounding_sheet_state, "skipped", sheet_num
                                 )
                                 await self.state_backend.save(state)
                                 break  # Skip this sheet
@@ -1804,12 +1823,14 @@ class JobRunner:
                     sheet_state.grounding_confidence = grounding_ctx.confidence
                     sheet_state.grounding_guidance = grounding_ctx.recovery_guidance
 
-                # Record pattern feedback to global store (v9 Evolution)
+                # Record pattern feedback to global store (v9/v12 Evolution)
+                # v12: Pass grounding_confidence for grounding-weighted effectiveness
                 await self._record_pattern_feedback(
                     pattern_ids=self._applied_pattern_ids,
                     validation_passed=True,
                     first_attempt_success=first_attempt_success,
                     sheet_num=sheet_num,
+                    grounding_confidence=grounding_ctx.confidence if grounding_ctx.hooks_executed > 0 else None,
                 )
 
                 state.mark_sheet_completed(
@@ -1817,6 +1838,10 @@ class JobRunner:
                     validation_passed=True,
                     validation_details=validation_result.to_dict_list(),
                 )
+
+                # v13 Evolution: Update escalation outcome to "success" if escalation occurred
+                sheet_state = state.sheets[sheet_num]
+                self._update_escalation_outcome(sheet_state, "success", sheet_num)
 
                 # Record outcome for learning if store is available
                 await self._record_sheet_outcome(
@@ -2024,15 +2049,17 @@ class JobRunner:
                             )
                             continue
 
-                    # v9 Evolution: Record pattern feedback for failure
+                    # v9/v12 Evolution: Record pattern feedback for failure
                     sheet_state = state.sheets[sheet_num]
                     sheet_state.applied_pattern_ids = self._applied_pattern_ids.copy()
                     sheet_state.applied_pattern_descriptions = self._current_sheet_patterns.copy()
+                    # v12: Pass grounding_confidence (None on failure, but record if available)
                     await self._record_pattern_feedback(
                         pattern_ids=self._applied_pattern_ids,
                         validation_passed=False,
                         first_attempt_success=False,
                         sheet_num=sheet_num,
+                        grounding_confidence=grounding_ctx.confidence if grounding_ctx.hooks_executed > 0 else None,
                     )
 
                     state.mark_sheet_failed(
@@ -2210,6 +2237,9 @@ class JobRunner:
                             f"Escalation retry exhausted after {max_retries} attempts",
                             "escalation",
                         )
+                        # v13 Evolution: Update escalation outcome to "failed"
+                        sheet_state = state.sheets[sheet_num]
+                        self._update_escalation_outcome(sheet_state, "failed", sheet_num)
                         await self.state_backend.save(state)
                         raise FatalError(
                             f"Sheet {sheet_num} exhausted retries after escalation"
@@ -2228,6 +2258,8 @@ class JobRunner:
                     )
                     sheet_state = state.sheets[sheet_num]
                     sheet_state.outcome_category = "skipped_by_escalation"
+                    # v13 Evolution: Update escalation outcome to "skipped"
+                    self._update_escalation_outcome(sheet_state, "skipped", sheet_num)
                     await self.state_backend.save(state)
                     self.console.print(
                         f"[yellow]Sheet {sheet_num}: Skipped via escalation[/yellow]"
@@ -2240,6 +2272,9 @@ class JobRunner:
                         "Aborted via escalation",
                         "escalation",
                     )
+                    # v13 Evolution: Update escalation outcome to "aborted"
+                    sheet_state = state.sheets[sheet_num]
+                    self._update_escalation_outcome(sheet_state, "aborted", sheet_num)
                     await self.state_backend.save(state)
                     raise FatalError(
                         f"Sheet {sheet_num}: Job aborted via escalation"
@@ -2268,15 +2303,17 @@ class JobRunner:
                 # RETRY MODE: Fall through to full retry
                 normal_attempts += 1
                 if normal_attempts >= max_retries:
-                    # v9 Evolution: Record pattern feedback for validation failure
+                    # v9/v12 Evolution: Record pattern feedback for validation failure
                     sheet_state = state.sheets[sheet_num]
                     sheet_state.applied_pattern_ids = self._applied_pattern_ids.copy()
                     sheet_state.applied_pattern_descriptions = self._current_sheet_patterns.copy()
+                    # v12: Pass grounding_confidence (record if available)
                     await self._record_pattern_feedback(
                         pattern_ids=self._applied_pattern_ids,
                         validation_passed=False,
                         first_attempt_success=False,
                         sheet_num=sheet_num,
+                        grounding_confidence=grounding_ctx.confidence if grounding_ctx.hooks_executed > 0 else None,
                     )
 
                     state.mark_sheet_failed(
@@ -2980,12 +3017,72 @@ class JobRunner:
 
         await self.outcome_store.record(outcome)
 
+    def _update_escalation_outcome(
+        self,
+        sheet_state: "SheetState",
+        outcome: str,
+        sheet_num: int,
+    ) -> None:
+        """Update the outcome of an escalation decision in the global learning store.
+
+        This closes the escalation feedback loop by recording what happened after
+        an escalation action was taken (success, failed, skipped, aborted).
+
+        v13 Evolution: Escalation Feedback Loop - completes the feedback circuit
+        by calling update_escalation_outcome when the sheet reaches a final state
+        after an escalation occurred.
+
+        Args:
+            sheet_state: The sheet state containing escalation_record_id in outcome_data.
+            outcome: The final outcome (success, failed, skipped, aborted).
+            sheet_num: Sheet number for logging context.
+        """
+        if self._global_learning_store is None:
+            return
+
+        # Get escalation record ID from outcome_data
+        outcome_data = sheet_state.outcome_data or {}
+        escalation_record_id = outcome_data.get("escalation_record_id")
+
+        if not escalation_record_id:
+            # No escalation occurred for this sheet
+            return
+
+        try:
+            updated = self._global_learning_store.update_escalation_outcome(
+                escalation_id=escalation_record_id,
+                outcome_after_action=outcome,
+            )
+            if updated:
+                self._logger.info(
+                    "escalation.outcome_updated",
+                    sheet_num=sheet_num,
+                    escalation_id=escalation_record_id,
+                    outcome=outcome,
+                )
+            else:
+                self._logger.warning(
+                    "escalation.outcome_update_not_found",
+                    sheet_num=sheet_num,
+                    escalation_id=escalation_record_id,
+                    outcome=outcome,
+                )
+        except Exception as e:
+            self._logger.warning(
+                "escalation.outcome_update_failed",
+                sheet_num=sheet_num,
+                escalation_id=escalation_record_id,
+                outcome=outcome,
+                error=str(e),
+            )
+
     async def _record_pattern_feedback(
         self,
         pattern_ids: list[str],
         validation_passed: bool,
         first_attempt_success: bool,
         sheet_num: int,
+        grounding_confidence: float | None = None,
     ) -> None:
         """Record pattern application feedback to global learning store.
 
@@ -2994,11 +3091,16 @@ class JobRunner:
         Distinguishes between exploration and exploitation patterns for
         differential effectiveness calculation.
 
+        v12 Evolution: Grounding→Pattern Feedback - now passes grounding_confidence
+        to the global learning store, enabling grounding-weighted effectiveness.
+
         Args:
             pattern_ids: List of pattern IDs that were applied.
             validation_passed: Whether the sheet validations passed.
             first_attempt_success: Whether the sheet succeeded on first attempt.
             sheet_num: Sheet number for logging context.
+            grounding_confidence: Grounding confidence (0.0-1.0) from external validation.
+                                 None if grounding hooks were not executed.
         """
         if self._global_learning_store is None or not pattern_ids:
             return
@@ -3025,6 +3127,7 @@ class JobRunner:
                     retry_count_after=0 if first_attempt_success else 1,
                     application_mode=application_mode,
                     validation_passed=validation_passed,
+                    grounding_confidence=grounding_confidence,
                 )
                 self._logger.debug(
                     "learning.pattern_feedback_recorded",
@@ -3034,6 +3137,7 @@ class JobRunner:
                     validation_passed=validation_passed,
                     first_attempt_success=first_attempt_success,
                     application_mode=application_mode,
+                    grounding_confidence=grounding_confidence,
                 )
             except Exception as e:
                 # Pattern feedback recording should not block execution
