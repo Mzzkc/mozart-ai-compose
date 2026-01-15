@@ -19,6 +19,8 @@ from rich.console import Console
 
 if TYPE_CHECKING:
     from mozart.execution.grounding import GroundingEngine, GroundingResult
+    from mozart.healing.context import ErrorContext
+    from mozart.healing.coordinator import HealingReport, SelfHealingCoordinator
     from mozart.learning.global_store import GlobalLearningStore
 
 from mozart.backends.base import Backend, ExecutionResult
@@ -319,6 +321,13 @@ class RunnerContext:
     execution_progress_callback: Callable[[dict[str, Any]], None] | None = None
     """Callback for real-time execution progress during sheet runs."""
 
+    # Self-healing configuration (v11 Evolution: Self-Healing)
+    self_healing_enabled: bool = False
+    """Enable automatic diagnosis and remediation when retries are exhausted."""
+
+    self_healing_auto_confirm: bool = False
+    """Auto-confirm suggested fixes (equivalent to --yes flag)."""
+
 
 class JobRunner:
     """Orchestrates sheet execution with validation and partial recovery.
@@ -376,6 +385,9 @@ class JobRunner:
                 runner = JobRunner(config, backend, state_backend, context=context)
         """
         # Merge context with individual params (context takes precedence)
+        # Also extract self-healing config from context
+        self_healing_enabled = False
+        self_healing_auto_confirm = False
         if context is not None:
             console = context.console or console
             outcome_store = context.outcome_store or outcome_store
@@ -385,6 +397,8 @@ class JobRunner:
             execution_progress_callback = context.execution_progress_callback or execution_progress_callback
             global_learning_store = context.global_learning_store or global_learning_store
             grounding_engine = context.grounding_engine or grounding_engine
+            self_healing_enabled = context.self_healing_enabled
+            self_healing_auto_confirm = context.self_healing_auto_confirm
 
         self.config = config
         self.backend = backend
@@ -415,6 +429,12 @@ class JobRunner:
         # Track applied patterns for feedback loop (Learning Activation)
         self._current_sheet_patterns: list[str] = []
         self._applied_pattern_ids: list[str] = []
+
+        # Pattern Application: Track exploration vs exploitation mode
+        # Used to distinguish which patterns were applied via exploration
+        # for feedback and effectiveness calculation
+        self._exploration_pattern_ids: list[str] = []
+        self._exploitation_pattern_ids: list[str] = []
 
         # Graceful shutdown state
         self._shutdown_requested = False
@@ -453,6 +473,22 @@ class JobRunner:
             ),
             global_learning_store=global_learning_store,
         )
+
+        # Self-healing coordinator (v11 Evolution: Self-Healing)
+        # Provides automatic diagnosis and remediation when retries are exhausted
+        self._self_healing_enabled = self_healing_enabled
+        self._self_healing_auto_confirm = self_healing_auto_confirm
+        self._healing_coordinator: "SelfHealingCoordinator | None" = None
+        if self_healing_enabled:
+            from mozart.healing.coordinator import SelfHealingCoordinator
+            from mozart.healing.registry import create_default_registry
+
+            registry = create_default_registry()
+            self._healing_coordinator = SelfHealingCoordinator(
+                registry=registry,
+                auto_confirm=self_healing_auto_confirm,
+                dry_run=False,
+            )
 
     def _track_cost(
         self,
@@ -1246,6 +1282,79 @@ class JobRunner:
 
         return state
 
+    async def _try_self_healing(
+        self,
+        result: ExecutionResult,
+        error: ClassifiedError,
+        config_path: Path | None,
+        sheet_num: int,
+        retry_count: int,
+        max_retries: int,
+    ) -> "HealingReport | None":
+        """Attempt self-healing when retries are exhausted.
+
+        Creates an ErrorContext from the execution result and runs the
+        healing coordinator to diagnose and potentially fix the issue.
+
+        Args:
+            result: The failed execution result.
+            error: The classified error from the failure.
+            config_path: Path to the config file (if available).
+            sheet_num: Current sheet number.
+            retry_count: Number of retries attempted.
+            max_retries: Maximum retries configured.
+
+        Returns:
+            HealingReport if healing was attempted, None if healing is disabled.
+        """
+        if self._healing_coordinator is None:
+            return None
+
+        from mozart.healing.context import ErrorContext
+
+        self._logger.info(
+            "sheet.healing_attempt",
+            sheet_num=sheet_num,
+            error_code=error.error_code.value,
+            retry_count=retry_count,
+        )
+
+        self.console.print(
+            f"\n[yellow]Self-healing: Attempting to diagnose and fix error...[/yellow]"
+        )
+
+        # Create error context
+        context = ErrorContext.from_execution_result(
+            result=result,
+            config=self.config,
+            config_path=config_path,
+            sheet_number=sheet_num,
+            error_code=error.error_code.value,
+            error_message=error.message,
+            error_category=error.category.value,
+            retry_count=retry_count,
+            max_retries=max_retries,
+        )
+
+        # Run healing
+        report = await self._healing_coordinator.heal(context)
+
+        # Log the report
+        if report.any_remedies_applied:
+            self._logger.info(
+                "sheet.healing_success",
+                sheet_num=sheet_num,
+                remedies_applied=[name for name, _ in report.actions_taken],
+            )
+        else:
+            self._logger.warning(
+                "sheet.healing_failed",
+                sheet_num=sheet_num,
+                issues_remaining=report.issues_remaining,
+            )
+
+        return report
+
     async def _execute_sheet_with_recovery(
         self,
         state: CheckpointState,
@@ -1894,6 +2003,27 @@ class JobRunner:
 
                 # Check both max retries and adaptive strategy recommendation
                 if normal_attempts >= max_retries:
+                    # v11 Evolution: Try self-healing before giving up
+                    if self._healing_coordinator is not None:
+                        healing_report = await self._try_self_healing(
+                            result=result,
+                            error=error,
+                            config_path=None,  # Config path not available in runner
+                            sheet_num=sheet_num,
+                            retry_count=normal_attempts,
+                            max_retries=max_retries,
+                        )
+                        if healing_report and healing_report.should_retry:
+                            # Healing succeeded - reset retry counter and continue
+                            normal_attempts = 0
+                            self.console.print(healing_report.format())
+                            self._logger.info(
+                                "sheet.healed",
+                                sheet_num=sheet_num,
+                                remedies_applied=len(healing_report.actions_taken),
+                            )
+                            continue
+
                     # v9 Evolution: Record pattern feedback for failure
                     sheet_state = state.sheets[sheet_num]
                     sheet_state.applied_pattern_ids = self._applied_pattern_ids.copy()
@@ -2202,6 +2332,12 @@ class JobRunner:
         that are relevant to the current execution context and formats them
         for injection into sheet prompts.
 
+        Pattern Application v4: Implements epsilon-greedy exploration mode.
+        When random() < exploration_rate, also queries lower-priority patterns
+        (down to exploration_min_priority) to collect effectiveness data.
+        This breaks the cold-start problem where patterns with low effectiveness
+        scores never get applied and thus never improve.
+
         Args:
             job_id: Current job identifier for similar job matching.
             sheet_num: Current sheet number.
@@ -2212,6 +2348,10 @@ class JobRunner:
             - pattern_descriptions: Human-readable strings for prompt injection
             - pattern_ids: IDs for tracking pattern application outcomes
         """
+        # Reset exploration tracking for this query
+        self._exploration_pattern_ids = []
+        self._exploitation_pattern_ids = []
+
         if self._global_learning_store is None:
             return [], []
 
@@ -2228,9 +2368,33 @@ class JobRunner:
                 if job_id:
                     query_context_tags.append(f"job:{job_id}")
 
+            # Determine exploration vs exploitation mode
+            exploration_rate = self.config.learning.exploration_rate
+            exploration_min_priority = self.config.learning.exploration_min_priority
+            is_exploration_mode = random.random() < exploration_rate
+
+            # Standard exploitation threshold (proven patterns)
+            exploitation_threshold = 0.3
+
+            if is_exploration_mode:
+                # EXPLORATION MODE: Include lower-priority patterns
+                # Use the lower threshold to find untested/low-confidence patterns
+                min_priority = exploration_min_priority
+                self._logger.info(
+                    "patterns.exploration_mode_triggered",
+                    job_id=job_id,
+                    sheet_num=sheet_num,
+                    exploration_rate=exploration_rate,
+                    min_priority=min_priority,
+                    reason="collecting_effectiveness_data",
+                )
+            else:
+                # EXPLOITATION MODE: Only proven high-priority patterns
+                min_priority = exploitation_threshold
+
             # Query patterns from global store with context filtering
             patterns = self._global_learning_store.get_patterns(
-                min_priority=0.3,
+                min_priority=min_priority,
                 limit=5,
                 context_tags=query_context_tags if query_context_tags else None,
             )
@@ -2243,9 +2407,10 @@ class JobRunner:
                     sheet_num=sheet_num,
                     context_tags=query_context_tags,
                     reason="no_patterns_matched_context",
+                    exploration_mode=is_exploration_mode,
                 )
                 patterns = self._global_learning_store.get_patterns(
-                    min_priority=0.3,
+                    min_priority=min_priority,
                     limit=5,
                 )
 
@@ -2257,6 +2422,15 @@ class JobRunner:
             pattern_ids: list[str] = []
 
             for pattern in patterns:
+                # Categorize as exploration vs exploitation for tracking
+                if pattern.priority_score < exploitation_threshold:
+                    # This pattern would not have been selected without exploration
+                    self._exploration_pattern_ids.append(pattern.id)
+                    mode_indicator = "🔍"  # Exploration indicator
+                else:
+                    self._exploitation_pattern_ids.append(pattern.id)
+                    mode_indicator = ""
+
                 # Build description based on pattern type and effectiveness
                 if pattern.effectiveness_score > 0.7:
                     effectiveness_indicator = "✓"
@@ -2266,8 +2440,10 @@ class JobRunner:
                     effectiveness_indicator = "⚠"
 
                 # Format: [indicator] description (occurrence count)
+                # Include mode indicator for exploration patterns
                 desc = (
-                    f"{effectiveness_indicator} {pattern.description or pattern.pattern_name} "
+                    f"{mode_indicator}{effectiveness_indicator} "
+                    f"{pattern.description or pattern.pattern_name} "
                     f"(seen {pattern.occurrence_count}x, "
                     f"{pattern.effectiveness_score:.0%} effective)"
                 )
@@ -2281,6 +2457,9 @@ class JobRunner:
                 patterns_found=len(descriptions),
                 pattern_ids=pattern_ids,
                 context_tags_used=query_context_tags,
+                exploration_mode=is_exploration_mode,
+                exploration_patterns=len(self._exploration_pattern_ids),
+                exploitation_patterns=len(self._exploitation_pattern_ids),
             )
 
             return descriptions, pattern_ids
@@ -2812,6 +2991,8 @@ class JobRunner:
 
         This closes the pattern feedback loop by recording whether patterns
         that were applied to a sheet execution led to a successful outcome.
+        Distinguishes between exploration and exploitation patterns for
+        differential effectiveness calculation.
 
         Args:
             pattern_ids: List of pattern IDs that were applied.
@@ -2829,12 +3010,21 @@ class JobRunner:
 
         for pattern_id in pattern_ids:
             try:
+                # Determine application mode based on tracking
+                # Exploration patterns were selected via epsilon-greedy below threshold
+                if pattern_id in self._exploration_pattern_ids:
+                    application_mode = "exploration"
+                else:
+                    application_mode = "exploitation"
+
                 self._global_learning_store.record_pattern_application(
                     pattern_id=pattern_id,
                     execution_id=f"sheet_{sheet_num}",
                     outcome_improved=outcome_improved,
                     retry_count_before=0,  # We don't track this per-pattern
                     retry_count_after=0 if first_attempt_success else 1,
+                    application_mode=application_mode,
+                    validation_passed=validation_passed,
                 )
                 self._logger.debug(
                     "learning.pattern_feedback_recorded",
@@ -2843,6 +3033,7 @@ class JobRunner:
                     outcome_improved=outcome_improved,
                     validation_passed=validation_passed,
                     first_attempt_success=first_attempt_success,
+                    application_mode=application_mode,
                 )
             except Exception as e:
                 # Pattern feedback recording should not block execution

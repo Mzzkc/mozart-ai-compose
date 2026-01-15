@@ -342,6 +342,18 @@ def run(
         "-e",
         help="Enable human-in-the-loop escalation for low-confidence sheets",
     ),
+    self_healing: bool = typer.Option(
+        False,
+        "--self-healing",
+        "-H",
+        help="Enable automatic diagnosis and remediation when retries are exhausted",
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Auto-confirm suggested fixes when using --self-healing",
+    ),
 ) -> None:
     """Run a job from a YAML configuration file."""
     from mozart.core.config import JobConfig
@@ -390,7 +402,7 @@ def run(
     # Actually run the job
     if not is_quiet() and not json_output:
         console.print("\n[green]Starting job...[/green]")
-    asyncio.run(_run_job(config, start_sheet, json_output, escalation))
+    asyncio.run(_run_job(config, start_sheet, json_output, escalation, self_healing, yes))
 
 
 async def _run_job(
@@ -398,6 +410,8 @@ async def _run_job(
     start_sheet: int | None,
     json_output: bool = False,
     escalation: bool = False,
+    self_healing: bool = False,
+    auto_confirm: bool = False,
 ) -> None:
     """Run the job asynchronously using the JobRunner with progress display."""
     from mozart.backends.anthropic_api import AnthropicApiBackend
@@ -587,17 +601,25 @@ async def _run_job(
                 f"[dim]Grounding enabled: {hook_count} hook(s) registered[/dim]"
             )
 
-    # Create runner with progress callback
-    runner = JobRunner(
-        config=config,
-        backend=backend,
-        state_backend=state_backend,
+    # Create runner context with all optional components
+    from mozart.execution.runner import RunnerContext
+    runner_context = RunnerContext(
         console=console if not json_output else Console(quiet=True),
         outcome_store=outcome_store,
         escalation_handler=escalation_handler,
         progress_callback=update_progress if progress else None,
         global_learning_store=global_learning_store,
         grounding_engine=grounding_engine,
+        self_healing_enabled=self_healing,
+        self_healing_auto_confirm=auto_confirm,
+    )
+
+    # Create runner with progress callback
+    runner = JobRunner(
+        config=config,
+        backend=backend,
+        state_backend=state_backend,
+        context=runner_context,
     )
 
     job_id = config.name  # Use job name as ID for now
@@ -885,6 +907,18 @@ def resume(
         help="Reload config from yaml file instead of using cached snapshot. "
         "Use with --config to specify a new file, or it will reload from the original path.",
     ),
+    self_healing: bool = typer.Option(
+        False,
+        "--self-healing",
+        "-H",
+        help="Enable automatic diagnosis and remediation when retries are exhausted",
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Auto-confirm suggested fixes when using --self-healing",
+    ),
 ) -> None:
     """Resume a paused or failed job.
 
@@ -900,7 +934,7 @@ def resume(
         mozart resume my-job --reload-config  # Reload from original yaml
         mozart resume my-job -r --config updated.yaml  # Use updated config
     """
-    asyncio.run(_resume_job(job_id, config_file, workspace, force, escalation, reload_config))
+    asyncio.run(_resume_job(job_id, config_file, workspace, force, escalation, reload_config, self_healing, yes))
 
 
 async def _resume_job(
@@ -910,6 +944,8 @@ async def _resume_job(
     force: bool,
     escalation: bool = False,
     reload_config: bool = False,
+    self_healing: bool = False,
+    auto_confirm: bool = False,
 ) -> None:
     """Resume a paused or failed job.
 
@@ -1217,17 +1253,25 @@ async def _resume_job(
                 f"[dim]Grounding enabled: {hook_count} hook(s) registered[/dim]"
             )
 
-    # Create runner with progress callback
-    runner = JobRunner(
-        config=config,
-        backend=backend,
-        state_backend=found_backend,
+    # Create runner context with all optional components
+    from mozart.execution.runner import RunnerContext
+    runner_context = RunnerContext(
         console=console,
         outcome_store=outcome_store,
         escalation_handler=escalation_handler,
         progress_callback=update_progress,
         global_learning_store=global_learning_store,
         grounding_engine=grounding_engine,
+        self_healing_enabled=self_healing,
+        self_healing_auto_confirm=auto_confirm,
+    )
+
+    # Create runner with progress callback
+    runner = JobRunner(
+        config=config,
+        backend=backend,
+        state_backend=found_backend,
+        context=runner_context,
     )
 
     try:
