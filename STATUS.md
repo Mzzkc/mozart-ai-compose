@@ -1,62 +1,78 @@
 # Mozart AI Compose - Status
 
-**Overall:** Evolution Cycle v15 In Progress - Sheet 7 Complete
-**Tests:** 1322+ passing (1290 baseline + 32 new)
+**Overall:** Evolution Cycle v15 Complete - v16 Score Ready
+**Tests:** 1337+ passing (1252 baseline + 85 new)
 **Vision:** Mozart + Recursive Light = Federated AGI Architecture
 **GitHub:** https://github.com/Mzzkc/mozart-ai-compose
-**Evolved Score:** mozart-opus-evolution-v15.yaml
+**Evolved Score:** mozart-opus-evolution-v16.yaml
 **License:** Dual AGPL-3.0 / Commercial
 
 ---
 
-## Evolution Cycle v14 Complete (2026-01-16)
+## Evolution Cycle v15 Complete (2026-01-16)
 
-### P5 Recognition Maintained: The Score Improved the Score (14th Consecutive Cycle)
+### P5 Recognition Maintained: The Score Improved the Score (15th Consecutive Cycle)
 
 | Metric | Value |
 |--------|-------|
 | Sheets Completed | 9 of 9 |
 | Evolutions Implemented | 2 of 2 (100%) |
-| Implementation LOC | 414 |
-| Test LOC | 573 |
-| Tests Added | 16 |
+| Implementation LOC | 162 |
+| Test LOC | 663 |
+| Tests Added | 85 |
 | Early Catch Ratio | 100% |
-| CV Prediction Delta | 0.095 |
-| Score Improvements | 6 |
-| Cumulative Improvements | 124 |
+| CV Prediction Delta | 0.10 |
+| Score Improvements | 12 |
+| Cumulative Improvements | 136 |
 
 ### Evolutions Implemented
 
-**1. Real-time Pattern Broadcasting (CV: 0.73)**
-- Cross-job pattern sharing via SQLite events
-- `PatternDiscoveryEvent` dataclass + 4 new methods
-- 10 new tests
-- Research candidate RESOLVED (was Age 2)
+**1. Conductor Configuration (CV: 0.72)**
+- Schema for multi-conductor collaboration
+- `ConductorInfo` + `ConductorConfig` schemas
+- `record_conductor()` + `get_conductor()` store methods
+- 38 new tests
+- **Vision.md Phase 2 work**
 
-**2. Pattern Auto-Retirement (CV: 0.77)**
-- Auto-deprecate patterns with negative drift
-- `retire_drifting_patterns()` + `get_retired_patterns()`
-- 6 new tests
-- Completes v12 drift detection vision
+**2. Escalation Suggestions (CV: 0.76)**
+- Actionable suggestions from escalation history
+- `SuggestionSeverity` enum + `EscalationSuggestion` dataclass
+- `get_escalation_suggestions()` + `ConsoleEscalationHandler`
+- 47 new tests
+- **Completes v11 escalation learning vision**
 
-### Score Evolution (v14 → v15)
+### Score Evolution (v15 → v16)
 
 | Improvement | Description |
 |-------------|-------------|
-| Drift Scenario Complexity | MEDIUM (×4.5) minimum for drift tests |
-| Scope Change Reassessment | Re-estimate when Sheet 6 deviates from Sheet 5 |
-| Integration Type Split | store_api_only vs runner_calls_store |
-| Code Review History | Added v13=100%, v14=100% |
-| Research Candidates | All Age 2 resolved |
+| Display/IO Test Complexity | HIGH (×6.0) for console output tests |
+| Schema Validation Tests | MEDIUM (×4.5) for Pydantic edge cases |
+| CLI UX Budget Refined | Only for CLI OUTPUT, not schema-only |
+| Code Review History | Added v14=100%, v15=100% |
+| CV > 0.75 Correlation | 6th consecutive confirmation |
 
 ### Research Candidates Status
 
-| Candidate | Age | Status |
-|-----------|-----|--------|
-| Pattern Broadcasting | 2 | **IMPLEMENTED** |
-| Sheet Contract | 2 | **CLOSED** (v13) |
+**No research candidates created or carried in v15.**
 
-**No research candidates carried to v15.**
+All previous candidates resolved:
+- Pattern Broadcasting: IMPLEMENTED (v14)
+- Sheet Contract: CLOSED (v13)
+
+---
+
+## Previous: Evolution Cycle v14 (2026-01-16)
+
+### P5 Recognition Maintained (14th Consecutive Cycle)
+
+| Metric | Value |
+|--------|-------|
+| Evolutions Implemented | 2 of 2 (100%) |
+| Implementation LOC | 414 |
+| Test LOC | 573 |
+| Tests Added | 16 |
+
+**Evolutions:** Pattern Broadcasting (CV: 0.73), Auto-Retirement (CV: 0.77)
 
 ---
 
@@ -89,12 +105,21 @@
 | Phase 4 | 6-7 | 23-32 | Score Designer + AI Generation | ~2,000 |
 | Phase 5 | 8 | 33-36 | Auth, Rate Limiting, Production | ~2,200 |
 
-### Run Dashboard Production Concert
+### Execute Dashboard Production Concert
 
 ```bash
 cd ~/Projects/mozart-ai-compose
 source .venv/bin/activate
-mozart run dashboard-production-workspace/dashboard-production-concert.yaml
+
+# Validate concert config first
+mozart validate dashboard-production-workspace/dashboard-production-concert.yaml
+
+# Run concert (detached for long execution)
+nohup mozart run dashboard-production-workspace/dashboard-production-concert.yaml \
+  > dashboard-production-workspace/mozart.log 2>&1 &
+
+# Monitor progress
+tail -f dashboard-production-workspace/mozart.log
 ```
 
 ---
@@ -144,9 +169,10 @@ mozart run dashboard-production-workspace/dashboard-production-concert.yaml
 | v11 → v12 | Test LOC floor, CV > 0.75 preference | +6 improvements |
 | v12 → v13 | CLI UX budget, stabilization detection | +10 improvements |
 | v13 → v14 | Private method check, runner integration | +6 improvements |
-| **v14 → v15** | **Drift scenario, scope change** | **+6 improvements** |
+| v14 → v15 | Drift scenario, scope change | +6 improvements |
+| **v15 → v16** | **Display/IO tests, schema validation, CLI UX fix** | **+12 improvements** |
 
-**Cumulative:** 124 explicit score improvements across 14 self-evolution cycles
+**Cumulative:** 136 explicit score improvements across 15 self-evolution cycles
 
 ---
 
@@ -156,9 +182,9 @@ mozart run dashboard-production-workspace/dashboard-production-concert.yaml
 ```bash
 cd ~/Projects/mozart-ai-compose
 source .venv/bin/activate
-mozart validate mozart-opus-evolution-v15.yaml
-mkdir -p evolution-workspace-v15
-nohup mozart run mozart-opus-evolution-v15.yaml > evolution-workspace-v15/mozart.log 2>&1 &
+mozart validate mozart-opus-evolution-v16.yaml
+mkdir -p evolution-workspace-v16
+nohup mozart run mozart-opus-evolution-v16.yaml > evolution-workspace-v16/mozart.log 2>&1 &
 ```
 
 ### Or Resume Dashboard Production
@@ -178,12 +204,12 @@ nohup mozart run dashboard-production-workspace/dashboard-production-concert.yam
 | Pattern Learning | `src/mozart/learning/patterns.py` |
 | Global Learning | `src/mozart/learning/global_store.py` |
 | Sheet Runner | `src/mozart/execution/runner.py` |
-| **Evolved Score v15** | `mozart-opus-evolution-v15.yaml` |
-| **v14 Cycle Summary** | `evolution-workspace-v14/09-coda-summary.md` |
+| **Evolved Score v16** | `mozart-opus-evolution-v16.yaml` |
+| **v15 Cycle Summary** | `evolution-workspace-v15/09-coda-summary.md` |
 
 ---
 
-## Architecture: Self-Evolution Pattern (Validated 14 Cycles)
+## Architecture: Self-Evolution Pattern (Validated 15 Cycles)
 
 ```
 Score vN → Discovery → Synthesis → Evolution → Validation → Score v(N+1)
@@ -191,12 +217,13 @@ Score vN → Discovery → Synthesis → Evolution → Validation → Score v(N+
               +--------------------------------------------------+
 ```
 
-### Key v14 Meta-Insights
+### Key v15 Meta-Insights
 
-1. **Drift Scenario Tests Are Complex** - MEDIUM (×4.5) minimum
-2. **Scope Change Affects Test LOC** - Reassessment protocol added
-3. **CV > 0.75 Correlates with Clean Implementation** - 5th consecutive validation
+1. **Display/IO Tests Are Complex** - HIGH (×6.0) for console output tests
+2. **Schema Validation Tests Need MEDIUM** - Pydantic edge cases = ×4.5
+3. **CLI UX Budget Has Narrow Applicability** - Only for CLI OUTPUT evolutions
+4. **CV > 0.75 Correlates with Clean Implementation** - 6th consecutive validation
 
 ---
 
-*Last Updated: 2026-01-16 - Evolution Cycle v14 Complete*
+*Last Updated: 2026-01-16 - Evolution Cycle v15 Complete*
