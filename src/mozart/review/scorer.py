@@ -12,17 +12,19 @@ Score Components:
 """
 
 import json
-import logging
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
+from mozart.core.logging import get_logger
+
 if TYPE_CHECKING:
     from mozart.backends.base import Backend
     from mozart.core.config import AIReviewConfig
 
-logger = logging.getLogger(__name__)
+# Module-level logger for code review scoring
+_logger = get_logger("review.scorer")
 
 # Default review prompt template
 DEFAULT_REVIEW_PROMPT = """
@@ -196,13 +198,13 @@ class GitDiffProvider:
 
             return result.stdout
         except subprocess.TimeoutExpired:
-            logger.warning("Git diff timed out")
+            _logger.warning("Git diff timed out")
             return ""
         except FileNotFoundError:
-            logger.debug("Git not found")
+            _logger.debug("Git not found")
             return ""
         except Exception as e:
-            logger.warning(f"Error getting git diff: {e}")
+            _logger.warning(f"Error getting git diff: {e}")
             return ""
 
 
@@ -249,7 +251,7 @@ class AIReviewer:
         diff = self.diff_provider.get_diff(workspace)
 
         if not diff or not diff.strip():
-            logger.debug("No diff to review")
+            _logger.debug("No diff to review")
             return AIReviewResult(
                 score=100,
                 summary="No changes to review",
@@ -277,7 +279,7 @@ class AIReviewer:
                     summary="Failed to execute review",
                 )
         except Exception as e:
-            logger.error(f"AI review failed: {e}")
+            _logger.error(f"AI review failed: {e}")
             return AIReviewResult(
                 score=0,
                 error=str(e),
@@ -336,7 +338,7 @@ class AIReviewer:
             )
 
         except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse review JSON: {e}")
+            _logger.warning(f"Failed to parse review JSON: {e}")
             return AIReviewResult(
                 score=50,
                 error=f"JSON parse error: {e}",
@@ -344,7 +346,7 @@ class AIReviewer:
                 summary="Review response was malformed",
             )
         except Exception as e:
-            logger.warning(f"Error parsing review response: {e}")
+            _logger.warning(f"Error parsing review response: {e}")
             return AIReviewResult(
                 score=50,
                 error=str(e),

@@ -6,7 +6,6 @@ Supports custom headers, retries, and flexible JSON payloads.
 Phase 5 of Mozart implementation: Missing README features.
 """
 
-import logging
 import os
 from dataclasses import asdict
 from datetime import datetime
@@ -14,12 +13,14 @@ from typing import Any
 
 import httpx
 
+from mozart.core.logging import get_logger
 from mozart.notifications.base import (
     NotificationContext,
     NotificationEvent,
 )
 
-logger = logging.getLogger(__name__)
+# Module-level logger for webhook notifications
+_logger = get_logger("notifications.webhook")
 
 
 def _serialize_context(context: NotificationContext) -> dict[str, Any]:
@@ -178,7 +179,7 @@ class WebhookNotifier:
                 normalized = event_name.upper()
                 events.add(NotificationEvent[normalized])
             except KeyError:
-                logger.warning(f"Unknown notification event: {event_name}")
+                _logger.warning(f"Unknown notification event: {event_name}")
 
         return cls(
             url=config.get("url"),
@@ -294,7 +295,7 @@ class WebhookNotifier:
         """
         if not self._url:
             if not self._warned_no_url:
-                logger.warning(
+                _logger.warning(
                     "Webhook URL not configured. "
                     "Set url or url_env in webhook notification config."
                 )
@@ -312,14 +313,14 @@ class WebhookNotifier:
             success, error = await self._send_with_retry(client, payload)
 
             if success:
-                logger.debug(f"Webhook notification sent: {context.format_title()}")
+                _logger.debug(f"Webhook notification sent: {context.format_title()}")
             else:
-                logger.warning(f"Webhook notification failed: {error}")
+                _logger.warning(f"Webhook notification failed: {error}")
 
             return success
 
         except Exception as e:
-            logger.warning(f"Unexpected error sending webhook notification: {e}")
+            _logger.warning(f"Unexpected error sending webhook notification: {e}")
             return False
 
     async def close(self) -> None:

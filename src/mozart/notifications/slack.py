@@ -6,18 +6,19 @@ Messages are formatted with rich Slack Block Kit formatting.
 Phase 5 of Mozart implementation: Missing README features.
 """
 
-import logging
 import os
 from typing import Any
 
 import httpx
 
+from mozart.core.logging import get_logger
 from mozart.notifications.base import (
     NotificationContext,
     NotificationEvent,
 )
 
-logger = logging.getLogger(__name__)
+# Module-level logger for Slack notifications
+_logger = get_logger("notifications.slack")
 
 
 def _get_event_emoji(event: NotificationEvent) -> str:
@@ -163,7 +164,7 @@ class SlackNotifier:
                 normalized = event_name.upper()
                 events.add(NotificationEvent[normalized])
             except KeyError:
-                logger.warning(f"Unknown notification event: {event_name}")
+                _logger.warning(f"Unknown notification event: {event_name}")
 
         return cls(
             webhook_url=config.get("webhook_url"),
@@ -294,7 +295,7 @@ class SlackNotifier:
         """
         if not self._webhook_url:
             if not self._warned_no_webhook:
-                logger.warning(
+                _logger.warning(
                     "Slack webhook URL not configured. "
                     "Set webhook_url or SLACK_WEBHOOK_URL environment variable."
                 )
@@ -315,22 +316,22 @@ class SlackNotifier:
             )
 
             if response.status_code == 200:
-                logger.debug(f"Slack notification sent: {context.format_title()}")
+                _logger.debug(f"Slack notification sent: {context.format_title()}")
                 return True
             else:
-                logger.warning(
+                _logger.warning(
                     f"Slack webhook returned {response.status_code}: {response.text}"
                 )
                 return False
 
         except httpx.TimeoutException:
-            logger.warning("Slack notification timed out")
+            _logger.warning("Slack notification timed out")
             return False
         except httpx.RequestError as e:
-            logger.warning(f"Failed to send Slack notification: {e}")
+            _logger.warning(f"Failed to send Slack notification: {e}")
             return False
         except Exception as e:
-            logger.warning(f"Unexpected error sending Slack notification: {e}")
+            _logger.warning(f"Unexpected error sending Slack notification: {e}")
             return False
 
     async def close(self) -> None:

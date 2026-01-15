@@ -6,15 +6,16 @@ Uses the plyer library for platform-independent notification support.
 Phase 5 of Mozart implementation: Missing README features.
 """
 
-import logging
 from typing import Any
 
+from mozart.core.logging import get_logger
 from mozart.notifications.base import (
     NotificationContext,
     NotificationEvent,
 )
 
-logger = logging.getLogger(__name__)
+# Module-level logger for desktop notifications
+_logger = get_logger("notifications.desktop")
 
 
 # Check if plyer is available at module level
@@ -26,7 +27,7 @@ def _get_plyer_notification() -> tuple[bool, Any]:
 
         return True, notification
     except ImportError:
-        logger.debug("plyer not installed - desktop notifications disabled")
+        _logger.debug("plyer not installed - desktop notifications disabled")
         return False, None
 
 
@@ -117,7 +118,7 @@ class DesktopNotifier:
                 normalized = event_name.upper()
                 events.add(NotificationEvent[normalized])
             except KeyError:
-                logger.warning(f"Unknown notification event: {event_name}")
+                _logger.warning(f"Unknown notification event: {event_name}")
 
         return cls(
             events=events if events else None,
@@ -148,7 +149,7 @@ class DesktopNotifier:
         """
         if not _PLYER_AVAILABLE:
             if not self._warned_unavailable:
-                logger.warning(
+                _logger.warning(
                     "Desktop notifications unavailable - install plyer: "
                     "pip install plyer"
                 )
@@ -171,13 +172,13 @@ class DesktopNotifier:
                 app_name=self._app_name,
                 timeout=self._timeout,
             )
-            logger.debug(f"Desktop notification sent: {title}")
+            _logger.debug(f"Desktop notification sent: {title}")
             return True
 
         except Exception as e:
             # Various platform-specific errors can occur
             # (missing system notification service, etc.)
-            logger.warning(f"Failed to send desktop notification: {e}")
+            _logger.warning(f"Failed to send desktop notification: {e}")
             return False
 
     async def close(self) -> None:
