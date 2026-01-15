@@ -1,0 +1,41 @@
+Using config from: mozart-opus-evolution-v13.yaml
+Updated cached config snapshot
+╭───────────────────────────────── Resume Job ─────────────────────────────────╮
+│ mozart-opus-evolution-v13                                                    │
+│ Status: paused                                                               │
+│ Progress: 6/9 sheets                                                         │
+│ Resuming from sheet: 7                                                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+Learning enabled: outcomes will be stored at 
+/home/emzi/Projects/mozart-ai-compose/evolution-workspace-v13/.mozart-outcomes.j
+son
+Global learning enabled: cross-workspace patterns active
+Notifications enabled: 1 channel(s) configured
+
+Resuming from sheet 7...
+Resuming from sheet 7
+[2m2026-01-15T09:11:31.173068+00:00[0m [[33m[1mwarning  [0m] [1msheet.preflight_warnings      [0m [36mcomponent[0m=[35mrunner[0m [36mestimated_tokens[0m=[35m[REDACTED][0m [36msheet_num[0m=[35m7[0m [36mwarnings[0m=[35m['Some referenced paths do not exist: /home/emzi/Projects/mozart-ai-compose/evolution-workspace-v13/07-integration-validation.md, /home/emzi/Projects/mozart-ai-compose/evolution-workspace-v13/sheet7-result.md'][0m
+Sheet 7 preflight: Some referenced paths do not exist: 
+/home/emzi/Projects/mozart-ai-compose/evolution-workspace-v13/07-integration-val
+idation.md, 
+/home/emzi/Projects/mozart-ai-compose/evolution-workspace-v13/sheet7-result.md
+Sheet 7: ~7,645 tokens, 751 lines, 9 file refs
+Sheet 7: Honoring cross-workspace rate limit - waiting 2535s
+Sheet 7: normal execution
+[2m2026-01-15T10:01:19.913330+00:00[0m [[33m[1mwarning  [0m] [1merror_classified              [0m [36mcategory[0m=[35mtransient[0m [36mcomponent[0m=[35merrors[0m [36merror_code[0m=[35mE009[0m [36mexit_code[0m=[35m1[0m [36mmessage[0m=[35m'Command failed with exit code 1'[0m [36mretriable[0m=[35mTrue[0m [36msuggested_wait[0m=[35m10.0[0m
+Sheet 7: All 31 validations passed
+[2m2026-01-15T10:01:50.014750+00:00[0m [[33m[1mwarning  [0m] [1msheet.preflight_warnings      [0m [36mcomponent[0m=[35mrunner[0m [36mestimated_tokens[0m=[35m[REDACTED][0m [36msheet_num[0m=[35m8[0m [36mwarnings[0m=[35m['Some referenced paths do not exist: /home/emzi/Projects/mozart-ai-compose/evolution-workspace-v13/08-score-evolution.md, /home/emzi/Projects/mozart-ai-compose/evolution-workspace-v13/sheet8-result.md'][0m
+Sheet 8 preflight: Some referenced paths do not exist: 
+/home/emzi/Projects/mozart-ai-compose/evolution-workspace-v13/08-score-evolution
+.md, 
+/home/emzi/Projects/mozart-ai-compose/evolution-workspace-v13/sheet8-result.md
+Sheet 8: ~4,850 tokens, 458 lines, 10 file refs
+Sheet 8: normal execution
+[2m2026-01-15T10:17:21.851663+00:00[0m [[33m[1mwarning  [0m] [1merror_classified              [0m [36mcategory[0m=[35mtransient[0m [36mcomponent[0m=[35merrors[0m [36merror_code[0m=[35mE009[0m [36mexit_code[0m=[35m1[0m [36mmessage[0m=[35m'Command failed with exit code 1'[0m [36mretriable[0m=[35mTrue[0m [36msuggested_wait[0m=[35m10.0[0m
+Sheet 8: All 31 validations passed
+[2m2026-01-15T10:17:52.053212+00:00[0m [[33m[1mwarning  [0m] [1msheet.preflight_warnings      [0m [36mcomponent[0m=[35mrunner[0m [36mestimated_tokens[0m=[35m[REDACTED][0m [36msheet_num[0m=[35m9[0m [36mwarnings[0m=[35m['Some referenced paths do not exist: /home/emzi/Projects/mozart-ai-compose/evolution-workspace-v13/09-coda-summary.md, /home/emzi/Projects/mozart-ai-compose/evolution-workspace-v13/sheet9-result.md'][0m
+Sheet 9 preflight: Some referenced paths do not exist: 
+/home/emzi/Projects/mozart-ai-compose/evolution-workspace-v13/09-coda-summary.md
+, /home/emzi/Projects/mozart-ai-compose/evolution-workspace-v13/sheet9-result.md
+Sheet 9: ~4,576 tokens, 425 lines, 12 file refs
+Sheet 9: normal execution
