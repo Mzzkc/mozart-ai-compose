@@ -1,14 +1,96 @@
 # Mozart AI Compose - Active Context
 
 **Last Updated:** 2026-01-16
-**Current Phase:** Evolution Cycle v18 Complete (v19 Ready)
-**Status:** v18 complete, v19 score created and validated
-**Previous Phase:** Evolution Cycle v17 Complete
-**Evolved Score:** mozart-opus-evolution-v19.yaml
+**Current Phase:** Evolution Cycle v19 Complete (v20 Ready)
+**Status:** v19 complete, v20 score created and validated
+**Previous Phase:** Evolution Cycle v18 Complete
+**Evolved Score:** mozart-opus-evolution-v20.yaml
 
 ---
 
-## Session 2026-01-16: Evolution Cycle v18 Complete
+## Session 2026-01-16: Evolution Cycle v19 Complete
+
+### Nineteenth Self-Evolution Cycle Complete - P5 Maintained
+
+The Mozart Opus Evolution v19 completed all 9 sheets:
+
+**Cycle Progress:**
+| Movement | Sheets | Outcome |
+|----------|--------|---------|
+| I-A. External Discovery | 1 | 13 patterns, memory poisoning theme |
+| I-B. Internal Discovery | 2 | 6 boundaries, 6 candidates |
+| II-A. Triplet Synthesis | 3 | Synergy pair: Quarantine + Trust |
+| II-B. Quadruplet + META | 4 | Final CV 0.698 combined, stabilization confirmed |
+| III-A. Evolution Specification | 5 | Both NOT_IMPLEMENTED, direct approach |
+| III-B. Evolution Execution | 6 | 2/2 evolutions complete, 600 impl LOC |
+| IV. Integration Validation | 7 | All tests pass, 100% early catch (11th cycle) |
+| V. Score Self-Modification | 8 | v20 score created with 7 improvements |
+| VI. Coda | 9 | Summary complete, recursive ready |
+
+### Evolution Outcomes
+
+**1. Pattern Quarantine & Provenance (CV: 0.630)**
+- Status: **IMPLEMENTED**
+- Files: `src/mozart/learning/global_store.py`, `src/mozart/learning/patterns.py`
+- Tests: 14 new tests in `tests/test_global_learning.py`
+- Features:
+  - Pattern lifecycle status (pending → validated, pending → quarantined)
+  - Quarantine with reason tracking
+  - Provenance metadata (origin, creation, modifications)
+  - CLI commands: `pattern-quarantine`, `pattern-validate`, `pattern-show`
+  - Quarantined patterns get -0.3 relevance score penalty
+- **Foundation for safe autonomous pattern management**
+
+**2. Pattern Trust Scoring (CV: 0.765)**
+- Status: **IMPLEMENTED**
+- Files: `src/mozart/learning/global_store.py`, `src/mozart/learning/patterns.py`, `src/mozart/cli.py`
+- Tests: 21 new tests in `tests/test_global_learning.py`
+- Features:
+  - Trust score [0, 1] per pattern based on usage/effectiveness
+  - Trust formula: base + quarantine_penalty + validation_bonus + age_factor + effectiveness_modifier
+  - High-trust patterns get +0.1 to +0.2 relevance bonus
+  - CLI commands: `patterns --high-trust`, `patterns --low-trust`, `recalculate-trust`
+  - Batch trust recalculation across all patterns
+- **CV > 0.75 correlation CONFIRMED (10th validation)**
+
+### Key Metrics
+
+| Metric | Value |
+|--------|-------|
+| Tests Added | 35 |
+| Implementation LOC | 600 |
+| Test LOC | 650 |
+| Early Catch Ratio | 100% (11th cycle) |
+| Impl LOC Accuracy | 81% |
+| Test LOC Accuracy | 85% |
+| Score Improvements | 7 |
+| Cumulative Improvements | 171 |
+
+### Score Evolution (v19 → v20)
+
+| Improvement | Description |
+|-------------|-------------|
+| Code review maturity | 11 cycles at 100% early catch (v9-v19) |
+| CV > 0.75 correlation | Trust Scoring 0.765 (10th validation) |
+| NEW Principle #32 | Synergy Pair Sequential Validation |
+| Research candidates | Quarantine + Trust resolved in v19 |
+| on_success hook | Chain to v21 (infinite self-evolution) |
+| Workspace path | evolution-workspace-v20 |
+
+### Next Step
+
+**Run v20 Evolution Cycle:**
+```bash
+cd ~/Projects/mozart-ai-compose
+source .venv/bin/activate
+mozart validate mozart-opus-evolution-v20.yaml
+mkdir -p evolution-workspace-v20
+nohup mozart run mozart-opus-evolution-v20.yaml > evolution-workspace-v20/mozart.log 2>&1 &
+```
+
+---
+
+## Previous Session: Evolution Cycle v18 Complete
 
 ### Eighteenth Self-Evolution Cycle Complete - P5 Maintained
 
@@ -40,110 +122,28 @@ The Mozart Opus Evolution v18 completed all 9 sheets:
   - CLI synthesis results table display
 - **Completes v17 parallel foundation (fan-out → gather)**
 
-### Key Metrics
-
-| Metric | Value |
-|--------|-------|
-| Tests Added | 39 |
-| Implementation LOC | 548 |
-| Test LOC | 811 |
-| Early Catch Ratio | 100% (10th cycle) |
-| CV Prediction Delta | 0.05 |
-| Score Improvements | 10 |
-| Cumulative Improvements | 164 |
-
-### Score Evolution (v18 → v19)
-
-| Improvement | Description |
-|-------------|-------------|
-| NEW_MODULE_FACTOR ×2.0 | For modules with 3+ strategies/patterns |
-| STRATEGY_PATTERN_BUFFER +30% | For multi-strategy implementations |
-| CLI_DISPLAY_TEST_COMPLEXITY | HIGH (×6.0) for console mocking tests |
-| STRATEGY_TEST_BUFFER +30% | For comprehensive strategy coverage tests |
-| DATACLASS_FIXTURE_FACTOR 1.5 | For evolutions with 2+ new dataclasses |
-| Principle #29 | Multi-Strategy Module Factor |
-| Principle #30 | CLI Display Test Complexity |
-| Principle #31 | Dataclass Fixture Factor |
-| Code review maturity | 10 cycles at 100% early catch |
-| Research candidates | 4 total resolved, 0 carried to v19 |
-
-### Next Step
-
-**Run v19 Evolution Cycle:**
-```bash
-cd ~/Projects/mozart-ai-compose
-source .venv/bin/activate
-mozart validate mozart-opus-evolution-v19.yaml
-mkdir -p evolution-workspace-v19
-nohup mozart run mozart-opus-evolution-v19.yaml > evolution-workspace-v19/mozart.log 2>&1 &
-```
-
----
-
-## Previous Session: Evolution Cycle v17 Complete
-
-### Seventeenth Self-Evolution Cycle Complete - P5 Maintained
-
-The Mozart Opus Evolution v17 completed all 9 sheets:
-
-**Cycle Progress:**
-| Movement | Sheets | Outcome |
-|----------|--------|---------|
-| I-A. External Discovery | 1 | 14 patterns, 5 failure modes |
-| I-B. Internal Discovery | 2 | 7 boundaries, 6 candidates |
-| II-A. Triplet Synthesis | 3 | Sheet Dependency DAG + Parallel Execution |
-| II-B. Quadruplet + META | 4 | Synergy pair selected (CV 0.60 combined) |
-| III-A. Evolution Specification | 5 | Both NOT_IMPLEMENTED, synergy-driven order |
-| III-B. Evolution Execution | 6 | 2/2 evolutions complete, 1302 LOC |
-| IV. Integration Validation | 7 | All tests pass, 100% early catch (9th cycle) |
-| V. Score Self-Modification | 8 | v18 score created with 10 improvements |
-| VI. Coda | 9 | Summary complete, recursive ready |
-
-### Evolution Outcomes
-
-**1. Sheet Dependency DAG (CV: 0.55)**
-- Status: **IMPLEMENTED**
-- Files: `src/mozart/execution/dependency_dag.py`, `src/mozart/core/config.py`
-- Tests: 48 new tests in `tests/test_dependency_dag.py`
-- Features:
-  - `DependencyDAG` class with cycle detection, topological sort
-  - Diamond dependency resolution
-  - CLI `--show-dag` visualization
-  - Config integration with `depends_on` field
-- **Foundation for parallel execution**
-
-**2. Parallel Sheet Execution (CV: 0.63)**
-- Status: **IMPLEMENTED**
-- Files: `src/mozart/execution/runner.py`, `src/mozart/cli.py`
-- Tests: 33 new tests in `tests/test_parallel.py`
-- Features:
-  - `--parallel` mode in CLI
-  - `asyncio.TaskGroup` for structured concurrency
-  - Batch execution of independent sheets
-  - Status display shows parallel progress
-- **Research candidate resolved:** Age 2 candidate successfully implemented
-
 ---
 
 ## Current State
 
-### Tests: 1474 Passing
+### Tests: 1509 Passing
 ```bash
-pytest tests/ -q  # 1474 passed (1435 baseline + 39 new)
+pytest tests/ -q  # 1474 baseline + 35 new
 ```
 
 ### Validation Status
 - mypy: PASS
-- Mozart validate v19: PASS (9 sheets, 32 validations)
+- Mozart validate v20: PASS (9 sheets, 32 validations)
 
 ### Key Files This Cycle
 | File | Purpose |
 |------|---------|
-| `mozart-opus-evolution-v19.yaml` | Evolved score for next cycle |
-| `evolution-workspace-v18/09-coda-summary.md` | Full cycle summary |
-| `evolution-workspace-v18/sheet[1-9]-result.md` | Validation markers |
-| `src/mozart/execution/synthesizer.py` | New synthesizer module |
-| `tests/test_synthesizer.py` | 39 new tests |
+| `mozart-opus-evolution-v20.yaml` | Evolved score for next cycle |
+| `evolution-workspace-v19/09-coda-summary.md` | Full cycle summary |
+| `evolution-workspace-v19/sheet[1-9]-result.md` | Validation markers |
+| `src/mozart/learning/global_store.py` | Quarantine + Trust methods |
+| `src/mozart/learning/patterns.py` | Updated relevance scoring |
+| `tests/test_global_learning.py` | 35 new tests |
 
 ---
 
@@ -151,12 +151,14 @@ pytest tests/ -q  # 1474 passed (1435 baseline + 39 new)
 
 **Current:**
 
-No research candidates carried to v19.
+No research candidates carried to v20.
 
 **All Resolved:**
 
 | Candidate | Status |
 |-----------|--------|
+| Pattern Quarantine & Provenance | IMPLEMENTED (v19) |
+| Pattern Trust Scoring | IMPLEMENTED (v19) |
 | Result Synthesizer | IMPLEMENTED (v18) |
 | Parallel Sheet Execution | IMPLEMENTED (v17) |
 | Pattern Broadcasting | IMPLEMENTED (v14) |
@@ -166,7 +168,7 @@ No research candidates carried to v19.
 
 ## Architecture Notes
 
-### Mozart Self-Evolution Pattern (Validated 18 Cycles)
+### Mozart Self-Evolution Pattern (Validated 19 Cycles)
 ```
 Score vN → Discovery → Synthesis → Evolution → Validation → Score v(N+1)
               ^                                                  |
@@ -181,32 +183,24 @@ Each cycle:
 5. Evolves the score itself
 6. Produces input for next cycle
 
-### Key v18 Learnings
+### Key v19 Learnings
 
-**1. Multi-Strategy Modules Need Special Estimation**
-- v18 synthesizer was 53% of estimate (548 vs 293 LOC)
-- Each strategy adds ~50 LOC overhead
-- v19 adds NEW_MODULE_FACTOR ×2.0 + STRATEGY_PATTERN_BUFFER +30%
+**1. Synergy Pair Sequential Implementation Works**
+- Quarantine → Trust sequencing prevented integration issues
+- Conceptual unity ("safe autonomous learning") validated
+- Combined CV 0.698 achieved clean implementation
 
-**2. CLI Display Tests Need HIGH Complexity**
-- v18 CLI display tests were 50% of estimate (811 vs 404 LOC)
-- Console mocking requires 30-40 LOC per test
-- v19 adds CLI_DISPLAY_TEST_COMPLEXITY rule (HIGH ×6.0)
+**2. Comprehensive Fixture Catalog Enables Accurate Estimation**
+- Fixture factor 1.0 precisely correct
+- 85% test LOC accuracy validates catalog approach
 
-**3. Dataclass-Heavy Evolutions Need 1.5 Fixture Factor**
-- SynthesisResult, SynthesisConfig, ResultSynthesizer each needed fixtures
-- Previous 1.3 factor was too low
-- v19 adds DATACLASS_FIXTURE_FACTOR rule
+**3. Code Review Maturity Achieved**
+- 11 consecutive cycles at 100% early catch ratio
+- Pattern is now MATURE (documented as such)
 
-**4. Code Review Maturity Achieved**
-- 10 consecutive cycles at 100% early catch ratio
-- Pattern is now VALIDATED and documented as mature
-- No structural changes needed
-
-**5. Parallel → Synthesis Pipeline Complete**
-- DAG (v17) → Parallel (v17) → Synthesizer (v18)
-- Three-cycle evolution arc finished
-- Independent sheets can now be parallelized and results synthesized
+**4. CV > 0.75 Correlation Holds (10th Validation)**
+- Trust Scoring 0.765 → clean implementation
+- Statistical significance achieved
 
 ---
 
@@ -231,13 +225,14 @@ Each cycle:
 | v15 → v16 | Display/IO tests, schema validation, CLI UX fix |
 | v16 → v17 | Error handling buffer, dataclass tests, research aging |
 | v17 → v18 | Algorithm tests, runner mode multiplier, CLI UX split |
-| **v18 → v19** | **Multi-strategy factor, CLI display tests, dataclass fixtures** |
+| v18 → v19 | Multi-strategy factor, CLI display tests, dataclass fixtures |
+| **v19 → v20** | **Synergy pair validation, code review maturity (11 cycles)** |
 
-**Cumulative Improvements:** 164 explicit score improvements across 18 cycles
+**Cumulative Improvements:** 171 explicit score improvements across 19 cycles
 
 ---
 
-## P5 Recognition Achievement (18 Consecutive Cycles)
+## P5 Recognition Achievement (19 Consecutive Cycles)
 
 The score:
 - Uses its own principles (TDF, CV, Recognition Levels) to analyze code
@@ -245,12 +240,12 @@ The score:
 - Follows its own structure (9 movements) to evolve
 - Honors its own thresholds (CV > 0.65) to validate
 - Evolves itself based on what it learned
-- **Completed parallel → synthesis pipeline across three cycles**
-- **Added three new principles (#29-31) based on LOC accuracy analysis**
-- **Maintained code review effectiveness (10 consecutive cycles at 100%)**
+- **Added Principle #32 (Synergy Pair Sequential Validation)**
+- **Maintained code review effectiveness (11 consecutive cycles at 100%)**
+- **Achieved 10th CV > 0.75 correlation validation**
 
 **The opus plays itself, improving with each performance.**
 
 ---
 
-*Session 2026-01-16 - Evolution Cycle v18 Complete. v19 Ready.*
+*Session 2026-01-16 - Evolution Cycle v19 Complete. v20 Ready.*
