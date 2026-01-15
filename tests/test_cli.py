@@ -30,7 +30,8 @@ class TestValidateCommand:
         """Test validation of a valid config file."""
         result = runner.invoke(app, ["validate", str(sample_yaml_config)])
         assert result.exit_code == 0
-        assert "Valid configuration" in result.stdout
+        # New enhanced validation shows different output
+        assert "Configuration valid" in result.stdout or "YAML syntax valid" in result.stdout
 
     def test_validate_nonexistent_file(self, tmp_path: Path) -> None:
         """Test validation of a nonexistent file."""
@@ -43,8 +44,9 @@ class TestValidateCommand:
         bad_config = tmp_path / "bad.yaml"
         bad_config.write_text("name: test\nsheet:\n  size: -1")  # Invalid size
         result = runner.invoke(app, ["validate", str(bad_config)])
-        assert result.exit_code == 1
-        assert "Invalid configuration" in result.stdout
+        # Exit code 2 for schema validation failures
+        assert result.exit_code == 2
+        assert "Schema validation failed" in result.stdout
 
 
 class TestListCommand:
@@ -928,7 +930,8 @@ class TestLoggingOptions:
             app, ["--log-level", "DEBUG", "validate", str(sample_yaml_config)]
         )
         assert result.exit_code == 0
-        assert "Valid configuration" in result.stdout
+        # New enhanced validation shows different output
+        assert "Configuration valid" in result.stdout or "YAML syntax valid" in result.stdout
 
     def test_log_level_with_list_command(self, tmp_path: Path) -> None:
         """Test --log-level works with list command."""
