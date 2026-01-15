@@ -148,6 +148,43 @@ class EscalationDecisionRecord:
 
 
 @dataclass
+class PatternDiscoveryEvent:
+    """A pattern discovery event for cross-job broadcasting.
+
+    v14 Evolution: Real-time Pattern Broadcasting - enables jobs to share
+    newly discovered patterns with other concurrent jobs, so knowledge
+    propagates across the ecosystem without waiting for aggregation.
+    """
+
+    id: str
+    """Unique identifier for this discovery event."""
+
+    pattern_id: str
+    """ID of the pattern that was discovered."""
+
+    pattern_name: str
+    """Human-readable name of the pattern."""
+
+    pattern_type: str
+    """Type of pattern (validation_failure, retry_pattern, etc.)."""
+
+    source_job_hash: str
+    """Hash of the job that discovered the pattern."""
+
+    recorded_at: datetime
+    """When the discovery was recorded."""
+
+    expires_at: datetime
+    """When this broadcast expires (TTL-based)."""
+
+    effectiveness_score: float
+    """Effectiveness score at time of discovery."""
+
+    context_tags: list[str] = field(default_factory=list)
+    """Context tags for pattern matching."""
+
+
+@dataclass
 class DriftMetrics:
     """Metrics for pattern effectiveness drift detection.
 
@@ -431,6 +468,34 @@ class GlobalLearningStore:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_escalation_confidence "
             "ON escalation_decisions(confidence)"
+        )
+
+        # Pattern discovery events table (Evolution v14: Real-time Pattern Broadcasting)
+        # Records pattern discoveries for cross-job sharing with TTL expiry
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pattern_discovery_events (
+                id TEXT PRIMARY KEY,
+                pattern_id TEXT NOT NULL,
+                pattern_name TEXT NOT NULL,
+                pattern_type TEXT NOT NULL,
+                source_job_hash TEXT NOT NULL,
+                recorded_at TIMESTAMP NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                effectiveness_score REAL NOT NULL,
+                context_tags TEXT
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pattern_discovery_expires "
+            "ON pattern_discovery_events(expires_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pattern_discovery_source "
+            "ON pattern_discovery_events(source_job_hash)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pattern_discovery_type "
+            "ON pattern_discovery_events(pattern_type)"
         )
 
         # Update schema version
@@ -2329,6 +2394,361 @@ class GlobalLearningStore:
             )
             return [row["workspace_hash"] for row in cursor.fetchall()]
 
+    # =========================================================================
+    # Evolution v14: Real-time Pattern Broadcasting
+    # =========================================================================
+
+    def record_pattern_discovery(
+        self,
+        pattern_id: str,
+        pattern_name: str,
+        pattern_type: str,
+        job_id: str,
+        effectiveness_score: float = 1.0,
+        context_tags: list[str] | None = None,
+        ttl_seconds: float = 300.0,
+    ) -> str:
+        """Record a pattern discovery for cross-job broadcasting.
+
+        When a job discovers a new pattern, it broadcasts the discovery so
+        other concurrent jobs can benefit immediately rather than waiting
+        for aggregation.
+
+        v14 Evolution: Real-time Pattern Broadcasting - enables immediate
+        pattern sharing across concurrent jobs.
+
+        Args:
+            pattern_id: ID of the discovered pattern.
+            pattern_name: Human-readable name of the pattern.
+            pattern_type: Type of pattern (validation_failure, etc.).
+            job_id: ID of the job that discovered the pattern.
+            effectiveness_score: Initial effectiveness score (0.0-1.0).
+            context_tags: Optional context tags for pattern matching.
+            ttl_seconds: Time-to-live in seconds (default 5 minutes).
+
+        Returns:
+            The discovery event record ID.
+        """
+        from datetime import timedelta
+
+        record_id = str(uuid.uuid4())
+        now = datetime.now()
+        job_hash = self.hash_job(job_id)
+        expires_at = now + timedelta(seconds=ttl_seconds)
+
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO pattern_discovery_events (
+                    id, pattern_id, pattern_name, pattern_type,
+                    source_job_hash, recorded_at, expires_at,
+                    effectiveness_score, context_tags
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record_id,
+                    pattern_id,
+                    pattern_name,
+                    pattern_type,
+                    job_hash,
+                    now.isoformat(),
+                    expires_at.isoformat(),
+                    effectiveness_score,
+                    json.dumps(context_tags or []),
+                ),
+            )
+
+        _logger.info(
+            f"Broadcast pattern discovery '{pattern_name}' (type: {pattern_type}), "
+            f"expires in {ttl_seconds:.0f}s"
+        )
+        return record_id
+
+    def check_recent_pattern_discoveries(
+        self,
+        exclude_job_id: str | None = None,
+        pattern_type: str | None = None,
+        min_effectiveness: float = 0.0,
+        limit: int = 20,
+    ) -> list[PatternDiscoveryEvent]:
+        """Check for recent pattern discoveries from other jobs.
+
+        Jobs can poll this to discover patterns found by concurrent jobs,
+        enabling immediate adoption of successful patterns.
+
+        v14 Evolution: Real-time Pattern Broadcasting - enables jobs to
+        receive pattern broadcasts from other concurrent jobs.
+
+        Args:
+            exclude_job_id: Optional job ID to exclude (typically self).
+            pattern_type: Optional filter by pattern type.
+            min_effectiveness: Minimum effectiveness score to include.
+            limit: Maximum number of discoveries to return.
+
+        Returns:
+            List of PatternDiscoveryEvent objects from other jobs.
+        """
+        now = datetime.now()
+        exclude_hash = self.hash_job(exclude_job_id) if exclude_job_id else None
+
+        with self._get_connection() as conn:
+            # Build query based on filters
+            query = """
+                SELECT * FROM pattern_discovery_events
+                WHERE expires_at > ?
+                AND effectiveness_score >= ?
+            """
+            params: list[str | float] = [now.isoformat(), min_effectiveness]
+
+            if exclude_hash is not None:
+                query += " AND source_job_hash != ?"
+                params.append(exclude_hash)
+
+            if pattern_type is not None:
+                query += " AND pattern_type = ?"
+                params.append(pattern_type)
+
+            query += " ORDER BY recorded_at DESC LIMIT ?"
+            params.append(limit)
+
+            cursor = conn.execute(query, params)
+            events = []
+
+            for row in cursor.fetchall():
+                events.append(
+                    PatternDiscoveryEvent(
+                        id=row["id"],
+                        pattern_id=row["pattern_id"],
+                        pattern_name=row["pattern_name"],
+                        pattern_type=row["pattern_type"],
+                        source_job_hash=row["source_job_hash"],
+                        recorded_at=datetime.fromisoformat(row["recorded_at"]),
+                        expires_at=datetime.fromisoformat(row["expires_at"]),
+                        effectiveness_score=row["effectiveness_score"],
+                        context_tags=json.loads(row["context_tags"] or "[]"),
+                    )
+                )
+
+            return events
+
+    def cleanup_expired_pattern_discoveries(self) -> int:
+        """Remove expired pattern discovery events.
+
+        Should be called periodically to prevent the pattern_discovery_events
+        table from growing unbounded.
+
+        v14 Evolution: Real-time Pattern Broadcasting - maintains table health.
+
+        Returns:
+            Number of expired events removed.
+        """
+        now = datetime.now()
+
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "DELETE FROM pattern_discovery_events WHERE expires_at <= ?",
+                (now.isoformat(),),
+            )
+            deleted = cursor.rowcount
+
+        if deleted > 0:
+            _logger.debug(f"Cleaned up {deleted} expired pattern discovery events")
+
+        return deleted
+
+    def get_active_pattern_discoveries(
+        self,
+        pattern_type: str | None = None,
+    ) -> list[PatternDiscoveryEvent]:
+        """Get all active (unexpired) pattern discovery events.
+
+        Args:
+            pattern_type: Optional filter by pattern type.
+
+        Returns:
+            List of PatternDiscoveryEvent objects that haven't expired yet.
+        """
+        now = datetime.now()
+
+        with self._get_connection() as conn:
+            if pattern_type:
+                cursor = conn.execute(
+                    """
+                    SELECT * FROM pattern_discovery_events
+                    WHERE expires_at > ? AND pattern_type = ?
+                    ORDER BY recorded_at DESC
+                    """,
+                    (now.isoformat(), pattern_type),
+                )
+            else:
+                cursor = conn.execute(
+                    """
+                    SELECT * FROM pattern_discovery_events
+                    WHERE expires_at > ?
+                    ORDER BY recorded_at DESC
+                    """,
+                    (now.isoformat(),),
+                )
+
+            events = []
+            for row in cursor.fetchall():
+                events.append(
+                    PatternDiscoveryEvent(
+                        id=row["id"],
+                        pattern_id=row["pattern_id"],
+                        pattern_name=row["pattern_name"],
+                        pattern_type=row["pattern_type"],
+                        source_job_hash=row["source_job_hash"],
+                        recorded_at=datetime.fromisoformat(row["recorded_at"]),
+                        expires_at=datetime.fromisoformat(row["expires_at"]),
+                        effectiveness_score=row["effectiveness_score"],
+                        context_tags=json.loads(row["context_tags"] or "[]"),
+                    )
+                )
+
+            return events
+
+    # =========================================================================
+    # Evolution v14: Pattern Auto-Retirement
+    # =========================================================================
+
+    def retire_drifting_patterns(
+        self,
+        drift_threshold: float = 0.2,
+        window_size: int = 5,
+        require_negative_drift: bool = True,
+    ) -> list[tuple[str, str, float]]:
+        """Retire patterns that are drifting negatively.
+
+        Connects the drift detection infrastructure (DriftMetrics) to action.
+        Patterns that have drifted significantly AND in a negative direction
+        are retired by setting their priority_score to 0.
+
+        v14 Evolution: Pattern Auto-Retirement - enables automated pattern
+        lifecycle management based on empirical effectiveness drift.
+
+        Args:
+            drift_threshold: Minimum drift magnitude to consider (default 0.2).
+            window_size: Applications per window for drift calculation.
+            require_negative_drift: If True, only retire patterns with
+                negative drift (getting worse). If False, also retire
+                patterns with positive anomalous drift.
+
+        Returns:
+            List of (pattern_id, pattern_name, drift_magnitude) tuples for
+            patterns that were retired.
+        """
+        retired: list[tuple[str, str, float]] = []
+
+        # Get all patterns exceeding drift threshold
+        drifting = self.get_drifting_patterns(
+            drift_threshold=drift_threshold,
+            window_size=window_size,
+            limit=100,  # Process up to 100 drifting patterns
+        )
+
+        if not drifting:
+            _logger.debug("No drifting patterns found - nothing to retire")
+            return retired
+
+        with self._get_connection() as conn:
+            for metrics in drifting:
+                # Only retire if negative drift (getting worse)
+                if require_negative_drift and metrics.drift_direction != "negative":
+                    _logger.debug(
+                        f"Skipping {metrics.pattern_name}: drift is {metrics.drift_direction}, "
+                        f"not negative"
+                    )
+                    continue
+
+                # threshold_exceeded should already be True from get_drifting_patterns()
+                # but double-check for safety
+                if not metrics.threshold_exceeded:
+                    continue
+
+                # Retire by setting priority_score to 0
+                # Also update suggested_action to document the retirement
+                retirement_reason = (
+                    f"Auto-retired: drift {metrics.drift_direction} "
+                    f"({metrics.drift_magnitude:.2f}), "
+                    f"effectiveness {metrics.effectiveness_before:.2f} → "
+                    f"{metrics.effectiveness_after:.2f}"
+                )
+
+                conn.execute(
+                    """
+                    UPDATE patterns
+                    SET priority_score = 0,
+                        suggested_action = ?
+                    WHERE id = ?
+                    """,
+                    (retirement_reason, metrics.pattern_id),
+                )
+
+                retired.append((
+                    metrics.pattern_id,
+                    metrics.pattern_name,
+                    metrics.drift_magnitude,
+                ))
+
+                _logger.info(
+                    f"Retired pattern '{metrics.pattern_name}': {retirement_reason}"
+                )
+
+        if retired:
+            _logger.info(
+                f"Pattern auto-retirement complete: {len(retired)} patterns retired"
+            )
+
+        return retired
+
+    def get_retired_patterns(self, limit: int = 50) -> list[PatternRecord]:
+        """Get patterns that have been retired (priority_score = 0).
+
+        Returns patterns that were retired through auto-retirement or
+        manual deprecation, useful for review and potential recovery.
+
+        Args:
+            limit: Maximum number of patterns to return.
+
+        Returns:
+            List of PatternRecord objects with priority_score = 0.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT * FROM patterns
+                WHERE priority_score = 0
+                ORDER BY last_seen DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+
+            records = []
+            for row in cursor.fetchall():
+                records.append(
+                    PatternRecord(
+                        id=row["id"],
+                        pattern_type=row["pattern_type"],
+                        pattern_name=row["pattern_name"],
+                        description=row["description"],
+                        occurrence_count=row["occurrence_count"],
+                        first_seen=datetime.fromisoformat(row["first_seen"]),
+                        last_seen=datetime.fromisoformat(row["last_seen"]),
+                        last_confirmed=datetime.fromisoformat(row["last_confirmed"]),
+                        led_to_success_count=row["led_to_success_count"],
+                        led_to_failure_count=row["led_to_failure_count"],
+                        effectiveness_score=row["effectiveness_score"],
+                        variance=row["variance"],
+                        suggested_action=row["suggested_action"],
+                        context_tags=json.loads(row["context_tags"] or "[]"),
+                        priority_score=row["priority_score"],
+                    )
+                )
+
+            return records
+
     def clear_all(self) -> None:
         """Clear all data from the global store.
 
@@ -2342,6 +2762,7 @@ class GlobalLearningStore:
             conn.execute("DELETE FROM workspace_clusters")
             conn.execute("DELETE FROM rate_limit_events")
             conn.execute("DELETE FROM escalation_decisions")
+            conn.execute("DELETE FROM pattern_discovery_events")
 
         _logger.warning("Cleared all data from global learning store")
 

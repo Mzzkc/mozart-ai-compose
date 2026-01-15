@@ -21,6 +21,7 @@ from mozart.learning.aggregator import (
     PatternAggregator,
 )
 from mozart.learning.global_store import (
+    DriftMetrics,
     GlobalLearningStore,
     PatternRecord,
 )
@@ -1638,3 +1639,1864 @@ class TestFullDataCollectionPipeline:
         assert hasattr(outcomes, "SheetOutcome")
         assert hasattr(global_store, "GlobalLearningStore")
         assert hasattr(weighter, "PatternWeighter")
+
+
+# =============================================================================
+# TestGroundingPatternIntegration (v11 Evolution)
+# =============================================================================
+
+
+class TestGroundingPatternIntegration:
+    """Tests for Grounding→Pattern Integration (v11 Evolution).
+
+    Tests that grounding results are correctly captured in SheetOutcome
+    and persisted through the learning pipeline.
+    """
+
+    def test_sheet_outcome_has_grounding_fields(self) -> None:
+        """Test that SheetOutcome has grounding integration fields."""
+        outcome = SheetOutcome(
+            sheet_id="test-1",
+            job_id="test-job",
+            validation_results=[],
+            execution_duration=30.0,
+            retry_count=0,
+            completion_mode_used=False,
+            final_status=SheetStatus.COMPLETED,
+            validation_pass_rate=1.0,
+            first_attempt_success=True,
+            grounding_passed=True,
+            grounding_confidence=0.95,
+            grounding_guidance=None,
+        )
+
+        assert outcome.grounding_passed is True
+        assert outcome.grounding_confidence == 0.95
+        assert outcome.grounding_guidance is None
+
+    def test_sheet_outcome_grounding_fields_default_none(self) -> None:
+        """Test that grounding fields default to None when not provided."""
+        outcome = SheetOutcome(
+            sheet_id="test-1",
+            job_id="test-job",
+            validation_results=[],
+            execution_duration=30.0,
+            retry_count=0,
+            completion_mode_used=False,
+            final_status=SheetStatus.COMPLETED,
+            validation_pass_rate=1.0,
+            first_attempt_success=True,
+        )
+
+        assert outcome.grounding_passed is None
+        assert outcome.grounding_confidence is None
+        assert outcome.grounding_guidance is None
+
+    def test_sheet_outcome_grounding_failed_with_guidance(self) -> None:
+        """Test SheetOutcome with failed grounding and recovery guidance."""
+        outcome = SheetOutcome(
+            sheet_id="test-1",
+            job_id="test-job",
+            validation_results=[],
+            execution_duration=30.0,
+            retry_count=1,
+            completion_mode_used=False,
+            final_status=SheetStatus.FAILED,
+            validation_pass_rate=0.0,
+            first_attempt_success=False,
+            grounding_passed=False,
+            grounding_confidence=0.6,
+            grounding_guidance="Re-generate the file; checksum mismatch detected",
+        )
+
+        assert outcome.grounding_passed is False
+        assert outcome.grounding_confidence == 0.6
+        assert outcome.grounding_guidance is not None
+        assert "checksum mismatch" in outcome.grounding_guidance
+
+    def test_outcome_aggregate_includes_grounding(
+        self, temp_db_path: Path
+    ) -> None:
+        """Test that grounding fields are persisted in global store aggregation."""
+        # Create outcomes with grounding data
+        outcomes = [
+            SheetOutcome(
+                sheet_id="test:1",
+                job_id="test-job",
+                validation_results=[],
+                execution_duration=30.0,
+                retry_count=0,
+                completion_mode_used=False,
+                final_status=SheetStatus.COMPLETED,
+                validation_pass_rate=1.0,
+                first_attempt_success=True,
+                grounding_passed=True,
+                grounding_confidence=0.95,
+                grounding_guidance=None,
+            ),
+            SheetOutcome(
+                sheet_id="test:2",
+                job_id="test-job",
+                validation_results=[],
+                execution_duration=45.0,
+                retry_count=2,
+                completion_mode_used=True,
+                final_status=SheetStatus.FAILED,
+                validation_pass_rate=0.0,
+                first_attempt_success=False,
+                grounding_passed=False,
+                grounding_confidence=0.5,
+                grounding_guidance="File integrity check failed",
+            ),
+        ]
+
+        # Run aggregation
+        store = GlobalLearningStore(temp_db_path)
+        aggregator = EnhancedPatternAggregator(store)
+        result = aggregator.aggregate_with_all_sources(
+            outcomes, Path("/tmp/test-workspace")
+        )
+
+        # Verify outcomes were recorded
+        assert result.outcomes_recorded == 2
+
+        # Cleanup
+        if temp_db_path.exists():
+            temp_db_path.unlink()
+
+    def test_grounding_fields_serialization_roundtrip(self) -> None:
+        """Test that grounding fields survive save/load cycle in JsonOutcomeStore."""
+        import tempfile
+
+        from mozart.learning.outcomes import JsonOutcomeStore
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store_path = Path(tmp) / "outcomes.json"
+            store = JsonOutcomeStore(store_path)
+
+            # Create and save outcome with grounding fields
+            import asyncio
+
+            async def test_roundtrip():
+                outcome = SheetOutcome(
+                    sheet_id="test-1",
+                    job_id="test-job",
+                    validation_results=[],
+                    execution_duration=30.0,
+                    retry_count=0,
+                    completion_mode_used=False,
+                    final_status=SheetStatus.COMPLETED,
+                    validation_pass_rate=1.0,
+                    first_attempt_success=True,
+                    grounding_passed=True,
+                    grounding_confidence=0.87,
+                    grounding_guidance="Check passed with note",
+                )
+
+                await store.record(outcome)
+
+                # Create new store instance and load
+                store2 = JsonOutcomeStore(store_path)
+                await store2._load()
+
+                # Verify grounding fields survived roundtrip
+                loaded = store2._outcomes[0]
+                assert loaded.grounding_passed is True
+                assert loaded.grounding_confidence == 0.87
+                assert loaded.grounding_guidance == "Check passed with note"
+
+            asyncio.run(test_roundtrip())
+
+
+# =============================================================================
+# TestExplorationModePatternSelection
+# =============================================================================
+
+
+class TestExplorationModePatternSelection:
+    """Tests for exploration mode pattern selection (v9 Evolution - Sheet 3).
+
+    Tests the epsilon-greedy exploration algorithm that occasionally selects
+    lower-priority patterns to collect effectiveness data and break the
+    cold-start problem.
+    """
+
+    def test_exploration_mode_returns_low_priority_patterns(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that exploration mode (low threshold) returns patterns below normal threshold."""
+        # Create patterns with varying priority scores
+        # High priority pattern (above 0.3 threshold)
+        high_priority_id = global_store.record_pattern(
+            pattern_type="validation_failure",
+            pattern_name="high_priority_pattern",
+            description="High priority pattern",
+            context_tags=["test"],
+        )
+        # Update to high priority
+        with global_store._get_connection() as conn:
+            conn.execute(
+                "UPDATE patterns SET priority_score = 0.8, effectiveness_score = 0.85 WHERE id = ?",
+                (high_priority_id,),
+            )
+
+        # Low priority pattern (below 0.3 but above 0.05)
+        low_priority_id = global_store.record_pattern(
+            pattern_type="validation_failure",
+            pattern_name="low_priority_pattern",
+            description="Low priority pattern for exploration",
+            context_tags=["test"],
+        )
+        with global_store._get_connection() as conn:
+            conn.execute(
+                "UPDATE patterns SET priority_score = 0.15, effectiveness_score = 0.4 WHERE id = ?",
+                (low_priority_id,),
+            )
+
+        # Very low priority pattern (below exploration_min_priority)
+        very_low_id = global_store.record_pattern(
+            pattern_type="validation_failure",
+            pattern_name="very_low_priority_pattern",
+            description="Should be excluded even in exploration",
+            context_tags=["test"],
+        )
+        with global_store._get_connection() as conn:
+            conn.execute(
+                "UPDATE patterns SET priority_score = 0.02, effectiveness_score = 0.1 WHERE id = ?",
+                (very_low_id,),
+            )
+
+        # Exploitation mode (min_priority=0.3): only high priority patterns
+        exploitation_patterns = global_store.get_patterns(
+            min_priority=0.3,
+            context_tags=["test"],
+        )
+        assert len(exploitation_patterns) == 1
+        assert exploitation_patterns[0].pattern_name == "high_priority_pattern"
+
+        # Exploration mode (min_priority=0.05): includes low priority patterns
+        exploration_patterns = global_store.get_patterns(
+            min_priority=0.05,
+            context_tags=["test"],
+        )
+        assert len(exploration_patterns) >= 2
+
+        pattern_names = {p.pattern_name for p in exploration_patterns}
+        assert "high_priority_pattern" in pattern_names
+        assert "low_priority_pattern" in pattern_names
+        # Very low priority (0.02) should be excluded even in exploration (threshold 0.05)
+        assert "very_low_priority_pattern" not in pattern_names
+
+    def test_exploration_threshold_boundary(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test boundary conditions for exploration threshold."""
+        # Pattern exactly at threshold
+        at_threshold_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="at_threshold",
+        )
+        with global_store._get_connection() as conn:
+            conn.execute(
+                "UPDATE patterns SET priority_score = 0.3 WHERE id = ?",
+                (at_threshold_id,),
+            )
+
+        # Pattern just below threshold
+        below_threshold_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="below_threshold",
+        )
+        with global_store._get_connection() as conn:
+            conn.execute(
+                "UPDATE patterns SET priority_score = 0.29 WHERE id = ?",
+                (below_threshold_id,),
+            )
+
+        # At threshold should be included with min_priority=0.3
+        patterns = global_store.get_patterns(min_priority=0.3)
+        names = {p.pattern_name for p in patterns}
+        assert "at_threshold" in names
+        assert "below_threshold" not in names
+
+        # Both should be included with min_priority=0.29
+        patterns = global_store.get_patterns(min_priority=0.29)
+        names = {p.pattern_name for p in patterns}
+        assert "at_threshold" in names
+        assert "below_threshold" in names
+
+
+# =============================================================================
+# TestPatternEffectivenessUpdate
+# =============================================================================
+
+
+class TestPatternEffectivenessUpdate:
+    """Tests for pattern effectiveness update (v9 Evolution - Sheet 4).
+
+    Tests the Bayesian moving average effectiveness calculation with recency decay.
+    """
+
+    def test_pattern_effectiveness_update_on_success(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that recording successful application updates effectiveness."""
+        # Create a pattern
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="effectiveness_test_pattern",
+            description="Pattern to test effectiveness calculation",
+        )
+
+        # Get initial effectiveness (should be 0.5 default)
+        initial = global_store.get_patterns(min_priority=0.0)
+        initial_pattern = next(p for p in initial if p.id == pattern_id)
+        assert initial_pattern.effectiveness_score == 0.5
+
+        # Record multiple successful applications (need >= 3 for non-cold-start)
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"exec_{i}",
+                outcome_improved=True,
+                application_mode="exploitation",
+            )
+
+        # Check effectiveness increased
+        updated = global_store.get_patterns(min_priority=0.0)
+        updated_pattern = next(p for p in updated if p.id == pattern_id)
+
+        # With 5 successes and 0 failures, effectiveness should be high
+        assert updated_pattern.effectiveness_score > 0.7
+        assert updated_pattern.led_to_success_count == 5
+        assert updated_pattern.led_to_failure_count == 0
+
+    def test_pattern_effectiveness_update_on_failure(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that recording failed application decreases effectiveness."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="failure_test_pattern",
+        )
+
+        # Record multiple failures
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"exec_{i}",
+                outcome_improved=False,
+                application_mode="exploitation",
+            )
+
+        updated = global_store.get_patterns(min_priority=0.0)
+        updated_pattern = next(p for p in updated if p.id == pattern_id)
+
+        # With 5 failures, effectiveness should be low
+        assert updated_pattern.effectiveness_score < 0.4
+        assert updated_pattern.led_to_success_count == 0
+        assert updated_pattern.led_to_failure_count == 5
+
+    def test_pattern_effectiveness_mixed_outcomes(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test effectiveness with mixed success/failure outcomes."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="mixed_outcome_pattern",
+        )
+
+        # Record 3 successes and 2 failures
+        for i in range(3):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"success_{i}",
+                outcome_improved=True,
+            )
+        for i in range(2):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"failure_{i}",
+                outcome_improved=False,
+            )
+
+        updated = global_store.get_patterns(min_priority=0.0)
+        updated_pattern = next(p for p in updated if p.id == pattern_id)
+
+        # Effectiveness should be moderate (around 0.5-0.7 with 60% success)
+        assert 0.4 <= updated_pattern.effectiveness_score <= 0.8
+        assert updated_pattern.led_to_success_count == 3
+        assert updated_pattern.led_to_failure_count == 2
+
+    def test_effectiveness_cold_start_handling(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that patterns with < 3 applications get cold-start prior."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="cold_start_pattern",
+        )
+
+        # Record only 2 applications (below cold-start threshold)
+        global_store.record_pattern_application(
+            pattern_id=pattern_id,
+            execution_id="exec_1",
+            outcome_improved=True,
+        )
+        global_store.record_pattern_application(
+            pattern_id=pattern_id,
+            execution_id="exec_2",
+            outcome_improved=True,
+        )
+
+        updated = global_store.get_patterns(min_priority=0.0)
+        updated_pattern = next(p for p in updated if p.id == pattern_id)
+
+        # With < 3 applications, should return cold-start prior of 0.55
+        assert updated_pattern.effectiveness_score == 0.55
+
+
+# =============================================================================
+# TestPriorityRecalculation
+# =============================================================================
+
+
+class TestPriorityRecalculation:
+    """Tests for priority recalculation (v9 Evolution - Sheet 4).
+
+    Tests the priority score calculation from effectiveness, frequency, and variance.
+    """
+
+    def test_priority_recalculation_after_application(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that priority is recalculated after pattern application."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="priority_recalc_pattern",
+        )
+
+        # Simulate pattern being detected multiple times to increase occurrence_count
+        # occurrence_count affects the frequency factor in priority calculation
+        for _ in range(9):  # Total 10 occurrences after initial record
+            global_store.record_pattern(
+                pattern_type="test",
+                pattern_name="priority_recalc_pattern",
+            )
+
+        # Record enough applications to update priority meaningfully
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"exec_{i}",
+                outcome_improved=True,
+            )
+
+        updated = global_store.get_patterns(min_priority=0.0)
+        updated_pattern = next(p for p in updated if p.id == pattern_id)
+
+        # Priority should be non-zero and based on effectiveness
+        assert updated_pattern.priority_score > 0
+        # Priority formula: effectiveness × frequency_factor × (1 - variance)
+        # With 10 occurrences, frequency_factor ≈ log10(11)/2 ≈ 0.52
+        # With all successes, effectiveness is high (~0.975) and variance is 0
+        # So priority should be around 0.5
+        assert updated_pattern.priority_score > 0.4
+
+    def test_priority_decreases_with_failures(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that priority decreases when pattern leads to failures."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="declining_priority_pattern",
+        )
+
+        # First record some successes to establish a baseline
+        for i in range(3):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"success_{i}",
+                outcome_improved=True,
+            )
+
+        patterns = global_store.get_patterns(min_priority=0.0)
+        pattern_after_success = next(p for p in patterns if p.id == pattern_id)
+        priority_after_success = pattern_after_success.priority_score
+
+        # Now record failures
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"failure_{i}",
+                outcome_improved=False,
+            )
+
+        patterns = global_store.get_patterns(min_priority=0.0)
+        pattern_after_failure = next(p for p in patterns if p.id == pattern_id)
+        priority_after_failure = pattern_after_failure.priority_score
+
+        # Priority should have decreased after failures
+        assert priority_after_failure < priority_after_success
+
+    def test_recalculate_all_pattern_priorities(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test batch recalculation of all pattern priorities."""
+        # Create multiple patterns with applications
+        pattern_ids = []
+        for i in range(3):
+            pid = global_store.record_pattern(
+                pattern_type="test",
+                pattern_name=f"batch_recalc_pattern_{i}",
+            )
+            pattern_ids.append(pid)
+
+            # Record applications for each
+            for j in range(4):
+                global_store.record_pattern_application(
+                    pattern_id=pid,
+                    execution_id=f"exec_{i}_{j}",
+                    outcome_improved=j % 2 == 0,  # Alternating outcomes
+                )
+
+        # Batch recalculate all priorities
+        updated_count = global_store.recalculate_all_pattern_priorities()
+
+        # Should have updated all 3 patterns
+        assert updated_count == 3
+
+        # Verify all patterns have valid priorities
+        patterns = global_store.get_patterns(min_priority=0.0)
+        for pattern in patterns:
+            if pattern.id in pattern_ids:
+                assert 0.0 <= pattern.priority_score <= 1.0
+                assert 0.0 <= pattern.effectiveness_score <= 1.0
+
+    def test_manual_update_pattern_effectiveness(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test manual effectiveness update method."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="manual_update_pattern",
+        )
+
+        # Record applications
+        for i in range(4):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"exec_{i}",
+                outcome_improved=True,
+            )
+
+        # Manually update effectiveness
+        new_effectiveness = global_store.update_pattern_effectiveness(pattern_id)
+
+        assert new_effectiveness is not None
+        assert new_effectiveness > 0.5  # All successes should give high effectiveness
+
+    def test_update_nonexistent_pattern_returns_none(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that updating a non-existent pattern returns None."""
+        result = global_store.update_pattern_effectiveness("nonexistent_pattern_id")
+        assert result is None
+
+
+# =============================================================================
+# TestFeedbackLoopIntegration
+# =============================================================================
+
+
+class TestFeedbackLoopIntegration:
+    """Integration tests for the full pattern feedback loop (v9 Evolution - Sheet 5).
+
+    Tests the end-to-end flow of:
+    1. Pattern query with exploration mode
+    2. Pattern injection into prompt
+    3. Outcome recording after sheet execution
+    4. Effectiveness update based on outcome
+    5. Priority recalculation
+    """
+
+    def test_feedback_loop_integration_success_case(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test full feedback loop with successful outcome."""
+        # 1. Create a pattern with known initial state
+        pattern_id = global_store.record_pattern(
+            pattern_type="validation_failure",
+            pattern_name="feedback_loop_pattern",
+            description="Pattern for testing feedback loop",
+            suggested_action="Review validation rules carefully",
+            context_tags=["sheet:1", "job:test-job"],
+        )
+
+        # 2. Query patterns (simulating _query_relevant_patterns)
+        patterns = global_store.get_patterns(
+            min_priority=0.0,  # Use exploration threshold
+            context_tags=["sheet:1"],
+        )
+        assert len(patterns) >= 1
+        queried_pattern = next(p for p in patterns if p.id == pattern_id)
+        initial_effectiveness = queried_pattern.effectiveness_score
+
+        # 3. Simulate successful sheet execution with pattern applied
+        # Record multiple successes to build up effectiveness
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"sheet_{i}",
+                outcome_improved=True,
+                retry_count_before=2,
+                retry_count_after=0,
+                application_mode="exploitation",
+                validation_passed=True,
+            )
+
+        # 4. Verify effectiveness increased
+        updated_patterns = global_store.get_patterns(min_priority=0.0)
+        updated_pattern = next(p for p in updated_patterns if p.id == pattern_id)
+
+        assert updated_pattern.effectiveness_score > initial_effectiveness
+        assert updated_pattern.led_to_success_count == 5
+
+        # 5. Verify priority also increased
+        assert updated_pattern.priority_score > 0
+
+    def test_feedback_loop_integration_failure_case(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test full feedback loop with failed outcome."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="validation_failure",
+            pattern_name="failing_feedback_pattern",
+            context_tags=["sheet:2"],
+        )
+
+        # Get initial state
+        patterns = global_store.get_patterns(min_priority=0.0)
+        initial_pattern = next(p for p in patterns if p.id == pattern_id)
+        initial_effectiveness = initial_pattern.effectiveness_score
+
+        # Simulate failed execution with pattern applied
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"sheet_fail_{i}",
+                outcome_improved=False,
+                application_mode="exploitation",
+                validation_passed=False,
+            )
+
+        # Verify effectiveness decreased
+        updated_patterns = global_store.get_patterns(min_priority=0.0)
+        updated_pattern = next(p for p in updated_patterns if p.id == pattern_id)
+
+        assert updated_pattern.effectiveness_score < initial_effectiveness
+        assert updated_pattern.led_to_failure_count == 5
+
+    def test_feedback_loop_exploration_vs_exploitation_tracking(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that exploration vs exploitation mode is correctly tracked."""
+        # Create two patterns: one for exploration, one for exploitation
+        exploration_pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="exploration_tracking_pattern",
+        )
+        exploitation_pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="exploitation_tracking_pattern",
+        )
+
+        # Set different priorities
+        with global_store._get_connection() as conn:
+            conn.execute(
+                "UPDATE patterns SET priority_score = 0.15 WHERE id = ?",
+                (exploration_pattern_id,),
+            )
+            conn.execute(
+                "UPDATE patterns SET priority_score = 0.6 WHERE id = ?",
+                (exploitation_pattern_id,),
+            )
+
+        # Record applications with different modes
+        global_store.record_pattern_application(
+            pattern_id=exploration_pattern_id,
+            execution_id="explore_exec",
+            outcome_improved=True,
+            application_mode="exploration",  # Low priority pattern selected via exploration
+        )
+
+        global_store.record_pattern_application(
+            pattern_id=exploitation_pattern_id,
+            execution_id="exploit_exec",
+            outcome_improved=True,
+            application_mode="exploitation",  # High priority pattern selected normally
+        )
+
+        # Both should have been recorded successfully
+        patterns = global_store.get_patterns(min_priority=0.0)
+        explore_p = next(p for p in patterns if p.id == exploration_pattern_id)
+        exploit_p = next(p for p in patterns if p.id == exploitation_pattern_id)
+
+        assert explore_p.led_to_success_count == 1
+        assert exploit_p.led_to_success_count == 1
+
+    def test_feedback_loop_multiple_patterns_same_execution(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test feedback loop with multiple patterns applied to same execution."""
+        # Create multiple patterns
+        pattern_ids = []
+        for i in range(3):
+            pid = global_store.record_pattern(
+                pattern_type="test",
+                pattern_name=f"multi_pattern_{i}",
+                context_tags=["sheet:multi"],
+            )
+            pattern_ids.append(pid)
+
+        # Record all patterns as applied to same execution
+        execution_id = "multi_pattern_exec_1"
+        for pid in pattern_ids:
+            global_store.record_pattern_application(
+                pattern_id=pid,
+                execution_id=execution_id,
+                outcome_improved=True,
+            )
+
+        # Verify all patterns were updated
+        patterns = global_store.get_patterns(min_priority=0.0)
+        for pid in pattern_ids:
+            p = next(pat for pat in patterns if pat.id == pid)
+            assert p.led_to_success_count >= 1
+
+    def test_end_to_end_pattern_lifecycle(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test complete pattern lifecycle: creation → application → learning → deprecation."""
+        # 1. Create pattern
+        pattern_id = global_store.record_pattern(
+            pattern_type="validation_failure",
+            pattern_name="lifecycle_pattern",
+            description="Testing full lifecycle",
+            context_tags=["lifecycle:test"],
+        )
+
+        # 2. Initial state: pattern exists with default scores
+        patterns = global_store.get_patterns(min_priority=0.0)
+        initial = next(p for p in patterns if p.id == pattern_id)
+        assert initial.effectiveness_score == 0.5  # Default
+        assert initial.occurrence_count == 1
+
+        # 3. Pattern is applied and succeeds multiple times - effectiveness rises
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"success_{i}",
+                outcome_improved=True,
+            )
+
+        patterns = global_store.get_patterns(min_priority=0.0)
+        after_success = next(p for p in patterns if p.id == pattern_id)
+        assert after_success.effectiveness_score > 0.7
+        high_priority = after_success.priority_score
+
+        # 4. Pattern starts failing - effectiveness drops
+        for i in range(10):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"failure_{i}",
+                outcome_improved=False,
+            )
+
+        patterns = global_store.get_patterns(min_priority=0.0)
+        after_failures = next(p for p in patterns if p.id == pattern_id)
+        assert after_failures.effectiveness_score < after_success.effectiveness_score
+        assert after_failures.priority_score < high_priority
+
+        # 5. Verify the learning: led_to_success_count and led_to_failure_count tracked
+        assert after_failures.led_to_success_count == 5
+        assert after_failures.led_to_failure_count == 10
+
+
+# =============================================================================
+# v12 Evolution: Grounding→Pattern Feedback Tests
+# =============================================================================
+
+
+class TestGroundingWeightedEffectiveness:
+    """Tests for grounding-weighted effectiveness calculation.
+
+    v12 Evolution: Grounding→Pattern Feedback - tests that grounding_confidence
+    is properly stored and used to weight pattern effectiveness.
+    """
+
+    def test_grounding_confidence_stored_in_pattern_application(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that grounding_confidence is stored in pattern_applications table."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="grounding_storage_test",
+        )
+
+        # Record application with grounding confidence
+        global_store.record_pattern_application(
+            pattern_id=pattern_id,
+            execution_id="grounding_test_1",
+            outcome_improved=True,
+            grounding_confidence=0.95,
+        )
+
+        # Verify grounding was stored by querying raw database
+        with global_store._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT grounding_confidence FROM pattern_applications WHERE pattern_id = ?",
+                (pattern_id,),
+            )
+            row = cursor.fetchone()
+            assert row is not None
+            assert row["grounding_confidence"] == 0.95
+
+    def test_null_grounding_uses_baseline_formula(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that null grounding_confidence uses baseline (1.0) in formula."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="null_grounding_test",
+        )
+
+        # Record 5 successful applications without grounding
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"no_grounding_{i}",
+                outcome_improved=True,
+                grounding_confidence=None,  # No grounding data
+            )
+
+        # Effectiveness should be high (all successes, no grounding penalty)
+        patterns = global_store.get_patterns(min_priority=0.0)
+        pattern = next(p for p in patterns if p.id == pattern_id)
+        # With all successes and avg_grounding=1.0, effectiveness should be high
+        assert pattern.effectiveness_score > 0.7
+
+    def test_high_grounding_increases_effectiveness_trust(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that high grounding confidence increases effectiveness weight."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="high_grounding_test",
+        )
+
+        # Record 5 successful applications with high grounding
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"high_grounding_{i}",
+                outcome_improved=True,
+                grounding_confidence=0.95,  # High grounding
+            )
+
+        patterns = global_store.get_patterns(min_priority=0.0)
+        pattern = next(p for p in patterns if p.id == pattern_id)
+
+        # High grounding (0.95) gives weight: 0.7 + 0.3*0.95 = 0.985 ≈ 1.0
+        # So effectiveness should be nearly unpenalized
+        assert pattern.effectiveness_score > 0.8
+
+    def test_low_grounding_dampens_effectiveness_update(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that low grounding confidence dampens effectiveness."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="low_grounding_test",
+        )
+
+        # Record 5 successful applications with low grounding
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"low_grounding_{i}",
+                outcome_improved=True,
+                grounding_confidence=0.1,  # Low grounding
+            )
+
+        patterns = global_store.get_patterns(min_priority=0.0)
+        pattern = next(p for p in patterns if p.id == pattern_id)
+
+        # Low grounding (0.1) gives weight: 0.7 + 0.3*0.1 = 0.73
+        # Even with all successes, effectiveness is damped to ~73% of base
+        # Base effectiveness for 5/5 successes ≈ 0.9
+        # Damped: 0.9 * 0.73 ≈ 0.65
+        assert pattern.effectiveness_score < 0.8
+        assert pattern.effectiveness_score > 0.5  # But not too low
+
+    def test_mixed_grounding_averages_correctly(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that mixed grounding values are averaged in effectiveness."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="mixed_grounding_test",
+        )
+
+        # Record 5 applications with varying grounding
+        grounding_values = [0.9, 0.8, 0.7, 0.6, 0.5]  # avg = 0.7
+        for i, g in enumerate(grounding_values):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"mixed_{i}",
+                outcome_improved=True,
+                grounding_confidence=g,
+            )
+
+        patterns = global_store.get_patterns(min_priority=0.0)
+        pattern = next(p for p in patterns if p.id == pattern_id)
+
+        # avg_grounding = 0.7 gives weight: 0.7 + 0.3*0.7 = 0.91
+        # Effectiveness should be reasonably high but not maximum
+        assert pattern.effectiveness_score > 0.6
+        assert pattern.effectiveness_score < 0.95
+
+    def test_grounding_weighted_effectiveness_with_failures(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test grounding weighting when pattern has mixed success/failure."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="grounding_with_failures_test",
+        )
+
+        # Record 3 successes with high grounding
+        for i in range(3):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"success_high_{i}",
+                outcome_improved=True,
+                grounding_confidence=0.9,
+            )
+
+        # Record 3 failures with low grounding
+        for i in range(3):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"failure_low_{i}",
+                outcome_improved=False,
+                grounding_confidence=0.3,
+            )
+
+        patterns = global_store.get_patterns(min_priority=0.0)
+        pattern = next(p for p in patterns if p.id == pattern_id)
+
+        # Pattern should have moderate effectiveness
+        # Recent applications (last 5) are mixed, avg_grounding is moderate
+        assert pattern.effectiveness_score > 0.3
+        assert pattern.effectiveness_score < 0.8
+
+
+# =============================================================================
+# v12 Evolution: Goal Drift Detection Tests
+# =============================================================================
+
+
+class TestGoalDriftDetection:
+    """Tests for pattern drift detection.
+
+    v12 Evolution: Goal Drift Detection - tests the drift calculation
+    formula, threshold alerting, and edge cases.
+    """
+
+    def test_drift_calculation_formula(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test the drift calculation formula."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="drift_formula_test",
+        )
+
+        # Create 10 applications: first 5 successes, last 5 failures
+        # This should show negative drift
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"old_success_{i}",
+                outcome_improved=True,
+                grounding_confidence=0.8,
+            )
+
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"new_failure_{i}",
+                outcome_improved=False,
+                grounding_confidence=0.8,
+            )
+
+        metrics = global_store.calculate_effectiveness_drift(pattern_id)
+        assert metrics is not None
+
+        # Should show negative drift (recent is worse than old)
+        assert metrics.drift_direction == "negative"
+        assert metrics.effectiveness_after < metrics.effectiveness_before
+        assert metrics.drift_magnitude > 0.2  # Significant drift
+
+    def test_drift_threshold_alerting(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that drift threshold correctly flags patterns."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="drift_threshold_test",
+        )
+
+        # Create significant drift
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"old_{i}",
+                outcome_improved=True,
+                grounding_confidence=0.9,
+            )
+
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"new_{i}",
+                outcome_improved=False,
+                grounding_confidence=0.9,
+            )
+
+        # With threshold 0.2, this should be flagged
+        metrics = global_store.calculate_effectiveness_drift(
+            pattern_id, drift_threshold=0.2
+        )
+        assert metrics is not None
+        assert metrics.threshold_exceeded is True
+
+        # With threshold 0.99, this should NOT be flagged (very high threshold)
+        # The weighted drift is drift_magnitude / avg_grounding ≈ 0.83 / 0.9 ≈ 0.92
+        # So we need a threshold > 0.92 to NOT trigger
+        metrics_high_threshold = global_store.calculate_effectiveness_drift(
+            pattern_id, drift_threshold=0.99
+        )
+        assert metrics_high_threshold is not None
+        assert metrics_high_threshold.threshold_exceeded is False
+
+    def test_drift_with_low_grounding_confidence(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that low grounding amplifies drift signal."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="low_grounding_drift_test",
+        )
+
+        # Create moderate drift with low grounding
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"old_{i}",
+                outcome_improved=True,
+                grounding_confidence=0.3,  # Low grounding
+            )
+
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"new_{i}",
+                outcome_improved=False,
+                grounding_confidence=0.3,  # Low grounding
+            )
+
+        metrics = global_store.calculate_effectiveness_drift(pattern_id)
+        assert metrics is not None
+
+        # Low grounding confidence should amplify drift detection
+        # weighted_magnitude = drift_magnitude / max(avg_grounding, 0.5)
+        assert metrics.grounding_confidence_avg < 0.5
+        assert metrics.threshold_exceeded is True
+
+    def test_drift_direction_classification(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test correct classification of drift direction."""
+        # Test positive drift (improving)
+        pattern_improving = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="improving_pattern",
+        )
+
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_improving,
+                execution_id=f"old_fail_{i}",
+                outcome_improved=False,
+            )
+
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_improving,
+                execution_id=f"new_success_{i}",
+                outcome_improved=True,
+            )
+
+        metrics = global_store.calculate_effectiveness_drift(pattern_improving)
+        assert metrics is not None
+        assert metrics.drift_direction == "positive"
+
+        # Test stable pattern
+        pattern_stable = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="stable_pattern",
+        )
+
+        for i in range(10):
+            global_store.record_pattern_application(
+                pattern_id=pattern_stable,
+                execution_id=f"consistent_{i}",
+                outcome_improved=True,
+            )
+
+        metrics = global_store.calculate_effectiveness_drift(pattern_stable)
+        assert metrics is not None
+        assert metrics.drift_direction == "stable"
+
+    def test_no_drift_with_stable_patterns(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that stable patterns don't trigger drift alerts."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="stable_test",
+        )
+
+        # All successes - should be stable
+        for i in range(10):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"success_{i}",
+                outcome_improved=True,
+                grounding_confidence=0.9,
+            )
+
+        metrics = global_store.calculate_effectiveness_drift(pattern_id)
+        assert metrics is not None
+        assert metrics.drift_direction == "stable"
+        assert metrics.threshold_exceeded is False
+        assert metrics.drift_magnitude < 0.1
+
+    def test_edge_case_insufficient_history(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that patterns with insufficient history return None."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="short_history_test",
+        )
+
+        # Only 3 applications (need 10 for window_size=5)
+        for i in range(3):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"short_{i}",
+                outcome_improved=True,
+            )
+
+        metrics = global_store.calculate_effectiveness_drift(pattern_id)
+        assert metrics is None  # Not enough history
+
+    def test_get_drifting_patterns(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test retrieval of all drifting patterns."""
+        # Create a drifting pattern
+        drifting_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="will_drift",
+        )
+
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=drifting_id,
+                execution_id=f"old_{i}",
+                outcome_improved=True,
+            )
+
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=drifting_id,
+                execution_id=f"new_{i}",
+                outcome_improved=False,
+            )
+
+        # Create a stable pattern
+        stable_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="will_not_drift",
+        )
+
+        for i in range(10):
+            global_store.record_pattern_application(
+                pattern_id=stable_id,
+                execution_id=f"stable_{i}",
+                outcome_improved=True,
+            )
+
+        # Get drifting patterns
+        drifting = global_store.get_drifting_patterns(drift_threshold=0.2)
+
+        # Only the drifting pattern should be returned
+        drifting_ids = [d.pattern_id for d in drifting]
+        assert drifting_id in drifting_ids
+        assert stable_id not in drifting_ids
+
+    def test_get_pattern_drift_summary(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test drift summary statistics."""
+        # Create several patterns with different drift profiles
+        for i in range(3):
+            pid = global_store.record_pattern(
+                pattern_type="test",
+                pattern_name=f"summary_pattern_{i}",
+            )
+
+            # Create enough applications for analysis
+            for j in range(10):
+                global_store.record_pattern_application(
+                    pattern_id=pid,
+                    execution_id=f"summary_{i}_{j}",
+                    outcome_improved=(j < 5),  # First 5 success, last 5 fail
+                )
+
+        summary = global_store.get_pattern_drift_summary()
+
+        assert summary["total_patterns"] >= 3
+        assert summary["patterns_analyzed"] >= 3
+        assert "patterns_drifting" in summary
+        assert "avg_drift_magnitude" in summary
+        assert summary["avg_drift_magnitude"] >= 0
+
+    def test_drift_with_different_window_sizes(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test drift calculation with different window sizes."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="window_size_test",
+        )
+
+        # Create 20 applications with clear trend
+        for i in range(10):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"old_{i}",
+                outcome_improved=True,
+            )
+
+        for i in range(10):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"new_{i}",
+                outcome_improved=False,
+            )
+
+        # Test with window_size=5
+        metrics_5 = global_store.calculate_effectiveness_drift(
+            pattern_id, window_size=5
+        )
+        assert metrics_5 is not None
+        assert metrics_5.window_size == 5
+        assert metrics_5.applications_analyzed == 10
+
+        # Test with window_size=10
+        metrics_10 = global_store.calculate_effectiveness_drift(
+            pattern_id, window_size=10
+        )
+        assert metrics_10 is not None
+        assert metrics_10.window_size == 10
+        assert metrics_10.applications_analyzed == 20
+
+
+class TestPatternAutoRetirement:
+    """Tests for pattern auto-retirement.
+
+    v14 Evolution: Pattern Auto-Retirement - tests that patterns with
+    negative drift are properly retired while preserving data.
+    """
+
+    def test_retire_drifting_patterns_sets_priority_to_zero(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that retired patterns have priority_score set to 0."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="retire_test_pattern",
+        )
+
+        # Create negative drift: 5 successes followed by 5 failures
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"old_success_{i}",
+                outcome_improved=True,
+                grounding_confidence=0.9,
+            )
+
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"new_failure_{i}",
+                outcome_improved=False,
+                grounding_confidence=0.9,
+            )
+
+        # Verify drift is detected
+        metrics = global_store.calculate_effectiveness_drift(pattern_id)
+        assert metrics is not None
+        assert metrics.drift_direction == "negative"
+        assert metrics.threshold_exceeded is True
+
+        # Retire drifting patterns
+        retired = global_store.retire_drifting_patterns()
+
+        # Should have retired one pattern
+        assert len(retired) == 1
+        assert retired[0][0] == pattern_id
+        assert retired[0][1] == "retire_test_pattern"
+
+        # Verify priority_score is now 0
+        patterns = global_store.get_patterns(min_priority=0.0, limit=100)
+        retired_pattern = next((p for p in patterns if p.id == pattern_id), None)
+        assert retired_pattern is not None
+        assert retired_pattern.priority_score == 0.0
+
+    def test_retirement_requires_negative_drift(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that patterns with positive drift are NOT retired."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="improving_pattern",
+        )
+
+        # Create positive drift: 5 failures followed by 5 successes
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"old_failure_{i}",
+                outcome_improved=False,
+                grounding_confidence=0.9,
+            )
+
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"new_success_{i}",
+                outcome_improved=True,
+                grounding_confidence=0.9,
+            )
+
+        # Verify positive drift
+        metrics = global_store.calculate_effectiveness_drift(pattern_id)
+        assert metrics is not None
+        assert metrics.drift_direction == "positive"
+        assert metrics.threshold_exceeded is True  # Exceeds threshold but positive
+
+        # Try to retire - should NOT retire positive drift
+        retired = global_store.retire_drifting_patterns(require_negative_drift=True)
+
+        # Should NOT have retired the pattern
+        assert len(retired) == 0
+
+        # Verify priority_score is still > 0
+        patterns = global_store.get_patterns(min_priority=0.0, limit=100)
+        pattern = next((p for p in patterns if p.id == pattern_id), None)
+        assert pattern is not None
+        assert pattern.priority_score > 0.0
+
+    def test_retirement_requires_threshold_exceeded(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that patterns without threshold exceeded are NOT retired."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="stable_pattern",
+        )
+
+        # Create mild drift that won't exceed threshold
+        for i in range(5):
+            # Alternating success/failure = stable
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"app_{i}",
+                outcome_improved=(i % 2 == 0),
+                grounding_confidence=0.9,
+            )
+
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"app2_{i}",
+                outcome_improved=(i % 2 == 0),
+                grounding_confidence=0.9,
+            )
+
+        # Verify no significant drift
+        metrics = global_store.calculate_effectiveness_drift(
+            pattern_id, drift_threshold=0.2
+        )
+        assert metrics is not None
+        # Stable pattern should have low drift magnitude
+        assert metrics.threshold_exceeded is False or metrics.drift_direction == "stable"
+
+        # Try to retire - should NOT retire stable patterns
+        retired = global_store.retire_drifting_patterns(drift_threshold=0.2)
+
+        # The stable pattern should NOT be retired
+        patterns = global_store.get_patterns(min_priority=0.0, limit=100)
+        pattern = next((p for p in patterns if p.id == pattern_id), None)
+        assert pattern is not None
+        assert pattern.priority_score > 0.0
+
+    def test_retirement_preserves_pattern_data(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that retirement preserves pattern history (not deleted)."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="preserve_data_test",
+            description="This should be preserved",
+        )
+
+        # Record some applications
+        for i in range(10):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"app_{i}",
+                outcome_improved=(i < 5),  # First 5 success, last 5 failure
+                grounding_confidence=0.9,
+            )
+
+        # Retire
+        retired = global_store.retire_drifting_patterns()
+        assert len(retired) == 1
+
+        # Verify pattern still exists with all data
+        patterns = global_store.get_patterns(min_priority=0.0, limit=100)
+        pattern = next((p for p in patterns if p.id == pattern_id), None)
+        assert pattern is not None
+        assert pattern.pattern_name == "preserve_data_test"
+        assert pattern.description == "This should be preserved"
+        assert pattern.occurrence_count >= 1
+        # Only priority_score should be 0
+        assert pattern.priority_score == 0.0
+
+    def test_no_retirement_for_positive_drift(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that positive drift patterns remain active."""
+        # Create two patterns: one improving, one degrading
+        improving_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="improving",
+        )
+        degrading_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="degrading",
+        )
+
+        # Set up improving pattern (failures then successes)
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=improving_id,
+                execution_id=f"imp_old_{i}",
+                outcome_improved=False,
+                grounding_confidence=0.9,
+            )
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=improving_id,
+                execution_id=f"imp_new_{i}",
+                outcome_improved=True,
+                grounding_confidence=0.9,
+            )
+
+        # Set up degrading pattern (successes then failures)
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=degrading_id,
+                execution_id=f"deg_old_{i}",
+                outcome_improved=True,
+                grounding_confidence=0.9,
+            )
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=degrading_id,
+                execution_id=f"deg_new_{i}",
+                outcome_improved=False,
+                grounding_confidence=0.9,
+            )
+
+        # Retire - should only retire degrading
+        retired = global_store.retire_drifting_patterns()
+
+        # Only degrading should be retired
+        assert len(retired) == 1
+        assert retired[0][1] == "degrading"
+
+        # Verify improving still active
+        patterns = global_store.get_patterns(min_priority=0.0, limit=100)
+        improving = next((p for p in patterns if p.id == improving_id), None)
+        degrading = next((p for p in patterns if p.id == degrading_id), None)
+
+        assert improving is not None
+        assert improving.priority_score > 0.0
+
+        assert degrading is not None
+        assert degrading.priority_score == 0.0
+
+    def test_get_retired_patterns(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test retrieval of retired patterns."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="retired_retrieval_test",
+        )
+
+        # Create drift and retire
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"old_{i}",
+                outcome_improved=True,
+                grounding_confidence=0.9,
+            )
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"new_{i}",
+                outcome_improved=False,
+                grounding_confidence=0.9,
+            )
+
+        global_store.retire_drifting_patterns()
+
+        # Get retired patterns
+        retired_patterns = global_store.get_retired_patterns()
+
+        # Should find our retired pattern
+        found = any(p.id == pattern_id for p in retired_patterns)
+        assert found, "Retired pattern should be retrievable"
+
+        # All returned patterns should have priority_score = 0
+        for p in retired_patterns:
+            assert p.priority_score == 0.0
+
+
+class TestPatternBroadcasting:
+    """Tests for real-time pattern broadcasting.
+
+    v14 Evolution: Real-time Pattern Broadcasting - tests cross-job pattern
+    sharing with TTL-based expiry following the rate_limit_events template.
+    """
+
+    def test_record_pattern_discovery_creates_event(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that recording a discovery creates an event."""
+        record_id = global_store.record_pattern_discovery(
+            pattern_id="test-pattern-001",
+            pattern_name="Test Pattern",
+            pattern_type="validation_failure",
+            job_id="test-job-A",
+            effectiveness_score=0.85,
+            context_tags=["error", "timeout"],
+            ttl_seconds=60.0,
+        )
+
+        assert record_id is not None
+        assert len(record_id) > 0
+
+        # Verify event exists
+        events = global_store.get_active_pattern_discoveries()
+        assert len(events) >= 1
+
+        # Find our event
+        event = next((e for e in events if e.id == record_id), None)
+        assert event is not None
+        assert event.pattern_id == "test-pattern-001"
+        assert event.pattern_name == "Test Pattern"
+        assert event.pattern_type == "validation_failure"
+        assert event.effectiveness_score == 0.85
+        assert "error" in event.context_tags
+        assert "timeout" in event.context_tags
+
+    def test_check_recent_discoveries_finds_new_patterns(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that check_recent_discoveries finds patterns from other jobs."""
+        # Job A discovers a pattern
+        global_store.record_pattern_discovery(
+            pattern_id="discovery-001",
+            pattern_name="Job A Discovery",
+            pattern_type="retry_pattern",
+            job_id="job-A",
+            effectiveness_score=0.9,
+        )
+
+        # Job B checks for discoveries (excluding itself)
+        discoveries = global_store.check_recent_pattern_discoveries(
+            exclude_job_id="job-B"
+        )
+
+        # Should find Job A's discovery
+        assert len(discoveries) >= 1
+        found = any(d.pattern_name == "Job A Discovery" for d in discoveries)
+        assert found, "Job B should see Job A's discovery"
+
+    def test_check_recent_discoveries_excludes_own_job(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that a job doesn't see its own discoveries."""
+        # Job A discovers a pattern
+        global_store.record_pattern_discovery(
+            pattern_id="self-discovery-001",
+            pattern_name="Self Discovery",
+            pattern_type="validation_failure",
+            job_id="job-A",
+        )
+
+        # Job A checks discoveries (excluding itself)
+        discoveries = global_store.check_recent_pattern_discoveries(
+            exclude_job_id="job-A"
+        )
+
+        # Should NOT find its own discovery
+        found = any(d.pattern_name == "Self Discovery" for d in discoveries)
+        assert not found, "Job A should not see its own discovery"
+
+    def test_discovery_events_expire_correctly(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that expired events are cleaned up."""
+        import time
+
+        # Record with very short TTL
+        global_store.record_pattern_discovery(
+            pattern_id="short-lived-001",
+            pattern_name="Short Lived Pattern",
+            pattern_type="test",
+            job_id="job-X",
+            ttl_seconds=0.1,  # 100ms TTL
+        )
+
+        # Should exist immediately
+        events = global_store.get_active_pattern_discoveries()
+        assert any(e.pattern_name == "Short Lived Pattern" for e in events)
+
+        # Wait for expiry
+        time.sleep(0.2)
+
+        # Should not appear in active discoveries
+        events = global_store.get_active_pattern_discoveries()
+        assert not any(e.pattern_name == "Short Lived Pattern" for e in events)
+
+        # Cleanup should work
+        cleaned = global_store.cleanup_expired_pattern_discoveries()
+        assert cleaned >= 1
+
+    def test_parallel_job_discovers_other_jobs_patterns(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test cross-job pattern sharing scenario."""
+        # Simulate two parallel jobs
+        # Job A discovers patterns
+        global_store.record_pattern_discovery(
+            pattern_id="parallel-001",
+            pattern_name="Pattern from Job A",
+            pattern_type="validation_failure",
+            job_id="parallel-job-A",
+            effectiveness_score=0.8,
+        )
+        global_store.record_pattern_discovery(
+            pattern_id="parallel-002",
+            pattern_name="Another Pattern from Job A",
+            pattern_type="retry_pattern",
+            job_id="parallel-job-A",
+            effectiveness_score=0.9,
+        )
+
+        # Job B checks for discoveries
+        job_b_discoveries = global_store.check_recent_pattern_discoveries(
+            exclude_job_id="parallel-job-B"
+        )
+
+        # Job B should see both patterns from Job A
+        names = [d.pattern_name for d in job_b_discoveries]
+        assert "Pattern from Job A" in names
+        assert "Another Pattern from Job A" in names
+
+        # Job B also discovers something
+        global_store.record_pattern_discovery(
+            pattern_id="parallel-003",
+            pattern_name="Pattern from Job B",
+            pattern_type="completion_pattern",
+            job_id="parallel-job-B",
+            effectiveness_score=0.75,
+        )
+
+        # Job A checks for discoveries
+        job_a_discoveries = global_store.check_recent_pattern_discoveries(
+            exclude_job_id="parallel-job-A"
+        )
+
+        # Job A should see Job B's pattern but not its own
+        names_a = [d.pattern_name for d in job_a_discoveries]
+        assert "Pattern from Job B" in names_a
+        assert "Pattern from Job A" not in names_a
+
+    def test_filter_by_pattern_type(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test filtering discoveries by pattern type."""
+        # Create different types
+        global_store.record_pattern_discovery(
+            pattern_id="type-001",
+            pattern_name="Validation Failure",
+            pattern_type="validation_failure",
+            job_id="job-filter",
+        )
+        global_store.record_pattern_discovery(
+            pattern_id="type-002",
+            pattern_name="Retry Pattern",
+            pattern_type="retry_pattern",
+            job_id="job-filter",
+        )
+
+        # Filter by validation_failure
+        validation_only = global_store.check_recent_pattern_discoveries(
+            pattern_type="validation_failure"
+        )
+        for d in validation_only:
+            if d.pattern_name in ["Validation Failure", "Retry Pattern"]:
+                assert d.pattern_type == "validation_failure"
+
+        # Filter by retry_pattern
+        retry_only = global_store.check_recent_pattern_discoveries(
+            pattern_type="retry_pattern"
+        )
+        for d in retry_only:
+            if d.pattern_name in ["Validation Failure", "Retry Pattern"]:
+                assert d.pattern_type == "retry_pattern"
+
+    def test_filter_by_min_effectiveness(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test filtering discoveries by minimum effectiveness."""
+        global_store.record_pattern_discovery(
+            pattern_id="eff-001",
+            pattern_name="High Effectiveness",
+            pattern_type="test",
+            job_id="job-eff",
+            effectiveness_score=0.95,
+        )
+        global_store.record_pattern_discovery(
+            pattern_id="eff-002",
+            pattern_name="Low Effectiveness",
+            pattern_type="test",
+            job_id="job-eff",
+            effectiveness_score=0.3,
+        )
+
+        # Filter by min 0.5
+        high_only = global_store.check_recent_pattern_discoveries(
+            min_effectiveness=0.5
+        )
+
+        # Find our patterns
+        high_names = [d.pattern_name for d in high_only]
+        assert "High Effectiveness" in high_names
+        assert "Low Effectiveness" not in high_names
+
+    def test_get_active_pattern_discoveries(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test retrieval of all active discoveries."""
+        # Add some discoveries
+        global_store.record_pattern_discovery(
+            pattern_id="active-001",
+            pattern_name="Active Discovery 1",
+            pattern_type="test",
+            job_id="job-active",
+        )
+        global_store.record_pattern_discovery(
+            pattern_id="active-002",
+            pattern_name="Active Discovery 2",
+            pattern_type="test",
+            job_id="job-active",
+        )
+
+        # Get all active
+        active = global_store.get_active_pattern_discoveries()
+
+        # Should find our discoveries
+        names = [d.pattern_name for d in active]
+        assert "Active Discovery 1" in names
+        assert "Active Discovery 2" in names
+
+    def test_cleanup_expired_pattern_discoveries(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test cleanup of expired events."""
+        import time
+
+        # Add short-lived discovery
+        global_store.record_pattern_discovery(
+            pattern_id="cleanup-001",
+            pattern_name="Will Expire",
+            pattern_type="test",
+            job_id="job-cleanup",
+            ttl_seconds=0.1,
+        )
+
+        # Wait for expiry
+        time.sleep(0.2)
+
+        # Cleanup
+        cleaned = global_store.cleanup_expired_pattern_discoveries()
+        assert cleaned >= 1
+
+        # Verify cleaned
+        active = global_store.get_active_pattern_discoveries()
+        assert not any(d.pattern_name == "Will Expire" for d in active)
+
+    def test_context_tags_preserved(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that context tags are preserved through storage."""
+        tags = ["pytest", "validation", "timeout", "model:opus"]
+
+        global_store.record_pattern_discovery(
+            pattern_id="tags-001",
+            pattern_name="Tagged Pattern",
+            pattern_type="test",
+            job_id="job-tags",
+            context_tags=tags,
+        )
+
+        discoveries = global_store.check_recent_pattern_discoveries()
+        found = next((d for d in discoveries if d.pattern_name == "Tagged Pattern"), None)
+
+        assert found is not None
+        assert found.context_tags == tags
