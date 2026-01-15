@@ -223,6 +223,55 @@ class DriftMetrics:
     """Whether drift_magnitude exceeds the alert threshold."""
 
 
+@dataclass
+class EvolutionTrajectoryEntry:
+    """A record of a single evolution cycle in Mozart's self-improvement trajectory.
+
+    v16 Evolution: Evolution Trajectory Tracking - enables Mozart to track its
+    own evolution history, identifying recurring issue classes and measuring
+    improvement over time.
+    """
+
+    id: str
+    """Unique identifier for this trajectory entry."""
+
+    cycle: int
+    """Evolution cycle number (e.g., 16 for v16)."""
+
+    recorded_at: datetime
+    """When this entry was recorded."""
+
+    evolutions_completed: int
+    """Number of evolutions completed in this cycle."""
+
+    evolutions_deferred: int
+    """Number of evolutions deferred in this cycle."""
+
+    issue_classes: list[str]
+    """Issue classes addressed (e.g., 'infrastructure_activation', 'epistemic_drift')."""
+
+    cv_avg: float
+    """Average Consciousness Volume of selected evolutions."""
+
+    implementation_loc: int
+    """Total implementation LOC for this cycle."""
+
+    test_loc: int
+    """Total test LOC for this cycle."""
+
+    loc_accuracy: float
+    """LOC estimation accuracy (actual/estimated as ratio)."""
+
+    research_candidates_resolved: int = 0
+    """Number of research candidates resolved in this cycle."""
+
+    research_candidates_created: int = 0
+    """Number of new research candidates created in this cycle."""
+
+    notes: str = ""
+    """Optional notes about this evolution cycle."""
+
+
 class GlobalLearningStore:
     """SQLite-based global learning store.
 
@@ -234,7 +283,7 @@ class GlobalLearningStore:
         db_path: Path to the SQLite database file.
     """
 
-    SCHEMA_VERSION = 5  # v5: Added grounding_confidence to pattern_applications
+    SCHEMA_VERSION = 6  # v6: Added evolution_trajectory table
 
     def __init__(self, db_path: Path | None = None) -> None:
         """Initialize the global learning store.
@@ -496,6 +545,34 @@ class GlobalLearningStore:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_pattern_discovery_type "
             "ON pattern_discovery_events(pattern_type)"
+        )
+
+        # Evolution trajectory table (Evolution v16: Evolution Trajectory Tracking)
+        # Tracks Mozart's own evolution history for recursive self-improvement analysis
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS evolution_trajectory (
+                id TEXT PRIMARY KEY,
+                cycle INTEGER NOT NULL UNIQUE,
+                recorded_at TIMESTAMP NOT NULL,
+                evolutions_completed INTEGER NOT NULL,
+                evolutions_deferred INTEGER NOT NULL,
+                issue_classes TEXT NOT NULL,
+                cv_avg REAL NOT NULL,
+                implementation_loc INTEGER NOT NULL,
+                test_loc INTEGER NOT NULL,
+                loc_accuracy REAL NOT NULL,
+                research_candidates_resolved INTEGER DEFAULT 0,
+                research_candidates_created INTEGER DEFAULT 0,
+                notes TEXT
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_trajectory_cycle "
+            "ON evolution_trajectory(cycle)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_trajectory_recorded "
+            "ON evolution_trajectory(recorded_at)"
         )
 
         # Update schema version
@@ -2749,6 +2826,194 @@ class GlobalLearningStore:
 
             return records
 
+    # =========================================================================
+    # Evolution v16: Evolution Trajectory Tracking
+    # =========================================================================
+
+    def record_evolution_entry(
+        self,
+        cycle: int,
+        evolutions_completed: int,
+        evolutions_deferred: int,
+        issue_classes: list[str],
+        cv_avg: float,
+        implementation_loc: int,
+        test_loc: int,
+        loc_accuracy: float,
+        research_candidates_resolved: int = 0,
+        research_candidates_created: int = 0,
+        notes: str = "",
+    ) -> str:
+        """Record an evolution cycle entry to the trajectory.
+
+        v16 Evolution: Evolution Trajectory Tracking - enables Mozart to track
+        its own evolution history for recursive self-improvement analysis.
+
+        Args:
+            cycle: Evolution cycle number (e.g., 16 for v16).
+            evolutions_completed: Number of evolutions completed in this cycle.
+            evolutions_deferred: Number of evolutions deferred in this cycle.
+            issue_classes: Issue classes addressed (e.g., ['infrastructure_activation']).
+            cv_avg: Average Consciousness Volume of selected evolutions.
+            implementation_loc: Total implementation LOC for this cycle.
+            test_loc: Total test LOC for this cycle.
+            loc_accuracy: LOC estimation accuracy (actual/estimated as ratio).
+            research_candidates_resolved: Number of research candidates resolved.
+            research_candidates_created: Number of new research candidates created.
+            notes: Optional notes about this evolution cycle.
+
+        Returns:
+            The ID of the created trajectory entry.
+
+        Raises:
+            sqlite3.IntegrityError: If an entry for this cycle already exists.
+        """
+        entry_id = str(uuid.uuid4())
+        now = datetime.now()
+
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO evolution_trajectory (
+                    id, cycle, recorded_at, evolutions_completed, evolutions_deferred,
+                    issue_classes, cv_avg, implementation_loc, test_loc, loc_accuracy,
+                    research_candidates_resolved, research_candidates_created, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    entry_id,
+                    cycle,
+                    now.isoformat(),
+                    evolutions_completed,
+                    evolutions_deferred,
+                    json.dumps(issue_classes),
+                    cv_avg,
+                    implementation_loc,
+                    test_loc,
+                    loc_accuracy,
+                    research_candidates_resolved,
+                    research_candidates_created,
+                    notes,
+                ),
+            )
+
+        _logger.info(
+            f"Recorded evolution trajectory entry for cycle {cycle}: "
+            f"{evolutions_completed} completed, {evolutions_deferred} deferred"
+        )
+
+        return entry_id
+
+    def get_trajectory(
+        self,
+        start_cycle: int | None = None,
+        end_cycle: int | None = None,
+        limit: int = 50,
+    ) -> list[EvolutionTrajectoryEntry]:
+        """Retrieve evolution trajectory history.
+
+        v16 Evolution: Evolution Trajectory Tracking - enables analysis of
+        Mozart's evolution history over time.
+
+        Args:
+            start_cycle: Optional minimum cycle number to include.
+            end_cycle: Optional maximum cycle number to include.
+            limit: Maximum number of entries to return (default: 50).
+
+        Returns:
+            List of EvolutionTrajectoryEntry objects, ordered by cycle descending.
+        """
+        with self._get_connection() as conn:
+            query = "SELECT * FROM evolution_trajectory WHERE 1=1"
+            params: list[int] = []
+
+            if start_cycle is not None:
+                query += " AND cycle >= ?"
+                params.append(start_cycle)
+
+            if end_cycle is not None:
+                query += " AND cycle <= ?"
+                params.append(end_cycle)
+
+            query += " ORDER BY cycle DESC LIMIT ?"
+            params.append(limit)
+
+            cursor = conn.execute(query, params)
+            entries = []
+
+            for row in cursor.fetchall():
+                entries.append(
+                    EvolutionTrajectoryEntry(
+                        id=row["id"],
+                        cycle=row["cycle"],
+                        recorded_at=datetime.fromisoformat(row["recorded_at"]),
+                        evolutions_completed=row["evolutions_completed"],
+                        evolutions_deferred=row["evolutions_deferred"],
+                        issue_classes=json.loads(row["issue_classes"]),
+                        cv_avg=row["cv_avg"],
+                        implementation_loc=row["implementation_loc"],
+                        test_loc=row["test_loc"],
+                        loc_accuracy=row["loc_accuracy"],
+                        research_candidates_resolved=row["research_candidates_resolved"] or 0,
+                        research_candidates_created=row["research_candidates_created"] or 0,
+                        notes=row["notes"] or "",
+                    )
+                )
+
+            return entries
+
+    def get_recurring_issues(
+        self,
+        min_occurrences: int = 2,
+        window_cycles: int | None = None,
+    ) -> dict[str, list[int]]:
+        """Identify recurring issue classes across evolution cycles.
+
+        v16 Evolution: Evolution Trajectory Tracking - enables identification
+        of patterns in what types of issues Mozart addresses repeatedly.
+
+        Args:
+            min_occurrences: Minimum number of occurrences to consider recurring.
+            window_cycles: Optional limit to analyze only recent N cycles.
+
+        Returns:
+            Dict mapping issue class names to list of cycles where they appeared.
+            Only includes issue classes that meet the min_occurrences threshold.
+        """
+        with self._get_connection() as conn:
+            query = "SELECT cycle, issue_classes FROM evolution_trajectory"
+            params: list[int] = []
+
+            if window_cycles is not None:
+                # Get recent N cycles
+                query += " ORDER BY cycle DESC LIMIT ?"
+                params.append(window_cycles)
+            else:
+                query += " ORDER BY cycle DESC"
+
+            cursor = conn.execute(query, params)
+
+            # Count issue class occurrences
+            issue_cycles: dict[str, list[int]] = {}
+
+            for row in cursor.fetchall():
+                cycle = row["cycle"]
+                issues = json.loads(row["issue_classes"])
+
+                for issue in issues:
+                    if issue not in issue_cycles:
+                        issue_cycles[issue] = []
+                    issue_cycles[issue].append(cycle)
+
+            # Filter by min_occurrences
+            recurring = {
+                issue: sorted(cycles, reverse=True)
+                for issue, cycles in issue_cycles.items()
+                if len(cycles) >= min_occurrences
+            }
+
+            return recurring
+
     def clear_all(self) -> None:
         """Clear all data from the global store.
 
@@ -2763,6 +3028,7 @@ class GlobalLearningStore:
             conn.execute("DELETE FROM rate_limit_events")
             conn.execute("DELETE FROM escalation_decisions")
             conn.execute("DELETE FROM pattern_discovery_events")
+            conn.execute("DELETE FROM evolution_trajectory")
 
         _logger.warning("Cleared all data from global learning store")
 

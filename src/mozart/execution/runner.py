@@ -2149,6 +2149,10 @@ class JobRunner:
                         "actual_wait": retry_recommendation.delay_seconds,
                     }
 
+                # Evolution v16: Active Broadcast Polling - check for patterns
+                # discovered by other concurrent jobs before retrying
+                await self._poll_broadcast_discoveries(state.job_id, sheet_num)
+
                 await asyncio.sleep(retry_recommendation.delay_seconds)
                 continue
 
@@ -2856,6 +2860,74 @@ class JobRunner:
 
         return delay
 
+    async def _poll_broadcast_discoveries(
+        self,
+        job_id: str,
+        sheet_num: int,
+    ) -> None:
+        """Poll for pattern discoveries from other concurrent jobs.
+
+        v16 Evolution: Active Broadcast Polling - enables jobs to receive
+        real-time pattern discoveries from other jobs during retry waits.
+        This activates the v14 broadcasting infrastructure.
+
+        The polling is read-only - discovered patterns are logged but not
+        automatically applied. Pattern application is out of scope for v16.
+
+        Args:
+            job_id: Current job ID (to exclude own discoveries).
+            sheet_num: Current sheet number (for logging context).
+        """
+        if self._global_learning_store is None:
+            return
+
+        try:
+            discoveries = self._global_learning_store.check_recent_pattern_discoveries(
+                exclude_job_id=job_id,
+                min_effectiveness=0.5,  # Only consider reasonably effective patterns
+                limit=10,
+            )
+
+            if discoveries:
+                # Log discovered patterns for debugging/observability
+                self._logger.info(
+                    "broadcast.discoveries_received",
+                    sheet_num=sheet_num,
+                    discovery_count=len(discoveries),
+                    pattern_ids=[d.pattern_id for d in discoveries],
+                    pattern_names=[d.pattern_name for d in discoveries],
+                    avg_effectiveness=round(
+                        sum(d.effectiveness_score for d in discoveries) / len(discoveries),
+                        3,
+                    ),
+                )
+
+                # Console output for visibility
+                self.console.print(
+                    f"[dim]Sheet {sheet_num}: Received {len(discoveries)} pattern "
+                    f"broadcast(s) from other jobs[/dim]"
+                )
+
+                # Log individual patterns at debug level
+                for discovery in discoveries:
+                    self._logger.debug(
+                        "broadcast.discovery_detail",
+                        sheet_num=sheet_num,
+                        pattern_id=discovery.pattern_id,
+                        pattern_name=discovery.pattern_name,
+                        pattern_type=discovery.pattern_type,
+                        effectiveness=round(discovery.effectiveness_score, 3),
+                        context_tags=discovery.context_tags,
+                    )
+
+        except Exception as e:
+            # Polling failure should not block retry - log and continue
+            self._logger.warning(
+                "broadcast.polling_failed",
+                sheet_num=sheet_num,
+                error=str(e),
+            )
+
     async def _handle_rate_limit(
         self,
         state: CheckpointState,
@@ -2958,6 +3030,14 @@ class JobRunner:
                 f"[yellow]Rate limited. Waiting {wait_minutes:.0f} minutes... "
                 f"(wait {state.rate_limit_waits}/{self.config.rate_limit.max_waits})[/yellow]"
             )
+
+        # v16 Evolution: Active Broadcast Polling during rate limit waits
+        # Rate limit waits are typically longer, so this is a good time to
+        # check for pattern discoveries from other concurrent jobs.
+        await self._poll_broadcast_discoveries(
+            job_id=state.job_id,
+            sheet_num=state.last_completed_sheet + 1 if state.last_completed_sheet else 1,
+        )
 
         await asyncio.sleep(wait_seconds)
 

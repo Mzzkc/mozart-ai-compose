@@ -3500,3 +3500,295 @@ class TestPatternBroadcasting:
 
         assert found is not None
         assert found.context_tags == tags
+
+
+class TestEvolutionTrajectoryTracking:
+    """Tests for v16 Evolution: Evolution Trajectory Tracking.
+
+    Tests the ability to track Mozart's own evolution history for
+    recursive self-improvement analysis.
+    """
+
+    def test_record_evolution_entry_creates_record(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that recording an evolution entry creates a record."""
+        entry_id = global_store.record_evolution_entry(
+            cycle=16,
+            evolutions_completed=2,
+            evolutions_deferred=0,
+            issue_classes=["infrastructure_activation", "epistemic_drift"],
+            cv_avg=0.68,
+            implementation_loc=333,
+            test_loc=405,
+            loc_accuracy=0.92,
+            research_candidates_resolved=1,
+            research_candidates_created=0,
+            notes="Test cycle",
+        )
+
+        assert entry_id is not None
+        assert len(entry_id) > 0
+
+        # Verify retrieval
+        trajectory = global_store.get_trajectory()
+        assert len(trajectory) == 1
+        assert trajectory[0].cycle == 16
+        assert trajectory[0].evolutions_completed == 2
+        assert trajectory[0].issue_classes == ["infrastructure_activation", "epistemic_drift"]
+
+    def test_get_trajectory_returns_ordered_history(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that trajectory is returned in descending cycle order."""
+        # Record multiple entries
+        for cycle in [14, 15, 16]:
+            global_store.record_evolution_entry(
+                cycle=cycle,
+                evolutions_completed=2,
+                evolutions_deferred=0,
+                issue_classes=[f"issue_{cycle}"],
+                cv_avg=0.65,
+                implementation_loc=100 * cycle,
+                test_loc=50 * cycle,
+                loc_accuracy=0.9,
+            )
+
+        trajectory = global_store.get_trajectory()
+
+        assert len(trajectory) == 3
+        # Should be descending order
+        assert trajectory[0].cycle == 16
+        assert trajectory[1].cycle == 15
+        assert trajectory[2].cycle == 14
+
+    def test_get_trajectory_with_cycle_range(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test filtering trajectory by cycle range."""
+        # Record entries for cycles 10-15
+        for cycle in range(10, 16):
+            global_store.record_evolution_entry(
+                cycle=cycle,
+                evolutions_completed=1,
+                evolutions_deferred=0,
+                issue_classes=[f"issue_{cycle}"],
+                cv_avg=0.6,
+                implementation_loc=100,
+                test_loc=50,
+                loc_accuracy=0.9,
+            )
+
+        # Filter to cycles 12-14
+        filtered = global_store.get_trajectory(start_cycle=12, end_cycle=14)
+
+        assert len(filtered) == 3
+        cycles = [e.cycle for e in filtered]
+        assert all(12 <= c <= 14 for c in cycles)
+
+    def test_get_recurring_issues_identifies_patterns(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that recurring issue classes are identified correctly."""
+        # Record entries with overlapping issue classes
+        global_store.record_evolution_entry(
+            cycle=10,
+            evolutions_completed=2,
+            evolutions_deferred=0,
+            issue_classes=["infrastructure_activation", "test_coverage"],
+            cv_avg=0.65,
+            implementation_loc=200,
+            test_loc=100,
+            loc_accuracy=0.88,
+        )
+        global_store.record_evolution_entry(
+            cycle=11,
+            evolutions_completed=2,
+            evolutions_deferred=0,
+            issue_classes=["infrastructure_activation", "schema_migration"],
+            cv_avg=0.70,
+            implementation_loc=180,
+            test_loc=90,
+            loc_accuracy=0.92,
+        )
+        global_store.record_evolution_entry(
+            cycle=12,
+            evolutions_completed=1,
+            evolutions_deferred=1,
+            issue_classes=["cli_enhancement", "infrastructure_activation"],
+            cv_avg=0.72,
+            implementation_loc=150,
+            test_loc=80,
+            loc_accuracy=0.95,
+        )
+
+        recurring = global_store.get_recurring_issues(min_occurrences=2)
+
+        # infrastructure_activation appears in all 3 cycles
+        assert "infrastructure_activation" in recurring
+        assert len(recurring["infrastructure_activation"]) == 3
+
+        # Others appear only once
+        assert "test_coverage" not in recurring
+        assert "schema_migration" not in recurring
+        assert "cli_enhancement" not in recurring
+
+    def test_get_recurring_issues_respects_window(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that window_cycles parameter limits analysis range."""
+        # Record entries with issue appearing in old and recent cycles
+        for cycle in range(10, 20):
+            issue = "common_issue" if cycle % 2 == 0 else f"unique_{cycle}"
+            global_store.record_evolution_entry(
+                cycle=cycle,
+                evolutions_completed=1,
+                evolutions_deferred=0,
+                issue_classes=[issue],
+                cv_avg=0.65,
+                implementation_loc=100,
+                test_loc=50,
+                loc_accuracy=0.9,
+            )
+
+        # Analyze only last 3 cycles (17, 18, 19)
+        recurring = global_store.get_recurring_issues(min_occurrences=2, window_cycles=3)
+
+        # common_issue only appears in cycle 18 within the window
+        # So it shouldn't be recurring
+        assert "common_issue" not in recurring
+
+    def test_schema_migration_creates_table(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that evolution_trajectory table is created by migration."""
+        import sqlite3
+
+        # Verify table exists by querying it
+        with sqlite3.connect(str(global_store.db_path)) as conn:
+            cursor = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='evolution_trajectory'"
+            )
+            result = cursor.fetchone()
+            assert result is not None
+            assert result[0] == "evolution_trajectory"
+
+    def test_evolution_entry_validation_rejects_duplicate_cycle(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that duplicate cycle numbers are rejected."""
+        import sqlite3
+
+        global_store.record_evolution_entry(
+            cycle=16,
+            evolutions_completed=2,
+            evolutions_deferred=0,
+            issue_classes=["first_entry"],
+            cv_avg=0.65,
+            implementation_loc=200,
+            test_loc=100,
+            loc_accuracy=0.9,
+        )
+
+        # Attempting to record same cycle should raise IntegrityError
+        with pytest.raises(sqlite3.IntegrityError):
+            global_store.record_evolution_entry(
+                cycle=16,  # Same cycle
+                evolutions_completed=1,
+                evolutions_deferred=1,
+                issue_classes=["duplicate_entry"],
+                cv_avg=0.70,
+                implementation_loc=100,
+                test_loc=50,
+                loc_accuracy=0.85,
+            )
+
+    def test_trajectory_entry_all_fields_preserved(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that all fields are correctly stored and retrieved."""
+        global_store.record_evolution_entry(
+            cycle=16,
+            evolutions_completed=2,
+            evolutions_deferred=1,
+            issue_classes=["infrastructure_activation", "epistemic_drift"],
+            cv_avg=0.685,
+            implementation_loc=333,
+            test_loc=405,
+            loc_accuracy=0.92,
+            research_candidates_resolved=2,
+            research_candidates_created=1,
+            notes="v16 cycle notes with special chars: <>&",
+        )
+
+        trajectory = global_store.get_trajectory()
+        entry = trajectory[0]
+
+        assert entry.cycle == 16
+        assert entry.evolutions_completed == 2
+        assert entry.evolutions_deferred == 1
+        assert entry.issue_classes == ["infrastructure_activation", "epistemic_drift"]
+        assert abs(entry.cv_avg - 0.685) < 0.001
+        assert entry.implementation_loc == 333
+        assert entry.test_loc == 405
+        assert abs(entry.loc_accuracy - 0.92) < 0.001
+        assert entry.research_candidates_resolved == 2
+        assert entry.research_candidates_created == 1
+        assert entry.notes == "v16 cycle notes with special chars: <>&"
+        assert entry.recorded_at is not None
+
+    def test_get_recurring_issues_empty_database(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test get_recurring_issues with no data returns empty dict."""
+        recurring = global_store.get_recurring_issues()
+        assert recurring == {}
+
+    def test_get_trajectory_with_limit(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that trajectory limit parameter works correctly."""
+        # Record 10 entries
+        for cycle in range(1, 11):
+            global_store.record_evolution_entry(
+                cycle=cycle,
+                evolutions_completed=1,
+                evolutions_deferred=0,
+                issue_classes=[f"issue_{cycle}"],
+                cv_avg=0.65,
+                implementation_loc=100,
+                test_loc=50,
+                loc_accuracy=0.9,
+            )
+
+        # Limit to 5
+        trajectory = global_store.get_trajectory(limit=5)
+
+        assert len(trajectory) == 5
+        # Should be most recent (descending order)
+        assert trajectory[0].cycle == 10
+        assert trajectory[-1].cycle == 6
+
+    def test_clear_all_includes_evolution_trajectory(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that clear_all also clears evolution_trajectory table."""
+        global_store.record_evolution_entry(
+            cycle=16,
+            evolutions_completed=2,
+            evolutions_deferred=0,
+            issue_classes=["test"],
+            cv_avg=0.65,
+            implementation_loc=100,
+            test_loc=50,
+            loc_accuracy=0.9,
+        )
+
+        # Verify entry exists
+        assert len(global_store.get_trajectory()) == 1
+
+        # Clear all
+        global_store.clear_all()
+
+        # Verify cleared
+        assert len(global_store.get_trajectory()) == 0

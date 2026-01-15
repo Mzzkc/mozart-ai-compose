@@ -622,8 +622,8 @@ class TestEscalationLearningIntegration:
         # Should not raise and should return valid ID
         assert record_id is not None
 
-        # Verify schema version is 5 (upgraded in v12 evolution)
-        assert store.SCHEMA_VERSION == 5
+        # Verify schema version is 6 (upgraded in v16 evolution for trajectory tracking)
+        assert store.SCHEMA_VERSION == 6
 
     def test_clear_all_includes_escalations(
         self, global_store: GlobalLearningStore

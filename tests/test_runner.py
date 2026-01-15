@@ -1439,3 +1439,183 @@ class TestLoggingLevelFiltering:
         # INFO level logs should NOT be present at WARNING level
         assert "job.started" not in err
         assert "job.completed" not in err
+
+
+class TestActiveBroadcastPolling:
+    """Tests for v16 Evolution: Active Broadcast Polling.
+
+    These tests verify that the runner correctly polls for pattern
+    discoveries from other concurrent jobs during retry waits.
+    """
+
+    @pytest.mark.asyncio
+    async def test_poll_broadcast_discoveries_calls_store(
+        self,
+        sample_config: JobConfig,
+        mock_backend: MagicMock,
+        mock_state_backend: MagicMock,
+    ) -> None:
+        """Verify polling calls check_recent_pattern_discoveries on store."""
+        from datetime import datetime
+        from mozart.learning.global_store import PatternDiscoveryEvent
+
+        mock_store = MagicMock()
+        mock_store.check_recent_pattern_discoveries = MagicMock(return_value=[])
+
+        runner = JobRunner(
+            config=sample_config,
+            backend=mock_backend,
+            state_backend=mock_state_backend,
+            global_learning_store=mock_store,
+        )
+
+        await runner._poll_broadcast_discoveries("test-job-123", sheet_num=1)
+
+        mock_store.check_recent_pattern_discoveries.assert_called_once_with(
+            exclude_job_id="test-job-123",
+            min_effectiveness=0.5,
+            limit=10,
+        )
+
+    @pytest.mark.asyncio
+    async def test_poll_broadcast_discoveries_handles_empty_results(
+        self,
+        sample_config: JobConfig,
+        mock_backend: MagicMock,
+        mock_state_backend: MagicMock,
+    ) -> None:
+        """Verify polling handles empty discovery results gracefully."""
+        mock_store = MagicMock()
+        mock_store.check_recent_pattern_discoveries = MagicMock(return_value=[])
+
+        runner = JobRunner(
+            config=sample_config,
+            backend=mock_backend,
+            state_backend=mock_state_backend,
+            global_learning_store=mock_store,
+        )
+
+        # Should not raise, should not log anything for empty results
+        await runner._poll_broadcast_discoveries("test-job-123", sheet_num=1)
+
+        mock_store.check_recent_pattern_discoveries.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_poll_broadcast_discoveries_logs_found_patterns(
+        self,
+        sample_config: JobConfig,
+        mock_backend: MagicMock,
+        mock_state_backend: MagicMock,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Verify polling logs when patterns are discovered."""
+        from datetime import datetime, timedelta
+        from mozart.learning.global_store import PatternDiscoveryEvent
+
+        now = datetime.now()
+        discoveries = [
+            PatternDiscoveryEvent(
+                id="disc-001",
+                pattern_id="pat-001",
+                pattern_name="Test Pattern 1",
+                pattern_type="retry_pattern",
+                source_job_hash="other-job-hash",
+                recorded_at=now,
+                expires_at=now + timedelta(minutes=10),
+                effectiveness_score=0.85,
+                context_tags=["test"],
+            ),
+            PatternDiscoveryEvent(
+                id="disc-002",
+                pattern_id="pat-002",
+                pattern_name="Test Pattern 2",
+                pattern_type="validation_failure",
+                source_job_hash="another-job-hash",
+                recorded_at=now,
+                expires_at=now + timedelta(minutes=10),
+                effectiveness_score=0.72,
+                context_tags=["test", "validation"],
+            ),
+        ]
+
+        mock_store = MagicMock()
+        mock_store.check_recent_pattern_discoveries = MagicMock(return_value=discoveries)
+
+        runner = JobRunner(
+            config=sample_config,
+            backend=mock_backend,
+            state_backend=mock_state_backend,
+            global_learning_store=mock_store,
+        )
+
+        await runner._poll_broadcast_discoveries("test-job-123", sheet_num=2)
+
+        captured = capsys.readouterr()
+        # Console should show discovery count
+        assert "2 pattern" in captured.out
+        assert "broadcast" in captured.out
+
+    @pytest.mark.asyncio
+    async def test_poll_broadcast_discoveries_excludes_self_job(
+        self,
+        sample_config: JobConfig,
+        mock_backend: MagicMock,
+        mock_state_backend: MagicMock,
+    ) -> None:
+        """Verify polling excludes the current job's own patterns."""
+        mock_store = MagicMock()
+        mock_store.check_recent_pattern_discoveries = MagicMock(return_value=[])
+
+        runner = JobRunner(
+            config=sample_config,
+            backend=mock_backend,
+            state_backend=mock_state_backend,
+            global_learning_store=mock_store,
+        )
+
+        await runner._poll_broadcast_discoveries("my-unique-job-id", sheet_num=1)
+
+        # Verify exclude_job_id is passed correctly
+        call_kwargs = mock_store.check_recent_pattern_discoveries.call_args[1]
+        assert call_kwargs["exclude_job_id"] == "my-unique-job-id"
+
+    @pytest.mark.asyncio
+    async def test_poll_broadcast_discoveries_handles_store_error(
+        self,
+        sample_config: JobConfig,
+        mock_backend: MagicMock,
+        mock_state_backend: MagicMock,
+    ) -> None:
+        """Verify polling handles store errors gracefully without blocking."""
+        mock_store = MagicMock()
+        mock_store.check_recent_pattern_discoveries = MagicMock(
+            side_effect=Exception("Database connection failed")
+        )
+
+        runner = JobRunner(
+            config=sample_config,
+            backend=mock_backend,
+            state_backend=mock_state_backend,
+            global_learning_store=mock_store,
+        )
+
+        # Should not raise - polling failure shouldn't block retry
+        await runner._poll_broadcast_discoveries("test-job", sheet_num=1)
+
+    @pytest.mark.asyncio
+    async def test_poll_broadcast_discoveries_noop_without_store(
+        self,
+        sample_config: JobConfig,
+        mock_backend: MagicMock,
+        mock_state_backend: MagicMock,
+    ) -> None:
+        """Verify polling is no-op when global learning store is not configured."""
+        runner = JobRunner(
+            config=sample_config,
+            backend=mock_backend,
+            state_backend=mock_state_backend,
+            global_learning_store=None,  # No store configured
+        )
+
+        # Should not raise
+        await runner._poll_broadcast_discoveries("test-job", sheet_num=1)
