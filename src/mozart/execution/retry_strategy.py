@@ -42,6 +42,7 @@ from mozart.core.errors import (
     ErrorCategory,
     ErrorCode,
     RetryBehavior,
+    RetryDelays,
 )
 from mozart.core.logging import get_logger
 
@@ -416,7 +417,7 @@ class RetryStrategyConfig:
     """
 
     base_delay: float = 10.0
-    max_delay: float = 3600.0  # 1 hour
+    max_delay: float = RetryDelays.API_RATE_LIMIT  # 1 hour
     exponential_base: float = 2.0
     rapid_failure_window: float = 60.0  # 1 minute
     rapid_failure_threshold: int = 3
@@ -771,7 +772,7 @@ class AdaptiveRetryStrategy:
             RetryRecommendation with rate limit delay.
         """
         # Use suggested wait if available, otherwise default to 1 hour
-        base_wait = error.suggested_wait or 3600.0
+        base_wait = error.suggested_wait or RetryDelays.API_RATE_LIMIT
 
         # Add a small buffer (10%) to avoid hitting limit again immediately
         delay = min(base_wait * 1.1, self.config.max_delay)

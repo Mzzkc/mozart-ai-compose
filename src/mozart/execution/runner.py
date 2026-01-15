@@ -11,19 +11,19 @@ import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
 
 if TYPE_CHECKING:
-    from mozart.execution.grounding import GroundingEngine
+    from mozart.execution.grounding import GroundingEngine, GroundingResult
     from mozart.learning.global_store import GlobalLearningStore
 
 from mozart.backends.base import Backend, ExecutionResult
 from mozart.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
-from mozart.core.config import JobConfig
+from mozart.core.config import IsolationMode, JobConfig
 from mozart.core.errors import (
     ClassificationResult,
     ClassifiedError,
@@ -157,6 +157,87 @@ class RunSummary:
             hours = int(seconds // 3600)
             minutes = int((seconds % 3600) // 60)
             return f"{hours}h {minutes}m"
+
+
+@dataclass
+class GroundingDecisionContext:
+    """Context from grounding hooks for completion mode decisions.
+
+    Encapsulates grounding results to inform decision-making about
+    whether to retry, complete, or escalate. This integrates external
+    validation signals into the adaptive execution flow.
+
+    v10 Evolution: Grounding→Completion Integration
+    """
+
+    passed: bool
+    """Whether all grounding hooks passed."""
+
+    message: str
+    """Human-readable summary of grounding results."""
+
+    confidence: float = 1.0
+    """Average confidence across all grounding results (0.0-1.0)."""
+
+    should_escalate: bool = False
+    """Whether any grounding hook recommends escalation."""
+
+    recovery_guidance: str | None = None
+    """Optional guidance for recovery from grounding failures."""
+
+    hooks_executed: int = 0
+    """Number of grounding hooks that were executed."""
+
+    @classmethod
+    def from_results(cls, results: list["GroundingResult"]) -> "GroundingDecisionContext":
+        """Build context from grounding results list.
+
+        Args:
+            results: List of GroundingResult from grounding hooks.
+
+        Returns:
+            GroundingDecisionContext summarizing the results.
+        """
+        if not results:
+            return cls(passed=True, message="No grounding hooks executed", hooks_executed=0)
+
+        passed = all(r.passed for r in results)
+        confidences = [r.confidence for r in results]
+        avg_confidence = sum(confidences) / len(confidences) if confidences else 1.0
+        should_escalate = any(r.should_escalate for r in results)
+
+        # Collect recovery guidance from failed hooks
+        failed = [r for r in results if not r.passed]
+        recovery_guidance = None
+        if failed:
+            guidance_parts = [r.recovery_guidance for r in failed if r.recovery_guidance]
+            if guidance_parts:
+                recovery_guidance = "; ".join(guidance_parts)
+
+        # Build message
+        if passed:
+            message = f"All {len(results)} grounding check(s) passed"
+        else:
+            failures = ", ".join(f"{r.hook_name}: {r.message}" for r in failed)
+            message = f"{len(failed)}/{len(results)} grounding check(s) failed: {failures}"
+
+        return cls(
+            passed=passed,
+            message=message,
+            confidence=avg_confidence,
+            should_escalate=should_escalate,
+            recovery_guidance=recovery_guidance,
+            hooks_executed=len(results),
+        )
+
+    @classmethod
+    def disabled(cls) -> "GroundingDecisionContext":
+        """Create context when grounding is disabled.
+
+        Returns:
+            GroundingDecisionContext indicating grounding was not run.
+        """
+        return cls(passed=True, message="Grounding not enabled", hooks_executed=0)
 
 
 class SheetExecutionMode(str, Enum):
@@ -497,6 +578,19 @@ class JobRunner:
             config=config_summary,
         )
 
+        # Set up worktree isolation if configured (v2 evolution: Worktree Isolation)
+        # Store original working directory for restoration if needed
+        # Note: working_directory is backend-specific (not in Backend protocol)
+        original_working_directory: Path | None = None
+        if hasattr(self.backend, "working_directory"):
+            original_working_directory = getattr(self.backend, "working_directory", None)
+        worktree_path = await self._setup_isolation(state)
+        if worktree_path:
+            # Override backend working directory to use worktree
+            if hasattr(self.backend, "working_directory"):
+                setattr(self.backend, "working_directory", worktree_path)
+            await self.state_backend.save(state)  # Persist worktree state
+
         try:
             next_sheet = state.get_next_sheet()
             while next_sheet is not None and next_sheet <= state.total_sheets:
@@ -570,6 +664,13 @@ class JobRunner:
 
             return state, self._summary
         finally:
+            # Clean up worktree isolation if configured (v2 evolution: Worktree Isolation)
+            await self._cleanup_isolation(state)
+
+            # Restore original working directory if it was overridden
+            if worktree_path and hasattr(self.backend, "working_directory"):
+                setattr(self.backend, "working_directory", original_working_directory)
+
             # Remove signal handlers
             self._remove_signal_handlers()
 
@@ -636,7 +737,8 @@ class JobRunner:
         executor = HookExecutor(
             config=self.config,
             workspace=self.config.workspace,
-            concert_context=None,  # TODO: Pass concert context for chaining
+            concert_context=None,  # TODO(concert-chaining): Pass concert context from parent job
+                                   # to enable job chaining. See ConcertConfig for context structure.
         )
 
         # Execute hooks
@@ -690,7 +792,208 @@ class JobRunner:
             ),
             "circuit_breaker_enabled": self.config.circuit_breaker.enabled,
             "circuit_breaker_threshold": self.config.circuit_breaker.failure_threshold,
+            "isolation_enabled": self.config.isolation.enabled,
+            "isolation_mode": self.config.isolation.mode.value if self.config.isolation.enabled else None,
         }
+
+    # =========================================================================
+    # Worktree Isolation (v2 evolution: Worktree Isolation)
+    # =========================================================================
+
+    async def _setup_isolation(self, state: CheckpointState) -> Path | None:
+        """Set up worktree isolation if configured.
+
+        Creates an isolated git worktree for parallel-safe execution when
+        isolation.enabled is True. The worktree provides a separate working
+        directory, index, and HEAD so multiple jobs can run concurrently.
+
+        Args:
+            state: Job checkpoint state for tracking worktree info.
+
+        Returns:
+            Path to the worktree if created, None if isolation disabled or failed.
+
+        Raises:
+            FatalError: If isolation is required but cannot be established
+                and fallback_on_error is False.
+        """
+        if not self.config.isolation.enabled:
+            self._logger.debug("isolation_disabled")
+            return None
+
+        if self.config.isolation.mode != IsolationMode.WORKTREE:
+            self._logger.warning(
+                "unsupported_isolation_mode",
+                mode=self.config.isolation.mode.value,
+            )
+            return None
+
+        # Check for existing worktree from resume
+        if state.worktree_path:
+            existing_path = Path(state.worktree_path)
+            if existing_path.exists():
+                self._logger.info(
+                    "reusing_existing_worktree",
+                    path=str(existing_path),
+                )
+                return existing_path
+            else:
+                # Previous worktree was deleted - log warning and create new one
+                self._logger.warning(
+                    "previous_worktree_missing_creating_new",
+                    previous_path=str(existing_path),
+                )
+
+        # Import worktree manager (lazy import to avoid circular deps)
+        from mozart.isolation.worktree import (
+            GitWorktreeManager,
+            NotGitRepositoryError,
+            WorktreeCreationError,
+        )
+
+        # Determine the source path for the git repository
+        # Use working_directory if set, otherwise fall back to workspace
+        repo_path = self.config.backend.working_directory or self.config.workspace
+
+        manager = GitWorktreeManager(repo_path)
+
+        # Check if in git repo
+        if not manager.is_git_repository():
+            if self.config.isolation.fallback_on_error:
+                self._logger.warning(
+                    "not_git_repo_fallback_to_workspace",
+                    path=str(repo_path),
+                )
+                state.isolation_fallback_used = True
+                state.isolation_mode = "none"
+                return None
+            raise FatalError(f"Worktree isolation requires a git repository: {repo_path}")
+
+        # Create worktree (detached HEAD mode for parallel safety)
+        try:
+            worktree_base = self.config.isolation.get_worktree_base(self.config.workspace)
+            result = await manager.create_worktree_detached(
+                job_id=state.job_id,
+                source_ref=self.config.isolation.source_branch,
+                worktree_base=worktree_base,
+                lock=self.config.isolation.lock_during_execution,
+            )
+
+            if result.success and result.worktree:
+                # Update state with worktree info
+                state.worktree_path = str(result.worktree.path)
+                state.worktree_branch = result.worktree.branch
+                state.worktree_locked = result.worktree.locked
+                state.worktree_base_commit = result.worktree.commit
+                state.isolation_mode = "worktree"
+
+                self._logger.info(
+                    "worktree_created",
+                    path=str(result.worktree.path),
+                    commit=result.worktree.commit,
+                    locked=result.worktree.locked,
+                )
+                return result.worktree.path
+            else:
+                raise WorktreeCreationError(result.error or "Unknown worktree creation error")
+
+        except (NotGitRepositoryError, WorktreeCreationError) as e:
+            if self.config.isolation.fallback_on_error:
+                self._logger.warning(
+                    "worktree_creation_failed_fallback",
+                    error=str(e),
+                )
+                state.isolation_fallback_used = True
+                state.isolation_mode = "none"
+                return None
+            raise FatalError(f"Failed to create worktree: {e}") from e
+
+    async def _cleanup_isolation(self, state: CheckpointState) -> None:
+        """Clean up worktree isolation based on job outcome.
+
+        Handles worktree removal based on job success/failure and cleanup
+        configuration. Preserves worktree on failure for debugging by default.
+
+        Args:
+            state: Job checkpoint state with worktree info and final status.
+        """
+        if not state.worktree_path:
+            return
+
+        worktree_path = Path(state.worktree_path)
+        if not worktree_path.exists():
+            self._logger.debug(
+                "worktree_already_removed",
+                path=str(worktree_path),
+            )
+            return
+
+        # Determine if we should cleanup based on outcome
+        should_cleanup = False
+        if state.status == JobStatus.COMPLETED and self.config.isolation.cleanup_on_success:
+            should_cleanup = True
+        elif state.status == JobStatus.FAILED and self.config.isolation.cleanup_on_failure:
+            should_cleanup = True
+        elif state.status == JobStatus.PAUSED:
+            # Never cleanup on pause - job will resume
+            should_cleanup = False
+
+        if not should_cleanup:
+            self._logger.info(
+                "worktree_preserved",
+                path=str(worktree_path),
+                status=state.status.value,
+                reason="cleanup_disabled_for_outcome",
+            )
+            return
+
+        # Import worktree manager (lazy import)
+        from mozart.isolation.worktree import GitWorktreeManager
+
+        repo_path = self.config.backend.working_directory or self.config.workspace
+        manager = GitWorktreeManager(repo_path)
+
+        try:
+            # Unlock first if locked
+            if state.worktree_locked:
+                unlock_result = await manager.unlock_worktree(worktree_path)
+                if unlock_result.success:
+                    state.worktree_locked = False
+                else:
+                    self._logger.warning(
+                        "worktree_unlock_failed",
+                        path=str(worktree_path),
+                        error=unlock_result.error,
+                    )
+
+            # Remove worktree (force=True to handle dirty state)
+            remove_result = await manager.remove_worktree(
+                worktree_path,
+                force=True,
+                delete_branch=False,  # Preserve branch for potential inspection
+            )
+
+            if remove_result.success:
+                self._logger.info("worktree_removed", path=str(worktree_path))
+                # Clear worktree tracking from state
+                state.worktree_path = None
+                state.worktree_branch = None
+                state.worktree_base_commit = None
+            else:
+                self._logger.warning(
+                    "worktree_removal_failed",
+                    path=str(worktree_path),
+                    error=remove_result.error,
+                )
+                # Don't fail the job for cleanup issues
+
+        except Exception as e:
+            self._logger.warning(
+                "worktree_cleanup_exception",
+                path=str(worktree_path),
+                error=str(e),
+            )
+            # Don't fail the job for cleanup issues - log and continue
 
     def _install_signal_handlers(self) -> None:
         """Install signal handlers for graceful shutdown.
@@ -1203,25 +1506,78 @@ class JobRunner:
                 # ===== GROUNDING: External validation hooks (v8 Evolution) =====
                 # Run external grounding hooks to validate output against external
                 # sources (APIs, checksums, etc.). This prevents model drift.
-                grounding_passed, grounding_message = await self._run_grounding_hooks(
+                # v10 Evolution: Returns GroundingDecisionContext for completion decisions.
+                grounding_ctx = await self._run_grounding_hooks(
                     sheet_num=sheet_num,
                     prompt=current_prompt,
                     output=result.stdout or "",
                     validation_result=validation_result,
                 )
 
-                if not grounding_passed and self.config.grounding.fail_on_grounding_failure:
+                if not grounding_ctx.passed and self.config.grounding.fail_on_grounding_failure:
                     self._logger.warning(
                         "sheet.grounding_failed",
                         sheet_num=sheet_num,
-                        message=grounding_message,
+                        message=grounding_ctx.message,
+                        confidence=grounding_ctx.confidence,
                     )
                     self.console.print(
-                        f"[yellow]Sheet {sheet_num}: Grounding failed - {grounding_message}[/yellow]"
+                        f"[yellow]Sheet {sheet_num}: Grounding failed - "
+                        f"{grounding_ctx.message}[/yellow]"
                     )
-                    # Treat grounding failure like validation failure (triggers retry/escalation)
-                    # Don't modify validation_result directly (it may have immutable props)
-                    continue  # Retry the sheet
+                    # v10 Evolution: Use decision methods with grounding context
+                    # instead of hard retry. This allows escalation based on
+                    # grounding confidence and should_escalate flags.
+                    grounding_mode, grounding_reason, _ = await self._decide_with_judgment(
+                        sheet_num=sheet_num,
+                        validation_result=validation_result,
+                        execution_history=execution_history,
+                        normal_attempts=normal_attempts,
+                        completion_attempts=completion_attempts,
+                        grounding_context=grounding_ctx,
+                    )
+                    self.console.print(
+                        f"[dim]Sheet {sheet_num}: Grounding decision: {grounding_mode.value} "
+                        f"- {grounding_reason}[/dim]"
+                    )
+                    if grounding_mode == SheetExecutionMode.ESCALATE:
+                        # Escalation requested by grounding - use helper method
+                        grounding_error_history: list[str] = (
+                            [grounding_ctx.message] if grounding_ctx.message else []
+                        )
+                        try:
+                            response = await self._handle_escalation(
+                                state=state,
+                                sheet_num=sheet_num,
+                                validation_result=validation_result,
+                                current_prompt=current_prompt,
+                                error_history=grounding_error_history,
+                                normal_attempts=normal_attempts,
+                            )
+                            if response.action == "abort":
+                                state.mark_sheet_failed(
+                                    sheet_num,
+                                    f"Escalation abort: {response.guidance or 'grounding failure'}",
+                                    "escalation",
+                                )
+                                await self.state_backend.save(state)
+                                raise FatalError(
+                                    f"Sheet {sheet_num} aborted via escalation: "
+                                    f"{response.guidance or 'grounding failure'}"
+                                )
+                            elif response.action == "skip":
+                                state.mark_sheet_completed(
+                                    sheet_num,
+                                    validation_passed=False,
+                                    validation_details=validation_result.to_dict_list(),
+                                )
+                                await self.state_backend.save(state)
+                                break  # Skip this sheet
+                            # Otherwise continue to retry
+                        except FatalError:
+                            raise  # Re-raise FatalErrors from escalation
+                    # Default: retry on grounding failure
+                    continue
 
                 # Record success in circuit breaker (Task 12)
                 if self._circuit_breaker is not None:
@@ -1271,6 +1627,11 @@ class JobRunner:
                 # v9 Evolution: Pattern Feedback Loop - save both IDs and descriptions
                 sheet_state.applied_pattern_ids = self._applied_pattern_ids.copy()
                 sheet_state.applied_pattern_descriptions = self._current_sheet_patterns.copy()
+                # v11 Evolution: Grounding→Pattern Integration - capture grounding data
+                if grounding_ctx.hooks_executed > 0:
+                    sheet_state.grounding_passed = grounding_ctx.passed
+                    sheet_state.grounding_confidence = grounding_ctx.confidence
+                    sheet_state.grounding_guidance = grounding_ctx.recovery_guidance
 
                 # Record pattern feedback to global store (v9 Evolution)
                 await self._record_pattern_feedback(
@@ -1335,6 +1696,26 @@ class JobRunner:
                 self.console.print(
                     f"  [red]✗[/red] {failed.rule.description}"
                 )
+
+            # ===== RATE LIMIT CHECK (before completion threshold) =====
+            # Rate limits must be handled first, regardless of pass percentage.
+            # Otherwise, partial validation success can cause rate limits to be
+            # ignored when pass_pct >= completion_threshold.
+            if result.rate_limited:
+                # Backend detected rate limit - classify and handle
+                classification = self._classify_execution(result)
+                error = classification.primary
+
+                if error.is_rate_limit:
+                    # Clear error history on rate limit
+                    error_history.clear()
+                    # Handle rate limit with dynamic wait time
+                    await self._handle_rate_limit(
+                        state,
+                        error_code=error.error_code.value,
+                        suggested_wait_seconds=error.suggested_wait_seconds,
+                    )
+                    continue  # Retry same execution
 
             # Check if pass_pct is high enough for completion mode
             # This applies regardless of exit_code - partial success is still progress
@@ -2050,12 +2431,15 @@ class JobRunner:
         prompt: str,
         output: str,
         validation_result: SheetValidationResult,
-    ) -> tuple[bool, str]:
+    ) -> GroundingDecisionContext:
         """Run external grounding hooks to validate sheet output.
 
         Executes registered grounding hooks to validate the sheet output against
         external sources. This addresses the mathematical necessity of external
         validators to prevent model drift (arXiv 2601.05280).
+
+        v10 Evolution: Now returns GroundingDecisionContext with full context
+        for completion mode decisions, including confidence and recovery guidance.
 
         Args:
             sheet_num: Sheet number being validated.
@@ -2064,10 +2448,10 @@ class JobRunner:
             validation_result: Results from internal validation engine.
 
         Returns:
-            Tuple of (passed, message) where passed is True if all hooks pass.
+            GroundingDecisionContext with pass/fail, confidence, and guidance.
         """
         if self._grounding_engine is None or not self.config.grounding.enabled:
-            return True, "Grounding not enabled"
+            return GroundingDecisionContext.disabled()
 
         from mozart.execution.grounding import GroundingContext, GroundingPhase
 
@@ -2090,29 +2474,33 @@ class JobRunner:
             context, GroundingPhase.POST_VALIDATION
         )
 
-        # Aggregate results
-        passed, message = self._grounding_engine.aggregate_results(results)
+        # Build decision context from results (v10 Evolution)
+        grounding_ctx = GroundingDecisionContext.from_results(results)
 
         # Log grounding results
         self._logger.info(
             "grounding.hooks_completed",
             sheet_num=sheet_num,
-            hooks_run=len(results),
-            passed=passed,
-            message=message,
+            hooks_run=grounding_ctx.hooks_executed,
+            passed=grounding_ctx.passed,
+            message=grounding_ctx.message,
+            confidence=grounding_ctx.confidence,
         )
 
         # Handle escalation on grounding failure
-        if not passed and self.config.grounding.escalate_on_failure:
-            should_escalate = any(r.should_escalate for r in results)
-            if should_escalate:
-                self._logger.warning(
-                    "grounding.escalation_triggered",
-                    sheet_num=sheet_num,
-                    message=message,
-                )
+        should_log_escalation = (
+            not grounding_ctx.passed
+            and self.config.grounding.escalate_on_failure
+            and grounding_ctx.should_escalate
+        )
+        if should_log_escalation:
+            self._logger.warning(
+                "grounding.escalation_triggered",
+                sheet_num=sheet_num,
+                message=grounding_ctx.message,
+            )
 
-        return passed, message
+        return grounding_ctx
 
     def _classify_execution(self, result: ExecutionResult) -> ClassificationResult:
         """Classify execution errors using multi-error root cause analysis.
@@ -2129,25 +2517,8 @@ class JobRunner:
             ClassificationResult with primary (root cause), secondary errors,
             and confidence in root cause identification.
         """
-        # Trust backend's rate limit detection (it classifies real-time output)
-        if result.rate_limited:
-            primary = ClassifiedError(
-                category=ErrorCategory.RATE_LIMIT,
-                error_code=ErrorCode.RATE_LIMIT_API,
-                message="Rate limit detected by backend",
-                exit_code=result.exit_code,
-                exit_signal=result.exit_signal,
-                exit_reason=result.exit_reason,
-                retriable=True,
-                suggested_wait_seconds=self.config.rate_limit.wait_minutes * 60,
-            )
-            return ClassificationResult(
-                primary=primary,
-                secondary=[],
-                confidence=1.0,
-                classification_method="backend_rate_limit",
-            )
-
+        # When backend detected rate limit, still classify to get specific error
+        # (E104 quota exhaustion with dynamic wait vs generic E101 rate limit)
         classification = self.error_classifier.classify_execution(
             stdout=result.stdout,
             stderr=result.stderr,
@@ -2461,6 +2832,10 @@ class JobRunner:
                     stderr_tail=sheet_state.stderr_tail or "",
                     # v9 Evolution: Pattern Feedback Loop - pass applied pattern descriptions
                     patterns_applied=sheet_state.applied_pattern_descriptions,
+                    # v11 Evolution: Grounding→Pattern Integration - pass grounding context
+                    grounding_passed=sheet_state.grounding_passed,
+                    grounding_confidence=sheet_state.grounding_confidence,
+                    grounding_guidance=sheet_state.grounding_guidance,
                 )
                 outcomes.append(outcome)
 
@@ -2504,6 +2879,7 @@ class JobRunner:
         validation_result: SheetValidationResult,
         normal_attempts: int,
         completion_attempts: int,
+        grounding_context: GroundingDecisionContext | None = None,
     ) -> tuple[SheetExecutionMode, str, list[str]]:
         """Decide the next action based on confidence, pass percentage, and semantic info.
 
@@ -2516,6 +2892,11 @@ class JobRunner:
         - If confidence < min_threshold: ESCALATE if handler exists, else RETRY
         - Otherwise: Use existing logic (RETRY or COMPLETION based on pass_pct)
 
+        v10 Evolution: Integrates grounding context into decisions:
+        - Grounding confidence adjusts overall confidence (weighted average)
+        - Grounding escalation requests trigger escalation
+        - Grounding recovery guidance added to semantic hints
+
         Semantic-aware enhancements:
         - Extracts failure_category to inform retry strategy
         - Returns actionable hints for injection into completion prompts
@@ -2525,12 +2906,13 @@ class JobRunner:
             validation_result: Results from validation engine with confidence scores.
             normal_attempts: Number of retry attempts already made.
             completion_attempts: Number of completion mode attempts already made.
+            grounding_context: Optional context from grounding hooks (v10 Evolution).
 
         Returns:
             Tuple of (SheetExecutionMode, reason string, semantic_hints list).
             semantic_hints contains suggested fixes for prompt injection.
         """
-        confidence = validation_result.aggregate_confidence
+        validation_confidence = validation_result.aggregate_confidence
         # Use executed_pass_percentage to exclude skipped validations from staged runs.
         # This prevents cascading stage failures from blocking completion mode.
         # Example: if stage 1 fails (1/2 executed pass), stages 2-4 are skipped,
@@ -2548,10 +2930,38 @@ class JobRunner:
         semantic_hints = validation_result.get_actionable_hints(limit=3)
         dominant_category = semantic_summary.get("dominant_category")
 
+        # v10 Evolution: Factor grounding confidence into decision
+        # Use weighted average: validation 70%, grounding 30% (when grounding ran)
+        confidence = validation_confidence
+        grounding_suffix = ""
+        if grounding_context is not None and grounding_context.hooks_executed > 0:
+            # Weight validation more heavily as it's the primary signal
+            confidence = (validation_confidence * 0.7) + (grounding_context.confidence * 0.3)
+            grounding_suffix = f", grounding: {grounding_context.confidence:.2f}"
+
+            # Add grounding recovery guidance to hints if available
+            if grounding_context.recovery_guidance:
+                semantic_hints = list(semantic_hints)  # Make mutable copy
+                semantic_hints.insert(0, f"[Grounding] {grounding_context.recovery_guidance}")
+
+            # Check for grounding-triggered escalation
+            if grounding_context.should_escalate:
+                escalation_available = (
+                    self.config.learning.escalation_enabled
+                    and self.escalation_handler is not None
+                )
+                if escalation_available:
+                    return (
+                        SheetExecutionMode.ESCALATE,
+                        f"grounding hook requests escalation: {grounding_context.message}",
+                        semantic_hints,
+                    )
+
         # Build category-specific reason suffix
         category_suffix = ""
         if dominant_category:
             category_suffix = f" (dominant: {dominant_category})"
+        category_suffix += grounding_suffix
 
         # High confidence + majority passed -> completion mode (focused approach)
         if confidence > high_threshold and pass_pct > completion_threshold:
@@ -2614,6 +3024,7 @@ class JobRunner:
         execution_history: list[ExecutionResult],
         normal_attempts: int,
         completion_attempts: int,
+        grounding_context: GroundingDecisionContext | None = None,
     ) -> tuple[SheetExecutionMode, str, list[str] | None]:
         """Decide next action using Recursive Light judgment if available.
 
@@ -2621,12 +3032,15 @@ class JobRunner:
         Falls back to local _decide_next_action() if no judgment client is configured
         or if the judgment client encounters errors.
 
+        v10 Evolution: Now accepts grounding_context for integrated decisions.
+
         Args:
             sheet_num: Current sheet number.
             validation_result: Results from validation engine with confidence scores.
             execution_history: List of ExecutionResults from previous attempts.
             normal_attempts: Number of retry attempts already made.
             completion_attempts: Number of completion mode attempts already made.
+            grounding_context: Optional context from grounding hooks (v10 Evolution).
 
         Returns:
             Tuple of (SheetExecutionMode, reason string, optional prompt_modifications).
@@ -2635,7 +3049,7 @@ class JobRunner:
         # Fall back to local decision if no judgment client
         if self.judgment_client is None:
             mode, reason, semantic_hints = self._decide_next_action(
-                validation_result, normal_attempts, completion_attempts
+                validation_result, normal_attempts, completion_attempts, grounding_context
             )
             return mode, reason, semantic_hints
 
@@ -2671,7 +3085,7 @@ class JobRunner:
                 f"falling back to local decision[/yellow]"
             )
             mode, reason, semantic_hints = self._decide_next_action(
-                validation_result, normal_attempts, completion_attempts
+                validation_result, normal_attempts, completion_attempts, grounding_context
             )
             return mode, reason + " (judgment fallback)", semantic_hints
 
@@ -2832,6 +3246,31 @@ class JobRunner:
             f"({context.confidence:.1%})[/yellow]"
         )
 
+        # v11 Evolution: Check for similar past escalations for guidance
+        if self._global_learning_store is not None:
+            try:
+                similar = self._global_learning_store.get_similar_escalation(
+                    confidence=context.confidence,
+                    validation_pass_rate=validation_result.pass_percentage,
+                    limit=3,
+                )
+                if similar:
+                    self.console.print(
+                        f"[dim]Found {len(similar)} similar past escalation(s):[/dim]"
+                    )
+                    for past in similar[:2]:
+                        outcome = past.outcome_after_action or "unknown"
+                        self.console.print(
+                            f"[dim]  • {past.action} → {outcome} "
+                            f"(conf={past.confidence:.1%})[/dim]"
+                        )
+            except Exception as e:
+                self._logger.debug(
+                    "escalation.similar_lookup_failed",
+                    sheet_num=sheet_num,
+                    error=str(e),
+                )
+
         # Get response from escalation handler
         response = await self.escalation_handler.escalate(context)
 
@@ -2840,5 +3279,35 @@ class JobRunner:
         )
         if response.guidance:
             self.console.print(f"[dim]Guidance: {response.guidance}[/dim]")
+
+        # v11 Evolution: Record escalation decision for learning
+        escalation_record_id: str | None = None
+        if self._global_learning_store is not None:
+            try:
+                escalation_record_id = self._global_learning_store.record_escalation_decision(
+                    job_id=state.job_id,
+                    sheet_num=sheet_num,
+                    confidence=context.confidence,
+                    action=response.action,
+                    validation_pass_rate=validation_result.pass_percentage,
+                    retry_count=normal_attempts,
+                    guidance=response.guidance,
+                    model=self.config.backend.model,
+                )
+                self._logger.info(
+                    "escalation.decision_recorded",
+                    sheet_num=sheet_num,
+                    action=response.action,
+                    record_id=escalation_record_id,
+                )
+                # Store the record ID for outcome update later
+                sheet_state.outcome_data = sheet_state.outcome_data or {}
+                sheet_state.outcome_data["escalation_record_id"] = escalation_record_id
+            except Exception as e:
+                self._logger.warning(
+                    "escalation.record_failed",
+                    sheet_num=sheet_num,
+                    error=str(e),
+                )
 
         return response

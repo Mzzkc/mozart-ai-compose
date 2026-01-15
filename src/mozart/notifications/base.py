@@ -13,6 +13,11 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Protocol, runtime_checkable
 
+from mozart.core.logging import get_logger
+
+# Module-level logger
+_logger = get_logger("notifications")
+
 
 class NotificationEvent(Enum):
     """Events that can trigger notifications.
@@ -255,10 +260,10 @@ class NotificationManager:
                     results[notifier_name] = success
                 except Exception as e:
                     # Log but don't raise - notifications shouldn't break execution
-                    import logging
-
-                    logging.getLogger(__name__).warning(
-                        f"Notifier {notifier_name} failed: {e}"
+                    _logger.warning(
+                        "notifier_failed",
+                        notifier=notifier_name,
+                        error=str(e),
                     )
                     results[notifier_name] = False
 
@@ -417,8 +422,8 @@ class NotificationManager:
             try:
                 await notifier.close()
             except Exception as e:
-                import logging
-
-                logging.getLogger(__name__).warning(
-                    f"Error closing notifier {type(notifier).__name__}: {e}"
+                _logger.warning(
+                    "notifier_close_error",
+                    notifier=type(notifier).__name__,
+                    error=str(e),
                 )

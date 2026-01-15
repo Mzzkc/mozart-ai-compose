@@ -282,8 +282,8 @@ mozart dashboard --port 3000
 ## Next Steps
 
 - [CLI Reference](cli-reference.md) - All commands and options
-- [Configuration Guide](configuration.md) - Full config options
-- [Best Practices](best-practices.md) - Tips for production use
+- See `examples/` directory for configuration examples
+- Check `CLAUDE.md` for development guidelines
 
 ## Troubleshooting
 

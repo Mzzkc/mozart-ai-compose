@@ -33,6 +33,10 @@ _logger = get_logger("backend.claude_cli")
 # Type alias for progress callback - receives dict with progress info
 ProgressCallback = Callable[[dict[str, Any]], None]
 
+# Timeout constants for subprocess management
+GRACEFUL_TERMINATION_TIMEOUT: float = 5.0  # Seconds to wait for graceful termination
+STREAM_READ_TIMEOUT: float = 1.0  # Seconds between stream read checks
+
 # Common signal names for human-readable output
 SIGNAL_NAMES: dict[int, str] = {
     signal.SIGTERM: "SIGTERM",
@@ -338,7 +342,7 @@ class ClaudeCliBackend(Backend):
                 # First try graceful termination
                 process.terminate()
                 try:
-                    await asyncio.wait_for(process.wait(), timeout=5.0)
+                    await asyncio.wait_for(process.wait(), timeout=GRACEFUL_TERMINATION_TIMEOUT)
                 except TimeoutError:
                     # Force kill if still running
                     process.kill()
@@ -545,7 +549,7 @@ class ClaudeCliBackend(Backend):
                     # Read in chunks for responsive progress updates
                     chunk = await asyncio.wait_for(
                         stream.read(4096),  # 4KB chunks
-                        timeout=1.0,  # Check timeout every second
+                        timeout=STREAM_READ_TIMEOUT,  # Check timeout every second
                     )
                 except TimeoutError:
                     # 1-second read timeout - check overall timeout

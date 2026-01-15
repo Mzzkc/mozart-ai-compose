@@ -18,7 +18,7 @@ Orchestration tool for running multiple Claude AI sessions with configurable pro
 
 ```bash
 # From source
-git clone https://github.com/yourusername/mozart-ai-compose.git
+git clone https://github.com/Mzzkc/mozart-ai-compose.git
 cd mozart-ai-compose
 pip install -e .
 
@@ -32,20 +32,20 @@ pip install -e ".[dev]"
 
 ```yaml
 # my-job.yaml
-name: "my-batch-job"
-description: "Process items in batches"
+name: "my-sheet-job"
+description: "Process items in sheets"
 
 backend:
   type: claude_cli
   skip_permissions: true
 
-batch:
+sheet:
   size: 10
   total_items: 100
 
 prompt:
   template: |
-    Process batch {{ batch_num }} of {{ total_batches }}.
+    Process sheet {{ sheet_num }} of {{ total_sheets }}.
     Items {{ start_item }} to {{ end_item }}.
 
     {{ stakes }}
@@ -57,7 +57,7 @@ retry:
 
 validations:
   - type: file_exists
-    path: "output/batch{{ batch_num }}-result.md"
+    path: "output/sheet{{ sheet_num }}-result.md"
 ```
 
 2. Validate and run:
@@ -77,13 +77,13 @@ mozart run my-job.yaml
 
 ```bash
 # Check job status
-mozart status my-batch-job
+mozart status my-sheet-job
 
 # List all jobs
 mozart list
 
 # Resume if interrupted
-mozart resume my-batch-job
+mozart resume my-sheet-job
 
 # Start web dashboard
 mozart dashboard
@@ -93,7 +93,7 @@ mozart dashboard
 
 | Command | Description |
 |---------|-------------|
-| `mozart run <config>` | Execute a batch job |
+| `mozart run <config>` | Execute a sheet job |
 | `mozart run <config> -n` | Dry run (show plan) |
 | `mozart status <job-id>` | Show job status and progress |
 | `mozart resume <job-id>` | Resume paused/failed job |
@@ -161,7 +161,7 @@ rate_limit:
 validations:
   # Check file exists
   - type: file_exists
-    path: "{workspace}/batch{batch_num}-output.md"
+    path: "{workspace}/sheet{sheet_num}-output.md"
 
   # Check file was modified (mtime changed)
   - type: file_modified
@@ -174,7 +174,7 @@ validations:
 
   # Run command and check exit code
   - type: command_succeeds
-    command: "python validate.py {batch_num}"
+    command: "python validate.py {sheet_num}"
 ```
 
 ### Notifications
@@ -185,7 +185,7 @@ notifications:
     on_events: [job_complete, job_failed]
 
   - type: slack
-    on_events: [batch_failed]
+    on_events: [sheet_failed]
     config:
       webhook_url_env: SLACK_WEBHOOK_URL
       channel: "#alerts"
@@ -202,10 +202,10 @@ Available in prompt templates:
 
 | Variable | Description |
 |----------|-------------|
-| `batch_num` | Current batch number (1-indexed) |
-| `total_batches` | Total number of batches |
-| `start_item` | First item number in batch |
-| `end_item` | Last item number in batch |
+| `sheet_num` | Current sheet number (1-indexed) |
+| `total_sheets` | Total number of sheets |
+| `start_item` | First item number in sheet |
+| `end_item` | Last item number in sheet |
 | `workspace` | Workspace directory path |
 | `stakes` | Stakes text from config |
 | `thinking_method` | Thinking method text from config |
@@ -227,7 +227,7 @@ mozart/
 
 ## Observability
 
-Mozart includes comprehensive observability features for debugging and monitoring batch jobs.
+Mozart includes comprehensive observability features for debugging and monitoring sheet jobs.
 
 ### Structured Logging
 
@@ -241,7 +241,7 @@ logging:
   max_file_size_mb: 50
   backup_count: 5
   include_timestamps: true
-  include_context: true  # Adds job_id, run_id, batch_num to logs
+  include_context: true  # Adds job_id, run_id, sheet_num to logs
 ```
 
 View logs with built-in CLI:
@@ -299,8 +299,8 @@ mozart diagnose my-job-id --json > diagnostics.json
 The diagnose command shows:
 - Job status and progress
 - Error history with codes and messages
-- Batch execution times and retry counts
-- Raw stdout/stderr capture (last 10KB per batch)
+- Sheet execution times and retry counts
+- Raw stdout/stderr capture (last 10KB per sheet)
 - Prompt metrics (token estimates, warnings)
 - Circuit breaker status
 
@@ -327,13 +327,13 @@ mozart errors --verbose
 Mozart includes a circuit breaker to prevent cascading failures:
 
 - Opens after consecutive failures (default: 5)
-- Prevents new batch execution while open
+- Prevents new sheet execution while open
 - Automatically recovers after timeout (default: 5 minutes)
 - Stats available in `mozart diagnose` output
 
 ### Preflight Checks
 
-Before each batch, Mozart runs preflight checks:
+Before each sheet, Mozart runs preflight checks:
 
 - Validates working directory exists
 - Estimates prompt token count
@@ -341,7 +341,7 @@ Before each batch, Mozart runs preflight checks:
   - Warning: >50K tokens
   - Error: >150K tokens
 - Checks referenced file paths exist
-- Results stored in batch state for diagnostics
+- Results stored in sheet state for diagnostics
 
 ### Output Capture
 
@@ -350,7 +350,7 @@ Raw stdout/stderr is captured for debugging:
 - Last 10KB of each stream preserved
 - Available in checkpoint state
 - Shown in `mozart diagnose --include-output`
-- Useful for debugging failed batches
+- Useful for debugging failed sheets
 
 ## Dashboard API
 

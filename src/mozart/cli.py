@@ -47,6 +47,16 @@ from mozart.state import JsonStateBackend, SQLiteStateBackend, StateBackend
 _logger = get_logger("cli")
 
 
+# Error message constants for consistent user-facing output
+class ErrorMessages:
+    """Constants for CLI error messages."""
+
+    JOB_NOT_FOUND = "Job not found"
+    CONFIG_LOAD_ERROR = "Error loading config"
+    WORKSPACE_NOT_FOUND = "Workspace not found"
+    STATE_FILE_NOT_FOUND = "State file not found"
+
+
 class OutputLevel(str, Enum):
     """Output verbosity level."""
 
@@ -952,7 +962,7 @@ async def _resume_job(
             continue
 
     if found_state is None or found_backend is None:
-        console.print(f"[red]Job not found:[/red] {job_id}")
+        console.print(f"[red]{ErrorMessages.JOB_NOT_FOUND}:[/red] {job_id}")
         console.print(
             "\n[dim]Hint: Use --workspace to specify the directory "
             "containing the job state.[/dim]"
@@ -1690,9 +1700,9 @@ async def _status_job_watch(
 
             if not found_job:
                 if json_output:
-                    console.print(json.dumps({"error": f"Job not found: {job_id}"}, indent=2))
+                    console.print(json.dumps({"error": f"{ErrorMessages.JOB_NOT_FOUND}: {job_id}"}, indent=2))
                 else:
-                    console.print(f"[red]Job not found:[/red] {job_id}")
+                    console.print(f"[red]{ErrorMessages.JOB_NOT_FOUND}:[/red] {job_id}")
                     console.print(
                         "\n[dim]Hint: Use --workspace to specify the directory "
                         "containing the job state.[/dim]"
@@ -1770,9 +1780,9 @@ async def _status_job(
 
     if not found_job:
         if json_output:
-            console.print(json.dumps({"error": f"Job not found: {job_id}"}, indent=2))
+            console.print(json.dumps({"error": f"{ErrorMessages.JOB_NOT_FOUND}: {job_id}"}, indent=2))
         else:
-            console.print(f"[red]Job not found:[/red] {job_id}")
+            console.print(f"[red]{ErrorMessages.JOB_NOT_FOUND}:[/red] {job_id}")
             console.print(
                 "\n[dim]Hint: Use --workspace to specify the directory "
                 "containing the job state.[/dim]"
@@ -2593,9 +2603,9 @@ async def _errors_job(
     found_job, _backend = await _find_job_state(job_id, workspace)
     if found_job is None:
         if json_output:
-            console.print(json_module.dumps({"error": f"Job not found: {job_id}"}, indent=2))
+            console.print(json_module.dumps({"error": f"{ErrorMessages.JOB_NOT_FOUND}: {job_id}"}, indent=2))
         else:
-            console.print(f"[red]Job not found:[/red] {job_id}")
+            console.print(f"[red]{ErrorMessages.JOB_NOT_FOUND}:[/red] {job_id}")
             console.print(
                 "\n[dim]Hint: Use --workspace to specify the directory "
                 "containing the job state.[/dim]"
@@ -2896,9 +2906,9 @@ async def _diagnose_job(
     found_job, _backend = await _find_job_state(job_id, workspace)
     if found_job is None:
         if json_output:
-            console.print(json_module.dumps({"error": f"Job not found: {job_id}"}, indent=2))
+            console.print(json_module.dumps({"error": f"{ErrorMessages.JOB_NOT_FOUND}: {job_id}"}, indent=2))
         else:
-            console.print(f"[red]Job not found:[/red] {job_id}")
+            console.print(f"[red]{ErrorMessages.JOB_NOT_FOUND}:[/red] {job_id}")
         raise typer.Exit(1)
 
     # Build diagnostic report
