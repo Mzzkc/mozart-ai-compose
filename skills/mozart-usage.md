@@ -1171,6 +1171,26 @@ setsid mozart --log-file workspace/mozart.log run job.yaml &
 mozart status job-id --watch -w ./workspace
 ```
 
+### Worktree Isolation (Recommended)
+
+**Standard practice for all code-modifying jobs:**
+
+```yaml
+# Add to any job that modifies code
+isolation:
+  enabled: true
+  mode: worktree
+  cleanup_on_success: true
+  cleanup_on_failure: false  # Keep for debugging
+  lock_during_execution: true
+  fallback_on_error: true
+```
+
+Benefits:
+- Run multiple jobs in parallel without conflicts
+- Clean commit validation per job
+- ~24ms overhead (negligible)
+
 ### Read-Only Execution
 
 ```yaml

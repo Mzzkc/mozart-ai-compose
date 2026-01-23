@@ -13,6 +13,7 @@
 # ║  - Cross-Sheet Semantic Validation: IMPLEMENTED in v20                       ║
 # ║  - Parallel Output Conflict Detection: IMPLEMENTED in v20                    ║
 # ║  - FIXTURE CATALOG UPDATE: test_validation.py, test_synthesizer.py now comp  ║
+# ║  - WORKTREE ISOLATION: Standard practice from v21 for parallel-safe jobs     ║
 # ║                                                                              ║
 # ║  v20.0 LEARNINGS INTEGRATED:                                                 ║
 # ║  - Implementation LOC: 104% accuracy (676 vs 647) - formulas excellent       ║
@@ -67,6 +68,16 @@ backend:
   skip_permissions: true
   working_directory: "/home/emzi/Projects/mozart-ai-compose"
   timeout_seconds: 7200
+
+# Worktree isolation for parallel-safe execution (standard practice from v21)
+# Enables running multiple evolution cycles simultaneously without conflicts
+isolation:
+  enabled: true
+  mode: worktree
+  cleanup_on_success: true    # Clean up after successful completion
+  cleanup_on_failure: false   # Keep for debugging if job fails
+  lock_during_execution: true
+  fallback_on_error: true     # Continue without isolation if worktree creation fails
 
 sheet:
   size: 1
