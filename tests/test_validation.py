@@ -797,3 +797,665 @@ class TestFailureHistoryStore:
         assert failures == []
 
         assert store.has_failures(current_sheet=1) is False
+
+
+class TestValidationRetry:
+    """Tests for validation retry behavior (filesystem race condition fix)."""
+
+    def test_retry_defaults(self):
+        """Test ValidationRule has retry defaults."""
+        rule = ValidationRule(type="file_exists", path="/test.txt")
+        assert rule.retry_count == 3
+        assert rule.retry_delay_ms == 200
+
+    def test_retry_custom_values(self):
+        """Test ValidationRule accepts custom retry values."""
+        rule = ValidationRule(
+            type="file_exists",
+            path="/test.txt",
+            retry_count=5,
+            retry_delay_ms=500,
+        )
+        assert rule.retry_count == 5
+        assert rule.retry_delay_ms == 500
+
+    def test_retry_disabled(self):
+        """Test retry can be disabled with retry_count=0."""
+        rule = ValidationRule(
+            type="file_exists",
+            path="/test.txt",
+            retry_count=0,
+        )
+        assert rule.retry_count == 0
+
+    def test_file_exists_retries_on_missing_file(self, temp_workspace: Path):
+        """Test file_exists retries when file initially missing.
+
+        This simulates the race condition where a sheet creates a file
+        and the validation runs before the file is visible.
+        """
+        import threading
+        import time
+
+        test_file = temp_workspace / "delayed_file.txt"
+
+        # File will be created after a short delay (simulating filesystem lag)
+        def create_file_delayed():
+            time.sleep(0.15)  # 150ms delay
+            test_file.write_text("created")
+
+        # Start delayed file creation
+        thread = threading.Thread(target=create_file_delayed)
+        thread.start()
+
+        # Run validation with retry (should eventually pass)
+        rule = ValidationRule(
+            type="file_exists",
+            path=str(test_file),
+            description="Delayed file",
+            retry_count=3,
+            retry_delay_ms=100,  # 100ms between attempts
+        )
+        engine = ValidationEngine(
+            workspace=temp_workspace,
+            sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
+        )
+
+        result = engine.run_validations([rule])
+        thread.join()
+
+        # Should pass after retries
+        assert result.results[0].passed is True
+
+    def test_file_exists_fails_without_retry(self, temp_workspace: Path):
+        """Test file_exists fails immediately when retry disabled."""
+        import threading
+        import time
+
+        test_file = temp_workspace / "delayed_file_no_retry.txt"
+
+        # File will be created after a delay
+        def create_file_delayed():
+            time.sleep(0.15)  # 150ms delay
+            test_file.write_text("created")
+
+        thread = threading.Thread(target=create_file_delayed)
+        thread.start()
+
+        # Run validation without retry (should fail immediately)
+        rule = ValidationRule(
+            type="file_exists",
+            path=str(test_file),
+            description="Delayed file no retry",
+            retry_count=0,  # Disable retry
+        )
+        engine = ValidationEngine(
+            workspace=temp_workspace,
+            sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
+        )
+
+        result = engine.run_validations([rule])
+        thread.join()
+
+        # Should fail because no retry
+        assert result.results[0].passed is False
+
+    def test_content_contains_retries_on_incomplete_content(self, temp_workspace: Path):
+        """Test content_contains retries when content initially incomplete."""
+        import threading
+        import time
+
+        test_file = temp_workspace / "growing_file.txt"
+        test_file.write_text("PARTIAL")  # Initial incomplete content
+
+        # Content will be completed after a delay
+        def complete_content_delayed():
+            time.sleep(0.15)
+            test_file.write_text("PARTIAL COMPLETE")
+
+        thread = threading.Thread(target=complete_content_delayed)
+        thread.start()
+
+        rule = ValidationRule(
+            type="content_contains",
+            path=str(test_file),
+            pattern="COMPLETE",
+            description="Complete marker",
+            retry_count=3,
+            retry_delay_ms=100,
+        )
+        engine = ValidationEngine(
+            workspace=temp_workspace,
+            sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
+        )
+
+        result = engine.run_validations([rule])
+        thread.join()
+
+        # Should pass after retries find the complete content
+        assert result.results[0].passed is True
+
+    def test_command_succeeds_retries(self, temp_workspace: Path):
+        """Test command_succeeds retries on transient failures."""
+        import threading
+        import time
+
+        # Create a file that the command will check for
+        marker_file = temp_workspace / "marker.txt"
+
+        # File will be created after a delay
+        def create_marker_delayed():
+            time.sleep(0.15)
+            marker_file.write_text("ready")
+
+        thread = threading.Thread(target=create_marker_delayed)
+        thread.start()
+
+        # Command checks if file exists
+        rule = ValidationRule(
+            type="command_succeeds",
+            command=f"test -f {marker_file}",
+            description="Check marker file",
+            retry_count=3,
+            retry_delay_ms=100,
+        )
+        engine = ValidationEngine(
+            workspace=temp_workspace,
+            sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
+        )
+
+        result = engine.run_validations([rule])
+        thread.join()
+
+        # Should pass after retries
+        assert result.results[0].passed is True
+
+    def test_immediate_pass_no_extra_retries(self, temp_workspace: Path):
+        """Test that validation returns immediately on success (no unnecessary retries)."""
+        import time
+
+        test_file = temp_workspace / "immediate_pass.txt"
+        test_file.write_text("exists")
+
+        rule = ValidationRule(
+            type="file_exists",
+            path=str(test_file),
+            retry_count=10,  # Many retries configured
+            retry_delay_ms=1000,  # Long delay (1 second)
+        )
+        engine = ValidationEngine(
+            workspace=temp_workspace,
+            sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
+        )
+
+        start = time.monotonic()
+        result = engine.run_validations([rule])
+        elapsed = time.monotonic() - start
+
+        assert result.results[0].passed is True
+        # Should complete quickly (well under 1 second) because it passes immediately
+        assert elapsed < 0.5
+
+
+# =============================================================================
+# Cross-Sheet Semantic Validation Tests (v20 evolution)
+# =============================================================================
+
+
+class TestKeyVariable:
+    """Tests for KeyVariable dataclass."""
+
+    def test_create_key_variable(self) -> None:
+        """Test creating a key variable."""
+        from mozart.execution.validation import KeyVariable
+
+        kv = KeyVariable(
+            key="STATUS",
+            value="complete",
+            source_line="STATUS: complete",
+            line_number=5,
+        )
+
+        assert kv.key == "STATUS"
+        assert kv.value == "complete"
+        assert kv.source_line == "STATUS: complete"
+        assert kv.line_number == 5
+
+    def test_key_variable_minimal(self) -> None:
+        """Test creating key variable with minimal info."""
+        from mozart.execution.validation import KeyVariable
+
+        kv = KeyVariable(key="COUNT", value="42")
+
+        assert kv.key == "COUNT"
+        assert kv.value == "42"
+        assert kv.source_line == ""
+        assert kv.line_number == 0
+
+
+class TestSemanticInconsistency:
+    """Tests for SemanticInconsistency dataclass."""
+
+    def test_create_inconsistency(self) -> None:
+        """Test creating a semantic inconsistency."""
+        from mozart.execution.validation import SemanticInconsistency
+
+        inc = SemanticInconsistency(
+            key="STATUS",
+            sheet_a=1,
+            value_a="running",
+            sheet_b=2,
+            value_b="complete",
+            severity="warning",
+        )
+
+        assert inc.key == "STATUS"
+        assert inc.sheet_a == 1
+        assert inc.value_a == "running"
+        assert inc.sheet_b == 2
+        assert inc.value_b == "complete"
+        assert inc.severity == "warning"
+
+    def test_format_message(self) -> None:
+        """Test format_message produces readable output."""
+        from mozart.execution.validation import SemanticInconsistency
+
+        inc = SemanticInconsistency(
+            key="VERSION",
+            sheet_a=1,
+            value_a="1.0",
+            sheet_b=3,
+            value_b="2.0",
+        )
+
+        msg = inc.format_message()
+        assert "VERSION" in msg
+        assert "sheet 1" in msg
+        assert "1.0" in msg
+        assert "sheet 3" in msg
+        assert "2.0" in msg
+
+
+class TestSemanticConsistencyResult:
+    """Tests for SemanticConsistencyResult dataclass."""
+
+    def test_empty_result(self) -> None:
+        """Test empty result is consistent."""
+        from mozart.execution.validation import SemanticConsistencyResult
+
+        result = SemanticConsistencyResult()
+
+        assert result.is_consistent is True
+        assert result.error_count == 0
+        assert result.warning_count == 0
+        assert result.keys_checked == 0
+
+    def test_result_with_inconsistencies(self) -> None:
+        """Test result with inconsistencies."""
+        from mozart.execution.validation import (
+            SemanticConsistencyResult,
+            SemanticInconsistency,
+        )
+
+        result = SemanticConsistencyResult(
+            sheets_compared=[1, 2, 3],
+            inconsistencies=[
+                SemanticInconsistency(
+                    key="A", sheet_a=1, value_a="x", sheet_b=2, value_b="y",
+                    severity="error",
+                ),
+                SemanticInconsistency(
+                    key="B", sheet_a=1, value_a="p", sheet_b=3, value_b="q",
+                    severity="warning",
+                ),
+            ],
+            keys_checked=5,
+        )
+
+        assert result.is_consistent is False
+        assert result.error_count == 1
+        assert result.warning_count == 1
+        assert result.keys_checked == 5
+
+    def test_to_dict(self) -> None:
+        """Test to_dict serialization."""
+        from mozart.execution.validation import (
+            SemanticConsistencyResult,
+            SemanticInconsistency,
+        )
+
+        result = SemanticConsistencyResult(
+            sheets_compared=[1, 2],
+            inconsistencies=[
+                SemanticInconsistency(
+                    key="X", sheet_a=1, value_a="a", sheet_b=2, value_b="b",
+                ),
+            ],
+            keys_checked=3,
+        )
+
+        data = result.to_dict()
+
+        assert data["sheets_compared"] == [1, 2]
+        assert len(data["inconsistencies"]) == 1
+        assert data["inconsistencies"][0]["key"] == "X"
+        assert data["keys_checked"] == 3
+        assert data["is_consistent"] is False
+        assert "checked_at" in data
+
+
+class TestKeyVariableExtractor:
+    """Tests for KeyVariableExtractor class."""
+
+    def test_extract_colon_separated(self) -> None:
+        """Test extracting KEY: VALUE format."""
+        from mozart.execution.validation import KeyVariableExtractor
+
+        content = """
+STATUS: complete
+VERSION: 1.0.5
+COUNT: 42
+"""
+        extractor = KeyVariableExtractor()
+        variables = extractor.extract(content)
+
+        assert len(variables) == 3
+        keys = {v.key for v in variables}
+        assert keys == {"STATUS", "VERSION", "COUNT"}
+
+    def test_extract_equals_separated(self) -> None:
+        """Test extracting KEY=VALUE format."""
+        from mozart.execution.validation import KeyVariableExtractor
+
+        content = """
+STATUS=complete
+VERSION=1.0.5
+COUNT=42
+"""
+        extractor = KeyVariableExtractor()
+        variables = extractor.extract(content)
+
+        assert len(variables) == 3
+        values = {v.key: v.value for v in variables}
+        assert values["STATUS"] == "complete"
+        assert values["COUNT"] == "42"
+
+    def test_extract_mixed_formats(self) -> None:
+        """Test extracting mixed formats."""
+        from mozart.execution.validation import KeyVariableExtractor
+
+        content = """
+STATUS: complete
+VERSION=1.0
+RESULT: success
+COUNT = 10
+"""
+        extractor = KeyVariableExtractor()
+        variables = extractor.extract(content)
+
+        assert len(variables) == 4
+
+    def test_extract_with_filter(self) -> None:
+        """Test key filter restricts extraction."""
+        from mozart.execution.validation import KeyVariableExtractor
+
+        content = """
+STATUS: complete
+VERSION: 1.0
+COUNT: 42
+"""
+        extractor = KeyVariableExtractor(key_filter=["STATUS", "COUNT"])
+        variables = extractor.extract(content)
+
+        assert len(variables) == 2
+        keys = {v.key for v in variables}
+        assert keys == {"STATUS", "COUNT"}
+
+    def test_extract_empty_content(self) -> None:
+        """Test extracting from empty content."""
+        from mozart.execution.validation import KeyVariableExtractor
+
+        extractor = KeyVariableExtractor()
+        variables = extractor.extract("")
+
+        assert len(variables) == 0
+
+    def test_extract_no_matches(self) -> None:
+        """Test extracting when no key-value pairs exist."""
+        from mozart.execution.validation import KeyVariableExtractor
+
+        content = "This is just regular text without any key-value pairs."
+        extractor = KeyVariableExtractor()
+        variables = extractor.extract(content)
+
+        assert len(variables) == 0
+
+    def test_extract_preserves_value_whitespace(self) -> None:
+        """Test that values with spaces are preserved."""
+        from mozart.execution.validation import KeyVariableExtractor
+
+        content = "STATUS: value with spaces"
+        extractor = KeyVariableExtractor()
+        variables = extractor.extract(content)
+
+        assert len(variables) == 1
+        assert variables[0].value == "value with spaces"
+
+    def test_extract_ignores_lowercase_keys(self) -> None:
+        """Test that lowercase keys are ignored."""
+        from mozart.execution.validation import KeyVariableExtractor
+
+        content = """
+status: ignored
+Status: ignored
+STATUS: valid
+"""
+        extractor = KeyVariableExtractor()
+        variables = extractor.extract(content)
+
+        # Only uppercase keys match the pattern
+        assert len(variables) == 1
+        assert variables[0].key == "STATUS"
+
+    def test_extract_deduplicates_keys(self) -> None:
+        """Test that duplicate keys return only first occurrence."""
+        from mozart.execution.validation import KeyVariableExtractor
+
+        content = """
+STATUS: first
+STATUS: second
+"""
+        extractor = KeyVariableExtractor()
+        variables = extractor.extract(content)
+
+        assert len(variables) == 1
+        assert variables[0].value == "first"
+
+
+class TestSemanticConsistencyChecker:
+    """Tests for SemanticConsistencyChecker class."""
+
+    def test_check_consistent_outputs(self) -> None:
+        """Test checking consistent outputs."""
+        from mozart.execution.validation import SemanticConsistencyChecker
+
+        outputs = {
+            1: "STATUS: complete\nVERSION: 1.0",
+            2: "STATUS: complete\nVERSION: 1.0",
+        }
+
+        checker = SemanticConsistencyChecker()
+        result = checker.check_consistency(outputs)
+
+        assert result.is_consistent is True
+        assert len(result.inconsistencies) == 0
+        assert result.sheets_compared == [1, 2]
+
+    def test_check_inconsistent_outputs(self) -> None:
+        """Test checking inconsistent outputs."""
+        from mozart.execution.validation import SemanticConsistencyChecker
+
+        outputs = {
+            1: "STATUS: running\nVERSION: 1.0",
+            2: "STATUS: complete\nVERSION: 1.0",
+        }
+
+        checker = SemanticConsistencyChecker()
+        result = checker.check_consistency(outputs)
+
+        assert result.is_consistent is False
+        assert len(result.inconsistencies) == 1
+        assert result.inconsistencies[0].key == "STATUS"
+        assert result.inconsistencies[0].value_a == "running"
+        assert result.inconsistencies[0].value_b == "complete"
+
+    def test_check_multiple_inconsistencies(self) -> None:
+        """Test detecting multiple inconsistencies."""
+        from mozart.execution.validation import SemanticConsistencyChecker
+
+        outputs = {
+            1: "STATUS: running\nVERSION: 1.0",
+            2: "STATUS: complete\nVERSION: 2.0",  # Both different
+        }
+
+        checker = SemanticConsistencyChecker()
+        result = checker.check_consistency(outputs)
+
+        assert len(result.inconsistencies) == 2
+
+    def test_check_sequential_only(self) -> None:
+        """Test sequential_only comparison mode."""
+        from mozart.execution.validation import SemanticConsistencyChecker
+
+        outputs = {
+            1: "STATUS: a",
+            2: "STATUS: a",  # Same as 1
+            3: "STATUS: b",  # Different from 2, but same as 1
+        }
+
+        checker = SemanticConsistencyChecker()
+
+        # Sequential only compares 1-2 and 2-3
+        result = checker.check_consistency(outputs, sequential_only=True)
+        # 1-2: consistent, 2-3: inconsistent
+        assert len(result.inconsistencies) == 1
+        assert result.inconsistencies[0].sheet_a == 2
+        assert result.inconsistencies[0].sheet_b == 3
+
+    def test_check_all_pairs(self) -> None:
+        """Test all pairs comparison mode."""
+        from mozart.execution.validation import SemanticConsistencyChecker
+
+        outputs = {
+            1: "STATUS: a",
+            2: "STATUS: a",  # Same as 1
+            3: "STATUS: b",  # Different from 1 and 2
+        }
+
+        checker = SemanticConsistencyChecker()
+
+        # All pairs compares 1-2, 1-3, and 2-3
+        result = checker.check_consistency(outputs, sequential_only=False)
+        # 1-2: consistent, 1-3: inconsistent, 2-3: inconsistent
+        assert len(result.inconsistencies) == 2
+
+    def test_check_strict_mode(self) -> None:
+        """Test strict mode marks inconsistencies as errors."""
+        from mozart.execution.validation import SemanticConsistencyChecker
+
+        outputs = {
+            1: "STATUS: a",
+            2: "STATUS: b",
+        }
+
+        checker = SemanticConsistencyChecker(strict_mode=True)
+        result = checker.check_consistency(outputs)
+
+        assert result.inconsistencies[0].severity == "error"
+
+    def test_check_non_strict_mode(self) -> None:
+        """Test non-strict mode marks inconsistencies as warnings."""
+        from mozart.execution.validation import SemanticConsistencyChecker
+
+        outputs = {
+            1: "STATUS: a",
+            2: "STATUS: b",
+        }
+
+        checker = SemanticConsistencyChecker(strict_mode=False)
+        result = checker.check_consistency(outputs)
+
+        assert result.inconsistencies[0].severity == "warning"
+
+    def test_check_case_insensitive_values(self) -> None:
+        """Test that value comparison is case-insensitive."""
+        from mozart.execution.validation import SemanticConsistencyChecker
+
+        outputs = {
+            1: "STATUS: Complete",
+            2: "STATUS: COMPLETE",
+        }
+
+        checker = SemanticConsistencyChecker()
+        result = checker.check_consistency(outputs)
+
+        # Should be consistent despite case difference
+        assert result.is_consistent is True
+
+    def test_check_single_sheet(self) -> None:
+        """Test checking with single sheet returns consistent."""
+        from mozart.execution.validation import SemanticConsistencyChecker
+
+        outputs = {1: "STATUS: complete"}
+
+        checker = SemanticConsistencyChecker()
+        result = checker.check_consistency(outputs)
+
+        assert result.is_consistent is True
+        assert result.sheets_compared == [1]
+
+    def test_check_empty_outputs(self) -> None:
+        """Test checking empty outputs."""
+        from mozart.execution.validation import SemanticConsistencyChecker
+
+        checker = SemanticConsistencyChecker()
+        result = checker.check_consistency({})
+
+        assert result.is_consistent is True
+        assert result.sheets_compared == []
+
+    def test_check_disjoint_keys(self) -> None:
+        """Test sheets with no common keys are consistent."""
+        from mozart.execution.validation import SemanticConsistencyChecker
+
+        outputs = {
+            1: "STATUS: a",
+            2: "VERSION: 1.0",  # Different key
+        }
+
+        checker = SemanticConsistencyChecker()
+        result = checker.check_consistency(outputs)
+
+        # No common keys, so no inconsistencies
+        assert result.is_consistent is True
+
+    def test_check_custom_extractor(self) -> None:
+        """Test using custom extractor."""
+        from mozart.execution.validation import (
+            KeyVariableExtractor,
+            SemanticConsistencyChecker,
+        )
+
+        outputs = {
+            1: "STATUS: a\nVERSION: 1",
+            2: "STATUS: b\nVERSION: 2",
+        }
+
+        # Filter to only check STATUS
+        extractor = KeyVariableExtractor(key_filter=["STATUS"])
+        checker = SemanticConsistencyChecker(extractor=extractor)
+        result = checker.check_consistency(outputs)
+
+        # Should only find STATUS inconsistency
+        assert len(result.inconsistencies) == 1
+        assert result.inconsistencies[0].key == "STATUS"

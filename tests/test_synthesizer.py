@@ -809,3 +809,537 @@ class TestCLISynthesisDisplay:
                     break
 
             assert not synthesis_found, "Synthesis section should be skipped when empty"
+
+
+# =============================================================================
+# Parallel Output Conflict Detection Tests (v20 evolution)
+# =============================================================================
+
+
+class TestOutputConflict:
+    """Tests for OutputConflict dataclass."""
+
+    def test_create_conflict(self) -> None:
+        """Test creating an output conflict."""
+        from mozart.execution.synthesizer import OutputConflict
+
+        conflict = OutputConflict(
+            key="STATUS",
+            sheet_a=1,
+            value_a="complete",
+            sheet_b=2,
+            value_b="failed",
+            severity="warning",
+        )
+
+        assert conflict.key == "STATUS"
+        assert conflict.sheet_a == 1
+        assert conflict.value_a == "complete"
+        assert conflict.sheet_b == 2
+        assert conflict.value_b == "failed"
+        assert conflict.severity == "warning"
+
+    def test_format_message(self) -> None:
+        """Test format_message produces readable output."""
+        from mozart.execution.synthesizer import OutputConflict
+
+        conflict = OutputConflict(
+            key="VERSION",
+            sheet_a=1,
+            value_a="1.0",
+            sheet_b=3,
+            value_b="2.0",
+        )
+
+        msg = conflict.format_message()
+        assert "VERSION" in msg
+        assert "sheet 1" in msg
+        assert "1.0" in msg
+        assert "sheet 3" in msg
+        assert "2.0" in msg
+
+
+class TestConflictDetectionResult:
+    """Tests for ConflictDetectionResult dataclass."""
+
+    def test_empty_result(self) -> None:
+        """Test empty result has no conflicts."""
+        from mozart.execution.synthesizer import ConflictDetectionResult
+
+        result = ConflictDetectionResult()
+
+        assert result.has_conflicts is False
+        assert result.error_count == 0
+        assert result.warning_count == 0
+        assert result.keys_checked == 0
+
+    def test_result_with_conflicts(self) -> None:
+        """Test result with conflicts."""
+        from mozart.execution.synthesizer import (
+            ConflictDetectionResult,
+            OutputConflict,
+        )
+
+        result = ConflictDetectionResult(
+            sheets_analyzed=[1, 2, 3],
+            conflicts=[
+                OutputConflict(
+                    key="A", sheet_a=1, value_a="x", sheet_b=2, value_b="y",
+                    severity="error",
+                ),
+                OutputConflict(
+                    key="B", sheet_a=1, value_a="p", sheet_b=3, value_b="q",
+                    severity="warning",
+                ),
+            ],
+            keys_checked=5,
+        )
+
+        assert result.has_conflicts is True
+        assert result.error_count == 1
+        assert result.warning_count == 1
+        assert result.keys_checked == 5
+
+    def test_to_dict(self) -> None:
+        """Test to_dict serialization."""
+        from mozart.execution.synthesizer import (
+            ConflictDetectionResult,
+            OutputConflict,
+        )
+
+        result = ConflictDetectionResult(
+            sheets_analyzed=[1, 2],
+            conflicts=[
+                OutputConflict(
+                    key="X", sheet_a=1, value_a="a", sheet_b=2, value_b="b",
+                ),
+            ],
+            keys_checked=3,
+        )
+
+        data = result.to_dict()
+
+        assert data["sheets_analyzed"] == [1, 2]
+        assert len(data["conflicts"]) == 1
+        assert data["conflicts"][0]["key"] == "X"
+        assert data["keys_checked"] == 3
+        assert data["has_conflicts"] is True
+        assert "checked_at" in data
+
+
+class TestConflictDetector:
+    """Tests for ConflictDetector class."""
+
+    def test_detect_no_conflicts(self) -> None:
+        """Test detecting when there are no conflicts."""
+        from mozart.execution.synthesizer import ConflictDetector
+
+        outputs = {
+            1: "STATUS: complete\nVERSION: 1.0",
+            2: "STATUS: complete\nVERSION: 1.0",
+        }
+
+        detector = ConflictDetector()
+        result = detector.detect_conflicts(outputs)
+
+        assert result.has_conflicts is False
+        assert len(result.conflicts) == 0
+        assert result.sheets_analyzed == [1, 2]
+
+    def test_detect_single_conflict(self) -> None:
+        """Test detecting a single conflict."""
+        from mozart.execution.synthesizer import ConflictDetector
+
+        outputs = {
+            1: "STATUS: complete\nVERSION: 1.0",
+            2: "STATUS: failed\nVERSION: 1.0",
+        }
+
+        detector = ConflictDetector()
+        result = detector.detect_conflicts(outputs)
+
+        assert result.has_conflicts is True
+        assert len(result.conflicts) == 1
+        assert result.conflicts[0].key == "STATUS"
+        assert result.conflicts[0].value_a == "complete"
+        assert result.conflicts[0].value_b == "failed"
+
+    def test_detect_multiple_conflicts(self) -> None:
+        """Test detecting multiple conflicts."""
+        from mozart.execution.synthesizer import ConflictDetector
+
+        outputs = {
+            1: "STATUS: complete\nVERSION: 1.0",
+            2: "STATUS: failed\nVERSION: 2.0",
+        }
+
+        detector = ConflictDetector()
+        result = detector.detect_conflicts(outputs)
+
+        assert len(result.conflicts) == 2
+
+    def test_detect_with_key_filter(self) -> None:
+        """Test key filter restricts conflict detection."""
+        from mozart.execution.synthesizer import ConflictDetector
+
+        outputs = {
+            1: "STATUS: a\nVERSION: 1",
+            2: "STATUS: b\nVERSION: 2",
+        }
+
+        detector = ConflictDetector(key_filter=["STATUS"])
+        result = detector.detect_conflicts(outputs)
+
+        # Should only find STATUS conflict
+        assert len(result.conflicts) == 1
+        assert result.conflicts[0].key == "STATUS"
+
+    def test_detect_strict_mode(self) -> None:
+        """Test strict mode marks conflicts as errors."""
+        from mozart.execution.synthesizer import ConflictDetector
+
+        outputs = {
+            1: "STATUS: a",
+            2: "STATUS: b",
+        }
+
+        detector = ConflictDetector(strict_mode=True)
+        result = detector.detect_conflicts(outputs)
+
+        assert result.conflicts[0].severity == "error"
+
+    def test_detect_non_strict_mode(self) -> None:
+        """Test non-strict mode marks conflicts as warnings."""
+        from mozart.execution.synthesizer import ConflictDetector
+
+        outputs = {
+            1: "STATUS: a",
+            2: "STATUS: b",
+        }
+
+        detector = ConflictDetector(strict_mode=False)
+        result = detector.detect_conflicts(outputs)
+
+        assert result.conflicts[0].severity == "warning"
+
+    def test_detect_case_insensitive(self) -> None:
+        """Test case-insensitive value comparison."""
+        from mozart.execution.synthesizer import ConflictDetector
+
+        outputs = {
+            1: "STATUS: Complete",
+            2: "STATUS: COMPLETE",
+        }
+
+        detector = ConflictDetector()
+        result = detector.detect_conflicts(outputs)
+
+        # Should be no conflict due to case-insensitivity
+        assert result.has_conflicts is False
+
+    def test_detect_single_sheet(self) -> None:
+        """Test with single sheet returns no conflicts."""
+        from mozart.execution.synthesizer import ConflictDetector
+
+        outputs = {1: "STATUS: complete"}
+
+        detector = ConflictDetector()
+        result = detector.detect_conflicts(outputs)
+
+        assert result.has_conflicts is False
+        assert result.sheets_analyzed == [1]
+
+    def test_detect_empty_outputs(self) -> None:
+        """Test with empty outputs."""
+        from mozart.execution.synthesizer import ConflictDetector
+
+        detector = ConflictDetector()
+        result = detector.detect_conflicts({})
+
+        assert result.has_conflicts is False
+        assert result.sheets_analyzed == []
+
+    def test_detect_three_sheets(self) -> None:
+        """Test conflict detection across three sheets."""
+        from mozart.execution.synthesizer import ConflictDetector
+
+        outputs = {
+            1: "STATUS: a",
+            2: "STATUS: a",  # Same as 1
+            3: "STATUS: b",  # Different from 1 and 2
+        }
+
+        detector = ConflictDetector()
+        result = detector.detect_conflicts(outputs)
+
+        # Should find conflicts: 1-3 and 2-3
+        assert len(result.conflicts) == 2
+
+    def test_detect_disjoint_keys(self) -> None:
+        """Test sheets with no common keys have no conflicts."""
+        from mozart.execution.synthesizer import ConflictDetector
+
+        outputs = {
+            1: "STATUS: a",
+            2: "VERSION: 1.0",
+        }
+
+        detector = ConflictDetector()
+        result = detector.detect_conflicts(outputs)
+
+        assert result.has_conflicts is False
+
+
+class TestDetectParallelConflicts:
+    """Tests for detect_parallel_conflicts convenience function."""
+
+    def test_convenience_function(self) -> None:
+        """Test the convenience function works."""
+        from mozart.execution.synthesizer import detect_parallel_conflicts
+
+        outputs = {
+            1: "STATUS: a",
+            2: "STATUS: b",
+        }
+
+        result = detect_parallel_conflicts(outputs)
+
+        assert result.has_conflicts is True
+
+    def test_convenience_with_key_filter(self) -> None:
+        """Test convenience function with key filter."""
+        from mozart.execution.synthesizer import detect_parallel_conflicts
+
+        outputs = {
+            1: "STATUS: a\nVERSION: 1",
+            2: "STATUS: b\nVERSION: 2",
+        }
+
+        result = detect_parallel_conflicts(outputs, key_filter=["STATUS"])
+
+        assert len(result.conflicts) == 1
+
+    def test_convenience_with_strict_mode(self) -> None:
+        """Test convenience function with strict mode."""
+        from mozart.execution.synthesizer import detect_parallel_conflicts
+
+        outputs = {
+            1: "STATUS: a",
+            2: "STATUS: b",
+        }
+
+        result = detect_parallel_conflicts(outputs, strict_mode=True)
+
+        assert result.conflicts[0].severity == "error"
+
+
+class TestSynthesizerConflictIntegration:
+    """Tests for ResultSynthesizer conflict detection integration."""
+
+    def test_prepare_without_conflict_detection(self, sample_outputs):
+        """Test prepare without conflict detection enabled."""
+        synthesizer = ResultSynthesizer()
+
+        result = synthesizer.prepare_synthesis(
+            batch_sheets=[1, 2, 3],
+            completed_sheets=[1, 2, 3],
+            failed_sheets=[],
+            sheet_outputs=sample_outputs,
+        )
+
+        assert result.status == "ready"
+        assert result.conflict_detection is None
+
+    def test_prepare_with_conflict_detection_no_conflicts(self, sample_outputs):
+        """Test prepare with conflict detection when no conflicts."""
+        config = SynthesisConfig(detect_conflicts=True)
+        synthesizer = ResultSynthesizer(config)
+
+        result = synthesizer.prepare_synthesis(
+            batch_sheets=[1, 2, 3],
+            completed_sheets=[1, 2, 3],
+            failed_sheets=[],
+            sheet_outputs=sample_outputs,
+        )
+
+        assert result.status == "ready"
+        assert result.conflict_detection is not None
+        assert result.conflict_detection["has_conflicts"] is False
+
+    def test_prepare_with_conflict_detection_finds_conflicts(self):
+        """Test prepare with conflict detection when conflicts exist."""
+        config = SynthesisConfig(detect_conflicts=True)
+        synthesizer = ResultSynthesizer(config)
+
+        outputs = {
+            1: "STATUS: complete\nVERSION: 1.0",
+            2: "STATUS: failed\nVERSION: 1.0",  # STATUS conflicts
+        }
+
+        result = synthesizer.prepare_synthesis(
+            batch_sheets=[1, 2],
+            completed_sheets=[1, 2],
+            failed_sheets=[],
+            sheet_outputs=outputs,
+        )
+
+        assert result.status == "ready"  # Still ready, just warnings
+        assert result.conflict_detection is not None
+        assert result.conflict_detection["has_conflicts"] is True
+        assert len(result.conflict_detection["conflicts"]) == 1
+
+    def test_prepare_fail_on_conflict(self):
+        """Test prepare fails when fail_on_conflict is True."""
+        config = SynthesisConfig(detect_conflicts=True, fail_on_conflict=True)
+        synthesizer = ResultSynthesizer(config)
+
+        outputs = {
+            1: "STATUS: complete",
+            2: "STATUS: failed",
+        }
+
+        result = synthesizer.prepare_synthesis(
+            batch_sheets=[1, 2],
+            completed_sheets=[1, 2],
+            failed_sheets=[],
+            sheet_outputs=outputs,
+        )
+
+        assert result.status == "failed"
+        assert "conflicts" in result.error_message.lower()
+
+    def test_prepare_with_key_filter(self):
+        """Test prepare with conflict key filter."""
+        config = SynthesisConfig(
+            detect_conflicts=True,
+            conflict_key_filter=["STATUS"],
+        )
+        synthesizer = ResultSynthesizer(config)
+
+        outputs = {
+            1: "STATUS: a\nVERSION: 1",
+            2: "STATUS: b\nVERSION: 2",  # Both differ
+        }
+
+        result = synthesizer.prepare_synthesis(
+            batch_sheets=[1, 2],
+            completed_sheets=[1, 2],
+            failed_sheets=[],
+            sheet_outputs=outputs,
+        )
+
+        # Should only report STATUS conflict due to filter
+        assert result.conflict_detection is not None
+        assert len(result.conflict_detection["conflicts"]) == 1
+        assert result.conflict_detection["conflicts"][0]["key"] == "STATUS"
+
+    def test_prepare_single_sheet_no_conflict_detection(self):
+        """Test conflict detection skipped for single sheet."""
+        config = SynthesisConfig(detect_conflicts=True)
+        synthesizer = ResultSynthesizer(config)
+
+        outputs = {1: "STATUS: complete"}
+
+        result = synthesizer.prepare_synthesis(
+            batch_sheets=[1],
+            completed_sheets=[1],
+            failed_sheets=[],
+            sheet_outputs=outputs,
+        )
+
+        # Conflict detection not run for single sheet
+        assert result.status == "ready"
+        assert result.conflict_detection is None
+
+    def test_conflict_detection_result_in_metadata(self):
+        """Test conflict detection enabled flag in metadata."""
+        config = SynthesisConfig(detect_conflicts=True)
+        synthesizer = ResultSynthesizer(config)
+
+        result = synthesizer.prepare_synthesis(
+            batch_sheets=[1, 2],
+            completed_sheets=[1, 2],
+            failed_sheets=[],
+            sheet_outputs={
+                1: "STATUS: a",
+                2: "STATUS: a",  # Same, no conflict
+            },
+        )
+
+        assert result.metadata.get("conflict_detection_enabled") is True
+
+
+class TestSynthesisResultConflictField:
+    """Tests for SynthesisResult conflict_detection field."""
+
+    def test_default_none(self) -> None:
+        """Test conflict_detection defaults to None."""
+        result = SynthesisResult(batch_id="test")
+        assert result.conflict_detection is None
+
+    def test_to_dict_includes_conflict(self) -> None:
+        """Test to_dict includes conflict_detection."""
+        result = SynthesisResult(
+            batch_id="test",
+            conflict_detection={"has_conflicts": True, "conflicts": []},
+        )
+
+        data = result.to_dict()
+        assert "conflict_detection" in data
+        assert data["conflict_detection"]["has_conflicts"] is True
+
+    def test_from_dict_restores_conflict(self) -> None:
+        """Test from_dict restores conflict_detection."""
+        data = {
+            "batch_id": "test",
+            "sheets": [],
+            "strategy": "merge",
+            "status": "ready",
+            "conflict_detection": {"has_conflicts": False},
+        }
+
+        result = SynthesisResult.from_dict(data)
+        assert result.conflict_detection is not None
+        assert result.conflict_detection["has_conflicts"] is False
+
+    def test_roundtrip_with_conflict(self) -> None:
+        """Test roundtrip serialization with conflict data."""
+        original = SynthesisResult(
+            batch_id="roundtrip",
+            conflict_detection={
+                "sheets_analyzed": [1, 2],
+                "conflicts": [{"key": "X", "sheet_a": 1, "value_a": "a"}],
+                "has_conflicts": True,
+            },
+        )
+
+        data = original.to_dict()
+        restored = SynthesisResult.from_dict(data)
+
+        assert restored.conflict_detection is not None
+        assert restored.conflict_detection["has_conflicts"] is True
+        assert len(restored.conflict_detection["conflicts"]) == 1
+
+
+class TestSynthesisConfigConflictFields:
+    """Tests for SynthesisConfig conflict-related fields."""
+
+    def test_default_values(self) -> None:
+        """Test default conflict detection values."""
+        config = SynthesisConfig()
+
+        assert config.detect_conflicts is False
+        assert config.conflict_key_filter is None
+        assert config.fail_on_conflict is False
+
+    def test_custom_values(self) -> None:
+        """Test custom conflict detection values."""
+        config = SynthesisConfig(
+            detect_conflicts=True,
+            conflict_key_filter=["STATUS", "VERSION"],
+            fail_on_conflict=True,
+        )
+
+        assert config.detect_conflicts is True
+        assert config.conflict_key_filter == ["STATUS", "VERSION"]
+        assert config.fail_on_conflict is True

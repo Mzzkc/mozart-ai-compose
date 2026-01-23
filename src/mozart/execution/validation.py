@@ -565,8 +565,20 @@ class ValidationEngine:
             results=all_results,
         ), failed_stage
 
+    # Validation types that benefit from retry logic (filesystem race conditions)
+    _RETRYABLE_VALIDATION_TYPES = frozenset({
+        "file_exists",
+        "file_modified",
+        "content_contains",
+        "content_regex",
+        "command_succeeds",
+    })
+
     def _run_single_validation(self, rule: ValidationRule) -> ValidationResult:
-        """Execute a single validation rule.
+        """Execute a single validation rule with optional retry logic.
+
+        For file-based validations, retries help handle filesystem race conditions
+        where the sheet creates/modifies files that are immediately validated.
 
         Args:
             rule: The validation rule to execute.
@@ -576,35 +588,68 @@ class ValidationEngine:
         """
         start = time.monotonic()
 
-        try:
-            if rule.type == "file_exists":
-                result = self._check_file_exists(rule)
-            elif rule.type == "file_modified":
-                result = self._check_file_modified(rule)
-            elif rule.type == "content_contains":
-                result = self._check_content_contains(rule)
-            elif rule.type == "content_regex":
-                result = self._check_content_regex(rule)
-            elif rule.type == "command_succeeds":
-                result = self._check_command_succeeds(rule)
-            else:
-                result = ValidationResult(
+        # Determine retry behavior
+        should_retry = (
+            rule.type in self._RETRYABLE_VALIDATION_TYPES
+            and rule.retry_count > 0
+        )
+        max_attempts = rule.retry_count + 1 if should_retry else 1
+        delay_seconds = rule.retry_delay_ms / 1000.0
+
+        last_result: ValidationResult | None = None
+
+        for attempt in range(max_attempts):
+            try:
+                if rule.type == "file_exists":
+                    result = self._check_file_exists(rule)
+                elif rule.type == "file_modified":
+                    result = self._check_file_modified(rule)
+                elif rule.type == "content_contains":
+                    result = self._check_content_contains(rule)
+                elif rule.type == "content_regex":
+                    result = self._check_content_regex(rule)
+                elif rule.type == "command_succeeds":
+                    result = self._check_command_succeeds(rule)
+                else:
+                    result = ValidationResult(
+                        rule=rule,
+                        passed=False,
+                        error_message=f"Unknown validation type: {rule.type}",
+                    )
+
+                # If passed, return immediately
+                if result.passed:
+                    result.check_duration_ms = (time.monotonic() - start) * 1000
+                    return result
+
+                last_result = result
+
+                # If more attempts remaining, wait and retry
+                if attempt < max_attempts - 1:
+                    time.sleep(delay_seconds)
+
+            except Exception as e:
+                last_result = ValidationResult(
                     rule=rule,
                     passed=False,
-                    error_message=f"Unknown validation type: {rule.type}",
+                    expected_value=rule.path or rule.pattern,
+                    error_message=f"Validation error: {e}",
                 )
+                if attempt < max_attempts - 1:
+                    time.sleep(delay_seconds)
 
-            result.check_duration_ms = (time.monotonic() - start) * 1000
-            return result
+        # Return the last failed result
+        if last_result:
+            last_result.check_duration_ms = (time.monotonic() - start) * 1000
+            return last_result
 
-        except Exception as e:
-            return ValidationResult(
-                rule=rule,
-                passed=False,
-                expected_value=rule.path or rule.pattern,
-                error_message=f"Validation error: {e}",
-                check_duration_ms=(time.monotonic() - start) * 1000,
-            )
+        # Fallback (shouldn't reach here)
+        return ValidationResult(
+            rule=rule,
+            passed=False,
+            error_message="Validation failed after all attempts",
+            check_duration_ms=(time.monotonic() - start) * 1000,
+        )
 
     def _check_file_exists(self, rule: ValidationRule) -> ValidationResult:
         """Check if a file exists.
@@ -1181,3 +1226,342 @@ class FailureHistoryStore:
                     return True
 
         return False
+
+
+# =============================================================================
+# Cross-Sheet Semantic Validation (v20 evolution)
+# =============================================================================
+
+
+@dataclass
+class KeyVariable:
+    """A key-value pair extracted from sheet output.
+
+    Attributes:
+        key: The variable name/identifier.
+        value: The variable value (as string).
+        source_line: The line where this variable was found.
+        line_number: Line number in the output (1-indexed).
+    """
+
+    key: str
+    value: str
+    source_line: str = ""
+    line_number: int = 0
+
+
+@dataclass
+class SemanticInconsistency:
+    """Represents a semantic inconsistency between sheets.
+
+    Attributes:
+        key: The key that has inconsistent values.
+        sheet_a: First sheet number in comparison.
+        value_a: Value from sheet A.
+        sheet_b: Second sheet number in comparison.
+        value_b: Value from sheet B.
+        severity: Severity of inconsistency (warning, error).
+    """
+
+    key: str
+    sheet_a: int
+    value_a: str
+    sheet_b: int
+    value_b: str
+    severity: str = "warning"
+
+    def format_message(self) -> str:
+        """Format as human-readable message."""
+        return (
+            f"Key '{self.key}' has inconsistent values: "
+            f"sheet {self.sheet_a}='{self.value_a}' vs "
+            f"sheet {self.sheet_b}='{self.value_b}'"
+        )
+
+
+@dataclass
+class SemanticConsistencyResult:
+    """Result of cross-sheet semantic consistency check.
+
+    Attributes:
+        sheets_compared: Sheets that were compared.
+        inconsistencies: List of detected inconsistencies.
+        keys_checked: Total number of keys checked.
+        checked_at: When the check was performed.
+    """
+
+    sheets_compared: list[int] = field(default_factory=list)
+    inconsistencies: list[SemanticInconsistency] = field(default_factory=list)
+    keys_checked: int = 0
+    checked_at: datetime = field(default_factory=utc_now)
+
+    @property
+    def is_consistent(self) -> bool:
+        """True if no inconsistencies were found."""
+        return len(self.inconsistencies) == 0
+
+    @property
+    def error_count(self) -> int:
+        """Count of error-severity inconsistencies."""
+        return sum(1 for i in self.inconsistencies if i.severity == "error")
+
+    @property
+    def warning_count(self) -> int:
+        """Count of warning-severity inconsistencies."""
+        return sum(1 for i in self.inconsistencies if i.severity == "warning")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to serializable dictionary."""
+        return {
+            "sheets_compared": self.sheets_compared,
+            "inconsistencies": [
+                {
+                    "key": i.key,
+                    "sheet_a": i.sheet_a,
+                    "value_a": i.value_a,
+                    "sheet_b": i.sheet_b,
+                    "value_b": i.value_b,
+                    "severity": i.severity,
+                }
+                for i in self.inconsistencies
+            ],
+            "keys_checked": self.keys_checked,
+            "checked_at": self.checked_at.isoformat(),
+            "is_consistent": self.is_consistent,
+            "error_count": self.error_count,
+            "warning_count": self.warning_count,
+        }
+
+
+class KeyVariableExtractor:
+    """Extracts key-value pairs from sheet output content.
+
+    Supports multiple formats:
+    - KEY: VALUE (colon-separated)
+    - KEY=VALUE (equals-separated)
+    - KEY = VALUE (equals with spaces)
+
+    Keys must be uppercase or snake_case identifiers.
+    Values are trimmed of whitespace.
+
+    Example:
+        ```python
+        extractor = KeyVariableExtractor()
+        variables = extractor.extract("STATUS: complete\\nCOUNT=42")
+        # Returns [KeyVariable(key="STATUS", value="complete", ...),
+        #          KeyVariable(key="COUNT", value="42", ...)]
+        ```
+    """
+
+    # Pattern for KEY: VALUE (colon-separated)
+    _COLON_PATTERN = re.compile(
+        r"^([A-Z][A-Z0-9_]*)\s*:\s*(.+)$",
+        re.MULTILINE
+    )
+
+    # Pattern for KEY=VALUE or KEY = VALUE (equals-separated)
+    _EQUALS_PATTERN = re.compile(
+        r"^([A-Z][A-Z0-9_]*)\s*=\s*(.+)$",
+        re.MULTILINE
+    )
+
+    def __init__(
+        self,
+        key_filter: list[str] | None = None,
+        case_sensitive: bool = False,
+    ) -> None:
+        """Initialize extractor.
+
+        Args:
+            key_filter: If provided, only extract keys matching these names.
+                       If None, extract all matching keys.
+            case_sensitive: Whether key matching is case-sensitive.
+        """
+        self.key_filter = key_filter
+        self.case_sensitive = case_sensitive
+
+    def extract(self, content: str) -> list[KeyVariable]:
+        """Extract key-value pairs from content.
+
+        Args:
+            content: Text content to search for key-value pairs.
+
+        Returns:
+            List of extracted KeyVariable objects.
+        """
+        if not content:
+            return []
+
+        variables: list[KeyVariable] = []
+        seen_keys: set[str] = set()
+
+        # Build line number mapping
+        lines = content.split("\n")
+        line_map: dict[str, int] = {}
+        for i, line in enumerate(lines, 1):
+            line_map[line] = i
+
+        # Extract colon-separated pairs
+        for match in self._COLON_PATTERN.finditer(content):
+            key = match.group(1)
+            value = match.group(2).strip()
+            source_line = match.group(0)
+
+            if self._should_include(key) and key not in seen_keys:
+                variables.append(KeyVariable(
+                    key=key,
+                    value=value,
+                    source_line=source_line,
+                    line_number=line_map.get(source_line, 0),
+                ))
+                seen_keys.add(key)
+
+        # Extract equals-separated pairs
+        for match in self._EQUALS_PATTERN.finditer(content):
+            key = match.group(1)
+            value = match.group(2).strip()
+            source_line = match.group(0)
+
+            if self._should_include(key) and key not in seen_keys:
+                variables.append(KeyVariable(
+                    key=key,
+                    value=value,
+                    source_line=source_line,
+                    line_number=line_map.get(source_line, 0),
+                ))
+                seen_keys.add(key)
+
+        return variables
+
+    def _should_include(self, key: str) -> bool:
+        """Check if key should be included based on filter."""
+        if self.key_filter is None:
+            return True
+
+        if self.case_sensitive:
+            return key in self.key_filter
+        else:
+            key_lower = key.lower()
+            return any(k.lower() == key_lower for k in self.key_filter)
+
+
+class SemanticConsistencyChecker:
+    """Checks semantic consistency between sequential sheet outputs.
+
+    Compares key-value pairs extracted from sheet outputs to detect
+    when the same key has different values across sheets.
+
+    Example:
+        ```python
+        checker = SemanticConsistencyChecker()
+        outputs = {
+            1: "STATUS: running\\nVERSION: 1.0",
+            2: "STATUS: complete\\nVERSION: 1.0",  # STATUS changed
+        }
+        result = checker.check_consistency(outputs)
+        if not result.is_consistent:
+            for inc in result.inconsistencies:
+                print(inc.format_message())
+        ```
+    """
+
+    def __init__(
+        self,
+        extractor: KeyVariableExtractor | None = None,
+        strict_mode: bool = False,
+    ) -> None:
+        """Initialize checker.
+
+        Args:
+            extractor: Custom key variable extractor. Uses default if None.
+            strict_mode: If True, all inconsistencies are errors.
+                        If False, inconsistencies are warnings.
+        """
+        self.extractor = extractor or KeyVariableExtractor()
+        self.strict_mode = strict_mode
+
+    def check_consistency(
+        self,
+        sheet_outputs: dict[int, str],
+        sequential_only: bool = True,
+    ) -> SemanticConsistencyResult:
+        """Check semantic consistency across sheet outputs.
+
+        Args:
+            sheet_outputs: Map of sheet_num -> output content.
+            sequential_only: If True, only compare sequential sheets (N vs N+1).
+                           If False, compare all sheet pairs.
+
+        Returns:
+            SemanticConsistencyResult with any inconsistencies found.
+        """
+        result = SemanticConsistencyResult(
+            sheets_compared=sorted(sheet_outputs.keys()),
+        )
+
+        if len(sheet_outputs) < 2:
+            return result
+
+        # Extract variables from each sheet
+        sheet_variables: dict[int, dict[str, KeyVariable]] = {}
+        for sheet_num, content in sheet_outputs.items():
+            variables = self.extractor.extract(content)
+            sheet_variables[sheet_num] = {v.key: v for v in variables}
+
+        # Count total unique keys
+        all_keys: set[str] = set()
+        for vars_dict in sheet_variables.values():
+            all_keys.update(vars_dict.keys())
+        result.keys_checked = len(all_keys)
+
+        # Compare sheets
+        sheets_sorted = sorted(sheet_outputs.keys())
+
+        if sequential_only:
+            # Compare sequential pairs only
+            for i in range(len(sheets_sorted) - 1):
+                sheet_a = sheets_sorted[i]
+                sheet_b = sheets_sorted[i + 1]
+                self._compare_sheets(
+                    sheet_a, sheet_variables.get(sheet_a, {}),
+                    sheet_b, sheet_variables.get(sheet_b, {}),
+                    result,
+                )
+        else:
+            # Compare all pairs
+            for i, sheet_a in enumerate(sheets_sorted):
+                for sheet_b in sheets_sorted[i + 1:]:
+                    self._compare_sheets(
+                        sheet_a, sheet_variables.get(sheet_a, {}),
+                        sheet_b, sheet_variables.get(sheet_b, {}),
+                        result,
+                    )
+
+        return result
+
+    def _compare_sheets(
+        self,
+        sheet_a: int,
+        vars_a: dict[str, KeyVariable],
+        sheet_b: int,
+        vars_b: dict[str, KeyVariable],
+        result: SemanticConsistencyResult,
+    ) -> None:
+        """Compare variables between two sheets."""
+        # Find common keys
+        common_keys = set(vars_a.keys()) & set(vars_b.keys())
+
+        for key in common_keys:
+            var_a = vars_a[key]
+            var_b = vars_b[key]
+
+            # Compare values (case-insensitive for flexibility)
+            if var_a.value.lower() != var_b.value.lower():
+                result.inconsistencies.append(SemanticInconsistency(
+                    key=key,
+                    sheet_a=sheet_a,
+                    value_a=var_a.value,
+                    sheet_b=sheet_b,
+                    value_b=var_b.value,
+                    severity="error" if self.strict_mode else "warning",
+                ))

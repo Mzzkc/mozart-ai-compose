@@ -49,12 +49,18 @@ class SynthesisConfig:
         include_metadata: Whether to include synthesis metadata.
         max_content_bytes: Maximum content size to synthesize (prevents OOM).
         fail_on_partial: If True, fail synthesis when some sheets failed.
+        detect_conflicts: If True, run conflict detection before synthesis.
+        conflict_key_filter: If provided, only check these keys for conflicts.
+        fail_on_conflict: If True, fail synthesis when conflicts detected.
     """
 
     strategy: SynthesisStrategy = SynthesisStrategy.MERGE
     include_metadata: bool = True
     max_content_bytes: int = 1024 * 1024  # 1MB default
     fail_on_partial: bool = False
+    detect_conflicts: bool = False
+    conflict_key_filter: list[str] | None = None
+    fail_on_conflict: bool = False
 
 
 @dataclass
@@ -87,6 +93,8 @@ class SynthesisResult:
     synthesized_content: str | None = None
     error_message: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    conflict_detection: dict[str, Any] | None = None
+    """Conflict detection result if conflict detection was enabled."""
 
     @property
     def is_complete(self) -> bool:
@@ -111,6 +119,7 @@ class SynthesisResult:
             "synthesized_content": self.synthesized_content,
             "error_message": self.error_message,
             "metadata": self.metadata,
+            "conflict_detection": self.conflict_detection,
         }
 
     @classmethod
@@ -130,6 +139,7 @@ class SynthesisResult:
             synthesized_content=data.get("synthesized_content"),
             error_message=data.get("error_message"),
             metadata=data.get("metadata", {}),
+            conflict_detection=data.get("conflict_detection"),
         )
 
 
@@ -217,12 +227,34 @@ class ResultSynthesizer:
             )
             return result
 
+        # Run conflict detection if enabled
+        if self.config.detect_conflicts and len(result.sheet_outputs) >= 2:
+            conflict_result = self._detect_conflicts(result.sheet_outputs)
+            result.conflict_detection = conflict_result.to_dict()
+
+            if conflict_result.has_conflicts:
+                self._logger.warning(
+                    "synthesizer.conflicts_detected",
+                    batch_id=batch_id,
+                    conflict_count=len(conflict_result.conflicts),
+                    error_count=conflict_result.error_count,
+                )
+
+                if self.config.fail_on_conflict:
+                    result.status = "failed"
+                    result.error_message = (
+                        f"Conflict detection found {len(conflict_result.conflicts)} "
+                        f"conflicts ({conflict_result.error_count} errors)"
+                    )
+                    return result
+
         result.status = "ready"
         result.metadata = {
             "batch_size": len(batch_sheets),
             "completed_count": len(completed_sheets),
             "failed_count": len(failed_sheets),
             "outputs_captured": len(result.sheet_outputs),
+            "conflict_detection_enabled": self.config.detect_conflicts,
         }
 
         self._logger.info(
@@ -233,6 +265,25 @@ class ResultSynthesizer:
         )
 
         return result
+
+    def _detect_conflicts(
+        self,
+        sheet_outputs: dict[int, str],
+    ) -> "ConflictDetectionResult":
+        """Run conflict detection on sheet outputs.
+
+        Args:
+            sheet_outputs: Map of sheet_num -> output content.
+
+        Returns:
+            ConflictDetectionResult with any conflicts found.
+        """
+        # Import here to use the ConflictDetector defined later
+        detector = ConflictDetector(
+            key_filter=self.config.conflict_key_filter,
+            strict_mode=self.config.fail_on_conflict,
+        )
+        return detector.detect_conflicts(sheet_outputs)
 
     def execute_synthesis(self, result: SynthesisResult) -> SynthesisResult:
         """Execute synthesis on prepared result.
@@ -391,3 +442,244 @@ def synthesize_batch(
         result = synthesizer.execute_synthesis(result)
 
     return result
+
+
+# =============================================================================
+# Parallel Output Conflict Detection (v20 evolution)
+# =============================================================================
+
+
+@dataclass
+class OutputConflict:
+    """Represents a conflicting key-value pair between parallel sheet outputs.
+
+    When parallel sheets produce outputs with the same key but different values,
+    this represents a potential inconsistency that may need resolution before
+    synthesis.
+
+    Attributes:
+        key: The key that has conflicting values.
+        sheet_a: First sheet number in the conflict.
+        value_a: Value from sheet A.
+        sheet_b: Second sheet number in the conflict.
+        value_b: Value from sheet B.
+        severity: Conflict severity (warning, error).
+    """
+
+    key: str
+    sheet_a: int
+    value_a: str
+    sheet_b: int
+    value_b: str
+    severity: str = "warning"
+
+    def format_message(self) -> str:
+        """Format as human-readable message."""
+        return (
+            f"Conflict on '{self.key}': "
+            f"sheet {self.sheet_a}='{self.value_a}' vs "
+            f"sheet {self.sheet_b}='{self.value_b}'"
+        )
+
+
+@dataclass
+class ConflictDetectionResult:
+    """Result of parallel output conflict detection.
+
+    Tracks conflicts detected before synthesis merging.
+
+    Attributes:
+        sheets_analyzed: Sheets that were analyzed for conflicts.
+        conflicts: List of detected conflicts.
+        keys_checked: Total number of unique keys checked.
+        checked_at: When the check was performed.
+    """
+
+    sheets_analyzed: list[int] = field(default_factory=list)
+    conflicts: list[OutputConflict] = field(default_factory=list)
+    keys_checked: int = 0
+    checked_at: datetime = field(default_factory=utc_now)
+
+    @property
+    def has_conflicts(self) -> bool:
+        """True if any conflicts were detected."""
+        return len(self.conflicts) > 0
+
+    @property
+    def error_count(self) -> int:
+        """Count of error-severity conflicts."""
+        return sum(1 for c in self.conflicts if c.severity == "error")
+
+    @property
+    def warning_count(self) -> int:
+        """Count of warning-severity conflicts."""
+        return sum(1 for c in self.conflicts if c.severity == "warning")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to serializable dictionary."""
+        return {
+            "sheets_analyzed": self.sheets_analyzed,
+            "conflicts": [
+                {
+                    "key": c.key,
+                    "sheet_a": c.sheet_a,
+                    "value_a": c.value_a,
+                    "sheet_b": c.sheet_b,
+                    "value_b": c.value_b,
+                    "severity": c.severity,
+                }
+                for c in self.conflicts
+            ],
+            "keys_checked": self.keys_checked,
+            "checked_at": self.checked_at.isoformat(),
+            "has_conflicts": self.has_conflicts,
+            "error_count": self.error_count,
+            "warning_count": self.warning_count,
+        }
+
+
+class ConflictDetector:
+    """Detects conflicts in parallel sheet outputs before synthesis.
+
+    Analyzes outputs from parallel sheets to identify cases where the same
+    key has different values, which may indicate inconsistent results that
+    need resolution before merging.
+
+    Uses KeyVariableExtractor from validation module to parse key-value
+    pairs from sheet outputs.
+
+    Example:
+        ```python
+        detector = ConflictDetector()
+        result = detector.detect_conflicts({
+            1: "STATUS: complete\\nVERSION: 1.0",
+            2: "STATUS: failed\\nVERSION: 1.0",  # STATUS conflicts!
+        })
+        if result.has_conflicts:
+            for conflict in result.conflicts:
+                print(conflict.format_message())
+        ```
+    """
+
+    def __init__(
+        self,
+        key_filter: list[str] | None = None,
+        strict_mode: bool = False,
+    ) -> None:
+        """Initialize detector.
+
+        Args:
+            key_filter: If provided, only check these keys for conflicts.
+            strict_mode: If True, all conflicts are errors. If False, warnings.
+        """
+        # Import here to avoid circular import
+        from mozart.execution.validation import KeyVariableExtractor
+
+        self.extractor = KeyVariableExtractor(key_filter=key_filter)
+        self.strict_mode = strict_mode
+        self._logger = _logger
+
+    def detect_conflicts(
+        self,
+        sheet_outputs: dict[int, str],
+    ) -> ConflictDetectionResult:
+        """Detect conflicts across parallel sheet outputs.
+
+        Args:
+            sheet_outputs: Map of sheet_num -> output content.
+
+        Returns:
+            ConflictDetectionResult with any conflicts found.
+        """
+        result = ConflictDetectionResult(
+            sheets_analyzed=sorted(sheet_outputs.keys()),
+        )
+
+        if len(sheet_outputs) < 2:
+            # Need at least 2 sheets to have conflicts
+            return result
+
+        # Extract key-value pairs from each sheet
+        sheet_variables: dict[int, dict[str, str]] = {}
+        for sheet_num, content in sheet_outputs.items():
+            variables = self.extractor.extract(content)
+            sheet_variables[sheet_num] = {v.key: v.value for v in variables}
+
+        # Count total unique keys across all sheets
+        all_keys: set[str] = set()
+        for vars_dict in sheet_variables.values():
+            all_keys.update(vars_dict.keys())
+        result.keys_checked = len(all_keys)
+
+        # Compare all pairs of sheets
+        sheets_sorted = sorted(sheet_outputs.keys())
+        for i, sheet_a in enumerate(sheets_sorted):
+            for sheet_b in sheets_sorted[i + 1:]:
+                self._compare_sheets(
+                    sheet_a, sheet_variables.get(sheet_a, {}),
+                    sheet_b, sheet_variables.get(sheet_b, {}),
+                    result,
+                )
+
+        if result.has_conflicts:
+            self._logger.warning(
+                "conflict_detector.conflicts_found",
+                sheets=result.sheets_analyzed,
+                conflict_count=len(result.conflicts),
+                error_count=result.error_count,
+                warning_count=result.warning_count,
+            )
+        else:
+            self._logger.debug(
+                "conflict_detector.no_conflicts",
+                sheets=result.sheets_analyzed,
+                keys_checked=result.keys_checked,
+            )
+
+        return result
+
+    def _compare_sheets(
+        self,
+        sheet_a: int,
+        vars_a: dict[str, str],
+        sheet_b: int,
+        vars_b: dict[str, str],
+        result: ConflictDetectionResult,
+    ) -> None:
+        """Compare variables between two sheets for conflicts."""
+        # Find common keys
+        common_keys = set(vars_a.keys()) & set(vars_b.keys())
+
+        for key in common_keys:
+            value_a = vars_a[key]
+            value_b = vars_b[key]
+
+            # Case-insensitive comparison for flexibility
+            if value_a.lower() != value_b.lower():
+                result.conflicts.append(OutputConflict(
+                    key=key,
+                    sheet_a=sheet_a,
+                    value_a=value_a,
+                    sheet_b=sheet_b,
+                    value_b=value_b,
+                    severity="error" if self.strict_mode else "warning",
+                ))
+
+
+def detect_parallel_conflicts(
+    sheet_outputs: dict[int, str],
+    key_filter: list[str] | None = None,
+    strict_mode: bool = False,
+) -> ConflictDetectionResult:
+    """Convenience function to detect conflicts in one call.
+
+    Args:
+        sheet_outputs: Map of sheet_num -> output content.
+        key_filter: If provided, only check these keys.
+        strict_mode: If True, all conflicts are errors.
+
+    Returns:
+        ConflictDetectionResult with any conflicts found.
+    """
+    detector = ConflictDetector(key_filter=key_filter, strict_mode=strict_mode)
+    return detector.detect_conflicts(sheet_outputs)
