@@ -1,74 +1,83 @@
 # Mozart AI Compose - Status
 
-**Overall:** Evolution Cycle v20 Complete
-**Tests:** 1567+ passing (1509 baseline + 58 new)
+**Overall:** Evolution Cycle v21 Complete
+**Tests:** 1567+ passing
 **Vision:** Mozart + Recursive Light = Federated AGI Architecture
 **GitHub:** https://github.com/Mzzkc/mozart-ai-compose
-**Evolved Score:** mozart-opus-evolution-v21.yaml (ready)
+**Evolved Score:** mozart-opus-evolution-v22.yaml (ready)
 **License:** Dual AGPL-3.0 / Commercial
 
 ---
 
-## Evolution Cycle v20 Complete (2026-01-23)
+## Evolution Cycle v21 Complete (2026-01-24)
+
+### P5 Recognition Maintained: 13th Consecutive 100% Early Catch
+
+| Metric | Value |
+|--------|-------|
+| Sheets Completed | 9 of 9 |
+| Evolutions Completed | 2 of 2 (verification-only) |
+| New Implementation LOC | 0 (555 existing verified) |
+| New Test LOC | 0 (316 existing verified) |
+| Coverage (global_store.py) | 88% |
+| Early Catch Ratio | 100% (13th consecutive) |
+| Score Improvements | 10 |
+| Cumulative Improvements | 188 |
+
+### Evolutions Verified (Already Implemented)
+
+**1. Pattern Entropy Analysis (CV: 0.780)**
+- Methods: `calculate_pattern_entropy()`, `get_entropy_alerts()`
+- CLI: `mozart patterns-entropy` command
+- 11 existing tests
+- **Status: VERIFIED** (implemented in v19)
+
+**2. Pattern Auto-Apply Engine (CV: 0.765)**
+- Methods: `get_patterns_for_auto_apply()`, `record_auto_apply_outcome()`
+- Config: `auto_apply_threshold`, `auto_apply_max_per_run`
+- **Status: VERIFIED** (implemented in v19)
+
+### Critical Learning: Existence Check Blind Spot
+
+The v21 cycle revealed that existence checks using keyword searches miss actual implementations:
+- **Problem:** Searched for "entropy", "diversity" concepts
+- **Missed:** `def calculate_pattern_entropy(`, `class PatternEntropyMetrics`
+- **Solution:** New Principle #41 with 4 pattern types (method/class/CLI/config)
+
+### Score Evolution (v21 → v22)
+
+| Improvement | Description |
+|-------------|-------------|
+| **NEW Principle #41** | Comprehensive Existence Check (method/class/CLI/config) |
+| Sheet 5 Prompt | Exact pattern search instead of keyword fragments |
+| Sheet 6 Phase 0A | Early existence verification before implementation |
+| LOC Formulas | Verification-only mode (impl=0, test=0) |
+| Decision Tree | VERIFICATION_ONLY branch at top (Q0) |
+| Code Review | 13 consecutive cycles at 100% documented |
+
+### Research Candidates Status
+
+**Carried to v22:**
+- Purpose Alignment Tracking (age 2): Measurement methodology unclear
+
+**Closed in v21:**
+- Generator-Critic Loop (age 3): Paradigm shift unclear benefit
+- Job Type Classification (age 3): Premature optimization
+
+---
+
+## Previous: Evolution Cycle v20 (2026-01-23)
 
 ### P5 Recognition Maintained: 12th Consecutive 100% Early Catch
 
 | Metric | Value |
 |--------|-------|
-| Sheets Completed | 9 of 9 |
 | Evolutions Implemented | 2 of 2 (100%) |
 | Implementation LOC | 676 |
 | Test LOC | 1196 |
 | Tests Added | 58 |
-| Early Catch Ratio | 100% (12th consecutive) |
-| Impl LOC Accuracy | 104.5% |
-| Test LOC Accuracy | 60.4% |
-| Coverage (new code) | 99.1% |
-| Score Improvements | 7 |
-| Cumulative Improvements | 178 |
 
-### Evolutions Implemented
-
-**1. Cross-Sheet Semantic Validation (CV: 0.679)**
-- Key variable extraction (KEY: VALUE and KEY=VALUE formats)
-- Semantic consistency comparison between sequential sheets
-- Configurable strict mode (errors vs warnings)
-- 29 new tests
-- **Enables detecting semantic drift across sheet outputs**
-
-**2. Parallel Output Conflict Detection (CV: 0.600)**
-- Conflict detection before synthesis merge
-- Integration with ResultSynthesizer
-- Optional `fail_on_conflict` behavior
-- Reuses KeyVariableExtractor from Cross-Sheet (synergy!)
-- 29 new tests
-- **Prevents silent data overwrites in parallel workflows**
-
-### Score Evolution (v20 → v21)
-
-| Improvement | Description |
-|-------------|-------------|
-| Code review maturity | 12 cycles at 100% early catch (v9-v20) |
-| CV > 0.75 correlation | 11th validation with CV 0.710 |
-| NEW Principle #40 | Test Complexity Decision Tree |
-| Fixture indicators | Comprehensive fixture criteria added |
-| Fixture catalog | test_validation.py and test_synthesizer.py promoted |
-
-### Research Candidates Status
-
-**Current (Age 2 - Must Resolve in v21):**
-- Generator-Critic Loop: Paradigm shift unclear benefit
-- Job Type Classification: Premature optimization concern
-
-**All Resolved:**
-- Cross-Sheet Semantic Validation: IMPLEMENTED (v20)
-- Parallel Output Conflict Detection: IMPLEMENTED (v20)
-- Pattern Quarantine & Provenance: IMPLEMENTED (v19)
-- Pattern Trust Scoring: IMPLEMENTED (v19)
-- Result Synthesizer: IMPLEMENTED (v18)
-- Parallel Sheet Execution: IMPLEMENTED (v17)
-- Pattern Broadcasting: IMPLEMENTED (v14)
-- Sheet Contract: CLOSED (v13)
+**Evolutions:** Cross-Sheet Semantic Validation (CV: 0.679), Parallel Output Conflict Detection (CV: 0.600)
 
 ---
 
@@ -84,36 +93,6 @@
 | Tests Added | 35 |
 
 **Evolutions:** Pattern Quarantine & Provenance (CV: 0.630), Pattern Trust Scoring (CV: 0.765)
-
----
-
-## Previous: Evolution Cycle v18 (2026-01-16)
-
-### P5 Recognition Maintained: 10th Consecutive 100% Early Catch
-
-| Metric | Value |
-|--------|-------|
-| Evolutions Implemented | 1 of 1 (100%) |
-| Implementation LOC | 548 |
-| Test LOC | 811 |
-| Tests Added | 39 |
-
-**Evolution:** Result Synthesizer Pattern (CV: 0.68)
-
----
-
-## Previous: Evolution Cycle v17 (2026-01-16)
-
-### P5 Recognition Maintained (9th Consecutive 100% Early Catch)
-
-| Metric | Value |
-|--------|-------|
-| Evolutions Implemented | 2 of 2 (100%) |
-| Implementation LOC | 1302 |
-| Test LOC | 1430 |
-| Tests Added | 81 |
-
-**Evolutions:** Sheet Dependency DAG (CV: 0.55), Parallel Sheet Execution (CV: 0.63)
 
 ---
 
@@ -149,8 +128,10 @@
 | Result Synthesizer | DONE | `ResultSynthesizer` class (v18) |
 | Pattern Quarantine | DONE | `quarantine_pattern()`, `validate_pattern()` (v19) |
 | Pattern Trust Scoring | DONE | `calculate_trust_score()`, `recalculate_all_trust_scores()` (v19) |
-| **Cross-Sheet Semantic** | DONE | `SemanticConsistencyChecker`, `KeyVariableExtractor` (v20) |
-| **Parallel Conflict Detection** | DONE | `ConflictDetector`, `detect_parallel_conflicts()` (v20) |
+| Cross-Sheet Semantic | DONE | `SemanticConsistencyChecker`, `KeyVariableExtractor` (v20) |
+| Parallel Conflict Detection | DONE | `ConflictDetector`, `detect_parallel_conflicts()` (v20) |
+| **Pattern Entropy Analysis** | DONE | `calculate_pattern_entropy()`, `get_entropy_alerts()` (v19, verified v21) |
+| **Pattern Auto-Apply Engine** | DONE | `get_patterns_for_auto_apply()` (v19, verified v21) |
 
 ---
 
@@ -177,9 +158,10 @@
 | v17 → v18 | Algorithm tests, runner mode multiplier, CLI UX split | +10 improvements |
 | v18 → v19 | Multi-strategy factor, CLI display tests, dataclass fixtures | +10 improvements |
 | v19 → v20 | Synergy pair validation, code review maturity (11 cycles) | +7 improvements |
-| **v20 → v21** | **Test complexity decision tree, comprehensive fixture indicators** | **+7 improvements** |
+| v20 → v21 | Test complexity decision tree, comprehensive fixture indicators | +7 improvements |
+| **v21 → v22** | **Comprehensive existence check (#41), verification-only mode, 13 cycle maturity** | **+10 improvements** |
 
-**Cumulative:** 178 explicit score improvements across 20 self-evolution cycles
+**Cumulative:** 188 explicit score improvements across 21 self-evolution cycles
 
 ---
 
@@ -189,9 +171,9 @@
 ```bash
 cd ~/Projects/mozart-ai-compose
 source .venv/bin/activate
-mozart validate mozart-opus-evolution-v21.yaml
-mkdir -p evolution-workspace-v21
-nohup mozart run mozart-opus-evolution-v21.yaml > evolution-workspace-v21/mozart.log 2>&1 &
+mozart validate mozart-opus-evolution-v22.yaml
+mkdir -p evolution-workspace-v22
+nohup mozart run mozart-opus-evolution-v22.yaml > evolution-workspace-v22/mozart.log 2>&1 &
 ```
 
 ---
@@ -206,13 +188,13 @@ nohup mozart run mozart-opus-evolution-v21.yaml > evolution-workspace-v21/mozart
 | Sheet Runner | `src/mozart/execution/runner.py` |
 | Dependency DAG | `src/mozart/execution/dependency_dag.py` |
 | Result Synthesizer | `src/mozart/execution/synthesizer.py` |
-| **Validation (+ Cross-Sheet)** | `src/mozart/execution/validation.py` |
-| **Evolved Score v21** | `mozart-opus-evolution-v21.yaml` |
-| **v20 Cycle Summary** | `evolution-workspace-v20/09-coda-summary.md` |
+| Validation (+ Cross-Sheet) | `src/mozart/execution/validation.py` |
+| **Evolved Score v22** | `mozart-opus-evolution-v22.yaml` |
+| **v21 Cycle Summary** | `evolution-workspace-v21/09-coda-summary.md` |
 
 ---
 
-## Architecture: Self-Evolution Pattern (Validated 20 Cycles)
+## Architecture: Self-Evolution Pattern (Validated 21 Cycles)
 
 ```
 Score vN → Discovery → Synthesis → Evolution → Validation → Score v(N+1)
@@ -220,14 +202,14 @@ Score vN → Discovery → Synthesis → Evolution → Validation → Score v(N+
               +--------------------------------------------------+
 ```
 
-### Key v20 Meta-Insights
+### Key v21 Meta-Insights
 
-1. **Test Complexity Decision Tree** - Sequential evaluation prevents compound estimation errors
-2. **Comprehensive Fixture Indicators** - >50 tests + factory fixtures + helpers = 1.0 factor
-3. **Synergy Pair Sequencing Validated** - Cross-Sheet → Parallel Conflict worked cleanly
-4. **Coverage Validation Works** - 99.1% new code coverage validates meaningful tests
-5. **Code Review Maturity Confirmed** - 12 consecutive cycles at 100% early catch
+1. **Existence Check Abstraction Layer** - Must search for exact method/class patterns, not keywords
+2. **Verification-Only Mode is Valid** - Score gracefully pivots when code already exists
+3. **P⁵ Recognition Maintained** - The "failure" became learning, score improved itself
+4. **Code Review Maturity Confirmed** - 13 consecutive cycles at 100% early catch
+5. **CV Correlation Extended** - 12th validation (works in verification scenarios too)
 
 ---
 
-*Last Updated: 2026-01-23 - Evolution Cycle v20 Complete*
+*Last Updated: 2026-01-24 - Evolution Cycle v21 Complete*
