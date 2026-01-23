@@ -2211,14 +2211,36 @@ class JobRunner:
                     sheet_state.grounding_confidence = grounding_ctx.confidence
                     sheet_state.grounding_guidance = grounding_ctx.recovery_guidance
 
-                # Record pattern feedback to global store (v9/v12 Evolution)
+                # Record pattern feedback to global store (v9/v12/v22 Evolution)
                 # v12: Pass grounding_confidence for grounding-weighted effectiveness
+                # v22: Pass context for metacognitive success factor capture
+                prior_status = None
+                if sheet_num > 1 and (sheet_num - 1) in state.sheets:
+                    prior_state = state.sheets[sheet_num - 1]
+                    prior_status = prior_state.status.value if prior_state.status else None
+
+                # Extract validation types from validation results
+                validation_types_set = {
+                    r.rule.type for r in validation_result.results if r.rule and r.rule.type
+                }
+                validation_types_list = sorted(validation_types_set) if validation_types_set else None
+
+                # Check if escalation was pending (tracked in outcome_data)
+                escalation_pending = bool(
+                    sheet_state.outcome_data
+                    and sheet_state.outcome_data.get("escalation_record_id")
+                )
+
                 await self._record_pattern_feedback(
                     pattern_ids=self._applied_pattern_ids,
                     validation_passed=True,
                     first_attempt_success=first_attempt_success,
                     sheet_num=sheet_num,
                     grounding_confidence=grounding_ctx.confidence if grounding_ctx.hooks_executed > 0 else None,
+                    validation_types=validation_types_list,
+                    prior_sheet_status=prior_status,
+                    retry_iteration=normal_attempts - 1 if normal_attempts > 0 else 0,
+                    escalation_was_pending=escalation_pending,
                 )
 
                 state.mark_sheet_completed(
@@ -2821,12 +2843,44 @@ class JobRunner:
                 # EXPLOITATION MODE: Only proven high-priority patterns
                 min_priority = exploitation_threshold
 
+            # v22: Query auto-apply patterns first if enabled
+            auto_apply_patterns: list[Any] = []
+            auto_apply_config = self.config.learning.auto_apply
+            if (
+                auto_apply_config
+                and auto_apply_config.enabled
+                and self._global_learning_store
+            ):
+                auto_apply_patterns = self._global_learning_store.get_patterns_for_auto_apply(
+                    trust_threshold=auto_apply_config.trust_threshold,
+                    require_validated=auto_apply_config.require_validated_status,
+                    limit=auto_apply_config.max_patterns_per_sheet,
+                    context_tags=query_context_tags if query_context_tags else None,
+                )
+                if auto_apply_patterns and auto_apply_config.log_applications:
+                    self._logger.info(
+                        "patterns.auto_apply_selected",
+                        job_id=job_id,
+                        sheet_num=sheet_num,
+                        auto_apply_count=len(auto_apply_patterns),
+                        pattern_ids=[p.id for p in auto_apply_patterns],
+                        trust_threshold=auto_apply_config.trust_threshold,
+                    )
+
             # Query patterns from global store with context filtering
             patterns = self._global_learning_store.get_patterns(
                 min_priority=min_priority,
                 limit=5,
                 context_tags=query_context_tags if query_context_tags else None,
             )
+
+            # Merge auto-apply patterns with regular patterns, avoiding duplicates
+            if auto_apply_patterns:
+                auto_apply_ids = {p.id for p in auto_apply_patterns}
+                # Filter out already-selected auto-apply patterns from regular query
+                patterns = [p for p in patterns if p.id not in auto_apply_ids]
+                # Auto-apply patterns come first (highest trust)
+                patterns = auto_apply_patterns + patterns
 
             # If no patterns match with context filtering, fall back to unfiltered
             if not patterns:
@@ -2850,9 +2904,19 @@ class JobRunner:
             descriptions: list[str] = []
             pattern_ids: list[str] = []
 
+            # Track auto-applied pattern IDs for indicators
+            auto_apply_ids = {p.id for p in auto_apply_patterns} if auto_apply_patterns else set()
+
             for pattern in patterns:
+                # v22: Check if this is an auto-applied pattern
+                is_auto_applied = pattern.id in auto_apply_ids
+
                 # Categorize as exploration vs exploitation for tracking
-                if pattern.priority_score < exploitation_threshold:
+                if is_auto_applied:
+                    # Auto-applied patterns are a special category
+                    self._exploitation_pattern_ids.append(pattern.id)
+                    mode_indicator = "⚡"  # Auto-apply indicator
+                elif pattern.priority_score < exploitation_threshold:
                     # This pattern would not have been selected without exploration
                     self._exploration_pattern_ids.append(pattern.id)
                     mode_indicator = "🔍"  # Exploration indicator
@@ -2868,13 +2932,16 @@ class JobRunner:
                 else:
                     effectiveness_indicator = "⚠"
 
+                # v22: Include trust score for auto-applied patterns
+                trust_info = f", trust={pattern.trust_score:.0%}" if is_auto_applied else ""
+
                 # Format: [indicator] description (occurrence count)
-                # Include mode indicator for exploration patterns
+                # Include mode indicator for exploration/auto-apply patterns
                 desc = (
                     f"{mode_indicator}{effectiveness_indicator} "
                     f"{pattern.description or pattern.pattern_name} "
                     f"(seen {pattern.occurrence_count}x, "
-                    f"{pattern.effectiveness_score:.0%} effective)"
+                    f"{pattern.effectiveness_score:.0%} effective{trust_info})"
                 )
                 descriptions.append(desc)
                 pattern_ids.append(pattern.id)
@@ -2889,6 +2956,7 @@ class JobRunner:
                 exploration_mode=is_exploration_mode,
                 exploration_patterns=len(self._exploration_pattern_ids),
                 exploitation_patterns=len(self._exploitation_pattern_ids),
+                auto_apply_patterns=len(auto_apply_ids),
             )
 
             return descriptions, pattern_ids
@@ -3551,6 +3619,11 @@ class JobRunner:
         first_attempt_success: bool,
         sheet_num: int,
         grounding_confidence: float | None = None,
+        validation_types: list[str] | None = None,
+        error_categories: list[str] | None = None,
+        prior_sheet_status: str | None = None,
+        retry_iteration: int = 0,
+        escalation_was_pending: bool = False,
     ) -> None:
         """Record pattern application feedback to global learning store.
 
@@ -3562,6 +3635,9 @@ class JobRunner:
         v12 Evolution: Grounding→Pattern Feedback - now passes grounding_confidence
         to the global learning store, enabling grounding-weighted effectiveness.
 
+        v22 Evolution: Metacognitive Pattern Reflection - now captures success
+        factors (context conditions) when patterns succeed, enabling WHY analysis.
+
         Args:
             pattern_ids: List of pattern IDs that were applied.
             validation_passed: Whether the sheet validations passed.
@@ -3569,6 +3645,11 @@ class JobRunner:
             sheet_num: Sheet number for logging context.
             grounding_confidence: Grounding confidence (0.0-1.0) from external validation.
                                  None if grounding hooks were not executed.
+            validation_types: Validation types active (file, regex, artifact, etc.)
+            error_categories: Error categories present in execution.
+            prior_sheet_status: Status of prior sheet (completed, failed, skipped).
+            retry_iteration: Which retry attempt this is (0 = first attempt).
+            escalation_was_pending: Whether escalation was pending.
         """
         if self._global_learning_store is None or not pattern_ids:
             return
@@ -3597,6 +3678,27 @@ class JobRunner:
                     validation_passed=validation_passed,
                     grounding_confidence=grounding_confidence,
                 )
+
+                # v22 Evolution: Update success factors when pattern succeeds
+                # Only capture factors when the pattern led to success
+                if outcome_improved:
+                    self._global_learning_store.update_success_factors(
+                        pattern_id=pattern_id,
+                        validation_types=validation_types,
+                        error_categories=error_categories,
+                        prior_sheet_status=prior_sheet_status,
+                        retry_iteration=retry_iteration,
+                        escalation_was_pending=escalation_was_pending,
+                        grounding_confidence=grounding_confidence,
+                    )
+                    self._logger.debug(
+                        "learning.success_factors_updated",
+                        pattern_id=pattern_id,
+                        sheet_num=sheet_num,
+                        validation_types=validation_types,
+                        prior_sheet_status=prior_sheet_status,
+                    )
+
                 self._logger.debug(
                     "learning.pattern_feedback_recorded",
                     pattern_id=pattern_id,

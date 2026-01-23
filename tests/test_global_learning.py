@@ -4446,3 +4446,671 @@ class TestPatternRelevanceScoring:
 
         assert validated.is_validated is True
         assert not_validated.is_validated is False
+
+
+# =============================================================================
+# v22: Metacognitive Pattern Reflection Tests
+# =============================================================================
+
+
+class TestSuccessFactors:
+    """Test cases for the SuccessFactors dataclass."""
+
+    def test_success_factors_creation(self) -> None:
+        """Test SuccessFactors can be created with default values."""
+        from mozart.learning.global_store import SuccessFactors
+
+        factors = SuccessFactors()
+        assert factors.validation_types == []
+        assert factors.error_categories == []
+        assert factors.occurrence_count == 1
+        assert factors.success_rate == 1.0
+        assert factors.escalation_was_pending is False
+        assert factors.grounding_confidence is None
+
+    def test_success_factors_with_values(self) -> None:
+        """Test SuccessFactors with specific values."""
+        from mozart.learning.global_store import SuccessFactors
+
+        factors = SuccessFactors(
+            validation_types=["file", "regex"],
+            error_categories=["rate_limit"],
+            prior_sheet_status="completed",
+            time_of_day_bucket="morning",
+            retry_iteration=2,
+            escalation_was_pending=True,
+            grounding_confidence=0.85,
+            occurrence_count=5,
+            success_rate=0.8,
+        )
+
+        assert factors.validation_types == ["file", "regex"]
+        assert factors.error_categories == ["rate_limit"]
+        assert factors.prior_sheet_status == "completed"
+        assert factors.time_of_day_bucket == "morning"
+        assert factors.retry_iteration == 2
+        assert factors.escalation_was_pending is True
+        assert factors.grounding_confidence == 0.85
+        assert factors.occurrence_count == 5
+        assert factors.success_rate == 0.8
+
+    def test_success_factors_serialization(self) -> None:
+        """Test SuccessFactors to_dict and from_dict."""
+        from mozart.learning.global_store import SuccessFactors
+
+        original = SuccessFactors(
+            validation_types=["file", "regex"],
+            error_categories=["auth"],
+            prior_sheet_status="failed",
+            time_of_day_bucket="evening",
+            retry_iteration=1,
+            escalation_was_pending=False,
+            grounding_confidence=0.9,
+            occurrence_count=10,
+            success_rate=0.75,
+        )
+
+        data = original.to_dict()
+        restored = SuccessFactors.from_dict(data)
+
+        assert restored.validation_types == original.validation_types
+        assert restored.error_categories == original.error_categories
+        assert restored.prior_sheet_status == original.prior_sheet_status
+        assert restored.time_of_day_bucket == original.time_of_day_bucket
+        assert restored.retry_iteration == original.retry_iteration
+        assert restored.escalation_was_pending == original.escalation_was_pending
+        assert restored.grounding_confidence == original.grounding_confidence
+        assert restored.occurrence_count == original.occurrence_count
+        assert restored.success_rate == original.success_rate
+
+    def test_success_factors_get_time_bucket(self) -> None:
+        """Test time bucket calculation for different hours."""
+        from mozart.learning.global_store import SuccessFactors
+
+        # Morning: 5-11
+        assert SuccessFactors.get_time_bucket(5) == "morning"
+        assert SuccessFactors.get_time_bucket(9) == "morning"
+        assert SuccessFactors.get_time_bucket(11) == "morning"
+
+        # Afternoon: 12-16
+        assert SuccessFactors.get_time_bucket(12) == "afternoon"
+        assert SuccessFactors.get_time_bucket(14) == "afternoon"
+        assert SuccessFactors.get_time_bucket(16) == "afternoon"
+
+        # Evening: 17-20
+        assert SuccessFactors.get_time_bucket(17) == "evening"
+        assert SuccessFactors.get_time_bucket(19) == "evening"
+        assert SuccessFactors.get_time_bucket(20) == "evening"
+
+        # Night: 21-4
+        assert SuccessFactors.get_time_bucket(21) == "night"
+        assert SuccessFactors.get_time_bucket(0) == "night"
+        assert SuccessFactors.get_time_bucket(4) == "night"
+
+
+class TestPatternSuccessFactorsIntegration:
+    """Test success factors integration with PatternRecord and GlobalLearningStore."""
+
+    @pytest.fixture
+    def global_store(self, tmp_path: Path) -> GlobalLearningStore:
+        """Create a GlobalLearningStore for testing."""
+        db_path = tmp_path / "test.db"
+        return GlobalLearningStore(db_path)
+
+    def test_pattern_record_success_factors_field(self) -> None:
+        """Test PatternRecord has success_factors field."""
+        from datetime import datetime
+
+        from mozart.learning.global_store import PatternRecord, SuccessFactors
+
+        now = datetime.now()
+        factors = SuccessFactors(validation_types=["file"])
+        pattern = PatternRecord(
+            id="test-pattern",
+            pattern_type="test",
+            pattern_name="Test Pattern",
+            description="A test pattern",
+            occurrence_count=1,
+            first_seen=now,
+            last_seen=now,
+            last_confirmed=now,
+            led_to_success_count=1,
+            led_to_failure_count=0,
+            effectiveness_score=0.8,
+            variance=0.1,
+            suggested_action=None,
+            context_tags=["test"],
+            priority_score=0.7,
+            success_factors=factors,
+            success_factors_updated_at=now,
+        )
+
+        assert pattern.success_factors is not None
+        assert pattern.success_factors.validation_types == ["file"]
+        assert pattern.success_factors_updated_at == now
+
+    def test_update_success_factors_creates_new(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test update_success_factors creates factors for pattern without any."""
+        # Create a pattern
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="Test Pattern",
+            description="Test description",
+            context_tags=["test"],
+        )
+
+        # Update success factors
+        factors = global_store.update_success_factors(
+            pattern_id=pattern_id,
+            validation_types=["file", "regex"],
+            error_categories=["rate_limit"],
+            prior_sheet_status="completed",
+            retry_iteration=0,
+            grounding_confidence=0.9,
+        )
+
+        assert factors is not None
+        assert factors.validation_types == ["file", "regex"]
+        assert factors.error_categories == ["rate_limit"]
+        assert factors.prior_sheet_status == "completed"
+        assert factors.occurrence_count == 1
+        assert factors.grounding_confidence == 0.9
+
+    def test_update_success_factors_aggregates(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test update_success_factors aggregates multiple observations."""
+        # Create a pattern
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="Test Pattern",
+            description="Test description",
+            context_tags=["test"],
+        )
+
+        # First update
+        global_store.update_success_factors(
+            pattern_id=pattern_id,
+            validation_types=["file"],
+            prior_sheet_status="completed",
+        )
+
+        # Second update with different validation types
+        factors = global_store.update_success_factors(
+            pattern_id=pattern_id,
+            validation_types=["regex"],
+            prior_sheet_status="failed",
+            grounding_confidence=0.8,
+        )
+
+        assert factors is not None
+        # Validation types should be merged
+        assert set(factors.validation_types) == {"file", "regex"}
+        # Prior sheet status should be updated to latest
+        assert factors.prior_sheet_status == "failed"
+        # Occurrence count should be incremented
+        assert factors.occurrence_count == 2
+        # Grounding confidence from latest
+        assert factors.grounding_confidence == 0.8
+
+    def test_update_success_factors_nonexistent_pattern(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test update_success_factors returns None for nonexistent pattern."""
+        result = global_store.update_success_factors(
+            pattern_id="nonexistent",
+            validation_types=["file"],
+        )
+        assert result is None
+
+    def test_get_success_factors(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test get_success_factors retrieves stored factors."""
+        # Create a pattern with factors
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="Test Pattern",
+            description="Test description",
+            context_tags=["test"],
+        )
+
+        global_store.update_success_factors(
+            pattern_id=pattern_id,
+            validation_types=["file"],
+            retry_iteration=1,
+        )
+
+        factors = global_store.get_success_factors(pattern_id)
+        assert factors is not None
+        assert factors.validation_types == ["file"]
+        assert factors.retry_iteration == 1
+
+    def test_get_success_factors_nonexistent(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test get_success_factors returns None for nonexistent pattern."""
+        result = global_store.get_success_factors("nonexistent")
+        assert result is None
+
+    def test_analyze_pattern_why_with_factors(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test analyze_pattern_why returns meaningful analysis."""
+        # Create a pattern with success factors
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="Rate Limit Recovery",
+            description="Successful rate limit recovery pattern",
+            context_tags=["rate_limit", "retry"],
+        )
+
+        # Simulate multiple successful applications
+        for _ in range(5):
+            global_store.update_success_factors(
+                pattern_id=pattern_id,
+                validation_types=["file", "regex"],
+                error_categories=["rate_limit"],
+                prior_sheet_status="completed",
+                grounding_confidence=0.9,
+            )
+            # Also record pattern application to update success counts
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id="test_exec",
+                outcome_improved=True,
+            )
+
+        analysis = global_store.analyze_pattern_why(pattern_id)
+
+        assert analysis["pattern_name"] == "Rate Limit Recovery"
+        assert analysis["has_factors"] is True
+        assert analysis["observation_count"] == 5
+        assert analysis["success_rate"] == 1.0  # All successes
+        assert len(analysis["key_conditions"]) > 0
+        assert len(analysis["recommendations"]) > 0
+
+    def test_analyze_pattern_why_without_factors(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test analyze_pattern_why for pattern without captured factors."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="New Pattern",
+            description="Pattern without factors",
+            context_tags=["test"],
+        )
+
+        analysis = global_store.analyze_pattern_why(pattern_id)
+
+        assert analysis["pattern_name"] == "New Pattern"
+        assert analysis["has_factors"] is False
+        assert analysis["confidence"] == 0.0
+        assert "Apply this pattern" in analysis["recommendations"][0]
+
+    def test_analyze_pattern_why_nonexistent(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test analyze_pattern_why for nonexistent pattern."""
+        analysis = global_store.analyze_pattern_why("nonexistent")
+        assert "error" in analysis
+
+    def test_get_patterns_with_why(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test get_patterns_with_why returns patterns with analysis."""
+        # Create patterns with varying observations
+        for i in range(3):
+            pattern_id = global_store.record_pattern(
+                pattern_type="test",
+                pattern_name=f"Pattern {i}",
+                description=f"Test pattern {i}",
+                context_tags=["test"],
+            )
+
+            # Add success factors (more for higher-numbered patterns)
+            for _ in range(i + 1):
+                global_store.update_success_factors(
+                    pattern_id=pattern_id,
+                    validation_types=["file"],
+                    grounding_confidence=0.8,
+                )
+
+        # Get patterns with WHY analysis
+        results = global_store.get_patterns_with_why(min_observations=2)
+
+        # Should only return patterns with >= 2 observations
+        assert len(results) == 2  # Pattern 1 (2 obs) and Pattern 2 (3 obs)
+
+        for pattern, analysis in results:
+            assert analysis["has_factors"] is True
+            assert analysis["observation_count"] >= 2
+
+    def test_success_factors_persistence(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test success factors are persisted and retrieved from database."""
+        from mozart.learning.global_store import GlobalLearningStore
+
+        # Create pattern with factors
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="Persistent Pattern",
+            description="Testing persistence",
+            context_tags=["persistence"],
+        )
+
+        global_store.update_success_factors(
+            pattern_id=pattern_id,
+            validation_types=["file", "artifact"],
+            error_categories=["auth"],
+            prior_sheet_status="completed",
+            escalation_was_pending=True,
+            grounding_confidence=0.75,
+        )
+
+        # Create new store instance pointing to same database
+        store2 = GlobalLearningStore(global_store.db_path)
+
+        # Retrieve and verify
+        pattern = store2.get_pattern_by_id(pattern_id)
+        assert pattern is not None
+        assert pattern.success_factors is not None
+        assert set(pattern.success_factors.validation_types) == {"file", "artifact"}
+        assert pattern.success_factors.error_categories == ["auth"]
+        assert pattern.success_factors.escalation_was_pending is True
+        assert pattern.success_factors.grounding_confidence == 0.75
+
+
+# =============================================================================
+# v22: Trust-Aware Autonomous Application Tests
+# =============================================================================
+
+
+class TestAutoApplyConfig:
+    """Test cases for AutoApplyConfig."""
+
+    def test_auto_apply_config_defaults(self) -> None:
+        """Test AutoApplyConfig has expected defaults."""
+        from mozart.core.config import AutoApplyConfig
+
+        config = AutoApplyConfig()
+        assert config.enabled is False  # Opt-in only
+        assert config.trust_threshold == 0.85
+        assert config.max_patterns_per_sheet == 3
+        assert config.require_validated_status is True
+        assert config.log_applications is True
+
+    def test_auto_apply_config_custom_values(self) -> None:
+        """Test AutoApplyConfig accepts custom values."""
+        from mozart.core.config import AutoApplyConfig
+
+        config = AutoApplyConfig(
+            enabled=True,
+            trust_threshold=0.9,
+            max_patterns_per_sheet=5,
+            require_validated_status=False,
+            log_applications=False,
+        )
+
+        assert config.enabled is True
+        assert config.trust_threshold == 0.9
+        assert config.max_patterns_per_sheet == 5
+        assert config.require_validated_status is False
+        assert config.log_applications is False
+
+    def test_auto_apply_config_validation(self) -> None:
+        """Test AutoApplyConfig validates trust_threshold range."""
+        from pydantic import ValidationError
+
+        from mozart.core.config import AutoApplyConfig
+
+        # Valid: 0.0 to 1.0
+        AutoApplyConfig(trust_threshold=0.0)
+        AutoApplyConfig(trust_threshold=1.0)
+
+        # Invalid: outside range
+        with pytest.raises(ValidationError):
+            AutoApplyConfig(trust_threshold=1.5)
+        with pytest.raises(ValidationError):
+            AutoApplyConfig(trust_threshold=-0.1)
+
+    def test_learning_config_with_auto_apply(self) -> None:
+        """Test LearningConfig can include auto_apply."""
+        from mozart.core.config import AutoApplyConfig, LearningConfig
+
+        learning = LearningConfig(
+            auto_apply=AutoApplyConfig(enabled=True, trust_threshold=0.8)
+        )
+
+        assert learning.auto_apply is not None
+        assert learning.auto_apply.enabled is True
+        assert learning.auto_apply.trust_threshold == 0.8
+
+    def test_learning_config_auto_apply_none_by_default(self) -> None:
+        """Test LearningConfig has auto_apply=None by default."""
+        from mozart.core.config import LearningConfig
+
+        learning = LearningConfig()
+        assert learning.auto_apply is None
+
+
+class TestGetPatternsForAutoApply:
+    """Test cases for get_patterns_for_auto_apply method."""
+
+    @pytest.fixture
+    def global_store(self, tmp_path: Path) -> GlobalLearningStore:
+        """Create a GlobalLearningStore for testing."""
+        db_path = tmp_path / "test.db"
+        return GlobalLearningStore(db_path)
+
+    def _create_validated_high_trust_pattern(
+        self,
+        store: GlobalLearningStore,
+        name: str,
+        trust: float = 0.9,
+        context_tags: list[str] | None = None,
+    ) -> str:
+        """Helper to create a validated high-trust pattern."""
+        pattern_id = store.record_pattern(
+            pattern_type="test",
+            pattern_name=name,
+            description=f"Test pattern: {name}",
+            context_tags=context_tags or [],
+        )
+
+        # Set trust score by updating directly
+        with store._get_connection() as conn:
+            conn.execute(
+                "UPDATE patterns SET trust_score = ?, quarantine_status = 'validated' WHERE id = ?",
+                (trust, pattern_id),
+            )
+
+        return pattern_id
+
+    def test_get_patterns_for_auto_apply_basic(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test basic auto-apply pattern retrieval."""
+        # Create a high-trust validated pattern
+        pattern_id = self._create_validated_high_trust_pattern(
+            global_store, "High Trust Pattern", trust=0.9
+        )
+
+        # Get auto-apply patterns
+        patterns = global_store.get_patterns_for_auto_apply(
+            trust_threshold=0.85,
+            require_validated=True,
+        )
+
+        assert len(patterns) == 1
+        assert patterns[0].id == pattern_id
+        assert patterns[0].trust_score == 0.9
+
+    def test_get_patterns_for_auto_apply_filters_by_trust(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test auto-apply filters out low-trust patterns."""
+        # Create patterns with varying trust
+        self._create_validated_high_trust_pattern(
+            global_store, "High Trust", trust=0.9
+        )
+        self._create_validated_high_trust_pattern(
+            global_store, "Medium Trust", trust=0.7
+        )
+        self._create_validated_high_trust_pattern(
+            global_store, "Low Trust", trust=0.5
+        )
+
+        patterns = global_store.get_patterns_for_auto_apply(
+            trust_threshold=0.85,
+            require_validated=True,
+        )
+
+        assert len(patterns) == 1
+        assert patterns[0].pattern_name == "High Trust"
+
+    def test_get_patterns_for_auto_apply_requires_validated(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test auto-apply requires validated status by default."""
+        # Create high-trust but non-validated pattern
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="Pending Pattern",
+            description="High trust but pending",
+            context_tags=[],
+        )
+
+        # Set high trust but leave status as pending
+        with global_store._get_connection() as conn:
+            conn.execute(
+                "UPDATE patterns SET trust_score = ? WHERE id = ?",
+                (0.95, pattern_id),
+            )
+
+        # Should not be returned when require_validated=True
+        patterns = global_store.get_patterns_for_auto_apply(
+            trust_threshold=0.85,
+            require_validated=True,
+        )
+        assert len(patterns) == 0
+
+        # Should be returned when require_validated=False
+        patterns = global_store.get_patterns_for_auto_apply(
+            trust_threshold=0.85,
+            require_validated=False,
+        )
+        assert len(patterns) == 1
+
+    def test_get_patterns_for_auto_apply_excludes_retired(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test auto-apply excludes retired patterns."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="Retired Pattern",
+            description="High trust but retired",
+            context_tags=[],
+        )
+
+        # Set high trust but retire the pattern
+        with global_store._get_connection() as conn:
+            conn.execute(
+                "UPDATE patterns SET trust_score = ?, quarantine_status = 'retired' WHERE id = ?",
+                (0.95, pattern_id),
+            )
+
+        patterns = global_store.get_patterns_for_auto_apply(
+            trust_threshold=0.85,
+            require_validated=False,  # Don't require validated
+        )
+
+        assert len(patterns) == 0
+
+    def test_get_patterns_for_auto_apply_respects_limit(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test auto-apply respects the limit parameter."""
+        # Create 5 high-trust validated patterns
+        for i in range(5):
+            self._create_validated_high_trust_pattern(
+                global_store, f"Pattern {i}", trust=0.9 - i * 0.01
+            )
+
+        # Get with limit of 3
+        patterns = global_store.get_patterns_for_auto_apply(
+            trust_threshold=0.85,
+            limit=3,
+        )
+
+        assert len(patterns) == 3
+        # Should be ordered by trust score descending
+        assert patterns[0].trust_score >= patterns[1].trust_score
+        assert patterns[1].trust_score >= patterns[2].trust_score
+
+    def test_get_patterns_for_auto_apply_filters_by_context_tags(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test auto-apply filters by context tags."""
+        # Create patterns with different tags
+        self._create_validated_high_trust_pattern(
+            global_store, "Web Pattern", trust=0.9, context_tags=["web", "api"]
+        )
+        self._create_validated_high_trust_pattern(
+            global_store, "DB Pattern", trust=0.9, context_tags=["database", "sql"]
+        )
+
+        # Filter by web tag
+        patterns = global_store.get_patterns_for_auto_apply(
+            trust_threshold=0.85,
+            context_tags=["web"],
+        )
+
+        assert len(patterns) == 1
+        assert patterns[0].pattern_name == "Web Pattern"
+
+    def test_get_patterns_for_auto_apply_empty_when_none_match(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test auto-apply returns empty list when no patterns match."""
+        # Create low-trust pattern
+        global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="Low Trust",
+            description="Below threshold",
+            context_tags=[],
+        )
+
+        patterns = global_store.get_patterns_for_auto_apply(
+            trust_threshold=0.85,
+        )
+
+        assert len(patterns) == 0
+
+    def test_get_patterns_for_auto_apply_orders_by_trust(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test auto-apply patterns are ordered by trust score."""
+        # Create patterns with different trust scores
+        self._create_validated_high_trust_pattern(
+            global_store, "Medium High", trust=0.88
+        )
+        self._create_validated_high_trust_pattern(
+            global_store, "Highest", trust=0.95
+        )
+        self._create_validated_high_trust_pattern(
+            global_store, "Just Above", trust=0.86
+        )
+
+        patterns = global_store.get_patterns_for_auto_apply(
+            trust_threshold=0.85,
+            limit=10,
+        )
+
+        assert len(patterns) == 3
+        assert patterns[0].pattern_name == "Highest"
+        assert patterns[1].pattern_name == "Medium High"
+        assert patterns[2].pattern_name == "Just Above"

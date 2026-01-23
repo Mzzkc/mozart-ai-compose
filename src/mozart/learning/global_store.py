@@ -59,6 +59,93 @@ DEFAULT_GLOBAL_STORE_PATH = Path.home() / ".mozart" / "global-learning.db"
 
 
 @dataclass
+class SuccessFactors:
+    """Captures WHY a pattern succeeded - the context conditions and factors.
+
+    v22 Evolution: Metacognitive Pattern Reflection - patterns now capture
+    not just WHAT happened but WHY it worked. This enables better pattern
+    selection by understanding causality, not just correlation.
+
+    Success factors include:
+    - Context conditions: validation types, error categories, execution phase
+    - Timing factors: time of day, retry iteration, prior sheet outcomes
+    - Prerequisite states: prior sheet completion, escalation status
+    """
+
+    # Context conditions present when pattern succeeded
+    validation_types: list[str] = field(default_factory=list)
+    """Validation types that were active: file, regex, artifact, etc."""
+
+    error_categories: list[str] = field(default_factory=list)
+    """Error categories present in the execution: rate_limit, auth, validation, etc."""
+
+    prior_sheet_status: str | None = None
+    """Status of the immediately prior sheet: completed, failed, skipped."""
+
+    # Timing factors
+    time_of_day_bucket: str | None = None
+    """Time bucket: morning, afternoon, evening, night."""
+
+    retry_iteration: int = 0
+    """Which retry attempt this success occurred on (0 = first attempt)."""
+
+    # Prerequisite states
+    escalation_was_pending: bool = False
+    """Whether an escalation was pending when pattern succeeded."""
+
+    grounding_confidence: float | None = None
+    """Grounding confidence score if external validation was present."""
+
+    # Aggregated metrics
+    occurrence_count: int = 1
+    """How often this factor combination has been observed."""
+
+    success_rate: float = 1.0
+    """Success rate when these factors are present (0.0-1.0)."""
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to dictionary for JSON storage."""
+        return {
+            "validation_types": self.validation_types,
+            "error_categories": self.error_categories,
+            "prior_sheet_status": self.prior_sheet_status,
+            "time_of_day_bucket": self.time_of_day_bucket,
+            "retry_iteration": self.retry_iteration,
+            "escalation_was_pending": self.escalation_was_pending,
+            "grounding_confidence": self.grounding_confidence,
+            "occurrence_count": self.occurrence_count,
+            "success_rate": self.success_rate,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "SuccessFactors":
+        """Deserialize from dictionary."""
+        return cls(
+            validation_types=data.get("validation_types", []),
+            error_categories=data.get("error_categories", []),
+            prior_sheet_status=data.get("prior_sheet_status"),
+            time_of_day_bucket=data.get("time_of_day_bucket"),
+            retry_iteration=data.get("retry_iteration", 0),
+            escalation_was_pending=data.get("escalation_was_pending", False),
+            grounding_confidence=data.get("grounding_confidence"),
+            occurrence_count=data.get("occurrence_count", 1),
+            success_rate=data.get("success_rate", 1.0),
+        )
+
+    @staticmethod
+    def get_time_bucket(hour: int) -> str:
+        """Get time bucket for an hour (0-23)."""
+        if 5 <= hour < 12:
+            return "morning"
+        elif 12 <= hour < 17:
+            return "afternoon"
+        elif 17 <= hour < 21:
+            return "evening"
+        else:
+            return "night"
+
+
+@dataclass
 class ExecutionRecord:
     """A record of a sheet execution stored in the global database."""
 
@@ -128,6 +215,13 @@ class PatternRecord:
 
     trust_calculation_date: datetime | None = None
     """When trust_score was last calculated."""
+
+    # v22: Metacognitive Pattern Reflection fields
+    success_factors: SuccessFactors | None = None
+    """WHY this pattern succeeds - captured context conditions and factors."""
+
+    success_factors_updated_at: datetime | None = None
+    """When success_factors were last updated."""
 
 
 @dataclass
@@ -382,7 +476,7 @@ class GlobalLearningStore:
         db_path: Path to the SQLite database file.
     """
 
-    SCHEMA_VERSION = 7  # v7: Added quarantine, provenance, trust_score fields to patterns
+    SCHEMA_VERSION = 8  # v8: Added success_factors, success_factors_updated_at for metacognitive reflection
 
     def __init__(self, db_path: Path | None = None) -> None:
         """Initialize the global learning store.
@@ -499,7 +593,9 @@ class GlobalLearningStore:
                 validated_at TIMESTAMP,
                 quarantine_reason TEXT,
                 trust_score REAL DEFAULT 0.5,
-                trust_calculation_date TIMESTAMP
+                trust_calculation_date TIMESTAMP,
+                success_factors TEXT,
+                success_factors_updated_at TIMESTAMP
             )
         """)
         conn.execute(
@@ -1593,6 +1689,13 @@ class GlobalLearningStore:
             trust_calculation_date=datetime.fromisoformat(row["trust_calculation_date"])
             if row["trust_calculation_date"]
             else None,
+            # v22 fields for metacognitive pattern reflection
+            success_factors=SuccessFactors.from_dict(json.loads(row["success_factors"]))
+            if row["success_factors"]
+            else None,
+            success_factors_updated_at=datetime.fromisoformat(row["success_factors_updated_at"])
+            if row["success_factors_updated_at"]
+            else None,
         )
 
     # =========================================================================
@@ -1938,6 +2041,71 @@ class GlobalLearningStore:
             limit=limit,
         )
 
+    def get_patterns_for_auto_apply(
+        self,
+        trust_threshold: float = 0.85,
+        require_validated: bool = True,
+        limit: int = 3,
+        context_tags: list[str] | None = None,
+    ) -> list[PatternRecord]:
+        """Get patterns eligible for autonomous application.
+
+        v22 Evolution: Trust-Aware Autonomous Application - returns patterns
+        that meet the criteria for being applied without human confirmation.
+
+        Criteria for auto-apply eligibility:
+        1. Trust score >= trust_threshold (default 0.85)
+        2. Quarantine status == VALIDATED (if require_validated=True)
+        3. Pattern is not retired
+
+        Args:
+            trust_threshold: Minimum trust score for auto-apply (default 0.85).
+            require_validated: Require VALIDATED quarantine status.
+            limit: Maximum patterns to return.
+            context_tags: Optional context tags to filter by relevance.
+
+        Returns:
+            List of PatternRecord objects eligible for auto-apply,
+            ordered by trust_score descending.
+        """
+        with self._get_connection() as conn:
+            # Build query with auto-apply criteria
+            query = """
+                SELECT * FROM patterns
+                WHERE trust_score >= ?
+                AND quarantine_status != 'retired'
+            """
+            params: list[Any] = [trust_threshold]
+
+            if require_validated:
+                query += " AND quarantine_status = 'validated'"
+
+            query += " ORDER BY trust_score DESC, priority_score DESC"
+            query += " LIMIT ?"
+            params.append(limit * 2)  # Fetch extra for post-filter
+
+            cursor = conn.execute(query, params)
+            rows = cursor.fetchall()
+
+        patterns = [self._row_to_pattern_record(row) for row in rows]
+
+        # Filter by context tags if specified
+        if context_tags:
+            tags_set = set(context_tags)
+            patterns = [
+                p for p in patterns
+                if tags_set.intersection(set(p.context_tags))
+            ]
+
+        # Apply limit after filtering
+        patterns = patterns[:limit]
+
+        _logger.debug(
+            f"Found {len(patterns)} patterns eligible for auto-apply "
+            f"(threshold={trust_threshold}, validated={require_validated})"
+        )
+        return patterns
+
     def recalculate_all_trust_scores(self) -> int:
         """Recalculate trust scores for all patterns.
 
@@ -1958,6 +2126,258 @@ class GlobalLearningStore:
 
         _logger.info(f"Recalculated trust scores for {updated} patterns")
         return updated
+
+    # =========================================================================
+    # v22: Metacognitive Pattern Reflection Methods
+    # =========================================================================
+
+    def update_success_factors(
+        self,
+        pattern_id: str,
+        validation_types: list[str] | None = None,
+        error_categories: list[str] | None = None,
+        prior_sheet_status: str | None = None,
+        retry_iteration: int = 0,
+        escalation_was_pending: bool = False,
+        grounding_confidence: float | None = None,
+    ) -> SuccessFactors | None:
+        """Update success factors for a pattern based on a successful application.
+
+        This captures the WHY behind pattern success - the context conditions
+        that were present when the pattern worked. Factors are aggregated over
+        multiple successful applications to build a reliable understanding.
+
+        v22 Evolution: Metacognitive Pattern Reflection - enables better pattern
+        selection by understanding causality, not just correlation.
+
+        Args:
+            pattern_id: The pattern that succeeded.
+            validation_types: Validation types active (file, regex, artifact, etc.)
+            error_categories: Error categories present (rate_limit, auth, etc.)
+            prior_sheet_status: Status of prior sheet (completed, failed, skipped)
+            retry_iteration: Which retry this success occurred on (0 = first)
+            escalation_was_pending: Whether escalation was pending
+            grounding_confidence: Grounding confidence if external validation present
+
+        Returns:
+            Updated SuccessFactors, or None if pattern not found.
+        """
+        pattern = self.get_pattern_by_id(pattern_id)
+        if not pattern:
+            return None
+
+        now = datetime.now()
+        time_bucket = SuccessFactors.get_time_bucket(now.hour)
+
+        # Get existing factors or create new ones
+        if pattern.success_factors:
+            factors = pattern.success_factors
+            # Update with new observation
+            factors.occurrence_count += 1
+
+            # Merge validation types
+            if validation_types:
+                existing = set(factors.validation_types)
+                existing.update(validation_types)
+                factors.validation_types = sorted(existing)
+
+            # Merge error categories
+            if error_categories:
+                existing_errors = set(factors.error_categories)
+                existing_errors.update(error_categories)
+                factors.error_categories = sorted(existing_errors)
+
+            # Update with latest context (most recent takes precedence for non-aggregated fields)
+            if prior_sheet_status:
+                factors.prior_sheet_status = prior_sheet_status
+            factors.time_of_day_bucket = time_bucket
+            factors.retry_iteration = retry_iteration
+            factors.escalation_was_pending = escalation_was_pending
+            if grounding_confidence is not None:
+                factors.grounding_confidence = grounding_confidence
+
+            # Recalculate success rate based on pattern's overall success
+            total = pattern.led_to_success_count + pattern.led_to_failure_count
+            if total > 0:
+                factors.success_rate = pattern.led_to_success_count / total
+        else:
+            # Create new factors
+            factors = SuccessFactors(
+                validation_types=validation_types or [],
+                error_categories=error_categories or [],
+                prior_sheet_status=prior_sheet_status,
+                time_of_day_bucket=time_bucket,
+                retry_iteration=retry_iteration,
+                escalation_was_pending=escalation_was_pending,
+                grounding_confidence=grounding_confidence,
+                occurrence_count=1,
+                success_rate=1.0,  # First observation is a success
+            )
+
+        # Persist to database
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                UPDATE patterns SET
+                    success_factors = ?,
+                    success_factors_updated_at = ?
+                WHERE id = ?
+                """,
+                (json.dumps(factors.to_dict()), now.isoformat(), pattern_id),
+            )
+
+        _logger.debug(
+            f"Updated success factors for {pattern_id}: "
+            f"{factors.occurrence_count} observations, "
+            f"success_rate={factors.success_rate:.2f}"
+        )
+        return factors
+
+    def get_success_factors(self, pattern_id: str) -> SuccessFactors | None:
+        """Get the success factors for a pattern.
+
+        Args:
+            pattern_id: The pattern ID to get factors for.
+
+        Returns:
+            SuccessFactors if the pattern has captured factors, None otherwise.
+        """
+        pattern = self.get_pattern_by_id(pattern_id)
+        if not pattern:
+            return None
+        return pattern.success_factors
+
+    def analyze_pattern_why(self, pattern_id: str) -> dict[str, Any]:
+        """Analyze WHY a pattern succeeds with structured explanation.
+
+        This produces a human-readable analysis of the success factors,
+        suitable for display in CLI or logging.
+
+        Args:
+            pattern_id: The pattern to analyze.
+
+        Returns:
+            Dictionary with analysis results:
+            - pattern_name: Name of the pattern
+            - has_factors: Whether success factors have been captured
+            - factors_summary: High-level summary
+            - key_conditions: Most significant context conditions
+            - confidence: How confident we are in the WHY analysis
+            - recommendations: Suggestions for pattern application
+        """
+        pattern = self.get_pattern_by_id(pattern_id)
+        if not pattern:
+            return {"error": f"Pattern {pattern_id} not found"}
+
+        result: dict[str, Any] = {
+            "pattern_name": pattern.pattern_name,
+            "pattern_type": pattern.pattern_type,
+            "has_factors": pattern.success_factors is not None,
+            "trust_score": pattern.trust_score,
+            "effectiveness_score": pattern.effectiveness_score,
+        }
+
+        if not pattern.success_factors:
+            result["factors_summary"] = "No success factors captured yet"
+            result["key_conditions"] = []
+            result["confidence"] = 0.0
+            result["recommendations"] = [
+                "Apply this pattern more times to capture success factors"
+            ]
+            return result
+
+        factors = pattern.success_factors
+
+        # Build factors summary
+        summaries = []
+        if factors.validation_types:
+            summaries.append(f"validation types: {', '.join(factors.validation_types)}")
+        if factors.error_categories:
+            summaries.append(f"error categories: {', '.join(factors.error_categories)}")
+        if factors.time_of_day_bucket:
+            summaries.append(f"typically succeeds in: {factors.time_of_day_bucket}")
+        if factors.prior_sheet_status:
+            summaries.append(f"prior sheet was: {factors.prior_sheet_status}")
+
+        result["factors_summary"] = "; ".join(summaries) if summaries else "Context captured"
+
+        # Identify key conditions
+        key_conditions = []
+        if factors.grounding_confidence and factors.grounding_confidence > 0.7:
+            key_conditions.append(
+                f"High grounding confidence ({factors.grounding_confidence:.2f})"
+            )
+        if factors.retry_iteration == 0:
+            key_conditions.append("Succeeds on first attempt")
+        elif factors.retry_iteration > 0:
+            key_conditions.append(f"Often succeeds after {factors.retry_iteration} retries")
+        if factors.validation_types:
+            key_conditions.append(f"Works with {len(factors.validation_types)} validation types")
+        if not factors.escalation_was_pending:
+            key_conditions.append("Succeeds without escalation")
+
+        result["key_conditions"] = key_conditions
+
+        # Calculate confidence based on observation count and success rate
+        observation_confidence = min(1.0, factors.occurrence_count / 10)  # Full confidence at 10 obs
+        result["confidence"] = observation_confidence * factors.success_rate
+
+        # Generate recommendations
+        recommendations = []
+        if factors.occurrence_count < 5:
+            recommendations.append("Need more observations for reliable analysis")
+        if factors.success_rate > 0.8:
+            recommendations.append("High confidence pattern - consider for auto-apply")
+        if factors.success_rate < 0.5:
+            recommendations.append("Low success rate - review pattern relevance")
+        if factors.time_of_day_bucket:
+            recommendations.append(f"Best applied during {factors.time_of_day_bucket}")
+
+        result["recommendations"] = recommendations
+        result["observation_count"] = factors.occurrence_count
+        result["success_rate"] = factors.success_rate
+
+        return result
+
+    def get_patterns_with_why(
+        self,
+        min_observations: int = 1,
+        limit: int = 20,
+    ) -> list[tuple[PatternRecord, dict[str, Any]]]:
+        """Get patterns with their WHY analysis.
+
+        Useful for displaying patterns with their success factors in CLI.
+
+        Args:
+            min_observations: Minimum success factor observations required.
+            limit: Maximum number of patterns to return.
+
+        Returns:
+            List of (PatternRecord, analysis_dict) tuples.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT * FROM patterns
+                WHERE success_factors IS NOT NULL
+                ORDER BY priority_score DESC, trust_score DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            rows = cursor.fetchall()
+
+        results = []
+        for row in rows:
+            pattern = self._row_to_pattern_record(row)
+            if (
+                pattern.success_factors
+                and pattern.success_factors.occurrence_count >= min_observations
+            ):
+                analysis = self.analyze_pattern_why(pattern.id)
+                results.append((pattern, analysis))
+
+        return results
 
     def get_execution_stats(self) -> dict[str, Any]:
         """Get aggregate statistics from the global store.

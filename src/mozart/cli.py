@@ -3671,18 +3671,27 @@ def patterns(
         )
         return
 
-    # Display patterns table - v19: added Status and Trust columns
+    # Display patterns table - v19: added Status and Trust columns, v22: added Auto indicator
     table = Table(title="Global Learning Patterns")
     table.add_column("ID", style="cyan", no_wrap=True, width=10)
     table.add_column("Type", style="yellow", width=12)
     table.add_column("Name", style="bold", width=20)
     table.add_column("Status", width=10)  # v19: Quarantine status
     table.add_column("Trust", justify="right", width=6)  # v19: Trust score
+    table.add_column("Auto", justify="center", width=4)  # v22: Auto-apply eligible
     table.add_column("Count", justify="right", width=5)
     table.add_column("Effect", justify="right", width=6)
     table.add_column("Prior", justify="right", width=5)
 
     for p in patterns_list:
+        # v22: Check if pattern is auto-apply eligible
+        # Default thresholds: trust >= 0.85, status = validated
+        is_auto_eligible = (
+            p.trust_score >= 0.85
+            and p.quarantine_status.value == "validated"
+        )
+        auto_str = "[green]⚡[/green]" if is_auto_eligible else ""
+
         # Format effectiveness with color
         eff = p.effectiveness_score
         eff_color = "green" if eff > 0.7 else "yellow" if eff > 0.4 else "red"
@@ -3715,6 +3724,7 @@ def patterns(
             p.pattern_name[:20],
             status_str,
             trust_str,
+            auto_str,
             str(p.occurrence_count),
             eff_str,
             pri_str,
@@ -4028,6 +4038,189 @@ def recalculate_trust() -> None:
     updated = store.recalculate_all_trust_scores()
 
     console.print(f"[green]Updated trust scores for {updated} patterns[/green]")
+
+
+@app.command("patterns-why")
+def patterns_why(
+    pattern_id: str = typer.Argument(
+        None,
+        help="Pattern ID to analyze (first 10 chars from 'patterns' command). "
+        "If omitted, shows all patterns with captured success factors.",
+    ),
+    min_observations: int = typer.Option(
+        1,
+        "--min-obs",
+        "-m",
+        help="Minimum success factor observations required",
+    ),
+    limit: int = typer.Option(
+        10,
+        "--limit",
+        "-n",
+        help="Maximum number of patterns to display",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        "-j",
+        help="Output as JSON for machine parsing",
+    ),
+) -> None:
+    """Analyze WHY patterns succeed with metacognitive insights.
+
+    Shows success factors - the context conditions that contribute to
+    pattern effectiveness. This helps understand CAUSALITY behind patterns,
+    not just correlation.
+
+    v22 Evolution: Metacognitive Pattern Reflection
+
+    Success factors include:
+    - Validation types present when pattern succeeded
+    - Error categories in the execution context
+    - Prior sheet status and timing factors
+    - Grounding confidence levels
+
+    Examples:
+        mozart patterns-why              # Show all patterns with WHY analysis
+        mozart patterns-why abc123       # Analyze specific pattern
+        mozart patterns-why --min-obs 3  # Only patterns with 3+ observations
+        mozart patterns-why --json       # JSON output for scripting
+    """
+    import json as json_lib
+
+    from mozart.learning.global_store import get_global_store
+
+    store = get_global_store()
+
+    if pattern_id:
+        # Analyze specific pattern
+        patterns_list = store.get_patterns(min_priority=0.0, limit=1000)
+        matching = [p for p in patterns_list if p.id.startswith(pattern_id)]
+
+        if not matching:
+            console.print(f"[red]No pattern found with ID starting with '{pattern_id}'[/red]")
+            raise typer.Exit(1)
+
+        if len(matching) > 1:
+            console.print(f"[yellow]Multiple patterns match '{pattern_id}':[/yellow]")
+            for p in matching[:5]:
+                console.print(f"  [cyan]{p.id}[/cyan] - {p.pattern_name}")
+            console.print(
+                "[dim]Please provide more characters to uniquely identify the pattern.[/dim]"
+            )
+            raise typer.Exit(1)
+
+        pattern = matching[0]
+        analysis = store.analyze_pattern_why(pattern.id)
+
+        if json_output:
+            console.print(json_lib.dumps(analysis, indent=2, default=str))
+            return
+
+        # Human-readable WHY analysis
+        console.print(Panel(
+            f"[bold]{analysis.get('pattern_name', 'Unknown')}[/bold]\n"
+            f"[dim]Type: {analysis.get('pattern_type', 'unknown')}[/dim]",
+            title="WHY Analysis",
+            border_style="magenta",
+        ))
+
+        if not analysis.get("has_factors"):
+            console.print("\n[yellow]No success factors captured yet.[/yellow]")
+            console.print("[dim]Apply this pattern to successful executions to capture WHY it works.[/dim]")
+            return
+
+        # Factors summary
+        console.print(f"\n[bold]Factors Summary[/bold]")
+        console.print(f"  {analysis.get('factors_summary', 'No summary')}")
+
+        # Key conditions
+        key_conditions = analysis.get("key_conditions", [])
+        if key_conditions:
+            console.print(f"\n[bold]Key Conditions[/bold]")
+            for cond in key_conditions:
+                console.print(f"  • {cond}")
+
+        # Metrics
+        console.print(f"\n[bold]Metrics[/bold]")
+        table = Table(show_header=False, box=None)
+        table.add_column("Field", style="dim", width=20)
+        table.add_column("Value", style="bold")
+
+        table.add_row("Observations", str(analysis.get("observation_count", 0)))
+        table.add_row("Success Rate", f"{analysis.get('success_rate', 0):.1%}")
+        table.add_row("Confidence", f"{analysis.get('confidence', 0):.2f}")
+        table.add_row("Trust Score", f"{analysis.get('trust_score', 0):.2f}")
+        table.add_row("Effectiveness", f"{analysis.get('effectiveness_score', 0):.2f}")
+
+        console.print(table)
+
+        # Recommendations
+        recommendations = analysis.get("recommendations", [])
+        if recommendations:
+            console.print(f"\n[bold]Recommendations[/bold]")
+            for rec in recommendations:
+                console.print(f"  → {rec}")
+    else:
+        # Show all patterns with WHY analysis
+        results = store.get_patterns_with_why(
+            min_observations=min_observations,
+            limit=limit,
+        )
+
+        if json_output:
+            output = [
+                {"pattern_id": p.id, "pattern_name": p.pattern_name, "analysis": a}
+                for p, a in results
+            ]
+            console.print(json_lib.dumps(output, indent=2, default=str))
+            return
+
+        if not results:
+            console.print(
+                "[yellow]No patterns with captured success factors found.[/yellow]"
+            )
+            console.print(
+                "[dim]Success factors are captured when patterns lead to "
+                "successful executions.[/dim]"
+            )
+            return
+
+        console.print(
+            f"[bold]Patterns with WHY Analysis[/bold] "
+            f"[dim]({len(results)} patterns with ≥{min_observations} observations)[/dim]\n"
+        )
+
+        table = Table(show_header=True, box=None)
+        table.add_column("Pattern", style="cyan", width=30)
+        table.add_column("Obs", justify="right", width=5)
+        table.add_column("Success%", justify="right", width=8)
+        table.add_column("Confidence", justify="right", width=10)
+        table.add_column("Key Insight", width=40)
+
+        for pattern, analysis in results:
+            # Get first key condition as insight
+            key_conditions = analysis.get("key_conditions", [])
+            insight = key_conditions[0] if key_conditions else analysis.get("factors_summary", "")
+            if len(insight) > 38:
+                insight = insight[:35] + "..."
+
+            obs = analysis.get("observation_count", 0)
+            success_rate = analysis.get("success_rate", 0)
+            confidence = analysis.get("confidence", 0)
+
+            table.add_row(
+                f"{pattern.pattern_name[:28]}..." if len(pattern.pattern_name) > 30 else pattern.pattern_name,
+                str(obs),
+                f"{success_rate:.0%}",
+                f"{confidence:.2f}",
+                insight,
+            )
+
+        console.print(table)
+        console.print(
+            "\n[dim]Use 'mozart patterns-why <id>' for detailed analysis.[/dim]"
+        )
 
 
 @app.command("learning-stats")

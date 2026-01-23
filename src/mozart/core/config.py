@@ -267,6 +267,71 @@ class LearningConfig(BaseModel):
         "Patterns below this are excluded even in exploration mode.",
     )
 
+    # v22: Trust-Aware Autonomous Application
+    auto_apply: "AutoApplyConfig | None" = Field(
+        default=None,
+        description="Configuration for autonomous pattern application. "
+        "When set with enabled=true, high-trust patterns are applied "
+        "without human confirmation. Opt-in only.",
+    )
+
+
+class AutoApplyConfig(BaseModel):
+    """Configuration for autonomous pattern application.
+
+    v22 Evolution: Trust-Aware Autonomous Application - enables Mozart to
+    autonomously apply high-trust patterns without human confirmation.
+
+    Uses existing trust scoring (v19) to identify patterns safe for autonomous
+    application. When enabled, patterns meeting the trust threshold are
+    automatically included in prompts without escalation.
+
+    Example YAML:
+        learning:
+          auto_apply:
+            enabled: true
+            trust_threshold: 0.85
+            max_patterns_per_sheet: 3
+            require_validated_status: true
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable autonomous pattern application. "
+        "When true, high-trust patterns are applied without escalation. "
+        "Opt-in only - patterns are never auto-applied by default.",
+    )
+
+    trust_threshold: float = Field(
+        default=0.85,
+        ge=0.0,
+        le=1.0,
+        description="Minimum trust score for autonomous application. "
+        "Default 0.85 is conservative - patterns must have proven reliability. "
+        "Lower values increase auto-apply rate but also increase risk.",
+    )
+
+    max_patterns_per_sheet: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Maximum patterns to auto-apply per sheet. "
+        "Limits prompt size growth from pattern injection.",
+    )
+
+    require_validated_status: bool = Field(
+        default=True,
+        description="Require patterns to have VALIDATED quarantine status. "
+        "When true, only explicitly validated patterns can be auto-applied. "
+        "Provides additional safety layer beyond trust score.",
+    )
+
+    log_applications: bool = Field(
+        default=True,
+        description="Log when patterns are auto-applied. "
+        "Always recommended for auditability.",
+    )
+
 
 class GroundingHookConfig(BaseModel):
     """Configuration for a single grounding hook.
