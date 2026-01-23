@@ -54,11 +54,39 @@ Mozart is NOT for:
 - Python 3.11+
 - Claude CLI installed and authenticated (for `claude_cli` backend)
 
-### Install from Source
+### Quick Setup (Recommended)
+
+The setup script handles virtual environment creation, dependency installation, and verification:
 
 ```bash
 git clone https://github.com/emzi/mozart-ai-compose.git
 cd mozart-ai-compose
+./setup.sh
+```
+
+After setup completes, activate the virtual environment:
+
+```bash
+source .venv/bin/activate
+```
+
+For development (includes pytest, mypy, ruff):
+
+```bash
+./setup.sh --dev
+```
+
+Run `./setup.sh --help` for all options.
+
+### Manual Installation
+
+If you prefer manual setup:
+
+```bash
+git clone https://github.com/emzi/mozart-ai-compose.git
+cd mozart-ai-compose
+python -m venv .venv
+source .venv/bin/activate
 pip install -e "."
 ```
 
