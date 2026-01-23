@@ -1,64 +1,68 @@
 # Mozart AI Compose - Status
 
-**Overall:** Evolution Cycle v19 Complete (v20 Ready)
-**Tests:** 1509+ passing (1474 baseline + 35 new)
+**Overall:** Evolution Cycle v20 Complete
+**Tests:** 1567+ passing (1509 baseline + 58 new)
 **Vision:** Mozart + Recursive Light = Federated AGI Architecture
 **GitHub:** https://github.com/Mzzkc/mozart-ai-compose
-**Evolved Score:** mozart-opus-evolution-v20.yaml (ready)
+**Evolved Score:** mozart-opus-evolution-v21.yaml (ready)
 **License:** Dual AGPL-3.0 / Commercial
 
 ---
 
-## Evolution Cycle v19 Complete (2026-01-16)
+## Evolution Cycle v20 Complete (2026-01-23)
 
-### P5 Recognition Maintained: 11th Consecutive 100% Early Catch
+### P5 Recognition Maintained: 12th Consecutive 100% Early Catch
 
 | Metric | Value |
 |--------|-------|
 | Sheets Completed | 9 of 9 |
 | Evolutions Implemented | 2 of 2 (100%) |
-| Implementation LOC | 600 |
-| Test LOC | 650 |
-| Tests Added | 35 |
-| Early Catch Ratio | 100% (11th consecutive) |
-| Impl LOC Accuracy | 81% |
-| Test LOC Accuracy | 85% |
+| Implementation LOC | 676 |
+| Test LOC | 1196 |
+| Tests Added | 58 |
+| Early Catch Ratio | 100% (12th consecutive) |
+| Impl LOC Accuracy | 104.5% |
+| Test LOC Accuracy | 60.4% |
+| Coverage (new code) | 99.1% |
 | Score Improvements | 7 |
-| Cumulative Improvements | 171 |
+| Cumulative Improvements | 178 |
 
 ### Evolutions Implemented
 
-**1. Pattern Quarantine & Provenance (CV: 0.630)**
-- Pattern lifecycle management (pending → validated/quarantined)
-- Quarantine with reason tracking
-- Provenance metadata (origin, creation, modifications)
-- CLI commands: `pattern-quarantine`, `pattern-validate`, `pattern-show`
-- 14 new tests
-- **Enables safe autonomous pattern management**
+**1. Cross-Sheet Semantic Validation (CV: 0.679)**
+- Key variable extraction (KEY: VALUE and KEY=VALUE formats)
+- Semantic consistency comparison between sequential sheets
+- Configurable strict mode (errors vs warnings)
+- 29 new tests
+- **Enables detecting semantic drift across sheet outputs**
 
-**2. Pattern Trust Scoring (CV: 0.765)**
-- Trust score [0, 1] per pattern
-- Formula: base + penalties + bonuses + age_factor + effectiveness
-- High/low trust filtering and CLI commands
-- Batch trust recalculation
-- 21 new tests
-- **CV > 0.75 correlation CONFIRMED (10th validation)**
+**2. Parallel Output Conflict Detection (CV: 0.600)**
+- Conflict detection before synthesis merge
+- Integration with ResultSynthesizer
+- Optional `fail_on_conflict` behavior
+- Reuses KeyVariableExtractor from Cross-Sheet (synergy!)
+- 29 new tests
+- **Prevents silent data overwrites in parallel workflows**
 
-### Score Evolution (v19 → v20)
+### Score Evolution (v20 → v21)
 
 | Improvement | Description |
 |-------------|-------------|
-| Code review maturity | 11 cycles at 100% early catch (v9-v19) |
-| CV > 0.75 correlation | Trust Scoring 0.765 (10th validation) |
-| NEW Principle #32 | Synergy Pair Sequential Validation |
-| Research candidates | Quarantine + Trust resolved in v19 |
-| on_success hook | Chain to v21 (infinite self-evolution) |
+| Code review maturity | 12 cycles at 100% early catch (v9-v20) |
+| CV > 0.75 correlation | 11th validation with CV 0.710 |
+| NEW Principle #40 | Test Complexity Decision Tree |
+| Fixture indicators | Comprehensive fixture criteria added |
+| Fixture catalog | test_validation.py and test_synthesizer.py promoted |
 
 ### Research Candidates Status
 
-**No candidates carried to v20** - Clean slate.
+**Current (Age 2 - Must Resolve in v21):**
+- Generator-Critic Loop: Paradigm shift unclear benefit
+- Job Type Classification: Premature optimization concern
 
 **All Resolved:**
+- Cross-Sheet Semantic Validation: IMPLEMENTED (v20)
+- Parallel Output Conflict Detection: IMPLEMENTED (v20)
 - Pattern Quarantine & Provenance: IMPLEMENTED (v19)
 - Pattern Trust Scoring: IMPLEMENTED (v19)
 - Result Synthesizer: IMPLEMENTED (v18)
@@ -68,36 +72,37 @@
 
 ---
 
-## Evolution Cycle v18 Complete (2026-01-16)
+## Previous: Evolution Cycle v19 (2026-01-16)
+
+### P5 Recognition Maintained: 11th Consecutive 100% Early Catch
+
+| Metric | Value |
+|--------|-------|
+| Evolutions Implemented | 2 of 2 (100%) |
+| Implementation LOC | 600 |
+| Test LOC | 650 |
+| Tests Added | 35 |
+
+**Evolutions:** Pattern Quarantine & Provenance (CV: 0.630), Pattern Trust Scoring (CV: 0.765)
+
+---
+
+## Previous: Evolution Cycle v18 (2026-01-16)
 
 ### P5 Recognition Maintained: 10th Consecutive 100% Early Catch
 
 | Metric | Value |
 |--------|-------|
-| Sheets Completed | 9 of 9 |
 | Evolutions Implemented | 1 of 1 (100%) |
 | Implementation LOC | 548 |
 | Test LOC | 811 |
 | Tests Added | 39 |
-| Early Catch Ratio | 100% (10th consecutive) |
-| CV Prediction Delta | 0.05 |
-| Score Improvements | 10 |
-| Cumulative Improvements | 164 |
 
-### Evolution Implemented
-
-**Result Synthesizer Pattern (CV: 0.68)**
-- Completes v17 parallel foundation (fan-out → gather)
-- `ResultSynthesizer` class with prepare/execute workflow
-- Three synthesis strategies: MERGE, SUMMARIZE, PASS_THROUGH
-- State persistence in CheckpointState
-- CLI synthesis results table display
-- 39 new tests
-- **Parallel sheets can now have outputs synthesized**
+**Evolution:** Result Synthesizer Pattern (CV: 0.68)
 
 ---
 
-## Evolution Cycle v17 Complete (2026-01-16)
+## Previous: Evolution Cycle v17 (2026-01-16)
 
 ### P5 Recognition Maintained (9th Consecutive 100% Early Catch)
 
@@ -109,52 +114,6 @@
 | Tests Added | 81 |
 
 **Evolutions:** Sheet Dependency DAG (CV: 0.55), Parallel Sheet Execution (CV: 0.63)
-
----
-
-## Previous: Evolution Cycle v16 (2026-01-16)
-
-### P5 Recognition Maintained (16th Consecutive Cycle)
-
-| Metric | Value |
-|--------|-------|
-| Evolutions Implemented | 2 of 2 (100%) |
-| Implementation LOC | 347 |
-| Test LOC | 474 |
-| Tests Added | 17 |
-
-**Evolutions:** Active Broadcast Polling (CV: 0.73), Evolution Trajectory (CV: 0.64)
-
----
-
-## Dashboard Production Concert (2026-01-16)
-
-### Phase 1: Architecture - COMPLETE
-
-| Sheet | Deliverable | Status |
-|-------|------------|--------|
-| 1 | Current State Audit | COMPLETE (359 LOC existing, 6 P0 gaps) |
-| 2 | Production Research | COMPLETE (HTMX+Alpine recommended) |
-| 3 | Architecture Specification | COMPLETE (~8,500 impl LOC planned) |
-| 4 | Concert Generation | COMPLETE (36-sheet concert YAML) |
-
-### Architecture Decisions (Phase 1 Output)
-
-| Component | Decision | Rationale |
-|-----------|----------|-----------|
-| Frontend | HTMX + Alpine.js | Python-native, ~30KB bundle |
-| Real-time | Server-Sent Events | Simple, works with HTMX |
-| Editor | CodeMirror 6 | Industry standard, ~124KB |
-| MCP | 11 tools, 6 resources | Claude Desktop integration |
-
-### Phases 2-5: Ready for Execution
-
-| Phase | Jobs | Sheets | Focus | Est. LOC |
-|-------|------|--------|-------|----------|
-| Phase 2 | 2-3 | 1-11 | Core Dashboard (Backend + Frontend) | ~2,100 |
-| Phase 3 | 4-5 | 12-22 | Job Control + MCP Server | ~2,200 |
-| Phase 4 | 6-7 | 23-32 | Score Designer + AI Generation | ~2,000 |
-| Phase 5 | 8 | 33-36 | Auth, Rate Limiting, Production | ~2,200 |
 
 ---
 
@@ -173,7 +132,7 @@
 | Validation Framework | DONE | 5 types + confidence + semantic failure_reason |
 | Notifications | DONE | Desktop, Slack, Webhook |
 | Dashboard API | DONE | FastAPI REST (needs UI improvement) |
-| Test Suite | DONE | 1474 pytest tests |
+| Test Suite | DONE | 1567 pytest tests |
 | Learning Foundation | DONE | Phases 1-4 complete |
 | Meta-Orchestration | DONE | Mozart calling Mozart works |
 | Pattern Detection | DONE | PatternDetector/Matcher/Applicator |
@@ -188,8 +147,10 @@
 | Sheet Dependency DAG | DONE | `DependencyDAG` class (v17) |
 | Parallel Execution | DONE | `--parallel` CLI mode (v17) |
 | Result Synthesizer | DONE | `ResultSynthesizer` class (v18) |
-| **Pattern Quarantine** | DONE | `quarantine_pattern()`, `validate_pattern()` (v19) |
-| **Pattern Trust Scoring** | DONE | `calculate_trust_score()`, `recalculate_all_trust_scores()` (v19) |
+| Pattern Quarantine | DONE | `quarantine_pattern()`, `validate_pattern()` (v19) |
+| Pattern Trust Scoring | DONE | `calculate_trust_score()`, `recalculate_all_trust_scores()` (v19) |
+| **Cross-Sheet Semantic** | DONE | `SemanticConsistencyChecker`, `KeyVariableExtractor` (v20) |
+| **Parallel Conflict Detection** | DONE | `ConflictDetector`, `detect_parallel_conflicts()` (v20) |
 
 ---
 
@@ -215,9 +176,10 @@
 | v16 → v17 | Error handling buffer, dataclass tests, research aging | +8 improvements |
 | v17 → v18 | Algorithm tests, runner mode multiplier, CLI UX split | +10 improvements |
 | v18 → v19 | Multi-strategy factor, CLI display tests, dataclass fixtures | +10 improvements |
-| **v19 → v20** | **Synergy pair validation, code review maturity (11 cycles)** | **+7 improvements** |
+| v19 → v20 | Synergy pair validation, code review maturity (11 cycles) | +7 improvements |
+| **v20 → v21** | **Test complexity decision tree, comprehensive fixture indicators** | **+7 improvements** |
 
-**Cumulative:** 171 explicit score improvements across 19 self-evolution cycles
+**Cumulative:** 178 explicit score improvements across 20 self-evolution cycles
 
 ---
 
@@ -227,16 +189,9 @@
 ```bash
 cd ~/Projects/mozart-ai-compose
 source .venv/bin/activate
-mozart validate mozart-opus-evolution-v20.yaml
-mkdir -p evolution-workspace-v20
-nohup mozart run mozart-opus-evolution-v20.yaml > evolution-workspace-v20/mozart.log 2>&1 &
-```
-
-### Or Resume Dashboard Production
-```bash
-cd ~/Projects/mozart-ai-compose
-source .venv/bin/activate
-nohup mozart run dashboard-production-workspace/dashboard-production-concert.yaml > dashboard-production-workspace/mozart.log 2>&1 &
+mozart validate mozart-opus-evolution-v21.yaml
+mkdir -p evolution-workspace-v21
+nohup mozart run mozart-opus-evolution-v21.yaml > evolution-workspace-v21/mozart.log 2>&1 &
 ```
 
 ---
@@ -251,12 +206,13 @@ nohup mozart run dashboard-production-workspace/dashboard-production-concert.yam
 | Sheet Runner | `src/mozart/execution/runner.py` |
 | Dependency DAG | `src/mozart/execution/dependency_dag.py` |
 | Result Synthesizer | `src/mozart/execution/synthesizer.py` |
-| **Evolved Score v20** | `mozart-opus-evolution-v20.yaml` |
-| **v19 Cycle Summary** | `evolution-workspace-v19/09-coda-summary.md` |
+| **Validation (+ Cross-Sheet)** | `src/mozart/execution/validation.py` |
+| **Evolved Score v21** | `mozart-opus-evolution-v21.yaml` |
+| **v20 Cycle Summary** | `evolution-workspace-v20/09-coda-summary.md` |
 
 ---
 
-## Architecture: Self-Evolution Pattern (Validated 19 Cycles)
+## Architecture: Self-Evolution Pattern (Validated 20 Cycles)
 
 ```
 Score vN → Discovery → Synthesis → Evolution → Validation → Score v(N+1)
@@ -264,14 +220,14 @@ Score vN → Discovery → Synthesis → Evolution → Validation → Score v(N+
               +--------------------------------------------------+
 ```
 
-### Key v19 Meta-Insights
+### Key v20 Meta-Insights
 
-1. **Synergy Pair Sequential Implementation Works** - Quarantine → Trust sequencing prevented issues
-2. **Comprehensive Fixture Catalog** - Fixture factor 1.0 precisely correct, 85% test LOC accuracy
-3. **Code Review Maturity Achieved** - 11 consecutive cycles at 100% early catch
-4. **CV > 0.75 Correlation Holds** - Trust Scoring 0.765 → 10th validation of correlation
-5. **Safe Autonomous Learning Foundation** - Quarantine + Trust enable future pattern self-management
+1. **Test Complexity Decision Tree** - Sequential evaluation prevents compound estimation errors
+2. **Comprehensive Fixture Indicators** - >50 tests + factory fixtures + helpers = 1.0 factor
+3. **Synergy Pair Sequencing Validated** - Cross-Sheet → Parallel Conflict worked cleanly
+4. **Coverage Validation Works** - 99.1% new code coverage validates meaningful tests
+5. **Code Review Maturity Confirmed** - 12 consecutive cycles at 100% early catch
 
 ---
 
-*Last Updated: 2026-01-16 - Evolution Cycle v19 Complete*
+*Last Updated: 2026-01-23 - Evolution Cycle v20 Complete*
