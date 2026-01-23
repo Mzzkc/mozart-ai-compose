@@ -86,6 +86,28 @@ class SheetOutcome:
     Example: [{'error_code': 'E009', 'category': 'transient', 'message': 'Rate limited'}]
     """
 
+    # Grounding integration fields (Evolution v11: Grounding→Pattern Integration)
+    grounding_passed: bool | None = None
+    """Whether all grounding hooks passed (None if grounding not enabled).
+
+    Used to correlate grounding outcomes with validation results and
+    pattern effectiveness over time.
+    """
+
+    grounding_confidence: float | None = None
+    """Average confidence across grounding hooks (0.0-1.0, None if not enabled).
+
+    Higher confidence means external validators had high certainty in their results.
+    Can be correlated with first_attempt_success to identify reliable grounding sources.
+    """
+
+    grounding_guidance: str | None = None
+    """Recovery guidance from failed grounding hooks (None if passed or not enabled).
+
+    Captures actionable suggestions from external validators that failed,
+    useful for pattern detection and learning what recovery strategies work.
+    """
+
 
 @runtime_checkable
 class OutcomeStore(Protocol):
@@ -271,6 +293,10 @@ class JsonOutcomeStore:
                     "stdout_tail": o.stdout_tail,
                     "stderr_tail": o.stderr_tail,
                     "error_history": o.error_history,
+                    # Grounding integration fields (Evolution v11: Grounding→Pattern Integration)
+                    "grounding_passed": o.grounding_passed,
+                    "grounding_confidence": o.grounding_confidence,
+                    "grounding_guidance": o.grounding_guidance,
                 }
                 for o in self._outcomes
             ]
@@ -322,6 +348,10 @@ class JsonOutcomeStore:
                 stdout_tail=o.get("stdout_tail", ""),
                 stderr_tail=o.get("stderr_tail", ""),
                 error_history=o.get("error_history", []),
+                # Grounding integration fields (Evolution v11: Grounding→Pattern Integration)
+                grounding_passed=o.get("grounding_passed"),
+                grounding_confidence=o.get("grounding_confidence"),
+                grounding_guidance=o.get("grounding_guidance"),
             )
             for o in data.get("outcomes", [])
         ]

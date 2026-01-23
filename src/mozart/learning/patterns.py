@@ -96,6 +96,9 @@ class DetectedPattern:
     Patterns are learned behaviors that can inform future executions.
     They include both positive patterns (what works) and negative
     patterns (what to avoid).
+
+    v19 Evolution: Extended with optional quarantine_status and trust_score
+    fields for integration with Pattern Quarantine & Trust Scoring features.
     """
 
     pattern_type: PatternType
@@ -127,6 +130,13 @@ class DetectedPattern:
     successes_after_application: int = 0
     """Number of first_attempt_success outcomes when this pattern was applied."""
 
+    # v19: Quarantine & Trust fields (optional, from global store)
+    quarantine_status: str | None = None
+    """Quarantine status from global store: pending, quarantined, validated, retired."""
+
+    trust_score: float | None = None
+    """Trust score (0.0-1.0) from global store. None if not from global store."""
+
     @property
     def effectiveness_rate(self) -> float:
         """Compute effectiveness rate from applications and successes.
@@ -153,26 +163,60 @@ class DetectedPattern:
         """
         return min(self.applications / 5.0, 1.0)
 
+    @property
+    def is_quarantined(self) -> bool:
+        """Check if pattern is in quarantine status.
+
+        v19 Evolution: Used for quarantine-aware scoring.
+        """
+        return self.quarantine_status == "quarantined"
+
+    @property
+    def is_validated(self) -> bool:
+        """Check if pattern is in validated status.
+
+        v19 Evolution: Used for trust-aware scoring.
+        """
+        return self.quarantine_status == "validated"
+
     def to_prompt_guidance(self) -> str:
         """Format this pattern as guidance for prompts.
+
+        v19 Evolution: Now includes quarantine/trust context when available.
 
         Returns:
             A concise string suitable for injection into prompts.
         """
+        # v19: Add trust indicator if available
+        trust_indicator = ""
+        if self.trust_score is not None:
+            if self.trust_score >= 0.7:
+                trust_indicator = " [High trust]"
+            elif self.trust_score <= 0.3:
+                trust_indicator = " [Low trust]"
+            else:
+                trust_indicator = f" [Trust: {self.trust_score:.0%}]"
+
+        # v19: Add quarantine warning if applicable
+        if self.is_quarantined:
+            return f"⚠️ [QUARANTINED] {self.description}{trust_indicator}"
+
         if self.pattern_type == PatternType.VALIDATION_FAILURE:
-            return f"⚠️ Common issue: {self.description} (seen {self.frequency}x)"
+            return f"⚠️ Common issue: {self.description} (seen {self.frequency}x){trust_indicator}"
         elif self.pattern_type == PatternType.RETRY_SUCCESS:
-            return f"✓ Tip: {self.description} (works {self.success_rate:.0%} of the time)"
+            rate = f"works {self.success_rate:.0%} of the time"
+            return f"✓ Tip: {self.description} ({rate}){trust_indicator}"
         elif self.pattern_type == PatternType.COMPLETION_MODE:
-            return f"📝 Partial completion: {self.description}"
+            return f"📝 Partial completion: {self.description}{trust_indicator}"
         elif self.pattern_type == PatternType.FIRST_ATTEMPT_SUCCESS:
-            return f"✓ Best practice: {self.description}"
+            return f"✓ Best practice: {self.description}{trust_indicator}"
         elif self.pattern_type == PatternType.LOW_CONFIDENCE:
-            return f"⚠️ Needs attention: {self.description}"
+            return f"⚠️ Needs attention: {self.description}{trust_indicator}"
         elif self.pattern_type == PatternType.SEMANTIC_FAILURE:
-            return f"🔍 Semantic insight: {self.description} (seen {self.frequency}x)"
+            seen = f"seen {self.frequency}x"
+            return f"🔍 Semantic insight: {self.description} ({seen}){trust_indicator}"
         else:
-            return self.description
+            return f"{self.description}{trust_indicator}"
 
 
 class PatternDetectorProtocol(Protocol):
@@ -760,6 +804,12 @@ class PatternMatcher:
     ) -> float:
         """Score how relevant a pattern is to the context.
 
+        v19 Evolution: Now includes quarantine penalty and trust bonus/penalty.
+        - Quarantined patterns get -0.3 score penalty
+        - Validated patterns get +0.1 bonus
+        - High trust (>0.7) patterns get +0.1 to +0.2 bonus
+        - Low trust (<0.3) patterns get -0.1 to -0.2 penalty
+
         Args:
             pattern: The pattern to score.
             context: Current execution context.
@@ -769,9 +819,10 @@ class PatternMatcher:
         """
         score = 0.0
 
-        # Weights normalized to sum to 1.0:
+        # Weights normalized to sum to ~1.0:
         # confidence=0.25, frequency=0.20, context_tags=0.25,
         # recency=0.15, effectiveness=0.15 (max)
+        # v19: quarantine/trust adjustments are additive modifiers
 
         # Base score from pattern confidence
         score += pattern.confidence * 0.25
@@ -802,7 +853,24 @@ class PatternMatcher:
         )
         score += effectiveness_boost
 
-        return float(min(1.0, score))
+        # v19: Quarantine status adjustments
+        if pattern.is_quarantined:
+            score -= 0.3  # Significant penalty for quarantined patterns
+        elif pattern.is_validated:
+            score += 0.1  # Bonus for validated patterns
+
+        # v19: Trust score adjustments
+        if pattern.trust_score is not None:
+            if pattern.trust_score >= 0.7:
+                # High trust bonus: +0.1 to +0.2 based on trust level
+                trust_bonus = 0.1 + (pattern.trust_score - 0.7) * 0.33
+                score += trust_bonus
+            elif pattern.trust_score <= 0.3:
+                # Low trust penalty: -0.1 to -0.2 based on trust level
+                trust_penalty = 0.1 + (0.3 - pattern.trust_score) * 0.33
+                score -= trust_penalty
+
+        return float(max(0.0, min(1.0, score)))
 
 
 class PatternApplicator:

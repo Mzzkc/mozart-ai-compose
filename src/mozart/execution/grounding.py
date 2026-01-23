@@ -125,10 +125,10 @@ class GroundingHook(Protocol):
         ...
 
 
-# Import GroundingConfig from core.config to avoid duplication
+# Import GroundingConfig and GroundingHookConfig from core.config to avoid duplication
 # Type-only import to avoid circular dependency at runtime
 if TYPE_CHECKING:
-    from mozart.core.config import GroundingConfig
+    from mozart.core.config import GroundingConfig, GroundingHookConfig
 
 
 class FileChecksumGroundingHook:
@@ -142,19 +142,22 @@ class FileChecksumGroundingHook:
         self,
         expected_checksums: dict[str, str] | None = None,
         checksum_algorithm: Literal["md5", "sha256"] = "sha256",
+        name: str | None = None,
     ) -> None:
         """Initialize the file checksum hook.
 
         Args:
             expected_checksums: Map of file path to expected checksum.
             checksum_algorithm: Algorithm to use for checksums.
+            name: Custom name for this hook (defaults to "file_checksum").
         """
         self._expected_checksums = expected_checksums or {}
         self._algorithm = checksum_algorithm
+        self._name = name or "file_checksum"
 
     @property
     def name(self) -> str:
-        return "file_checksum"
+        return self._name
 
     @property
     def phase(self) -> GroundingPhase:
@@ -242,6 +245,10 @@ class GroundingEngine:
         """Add a grounding hook to the engine."""
         self._hooks.append(hook)
 
+    def get_hook_count(self) -> int:
+        """Get the number of registered hooks."""
+        return len(self._hooks)
+
     async def run_hooks(
         self,
         context: GroundingContext,
@@ -318,3 +325,49 @@ class GroundingEngine:
         # Build failure summary
         failures = ", ".join(f"{r.hook_name}: {r.message}" for r in failed)
         return False, f"{len(failed)}/{len(results)} grounding check(s) failed: {failures}"
+
+
+def create_hook_from_config(
+    hook_config: "GroundingHookConfig",
+) -> GroundingHook:
+    """Factory function to create a grounding hook from configuration.
+
+    This is the integration point for hook registration. The factory reads
+    hook configuration from YAML and instantiates the appropriate hook class.
+
+    Args:
+        hook_config: Configuration for the hook (from GroundingConfig.hooks).
+
+    Returns:
+        An instantiated GroundingHook ready for registration.
+
+    Raises:
+        ValueError: If hook type is unknown.
+
+    Example:
+        from mozart.core.config import GroundingHookConfig
+        config = GroundingHookConfig(
+            type="file_checksum",
+            expected_checksums={"output.txt": "abc123..."},
+        )
+        hook = create_hook_from_config(config)
+        grounding_engine.add_hook(hook)
+    """
+    # Import here to avoid TYPE_CHECKING import issues
+    from mozart.core.config import GroundingHookConfig as GHC
+
+    if not isinstance(hook_config, GHC):
+        raise TypeError(f"Expected GroundingHookConfig, got {type(hook_config)}")
+
+    if hook_config.type == "file_checksum":
+        return FileChecksumGroundingHook(
+            expected_checksums=hook_config.expected_checksums,
+            checksum_algorithm=hook_config.checksum_algorithm,
+            name=hook_config.name,
+        )
+
+    # Future hook types can be added here:
+    # elif hook_config.type == "api_validator":
+    #     return ApiValidatorGroundingHook(...)
+
+    raise ValueError(f"Unknown grounding hook type: {hook_config.type}")

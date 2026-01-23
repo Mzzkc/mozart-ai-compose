@@ -18,11 +18,37 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
 from mozart.core.logging import get_logger
 from mozart.learning.outcomes import SheetOutcome
+
+
+class QuarantineStatus(str, Enum):
+    """Status of a pattern in the quarantine lifecycle.
+
+    v19 Evolution: Pattern Quarantine & Provenance - patterns transition through
+    these states as they are validated through successful applications:
+
+    - PENDING: New patterns start here, awaiting initial validation
+    - QUARANTINED: Explicitly marked for review due to concerns
+    - VALIDATED: Proven effective through repeated successful applications
+    - RETIRED: No longer active, kept for historical reference
+    """
+
+    PENDING = "pending"
+    """New pattern awaiting validation through application."""
+
+    QUARANTINED = "quarantined"
+    """Pattern under review - may have caused issues or needs investigation."""
+
+    VALIDATED = "validated"
+    """Pattern has proven effective and is trusted for autonomous application."""
+
+    RETIRED = "retired"
+    """Pattern no longer in active use, retained for history."""
 
 # Module-level logger for global learning store
 _logger = get_logger("learning.global_store")
@@ -54,7 +80,12 @@ class ExecutionRecord:
 
 @dataclass
 class PatternRecord:
-    """A pattern record stored in the global database."""
+    """A pattern record stored in the global database.
+
+    v19 Evolution: Extended with quarantine_status, provenance, and trust_score
+    fields to support the Pattern Quarantine & Provenance and Pattern Trust Scoring
+    evolutions.
+    """
 
     id: str
     pattern_type: str
@@ -71,6 +102,32 @@ class PatternRecord:
     suggested_action: str | None
     context_tags: list[str]
     priority_score: float
+
+    # v19: Quarantine & Provenance fields
+    quarantine_status: QuarantineStatus = QuarantineStatus.PENDING
+    """Current status in the quarantine lifecycle."""
+
+    provenance_job_hash: str | None = None
+    """Hash of the job that first created this pattern."""
+
+    provenance_sheet_num: int | None = None
+    """Sheet number where this pattern was first observed."""
+
+    quarantined_at: datetime | None = None
+    """When the pattern was moved to QUARANTINED status."""
+
+    validated_at: datetime | None = None
+    """When the pattern was moved to VALIDATED status."""
+
+    quarantine_reason: str | None = None
+    """Reason for quarantine (if quarantined)."""
+
+    # v19: Trust Scoring fields
+    trust_score: float = 0.5
+    """Trust score (0.0-1.0). 0.5 is neutral, >0.7 is high trust."""
+
+    trust_calculation_date: datetime | None = None
+    """When trust_score was last calculated."""
 
 
 @dataclass
@@ -224,6 +281,48 @@ class DriftMetrics:
 
 
 @dataclass
+class EpistemicDriftMetrics:
+    """Metrics for epistemic drift detection - tracking belief changes about patterns.
+
+    v21 Evolution: Epistemic Drift Detection - tracks how confidence/belief in
+    patterns changes over time, complementing effectiveness drift. While effectiveness
+    drift measures outcome changes, epistemic drift measures belief evolution.
+
+    This enables detection of belief degradation before effectiveness actually declines.
+    """
+
+    pattern_id: str
+    """Pattern ID being analyzed."""
+
+    pattern_name: str
+    """Human-readable pattern name."""
+
+    window_size: int
+    """Number of applications in each comparison window."""
+
+    confidence_before: float
+    """Average grounding confidence in the older window (applications N-2W to N-W)."""
+
+    confidence_after: float
+    """Average grounding confidence in the recent window (applications N-W to N)."""
+
+    belief_change: float
+    """Change in belief/confidence: confidence_after - confidence_before."""
+
+    belief_entropy: float
+    """Entropy of confidence values (0 = consistent beliefs, 1 = high variance)."""
+
+    applications_analyzed: int
+    """Total number of applications analyzed (should be 2 × window_size)."""
+
+    threshold_exceeded: bool = False
+    """Whether belief_change magnitude exceeds the alert threshold."""
+
+    drift_direction: str = "stable"
+    """Direction of belief drift: 'strengthening', 'weakening', or 'stable'."""
+
+
+@dataclass
 class EvolutionTrajectoryEntry:
     """A record of a single evolution cycle in Mozart's self-improvement trajectory.
 
@@ -283,7 +382,7 @@ class GlobalLearningStore:
         db_path: Path to the SQLite database file.
     """
 
-    SCHEMA_VERSION = 6  # v6: Added evolution_trajectory table
+    SCHEMA_VERSION = 7  # v7: Added quarantine, provenance, trust_score fields to patterns
 
     def __init__(self, db_path: Path | None = None) -> None:
         """Initialize the global learning store.
@@ -392,7 +491,15 @@ class GlobalLearningStore:
                 variance REAL DEFAULT 0.0,
                 suggested_action TEXT,
                 context_tags TEXT,
-                priority_score REAL DEFAULT 0.5
+                priority_score REAL DEFAULT 0.5,
+                quarantine_status TEXT DEFAULT 'pending',
+                provenance_job_hash TEXT,
+                provenance_sheet_num INTEGER,
+                quarantined_at TIMESTAMP,
+                validated_at TIMESTAMP,
+                quarantine_reason TEXT,
+                trust_score REAL DEFAULT 0.5,
+                trust_calculation_date TIMESTAMP
             )
         """)
         conn.execute(
@@ -405,6 +512,15 @@ class GlobalLearningStore:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_patterns_confirmed "
             "ON patterns(last_confirmed)"
+        )
+        # v19: Quarantine and trust indexes for efficient filtering
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_patterns_quarantine "
+            "ON patterns(quarantine_status)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_patterns_trust "
+            "ON patterns(trust_score)"
         )
 
         # Pattern applications table (for effectiveness tracking)
@@ -704,11 +820,15 @@ class GlobalLearningStore:
         description: str | None = None,
         context_tags: list[str] | None = None,
         suggested_action: str | None = None,
+        provenance_job_hash: str | None = None,
+        provenance_sheet_num: int | None = None,
     ) -> str:
         """Record or update a pattern in the global store.
 
         If a pattern with the same type and name exists, increments its count.
         Otherwise, creates a new pattern.
+
+        v19 Evolution: Now accepts provenance parameters to track the origin of patterns.
 
         Args:
             pattern_type: The type of pattern (e.g., 'validation_failure').
@@ -716,6 +836,8 @@ class GlobalLearningStore:
             description: Human-readable description.
             context_tags: Tags for matching context.
             suggested_action: Recommended action for this pattern.
+            provenance_job_hash: Hash of the job that discovered this pattern.
+            provenance_sheet_num: Sheet number where pattern was discovered.
 
         Returns:
             The pattern ID.
@@ -754,7 +876,7 @@ class GlobalLearningStore:
                     ),
                 )
             else:
-                # Insert new pattern
+                # Insert new pattern with provenance and default quarantine status
                 conn.execute(
                     """
                     INSERT INTO patterns (
@@ -762,8 +884,11 @@ class GlobalLearningStore:
                         occurrence_count, first_seen, last_seen, last_confirmed,
                         led_to_success_count, led_to_failure_count,
                         effectiveness_score, variance, suggested_action,
-                        context_tags, priority_score
-                    ) VALUES (?, ?, ?, ?, 1, ?, ?, ?, 0, 0, 0.5, 0.0, ?, ?, 0.5)
+                        context_tags, priority_score,
+                        quarantine_status, provenance_job_hash, provenance_sheet_num,
+                        trust_score, trust_calculation_date
+                    ) VALUES (?, ?, ?, ?, 1, ?, ?, ?, 0, 0, 0.5, 0.0, ?, ?, 0.5,
+                              ?, ?, ?, 0.5, ?)
                     """,
                     (
                         pattern_id,
@@ -775,6 +900,10 @@ class GlobalLearningStore:
                         now,
                         suggested_action,
                         json.dumps(context_tags or []),
+                        QuarantineStatus.PENDING.value,
+                        provenance_job_hash,
+                        provenance_sheet_num,
+                        now,
                     ),
                 )
 
@@ -1341,8 +1470,14 @@ class GlobalLearningStore:
         min_priority: float = 0.3,
         limit: int = 20,
         context_tags: list[str] | None = None,
+        quarantine_status: QuarantineStatus | None = None,
+        exclude_quarantined: bool = False,
+        min_trust: float | None = None,
+        max_trust: float | None = None,
     ) -> list[PatternRecord]:
         """Get patterns from the global store.
+
+        v19 Evolution: Extended with quarantine and trust filtering options.
 
         Args:
             pattern_type: Optional filter by pattern type.
@@ -1351,6 +1486,10 @@ class GlobalLearningStore:
             context_tags: Optional list of tags for context-based filtering.
                          Patterns match if ANY of their tags match ANY query tag.
                          If None or empty, no tag filtering is applied.
+            quarantine_status: Filter by specific quarantine status.
+            exclude_quarantined: If True, exclude QUARANTINED patterns.
+            min_trust: Filter patterns with trust_score >= this value.
+            max_trust: Filter patterns with trust_score <= this value.
 
         Returns:
             List of PatternRecord objects sorted by priority.
@@ -1363,6 +1502,22 @@ class GlobalLearningStore:
             if pattern_type:
                 where_clauses.append("pattern_type = ?")
                 params.append(pattern_type)
+
+            # v19: Quarantine status filtering
+            if quarantine_status is not None:
+                where_clauses.append("quarantine_status = ?")
+                params.append(quarantine_status.value)
+            elif exclude_quarantined:
+                where_clauses.append("quarantine_status != ?")
+                params.append(QuarantineStatus.QUARANTINED.value)
+
+            # v19: Trust score filtering
+            if min_trust is not None:
+                where_clauses.append("trust_score >= ?")
+                params.append(min_trust)
+            if max_trust is not None:
+                where_clauses.append("trust_score <= ?")
+                params.append(max_trust)
 
             # Context tag filtering: match if ANY pattern tag matches ANY query tag
             # Uses json_each() to iterate over the JSON array stored in context_tags
@@ -1390,27 +1545,419 @@ class GlobalLearningStore:
 
             records = []
             for row in cursor.fetchall():
-                records.append(
-                    PatternRecord(
-                        id=row["id"],
-                        pattern_type=row["pattern_type"],
-                        pattern_name=row["pattern_name"],
-                        description=row["description"],
-                        occurrence_count=row["occurrence_count"],
-                        first_seen=datetime.fromisoformat(row["first_seen"]),
-                        last_seen=datetime.fromisoformat(row["last_seen"]),
-                        last_confirmed=datetime.fromisoformat(row["last_confirmed"]),
-                        led_to_success_count=row["led_to_success_count"],
-                        led_to_failure_count=row["led_to_failure_count"],
-                        effectiveness_score=row["effectiveness_score"],
-                        variance=row["variance"],
-                        suggested_action=row["suggested_action"],
-                        context_tags=json.loads(row["context_tags"] or "[]"),
-                        priority_score=row["priority_score"],
-                    )
-                )
+                records.append(self._row_to_pattern_record(row))
 
             return records
+
+    def _row_to_pattern_record(self, row: sqlite3.Row) -> PatternRecord:
+        """Convert a database row to a PatternRecord.
+
+        v19: Helper method to centralize PatternRecord construction with new fields.
+
+        Args:
+            row: Database row from patterns table.
+
+        Returns:
+            PatternRecord instance with all fields populated.
+        """
+        return PatternRecord(
+            id=row["id"],
+            pattern_type=row["pattern_type"],
+            pattern_name=row["pattern_name"],
+            description=row["description"],
+            occurrence_count=row["occurrence_count"],
+            first_seen=datetime.fromisoformat(row["first_seen"]),
+            last_seen=datetime.fromisoformat(row["last_seen"]),
+            last_confirmed=datetime.fromisoformat(row["last_confirmed"]),
+            led_to_success_count=row["led_to_success_count"],
+            led_to_failure_count=row["led_to_failure_count"],
+            effectiveness_score=row["effectiveness_score"],
+            variance=row["variance"],
+            suggested_action=row["suggested_action"],
+            context_tags=json.loads(row["context_tags"] or "[]"),
+            priority_score=row["priority_score"],
+            # v19 fields with safe defaults for backward compatibility
+            quarantine_status=QuarantineStatus(row["quarantine_status"])
+            if row["quarantine_status"]
+            else QuarantineStatus.PENDING,
+            provenance_job_hash=row["provenance_job_hash"],
+            provenance_sheet_num=row["provenance_sheet_num"],
+            quarantined_at=datetime.fromisoformat(row["quarantined_at"])
+            if row["quarantined_at"]
+            else None,
+            validated_at=datetime.fromisoformat(row["validated_at"])
+            if row["validated_at"]
+            else None,
+            quarantine_reason=row["quarantine_reason"],
+            trust_score=row["trust_score"] if row["trust_score"] is not None else 0.5,
+            trust_calculation_date=datetime.fromisoformat(row["trust_calculation_date"])
+            if row["trust_calculation_date"]
+            else None,
+        )
+
+    # =========================================================================
+    # v19: Pattern Quarantine & Provenance Methods
+    # =========================================================================
+
+    def quarantine_pattern(
+        self,
+        pattern_id: str,
+        reason: str | None = None,
+    ) -> bool:
+        """Move a pattern to QUARANTINED status.
+
+        Quarantined patterns are excluded from automatic application but
+        retained for investigation and historical reference.
+
+        Args:
+            pattern_id: The pattern ID to quarantine.
+            reason: Optional reason for quarantine.
+
+        Returns:
+            True if pattern was quarantined, False if pattern not found.
+        """
+        now = datetime.now().isoformat()
+
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT id FROM patterns WHERE id = ?",
+                (pattern_id,),
+            )
+            if not cursor.fetchone():
+                _logger.warning(f"Pattern {pattern_id} not found for quarantine")
+                return False
+
+            conn.execute(
+                """
+                UPDATE patterns SET
+                    quarantine_status = ?,
+                    quarantined_at = ?,
+                    quarantine_reason = ?
+                WHERE id = ?
+                """,
+                (
+                    QuarantineStatus.QUARANTINED.value,
+                    now,
+                    reason,
+                    pattern_id,
+                ),
+            )
+
+        _logger.info(f"Quarantined pattern {pattern_id}: {reason or 'no reason given'}")
+        return True
+
+    def validate_pattern(self, pattern_id: str) -> bool:
+        """Move a pattern to VALIDATED status.
+
+        Validated patterns are trusted for autonomous application and
+        receive a trust bonus in relevance scoring.
+
+        Args:
+            pattern_id: The pattern ID to validate.
+
+        Returns:
+            True if pattern was validated, False if pattern not found.
+        """
+        now = datetime.now().isoformat()
+
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT id FROM patterns WHERE id = ?",
+                (pattern_id,),
+            )
+            if not cursor.fetchone():
+                _logger.warning(f"Pattern {pattern_id} not found for validation")
+                return False
+
+            conn.execute(
+                """
+                UPDATE patterns SET
+                    quarantine_status = ?,
+                    validated_at = ?,
+                    quarantine_reason = NULL
+                WHERE id = ?
+                """,
+                (
+                    QuarantineStatus.VALIDATED.value,
+                    now,
+                    pattern_id,
+                ),
+            )
+
+        _logger.info(f"Validated pattern {pattern_id}")
+        return True
+
+    def retire_pattern(self, pattern_id: str) -> bool:
+        """Move a pattern to RETIRED status.
+
+        Retired patterns are no longer in active use but retained for
+        historical reference and trend analysis.
+
+        Args:
+            pattern_id: The pattern ID to retire.
+
+        Returns:
+            True if pattern was retired, False if pattern not found.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT id FROM patterns WHERE id = ?",
+                (pattern_id,),
+            )
+            if not cursor.fetchone():
+                _logger.warning(f"Pattern {pattern_id} not found for retirement")
+                return False
+
+            conn.execute(
+                """
+                UPDATE patterns SET
+                    quarantine_status = ?
+                WHERE id = ?
+                """,
+                (
+                    QuarantineStatus.RETIRED.value,
+                    pattern_id,
+                ),
+            )
+
+        _logger.info(f"Retired pattern {pattern_id}")
+        return True
+
+    def get_quarantined_patterns(self, limit: int = 50) -> list[PatternRecord]:
+        """Get all patterns currently in QUARANTINED status.
+
+        Args:
+            limit: Maximum number of patterns to return.
+
+        Returns:
+            List of quarantined PatternRecord objects.
+        """
+        return self.get_patterns(
+            quarantine_status=QuarantineStatus.QUARANTINED,
+            min_priority=0.0,  # Include all regardless of priority
+            limit=limit,
+        )
+
+    def get_pattern_by_id(self, pattern_id: str) -> PatternRecord | None:
+        """Get a single pattern by its ID.
+
+        Args:
+            pattern_id: The pattern ID to retrieve.
+
+        Returns:
+            PatternRecord if found, None otherwise.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM patterns WHERE id = ?",
+                (pattern_id,),
+            )
+            row = cursor.fetchone()
+            if row:
+                return self._row_to_pattern_record(row)
+            return None
+
+    def get_pattern_provenance(self, pattern_id: str) -> dict[str, Any] | None:
+        """Get provenance information for a pattern.
+
+        Returns details about the pattern's origin and lifecycle.
+
+        Args:
+            pattern_id: The pattern ID to query.
+
+        Returns:
+            Dict with provenance info, or None if pattern not found.
+        """
+        pattern = self.get_pattern_by_id(pattern_id)
+        if not pattern:
+            return None
+
+        return {
+            "pattern_id": pattern.id,
+            "pattern_name": pattern.pattern_name,
+            "quarantine_status": pattern.quarantine_status.value,
+            "first_seen": pattern.first_seen.isoformat(),
+            "last_seen": pattern.last_seen.isoformat(),
+            "last_confirmed": pattern.last_confirmed.isoformat(),
+            "provenance_job_hash": pattern.provenance_job_hash,
+            "provenance_sheet_num": pattern.provenance_sheet_num,
+            "quarantined_at": pattern.quarantined_at.isoformat()
+            if pattern.quarantined_at
+            else None,
+            "validated_at": pattern.validated_at.isoformat()
+            if pattern.validated_at
+            else None,
+            "quarantine_reason": pattern.quarantine_reason,
+            "trust_score": pattern.trust_score,
+            "trust_calculation_date": pattern.trust_calculation_date.isoformat()
+            if pattern.trust_calculation_date
+            else None,
+        }
+
+    # =========================================================================
+    # v19: Pattern Trust Scoring Methods
+    # =========================================================================
+
+    def calculate_trust_score(self, pattern_id: str) -> float | None:
+        """Calculate and update trust score for a pattern.
+
+        Trust score formula:
+            trust = 0.5 + (success_rate × 0.3) - (failure_rate × 0.4) + (age_factor × 0.2)
+
+        Where:
+        - success_rate = led_to_success / occurrence_count (capped at 1.0)
+        - failure_rate = led_to_failure / occurrence_count (capped at 1.0)
+        - age_factor = decay based on last_confirmed timestamp
+
+        Quarantined patterns get a -0.2 penalty.
+        Validated patterns get a +0.1 bonus.
+
+        Args:
+            pattern_id: The pattern ID to calculate trust for.
+
+        Returns:
+            New trust score (0.0-1.0), or None if pattern not found.
+        """
+        pattern = self.get_pattern_by_id(pattern_id)
+        if not pattern:
+            return None
+
+        # Calculate base metrics
+        total = pattern.occurrence_count
+        if total == 0:
+            total = 1  # Avoid division by zero
+
+        success_rate = min(1.0, pattern.led_to_success_count / total)
+        failure_rate = min(1.0, pattern.led_to_failure_count / total)
+
+        # Age factor using recency decay
+        now = datetime.now()
+        days_since_confirmed = (now - pattern.last_confirmed).days
+        age_factor = 0.9 ** (days_since_confirmed / 30.0)  # 10% decay per month
+
+        # Base trust calculation
+        trust = 0.5 + (success_rate * 0.3) - (failure_rate * 0.4) + (age_factor * 0.2)
+
+        # Apply quarantine penalty
+        if pattern.quarantine_status == QuarantineStatus.QUARANTINED:
+            trust -= 0.2
+
+        # Apply validation bonus
+        if pattern.quarantine_status == QuarantineStatus.VALIDATED:
+            trust += 0.1
+
+        # Clamp to valid range
+        trust = max(0.0, min(1.0, trust))
+
+        # Update in database
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                UPDATE patterns SET
+                    trust_score = ?,
+                    trust_calculation_date = ?
+                WHERE id = ?
+                """,
+                (trust, now.isoformat(), pattern_id),
+            )
+
+        _logger.debug(f"Calculated trust score for {pattern_id}: {trust:.3f}")
+        return trust
+
+    def update_trust_score(self, pattern_id: str, delta: float) -> float | None:
+        """Update trust score by a delta amount.
+
+        Useful for incremental trust updates based on recent outcomes.
+
+        Args:
+            pattern_id: The pattern ID to update.
+            delta: Amount to add to trust score (can be negative).
+
+        Returns:
+            New trust score after update, or None if pattern not found.
+        """
+        pattern = self.get_pattern_by_id(pattern_id)
+        if not pattern:
+            return None
+
+        new_trust = max(0.0, min(1.0, pattern.trust_score + delta))
+
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                UPDATE patterns SET
+                    trust_score = ?,
+                    trust_calculation_date = ?
+                WHERE id = ?
+                """,
+                (new_trust, datetime.now().isoformat(), pattern_id),
+            )
+
+        _logger.debug(
+            f"Updated trust score for {pattern_id}: {pattern.trust_score:.3f} → {new_trust:.3f}"
+        )
+        return new_trust
+
+    def get_high_trust_patterns(
+        self,
+        threshold: float = 0.7,
+        limit: int = 50,
+    ) -> list[PatternRecord]:
+        """Get patterns with high trust scores.
+
+        Args:
+            threshold: Minimum trust score to include.
+            limit: Maximum number of patterns to return.
+
+        Returns:
+            List of high-trust PatternRecord objects.
+        """
+        return self.get_patterns(
+            min_priority=0.0,
+            min_trust=threshold,
+            limit=limit,
+        )
+
+    def get_low_trust_patterns(
+        self,
+        threshold: float = 0.3,
+        limit: int = 50,
+    ) -> list[PatternRecord]:
+        """Get patterns with low trust scores.
+
+        Args:
+            threshold: Maximum trust score to include.
+            limit: Maximum number of patterns to return.
+
+        Returns:
+            List of low-trust PatternRecord objects.
+        """
+        return self.get_patterns(
+            min_priority=0.0,
+            max_trust=threshold,
+            limit=limit,
+        )
+
+    def recalculate_all_trust_scores(self) -> int:
+        """Recalculate trust scores for all patterns.
+
+        Use for batch maintenance or after significant events.
+
+        Returns:
+            Number of patterns updated.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute("SELECT id FROM patterns")
+            pattern_ids = [row["id"] for row in cursor.fetchall()]
+
+        updated = 0
+        for pattern_id in pattern_ids:
+            result = self.calculate_trust_score(pattern_id)
+            if result is not None:
+                updated += 1
+
+        _logger.info(f"Recalculated trust scores for {updated} patterns")
+        return updated
 
     def get_execution_stats(self) -> dict[str, Any]:
         """Get aggregate statistics from the global store.
@@ -2219,6 +2766,259 @@ class GlobalLearningStore:
             "patterns_drifting": drifting_count,
             "avg_drift_magnitude": avg_drift,
             "most_drifted": most_drifted.pattern_id if most_drifted else None,
+        }
+
+    # =========================================================================
+    # v21 Evolution: Epistemic Drift Detection
+    # =========================================================================
+
+    def calculate_epistemic_drift(
+        self,
+        pattern_id: str,
+        window_size: int = 5,
+        drift_threshold: float = 0.15,
+    ) -> EpistemicDriftMetrics | None:
+        """Calculate epistemic drift for a pattern - how belief/confidence changes over time.
+
+        Unlike effectiveness drift (which tracks outcome success rates), epistemic drift
+        tracks how our CONFIDENCE in the pattern changes. This enables detecting belief
+        degradation before effectiveness actually declines.
+
+        v21 Evolution: Epistemic Drift Detection - complements effectiveness drift
+        with belief-level monitoring.
+
+        Formula:
+            belief_change = avg_confidence_after - avg_confidence_before
+            belief_entropy = std_dev(all_confidence_values) / mean(all_confidence_values)
+            weighted_change = |belief_change| × (1 + belief_entropy)
+
+        A positive belief_change means growing confidence, negative means declining.
+        High entropy indicates unstable beliefs (variance in confidence).
+
+        Args:
+            pattern_id: Pattern to analyze.
+            window_size: Number of applications per window (default 5).
+                        Total applications needed = 2 × window_size.
+            drift_threshold: Threshold for flagging epistemic drift (default 0.15 = 15%).
+
+        Returns:
+            EpistemicDriftMetrics if enough data exists, None otherwise.
+        """
+        import math
+
+        with self._get_connection() as conn:
+            # Get pattern name
+            cursor = conn.execute(
+                "SELECT pattern_name FROM patterns WHERE id = ?",
+                (pattern_id,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            pattern_name = row["pattern_name"]
+
+            # Fetch 2 × window_size recent applications with grounding confidence
+            cursor = conn.execute(
+                """
+                SELECT grounding_confidence, applied_at
+                FROM pattern_applications
+                WHERE pattern_id = ? AND grounding_confidence IS NOT NULL
+                ORDER BY applied_at DESC
+                LIMIT ?
+                """,
+                (pattern_id, window_size * 2),
+            )
+            applications = cursor.fetchall()
+
+            # Need at least 2 × window_size applications for comparison
+            if len(applications) < window_size * 2:
+                _logger.debug(
+                    f"Pattern {pattern_id} has {len(applications)} applications with confidence, "
+                    f"need {window_size * 2} for epistemic drift analysis"
+                )
+                return None
+
+            # Split into recent (first window_size) and older (second window_size)
+            recent_apps = applications[:window_size]
+            older_apps = applications[window_size : window_size * 2]
+
+            # Extract confidence values
+            recent_confidences = [a["grounding_confidence"] for a in recent_apps]
+            older_confidences = [a["grounding_confidence"] for a in older_apps]
+            all_confidences = recent_confidences + older_confidences
+
+            # Calculate average confidence for each window
+            avg_confidence_after = sum(recent_confidences) / len(recent_confidences)
+            avg_confidence_before = sum(older_confidences) / len(older_confidences)
+
+            # Calculate belief change
+            belief_change = avg_confidence_after - avg_confidence_before
+
+            # Calculate belief entropy (normalized standard deviation)
+            mean_confidence = sum(all_confidences) / len(all_confidences)
+            if mean_confidence > 0:
+                variance = sum(
+                    (c - mean_confidence) ** 2 for c in all_confidences
+                ) / len(all_confidences)
+                std_dev = math.sqrt(variance)
+                # Normalize by mean to get coefficient of variation
+                belief_entropy = min(1.0, std_dev / mean_confidence)
+            else:
+                belief_entropy = 0.0
+
+            # Determine direction
+            if belief_change > 0.05:  # Small threshold to avoid noise
+                drift_direction = "strengthening"
+            elif belief_change < -0.05:
+                drift_direction = "weakening"
+            else:
+                drift_direction = "stable"
+
+            # Check if threshold exceeded (weighted by entropy)
+            # High entropy amplifies the signal - unstable beliefs are concerning
+            weighted_change = abs(belief_change) * (1 + belief_entropy)
+            threshold_exceeded = weighted_change > drift_threshold
+
+            return EpistemicDriftMetrics(
+                pattern_id=pattern_id,
+                pattern_name=pattern_name,
+                window_size=window_size,
+                confidence_before=avg_confidence_before,
+                confidence_after=avg_confidence_after,
+                belief_change=belief_change,
+                belief_entropy=belief_entropy,
+                applications_analyzed=len(applications),
+                threshold_exceeded=threshold_exceeded,
+                drift_direction=drift_direction,
+            )
+
+    def get_epistemic_drifting_patterns(
+        self,
+        drift_threshold: float = 0.15,
+        window_size: int = 5,
+        limit: int = 20,
+    ) -> list[EpistemicDriftMetrics]:
+        """Get all patterns with significant epistemic drift.
+
+        Scans all patterns with enough application history and returns
+        those that exceed the epistemic drift threshold.
+
+        v21 Evolution: Epistemic Drift Detection - enables CLI display of
+        patterns with changing beliefs for operator review.
+
+        Args:
+            drift_threshold: Minimum epistemic drift to include (default 0.15).
+            window_size: Applications per window (default 5).
+            limit: Maximum patterns to return.
+
+        Returns:
+            List of EpistemicDriftMetrics for drifting patterns, sorted by
+            belief_change magnitude descending.
+        """
+        drifting: list[EpistemicDriftMetrics] = []
+
+        with self._get_connection() as conn:
+            # Find patterns with at least 2 × window_size applications WITH confidence
+            cursor = conn.execute(
+                """
+                SELECT pattern_id, COUNT(*) as app_count
+                FROM pattern_applications
+                WHERE grounding_confidence IS NOT NULL
+                GROUP BY pattern_id
+                HAVING app_count >= ?
+                """,
+                (window_size * 2,),
+            )
+            pattern_ids = [row["pattern_id"] for row in cursor.fetchall()]
+
+        # Calculate epistemic drift for each pattern
+        for pattern_id in pattern_ids:
+            metrics = self.calculate_epistemic_drift(
+                pattern_id=pattern_id,
+                window_size=window_size,
+                drift_threshold=drift_threshold,
+            )
+            if metrics and metrics.threshold_exceeded:
+                drifting.append(metrics)
+
+        # Sort by belief change magnitude descending
+        drifting.sort(key=lambda m: abs(m.belief_change), reverse=True)
+
+        return drifting[:limit]
+
+    def get_epistemic_drift_summary(self) -> dict[str, Any]:
+        """Get a summary of epistemic drift across all patterns.
+
+        Provides aggregate statistics for monitoring belief/confidence health.
+
+        v21 Evolution: Epistemic Drift Detection - supports dashboard/reporting.
+
+        Returns:
+            Dict with epistemic drift statistics:
+            - total_patterns: Total patterns in the store
+            - patterns_analyzed: Patterns with enough confidence history for analysis
+            - patterns_with_epistemic_drift: Patterns exceeding epistemic drift threshold
+            - avg_belief_change: Average belief change across analyzed patterns
+            - avg_belief_entropy: Average belief entropy (stability measure)
+            - most_unstable: ID of pattern with highest epistemic drift
+        """
+        with self._get_connection() as conn:
+            # Total patterns
+            cursor = conn.execute("SELECT COUNT(*) as count FROM patterns")
+            total_patterns = cursor.fetchone()["count"]
+
+            # Patterns with enough applications with confidence (10+ for analysis)
+            cursor = conn.execute(
+                """
+                SELECT pattern_id, COUNT(*) as app_count
+                FROM pattern_applications
+                WHERE grounding_confidence IS NOT NULL
+                GROUP BY pattern_id
+                HAVING app_count >= 10
+                """
+            )
+            analyzable_patterns = [row["pattern_id"] for row in cursor.fetchall()]
+
+        patterns_analyzed = len(analyzable_patterns)
+        if patterns_analyzed == 0:
+            return {
+                "total_patterns": total_patterns,
+                "patterns_analyzed": 0,
+                "patterns_with_epistemic_drift": 0,
+                "avg_belief_change": 0.0,
+                "avg_belief_entropy": 0.0,
+                "most_unstable": None,
+            }
+
+        # Calculate epistemic drift for each
+        all_metrics: list[EpistemicDriftMetrics] = []
+        for pattern_id in analyzable_patterns:
+            metrics = self.calculate_epistemic_drift(pattern_id)
+            if metrics:
+                all_metrics.append(metrics)
+
+        if not all_metrics:
+            return {
+                "total_patterns": total_patterns,
+                "patterns_analyzed": patterns_analyzed,
+                "patterns_with_epistemic_drift": 0,
+                "avg_belief_change": 0.0,
+                "avg_belief_entropy": 0.0,
+                "most_unstable": None,
+            }
+
+        drifting_count = sum(1 for m in all_metrics if m.threshold_exceeded)
+        avg_change = sum(m.belief_change for m in all_metrics) / len(all_metrics)
+        avg_entropy = sum(m.belief_entropy for m in all_metrics) / len(all_metrics)
+        most_unstable = max(all_metrics, key=lambda m: abs(m.belief_change))
+
+        return {
+            "total_patterns": total_patterns,
+            "patterns_analyzed": len(all_metrics),
+            "patterns_with_epistemic_drift": drifting_count,
+            "avg_belief_change": avg_change,
+            "avg_belief_entropy": avg_entropy,
+            "most_unstable": most_unstable.pattern_id if most_unstable else None,
         }
 
     # =========================================================================

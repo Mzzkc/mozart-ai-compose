@@ -18,6 +18,7 @@ from mozart.validation.checks import (
     TemplateFileExistsCheck,
     TimeoutRangeCheck,
     ValidationTypeCheck,
+    VersionReferenceCheck,
     WorkingDirectoryCheck,
     WorkspaceParentExistsCheck,
 )
@@ -137,5 +138,6 @@ def create_default_checks() -> list[ValidationCheck]:
         ValidationTypeCheck(),
         TimeoutRangeCheck(),
         EmptyPatternCheck(),
+        VersionReferenceCheck(),
     ]
     return checks

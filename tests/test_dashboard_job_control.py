@@ -1,17 +1,13 @@
 """Tests for JobControlService."""
 import asyncio
-import os
 import signal
-import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
 from mozart.core.checkpoint import CheckpointState, JobStatus
-from mozart.core.config import JobConfig
 from mozart.dashboard.services.job_control import (
-    JobActionResult,
     JobControlService,
     JobStartResult,
 )

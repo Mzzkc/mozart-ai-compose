@@ -48,7 +48,8 @@ class SSEManager:
     """Manages SSE connections and broadcasts."""
 
     def __init__(self) -> None:
-        self._connections: dict[str, dict[str, ClientConnection]] = {}  # job_id -> {client_id -> conn}
+        # job_id -> {client_id -> conn}
+        self._connections: dict[str, dict[str, ClientConnection]] = {}
         self._lock = asyncio.Lock()
 
     async def connect(self, job_id: str, client_id: str | None = None) -> AsyncIterator[str]:

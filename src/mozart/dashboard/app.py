@@ -10,12 +10,15 @@ from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 
 from mozart.state.base import StateBackend
 from mozart.state.json_backend import JsonStateBackend
 
-# Module-level state backend reference for dependency injection
+# Module-level references for dependency injection
 _state_backend: StateBackend | None = None
+_templates: Jinja2Templates | None = None
 
 
 def get_state_backend() -> StateBackend:
@@ -27,6 +30,17 @@ def get_state_backend() -> StateBackend:
     if _state_backend is None:
         raise RuntimeError("State backend not configured. Use create_app() with a backend.")
     return _state_backend
+
+
+def get_templates() -> Jinja2Templates:
+    """Get the configured Jinja2Templates instance.
+
+    Raises:
+        RuntimeError: If templates not configured (app not started properly)
+    """
+    if _templates is None:
+        raise RuntimeError("Templates not configured. Use create_app() to initialize.")
+    return _templates
 
 
 @asynccontextmanager
@@ -90,9 +104,30 @@ def create_app(
         allow_headers=["*"],
     )
 
+    # Configure template and static file paths
+    dashboard_dir = Path(__file__).parent
+    templates_dir = dashboard_dir / "templates"
+    static_dir = dashboard_dir / "static"
+
+    # Mount static files
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+    # Configure Jinja2 templates
+    global _templates
+    _templates = Jinja2Templates(directory=str(templates_dir))
+
     # Register routes
-    from mozart.dashboard.routes import router
-    app.include_router(router)
+    from mozart.dashboard.routes import router as base_router
+    from mozart.dashboard.routes.artifacts import router as artifacts_router
+    from mozart.dashboard.routes.jobs import router as jobs_router
+    from mozart.dashboard.routes.pages import router as pages_router
+    from mozart.dashboard.routes.stream import router as stream_router
+
+    app.include_router(base_router)
+    app.include_router(jobs_router)
+    app.include_router(artifacts_router)
+    app.include_router(pages_router)
+    app.include_router(stream_router)
 
     # Health check endpoint (at root level)
     @app.get("/health", tags=["System"])

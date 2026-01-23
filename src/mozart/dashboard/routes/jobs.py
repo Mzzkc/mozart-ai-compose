@@ -264,3 +264,70 @@ async def delete_job(
         "job_id": job_id,
         "message": f"Job {job_id} deleted successfully"
     }
+
+
+@router.get("/{job_id}/sheets/{sheet_num}")
+async def get_sheet_details(
+    job_id: str,
+    sheet_num: int,
+    backend: StateBackend = Depends(get_state_backend),
+) -> dict[str, Any]:
+    """Get detailed sheet information for a specific job and sheet.
+
+    Args:
+        job_id: Unique job identifier
+        sheet_num: Sheet number to get details for
+        backend: State backend (injected)
+
+    Returns:
+        Detailed sheet information including execution logs
+
+    Raises:
+        HTTPException: 404 if job or sheet not found
+    """
+    state = await backend.load(job_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+
+    sheet_state = state.sheets.get(sheet_num)
+    if sheet_state is None:
+        raise HTTPException(status_code=404, detail=f"Sheet {sheet_num} not found in job {job_id}")
+
+    # Build comprehensive sheet details
+    sheet_details = {
+        "sheet_num": sheet_state.sheet_num,
+        "status": sheet_state.status.value,
+        "started_at": sheet_state.started_at.isoformat() if sheet_state.started_at else None,
+        "completed_at": sheet_state.completed_at.isoformat() if sheet_state.completed_at else None,
+        "attempt_count": sheet_state.attempt_count,
+        "exit_code": sheet_state.exit_code,
+        "error_message": sheet_state.error_message,
+        "error_category": sheet_state.error_category,
+        "validation_passed": sheet_state.validation_passed,
+        "validation_details": sheet_state.validation_details or [],
+        "execution_duration_seconds": sheet_state.execution_duration_seconds,
+        "exit_signal": sheet_state.exit_signal,
+        "exit_reason": sheet_state.exit_reason,
+        "completion_attempts": sheet_state.completion_attempts,
+        "passed_validations": sheet_state.passed_validations,
+        "failed_validations": sheet_state.failed_validations,
+        "last_pass_percentage": sheet_state.last_pass_percentage,
+        "execution_mode": sheet_state.execution_mode,
+        "confidence_score": sheet_state.confidence_score,
+        "outcome_category": sheet_state.outcome_category,
+        "first_attempt_success": sheet_state.first_attempt_success,
+        "stdout_tail": sheet_state.stdout_tail,
+        "stderr_tail": sheet_state.stderr_tail,
+        "output_truncated": sheet_state.output_truncated,
+        "preflight_warnings": sheet_state.preflight_warnings,
+        "applied_pattern_descriptions": sheet_state.applied_pattern_descriptions,
+        "grounding_passed": sheet_state.grounding_passed,
+        "grounding_confidence": sheet_state.grounding_confidence,
+        "grounding_guidance": sheet_state.grounding_guidance,
+        "input_tokens": sheet_state.input_tokens,
+        "output_tokens": sheet_state.output_tokens,
+        "estimated_cost": sheet_state.estimated_cost,
+        "cost_confidence": sheet_state.cost_confidence,
+    }
+
+    return sheet_details

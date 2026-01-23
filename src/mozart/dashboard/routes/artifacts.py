@@ -146,7 +146,9 @@ async def list_artifacts(
 
             for item in workspace.glob(glob_pattern):
                 # Skip hidden files/dirs unless requested
-                if not include_hidden and any(part.startswith('.') for part in item.parts[len(workspace.parts):]):
+                workspace_len = len(workspace.parts)
+                relative_parts = item.parts[workspace_len:]
+                if not include_hidden and any(part.startswith('.') for part in relative_parts):
                     continue
 
                 try:
@@ -181,16 +183,16 @@ async def list_artifacts(
             files=files
         )
 
-    except PermissionError:
+    except PermissionError as e:
         raise HTTPException(
             status_code=403,
             detail=f"Permission denied accessing workspace: {workspace}"
-        )
+        ) from e
     except OSError as e:
         raise HTTPException(
             status_code=500,
             detail=f"Error listing workspace: {e}"
-        )
+        ) from e
 
 
 @router.get("/{job_id}/artifacts/{path:path}")
@@ -304,13 +306,13 @@ async def get_artifact(
                 media_type=mime_type or "application/octet-stream"
             )
 
-    except PermissionError:
+    except PermissionError as e:
         raise HTTPException(
             status_code=403,
             detail=f"Permission denied: {path}"
-        )
+        ) from e
     except OSError as e:
         raise HTTPException(
             status_code=500,
             detail=f"Error reading file: {e}"
-        )
+        ) from e

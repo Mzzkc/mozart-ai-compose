@@ -453,6 +453,10 @@ class JobRunner:
         self._current_state: CheckpointState | None = None
         self._sheet_times: list[float] = []  # Track sheet durations for ETA
 
+        # Pause/resume state tracking (Sheet 12: Job Control Integration)
+        self._pause_requested = False
+        self._paused_at_sheet: int | None = None
+
         # Summary tracking for run statistics
         self._summary: RunSummary | None = None
         self._run_start_time: float = 0.0
@@ -1462,6 +1466,91 @@ class JobRunner:
         while elapsed < seconds and not self._shutdown_requested:
             await asyncio.sleep(increment)
             elapsed += increment
+
+    def _check_pause_signal(self, state: CheckpointState) -> bool:
+        """Check if a pause signal file exists for this job.
+
+        Pause signals are created by the job control service when UI requests
+        graceful pause. Uses file-based signaling for cross-process communication.
+
+        Args:
+            state: Current job state to get job_id and workspace.
+
+        Returns:
+            True if pause signal detected, False otherwise.
+        """
+        if not state.job_id:
+            return False
+
+        # Check for pause signal file in workspace
+        workspace_path = Path(self.config.workspace)
+        pause_signal_file = workspace_path / f".mozart-pause-{state.job_id}"
+
+        return pause_signal_file.exists()
+
+    def _clear_pause_signal(self, state: CheckpointState) -> None:
+        """Clear pause signal file to acknowledge pause handling.
+
+        Args:
+            state: Current job state to get job_id and workspace.
+        """
+        if not state.job_id:
+            return
+
+        workspace_path = Path(self.config.workspace)
+        pause_signal_file = workspace_path / f".mozart-pause-{state.job_id}"
+
+        try:
+            if pause_signal_file.exists():
+                pause_signal_file.unlink()
+                self._logger.debug(
+                    "pause_signal.cleared",
+                    job_id=state.job_id,
+                    signal_file=str(pause_signal_file),
+                )
+        except OSError as e:
+            self._logger.warning(
+                "pause_signal.clear_failed",
+                job_id=state.job_id,
+                signal_file=str(pause_signal_file),
+                error=str(e),
+            )
+
+    async def _handle_pause_request(self, state: CheckpointState, current_sheet: int) -> None:
+        """Handle pause request by saving state and pausing execution.
+
+        Args:
+            state: Current job state to update.
+            current_sheet: Current sheet number where pause occurred.
+
+        Raises:
+            GracefulShutdownError: Always raised after handling pause.
+        """
+        # Clear the pause signal to acknowledge handling
+        self._clear_pause_signal(state)
+
+        # Update state to paused
+        state.mark_job_paused()
+        self._paused_at_sheet = current_sheet
+        await self.state_backend.save(state)
+
+        # Log pause event
+        self._logger.info(
+            "job.paused_gracefully",
+            job_id=state.job_id,
+            paused_at_sheet=current_sheet,
+            total_sheets=state.total_sheets,
+        )
+
+        # Show pause confirmation to user
+        self.console.print(
+            f"\n[yellow]Job paused gracefully at sheet {current_sheet}/{state.total_sheets}.[/yellow]"
+        )
+        self.console.print(
+            f"[green]State saved.[/green] To resume: [bold]mozart resume {state.job_id}[/bold]"
+        )
+
+        raise GracefulShutdownError(f"Job {state.job_id} paused at sheet {current_sheet}")
 
     def _update_progress(self, state: CheckpointState) -> None:
         """Update progress callback with current state.

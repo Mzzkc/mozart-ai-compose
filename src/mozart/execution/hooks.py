@@ -278,6 +278,33 @@ class HookExecutor:
         # Use parent process cwd (not workspace) so relative job_path finds the config
         # This allows on_success hooks to reference sibling config files correctly
         try:
+            # For detached mode, use setsid to create independent process group
+            if hook.detached:
+                # Spawn detached - don't capture output, don't wait
+                process = await asyncio.create_subprocess_exec(
+                    "setsid",
+                    *cmd,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                    stdin=asyncio.subprocess.DEVNULL,
+                    env=os.environ.copy(),
+                    start_new_session=True,
+                )
+                _logger.info(
+                    "hook.detached_job_spawned",
+                    job_path=str(job_path),
+                    pid=process.pid,
+                )
+                return HookResult(
+                    hook_type="run_job",
+                    description=hook.description,
+                    success=True,
+                    output=f"Detached job spawned (PID {process.pid})",
+                    chained_job_path=job_path,
+                    chained_job_workspace=chained_workspace,
+                )
+
+            # Normal mode - wait for completion
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,

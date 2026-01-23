@@ -463,7 +463,7 @@ async def download_logs(
         raise HTTPException(
             status_code=403,
             detail=f"Cannot read log file: {e}"
-        )
+        ) from e
 
 
 @router.get("/{job_id}/logs/info", response_model=LogDownloadInfo)
@@ -504,4 +504,4 @@ async def get_log_info(
         raise HTTPException(
             status_code=403,
             detail=f"Cannot access log file: {e}"
-        )
+        ) from e

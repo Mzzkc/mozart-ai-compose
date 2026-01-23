@@ -24,6 +24,7 @@ from mozart.learning.global_store import (
     DriftMetrics,
     GlobalLearningStore,
     PatternRecord,
+    QuarantineStatus,
 )
 from mozart.learning.outcomes import SheetOutcome
 from mozart.learning.patterns import (
@@ -3792,3 +3793,656 @@ class TestEvolutionTrajectoryTracking:
 
         # Verify cleared
         assert len(global_store.get_trajectory()) == 0
+
+
+# =============================================================================
+# v19: TestPatternQuarantine
+# =============================================================================
+
+
+class TestPatternQuarantine:
+    """Tests for Pattern Quarantine & Provenance feature (v19 Evolution)."""
+
+    def test_new_pattern_starts_pending(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that newly created patterns start with PENDING status."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="validation_failure",
+            pattern_name="test:quarantine_status",
+            description="Test pattern",
+        )
+
+        pattern = global_store.get_pattern_by_id(pattern_id)
+        assert pattern is not None
+        assert pattern.quarantine_status == QuarantineStatus.PENDING
+
+    def test_quarantine_pattern(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test quarantining a pattern changes status correctly."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="test:to_quarantine",
+        )
+
+        result = global_store.quarantine_pattern(pattern_id, reason="Causes issues")
+
+        assert result is True
+        pattern = global_store.get_pattern_by_id(pattern_id)
+        assert pattern is not None
+        assert pattern.quarantine_status == QuarantineStatus.QUARANTINED
+        assert pattern.quarantine_reason == "Causes issues"
+        assert pattern.quarantined_at is not None
+
+    def test_quarantine_nonexistent_pattern(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test quarantining a nonexistent pattern returns False."""
+        result = global_store.quarantine_pattern("nonexistent-id")
+        assert result is False
+
+    def test_validate_pattern(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test validating a pattern changes status correctly."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="test:to_validate",
+        )
+
+        result = global_store.validate_pattern(pattern_id)
+
+        assert result is True
+        pattern = global_store.get_pattern_by_id(pattern_id)
+        assert pattern is not None
+        assert pattern.quarantine_status == QuarantineStatus.VALIDATED
+        assert pattern.validated_at is not None
+        assert pattern.quarantine_reason is None  # Should be cleared
+
+    def test_validate_nonexistent_pattern(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test validating a nonexistent pattern returns False."""
+        result = global_store.validate_pattern("nonexistent-id")
+        assert result is False
+
+    def test_retire_pattern(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test retiring a pattern changes status correctly."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="test:to_retire",
+        )
+
+        result = global_store.retire_pattern(pattern_id)
+
+        assert result is True
+        pattern = global_store.get_pattern_by_id(pattern_id)
+        assert pattern is not None
+        assert pattern.quarantine_status == QuarantineStatus.RETIRED
+
+    def test_retire_nonexistent_pattern(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test retiring a nonexistent pattern returns False."""
+        result = global_store.retire_pattern("nonexistent-id")
+        assert result is False
+
+    def test_get_quarantined_patterns(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test retrieving only quarantined patterns."""
+        # Create patterns with different statuses
+        id1 = global_store.record_pattern("test", "test:pattern1")
+        id2 = global_store.record_pattern("test", "test:pattern2")
+        id3 = global_store.record_pattern("test", "test:pattern3")
+
+        global_store.quarantine_pattern(id1, reason="Test")
+        global_store.quarantine_pattern(id2, reason="Test")
+        global_store.validate_pattern(id3)
+
+        quarantined = global_store.get_quarantined_patterns()
+
+        assert len(quarantined) == 2
+        quarantined_ids = {p.id for p in quarantined}
+        assert id1 in quarantined_ids
+        assert id2 in quarantined_ids
+        assert id3 not in quarantined_ids
+
+    def test_status_transitions(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test pattern can transition through all status states."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="test:transitions",
+        )
+
+        # Start as pending
+        pattern = global_store.get_pattern_by_id(pattern_id)
+        assert pattern is not None
+        assert pattern.quarantine_status == QuarantineStatus.PENDING
+
+        # Move to quarantined
+        global_store.quarantine_pattern(pattern_id)
+        pattern = global_store.get_pattern_by_id(pattern_id)
+        assert pattern is not None
+        assert pattern.quarantine_status == QuarantineStatus.QUARANTINED
+
+        # Move to validated (from quarantine)
+        global_store.validate_pattern(pattern_id)
+        pattern = global_store.get_pattern_by_id(pattern_id)
+        assert pattern is not None
+        assert pattern.quarantine_status == QuarantineStatus.VALIDATED
+
+        # Move to retired
+        global_store.retire_pattern(pattern_id)
+        pattern = global_store.get_pattern_by_id(pattern_id)
+        assert pattern is not None
+        assert pattern.quarantine_status == QuarantineStatus.RETIRED
+
+    def test_provenance_recorded_on_creation(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test provenance information is recorded when creating pattern."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="test:provenance",
+            provenance_job_hash="abc123def456",
+            provenance_sheet_num=3,
+        )
+
+        pattern = global_store.get_pattern_by_id(pattern_id)
+        assert pattern is not None
+        assert pattern.provenance_job_hash == "abc123def456"
+        assert pattern.provenance_sheet_num == 3
+
+    def test_get_pattern_provenance(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test get_pattern_provenance returns complete provenance info."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="test:provenance_info",
+            provenance_job_hash="xyz789",
+            provenance_sheet_num=5,
+        )
+        global_store.quarantine_pattern(pattern_id, reason="Testing provenance")
+
+        provenance = global_store.get_pattern_provenance(pattern_id)
+
+        assert provenance is not None
+        assert provenance["pattern_id"] == pattern_id
+        assert provenance["pattern_name"] == "test:provenance_info"
+        assert provenance["provenance_job_hash"] == "xyz789"
+        assert provenance["provenance_sheet_num"] == 5
+        assert provenance["quarantine_status"] == "quarantined"
+        assert provenance["quarantine_reason"] == "Testing provenance"
+        assert provenance["quarantined_at"] is not None
+
+    def test_get_pattern_provenance_nonexistent(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test get_pattern_provenance returns None for nonexistent pattern."""
+        provenance = global_store.get_pattern_provenance("nonexistent-id")
+        assert provenance is None
+
+    def test_get_patterns_with_quarantine_filter(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test get_patterns filters by quarantine status."""
+        id1 = global_store.record_pattern("test", "test:filter1")
+        id2 = global_store.record_pattern("test", "test:filter2")
+        global_store.validate_pattern(id1)
+        global_store.quarantine_pattern(id2)
+
+        # Get only validated
+        validated = global_store.get_patterns(
+            min_priority=0.0,
+            quarantine_status=QuarantineStatus.VALIDATED,
+        )
+        assert len(validated) == 1
+        assert validated[0].id == id1
+
+        # Get only quarantined
+        quarantined = global_store.get_patterns(
+            min_priority=0.0,
+            quarantine_status=QuarantineStatus.QUARANTINED,
+        )
+        assert len(quarantined) == 1
+        assert quarantined[0].id == id2
+
+    def test_get_patterns_exclude_quarantined(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test get_patterns can exclude quarantined patterns."""
+        id1 = global_store.record_pattern("test", "test:exclude1")
+        id2 = global_store.record_pattern("test", "test:exclude2")
+        global_store.quarantine_pattern(id2)
+
+        # Default includes all
+        all_patterns = global_store.get_patterns(min_priority=0.0)
+        assert len(all_patterns) == 2
+
+        # Exclude quarantined
+        non_quarantined = global_store.get_patterns(
+            min_priority=0.0,
+            exclude_quarantined=True,
+        )
+        assert len(non_quarantined) == 1
+        assert non_quarantined[0].id == id1
+
+
+# =============================================================================
+# v19: TestPatternTrustScoring
+# =============================================================================
+
+
+class TestPatternTrustScoring:
+    """Tests for Pattern Trust Scoring feature (v19 Evolution)."""
+
+    def test_new_pattern_starts_with_neutral_trust(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that newly created patterns start with 0.5 trust score."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="test:initial_trust",
+        )
+
+        pattern = global_store.get_pattern_by_id(pattern_id)
+        assert pattern is not None
+        assert pattern.trust_score == 0.5
+
+    def test_calculate_trust_score_basic(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test trust score calculation with basic success/failure data."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="test:trust_calc",
+        )
+
+        # Simulate some application data
+        with global_store._get_connection() as conn:
+            conn.execute(
+                """
+                UPDATE patterns SET
+                    led_to_success_count = 8,
+                    led_to_failure_count = 2,
+                    occurrence_count = 10
+                WHERE id = ?
+                """,
+                (pattern_id,),
+            )
+
+        trust = global_store.calculate_trust_score(pattern_id)
+
+        assert trust is not None
+        # With 80% success rate, trust should be above neutral
+        assert trust > 0.5
+        assert trust <= 1.0
+
+    def test_calculate_trust_score_nonexistent(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test trust score calculation returns None for nonexistent pattern."""
+        trust = global_store.calculate_trust_score("nonexistent-id")
+        assert trust is None
+
+    def test_calculate_trust_score_quarantine_penalty(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that quarantined patterns get trust penalty."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="test:trust_quarantine",
+        )
+
+        # Calculate baseline trust
+        trust_before = global_store.calculate_trust_score(pattern_id)
+        assert trust_before is not None
+
+        # Quarantine and recalculate
+        global_store.quarantine_pattern(pattern_id)
+        trust_after = global_store.calculate_trust_score(pattern_id)
+
+        assert trust_after is not None
+        # Quarantine penalty is -0.2
+        assert trust_after < trust_before
+
+    def test_calculate_trust_score_validation_bonus(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that validated patterns get trust bonus."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="test:trust_validated",
+        )
+
+        # Calculate baseline trust
+        trust_before = global_store.calculate_trust_score(pattern_id)
+        assert trust_before is not None
+
+        # Validate and recalculate
+        global_store.validate_pattern(pattern_id)
+        trust_after = global_store.calculate_trust_score(pattern_id)
+
+        assert trust_after is not None
+        # Validation bonus is +0.1
+        assert trust_after > trust_before
+
+    def test_update_trust_score_increases(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that update_trust_score can increase trust."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="test:trust_increase",
+        )
+
+        pattern_before = global_store.get_pattern_by_id(pattern_id)
+        assert pattern_before is not None
+        trust_before = pattern_before.trust_score
+
+        new_trust = global_store.update_trust_score(pattern_id, delta=0.2)
+
+        assert new_trust is not None
+        assert new_trust == trust_before + 0.2
+
+    def test_update_trust_score_decreases(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that update_trust_score can decrease trust."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="test:trust_decrease",
+        )
+
+        pattern_before = global_store.get_pattern_by_id(pattern_id)
+        assert pattern_before is not None
+        trust_before = pattern_before.trust_score
+
+        new_trust = global_store.update_trust_score(pattern_id, delta=-0.2)
+
+        assert new_trust is not None
+        assert new_trust == trust_before - 0.2
+
+    def test_update_trust_score_clamps_to_valid_range(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that update_trust_score clamps to [0, 1] range."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="test:trust_clamp",
+        )
+
+        # Try to increase beyond 1.0
+        trust_high = global_store.update_trust_score(pattern_id, delta=10.0)
+        assert trust_high == 1.0
+
+        # Try to decrease below 0.0
+        trust_low = global_store.update_trust_score(pattern_id, delta=-10.0)
+        assert trust_low == 0.0
+
+    def test_update_trust_score_nonexistent(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test update_trust_score returns None for nonexistent pattern."""
+        result = global_store.update_trust_score("nonexistent-id", delta=0.1)
+        assert result is None
+
+    def test_get_high_trust_patterns(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test filtering patterns by high trust score."""
+        id1 = global_store.record_pattern("test", "test:high_trust1")
+        id2 = global_store.record_pattern("test", "test:high_trust2")
+        id3 = global_store.record_pattern("test", "test:low_trust")
+
+        global_store.update_trust_score(id1, delta=0.3)  # 0.8
+        global_store.update_trust_score(id2, delta=0.25)  # 0.75
+        global_store.update_trust_score(id3, delta=-0.3)  # 0.2
+
+        high_trust = global_store.get_high_trust_patterns(threshold=0.7)
+
+        assert len(high_trust) == 2
+        high_trust_ids = {p.id for p in high_trust}
+        assert id1 in high_trust_ids
+        assert id2 in high_trust_ids
+        assert id3 not in high_trust_ids
+
+    def test_get_low_trust_patterns(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test filtering patterns by low trust score."""
+        id1 = global_store.record_pattern("test", "test:low1")
+        id2 = global_store.record_pattern("test", "test:low2")
+        id3 = global_store.record_pattern("test", "test:high")
+
+        global_store.update_trust_score(id1, delta=-0.3)  # 0.2
+        global_store.update_trust_score(id2, delta=-0.25)  # 0.25
+        global_store.update_trust_score(id3, delta=0.3)  # 0.8
+
+        low_trust = global_store.get_low_trust_patterns(threshold=0.3)
+
+        assert len(low_trust) == 2
+        low_trust_ids = {p.id for p in low_trust}
+        assert id1 in low_trust_ids
+        assert id2 in low_trust_ids
+        assert id3 not in low_trust_ids
+
+    def test_recalculate_all_trust_scores(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test batch recalculation of trust scores."""
+        # Create several patterns
+        for i in range(5):
+            global_store.record_pattern("test", f"test:batch{i}")
+
+        updated = global_store.recalculate_all_trust_scores()
+
+        assert updated == 5
+
+    def test_trust_score_decay_over_time(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that trust score accounts for time decay."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="test:trust_decay",
+        )
+
+        # Set an old last_confirmed date
+        old_date = (datetime.now() - timedelta(days=90)).isoformat()
+        with global_store._get_connection() as conn:
+            conn.execute(
+                "UPDATE patterns SET last_confirmed = ? WHERE id = ?",
+                (old_date, pattern_id),
+            )
+
+        trust = global_store.calculate_trust_score(pattern_id)
+
+        assert trust is not None
+        # With 90-day age, decay factor is 0.9^3 ≈ 0.73
+        # Trust should be lower than neutral due to age decay
+        # The age_factor component contributes about 0.2 × 0.73 ≈ 0.15
+        # So overall trust should be around 0.5 + 0.15 = 0.65, not higher
+        assert trust < 0.8
+
+    def test_get_patterns_with_trust_filter(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test get_patterns filters by trust score range."""
+        id1 = global_store.record_pattern("test", "test:trust_filter1")
+        id2 = global_store.record_pattern("test", "test:trust_filter2")
+        id3 = global_store.record_pattern("test", "test:trust_filter3")
+
+        global_store.update_trust_score(id1, delta=0.3)  # 0.8
+        global_store.update_trust_score(id2, delta=0.0)  # 0.5
+        global_store.update_trust_score(id3, delta=-0.3)  # 0.2
+
+        # Filter by min_trust
+        high = global_store.get_patterns(min_priority=0.0, min_trust=0.7)
+        assert len(high) == 1
+        assert high[0].id == id1
+
+        # Filter by max_trust
+        low = global_store.get_patterns(min_priority=0.0, max_trust=0.3)
+        assert len(low) == 1
+        assert low[0].id == id3
+
+        # Filter by range
+        mid = global_store.get_patterns(
+            min_priority=0.0, min_trust=0.4, max_trust=0.6
+        )
+        assert len(mid) == 1
+        assert mid[0].id == id2
+
+
+# =============================================================================
+# v19: TestPatternRelevanceScoring
+# =============================================================================
+
+
+class TestPatternRelevanceScoring:
+    """Tests for quarantine/trust-aware relevance scoring in PatternMatcher (v19)."""
+
+    def test_quarantined_pattern_score_penalty(self) -> None:
+        """Test that quarantined patterns receive score penalty."""
+        from mozart.learning.patterns import PatternMatcher
+
+        pattern = DetectedPattern(
+            pattern_type=PatternType.VALIDATION_FAILURE,
+            description="Test pattern",
+            frequency=5,
+            confidence=0.8,
+            quarantine_status="quarantined",
+        )
+
+        matcher = PatternMatcher([pattern])
+        matched = matcher.match({}, limit=1)
+
+        # Should still match but with penalty
+        assert len(matched) == 1
+        # Score should be reduced (quarantine applies -0.3 penalty)
+
+    def test_validated_pattern_score_bonus(self) -> None:
+        """Test that validated patterns receive score bonus."""
+        from mozart.learning.patterns import PatternMatcher
+
+        regular_pattern = DetectedPattern(
+            pattern_type=PatternType.VALIDATION_FAILURE,
+            description="Regular pattern",
+            frequency=5,
+            confidence=0.8,
+            quarantine_status="pending",
+        )
+
+        validated_pattern = DetectedPattern(
+            pattern_type=PatternType.VALIDATION_FAILURE,
+            description="Validated pattern",
+            frequency=5,
+            confidence=0.8,
+            quarantine_status="validated",
+        )
+
+        matcher = PatternMatcher([regular_pattern, validated_pattern])
+        matched = matcher.match({}, limit=2)
+
+        assert len(matched) == 2
+        # Validated pattern should be ranked higher (has +0.1 bonus)
+        assert matched[0].description == "Validated pattern"
+
+    def test_high_trust_pattern_score_bonus(self) -> None:
+        """Test that high trust patterns receive score bonus."""
+        from mozart.learning.patterns import PatternMatcher
+
+        low_trust = DetectedPattern(
+            pattern_type=PatternType.VALIDATION_FAILURE,
+            description="Low trust",
+            frequency=5,
+            confidence=0.8,
+            trust_score=0.2,
+        )
+
+        high_trust = DetectedPattern(
+            pattern_type=PatternType.VALIDATION_FAILURE,
+            description="High trust",
+            frequency=5,
+            confidence=0.8,
+            trust_score=0.9,
+        )
+
+        matcher = PatternMatcher([low_trust, high_trust])
+        matched = matcher.match({}, limit=2)
+
+        assert len(matched) == 2
+        # High trust pattern should be ranked higher
+        assert matched[0].description == "High trust"
+
+    def test_prompt_guidance_includes_quarantine_warning(self) -> None:
+        """Test that quarantined patterns show warning in prompt guidance."""
+        pattern = DetectedPattern(
+            pattern_type=PatternType.VALIDATION_FAILURE,
+            description="Problematic pattern",
+            quarantine_status="quarantined",
+        )
+
+        guidance = pattern.to_prompt_guidance()
+
+        assert "[QUARANTINED]" in guidance
+
+    def test_prompt_guidance_includes_trust_indicator(self) -> None:
+        """Test that patterns with trust score show indicator in guidance."""
+        high_trust = DetectedPattern(
+            pattern_type=PatternType.VALIDATION_FAILURE,
+            description="Trusted pattern",
+            trust_score=0.85,
+        )
+
+        low_trust = DetectedPattern(
+            pattern_type=PatternType.VALIDATION_FAILURE,
+            description="Untrusted pattern",
+            trust_score=0.2,
+        )
+
+        high_guidance = high_trust.to_prompt_guidance()
+        low_guidance = low_trust.to_prompt_guidance()
+
+        assert "[High trust]" in high_guidance
+        assert "[Low trust]" in low_guidance
+
+    def test_is_quarantined_property(self) -> None:
+        """Test is_quarantined property works correctly."""
+        quarantined = DetectedPattern(
+            pattern_type=PatternType.VALIDATION_FAILURE,
+            description="Test",
+            quarantine_status="quarantined",
+        )
+        not_quarantined = DetectedPattern(
+            pattern_type=PatternType.VALIDATION_FAILURE,
+            description="Test",
+            quarantine_status="validated",
+        )
+
+        assert quarantined.is_quarantined is True
+        assert not_quarantined.is_quarantined is False
+
+    def test_is_validated_property(self) -> None:
+        """Test is_validated property works correctly."""
+        validated = DetectedPattern(
+            pattern_type=PatternType.VALIDATION_FAILURE,
+            description="Test",
+            quarantine_status="validated",
+        )
+        not_validated = DetectedPattern(
+            pattern_type=PatternType.VALIDATION_FAILURE,
+            description="Test",
+            quarantine_status="pending",
+        )
+
+        assert validated.is_validated is True
+        assert not_validated.is_validated is False

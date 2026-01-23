@@ -411,6 +411,100 @@ Job:   PENDING → RUNNING → COMPLETED | FAILED | PAUSED
 
 ---
 
+## Parallel Sheet Execution (v17)
+
+Mozart supports executing independent sheets in parallel using a dependency DAG.
+
+### Configuration
+
+```yaml
+sheet:
+  size: 1
+  total_items: 6
+  start_item: 1
+
+  # Define which sheets depend on which
+  dependencies:
+    # Sheets 2, 3, 4 all depend only on sheet 1 → run in PARALLEL
+    2: [1]
+    3: [1]    # PARALLEL with 2
+    4: [1]    # PARALLEL with 2 and 3
+
+    # Sheet 5 depends on ALL parallel sheets → waits for all
+    5: [2, 3, 4]
+
+    # Sheet 6 is sequential after 5
+    6: [5]
+```
+
+### Execution Flow
+
+```
+Sheet 1 (setup)
+     │
+     ├──────────┬──────────┐
+     ▼          ▼          ▼
+Sheet 2    Sheet 3    Sheet 4   ← Run in PARALLEL
+     │          │          │
+     └──────────┴──────────┘
+              │
+              ▼
+         Sheet 5 (synthesis)    ← Waits for ALL parallel sheets
+              │
+              ▼
+         Sheet 6 (report)
+```
+
+### Key Points
+
+| Aspect | Behavior |
+|--------|----------|
+| **Speed** | N parallel sheets ≈ time of slowest, not sum |
+| **Isolation** | Each sheet runs in separate Claude session |
+| **Synthesis** | Dependent sheets receive merged outputs |
+| **Conflict Detection** | v20 detects conflicting key-value pairs |
+
+### Use Cases
+
+- **Multi-source research**: Academic + industry + patent searches in parallel
+- **Multi-reviewer analysis**: Security + architecture + quality reviews
+- **Test parallelization**: Unit + integration + e2e tests simultaneously
+- **Data collection**: Multiple API sources queried concurrently
+
+### Example
+
+See `examples/parallel-research.yaml` for a complete working example.
+
+### Result Synthesis (v18)
+
+When parallel sheets complete, the `ResultSynthesizer` merges their outputs:
+
+```yaml
+# In synthesis sheet prompt:
+Read ALL parallel outputs:
+- {{ workspace }}/02-academic-findings.md
+- {{ workspace }}/03-industry-findings.md
+- {{ workspace }}/04-patent-findings.md
+
+Apply convergence scoring:
+- HIGH: Finding in 3+ sources
+- MEDIUM: Finding in 2 sources
+- LOW: Single source only
+```
+
+### Conflict Detection (v20)
+
+Cross-Sheet Semantic Validation detects when parallel sheets produce conflicting data:
+
+```
+Sheet 2: STATUS: complete
+Sheet 3: STATUS: failed       ← CONFLICT DETECTED
+```
+
+Mozart will warn before synthesis merges conflicting values.
+
+---
+
 ## Error Codes
 
 Error codes are organized by category (first digit after E):
@@ -1173,12 +1267,14 @@ These examples demonstrate proper prompt structure with stakes (consequences) se
 
 | Example | Category | Sheets | Validations | Use Case |
 |---------|----------|--------|-------------|----------|
+| `parallel-research.yaml` | Research | 6 | 14 | **Parallel execution demo** - multi-source research with DAG dependencies |
 | `systematic-literature-review.yaml` | Research | 8 | 17 | PRISMA-compliant academic reviews with dual-reviewer simulation |
 | `training-data-curation.yaml` | Data | 7 | 24 | ML dataset curation with inter-annotator agreement metrics |
 | `nonfiction-book.yaml` | Writing | 8 | 31 | Long-form book authoring with Snowflake Method structure |
 | `strategic-plan.yaml` | Planning | 8 | 39 | Business strategy with PESTEL → Porter → SWOT synthesis |
 
 **Study these examples for:**
+- **Parallel execution**: `parallel-research.yaml` - sheet dependencies, parallel batches, synthesis
 - Proper stakes usage (consequences, not instructions)
 - Directives embedded in template ("Output Requirements", "MUST include")
 - Domain-specific validation patterns

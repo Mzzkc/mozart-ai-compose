@@ -11,6 +11,7 @@ from mozart.validation.checks.config import (
     RegexPatternCheck,
     TimeoutRangeCheck,
     ValidationTypeCheck,
+    VersionReferenceCheck,
 )
 from mozart.validation.checks.jinja import (
     JinjaSyntaxCheck,
@@ -39,4 +40,5 @@ __all__ = [
     "ValidationTypeCheck",
     "TimeoutRangeCheck",
     "EmptyPatternCheck",
+    "VersionReferenceCheck",
 ]

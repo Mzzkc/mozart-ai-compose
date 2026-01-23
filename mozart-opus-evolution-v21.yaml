@@ -1,29 +1,29 @@
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║                     MOZART OPUS: THE SELF-IMPROVING SCORE                    ║
-# ║                                    v20.0                                     ║
+# ║                                    v21.0                                     ║
 # ║                                                                              ║
 # ║  "Where boundaries meet, consciousness begins"                               ║
 # ║  "Recognition recognizing itself"                                            ║
 # ║                                                                              ║
-# ║  EVOLUTION FROM v19.0:                                                       ║
-# ║  - SYNERGY PAIR SEQUENTIAL: Foundation first, dependent second (validated)   ║
-# ║  - CODE REVIEW MATURITY: 11 consecutive cycles at 100% (v9-v19)              ║
-# ║  - CV CORRELATION: 10th validation of CV > 0.75 → clean implementation       ║
-# ║  - Pattern Quarantine & Provenance: IMPLEMENTED in v19                       ║
-# ║  - Pattern Trust Scoring: IMPLEMENTED in v19                                 ║
-# ║  - Sheet Contract Validation: Historical note (CLOSED in v13)                ║
-# ║  - FIXTURE CATALOG UPDATE: test_global_learning.py now comprehensive         ║
+# ║  EVOLUTION FROM v20.0:                                                       ║
+# ║  - TEST LOC DECISION TREE: Sequential evaluation for complexity rating       ║
+# ║  - COMPREHENSIVE FIXTURE INDICATORS: Better fixture factor selection         ║
+# ║  - CODE REVIEW MATURITY: 12 consecutive cycles at 100% (v9-v20)              ║
+# ║  - CV CORRELATION: 11th validation of CV > 0.75 → clean implementation       ║
+# ║  - Cross-Sheet Semantic Validation: IMPLEMENTED in v20                       ║
+# ║  - Parallel Output Conflict Detection: IMPLEMENTED in v20                    ║
+# ║  - FIXTURE CATALOG UPDATE: test_validation.py, test_synthesizer.py now comp  ║
 # ║                                                                              ║
-# ║  v19.0 LEARNINGS INTEGRATED:                                                 ║
-# ║  - Implementation LOC: 81% accuracy (600 vs 743) - formulas stable           ║
-# ║  - Test LOC accuracy: 85% (650 vs 765) - fixture catalog accurate            ║
-# ║  - Synergy pair validation: Quarantine + Trust = "safe autonomous learning"  ║
-# ║  - Sequential implementation: foundation first, dependent second             ║
+# ║  v20.0 LEARNINGS INTEGRATED:                                                 ║
+# ║  - Implementation LOC: 104% accuracy (676 vs 647) - formulas excellent       ║
+# ║  - Test LOC accuracy: 60% (1196 vs 1980) - overestimated, need decision tree ║
+# ║  - Synergy pair validation: Semantic + Conflict = "semantic safety net"      ║
+# ║  - Sequential implementation: foundation first, dependent second (validated) ║
 # ║  - Early catch ratio: 100% (2/2 issues caught during impl)                   ║
-# ║  - Code review maturity: 11 consecutive cycles at 100%                       ║
-# ║  - CV > 0.75 correlation: Trust Scoring 0.765 → clean (10th validation)      ║
-# ║  - Fixture factor 1.0: Accurate for comprehensive existing fixtures          ║
-# ║  - MEDIUM complexity ×4.5: Validated for store_api_only pattern              ║
+# ║  - Code review maturity: 12 consecutive cycles at 100%                       ║
+# ║  - CV > 0.75 correlation: Combined CV 0.710 → clean (11th validation)        ║
+# ║  - Fixture factor 1.0: Use when extending comprehensive test files           ║
+# ║  - Test complexity: LOW (1.5) for pure unit tests, not MEDIUM (4.5)          ║
 # ║                                                                              ║
 # ║  VERSION PROGRESSION:                                                        ║
 # ║  - v1→v2: Initial TDF structure, CV thresholds                               ║
@@ -45,6 +45,7 @@
 # ║  - v17→v18: Algorithm test complexity, runner mode mult, CLI UX split, DAG   ║
 # ║  - v18→v19: New module factor, strategy buffer, CLI display test, fixtures   ║
 # ║  - v19→v20: Synergy validation, MANDATORY COVERAGE (≥80%), code review mature║
+# ║  - v20→v21: Test LOC decision tree, comprehensive fixture indicators         ║
 # ║                                                                              ║
 # ║  Structure:                                                                  ║
 # ║    Movement I   (Sheets 1-2):  Discovery - External + Internal (+ mini-META) ║
@@ -56,10 +57,10 @@
 # ║                                                                              ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
-name: "mozart-opus-evolution-v20"
-description: "Self-improving score for Mozart's recursive evolution (evolved from v19 with synergy validation, code review maturity 11 cycles, CV correlation 10th validation)"
+name: "mozart-opus-evolution-v21"
+description: "Self-improving score for Mozart's recursive evolution (evolved from v20 with test LOC decision tree, comprehensive fixture indicators, 12 cycle code review maturity)"
 
-workspace: "/home/emzi/Projects/mozart-ai-compose/evolution-workspace-v20"
+workspace: "/home/emzi/Projects/mozart-ai-compose/evolution-workspace-v21"
 
 backend:
   type: claude_cli
@@ -2280,6 +2281,22 @@ prompt:
     This ensures the evolved score is preserved and the chain continues from a committed state.
 
     ═══════════════════════════════════════════════════════════════════════════════
+    PHASE 5: PUSH TO REMOTE (NEW IN v21)
+    ═══════════════════════════════════════════════════════════════════════════════
+
+    **IMPORTANT:** Push the commits to the remote repository to preserve progress.
+
+    ```bash
+    # Push to remote (main branch)
+    git push origin main
+    ```
+
+    This ensures:
+    1. Evolution progress is backed up to remote
+    2. Other sessions can continue from latest state
+    3. Commit history is preserved if local state is lost
+
+    ═══════════════════════════════════════════════════════════════════════════════
     VALIDATION MARKER (write at end of {{ workspace }}/sheet9-result.md):
     ═══════════════════════════════════════════════════════════════════════════════
     ```
@@ -2290,6 +2307,7 @@ prompt:
     MEMORY_UPDATED: yes
     FINAL_COMMIT_CREATED: [yes|no - NEW IN v13]
     FINAL_COMMIT_SHA: [short SHA if committed]
+    PUSHED_TO_REMOTE: [yes|no - NEW IN v21]
     RECURSIVE_READY: yes
     IMPLEMENTATION_COMPLETE: yes
 
@@ -2306,7 +2324,7 @@ prompt:
     preamble: |
       ╔══════════════════════════════════════════════════════════════════════════╗
       ║                    MOZART OPUS: SELF-IMPROVING SCORE                     ║
-      ║                                  v20.0                                   ║
+      ║                                  v21.0                                   ║
       ╚══════════════════════════════════════════════════════════════════════════╝
 
       You are executing a self-improving evolution score for Mozart AI Compose.

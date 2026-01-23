@@ -261,6 +261,137 @@ class TimeoutRangeCheck:
         return None
 
 
+class VersionReferenceCheck:
+    """Check that evolved scores don't reference previous version paths (V009).
+
+    When a score evolves (e.g., v20 → v21), the new score file should have
+    all references updated to the new version. This catches cases where the
+    name, workspace, or other paths still reference the old version.
+    """
+
+    @property
+    def check_id(self) -> str:
+        return "V009"
+
+    @property
+    def severity(self) -> ValidationSeverity:
+        return ValidationSeverity.ERROR
+
+    @property
+    def description(self) -> str:
+        return "Checks evolved scores don't reference previous version paths"
+
+    def check(
+        self,
+        config: JobConfig,
+        config_path: Path,
+        raw_yaml: str,
+    ) -> list[ValidationIssue]:
+        """Check for stale version references in evolved scores."""
+        issues: list[ValidationIssue] = []
+
+        # Extract version from filename (e.g., v21 from mozart-opus-evolution-v21.yaml)
+        filename = config_path.name
+        version_match = re.search(r"-v(\d+)\.yaml$", filename)
+        if not version_match:
+            # Not a versioned score file, skip this check
+            return issues
+
+        current_version = int(version_match.group(1))
+        if current_version <= 1:
+            # v1 has no previous version to check against
+            return issues
+
+        previous_version = current_version - 1
+        prev_patterns = [
+            f"-v{previous_version}",  # e.g., -v20
+            f"v{previous_version}.0",  # e.g., v20.0
+            f"v{previous_version}/",  # e.g., workspace-v20/
+            f"-v{previous_version}/",  # e.g., evolution-workspace-v20/
+            f"evolution-v{previous_version}",  # e.g., evolution-v20
+        ]
+
+        # Check the job name
+        if f"-v{previous_version}" in config.name:
+            issues.append(
+                ValidationIssue(
+                    check_id=self.check_id,
+                    severity=self.severity,
+                    message=f"Job name '{config.name}' references v{previous_version} but file is v{current_version}",
+                    line=self._find_line_in_yaml(raw_yaml, "name:"),
+                    suggestion=f"Update name to use v{current_version}",
+                    metadata={
+                        "field": "name",
+                        "current_version": str(current_version),
+                        "previous_version": str(previous_version),
+                    },
+                )
+            )
+
+        # Check the workspace path
+        workspace_str = str(config.workspace)
+        if f"-v{previous_version}" in workspace_str or f"v{previous_version}/" in workspace_str:
+            issues.append(
+                ValidationIssue(
+                    check_id=self.check_id,
+                    severity=self.severity,
+                    message=f"Workspace path references v{previous_version} but file is v{current_version}",
+                    line=self._find_line_in_yaml(raw_yaml, "workspace:"),
+                    context=workspace_str,
+                    suggestion=f"Update workspace to use v{current_version}",
+                    metadata={
+                        "field": "workspace",
+                        "current_version": str(current_version),
+                        "previous_version": str(previous_version),
+                    },
+                )
+            )
+
+        # Scan raw YAML for other references (in comments, descriptions, etc.)
+        for i, line in enumerate(raw_yaml.split("\n"), 1):
+            # Skip lines that are defining the version progression history
+            if "VERSION PROGRESSION:" in line or "→" in line or "->" in line:
+                continue
+            # Skip lines in comments that are documenting history
+            if line.strip().startswith("#") and ("v" + str(previous_version - 1) in line):
+                continue
+
+            for pattern in prev_patterns:
+                if pattern in line:
+                    # Check if this is just historical documentation
+                    if any(hist in line for hist in ["EVOLUTION FROM", "evolved from", "LEARNINGS"]):
+                        continue
+                    # Check if it's in the version progression list
+                    if f"v{previous_version}→v{current_version}" in line or f"v{previous_version}->v{current_version}" in line:
+                        continue
+
+                    issues.append(
+                        ValidationIssue(
+                            check_id=self.check_id,
+                            severity=ValidationSeverity.WARNING,
+                            message=f"Line {i} references v{previous_version} - verify this is intentional",
+                            line=i,
+                            context=line.strip()[:80],
+                            suggestion=f"Update to v{current_version} if this should reference the current version",
+                            metadata={
+                                "pattern": pattern,
+                                "current_version": str(current_version),
+                                "previous_version": str(previous_version),
+                            },
+                        )
+                    )
+                    break  # Only one issue per line
+
+        return issues
+
+    def _find_line_in_yaml(self, yaml_str: str, marker: str) -> int | None:
+        """Find the line number of a marker in the YAML."""
+        for i, line in enumerate(yaml_str.split("\n"), 1):
+            if marker in line:
+                return i
+        return None
+
+
 class EmptyPatternCheck:
     """Check for empty patterns in validations (V106)."""
 

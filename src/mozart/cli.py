@@ -3591,24 +3591,56 @@ def patterns(
         "-j",
         help="Output as JSON for machine parsing",
     ),
+    quarantined: bool = typer.Option(
+        False,
+        "--quarantined",
+        "-q",
+        help="Show only quarantined patterns",
+    ),
+    high_trust: bool = typer.Option(
+        False,
+        "--high-trust",
+        help="Show only patterns with trust >= 0.7",
+    ),
+    low_trust: bool = typer.Option(
+        False,
+        "--low-trust",
+        help="Show only patterns with trust <= 0.3",
+    ),
 ) -> None:
     """View global learning patterns.
 
     Displays patterns learned from job executions across all workspaces.
     These patterns inform retry strategies, wait times, and validation.
 
+    v19: Added quarantine status and trust score display and filtering.
+
     Examples:
         mozart patterns                  # Show global patterns
         mozart patterns --min-priority 0.5  # Only high-priority patterns
         mozart patterns --json           # JSON output for scripting
         mozart patterns --local          # Local workspace patterns only
+        mozart patterns --quarantined    # Show quarantined patterns
+        mozart patterns --high-trust     # Show trusted patterns only
     """
-    from mozart.learning.global_store import get_global_store
+    from mozart.learning.global_store import get_global_store, QuarantineStatus
 
     store = get_global_store()
 
+    # Build filter args for v19 quarantine/trust filtering
+    filter_kwargs: dict[str, Any] = {
+        "min_priority": min_priority,
+        "limit": limit,
+    }
+    if quarantined:
+        filter_kwargs["quarantine_status"] = QuarantineStatus.QUARANTINED
+    if high_trust:
+        filter_kwargs["min_trust"] = 0.7
+    if low_trust:
+        filter_kwargs["max_trust"] = 0.3
+
     if json_output:
-        patterns_list = store.get_patterns(min_priority=min_priority)[:limit]
+        patterns_list = store.get_patterns(**filter_kwargs)
         import json
         output = []
         for p in patterns_list:
@@ -3621,12 +3653,15 @@ def patterns(
                 "effectiveness_score": round(p.effectiveness_score, 3),
                 "priority_score": round(p.priority_score, 3),
                 "context_tags": list(p.context_tags) if p.context_tags else [],
+                # v19: Add quarantine and trust fields
+                "quarantine_status": p.quarantine_status.value,
+                "trust_score": round(p.trust_score, 3),
             })
         console.print(json.dumps(output, indent=2))
         return
 
     # Get patterns from global store
-    patterns_list = store.get_patterns(min_priority=min_priority)[:limit]
+    patterns_list = store.get_patterns(**filter_kwargs)
 
     if not patterns_list:
         console.print("[dim]No patterns found in global learning store.[/dim]")
@@ -3636,15 +3671,16 @@ def patterns(
         )
         return
 
-    # Display patterns table
+    # Display patterns table - v19: added Status and Trust columns
     table = Table(title="Global Learning Patterns")
     table.add_column("ID", style="cyan", no_wrap=True, width=10)
-    table.add_column("Type", style="yellow", width=15)
-    table.add_column("Name", style="bold", width=25)
-    table.add_column("Count", justify="right", width=6)
-    table.add_column("Effect", justify="right", width=8)
-    table.add_column("Priority", justify="right", width=8)
-    table.add_column("Tags", style="dim", width=20)
+    table.add_column("Type", style="yellow", width=12)
+    table.add_column("Name", style="bold", width=20)
+    table.add_column("Status", width=10)  # v19: Quarantine status
+    table.add_column("Trust", justify="right", width=6)  # v19: Trust score
+    table.add_column("Count", justify="right", width=5)
+    table.add_column("Effect", justify="right", width=6)
+    table.add_column("Prior", justify="right", width=5)
 
     for p in patterns_list:
         # Format effectiveness with color
@@ -3657,19 +3693,31 @@ def patterns(
         pri_color = "green" if pri > 0.7 else "yellow" if pri > 0.4 else "dim"
         pri_str = f"[{pri_color}]{pri:.2f}[/{pri_color}]"
 
-        # Truncate tags
-        tags = ", ".join(p.context_tags[:3]) if p.context_tags else ""
-        if len(tags) > 20:
-            tags = tags[:17] + "..."
+        # v19: Format quarantine status with color
+        status = p.quarantine_status.value
+        status_colors = {
+            "pending": "dim",
+            "quarantined": "red",
+            "validated": "green",
+            "retired": "dim italic",
+        }
+        status_color = status_colors.get(status, "dim")
+        status_str = f"[{status_color}]{status}[/{status_color}]"
+
+        # v19: Format trust score with color
+        trust = p.trust_score
+        trust_color = "green" if trust >= 0.7 else "yellow" if trust >= 0.4 else "red"
+        trust_str = f"[{trust_color}]{trust:.2f}[/{trust_color}]"
 
         table.add_row(
             p.id[:10],
-            p.pattern_type,
-            p.pattern_name[:25],
+            p.pattern_type[:12],
+            p.pattern_name[:20],
+            status_str,
+            trust_str,
             str(p.occurrence_count),
             eff_str,
             pri_str,
-            tags,
         )
 
     console.print(table)
@@ -3739,6 +3787,247 @@ def aggregate_patterns(
         console.print("\n[dim]Imported from:[/dim]")
         for ws in result.imported_workspaces[:5]:
             console.print(f"  [cyan]• {ws}[/cyan]")
+
+
+# =============================================================================
+# v19: Pattern Quarantine & Trust Commands
+# =============================================================================
+
+
+@app.command("pattern-quarantine")
+def pattern_quarantine(
+    pattern_id: str = typer.Argument(
+        ...,
+        help="Pattern ID to quarantine (first 10 chars from 'patterns' command)",
+    ),
+    reason: str | None = typer.Option(
+        None,
+        "--reason",
+        "-r",
+        help="Reason for quarantining this pattern",
+    ),
+) -> None:
+    """Quarantine a pattern to exclude it from automatic application.
+
+    Quarantined patterns are not automatically applied to executions
+    but are retained for investigation and historical reference.
+
+    v19 Evolution: Pattern Quarantine & Provenance
+
+    Examples:
+        mozart pattern-quarantine abc123     # Quarantine by ID prefix
+        mozart pattern-quarantine abc123 -r "Causes rate limits"
+    """
+    from mozart.learning.global_store import get_global_store
+
+    store = get_global_store()
+
+    # Try to find pattern by prefix match
+    patterns_list = store.get_patterns(min_priority=0.0, limit=1000)
+    matching = [p for p in patterns_list if p.id.startswith(pattern_id)]
+
+    if not matching:
+        console.print(f"[red]No pattern found with ID starting with '{pattern_id}'[/red]")
+        raise typer.Exit(1)
+
+    if len(matching) > 1:
+        console.print(f"[yellow]Multiple patterns match '{pattern_id}':[/yellow]")
+        for p in matching[:5]:
+            console.print(f"  [cyan]{p.id}[/cyan] - {p.pattern_name}")
+        console.print("[dim]Please provide more characters to uniquely identify the pattern.[/dim]")
+        raise typer.Exit(1)
+
+    pattern = matching[0]
+    result = store.quarantine_pattern(pattern.id, reason=reason)
+
+    if result:
+        console.print(f"[green]Quarantined pattern:[/green] {pattern.pattern_name}")
+        console.print(f"  [dim]ID: {pattern.id}[/dim]")
+        if reason:
+            console.print(f"  [dim]Reason: {reason}[/dim]")
+    else:
+        console.print(f"[red]Failed to quarantine pattern {pattern_id}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command("pattern-validate")
+def pattern_validate(
+    pattern_id: str = typer.Argument(
+        ...,
+        help="Pattern ID to validate (first 10 chars from 'patterns' command)",
+    ),
+) -> None:
+    """Validate a pattern to mark it as trusted for autonomous application.
+
+    Validated patterns receive a trust bonus in relevance scoring and
+    are trusted for autonomous application without human review.
+
+    v19 Evolution: Pattern Quarantine & Provenance
+
+    Examples:
+        mozart pattern-validate abc123  # Validate by ID prefix
+    """
+    from mozart.learning.global_store import get_global_store
+
+    store = get_global_store()
+
+    # Try to find pattern by prefix match
+    patterns_list = store.get_patterns(min_priority=0.0, limit=1000)
+    matching = [p for p in patterns_list if p.id.startswith(pattern_id)]
+
+    if not matching:
+        console.print(f"[red]No pattern found with ID starting with '{pattern_id}'[/red]")
+        raise typer.Exit(1)
+
+    if len(matching) > 1:
+        console.print(f"[yellow]Multiple patterns match '{pattern_id}':[/yellow]")
+        for p in matching[:5]:
+            console.print(f"  [cyan]{p.id}[/cyan] - {p.pattern_name}")
+        console.print("[dim]Please provide more characters to uniquely identify the pattern.[/dim]")
+        raise typer.Exit(1)
+
+    pattern = matching[0]
+    result = store.validate_pattern(pattern.id)
+
+    if result:
+        console.print(f"[green]Validated pattern:[/green] {pattern.pattern_name}")
+        console.print(f"  [dim]ID: {pattern.id}[/dim]")
+        console.print(f"  [dim]Status is now: validated[/dim]")
+    else:
+        console.print(f"[red]Failed to validate pattern {pattern_id}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command("pattern-show")
+def pattern_show(
+    pattern_id: str = typer.Argument(
+        ...,
+        help="Pattern ID to show details (first 10 chars from 'patterns' command)",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        "-j",
+        help="Output as JSON for machine parsing",
+    ),
+) -> None:
+    """Show detailed information about a pattern including provenance.
+
+    Displays all pattern metadata including quarantine status, trust score,
+    provenance (origin job/sheet), and effectiveness metrics.
+
+    v19 Evolution: Pattern Quarantine & Provenance
+
+    Examples:
+        mozart pattern-show abc123        # Show pattern details
+        mozart pattern-show abc123 --json # JSON output
+    """
+    import json as json_lib
+
+    from mozart.learning.global_store import get_global_store
+
+    store = get_global_store()
+
+    # Try to find pattern by prefix match
+    patterns_list = store.get_patterns(min_priority=0.0, limit=1000)
+    matching = [p for p in patterns_list if p.id.startswith(pattern_id)]
+
+    if not matching:
+        console.print(f"[red]No pattern found with ID starting with '{pattern_id}'[/red]")
+        raise typer.Exit(1)
+
+    if len(matching) > 1:
+        console.print(f"[yellow]Multiple patterns match '{pattern_id}':[/yellow]")
+        for p in matching[:5]:
+            console.print(f"  [cyan]{p.id}[/cyan] - {p.pattern_name}")
+        console.print("[dim]Please provide more characters to uniquely identify the pattern.[/dim]")
+        raise typer.Exit(1)
+
+    pattern = matching[0]
+    provenance = store.get_pattern_provenance(pattern.id)
+
+    if json_output:
+        console.print(json_lib.dumps(provenance, indent=2))
+        return
+
+    # Human-readable display
+    console.print(Panel(
+        f"[bold]{pattern.pattern_name}[/bold]\n"
+        f"[dim]{pattern.description or 'No description'}[/dim]",
+        title=f"Pattern: {pattern.id}",
+        border_style="cyan",
+    ))
+
+    # Metrics table
+    table = Table(show_header=False, box=None)
+    table.add_column("Field", style="dim", width=20)
+    table.add_column("Value", style="bold")
+
+    table.add_row("Type", pattern.pattern_type)
+    table.add_row("Quarantine Status", pattern.quarantine_status.value)
+    table.add_row("Trust Score", f"{pattern.trust_score:.2f}")
+    table.add_row("Occurrence Count", str(pattern.occurrence_count))
+    table.add_row("Effectiveness", f"{pattern.effectiveness_score:.2f}")
+    table.add_row("Priority", f"{pattern.priority_score:.2f}")
+    table.add_row("Success Count", str(pattern.led_to_success_count))
+    table.add_row("Failure Count", str(pattern.led_to_failure_count))
+
+    console.print("\n[bold]Metrics[/bold]")
+    console.print(table)
+
+    # Provenance section
+    console.print("\n[bold]Provenance[/bold]")
+    prov_table = Table(show_header=False, box=None)
+    prov_table.add_column("Field", style="dim", width=20)
+    prov_table.add_column("Value", style="bold")
+
+    prov_table.add_row("First Seen", pattern.first_seen.strftime("%Y-%m-%d %H:%M"))
+    prov_table.add_row("Last Seen", pattern.last_seen.strftime("%Y-%m-%d %H:%M"))
+    prov_table.add_row("Last Confirmed", pattern.last_confirmed.strftime("%Y-%m-%d %H:%M"))
+    prov_table.add_row("Origin Job Hash", pattern.provenance_job_hash or "[dim]Unknown[/dim]")
+    origin_sheet = (
+        str(pattern.provenance_sheet_num)
+        if pattern.provenance_sheet_num
+        else "[dim]Unknown[/dim]"
+    )
+    prov_table.add_row("Origin Sheet", origin_sheet)
+
+    if pattern.quarantined_at:
+        prov_table.add_row("Quarantined At", pattern.quarantined_at.strftime("%Y-%m-%d %H:%M"))
+    if pattern.validated_at:
+        prov_table.add_row("Validated At", pattern.validated_at.strftime("%Y-%m-%d %H:%M"))
+    if pattern.quarantine_reason:
+        prov_table.add_row("Quarantine Reason", pattern.quarantine_reason)
+
+    console.print(prov_table)
+
+    # Context tags
+    if pattern.context_tags:
+        console.print("\n[bold]Context Tags[/bold]")
+        console.print(f"  {', '.join(pattern.context_tags)}")
+
+
+@app.command("recalculate-trust")
+def recalculate_trust() -> None:
+    """Recalculate trust scores for all patterns.
+
+    Updates trust scores based on current effectiveness data and
+    quarantine status. Use after bulk pattern changes or periodically
+    for maintenance.
+
+    v19 Evolution: Pattern Trust Scoring
+
+    Examples:
+        mozart recalculate-trust  # Update all trust scores
+    """
+    from mozart.learning.global_store import get_global_store
+
+    store = get_global_store()
+
+    console.print("[bold]Recalculating trust scores...[/bold]")
+    updated = store.recalculate_all_trust_scores()
+
+    console.print(f"[green]Updated trust scores for {updated} patterns[/green]")
 
 
 @app.command("learning-stats")
@@ -4041,6 +4330,182 @@ def learning_drift(
             f"\n[yellow]⚠ {len(declining)} pattern(s) showing declining effectiveness[/yellow]"
         )
         console.print("[dim]Consider reviewing these patterns for deprecation[/dim]")
+
+
+@app.command("learning-epistemic-drift")
+def learning_epistemic_drift(
+    threshold: float = typer.Option(
+        0.15,
+        "--threshold",
+        "-t",
+        help="Epistemic drift threshold (0.0-1.0) to flag patterns",
+    ),
+    window: int = typer.Option(
+        5,
+        "--window",
+        "-w",
+        help="Window size for drift comparison",
+    ),
+    limit: int = typer.Option(
+        10,
+        "--limit",
+        "-l",
+        help="Maximum number of patterns to show",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        "-j",
+        help="Output as JSON for machine parsing",
+    ),
+    summary: bool = typer.Option(
+        False,
+        "--summary",
+        "-s",
+        help="Show only summary statistics",
+    ),
+) -> None:
+    """Detect patterns with epistemic drift (belief/confidence changes).
+
+    v21 Evolution: Epistemic Drift Detection - monitors how confidence in
+    patterns changes over time, complementing effectiveness drift. While
+    effectiveness drift tracks outcome changes, epistemic drift tracks
+    belief evolution.
+
+    This enables detection of belief degradation BEFORE effectiveness
+    actually declines - a leading indicator of pattern health.
+
+    Epistemic drift is calculated by comparing average grounding confidence
+    in recent applications vs older applications. High entropy (variance in
+    confidence) amplifies the drift signal.
+
+    Examples:
+        mozart learning-epistemic-drift            # Show patterns with belief drift
+        mozart learning-epistemic-drift -t 0.1    # Lower threshold (more sensitive)
+        mozart learning-epistemic-drift -w 10     # Larger comparison window
+        mozart learning-epistemic-drift --summary # Just show summary stats
+        mozart learning-epistemic-drift --json    # JSON output for scripting
+    """
+    from mozart.learning.global_store import get_global_store
+
+    store = get_global_store()
+
+    if summary:
+        # Summary mode - just show aggregate stats
+        drift_summary = store.get_epistemic_drift_summary()
+
+        if json_output:
+            import json
+            console.print(json.dumps(drift_summary, indent=2))
+            return
+
+        console.print("[bold]Epistemic Drift Summary[/bold]\n")
+        console.print(f"  Total patterns: {drift_summary['total_patterns']}")
+        console.print(f"  Patterns analyzed: {drift_summary['patterns_analyzed']}")
+        drifting = drift_summary["patterns_with_epistemic_drift"]
+        color = "red" if drifting > 0 else "green"
+        console.print(f"  Patterns with drift: [{color}]{drifting}[/{color}]")
+        console.print(
+            f"  Avg belief change: {drift_summary['avg_belief_change']:.3f}"
+        )
+        console.print(
+            f"  Avg belief entropy: {drift_summary['avg_belief_entropy']:.3f}"
+        )
+        if drift_summary["most_unstable"]:
+            console.print(
+                f"  Most unstable pattern: {drift_summary['most_unstable']}"
+            )
+        return
+
+    # Full epistemic drift report
+    drifting_patterns = store.get_epistemic_drifting_patterns(
+        drift_threshold=threshold,
+        window_size=window,
+        limit=limit,
+    )
+
+    if json_output:
+        import json
+        output = {
+            "threshold": threshold,
+            "window_size": window,
+            "patterns": [
+                {
+                    "pattern_id": m.pattern_id,
+                    "pattern_name": m.pattern_name,
+                    "confidence_before": round(m.confidence_before, 3),
+                    "confidence_after": round(m.confidence_after, 3),
+                    "belief_change": round(m.belief_change, 3),
+                    "belief_entropy": round(m.belief_entropy, 3),
+                    "drift_direction": m.drift_direction,
+                    "applications_analyzed": m.applications_analyzed,
+                }
+                for m in drifting_patterns
+            ],
+        }
+        console.print(json.dumps(output, indent=2))
+        return
+
+    # Human-readable table output
+    console.print(f"[bold]Patterns with Epistemic Drift > {threshold:.0%}[/bold]")
+    console.print(f"[dim]Window size: {window} applications per period[/dim]\n")
+
+    if not drifting_patterns:
+        console.print("[green]✓ No patterns exceeding epistemic drift threshold[/green]")
+        console.print("[dim]All pattern beliefs are stable[/dim]")
+        return
+
+    from rich.table import Table
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Pattern", style="cyan")
+    table.add_column("Conf Before", justify="right")
+    table.add_column("Conf After", justify="right")
+    table.add_column("Change", justify="right")
+    table.add_column("Direction", justify="center")
+    table.add_column("Entropy", justify="right")
+
+    for m in drifting_patterns:
+        # Color-code drift direction
+        if m.drift_direction == "weakening":
+            dir_style = "[red]↓ weakening[/red]"
+        elif m.drift_direction == "strengthening":
+            dir_style = "[green]↑ strengthening[/green]"
+        else:
+            dir_style = "[dim]→ stable[/dim]"
+
+        # Color-code belief change magnitude
+        change_color = "red" if abs(m.belief_change) > 0.2 else "yellow"
+
+        # Color-code entropy (high entropy = concerning)
+        entropy_color = "red" if m.belief_entropy > 0.3 else "dim"
+
+        table.add_row(
+            m.pattern_name[:30],  # Truncate long names
+            f"{m.confidence_before:.1%}",
+            f"{m.confidence_after:.1%}",
+            f"[{change_color}]{m.belief_change:+.1%}[/{change_color}]",
+            dir_style,
+            f"[{entropy_color}]{m.belief_entropy:.2f}[/{entropy_color}]",
+        )
+
+    console.print(table)
+
+    # Add warning for weakening patterns
+    weakening = [m for m in drifting_patterns if m.drift_direction == "weakening"]
+    if weakening:
+        console.print(
+            f"\n[yellow]⚠ {len(weakening)} pattern(s) showing weakening confidence[/yellow]"
+        )
+        console.print("[dim]These patterns may need investigation before effectiveness declines[/dim]")
+
+    # Add warning for high entropy patterns
+    high_entropy = [m for m in drifting_patterns if m.belief_entropy > 0.3]
+    if high_entropy:
+        console.print(
+            f"\n[yellow]⚠ {len(high_entropy)} pattern(s) with high belief entropy[/yellow]"
+        )
+        console.print("[dim]Inconsistent confidence suggests unstable pattern application[/dim]")
 
 
 @app.command("learning-activity")

@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from mozart.core.checkpoint import CheckpointState, JobStatus
 from mozart.dashboard.app import create_app
 from mozart.dashboard.services.job_control import JobStartResult, JobActionResult
+from mozart.dashboard.routes.jobs import StartJobRequest, JobActionResponse
 from mozart.state.json_backend import JsonStateBackend
 
 
@@ -31,6 +32,50 @@ def app(temp_state_dir):
 def client(app):
     """Create test client."""
     return TestClient(app)
+
+
+class TestJobModels:
+    """Test the Pydantic models used in job routes."""
+
+    def test_job_start_request_validation_both_sources(self):
+        """Test that providing both config sources raises validation error."""
+        with pytest.raises(ValueError, match="Cannot provide both config_content and config_path"):
+            request = StartJobRequest(
+                config_content="content here",
+                config_path="path/here.yaml"
+            )
+            request.validate_config_source()
+
+    def test_job_start_request_validation_no_sources(self):
+        """Test that providing neither config source raises validation error."""
+        with pytest.raises(ValueError, match="Must provide either config_content or config_path"):
+            request = StartJobRequest()
+            request.validate_config_source()
+
+    def test_job_start_request_validation_content_only(self):
+        """Test that providing only config_content passes validation."""
+        request = StartJobRequest(config_content="content here")
+        request.validate_config_source()  # Should not raise
+
+    def test_job_start_request_validation_path_only(self):
+        """Test that providing only config_path passes validation."""
+        request = StartJobRequest(config_path="path/here.yaml")
+        request.validate_config_source()  # Should not raise
+
+    def test_job_action_response_from_action_result(self):
+        """Test creating JobActionResponse from JobActionResult."""
+        action_result = JobActionResult(
+            success=True,
+            job_id="test-job-123",
+            status=JobStatus.PAUSED,
+            message="Job paused successfully"
+        )
+
+        response = JobActionResponse.from_action_result(action_result)
+        assert response.success is True
+        assert response.job_id == "test-job-123"
+        assert response.status == "paused"  # JobStatus.PAUSED.value is "paused"
+        assert response.message == "Job paused successfully"
 
 
 @pytest.fixture
