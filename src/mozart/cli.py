@@ -3560,6 +3560,84 @@ def dashboard(
         console.print("\n[yellow]Dashboard stopped.[/yellow]")
 
 
+@app.command()
+def mcp(
+    port: int = typer.Option(8001, "--port", "-p", help="Port to run MCP server on"),
+    host: str = typer.Option("127.0.0.1", "--host", help="Host to bind to"),
+    workspace: Path | None = typer.Option(
+        None,
+        "--workspace",
+        "-w",
+        help="Workspace directory for job operations (defaults to current directory)",
+    ),
+) -> None:
+    """Start the Mozart MCP (Model Context Protocol) server.
+
+    Launches an MCP server that exposes Mozart's job management capabilities
+    as tools for external AI agents. The server provides:
+
+    - Job management tools (run, status, pause, resume, cancel)
+    - Artifact browsing and log streaming
+    - Configuration access as resources
+
+    Security: All tool executions require explicit user consent.
+    File system access is restricted to designated workspace directories.
+
+    Examples:
+        mozart mcp                          # Start on localhost:8001
+        mozart mcp --port 8002              # Custom port
+        mozart mcp --workspace ./projects   # Use specific workspace root
+    """
+    try:
+        asyncio.run(_run_mcp_server(host, port, workspace))
+    except KeyboardInterrupt:
+        console.print("\n[yellow]MCP Server stopped.[/yellow]")
+
+
+async def _run_mcp_server(host: str, port: int, workspace_root: Path | None) -> None:
+    """Run the MCP server with proper async handling."""
+    from mozart.mcp.server import MCPServer
+
+    # Initialize MCP server
+    workspace = workspace_root or Path.cwd()
+    server = MCPServer(workspace_root=workspace)
+
+    # Initialize with basic client info
+    await server.initialize({
+        "name": "mozart-cli",
+        "version": __version__
+    })
+
+    console.print(
+        Panel(
+            f"[bold]Mozart MCP Server[/bold]\n\n"
+            f"Protocol: Model Context Protocol\n"
+            f"Host: {host}:{port}\n"
+            f"Workspace: {workspace}\n"
+            f"Tools: Job management, artifact browsing, config access\n\n"
+            f"[dim]Press Ctrl+C to stop[/dim]",
+            title="MCP Server Ready",
+        )
+    )
+
+    # Note: This is a simplified startup - a full implementation would
+    # require an HTTP/SSE transport layer. For now, we just keep the
+    # server alive and ready for JSON-RPC 2.0 connections.
+    console.print(
+        f"[yellow]Note:[/yellow] MCP server initialized. "
+        f"Implement HTTP/SSE transport for external connections."
+    )
+
+    try:
+        # Keep server alive
+        while True:
+            await asyncio.sleep(1.0)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        await server.shutdown()
+
+
 # =============================================================================
 # Global Learning Commands (Movement IV-B)
 # =============================================================================
@@ -4699,6 +4777,592 @@ def learning_epistemic_drift(
             f"\n[yellow]⚠ {len(high_entropy)} pattern(s) with high belief entropy[/yellow]"
         )
         console.print("[dim]Inconsistent confidence suggests unstable pattern application[/dim]")
+
+
+@app.command("patterns-entropy")
+def patterns_entropy(
+    alert_threshold: float = typer.Option(
+        0.5,
+        "--threshold",
+        "-t",
+        help="Diversity index below this triggers alert (0.0-1.0)",
+    ),
+    history: bool = typer.Option(
+        False,
+        "--history",
+        "-H",
+        help="Show entropy history over time",
+    ),
+    limit: int = typer.Option(
+        20,
+        "--limit",
+        "-n",
+        help="Number of history records to show",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        "-j",
+        help="Output as JSON for machine parsing",
+    ),
+    record: bool = typer.Option(
+        False,
+        "--record",
+        "-r",
+        help="Record current entropy to history",
+    ),
+) -> None:
+    """Monitor pattern population diversity using Shannon entropy.
+
+    v21 Evolution: Pattern Entropy Monitoring - detects model collapse risk
+    by tracking the diversity of pattern usage across the learning system.
+
+    Shannon entropy measures how evenly patterns are used:
+    - High entropy (H → max): Healthy diversity, many patterns contribute
+    - Low entropy (H → 0): Single pattern dominates (collapse risk)
+
+    The diversity_index normalizes entropy to 0-1 range for easy alerting.
+
+    Examples:
+        mozart patterns-entropy               # Show current entropy metrics
+        mozart patterns-entropy --threshold 0.3  # Alert on low diversity
+        mozart patterns-entropy --history     # View entropy trend over time
+        mozart patterns-entropy --record      # Record snapshot for trend analysis
+        mozart patterns-entropy --json        # JSON output for scripting
+    """
+    from mozart.learning.global_store import get_global_store
+
+    store = get_global_store()
+
+    if history:
+        # Show entropy history
+        history_records = store.get_pattern_entropy_history(limit=limit)
+
+        if json_output:
+            import json
+            output = []
+            for h in history_records:
+                output.append({
+                    "calculated_at": h.calculated_at.isoformat(),
+                    "shannon_entropy": round(h.shannon_entropy, 4),
+                    "max_possible_entropy": round(h.max_possible_entropy, 4),
+                    "diversity_index": round(h.diversity_index, 4),
+                    "unique_pattern_count": h.unique_pattern_count,
+                    "effective_pattern_count": h.effective_pattern_count,
+                    "total_applications": h.total_applications,
+                    "dominant_pattern_share": round(h.dominant_pattern_share, 4),
+                    "threshold_exceeded": h.threshold_exceeded,
+                })
+            console.print(json.dumps(output, indent=2))
+            return
+
+        if not history_records:
+            console.print("[dim]No entropy history found.[/dim]")
+            console.print("\n[dim]Hint: Use --record to start tracking entropy over time.[/dim]")
+            return
+
+        # Display history table
+        table = Table(title="Pattern Entropy History")
+        table.add_column("Time", style="dim", width=20)
+        table.add_column("Shannon H", justify="right", width=10)
+        table.add_column("Diversity", justify="right", width=10)
+        table.add_column("Unique", justify="right", width=8)
+        table.add_column("Effective", justify="right", width=10)
+        table.add_column("Applications", justify="right", width=12)
+        table.add_column("Dominant %", justify="right", width=10)
+
+        for h in history_records:
+            # Color diversity based on threshold
+            div_color = "green" if h.diversity_index >= alert_threshold else "red"
+            div_str = f"[{div_color}]{h.diversity_index:.3f}[/{div_color}]"
+
+            # Color dominant share (high = concerning)
+            dom_color = "red" if h.dominant_pattern_share > 0.5 else "yellow" if h.dominant_pattern_share > 0.3 else "green"
+            dom_str = f"[{dom_color}]{h.dominant_pattern_share:.1%}[/{dom_color}]"
+
+            table.add_row(
+                h.calculated_at.strftime("%Y-%m-%d %H:%M"),
+                f"{h.shannon_entropy:.3f}",
+                div_str,
+                str(h.unique_pattern_count),
+                str(h.effective_pattern_count),
+                str(h.total_applications),
+                dom_str,
+            )
+
+        console.print(table)
+        console.print(f"\n[dim]Showing {len(history_records)} record(s)[/dim]")
+        return
+
+    # Calculate current entropy
+    metrics = store.calculate_pattern_entropy()
+
+    # Set threshold_exceeded based on config threshold
+    metrics.threshold_exceeded = metrics.diversity_index < alert_threshold
+
+    if record:
+        # Record to history
+        record_id = store.record_pattern_entropy(metrics)
+        console.print(f"[green]Recorded entropy snapshot: {record_id[:10]}[/green]\n")
+
+    if json_output:
+        import json
+        output = {
+            "calculated_at": metrics.calculated_at.isoformat(),
+            "shannon_entropy": round(metrics.shannon_entropy, 4),
+            "max_possible_entropy": round(metrics.max_possible_entropy, 4),
+            "diversity_index": round(metrics.diversity_index, 4),
+            "unique_pattern_count": metrics.unique_pattern_count,
+            "effective_pattern_count": metrics.effective_pattern_count,
+            "total_applications": metrics.total_applications,
+            "dominant_pattern_share": round(metrics.dominant_pattern_share, 4),
+            "threshold_exceeded": metrics.threshold_exceeded,
+            "alert_threshold": alert_threshold,
+        }
+        console.print(json.dumps(output, indent=2))
+        return
+
+    # Display current metrics
+    console.print("[bold]Pattern Population Entropy[/bold]\n")
+
+    # Main metrics
+    if metrics.total_applications == 0:
+        console.print("[dim]No pattern applications yet.[/dim]")
+        console.print("\n[dim]Hint: Run jobs with learning enabled to build patterns.[/dim]")
+        return
+
+    # Shannon entropy display
+    console.print(f"  Shannon Entropy (H): [cyan]{metrics.shannon_entropy:.4f}[/cyan] bits")
+    console.print(f"  Max Possible (H_max): [dim]{metrics.max_possible_entropy:.4f}[/dim] bits")
+
+    # Diversity index with color
+    div_color = "green" if metrics.diversity_index >= alert_threshold else "red"
+    console.print(f"  Diversity Index: [{div_color}]{metrics.diversity_index:.4f}[/{div_color}] (threshold: {alert_threshold})")
+
+    console.print("")
+
+    # Pattern counts
+    console.print(f"  Unique Patterns: [yellow]{metrics.unique_pattern_count}[/yellow]")
+    console.print(f"  Effective Patterns: [yellow]{metrics.effective_pattern_count}[/yellow] (with ≥1 application)")
+    console.print(f"  Total Applications: [yellow]{metrics.total_applications}[/yellow]")
+
+    # Dominant pattern warning
+    dom_color = "red" if metrics.dominant_pattern_share > 0.5 else "yellow" if metrics.dominant_pattern_share > 0.3 else "green"
+    console.print(f"  Dominant Pattern Share: [{dom_color}]{metrics.dominant_pattern_share:.1%}[/{dom_color}]")
+
+    # Alerts
+    if metrics.threshold_exceeded:
+        console.print("\n[red bold]⚠ LOW DIVERSITY ALERT[/red bold]")
+        console.print("[red]Pattern population shows low diversity - model collapse risk![/red]")
+        console.print("[dim]Consider reviewing dominant patterns and encouraging exploration.[/dim]")
+    elif metrics.dominant_pattern_share > 0.5:
+        console.print("\n[yellow]⚠ Single pattern holds >50% of applications[/yellow]")
+        console.print("[dim]Monitor for further concentration.[/dim]")
+    else:
+        console.print("\n[green]✓ Healthy pattern diversity[/green]")
+
+
+@app.command("patterns-budget")
+def patterns_budget(
+    job: str = typer.Option(
+        None,
+        "--job",
+        "-j",
+        help="Filter by specific job hash",
+    ),
+    history: bool = typer.Option(
+        False,
+        "--history",
+        "-H",
+        help="Show budget adjustment history",
+    ),
+    limit: int = typer.Option(
+        20,
+        "--limit",
+        "-n",
+        help="Number of history records to show",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Output as JSON for machine parsing",
+    ),
+) -> None:
+    """Display exploration budget status and history.
+
+    v23 Evolution: Exploration Budget Maintenance - monitors the dynamic
+    exploration budget that prevents convergence to zero.
+
+    The budget adjusts based on pattern entropy:
+    - Low entropy → budget increases (boost) to inject diversity
+    - Healthy entropy → budget decays toward floor
+    - Budget never drops below floor (default 5%)
+
+    Examples:
+        mozart patterns-budget               # Show current budget status
+        mozart patterns-budget --history     # View budget adjustment history
+        mozart patterns-budget --job abc123  # Filter by specific job
+        mozart patterns-budget --json        # JSON output for scripting
+    """
+    from mozart.learning.global_store import get_global_store
+
+    store = get_global_store()
+
+    if history:
+        # Show budget history
+        history_records = store.get_exploration_budget_history(
+            job_hash=job, limit=limit
+        )
+
+        if json_output:
+            import json
+
+            output = []
+            for h in history_records:
+                output.append({
+                    "id": h.id,
+                    "job_hash": h.job_hash,
+                    "recorded_at": h.recorded_at.isoformat(),
+                    "budget_value": round(h.budget_value, 4),
+                    "entropy_at_time": round(h.entropy_at_time, 4) if h.entropy_at_time else None,
+                    "adjustment_type": h.adjustment_type,
+                    "adjustment_reason": h.adjustment_reason,
+                })
+            console.print(json.dumps(output, indent=2))
+            return
+
+        if not history_records:
+            console.print("[dim]No budget history found.[/dim]")
+            console.print("\n[dim]Hint: Enable exploration_budget in learning config to start tracking.[/dim]")
+            return
+
+        # Display history table
+        table = Table(title="Exploration Budget History")
+        table.add_column("Time", style="dim", width=16)
+        table.add_column("Budget", justify="right", width=8)
+        table.add_column("Entropy", justify="right", width=8)
+        table.add_column("Type", width=12)
+        table.add_column("Reason", width=35)
+
+        for h in history_records:
+            # Color budget based on value
+            if h.budget_value <= 0.10:
+                budget_color = "yellow"
+            elif h.budget_value >= 0.30:
+                budget_color = "cyan"
+            else:
+                budget_color = "green"
+            budget_str = f"[{budget_color}]{h.budget_value:.1%}[/{budget_color}]"
+
+            # Color entropy if available
+            if h.entropy_at_time is not None:
+                ent_color = "red" if h.entropy_at_time < 0.3 else "green"
+                ent_str = f"[{ent_color}]{h.entropy_at_time:.3f}[/{ent_color}]"
+            else:
+                ent_str = "[dim]—[/dim]"
+
+            # Color adjustment type
+            type_colors = {
+                "initial": "blue",
+                "boost": "green",
+                "decay": "dim",
+                "floor_enforced": "yellow",
+                "ceiling_enforced": "yellow",
+            }
+            type_color = type_colors.get(h.adjustment_type, "white")
+            type_str = f"[{type_color}]{h.adjustment_type}[/{type_color}]"
+
+            table.add_row(
+                h.recorded_at.strftime("%m-%d %H:%M:%S"),
+                budget_str,
+                ent_str,
+                type_str,
+                h.adjustment_reason or "",
+            )
+
+        console.print(table)
+        console.print(f"\n[dim]Showing {len(history_records)} record(s)[/dim]")
+        return
+
+    # Get current budget and statistics
+    current = store.get_exploration_budget(job_hash=job)
+    stats = store.get_exploration_budget_statistics(job_hash=job)
+
+    if json_output:
+        import json
+
+        output = {
+            "current": {
+                "budget_value": round(current.budget_value, 4) if current else None,
+                "entropy_at_time": round(current.entropy_at_time, 4) if current and current.entropy_at_time else None,
+                "adjustment_type": current.adjustment_type if current else None,
+                "recorded_at": current.recorded_at.isoformat() if current else None,
+            },
+            "statistics": {
+                "avg_budget": round(stats["avg_budget"], 4),
+                "min_budget": round(stats["min_budget"], 4),
+                "max_budget": round(stats["max_budget"], 4),
+                "total_adjustments": stats["total_adjustments"],
+                "floor_enforcements": stats["floor_enforcements"],
+                "boost_count": stats["boost_count"],
+                "decay_count": stats["decay_count"],
+            },
+        }
+        console.print(json.dumps(output, indent=2))
+        return
+
+    # Display current status
+    console.print("[bold]Exploration Budget Status[/bold]\n")
+
+    if current is None:
+        console.print("[dim]No budget records found.[/dim]")
+        console.print("\n[dim]Hint: Enable exploration_budget in learning config:[/dim]")
+        console.print("[dim]  learning:[/dim]")
+        console.print("[dim]    exploration_budget:[/dim]")
+        console.print("[dim]      enabled: true[/dim]")
+        return
+
+    # Current budget with color
+    if current.budget_value <= 0.10:
+        budget_color = "yellow"
+        budget_status = "Low (near floor)"
+    elif current.budget_value >= 0.30:
+        budget_color = "cyan"
+        budget_status = "High (exploring)"
+    else:
+        budget_color = "green"
+        budget_status = "Normal"
+
+    console.print(f"  Current Budget: [{budget_color}]{current.budget_value:.1%}[/{budget_color}] ({budget_status})")
+
+    if current.entropy_at_time is not None:
+        ent_color = "red" if current.entropy_at_time < 0.3 else "green"
+        console.print(f"  Entropy at Last Check: [{ent_color}]{current.entropy_at_time:.4f}[/{ent_color}]")
+
+    console.print(f"  Last Adjustment: [dim]{current.adjustment_type}[/dim]")
+    console.print(f"  Last Updated: [dim]{current.recorded_at.strftime('%Y-%m-%d %H:%M:%S')}[/dim]")
+
+    console.print("")
+
+    # Statistics
+    if stats["total_adjustments"] > 0:
+        console.print("[bold]Statistics[/bold]")
+        console.print(f"  Average Budget: [cyan]{stats['avg_budget']:.1%}[/cyan]")
+        console.print(f"  Range: [dim]{stats['min_budget']:.1%} - {stats['max_budget']:.1%}[/dim]")
+        console.print(f"  Total Adjustments: [yellow]{stats['total_adjustments']}[/yellow]")
+        console.print(f"    Boosts: [green]{stats['boost_count']}[/green] | Decays: [dim]{stats['decay_count']}[/dim] | Floor Enforced: [yellow]{stats['floor_enforcements']}[/yellow]")
+
+    # Interpretation
+    console.print("")
+    if stats["floor_enforcements"] > stats["total_adjustments"] * 0.3:
+        console.print("[yellow]⚠ Budget frequently hitting floor[/yellow]")
+        console.print("[dim]Consider lowering entropy threshold or increasing boost amount.[/dim]")
+    elif stats["boost_count"] > stats["decay_count"] * 2:
+        console.print("[cyan]ℹ Frequent boosts - entropy may be consistently low[/cyan]")
+        console.print("[dim]This may indicate pattern concentration issues.[/dim]")
+    elif stats["total_adjustments"] > 0:
+        console.print("[green]✓ Budget adjusting normally[/green]")
+
+
+@app.command("entropy-status")
+def entropy_status(
+    job: str = typer.Option(
+        None,
+        "--job",
+        "-j",
+        help="Filter by specific job hash",
+    ),
+    history: bool = typer.Option(
+        False,
+        "--history",
+        "-H",
+        help="Show entropy response history",
+    ),
+    limit: int = typer.Option(
+        20,
+        "--limit",
+        "-n",
+        help="Number of history records to show",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Output as JSON for machine parsing",
+    ),
+    check: bool = typer.Option(
+        False,
+        "--check",
+        "-c",
+        help="Check if entropy response is needed (dry-run)",
+    ),
+) -> None:
+    """Display entropy response status and history.
+
+    v23 Evolution: Automatic Entropy Response - monitors the automatic
+    diversity injection system that responds to low entropy conditions.
+
+    When pattern entropy drops below threshold, the system automatically:
+    - Boosts the exploration budget to encourage diversity
+    - Revisits quarantined patterns for potential revalidation
+
+    Examples:
+        mozart entropy-status               # Show current entropy response status
+        mozart entropy-status --history     # View response history
+        mozart entropy-status --check       # Check if response is needed now
+        mozart entropy-status --json        # JSON output for scripting
+    """
+    from mozart.learning.global_store import get_global_store
+
+    store = get_global_store()
+
+    if check:
+        # Check if response is needed
+        needs_response, entropy, reason = store.check_entropy_response_needed(
+            job_hash=job or "default"
+        )
+
+        if json_output:
+            import json
+
+            output = {
+                "needs_response": needs_response,
+                "current_entropy": round(entropy, 4) if entropy else None,
+                "reason": reason,
+            }
+            console.print(json.dumps(output, indent=2))
+            return
+
+        console.print("[bold]Entropy Response Check[/bold]\n")
+        if needs_response:
+            console.print(f"[red bold]✓ Response NEEDED[/red bold]")
+            console.print(f"  Current Entropy: [red]{entropy:.4f}[/red]")
+            console.print(f"  Reason: {reason}")
+            console.print("\n[dim]Enable entropy_response in learning config to trigger automatically.[/dim]")
+        else:
+            console.print(f"[green]✗ No response needed[/green]")
+            if entropy is not None:
+                console.print(f"  Current Entropy: [green]{entropy:.4f}[/green]")
+            console.print(f"  Reason: {reason}")
+        return
+
+    if history:
+        # Show response history
+        history_records = store.get_entropy_response_history(
+            job_hash=job, limit=limit
+        )
+
+        if json_output:
+            import json
+
+            output = []
+            for h in history_records:
+                output.append({
+                    "id": h.id,
+                    "job_hash": h.job_hash,
+                    "recorded_at": h.recorded_at.isoformat(),
+                    "entropy_at_trigger": round(h.entropy_at_trigger, 4),
+                    "threshold_used": round(h.threshold_used, 4),
+                    "actions_taken": h.actions_taken,
+                    "budget_boosted": h.budget_boosted,
+                    "quarantine_revisits": h.quarantine_revisits,
+                })
+            console.print(json.dumps(output, indent=2))
+            return
+
+        if not history_records:
+            console.print("[dim]No entropy response history found.[/dim]")
+            console.print("\n[dim]Hint: Enable entropy_response in learning config to start tracking.[/dim]")
+            return
+
+        # Display history table
+        table = Table(title="Entropy Response History")
+        table.add_column("Time", style="dim", width=16)
+        table.add_column("Entropy", justify="right", width=8)
+        table.add_column("Threshold", justify="right", width=9)
+        table.add_column("Budget+", justify="center", width=8)
+        table.add_column("Revisits", justify="right", width=8)
+        table.add_column("Actions", width=25)
+
+        for h in history_records:
+            budget_str = "[green]Yes[/green]" if h.budget_boosted else "[dim]No[/dim]"
+            revisit_str = f"[cyan]{h.quarantine_revisits}[/cyan]" if h.quarantine_revisits > 0 else "[dim]0[/dim]"
+            actions_str = ", ".join(h.actions_taken) if h.actions_taken else "[dim]none[/dim]"
+
+            table.add_row(
+                h.recorded_at.strftime("%m-%d %H:%M:%S"),
+                f"[red]{h.entropy_at_trigger:.3f}[/red]",
+                f"{h.threshold_used:.3f}",
+                budget_str,
+                revisit_str,
+                actions_str,
+            )
+
+        console.print(table)
+        console.print(f"\n[dim]Showing {len(history_records)} record(s)[/dim]")
+        return
+
+    # Get current statistics
+    stats = store.get_entropy_response_statistics(job_hash=job)
+    last = store.get_last_entropy_response(job_hash=job)
+
+    if json_output:
+        import json
+
+        output = {
+            "statistics": {
+                "total_responses": stats["total_responses"],
+                "avg_entropy_at_trigger": round(stats["avg_entropy_at_trigger"], 4),
+                "budget_boosts": stats["budget_boosts"],
+                "quarantine_revisits": stats["quarantine_revisits"],
+                "last_response": stats["last_response"],
+            },
+            "last_response": {
+                "entropy_at_trigger": round(last.entropy_at_trigger, 4),
+                "threshold_used": round(last.threshold_used, 4),
+                "actions_taken": last.actions_taken,
+                "recorded_at": last.recorded_at.isoformat(),
+            } if last else None,
+        }
+        console.print(json.dumps(output, indent=2))
+        return
+
+    # Display current status
+    console.print("[bold]Entropy Response Status[/bold]\n")
+
+    if stats["total_responses"] == 0:
+        console.print("[dim]No entropy responses recorded yet.[/dim]")
+        console.print("\n[dim]Hint: Enable entropy_response in learning config:[/dim]")
+        console.print("[dim]  learning:[/dim]")
+        console.print("[dim]    entropy_response:[/dim]")
+        console.print("[dim]      enabled: true[/dim]")
+        return
+
+    # Statistics
+    console.print(f"  Total Responses: [yellow]{stats['total_responses']}[/yellow]")
+    console.print(f"  Avg Trigger Entropy: [red]{stats['avg_entropy_at_trigger']:.4f}[/red]")
+    console.print(f"  Budget Boosts: [green]{stats['budget_boosts']}[/green]")
+    console.print(f"  Quarantine Revisits: [cyan]{stats['quarantine_revisits']}[/cyan]")
+
+    console.print("")
+
+    # Last response details
+    if last:
+        console.print("[bold]Last Response[/bold]")
+        console.print(f"  Time: [dim]{last.recorded_at.strftime('%Y-%m-%d %H:%M:%S')}[/dim]")
+        console.print(f"  Entropy at Trigger: [red]{last.entropy_at_trigger:.4f}[/red]")
+        console.print(f"  Threshold: [dim]{last.threshold_used:.4f}[/dim]")
+        console.print(f"  Actions: {', '.join(last.actions_taken) if last.actions_taken else '[dim]none[/dim]'}")
+
+    # Interpretation
+    console.print("")
+    if stats["total_responses"] > 10:
+        console.print("[yellow]⚠ Many responses triggered[/yellow]")
+        console.print("[dim]Pattern diversity may be consistently low. Review patterns.[/dim]")
+    elif stats["quarantine_revisits"] > stats["total_responses"]:
+        console.print("[cyan]ℹ Active quarantine revisiting[/cyan]")
+        console.print("[dim]Previously problematic patterns are being reconsidered.[/dim]")
+    else:
+        console.print("[green]✓ Entropy response system active[/green]")
 
 
 @app.command("learning-activity")

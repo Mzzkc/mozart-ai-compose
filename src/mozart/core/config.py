@@ -205,6 +205,104 @@ class AIReviewConfig(BaseModel):
     )
 
 
+class ExplorationBudgetConfig(BaseModel):
+    """Configuration for dynamic exploration budget (v23 Evolution).
+
+    Maintains a budget for exploratory pattern usage that prevents convergence
+    to zero, preserving diversity in the learning system.
+
+    The budget adjusts dynamically based on pattern entropy:
+    - When entropy drops below threshold: budget increases (boost)
+    - When entropy is healthy: budget decays toward floor
+    - Budget never drops below floor (prevents extinction of exploration)
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable dynamic exploration budget. When disabled, uses static exploration_rate.",
+    )
+    floor: float = Field(
+        default=0.05,
+        ge=0.0,
+        le=1.0,
+        description="Minimum exploration budget. Budget never drops below this floor. "
+        "Default 0.05 = always explore at least 5%% of the time.",
+    )
+    ceiling: float = Field(
+        default=0.50,
+        ge=0.0,
+        le=1.0,
+        description="Maximum exploration budget. Budget never exceeds this ceiling. "
+        "Default 0.50 = never explore more than 50%% of the time.",
+    )
+    decay_rate: float = Field(
+        default=0.95,
+        ge=0.0,
+        le=1.0,
+        description="Decay rate per check interval. budget = max(floor, budget * decay_rate). "
+        "Default 0.95 = 5%% decay per interval toward floor.",
+    )
+    boost_amount: float = Field(
+        default=0.10,
+        ge=0.0,
+        le=0.5,
+        description="Amount to boost budget when entropy is low. "
+        "budget = min(ceiling, budget + boost_amount). Default 0.10 = +10%% boost.",
+    )
+    initial_budget: float = Field(
+        default=0.15,
+        ge=0.0,
+        le=1.0,
+        description="Initial exploration budget when starting fresh. "
+        "Default 0.15 matches static exploration_rate default.",
+    )
+
+
+class EntropyResponseConfig(BaseModel):
+    """Configuration for automatic entropy response (v23 Evolution).
+
+    When pattern entropy drops below threshold, automatically injects diversity
+    through budget boosts and quarantine revisits.
+
+    This completes the observe→respond cycle for entropy (v21 added observation).
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable automatic entropy response. When disabled, entropy is only monitored.",
+    )
+    entropy_threshold: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Entropy level that triggers response. When entropy < threshold, "
+        "diversity injection is triggered. Default 0.3 = respond when entropy is low.",
+    )
+    cooldown_seconds: int = Field(
+        default=3600,
+        ge=60,
+        description="Minimum seconds between responses to prevent spam. "
+        "Default 3600 = at most one response per hour.",
+    )
+    boost_budget: bool = Field(
+        default=True,
+        description="When responding, boost the exploration budget. "
+        "Requires exploration_budget.enabled = True to have effect.",
+    )
+    revisit_quarantine: bool = Field(
+        default=True,
+        description="When responding, mark quarantined patterns for review. "
+        "Allows previously problematic patterns to be reconsidered.",
+    )
+    max_quarantine_revisits: int = Field(
+        default=3,
+        ge=0,
+        le=10,
+        description="Maximum quarantined patterns to revisit per response. "
+        "Prevents operator overload. Default 3 patterns per response.",
+    )
+
+
 class LearningConfig(BaseModel):
     """Configuration for learning and outcome tracking (Phase 2).
 
@@ -266,13 +364,119 @@ class LearningConfig(BaseModel):
         description="Minimum priority threshold for exploration candidates. "
         "Patterns below this are excluded even in exploration mode.",
     )
-
+    # v21 Evolution: Pattern Entropy Monitoring
+    entropy_alert_threshold: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Shannon entropy below this triggers alert for low pattern diversity. "
+        "0.0 = single dominant pattern, 1.0 = maximum diversity.",
+    )
+    entropy_check_interval: int = Field(
+        default=100,
+        ge=1,
+        description="Check entropy every N pattern applications. "
+        "Lower values = more frequent checks but higher overhead.",
+    )
+    # v21 Evolution: Confidence Threshold Auto-Apply
+    auto_apply_enabled: bool = Field(
+        default=False,
+        description="Enable auto-apply for high-trust patterns. "
+        "When True, patterns with trust_score >= auto_apply_trust_threshold bypass escalation.",
+    )
+    auto_apply_trust_threshold: float = Field(
+        default=0.85,
+        ge=0.0,
+        le=1.0,
+        description="Minimum trust score required to auto-apply a pattern. "
+        "0.85 is conservative (>85% success rate with validated status).",
+    )
+    # v23 Evolution: Exploration Budget Maintenance
+    exploration_budget: ExplorationBudgetConfig = Field(
+        default_factory=ExplorationBudgetConfig,
+        description="Dynamic exploration budget configuration. "
+        "When enabled, modulates exploration_rate based on entropy.",
+    )
+    # v23 Evolution: Automatic Entropy Response
+    entropy_response: EntropyResponseConfig = Field(
+        default_factory=EntropyResponseConfig,
+        description="Automatic entropy response configuration. "
+        "When enabled, injects diversity when entropy drops.",
+    )
     # v22: Trust-Aware Autonomous Application
     auto_apply: "AutoApplyConfig | None" = Field(
         default=None,
         description="Configuration for autonomous pattern application. "
         "When set with enabled=true, high-trust patterns are applied "
         "without human confirmation. Opt-in only.",
+    )
+
+
+class CheckpointTriggerConfig(BaseModel):
+    """Configuration for a proactive checkpoint trigger.
+
+    v21 Evolution: Proactive Checkpoint System - enables pre-execution checkpoints.
+
+    Example:
+        checkpoints:
+          enabled: true
+          triggers:
+            - name: high_risk_sheet
+              sheet_nums: [5, 6]
+              message: "These sheets modify production files"
+            - name: deployment_keywords
+              prompt_contains: ["deploy", "production", "delete"]
+              requires_confirmation: true
+    """
+
+    name: str = Field(
+        description="Name/identifier for this trigger",
+    )
+    sheet_nums: list[int] | None = Field(
+        default=None,
+        description="Specific sheet numbers to checkpoint (None = check other conditions)",
+    )
+    prompt_contains: list[str] | None = Field(
+        default=None,
+        description="Keywords in prompt that trigger checkpoint (case-insensitive)",
+    )
+    min_retry_count: int | None = Field(
+        default=None,
+        ge=0,
+        description="Trigger if retry count >= this value",
+    )
+    requires_confirmation: bool = Field(
+        default=True,
+        description="Whether to require explicit confirmation (True) or just warn (False)",
+    )
+    message: str = Field(
+        default="",
+        description="Custom message to show when checkpoint triggers",
+    )
+
+
+class CheckpointConfig(BaseModel):
+    """Configuration for proactive checkpoints.
+
+    v21 Evolution: Proactive Checkpoint System - enables asking for confirmation
+    BEFORE dangerous operations, complementing reactive escalation.
+
+    Example:
+        checkpoints:
+          enabled: true
+          triggers:
+            - name: production_warning
+              prompt_contains: ["production", "deploy"]
+              message: "This sheet may affect production systems"
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable proactive checkpoints before sheet execution",
+    )
+    triggers: list[CheckpointTriggerConfig] = Field(
+        default_factory=list,
+        description="List of checkpoint triggers to evaluate before each sheet",
     )
 
 
@@ -860,12 +1064,172 @@ class RecursiveLightConfig(BaseModel):
     )
 
 
+class OllamaConfig(BaseModel):
+    """Configuration for Ollama backend.
+
+    Enables local model execution via Ollama with MCP tool support.
+    Critical: num_ctx must be >= 32768 for Claude Code tool compatibility.
+
+    Example YAML:
+        backend:
+          type: ollama
+          ollama:
+            base_url: "http://localhost:11434"
+            model: "llama3.1:8b"
+            num_ctx: 32768
+    """
+
+    # Connection settings
+    base_url: str = Field(
+        default="http://localhost:11434",
+        description="Ollama server base URL",
+    )
+    model: str = Field(
+        default="llama3.1:8b",
+        description="Ollama model to use. Must support tool calling.",
+    )
+
+    # Context optimization (CRITICAL for Claude Code tools)
+    num_ctx: int = Field(
+        default=32768,
+        ge=4096,
+        description="Context window size. Minimum 32K recommended for Claude Code tools.",
+    )
+    dynamic_tools: bool = Field(
+        default=True,
+        description="Enable dynamic toolset loading to optimize context",
+    )
+    compression_level: Literal["minimal", "moderate", "aggressive"] = Field(
+        default="moderate",
+        description="Tool schema compression level",
+    )
+
+    # Performance tuning
+    timeout_seconds: float = Field(
+        default=300.0,
+        gt=0,
+        description="Request timeout for Ollama API calls",
+    )
+    keep_alive: str = Field(
+        default="5m",
+        description="Keep model loaded in memory for this duration",
+    )
+    max_tool_iterations: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Maximum tool call iterations per execution",
+    )
+
+    # Health check
+    health_check_timeout: float = Field(
+        default=10.0,
+        description="Timeout for health check requests",
+    )
+
+
+class MCPServerConfig(BaseModel):
+    """Configuration for an MCP server to connect to.
+
+    MCP servers provide tools that can be used by the Ollama bridge.
+    Each server is spawned as a subprocess and communicates via stdio.
+
+    Example YAML:
+        bridge:
+          mcp_servers:
+            - name: filesystem
+              command: "npx"
+              args: ["-y", "@anthropic/mcp-server-filesystem", "/home/user"]
+    """
+
+    name: str = Field(
+        description="Unique name for this MCP server",
+    )
+    command: str = Field(
+        description="Command to run the MCP server",
+    )
+    args: list[str] = Field(
+        default_factory=list,
+        description="Command line arguments",
+    )
+    env: dict[str, str] = Field(
+        default_factory=dict,
+        description="Environment variables for the server",
+    )
+    working_dir: str | None = Field(
+        default=None,
+        description="Working directory for the server",
+    )
+    timeout_seconds: float = Field(
+        default=30.0,
+        description="Timeout for server operations",
+    )
+
+
+class BridgeConfig(BaseModel):
+    """Configuration for the Mozart-Ollama bridge.
+
+    The bridge enables Ollama models to use MCP tools through a proxy service.
+    It provides context optimization and optional hybrid routing to Claude.
+
+    Example YAML:
+        bridge:
+          enabled: true
+          mcp_proxy_enabled: true
+          mcp_servers:
+            - name: filesystem
+              command: "npx"
+              args: ["-y", "@anthropic/mcp-server-filesystem", "/home/user"]
+          hybrid_routing_enabled: true
+          complexity_threshold: 0.7
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable bridge mode (Ollama with MCP tools)",
+    )
+
+    # MCP Proxy settings
+    mcp_proxy_enabled: bool = Field(
+        default=True,
+        description="Enable MCP server proxy for tool access",
+    )
+    mcp_servers: list[MCPServerConfig] = Field(
+        default_factory=list,
+        description="MCP servers to connect to",
+    )
+
+    # Hybrid routing
+    hybrid_routing_enabled: bool = Field(
+        default=False,
+        description="Enable hybrid routing between Ollama and Claude",
+    )
+    complexity_threshold: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Complexity threshold for routing to Claude (0.0-1.0)",
+    )
+    fallback_to_claude: bool = Field(
+        default=True,
+        description="Fall back to Claude if Ollama execution fails",
+    )
+
+    # Context budget
+    context_budget_percent: int = Field(
+        default=75,
+        ge=10,
+        le=95,
+        description="Percent of context window to use for tools (rest for conversation)",
+    )
+
+
 class BackendConfig(BaseModel):
     """Configuration for the Claude execution backend."""
 
-    type: Literal["claude_cli", "anthropic_api", "recursive_light"] = Field(
+    type: Literal["claude_cli", "anthropic_api", "recursive_light", "ollama"] = Field(
         default="claude_cli",
-        description="Backend type: claude_cli, anthropic_api, or recursive_light",
+        description="Backend type: claude_cli, anthropic_api, recursive_light, or ollama",
     )
 
     # CLI-specific options
@@ -937,6 +1301,12 @@ class BackendConfig(BaseModel):
     recursive_light: RecursiveLightConfig = Field(
         default_factory=RecursiveLightConfig,
         description="Configuration for Recursive Light backend (when type='recursive_light')",
+    )
+
+    # Ollama options
+    ollama: OllamaConfig = Field(
+        default_factory=OllamaConfig,
+        description="Configuration for Ollama backend (when type='ollama')",
     )
 
 
@@ -1104,6 +1474,16 @@ class JobConfig(BaseModel):
         default_factory=ParallelConfig,
         description="Parallel sheet execution configuration. "
         "Enables running independent sheets concurrently.",
+    )
+    checkpoints: CheckpointConfig = Field(
+        default_factory=CheckpointConfig,
+        description="Proactive checkpoint configuration. "
+        "Enables pre-execution approval for configurable triggers.",
+    )
+    bridge: BridgeConfig | None = Field(
+        default=None,
+        description="Mozart-Ollama bridge configuration. "
+        "Enables Ollama backend with MCP tool support.",
     )
 
     validations: list[ValidationRule] = Field(default_factory=list)

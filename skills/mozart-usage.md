@@ -39,6 +39,8 @@
 | `mozart pattern-quarantine <id>` | Quarantine a suspicious pattern |
 | `mozart pattern-validate <id>` | Validate a quarantined pattern |
 | `mozart recalculate-trust` | Recalculate all pattern trust scores |
+| `mozart patterns-budget` | View exploration budget status (v23) |
+| `mozart entropy-status` | View entropy response status (v23) |
 
 ### Global Options
 
@@ -286,9 +288,9 @@ mozart dashboard --reload
 |---------|-------------|
 | Job List | View all jobs with real-time status updates |
 | Job Detail | Deep dive into sheets, validations, logs |
-| Job Control | Start, pause, resume, cancel jobs |
-| Log Streaming | Real-time SSE-powered log viewer |
-| Artifact Browser | Browse workspace files |
+| Job Control | Start, pause, resume, cancel jobs with graceful SIGTERM handling |
+| Log Streaming | Real-time SSE-powered log viewer with filtering |
+| Artifact Browser | Browse workspace files with syntax highlighting |
 | Score Editor | CodeMirror 6 YAML editor with validation |
 | Template Browser | One-click score templates |
 | AI Generation | Natural language to score YAML |
@@ -301,14 +303,35 @@ mozart dashboard --reload
 | GET | `/api/jobs` | List jobs with filtering |
 | GET | `/api/jobs/{job_id}` | Full job details |
 | POST | `/api/jobs` | Start new job |
-| POST | `/api/jobs/{job_id}/pause` | Pause running job |
+| POST | `/api/jobs/{job_id}/pause` | Pause running job (graceful SIGTERM) |
 | POST | `/api/jobs/{job_id}/resume` | Resume paused job |
-| POST | `/api/jobs/{job_id}/cancel` | Cancel job |
+| POST | `/api/jobs/{job_id}/cancel` | Cancel job (force termination) |
 | GET | `/api/jobs/{job_id}/stream` | SSE status stream |
 | GET | `/api/jobs/{job_id}/logs` | SSE log streaming |
 | GET | `/api/jobs/{job_id}/artifacts` | List workspace files |
 | POST | `/api/scores/validate` | Validate score YAML |
 | POST | `/api/scores/generate` | AI-generate score |
+
+### Job Control Operations
+
+The dashboard provides full job lifecycle management with proper signal handling:
+
+**Pause Operations:**
+- Sends SIGTERM to running job processes
+- Gracefully waits for current sheet completion
+- Updates job state to PAUSED in real-time
+- Handles zombie process cleanup
+
+**Resume Operations:**
+- Detects and resumes paused jobs
+- Uses background execution for session independence
+- Maintains full state continuity
+- Supports workspace isolation
+
+**Cancel Operations:**
+- Force terminates job processes
+- Cleans up any remaining state
+- Updates UI immediately via SSE streams
 
 ### MCP Server
 
