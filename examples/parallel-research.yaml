@@ -1,0 +1,375 @@
+# Example: Parallel Research with Sheet Dependencies
+# Demonstrates Mozart's parallel sheet execution feature (v17 evolution)
+#
+# This example shows how to:
+# - Define sheet dependencies with `sheet.dependencies`
+# - Run independent sheets in parallel
+# - Merge parallel outputs for synthesis
+# - Detect conflicts between parallel results
+#
+# Execution Flow:
+#   Sheet 1 (setup)
+#        │
+#        ├──────────┬──────────┐
+#        ▼          ▼          ▼
+#   Sheet 2    Sheet 3    Sheet 4     ← Run in PARALLEL (all depend on 1)
+#   (academic)  (industry)  (patents)
+#        │          │          │
+#        └──────────┴──────────┘
+#                 │
+#                 ▼
+#            Sheet 5 (synthesis)      ← Waits for ALL parallel sheets
+#                 │
+#                 ▼
+#            Sheet 6 (report)
+#
+# Usage:
+#   mozart validate examples/parallel-research.yaml
+#   mozart run examples/parallel-research.yaml
+#   mozart status parallel-research -w ./parallel-workspace
+#
+# Benefits:
+# - Sheets 2, 3, 4 run concurrently (3x faster than sequential)
+# - Each parallel sheet runs in isolated Claude session
+# - Synthesis sheet receives merged outputs from all parallel sheets
+
+name: "parallel-research"
+description: "Multi-source research with parallel execution and synthesis"
+
+workspace: "./parallel-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  timeout_seconds: 1800
+  disable_mcp: true
+  allowed_tools:
+    - Read
+    - Write
+    - Glob
+    - Grep
+    - WebSearch
+    - WebFetch
+
+sheet:
+  size: 1
+  total_items: 6
+  start_item: 1
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PARALLEL EXECUTION: Sheet Dependency DAG
+  # ═══════════════════════════════════════════════════════════════════════════
+  #
+  # Format: { sheet_num: [list of prerequisite sheets] }
+  #
+  # Sheets without entries start immediately (or after config order).
+  # Sheets with same prerequisites run in PARALLEL.
+  #
+  dependencies:
+    # Sheets 2, 3, 4 all depend only on sheet 1 → they run in PARALLEL
+    2: [1]    # Academic search waits for setup
+    3: [1]    # Industry search waits for setup (PARALLEL with 2)
+    4: [1]    # Patent search waits for setup (PARALLEL with 2 and 3)
+
+    # Sheet 5 depends on ALL parallel sheets → waits for all to complete
+    5: [2, 3, 4]
+
+    # Sheet 6 is sequential after synthesis
+    6: [5]
+
+retry:
+  max_retries: 2
+  base_delay_seconds: 30
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PROMPT TEMPLATE
+# ═══════════════════════════════════════════════════════════════════════════
+
+prompt:
+  variables:
+    research_topic: "AI code generation tools and their impact on software development productivity"
+
+    preamble: |
+      You are conducting multi-source research on: {{ research_topic }}
+
+      This is sheet {{ sheet_num }} of {{ total_sheets }}.
+      Workspace: {{ workspace }}
+
+  template: |
+    {{ preamble }}
+
+    {% if sheet_num == 1 %}
+    ═══════════════════════════════════════════════════════════════════════════
+    SHEET 1: Research Setup (Foundation)
+    ═══════════════════════════════════════════════════════════════════════════
+
+    Establish the research framework and search strategy.
+
+    TASKS:
+    1. Define key search terms and Boolean operators
+    2. Identify target sources for each parallel search:
+       - Academic: Google Scholar, arXiv, ACM DL, IEEE
+       - Industry: Tech blogs, company reports, Stack Overflow surveys
+       - Patents: USPTO, Google Patents
+    3. Create quality criteria checklist
+
+    OUTPUT:
+    Write to: {{ workspace }}/01-research-setup.md
+
+    Include:
+    - Search strategy document
+    - Source list per category
+    - Quality criteria
+    - RESEARCH_SETUP_COMPLETE marker
+
+    {% elif sheet_num == 2 %}
+    ═══════════════════════════════════════════════════════════════════════════
+    SHEET 2: Academic Literature Search (PARALLEL)
+    ═══════════════════════════════════════════════════════════════════════════
+
+    NOTE: This sheet runs in PARALLEL with sheets 3 and 4.
+
+    Search academic sources for peer-reviewed research.
+
+    Read: {{ workspace }}/01-research-setup.md (for search terms)
+
+    TASKS:
+    1. Search academic databases
+    2. Extract key findings from top 10 relevant papers
+    3. Note methodologies and metrics used
+    4. Identify research gaps
+
+    OUTPUT:
+    Write to: {{ workspace }}/02-academic-findings.md
+
+    Format each finding as:
+    ```
+    SOURCE: [citation]
+    FINDING: [key finding]
+    METHODOLOGY: [how measured]
+    RELEVANCE: [high/medium/low]
+    ```
+
+    End with: ACADEMIC_SEARCH_COMPLETE
+
+    {% elif sheet_num == 3 %}
+    ═══════════════════════════════════════════════════════════════════════════
+    SHEET 3: Industry Reports Search (PARALLEL)
+    ═══════════════════════════════════════════════════════════════════════════
+
+    NOTE: This sheet runs in PARALLEL with sheets 2 and 4.
+
+    Search industry sources for practitioner perspectives.
+
+    Read: {{ workspace }}/01-research-setup.md (for search terms)
+
+    TASKS:
+    1. Search tech blogs, company engineering blogs
+    2. Find developer survey results (Stack Overflow, JetBrains, etc.)
+    3. Extract adoption statistics and productivity claims
+    4. Note vendor vs independent sources
+
+    OUTPUT:
+    Write to: {{ workspace }}/03-industry-findings.md
+
+    Format each finding as:
+    ```
+    SOURCE: [url/report name]
+    TYPE: [vendor/independent/survey]
+    FINDING: [key finding]
+    SAMPLE_SIZE: [if applicable]
+    RELEVANCE: [high/medium/low]
+    ```
+
+    End with: INDUSTRY_SEARCH_COMPLETE
+
+    {% elif sheet_num == 4 %}
+    ═══════════════════════════════════════════════════════════════════════════
+    SHEET 4: Patent Search (PARALLEL)
+    ═══════════════════════════════════════════════════════════════════════════
+
+    NOTE: This sheet runs in PARALLEL with sheets 2 and 3.
+
+    Search patent databases for innovation trends.
+
+    Read: {{ workspace }}/01-research-setup.md (for search terms)
+
+    TASKS:
+    1. Search patent databases
+    2. Identify major patent holders
+    3. Track filing trends over time
+    4. Note key technological approaches
+
+    OUTPUT:
+    Write to: {{ workspace }}/04-patent-findings.md
+
+    Format each finding as:
+    ```
+    PATENT: [number/title]
+    ASSIGNEE: [company]
+    YEAR: [filing year]
+    APPROACH: [technical approach]
+    RELEVANCE: [high/medium/low]
+    ```
+
+    End with: PATENT_SEARCH_COMPLETE
+
+    {% elif sheet_num == 5 %}
+    ═══════════════════════════════════════════════════════════════════════════
+    SHEET 5: Cross-Source Synthesis
+    ═══════════════════════════════════════════════════════════════════════════
+
+    Synthesize findings from ALL parallel searches.
+
+    Read ALL parallel outputs:
+    - {{ workspace }}/02-academic-findings.md
+    - {{ workspace }}/03-industry-findings.md
+    - {{ workspace }}/04-patent-findings.md
+
+    TASKS:
+    1. Identify CONVERGENT findings (appear in multiple sources)
+    2. Identify DIVERGENT findings (sources disagree)
+    3. Note gaps (topics covered by one source but not others)
+    4. Assess overall evidence strength
+
+    CONVERGENCE SCORING:
+    - HIGH: Finding supported by academic + industry + patents
+    - MEDIUM: Finding supported by 2 of 3 source types
+    - LOW: Finding from single source type only
+
+    OUTPUT:
+    Write to: {{ workspace }}/05-synthesis.md
+
+    Include:
+    - Convergent findings table (with source citations)
+    - Divergent findings analysis
+    - Evidence gaps
+    - Overall confidence assessment
+
+    End with: SYNTHESIS_COMPLETE
+
+    {% elif sheet_num == 6 %}
+    ═══════════════════════════════════════════════════════════════════════════
+    SHEET 6: Final Research Report
+    ═══════════════════════════════════════════════════════════════════════════
+
+    Generate the final research report.
+
+    Read: {{ workspace }}/05-synthesis.md
+
+    OUTPUT:
+    Write to: {{ workspace }}/06-final-report.md
+
+    Structure:
+    1. Executive Summary
+    2. Methodology (multi-source parallel search)
+    3. Key Findings (prioritized by convergence)
+    4. Discussion
+    5. Limitations
+    6. Recommendations
+    7. References (from all sources)
+
+    End with: RESEARCH_COMPLETE
+
+    {% endif %}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# VALIDATIONS
+# ═══════════════════════════════════════════════════════════════════════════
+
+validations:
+  # Sheet 1: Setup complete
+  - type: file_exists
+    path: "{workspace}/01-research-setup.md"
+    condition: "sheet_num == 1"
+    description: "Research setup document created"
+    stage: 1
+  - type: content_contains
+    path: "{workspace}/01-research-setup.md"
+    pattern: "RESEARCH_SETUP_COMPLETE"
+    condition: "sheet_num == 1"
+    description: "Setup marked complete"
+    stage: 2
+
+  # Sheet 2: Academic search (parallel)
+  - type: file_exists
+    path: "{workspace}/02-academic-findings.md"
+    condition: "sheet_num == 2"
+    description: "Academic findings created"
+    stage: 1
+  - type: content_contains
+    path: "{workspace}/02-academic-findings.md"
+    pattern: "ACADEMIC_SEARCH_COMPLETE"
+    condition: "sheet_num == 2"
+    description: "Academic search complete"
+    stage: 2
+
+  # Sheet 3: Industry search (parallel)
+  - type: file_exists
+    path: "{workspace}/03-industry-findings.md"
+    condition: "sheet_num == 3"
+    description: "Industry findings created"
+    stage: 1
+  - type: content_contains
+    path: "{workspace}/03-industry-findings.md"
+    pattern: "INDUSTRY_SEARCH_COMPLETE"
+    condition: "sheet_num == 3"
+    description: "Industry search complete"
+    stage: 2
+
+  # Sheet 4: Patent search (parallel)
+  - type: file_exists
+    path: "{workspace}/04-patent-findings.md"
+    condition: "sheet_num == 4"
+    description: "Patent findings created"
+    stage: 1
+  - type: content_contains
+    path: "{workspace}/04-patent-findings.md"
+    pattern: "PATENT_SEARCH_COMPLETE"
+    condition: "sheet_num == 4"
+    description: "Patent search complete"
+    stage: 2
+
+  # Sheet 5: Synthesis
+  - type: file_exists
+    path: "{workspace}/05-synthesis.md"
+    condition: "sheet_num == 5"
+    description: "Synthesis document created"
+    stage: 1
+  - type: content_contains
+    path: "{workspace}/05-synthesis.md"
+    pattern: "SYNTHESIS_COMPLETE"
+    condition: "sheet_num == 5"
+    description: "Synthesis complete"
+    stage: 2
+  - type: content_regex
+    path: "{workspace}/05-synthesis.md"
+    pattern: "(HIGH|MEDIUM|LOW).*convergence"
+    condition: "sheet_num == 5"
+    description: "Convergence scoring applied"
+    stage: 2
+
+  # Sheet 6: Final report
+  - type: file_exists
+    path: "{workspace}/06-final-report.md"
+    condition: "sheet_num == 6"
+    description: "Final report created"
+    stage: 1
+  - type: content_contains
+    path: "{workspace}/06-final-report.md"
+    pattern: "RESEARCH_COMPLETE"
+    condition: "sheet_num == 6"
+    description: "Research complete"
+    stage: 2
+  - type: content_regex
+    path: "{workspace}/06-final-report.md"
+    pattern: "Executive Summary"
+    condition: "sheet_num == 6"
+    description: "Report has executive summary"
+    stage: 2
+
+notifications:
+  - type: desktop
+    on_events:
+      - job_complete
+      - job_failed
