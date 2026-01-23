@@ -1,0 +1,306 @@
+"""Simplified tests for Mozart MCP Tools - Job Management and Control."""
+
+import tempfile
+from datetime import datetime
+from pathlib import Path
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
+
+from mozart.core.checkpoint import CheckpointState, JobStatus, SheetStatus, SheetState
+from mozart.dashboard.services.job_control import JobActionResult, JobStartResult, ProcessHealth
+from mozart.mcp.tools import JobTools, ControlTools
+from mozart.state.json_backend import JsonStateBackend
+
+
+class TestJobToolsBasic:
+    """Basic test suite for JobTools MCP implementation."""
+
+    @pytest.fixture
+    def temp_workspace(self):
+        """Create a temporary workspace directory."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            yield Path(temp_dir)
+
+    @pytest.fixture
+    def mock_state_backend(self) -> Mock:
+        """Create a mock state backend."""
+        backend = Mock(spec=JsonStateBackend)
+        backend.load = AsyncMock()
+        backend.save = AsyncMock()
+        return backend
+
+    async def test_list_tools(self, mock_state_backend: Mock, temp_workspace):
+        """Test that list_tools returns the expected tool definitions."""
+        job_tools = JobTools(mock_state_backend, temp_workspace)
+        tools = await job_tools.list_tools()
+
+        assert len(tools) == 3
+        tool_names = [tool["name"] for tool in tools]
+        assert "list_jobs" in tool_names
+        assert "get_job" in tool_names
+        assert "start_job" in tool_names
+
+    async def test_list_jobs_placeholder(self, mock_state_backend: Mock, temp_workspace):
+        """Test list_jobs returns placeholder message."""
+        job_tools = JobTools(mock_state_backend, temp_workspace)
+        result = await job_tools.call_tool("list_jobs", {})
+
+        assert "content" in result
+        assert len(result["content"]) == 1
+        assert "Mozart MCP Job Listing" in result["content"][0]["text"]
+
+    @patch('mozart.mcp.tools.JobControlService')
+    async def test_get_job_success(self, mock_service_class, mock_state_backend: Mock, temp_workspace):
+        """Test successful get_job operation."""
+        # Setup mock state
+        mock_state = CheckpointState(
+            job_id="test-job-123",
+            job_name="Test Job",
+            status=JobStatus.RUNNING,
+            started_at=datetime.now(),
+            updated_at=datetime.now(),
+            total_sheets=3,
+            sheets={},
+            pid=12345,
+        )
+        mock_state_backend.load.return_value = mock_state
+
+        # Setup mock health
+        mock_health = ProcessHealth(
+            pid=12345,
+            is_alive=True,
+            is_zombie_state=False,
+            process_exists=True,
+            cpu_percent=5.2,
+            memory_mb=128.5,
+            uptime_seconds=3600.0
+        )
+
+        # Mock the service instance
+        mock_service = Mock()
+        mock_service.verify_process_health = AsyncMock(return_value=mock_health)
+        mock_service_class.return_value = mock_service
+
+        job_tools = JobTools(mock_state_backend, temp_workspace)
+        result = await job_tools.call_tool("get_job", {"job_id": "test-job-123"})
+
+        assert "content" in result
+        content_text = result["content"][0]["text"]
+        assert "Mozart Job Details: test-job-123" in content_text
+        assert "Job Name: Test Job" in content_text
+        assert "Status: running" in content_text
+
+    async def test_get_job_not_found(self, mock_state_backend: Mock, temp_workspace):
+        """Test get_job when job doesn't exist."""
+        mock_state_backend.load.return_value = None
+        job_tools = JobTools(mock_state_backend, temp_workspace)
+
+        result = await job_tools.call_tool("get_job", {"job_id": "nonexistent"})
+
+        assert "isError" in result
+        assert result["isError"] is True
+        assert "Job not found" in result["content"][0]["text"]
+
+    async def test_start_job_config_not_found(self, mock_state_backend: Mock, temp_workspace):
+        """Test start_job with non-existent config file."""
+        job_tools = JobTools(mock_state_backend, temp_workspace)
+        result = await job_tools.call_tool("start_job", {
+            "config_path": "/nonexistent/config.yaml"
+        })
+
+        assert "isError" in result
+        assert result["isError"] is True
+        assert "Configuration file not found" in result["content"][0]["text"]
+
+
+class TestControlToolsBasic:
+    """Basic test suite for ControlTools MCP implementation."""
+
+    @pytest.fixture
+    def temp_workspace(self):
+        """Create a temporary workspace directory."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            yield Path(temp_dir)
+
+    @pytest.fixture
+    def mock_state_backend(self) -> Mock:
+        """Create a mock state backend."""
+        backend = Mock(spec=JsonStateBackend)
+        backend.load = AsyncMock()
+        backend.save = AsyncMock()
+        return backend
+
+    async def test_list_tools(self, mock_state_backend: Mock, temp_workspace):
+        """Test that list_tools returns the expected control tool definitions."""
+        control_tools = ControlTools(mock_state_backend, temp_workspace)
+        tools = await control_tools.list_tools()
+
+        assert len(tools) == 3
+        tool_names = [tool["name"] for tool in tools]
+        assert "pause_job" in tool_names
+        assert "resume_job" in tool_names
+        assert "cancel_job" in tool_names
+
+    @patch('mozart.mcp.tools.JobControlService')
+    async def test_pause_job_success(self, mock_service_class, mock_state_backend: Mock, temp_workspace):
+        """Test successful pause_job operation."""
+        # Mock successful pause result
+        pause_result = JobActionResult(
+            success=True,
+            job_id="test-job-123",
+            status="running",
+            message="Pause request sent"
+        )
+
+        # Mock the service instance
+        mock_service = Mock()
+        mock_service.pause_job = AsyncMock(return_value=pause_result)
+        mock_service_class.return_value = mock_service
+
+        control_tools = ControlTools(mock_state_backend, temp_workspace)
+        result = await control_tools.call_tool("pause_job", {"job_id": "test-job-123"})
+
+        assert "content" in result
+        content_text = result["content"][0]["text"]
+        assert "✓ Pause request sent to job: test-job-123" in content_text
+
+    @patch('mozart.mcp.tools.JobControlService')
+    async def test_pause_job_failure(self, mock_service_class, mock_state_backend: Mock, temp_workspace):
+        """Test pause_job when operation fails."""
+        # Mock failed pause result
+        pause_result = JobActionResult(
+            success=False,
+            job_id="test-job-123",
+            status="failed",
+            message="Job not found"
+        )
+
+        # Mock the service instance
+        mock_service = Mock()
+        mock_service.pause_job = AsyncMock(return_value=pause_result)
+        mock_service_class.return_value = mock_service
+
+        control_tools = ControlTools(mock_state_backend, temp_workspace)
+        result = await control_tools.call_tool("pause_job", {"job_id": "test-job-123"})
+
+        assert "content" in result
+        content_text = result["content"][0]["text"]
+        assert "✗ Failed to pause job: test-job-123" in content_text
+
+    async def test_unknown_tool(self, mock_state_backend: Mock, temp_workspace):
+        """Test calling an unknown tool returns proper error."""
+        control_tools = ControlTools(mock_state_backend, temp_workspace)
+        result = await control_tools.call_tool("unknown_tool", {})
+
+        assert "isError" in result
+        assert result["isError"] is True
+        assert "Unknown control tool: unknown_tool" in result["content"][0]["text"]
+
+
+# Coverage tests - ensure we test key paths
+class TestMCPCoverage:
+    """Test coverage for critical code paths."""
+
+    @pytest.fixture
+    def temp_workspace(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            yield Path(temp_dir)
+
+    @pytest.fixture
+    def mock_state_backend(self):
+        backend = Mock(spec=JsonStateBackend)
+        backend.load = AsyncMock()
+        return backend
+
+    @patch('mozart.mcp.tools.JobControlService')
+    async def test_start_job_with_workspace_param(self, mock_service_class, mock_state_backend, temp_workspace):
+        """Test start_job with workspace parameter."""
+        config_file = temp_workspace / "test.yaml"
+        config_file.write_text("""
+name: "Test Job"
+backend:
+  type: claude_cli
+sheet:
+  total_sheets: 3
+""")
+
+        start_result = JobStartResult(
+            job_id="test-job",
+            job_name="Test Job",
+            status="running",
+            workspace=temp_workspace,
+            total_sheets=3,
+            pid=12345
+        )
+
+        mock_service = Mock()
+        mock_service.start_job = AsyncMock(return_value=start_result)
+        mock_service_class.return_value = mock_service
+
+        job_tools = JobTools(mock_state_backend, temp_workspace)
+        result = await job_tools.call_tool("start_job", {
+            "config_path": str(config_file),
+            "workspace": str(temp_workspace),
+            "self_healing": True
+        })
+
+        assert "✓ Mozart job started successfully!" in result["content"][0]["text"]
+        assert "Self-healing: Enabled" in result["content"][0]["text"]
+
+    @patch('mozart.mcp.tools.JobControlService')
+    async def test_resume_job_success(self, mock_service_class, mock_state_backend, temp_workspace):
+        """Test successful resume_job operation."""
+        resume_result = JobActionResult(
+            success=True,
+            job_id="test-job",
+            status="running",
+            message="Job resumed"
+        )
+
+        mock_service = Mock()
+        mock_service.resume_job = AsyncMock(return_value=resume_result)
+        mock_service_class.return_value = mock_service
+
+        control_tools = ControlTools(mock_state_backend, temp_workspace)
+        result = await control_tools.call_tool("resume_job", {"job_id": "test-job"})
+
+        assert "✓ Job resumed successfully: test-job" in result["content"][0]["text"]
+
+    @patch('mozart.mcp.tools.JobControlService')
+    async def test_cancel_job_success(self, mock_service_class, mock_state_backend, temp_workspace):
+        """Test successful cancel_job operation."""
+        cancel_result = JobActionResult(
+            success=True,
+            job_id="test-job",
+            status="cancelled",
+            message="Job cancelled"
+        )
+
+        mock_service = Mock()
+        mock_service.cancel_job = AsyncMock(return_value=cancel_result)
+        mock_service_class.return_value = mock_service
+
+        control_tools = ControlTools(mock_state_backend, temp_workspace)
+        result = await control_tools.call_tool("cancel_job", {"job_id": "test-job"})
+
+        assert "✓ Job cancelled successfully: test-job" in result["content"][0]["text"]
+        assert "permanent and cannot be undone" in result["content"][0]["text"]
+
+    @patch('mozart.mcp.tools.JobControlService')
+    async def test_service_exception_handling(self, mock_service_class, mock_state_backend, temp_workspace):
+        """Test exception handling from job control service."""
+        mock_service = Mock()
+        mock_service.pause_job = AsyncMock(side_effect=RuntimeError("Service error"))
+        mock_service_class.return_value = mock_service
+
+        control_tools = ControlTools(mock_state_backend, temp_workspace)
+        result = await control_tools.call_tool("pause_job", {"job_id": "test-job"})
+
+        assert "isError" in result
+        assert result["isError"] is True
+        assert "Failed to pause job: Service error" in result["content"][0]["text"]
+
+
+if __name__ == "__main__":
+    pytest.main([__file__])
