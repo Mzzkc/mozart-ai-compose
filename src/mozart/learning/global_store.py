@@ -17,7 +17,7 @@ import uuid
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -465,6 +465,73 @@ class EvolutionTrajectoryEntry:
     """Optional notes about this evolution cycle."""
 
 
+@dataclass
+class ExplorationBudgetRecord:
+    """A record of exploration budget state over time.
+
+    v23 Evolution: Exploration Budget Maintenance - tracks the dynamic
+    exploration budget to prevent convergence to zero. The budget adjusts
+    based on pattern entropy observations.
+    """
+
+    id: str
+    """Unique identifier for this budget record."""
+
+    job_hash: str
+    """Hash of the job this budget adjustment belongs to."""
+
+    recorded_at: datetime
+    """When this budget state was recorded."""
+
+    budget_value: float
+    """Current budget value (0.0-1.0)."""
+
+    entropy_at_time: float | None
+    """Pattern entropy at time of recording (if measured)."""
+
+    adjustment_type: str
+    """Type of adjustment: 'initial', 'decay', 'boost', 'floor_enforced'."""
+
+    adjustment_reason: str | None = None
+    """Human-readable reason for this adjustment."""
+
+
+@dataclass
+class EntropyResponseRecord:
+    """A record of an automatic entropy response event.
+
+    v23 Evolution: Automatic Entropy Response - records when the system
+    automatically responded to low entropy conditions by injecting diversity.
+    """
+
+    id: str
+    """Unique identifier for this response record."""
+
+    job_hash: str
+    """Hash of the job that triggered this response."""
+
+    recorded_at: datetime
+    """When this response was triggered."""
+
+    entropy_at_trigger: float
+    """The entropy value that triggered this response."""
+
+    threshold_used: float
+    """The threshold that was crossed."""
+
+    actions_taken: list[str]
+    """List of actions taken: 'budget_boost', 'quarantine_revisit', etc."""
+
+    budget_boosted: bool = False
+    """Whether the exploration budget was boosted."""
+
+    quarantine_revisits: int = 0
+    """Number of quarantined patterns revisited."""
+
+    patterns_revisited: list[str] = field(default_factory=list)
+    """IDs of patterns that were marked for revisit."""
+
+
 class GlobalLearningStore:
     """SQLite-based global learning store.
 
@@ -476,7 +543,7 @@ class GlobalLearningStore:
         db_path: Path to the SQLite database file.
     """
 
-    SCHEMA_VERSION = 8  # v8: Added success_factors, success_factors_updated_at for metacognitive reflection
+    SCHEMA_VERSION = 9  # v9: Added exploration_budget and entropy_responses tables for v23 evolutions
 
     def __init__(self, db_path: Path | None = None) -> None:
         """Initialize the global learning store.
@@ -785,6 +852,52 @@ class GlobalLearningStore:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_trajectory_recorded "
             "ON evolution_trajectory(recorded_at)"
+        )
+
+        # Exploration budget table (Evolution v23: Exploration Budget Maintenance)
+        # Tracks dynamic exploration budget over time
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS exploration_budget (
+                id TEXT PRIMARY KEY,
+                job_hash TEXT NOT NULL,
+                recorded_at TIMESTAMP NOT NULL,
+                budget_value REAL NOT NULL,
+                entropy_at_time REAL,
+                adjustment_type TEXT NOT NULL,
+                adjustment_reason TEXT
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_budget_job "
+            "ON exploration_budget(job_hash)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_budget_recorded "
+            "ON exploration_budget(recorded_at)"
+        )
+
+        # Entropy response table (Evolution v23: Automatic Entropy Response)
+        # Records automatic responses to low entropy events
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS entropy_responses (
+                id TEXT PRIMARY KEY,
+                job_hash TEXT NOT NULL,
+                recorded_at TIMESTAMP NOT NULL,
+                entropy_at_trigger REAL NOT NULL,
+                threshold_used REAL NOT NULL,
+                actions_taken TEXT NOT NULL,
+                budget_boosted INTEGER DEFAULT 0,
+                quarantine_revisits INTEGER DEFAULT 0,
+                patterns_revisited TEXT
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_entropy_response_job "
+            "ON entropy_responses(job_hash)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_entropy_response_recorded "
+            "ON entropy_responses(recorded_at)"
         )
 
         # Update schema version
@@ -2523,7 +2636,7 @@ class GlobalLearningStore:
         from datetime import timedelta
 
         record_id = str(uuid.uuid4())
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         job_hash = self.hash_job(job_id)
 
         # Use 80% of expected duration as expiry (conservative TTL)
@@ -2576,7 +2689,7 @@ class GlobalLearningStore:
             Tuple of (is_limited: bool, seconds_until_expiry: float | None).
             If is_limited is True, seconds_until_expiry indicates when it clears.
         """
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
 
         with self._get_connection() as conn:
             # Build query based on filters
@@ -2628,7 +2741,7 @@ class GlobalLearningStore:
         Returns:
             List of RateLimitEvent objects that haven't expired yet.
         """
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
 
         with self._get_connection() as conn:
             if model:
@@ -3439,6 +3552,751 @@ class GlobalLearningStore:
             "avg_belief_change": avg_change,
             "avg_belief_entropy": avg_entropy,
             "most_unstable": most_unstable.pattern_id if most_unstable else None,
+        }
+
+    # =========================================================================
+    # v23 Evolution: Exploration Budget Maintenance
+    # =========================================================================
+
+    def get_exploration_budget(
+        self,
+        job_hash: str | None = None,
+    ) -> ExplorationBudgetRecord | None:
+        """Get the most recent exploration budget record.
+
+        v23 Evolution: Exploration Budget Maintenance - returns the current
+        exploration budget state for pattern selection modulation.
+
+        Args:
+            job_hash: Optional job hash to filter by specific job.
+
+        Returns:
+            The most recent ExplorationBudgetRecord, or None if no budget recorded.
+        """
+        with self._get_connection() as conn:
+            if job_hash:
+                cursor = conn.execute(
+                    """
+                    SELECT id, job_hash, recorded_at, budget_value,
+                           entropy_at_time, adjustment_type, adjustment_reason
+                    FROM exploration_budget
+                    WHERE job_hash = ?
+                    ORDER BY recorded_at DESC
+                    LIMIT 1
+                    """,
+                    (job_hash,),
+                )
+            else:
+                cursor = conn.execute(
+                    """
+                    SELECT id, job_hash, recorded_at, budget_value,
+                           entropy_at_time, adjustment_type, adjustment_reason
+                    FROM exploration_budget
+                    ORDER BY recorded_at DESC
+                    LIMIT 1
+                    """
+                )
+            row = cursor.fetchone()
+
+            if not row:
+                return None
+
+            return ExplorationBudgetRecord(
+                id=row["id"],
+                job_hash=row["job_hash"],
+                recorded_at=datetime.fromisoformat(row["recorded_at"]),
+                budget_value=row["budget_value"],
+                entropy_at_time=row["entropy_at_time"],
+                adjustment_type=row["adjustment_type"],
+                adjustment_reason=row["adjustment_reason"],
+            )
+
+    def get_exploration_budget_history(
+        self,
+        job_hash: str | None = None,
+        limit: int = 50,
+    ) -> list[ExplorationBudgetRecord]:
+        """Get exploration budget history for analysis.
+
+        v23 Evolution: Exploration Budget Maintenance - returns historical
+        budget records for visualization and trend analysis.
+
+        Args:
+            job_hash: Optional job hash to filter by specific job.
+            limit: Maximum number of records to return.
+
+        Returns:
+            List of ExplorationBudgetRecord objects, most recent first.
+        """
+        with self._get_connection() as conn:
+            if job_hash:
+                cursor = conn.execute(
+                    """
+                    SELECT id, job_hash, recorded_at, budget_value,
+                           entropy_at_time, adjustment_type, adjustment_reason
+                    FROM exploration_budget
+                    WHERE job_hash = ?
+                    ORDER BY recorded_at DESC
+                    LIMIT ?
+                    """,
+                    (job_hash, limit),
+                )
+            else:
+                cursor = conn.execute(
+                    """
+                    SELECT id, job_hash, recorded_at, budget_value,
+                           entropy_at_time, adjustment_type, adjustment_reason
+                    FROM exploration_budget
+                    ORDER BY recorded_at DESC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                )
+
+            records: list[ExplorationBudgetRecord] = []
+            for row in cursor.fetchall():
+                records.append(
+                    ExplorationBudgetRecord(
+                        id=row["id"],
+                        job_hash=row["job_hash"],
+                        recorded_at=datetime.fromisoformat(row["recorded_at"]),
+                        budget_value=row["budget_value"],
+                        entropy_at_time=row["entropy_at_time"],
+                        adjustment_type=row["adjustment_type"],
+                        adjustment_reason=row["adjustment_reason"],
+                    )
+                )
+            return records
+
+    def update_exploration_budget(
+        self,
+        job_hash: str,
+        budget_value: float,
+        adjustment_type: str,
+        entropy_at_time: float | None = None,
+        adjustment_reason: str | None = None,
+        floor: float = 0.05,
+        ceiling: float = 0.50,
+    ) -> ExplorationBudgetRecord:
+        """Update the exploration budget with floor and ceiling enforcement.
+
+        v23 Evolution: Exploration Budget Maintenance - records budget
+        adjustments while enforcing floor (never go to zero) and ceiling limits.
+
+        Args:
+            job_hash: Hash of the job updating the budget.
+            budget_value: Proposed new budget value.
+            adjustment_type: Type: 'initial', 'decay', 'boost', 'floor_enforced'.
+            entropy_at_time: Optional entropy measurement at adjustment time.
+            adjustment_reason: Human-readable reason for adjustment.
+            floor: Minimum allowed budget (default 0.05 = 5%).
+            ceiling: Maximum allowed budget (default 0.50 = 50%).
+
+        Returns:
+            The new ExplorationBudgetRecord.
+        """
+        # Enforce floor and ceiling
+        original_value = budget_value
+        budget_value = max(floor, min(ceiling, budget_value))
+
+        # Update adjustment_type if floor was enforced
+        if original_value < floor:
+            adjustment_type = "floor_enforced"
+            adjustment_reason = (
+                f"Budget {original_value:.3f} enforced to floor {floor:.3f}"
+            )
+        elif original_value > ceiling:
+            adjustment_type = "ceiling_enforced"
+            adjustment_reason = (
+                f"Budget {original_value:.3f} enforced to ceiling {ceiling:.3f}"
+            )
+
+        record_id = str(uuid.uuid4())
+        recorded_at = datetime.now()
+
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO exploration_budget (
+                    id, job_hash, recorded_at, budget_value,
+                    entropy_at_time, adjustment_type, adjustment_reason
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record_id,
+                    job_hash,
+                    recorded_at.isoformat(),
+                    budget_value,
+                    entropy_at_time,
+                    adjustment_type,
+                    adjustment_reason,
+                ),
+            )
+
+        _logger.debug(
+            f"Updated exploration budget: {budget_value:.3f} ({adjustment_type})"
+        )
+
+        return ExplorationBudgetRecord(
+            id=record_id,
+            job_hash=job_hash,
+            recorded_at=recorded_at,
+            budget_value=budget_value,
+            entropy_at_time=entropy_at_time,
+            adjustment_type=adjustment_type,
+            adjustment_reason=adjustment_reason,
+        )
+
+    def calculate_budget_adjustment(
+        self,
+        job_hash: str,
+        current_entropy: float,
+        floor: float = 0.05,
+        ceiling: float = 0.50,
+        decay_rate: float = 0.95,
+        boost_amount: float = 0.10,
+        entropy_threshold: float = 0.3,
+        initial_budget: float = 0.15,
+    ) -> ExplorationBudgetRecord:
+        """Calculate and record the next budget adjustment based on entropy.
+
+        v23 Evolution: Exploration Budget Maintenance - implements the core
+        budget adjustment logic:
+        - When entropy < threshold: boost budget by boost_amount
+        - When entropy >= threshold: decay budget by decay_rate
+        - Budget never drops below floor or exceeds ceiling
+
+        Args:
+            job_hash: Hash of the job.
+            current_entropy: Current pattern entropy (0.0-1.0).
+            floor: Minimum budget floor (default 0.05).
+            ceiling: Maximum budget ceiling (default 0.50).
+            decay_rate: Decay multiplier when entropy healthy (default 0.95).
+            boost_amount: Amount to add when entropy low (default 0.10).
+            entropy_threshold: Entropy level that triggers boost (default 0.3).
+            initial_budget: Starting budget if no history (default 0.15).
+
+        Returns:
+            The new ExplorationBudgetRecord after adjustment.
+        """
+        # Get current budget
+        current = self.get_exploration_budget(job_hash)
+
+        if current is None:
+            # First budget record - initialize
+            return self.update_exploration_budget(
+                job_hash=job_hash,
+                budget_value=initial_budget,
+                adjustment_type="initial",
+                entropy_at_time=current_entropy,
+                adjustment_reason="Initial budget set",
+                floor=floor,
+                ceiling=ceiling,
+            )
+
+        # Calculate new budget based on entropy
+        if current_entropy < entropy_threshold:
+            # Low entropy - boost exploration to inject diversity
+            new_budget = current.budget_value + boost_amount
+            adjustment_type = "boost"
+            reason = f"Entropy {current_entropy:.3f} < threshold {entropy_threshold:.3f}"
+        else:
+            # Healthy entropy - decay toward floor
+            new_budget = current.budget_value * decay_rate
+            adjustment_type = "decay"
+            reason = f"Entropy {current_entropy:.3f} >= threshold, decaying"
+
+        return self.update_exploration_budget(
+            job_hash=job_hash,
+            budget_value=new_budget,
+            adjustment_type=adjustment_type,
+            entropy_at_time=current_entropy,
+            adjustment_reason=reason,
+            floor=floor,
+            ceiling=ceiling,
+        )
+
+    def get_exploration_budget_statistics(
+        self,
+        job_hash: str | None = None,
+    ) -> dict[str, Any]:
+        """Get statistics about exploration budget usage.
+
+        v23 Evolution: Exploration Budget Maintenance - provides aggregate
+        statistics for monitoring and reporting.
+
+        Args:
+            job_hash: Optional job hash to filter by specific job.
+
+        Returns:
+            Dict with budget statistics:
+            - current_budget: Current budget value
+            - avg_budget: Average budget over history
+            - min_budget: Minimum recorded budget
+            - max_budget: Maximum recorded budget
+            - total_adjustments: Total number of adjustments
+            - floor_enforcements: Number of times floor was enforced
+            - boost_count: Number of boost adjustments
+            - decay_count: Number of decay adjustments
+        """
+        with self._get_connection() as conn:
+            if job_hash:
+                cursor = conn.execute(
+                    """
+                    SELECT
+                        COUNT(*) as total,
+                        AVG(budget_value) as avg_val,
+                        MIN(budget_value) as min_val,
+                        MAX(budget_value) as max_val,
+                        SUM(CASE WHEN adjustment_type = 'floor_enforced' THEN 1 ELSE 0 END) as floor_count,
+                        SUM(CASE WHEN adjustment_type = 'boost' THEN 1 ELSE 0 END) as boost_count,
+                        SUM(CASE WHEN adjustment_type = 'decay' THEN 1 ELSE 0 END) as decay_count
+                    FROM exploration_budget
+                    WHERE job_hash = ?
+                    """,
+                    (job_hash,),
+                )
+            else:
+                cursor = conn.execute(
+                    """
+                    SELECT
+                        COUNT(*) as total,
+                        AVG(budget_value) as avg_val,
+                        MIN(budget_value) as min_val,
+                        MAX(budget_value) as max_val,
+                        SUM(CASE WHEN adjustment_type = 'floor_enforced' THEN 1 ELSE 0 END) as floor_count,
+                        SUM(CASE WHEN adjustment_type = 'boost' THEN 1 ELSE 0 END) as boost_count,
+                        SUM(CASE WHEN adjustment_type = 'decay' THEN 1 ELSE 0 END) as decay_count
+                    FROM exploration_budget
+                    """
+                )
+
+            row = cursor.fetchone()
+
+            if not row or row["total"] == 0:
+                return {
+                    "current_budget": None,
+                    "avg_budget": 0.0,
+                    "min_budget": 0.0,
+                    "max_budget": 0.0,
+                    "total_adjustments": 0,
+                    "floor_enforcements": 0,
+                    "boost_count": 0,
+                    "decay_count": 0,
+                }
+
+        # Get current budget separately
+        current = self.get_exploration_budget(job_hash)
+
+        return {
+            "current_budget": current.budget_value if current else None,
+            "avg_budget": row["avg_val"] or 0.0,
+            "min_budget": row["min_val"] or 0.0,
+            "max_budget": row["max_val"] or 0.0,
+            "total_adjustments": row["total"],
+            "floor_enforcements": row["floor_count"] or 0,
+            "boost_count": row["boost_count"] or 0,
+            "decay_count": row["decay_count"] or 0,
+        }
+
+    # =========================================================================
+    # v23 Evolution: Automatic Entropy Response
+    # =========================================================================
+
+    def check_entropy_response_needed(
+        self,
+        job_hash: str,
+        entropy_threshold: float = 0.3,
+        cooldown_seconds: int = 3600,
+    ) -> tuple[bool, float | None, str]:
+        """Check if an entropy response is needed based on current conditions.
+
+        v23 Evolution: Automatic Entropy Response - evaluates whether the
+        current entropy level warrants a diversity injection response.
+
+        Args:
+            job_hash: Hash of the job to check.
+            entropy_threshold: Entropy below this triggers response.
+            cooldown_seconds: Minimum seconds since last response.
+
+        Returns:
+            Tuple of (needs_response, current_entropy, reason):
+            - needs_response: True if response should be triggered
+            - current_entropy: Current diversity_index or None if not calculable
+            - reason: Human-readable explanation of decision
+        """
+        # Check cooldown - has there been a recent response?
+        last_response = self.get_last_entropy_response(job_hash)
+        if last_response:
+            seconds_since = (datetime.now() - last_response.recorded_at).total_seconds()
+            if seconds_since < cooldown_seconds:
+                remaining = cooldown_seconds - seconds_since
+                return (
+                    False,
+                    None,
+                    f"Cooldown active ({remaining:.0f}s remaining)",
+                )
+
+        # Calculate current entropy directly
+        # Get patterns and calculate entropy
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT p.id, COUNT(pa.id) as app_count
+                FROM patterns p
+                LEFT JOIN pattern_applications pa ON p.id = pa.pattern_id
+                GROUP BY p.id
+                HAVING app_count > 0
+                """
+            )
+            rows = cursor.fetchall()
+
+        if not rows:
+            return (False, None, "No pattern applications to analyze")
+
+        total_apps = sum(row["app_count"] for row in rows)
+        if total_apps == 0:
+            return (False, None, "No pattern applications to analyze")
+
+        # Calculate diversity index using Shannon entropy
+        import math
+
+        probabilities = [row["app_count"] / total_apps for row in rows]
+        shannon_entropy = -sum(
+            p * math.log2(p) for p in probabilities if p > 0
+        )
+        max_entropy = math.log2(len(rows)) if len(rows) > 1 else 1.0
+        diversity_index = shannon_entropy / max_entropy if max_entropy > 0 else 0.0
+
+        # Check if response is needed
+        if diversity_index < entropy_threshold:
+            return (
+                True,
+                diversity_index,
+                f"Entropy {diversity_index:.3f} < threshold {entropy_threshold:.3f}",
+            )
+
+        return (
+            False,
+            diversity_index,
+            f"Entropy {diversity_index:.3f} >= threshold {entropy_threshold:.3f} (healthy)",
+        )
+
+    def trigger_entropy_response(
+        self,
+        job_hash: str,
+        entropy_at_trigger: float,
+        threshold_used: float,
+        boost_budget: bool = True,
+        revisit_quarantine: bool = True,
+        max_quarantine_revisits: int = 3,
+        budget_floor: float = 0.05,
+        budget_ceiling: float = 0.50,
+        budget_boost_amount: float = 0.10,
+    ) -> EntropyResponseRecord:
+        """Execute an entropy response by boosting budget and/or revisiting quarantine.
+
+        v23 Evolution: Automatic Entropy Response - performs the actual response
+        actions when entropy has dropped below threshold.
+
+        Args:
+            job_hash: Hash of the job triggering response.
+            entropy_at_trigger: Entropy value that triggered this response.
+            threshold_used: The threshold that was crossed.
+            boost_budget: Whether to boost exploration budget.
+            revisit_quarantine: Whether to revisit quarantined patterns.
+            max_quarantine_revisits: Maximum patterns to revisit.
+            budget_floor: Floor for budget enforcement.
+            budget_ceiling: Ceiling for budget enforcement.
+            budget_boost_amount: Amount to boost budget by.
+
+        Returns:
+            The EntropyResponseRecord documenting the response.
+        """
+        actions_taken: list[str] = []
+        patterns_revisited: list[str] = []
+        budget_boosted = False
+        quarantine_revisit_count = 0
+
+        # Action 1: Boost exploration budget
+        if boost_budget:
+            current = self.get_exploration_budget(job_hash)
+            if current:
+                new_budget = current.budget_value + budget_boost_amount
+            else:
+                new_budget = 0.15 + budget_boost_amount  # Initial + boost
+
+            self.update_exploration_budget(
+                job_hash=job_hash,
+                budget_value=new_budget,
+                adjustment_type="boost",
+                entropy_at_time=entropy_at_trigger,
+                adjustment_reason=f"Entropy response: diversity {entropy_at_trigger:.3f} < {threshold_used:.3f}",
+                floor=budget_floor,
+                ceiling=budget_ceiling,
+            )
+            budget_boosted = True
+            actions_taken.append("budget_boost")
+            _logger.info(f"Entropy response: Boosted budget by {budget_boost_amount:.1%}")
+
+        # Action 2: Revisit quarantined patterns
+        if revisit_quarantine:
+            # Get quarantined patterns and mark for review
+            with self._get_connection() as conn:
+                cursor = conn.execute(
+                    """
+                    SELECT id, pattern_name
+                    FROM patterns
+                    WHERE quarantine_status = 'quarantined'
+                    ORDER BY last_seen DESC
+                    LIMIT ?
+                    """,
+                    (max_quarantine_revisits,),
+                )
+                quarantined = cursor.fetchall()
+
+                for row in quarantined:
+                    # Mark for review by setting status to PENDING
+                    conn.execute(
+                        """
+                        UPDATE patterns
+                        SET quarantine_status = 'pending',
+                            quarantine_reason = 'Entropy response: revisiting for revalidation'
+                        WHERE id = ?
+                        """,
+                        (row["id"],),
+                    )
+                    patterns_revisited.append(row["id"])
+                    quarantine_revisit_count += 1
+                    _logger.info(
+                        f"Entropy response: Revisiting quarantined pattern {row['pattern_name']}"
+                    )
+
+            if quarantine_revisit_count > 0:
+                actions_taken.append("quarantine_revisit")
+
+        # Record the response
+        record_id = str(uuid.uuid4())
+        recorded_at = datetime.now()
+
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO entropy_responses (
+                    id, job_hash, recorded_at, entropy_at_trigger,
+                    threshold_used, actions_taken, budget_boosted,
+                    quarantine_revisits, patterns_revisited
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record_id,
+                    job_hash,
+                    recorded_at.isoformat(),
+                    entropy_at_trigger,
+                    threshold_used,
+                    json.dumps(actions_taken),
+                    1 if budget_boosted else 0,
+                    quarantine_revisit_count,
+                    json.dumps(patterns_revisited),
+                ),
+            )
+
+        _logger.info(
+            f"Entropy response complete: {len(actions_taken)} actions, "
+            f"budget_boosted={budget_boosted}, revisited={quarantine_revisit_count}"
+        )
+
+        return EntropyResponseRecord(
+            id=record_id,
+            job_hash=job_hash,
+            recorded_at=recorded_at,
+            entropy_at_trigger=entropy_at_trigger,
+            threshold_used=threshold_used,
+            actions_taken=actions_taken,
+            budget_boosted=budget_boosted,
+            quarantine_revisits=quarantine_revisit_count,
+            patterns_revisited=patterns_revisited,
+        )
+
+    def get_last_entropy_response(
+        self,
+        job_hash: str | None = None,
+    ) -> EntropyResponseRecord | None:
+        """Get the most recent entropy response record.
+
+        v23 Evolution: Automatic Entropy Response - used for cooldown checking.
+
+        Args:
+            job_hash: Optional job hash to filter by.
+
+        Returns:
+            The most recent EntropyResponseRecord, or None if none found.
+        """
+        with self._get_connection() as conn:
+            if job_hash:
+                cursor = conn.execute(
+                    """
+                    SELECT id, job_hash, recorded_at, entropy_at_trigger,
+                           threshold_used, actions_taken, budget_boosted,
+                           quarantine_revisits, patterns_revisited
+                    FROM entropy_responses
+                    WHERE job_hash = ?
+                    ORDER BY recorded_at DESC
+                    LIMIT 1
+                    """,
+                    (job_hash,),
+                )
+            else:
+                cursor = conn.execute(
+                    """
+                    SELECT id, job_hash, recorded_at, entropy_at_trigger,
+                           threshold_used, actions_taken, budget_boosted,
+                           quarantine_revisits, patterns_revisited
+                    FROM entropy_responses
+                    ORDER BY recorded_at DESC
+                    LIMIT 1
+                    """
+                )
+
+            row = cursor.fetchone()
+
+            if not row:
+                return None
+
+            return EntropyResponseRecord(
+                id=row["id"],
+                job_hash=row["job_hash"],
+                recorded_at=datetime.fromisoformat(row["recorded_at"]),
+                entropy_at_trigger=row["entropy_at_trigger"],
+                threshold_used=row["threshold_used"],
+                actions_taken=json.loads(row["actions_taken"]),
+                budget_boosted=bool(row["budget_boosted"]),
+                quarantine_revisits=row["quarantine_revisits"],
+                patterns_revisited=json.loads(row["patterns_revisited"]) if row["patterns_revisited"] else [],
+            )
+
+    def get_entropy_response_history(
+        self,
+        job_hash: str | None = None,
+        limit: int = 50,
+    ) -> list[EntropyResponseRecord]:
+        """Get entropy response history for analysis.
+
+        v23 Evolution: Automatic Entropy Response - returns historical
+        response records for visualization and trend analysis.
+
+        Args:
+            job_hash: Optional job hash to filter by.
+            limit: Maximum number of records to return.
+
+        Returns:
+            List of EntropyResponseRecord objects, most recent first.
+        """
+        with self._get_connection() as conn:
+            if job_hash:
+                cursor = conn.execute(
+                    """
+                    SELECT id, job_hash, recorded_at, entropy_at_trigger,
+                           threshold_used, actions_taken, budget_boosted,
+                           quarantine_revisits, patterns_revisited
+                    FROM entropy_responses
+                    WHERE job_hash = ?
+                    ORDER BY recorded_at DESC
+                    LIMIT ?
+                    """,
+                    (job_hash, limit),
+                )
+            else:
+                cursor = conn.execute(
+                    """
+                    SELECT id, job_hash, recorded_at, entropy_at_trigger,
+                           threshold_used, actions_taken, budget_boosted,
+                           quarantine_revisits, patterns_revisited
+                    FROM entropy_responses
+                    ORDER BY recorded_at DESC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                )
+
+            records: list[EntropyResponseRecord] = []
+            for row in cursor.fetchall():
+                records.append(
+                    EntropyResponseRecord(
+                        id=row["id"],
+                        job_hash=row["job_hash"],
+                        recorded_at=datetime.fromisoformat(row["recorded_at"]),
+                        entropy_at_trigger=row["entropy_at_trigger"],
+                        threshold_used=row["threshold_used"],
+                        actions_taken=json.loads(row["actions_taken"]),
+                        budget_boosted=bool(row["budget_boosted"]),
+                        quarantine_revisits=row["quarantine_revisits"],
+                        patterns_revisited=json.loads(row["patterns_revisited"]) if row["patterns_revisited"] else [],
+                    )
+                )
+            return records
+
+    def get_entropy_response_statistics(
+        self,
+        job_hash: str | None = None,
+    ) -> dict[str, Any]:
+        """Get statistics about entropy responses.
+
+        v23 Evolution: Automatic Entropy Response - provides aggregate
+        statistics for monitoring and reporting.
+
+        Args:
+            job_hash: Optional job hash to filter by.
+
+        Returns:
+            Dict with response statistics.
+        """
+        with self._get_connection() as conn:
+            if job_hash:
+                cursor = conn.execute(
+                    """
+                    SELECT
+                        COUNT(*) as total,
+                        AVG(entropy_at_trigger) as avg_entropy,
+                        SUM(budget_boosted) as budget_boosts,
+                        SUM(quarantine_revisits) as total_revisits
+                    FROM entropy_responses
+                    WHERE job_hash = ?
+                    """,
+                    (job_hash,),
+                )
+            else:
+                cursor = conn.execute(
+                    """
+                    SELECT
+                        COUNT(*) as total,
+                        AVG(entropy_at_trigger) as avg_entropy,
+                        SUM(budget_boosted) as budget_boosts,
+                        SUM(quarantine_revisits) as total_revisits
+                    FROM entropy_responses
+                    """
+                )
+
+            row = cursor.fetchone()
+
+            if not row or row["total"] == 0:
+                return {
+                    "total_responses": 0,
+                    "avg_entropy_at_trigger": 0.0,
+                    "budget_boosts": 0,
+                    "quarantine_revisits": 0,
+                    "last_response": None,
+                }
+
+        # Get last response time
+        last = self.get_last_entropy_response(job_hash)
+
+        return {
+            "total_responses": row["total"],
+            "avg_entropy_at_trigger": row["avg_entropy"] or 0.0,
+            "budget_boosts": row["budget_boosts"] or 0,
+            "quarantine_revisits": row["total_revisits"] or 0,
+            "last_response": last.recorded_at.isoformat() if last else None,
         }
 
     # =========================================================================
