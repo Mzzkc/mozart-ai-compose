@@ -1,0 +1,915 @@
+# Example: Non-Fiction Book Authoring (Snowflake Method)
+# Orchestrate book writing from premise through polished manuscript with consistency validation
+#
+# This example demonstrates Mozart's capabilities BEYOND software development:
+# - Progressive elaboration (Snowflake Method)
+# - Creative workflow with quality gates
+# - Consistency validation across components
+# - Iterative revision pattern
+# - Long-form content orchestration
+#
+# Use Cases:
+# - Aspiring authors structuring non-fiction books
+# - Subject matter experts translating expertise into books
+# - Content creators developing long-form educational content
+# - Technical writers authoring comprehensive guides
+#
+# Usage:
+#   # 1. Customize variables in prompt.variables section
+#   # 2. Validate configuration
+#   mozart validate examples/nonfiction-book.yaml
+#   # 3. Run the authoring pipeline
+#   mozart run examples/nonfiction-book.yaml
+#   # 4. Monitor progress
+#   mozart status nonfiction-book
+#
+# Estimated time: 6-12 hours depending on chapter count
+# Outputs: Complete manuscript with supporting materials in workspace/
+
+name: "nonfiction-book"
+description: "Non-fiction book authoring using Snowflake Method with word count gates and consistency validation"
+
+workspace: "./book-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  timeout_seconds: 3600    # 60 minutes per sheet - creative writing requires depth
+  disable_mcp: true        # Performance optimization
+
+  # Note: For consistent voice, use the same model throughout
+  # Uncomment to specify: cli_model: claude-sonnet-4-20250514
+
+sheet:
+  size: 1           # One phase per sheet (recommended for long-form content)
+  total_items: 8    # 8 Snowflake Method phases
+  start_item: 1
+
+retry:
+  max_retries: 2
+  base_delay_seconds: 60   # Longer delay for creative tasks
+  max_completion_attempts: 2
+
+rate_limit:
+  wait_minutes: 60
+  max_waits: 3
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CUSTOMIZATION SECTION
+# Modify these variables to adapt the book to your subject matter
+# ═══════════════════════════════════════════════════════════════════════════════
+
+prompt:
+  variables:
+    # ─────────────────────────────────────────────────────────────────────────
+    # REQUIRED: Define your book concept
+    # ─────────────────────────────────────────────────────────────────────────
+
+    book_title: "[CHANGE THIS: Working title, e.g., 'The Deliberate Amateur: How Strategic Inexperience Drives Innovation']"
+    book_topic: "[CHANGE THIS: Core subject, e.g., 'the counterintuitive advantages of being a beginner in established fields']"
+
+    # Target audience definition
+    target_audience: "[CHANGE THIS: e.g., 'mid-career professionals considering pivots, entrepreneurs entering new industries, lifelong learners']"
+
+    # What makes this book different from existing books on the topic?
+    unique_angle: "[CHANGE THIS: e.g., 'combines cognitive science research with historical case studies and practical frameworks']"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # REQUIRED: Book structure parameters
+    # ─────────────────────────────────────────────────────────────────────────
+
+    # Target chapter count (typically 8-15 for non-fiction)
+    chapter_count: "10"
+
+    # Word count targets
+    target_word_count: "50000"
+    words_per_chapter_min: "4000"
+    words_per_chapter_max: "6000"
+
+    # Book category for positioning
+    category: "[CHANGE THIS: e.g., 'Business/Self-Help', 'Science/Psychology', 'History', 'Memoir/Narrative Non-Fiction']"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # REQUIRED: Content approach
+    # ─────────────────────────────────────────────────────────────────────────
+
+    # Primary evidence types used (comma-separated)
+    evidence_types: "[CHANGE THIS: e.g., 'research studies, expert interviews, case studies, personal anecdotes']"
+
+    # Key frameworks or models (if applicable)
+    frameworks: "[CHANGE THIS: e.g., 'The Beginner's Edge Framework, 5 Stages of Productive Incompetence' or 'N/A']"
+
+    # Source requirements
+    source_style: "[CHANGE THIS: e.g., 'endnotes with full citations', 'in-text references', 'bibliography only']"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # OPTIONAL: Quality thresholds (sensible defaults provided)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    # Flesch-Kincaid reading level target (lower = more accessible)
+    # 60-70 = 8th-9th grade (general audience), 50-60 = 10th-12th grade, 30-50 = college level
+    target_readability: "60"
+
+    # Minimum examples/stories per chapter
+    min_examples_per_chapter: "2"
+
+    # Consistency check strictness (high, medium, low)
+    consistency_strictness: "high"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PROMPT TEMPLATE
+  # Each sheet represents one phase of the Snowflake Method
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  template: |
+    You are authoring a non-fiction book using the Snowflake Method for structured development.
+
+    ═══════════════════════════════════════════════════════════════════════════════
+    BOOK CONTEXT
+    ═══════════════════════════════════════════════════════════════════════════════
+
+    **Title:** {{ book_title }}
+    **Topic:** {{ book_topic }}
+    **Category:** {{ category }}
+
+    **Target Audience:**
+    {{ target_audience }}
+
+    **Unique Angle:**
+    {{ unique_angle }}
+
+    **Structure:**
+    - Chapters: {{ chapter_count }}
+    - Total target word count: {{ target_word_count }}
+    - Words per chapter: {{ words_per_chapter_min }}-{{ words_per_chapter_max }}
+
+    **Content Approach:**
+    - Evidence types: {{ evidence_types }}
+    - Frameworks: {{ frameworks }}
+    - Source style: {{ source_style }}
+
+    **Quality Standards:**
+    - Target readability (Flesch-Kincaid): {{ target_readability }}
+    - Min examples per chapter: {{ min_examples_per_chapter }}
+    - Consistency strictness: {{ consistency_strictness }}
+
+    **Phase:** {{ sheet_num }} of {{ total_sheets }}
+    **Workspace:** {{ workspace }}
+
+    ═══════════════════════════════════════════════════════════════════════════════
+
+    {% if sheet_num == 1 %}
+    ## Phase 1: Premise & Pitch
+
+    **Objective:** Crystallize the book's core idea into a compelling, focused premise.
+
+    ### The Snowflake Method - Phase 1
+
+    Start with a single sentence. This is not a summary; it's the DNA of your book.
+
+    ### Tasks:
+
+    1. **One-Sentence Premise** (max 25 words)
+       - Captures the core argument or promise
+       - Implies the transformation or insight for readers
+       - Uses active, specific language (no vague "explores" or "discusses")
+
+    2. **One-Paragraph Pitch** (100-150 words)
+       - Expands premise into a compelling hook
+       - Identifies the problem/question the book addresses
+       - Hints at the solution/answer the book provides
+       - Ends with a clear value proposition for the reader
+
+    3. **Target Audience Profile**
+       - Demographics (age, profession, education)
+       - Psychographics (motivations, pain points, aspirations)
+       - What they're currently reading
+       - Why they'll choose THIS book
+
+    4. **Competitive Positioning**
+       - 3-5 comparable titles (books this would sit next to)
+       - How this book differs from each
+       - The gap in the market this fills
+
+    5. **Author Authority Statement**
+       - Why this author should write this book
+       - Unique expertise or perspective
+       - Connection to the audience
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/01-premise.md`
+
+    The premise document MUST include:
+    - [ ] One-sentence premise (≤25 words)
+    - [ ] One-paragraph pitch (100-150 words)
+    - [ ] Target audience profile (demographics + psychographics)
+    - [ ] Competitive analysis (3-5 comparable titles)
+    - [ ] Author authority statement
+    - [ ] Word count summary for each section
+
+    ### Quality Gate:
+    The premise must be specific enough that someone could accurately describe the book from reading only this document.
+
+    {% elif sheet_num == 2 %}
+    ## Phase 2: Expanded Synopsis
+
+    **Objective:** Expand the premise into a structured overview of the book's content.
+
+    ### Prerequisites:
+    Read the premise from Phase 1: `{{ workspace }}/01-premise.md`
+
+    ### The Snowflake Method - Phase 2
+
+    Expand your one paragraph into one page. Each paragraph becomes a pillar of the book.
+
+    ### Tasks:
+
+    1. **One-Page Synopsis** (400-600 words)
+       Structure as 5 paragraphs:
+       - **Opening:** Hook + core premise
+       - **Problem:** The challenge, question, or situation that prompted this book
+       - **Solution:** The answer, framework, or insight the book offers
+       - **Evidence:** How the book supports its claims
+       - **Transformation:** What readers gain and how they're changed
+
+    2. **Key Themes Identification**
+       List 3-5 major themes that run through the book:
+       - Theme statement (one sentence)
+       - How it manifests across chapters
+       - Why it matters to readers
+
+    3. **Structural Rationale**
+       - Why {{ chapter_count }} chapters?
+       - What's the organizing principle? (chronological, thematic, problem-solution, etc.)
+       - How do chapters build on each other?
+
+    4. **Key Takeaways**
+       - 5-7 main insights readers will gain
+       - Written as actionable statements ("Readers will learn to...")
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/02-synopsis.md`
+
+    Must include:
+    - [ ] One-page synopsis (400-600 words, 5 paragraphs)
+    - [ ] Theme identification (3-5 themes with explanations)
+    - [ ] Structural rationale for chapter organization
+    - [ ] Key takeaways (5-7 actionable insights)
+    - [ ] Word count verification
+
+    ### Quality Gate:
+    The synopsis must flow logically and cover the complete scope of the book. Every theme must connect to the core premise.
+
+    {% elif sheet_num == 3 %}
+    ## Phase 3: Chapter Outline
+
+    **Objective:** Create detailed summaries for each chapter with clear narrative arc.
+
+    ### Prerequisites:
+    - Premise: `{{ workspace }}/01-premise.md`
+    - Synopsis: `{{ workspace }}/02-synopsis.md`
+
+    ### The Snowflake Method - Phase 3
+
+    Each chapter is a mini-book with its own setup, development, and payoff.
+
+    ### Tasks:
+
+    1. **Chapter Summaries**
+       For each of {{ chapter_count }} chapters, provide:
+       - **Chapter title** (compelling, specific)
+       - **Chapter subtitle** (clarifying)
+       - **Summary** (250-350 words)
+       - **Core argument** (one sentence)
+       - **Key examples/evidence** (2-3 bulleted items)
+       - **Chapter hook** (first sentence that grabs attention)
+       - **Chapter landing** (closing insight or transition)
+
+    2. **Narrative Arc Mapping**
+       - How does tension/interest build across chapters?
+       - Where is the "midpoint" shift?
+       - What's the climactic insight/chapter?
+       - How does the conclusion resolve the book's central question?
+
+    3. **Theme Distribution**
+       - Map themes from Phase 2 to chapters
+       - Ensure each theme appears in multiple chapters
+       - Identify chapters where each theme peaks
+
+    4. **Front & Back Matter Planning**
+       - Introduction approach (story, question, provocation?)
+       - Conclusion purpose (call to action, synthesis, challenge?)
+       - Appendix needs (worksheets, resources, tools?)
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/03-chapter-outline.md`
+
+    Must include:
+    - [ ] {{ chapter_count }} chapter summaries (250-350 words each)
+    - [ ] Chapter titles and subtitles
+    - [ ] Narrative arc analysis
+    - [ ] Theme-to-chapter mapping
+    - [ ] Front/back matter plan
+    - [ ] Total outline word count (should be ~3000-4000 words)
+
+    ### Quality Gate:
+    Each chapter must have a distinct purpose. No two chapters should feel redundant. The outline must show clear progression.
+
+    {% elif sheet_num == 4 %}
+    ## Phase 4: Entity Bible (Consistency Database)
+
+    **Objective:** Create a comprehensive reference for all facts, terms, sources, and recurring elements.
+
+    ### Prerequisites:
+    - Chapter outline: `{{ workspace }}/03-chapter-outline.md`
+
+    ### Tasks:
+
+    1. **Key Concepts Registry**
+       For each major concept/term:
+       - Definition (exact wording to use consistently)
+       - First introduction chapter
+       - Usage context
+       - Related concepts
+
+    2. **Research Database**
+       For each source that will be cited:
+       - Full bibliographic information
+       - Key findings to reference
+       - Page numbers for specific claims
+       - Chapters where it appears
+
+    3. **Examples & Stories Catalog**
+       For each example, anecdote, or case study:
+       - Summary (1-2 sentences)
+       - Source/origin
+       - Which chapters use it
+       - What point it illustrates
+       - Cross-reference to any related examples
+
+    4. **Framework Documentation**
+       If your book includes frameworks ({{ frameworks }}):
+       - Full framework description
+       - Step-by-step explanation
+       - Visual diagram concept
+       - Where it's introduced and referenced
+
+    5. **Fact Check List**
+       - Statistics and numbers used (with sources)
+       - Historical claims (with verification)
+       - Expert quotes (with attribution)
+       - Anything that could be challenged
+
+    6. **Consistency Rules**
+       - Terminology decisions (e.g., "email" vs "e-mail")
+       - Capitalization rules
+       - Abbreviation conventions
+       - Number formatting (numbers under ten spelled out?)
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/04-entity-bible.md`
+
+    Must include:
+    - [ ] Key concepts registry with definitions
+    - [ ] Research database with full citations
+    - [ ] Examples/stories catalog with chapter mapping
+    - [ ] Framework documentation (if applicable)
+    - [ ] Fact check list with sources
+    - [ ] Style/consistency rules
+
+    Create: `{{ workspace }}/04-source-index.md`
+
+    Must include:
+    - [ ] Alphabetized source list
+    - [ ] Citation format following {{ source_style }}
+    - [ ] Chapter references for each source
+
+    ### Quality Gate:
+    Every claim that will appear in the book must have a source entry. Every recurring concept must have a consistent definition.
+
+    {% elif sheet_num == 5 %}
+    ## Phase 5: Chapter Drafts
+
+    **Objective:** Write full first drafts of all chapters.
+
+    ### Prerequisites:
+    - Chapter outline: `{{ workspace }}/03-chapter-outline.md`
+    - Entity bible: `{{ workspace }}/04-entity-bible.md`
+
+    ### The Snowflake Method - Phase 5
+
+    This is where planning becomes prose. Each chapter should stand alone yet connect to the whole.
+
+    ### Tasks:
+
+    1. **Chapter Drafts**
+       For each of {{ chapter_count }} chapters:
+
+       **Structure:**
+       - Opening hook (1-2 paragraphs)
+       - Context setting (why this matters now)
+       - Core content (the "meat" of the chapter)
+       - Examples/evidence (minimum {{ min_examples_per_chapter }} per chapter)
+       - Synthesis (what this means for the reader)
+       - Transition to next chapter
+
+       **Requirements:**
+       - Word count: {{ words_per_chapter_min }}-{{ words_per_chapter_max }} words
+       - At least {{ min_examples_per_chapter }} concrete examples/stories
+       - Source citations following {{ source_style }}
+       - Consistent terminology per entity bible
+
+    2. **Introduction Draft**
+       - Hook the reader immediately
+       - Establish the problem/question
+       - Preview the journey
+       - Make a promise to the reader
+       - Word count: 2000-3000 words
+
+    3. **Conclusion Draft**
+       - Synthesize key insights
+       - Revisit the central promise
+       - Call to action or challenge
+       - End memorably
+       - Word count: 1500-2500 words
+
+    ### Output Requirements:
+
+    Create chapter files:
+    - `{{ workspace }}/05-introduction.md`
+    - `{{ workspace }}/05-chapter-01.md` through `{{ workspace }}/05-chapter-{{ chapter_count }}.md`
+    - `{{ workspace }}/05-conclusion.md`
+
+    Create: `{{ workspace }}/05-draft-manifest.md`
+
+    Manifest must include:
+    - [ ] Word count for each chapter
+    - [ ] Examples count per chapter
+    - [ ] Source citations count per chapter
+    - [ ] Total manuscript word count
+    - [ ] Comparison to target: {{ target_word_count }}
+
+    ### Quality Gate:
+    Each chapter must meet word count minimums. Total manuscript must be within 10% of {{ target_word_count }}.
+
+    {% elif sheet_num == 6 %}
+    ## Phase 6: Consistency Review
+
+    **Objective:** Validate entity consistency, fact accuracy, and cross-references.
+
+    ### Prerequisites:
+    - Entity bible: `{{ workspace }}/04-entity-bible.md`
+    - All draft chapters: `{{ workspace }}/05-*.md`
+
+    ### Tasks:
+
+    1. **Entity Consistency Audit**
+       For each key concept in the entity bible:
+       - Search all chapters for usage
+       - Verify definition consistency
+       - Flag any variations or contradictions
+       - Document first use vs. subsequent uses
+
+    2. **Source Verification**
+       For each cited source:
+       - Verify it appears in source index
+       - Confirm citation format is consistent
+       - Check that claims match source
+       - Flag any unsourced claims
+
+    3. **Example Coherence Check**
+       - Verify examples are used in designated chapters
+       - Check for accidental repetition
+       - Ensure examples support the points claimed
+       - Validate any statistics or numbers
+
+    4. **Cross-Reference Audit**
+       - Identify forward/backward references between chapters
+       - Verify referenced content exists
+       - Check chapter number accuracy
+       - Ensure transitions make sense
+
+    5. **Terminology Consistency**
+       Using consistency rules from entity bible:
+       - Run terminology audit across all chapters
+       - Flag style violations
+       - Document variant usage
+
+    6. **Fact Check**
+       - Verify all verifiable claims
+       - Flag claims without sources
+       - Identify potentially contentious assertions
+       - Note any claims that need expert review
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/06-consistency-report.md`
+
+    Must include:
+    - [ ] Entity consistency audit results
+    - [ ] Source verification status
+    - [ ] Example coherence check
+    - [ ] Cross-reference audit
+    - [ ] Terminology violations list
+    - [ ] Fact check results
+    - [ ] Issue severity ratings (critical, moderate, minor)
+    - [ ] Recommended fixes for each issue
+
+    Create: `{{ workspace }}/06-issues-tracker.md`
+
+    Must include:
+    - [ ] All identified issues with IDs
+    - [ ] Issue type classification
+    - [ ] Affected chapter(s)
+    - [ ] Fix status (pending/fixed/wontfix)
+    - [ ] Priority ranking
+
+    ### Quality Gate:
+    All critical issues must be documented. {{ consistency_strictness }} strictness mode applies.
+
+    {% elif sheet_num == 7 %}
+    ## Phase 7: Structural Revision
+
+    **Objective:** Apply fixes from consistency review and improve structural flow.
+
+    ### Prerequisites:
+    - Draft chapters: `{{ workspace }}/05-*.md`
+    - Consistency report: `{{ workspace }}/06-consistency-report.md`
+    - Issues tracker: `{{ workspace }}/06-issues-tracker.md`
+
+    ### Tasks:
+
+    1. **Apply Consistency Fixes**
+       - Resolve all critical issues from tracker
+       - Resolve moderate issues per priority
+       - Document each fix applied
+       - Update issues tracker status
+
+    2. **Transition Enhancement**
+       - Review end of each chapter
+       - Strengthen connections to next chapter
+       - Ensure each chapter ends with forward momentum
+       - Verify opening hooks follow from prior closing
+
+    3. **Pacing Adjustment**
+       - Identify chapters that feel rushed
+       - Identify chapters that drag
+       - Balance example density across book
+       - Ensure reader gets "wins" throughout
+
+    4. **Readability Optimization**
+       - Analyze readability score (target: {{ target_readability }})
+       - Simplify overly complex sentences
+       - Break up long paragraphs
+       - Vary sentence structure
+
+    5. **Voice Consistency**
+       - Ensure consistent author voice throughout
+       - Standardize how reader is addressed
+       - Balance expertise with accessibility
+       - Remove any jarring tonal shifts
+
+    ### Output Requirements:
+
+    Create revised chapter files:
+    - `{{ workspace }}/07-introduction.md`
+    - `{{ workspace }}/07-chapter-01.md` through `{{ workspace }}/07-chapter-{{ chapter_count }}.md`
+    - `{{ workspace }}/07-conclusion.md`
+
+    Create: `{{ workspace }}/07-revision-log.md`
+
+    Must include:
+    - [ ] Issues fixed (by ID)
+    - [ ] Transition improvements made
+    - [ ] Pacing adjustments documented
+    - [ ] Readability score (before/after)
+    - [ ] Voice consistency notes
+    - [ ] Remaining minor issues (if any)
+
+    ### Quality Gate:
+    All critical issues must be resolved. Readability must be within 10 points of {{ target_readability }}.
+
+    {% elif sheet_num == 8 %}
+    ## Phase 8: Final Polish & Manuscript Assembly
+
+    **Objective:** Create the final, polished manuscript with all supporting materials.
+
+    ### Prerequisites:
+    - All revised chapters: `{{ workspace }}/07-*.md`
+    - Entity bible: `{{ workspace }}/04-entity-bible.md`
+    - Source index: `{{ workspace }}/04-source-index.md`
+
+    ### Tasks:
+
+    1. **Final Prose Polish**
+       - Line-level editing for clarity
+       - Remove redundancies
+       - Strengthen weak verbs
+       - Eliminate filler words
+       - Ensure active voice predominates
+
+    2. **Front Matter**
+       - Title page information
+       - Dedication (placeholder if unknown)
+       - Table of contents
+       - Acknowledgments (placeholder if unknown)
+
+    3. **Back Matter**
+       - Bibliography/Sources (per {{ source_style }})
+       - Index preparation notes (key terms to index)
+       - About the Author (placeholder)
+       - Appendices (if planned in Phase 3)
+
+    4. **Manuscript Assembly**
+       - Combine all chapters in order
+       - Consistent formatting throughout
+       - Chapter heading styles
+       - Page break markers
+
+    5. **Final Quality Checks**
+       - Total word count verification
+       - Chapter-by-chapter word counts
+       - Source citation completeness
+       - All issues resolved
+
+    6. **Manuscript Statistics Report**
+       - Total words
+       - Chapter breakdown
+       - Examples count
+       - Sources count
+       - Estimated page count (250 words/page)
+       - Readability score
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/08-final-manuscript.md`
+
+    Complete manuscript with:
+    - [ ] Front matter
+    - [ ] All chapters in order
+    - [ ] Back matter
+    - [ ] Consistent formatting
+
+    Create: `{{ workspace }}/08-bibliography.md`
+
+    Full bibliography following {{ source_style }}
+
+    Create: `{{ workspace }}/08-manuscript-stats.md`
+
+    Must include:
+    - [ ] Final word count (target: {{ target_word_count }})
+    - [ ] Chapter-by-chapter breakdown
+    - [ ] Per-chapter example counts
+    - [ ] Total source citations
+    - [ ] Estimated page count
+    - [ ] Final readability score
+    - [ ] Quality certification statement
+
+    Create: `{{ workspace }}/08-author-notes.md`
+
+    Must include:
+    - [ ] Areas for future expansion
+    - [ ] Sections that need expert review
+    - [ ] Multimedia/visual opportunities
+    - [ ] Marketing angle notes
+    - [ ] Suggested next steps for author
+
+    ### Quality Gate:
+    Final manuscript must meet word count target (±10%). All sources must be in bibliography. Manuscript must be ready for editorial review.
+
+    {% endif %}
+
+    ═══════════════════════════════════════════════════════════════════════════════
+    ANTI-SLOP REQUIREMENTS
+    ═══════════════════════════════════════════════════════════════════════════════
+
+    This is book authoring. Quality standards prevent AI-generic output:
+
+    1. **Specific:** Every claim needs evidence. Every example needs details. No vague "studies show" without citation.
+    2. **Consistent:** Same terminology, same voice, same formatting throughout.
+    3. **Substantive:** Word counts are minimums, not targets for padding. Every sentence must earn its place.
+    4. **Original:** The unique angle must be evident throughout. This book should not read like any other book.
+    5. **Honest:** If sections need more research or expert input, flag them explicitly.
+
+    Do NOT:
+    - Pad word counts with filler or repetition
+    - Use vague language where specifics are required
+    - Generate generic "business book" prose
+    - Skip citations or sources
+    - Sacrifice depth for breadth
+
+    ═══════════════════════════════════════════════════════════════════════════════
+
+  stakes: |
+    This manuscript may become a published book. Every chapter represents the author's
+    reputation and expertise. Readers invest hours of their lives reading books;
+    they deserve substantive, well-crafted content. Quality is non-negotiable.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VALIDATIONS
+# Quality gates ensure each phase meets book authoring standards before proceeding
+# ═══════════════════════════════════════════════════════════════════════════════
+
+validations:
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 1: Premise completeness
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/01-premise.md"
+    description: "Premise document must exist"
+    condition: "sheet_num >= 1"
+
+  - type: content_contains
+    path: "{workspace}/01-premise.md"
+    pattern: "[Pp]remise"
+    description: "Premise must contain the core premise"
+    condition: "sheet_num >= 1"
+
+  - type: content_contains
+    path: "{workspace}/01-premise.md"
+    pattern: "[Aa]udience"
+    description: "Premise must contain target audience"
+    condition: "sheet_num >= 1"
+
+  - type: content_contains
+    path: "{workspace}/01-premise.md"
+    pattern: "[Cc]ompet|[Cc]omparable"
+    description: "Premise must contain competitive analysis"
+    condition: "sheet_num >= 1"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 2: Synopsis development
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/02-synopsis.md"
+    description: "Synopsis must exist"
+    condition: "sheet_num >= 2"
+
+  - type: content_contains
+    path: "{workspace}/02-synopsis.md"
+    pattern: "[Tt]heme"
+    description: "Synopsis must identify themes"
+    condition: "sheet_num >= 2"
+
+  - type: content_contains
+    path: "{workspace}/02-synopsis.md"
+    pattern: "[Ss]tructur|[Cc]hapter"
+    description: "Synopsis must address structure"
+    condition: "sheet_num >= 2"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 3: Chapter outline
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/03-chapter-outline.md"
+    description: "Chapter outline must exist"
+    condition: "sheet_num >= 3"
+
+  - type: content_contains
+    path: "{workspace}/03-chapter-outline.md"
+    pattern: "Chapter [0-9]|Chapter 1"
+    description: "Outline must contain numbered chapters"
+    condition: "sheet_num >= 3"
+
+  - type: content_contains
+    path: "{workspace}/03-chapter-outline.md"
+    pattern: "[Nn]arrative|[Aa]rc|[Ff]low"
+    description: "Outline must address narrative arc"
+    condition: "sheet_num >= 3"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 4: Entity bible and sources
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/04-entity-bible.md"
+    description: "Entity bible must exist"
+    condition: "sheet_num >= 4"
+
+  - type: file_exists
+    path: "{workspace}/04-source-index.md"
+    description: "Source index must exist"
+    condition: "sheet_num >= 4"
+
+  - type: content_contains
+    path: "{workspace}/04-entity-bible.md"
+    pattern: "[Cc]oncept|[Dd]efinition|[Tt]erm"
+    description: "Entity bible must contain concept definitions"
+    condition: "sheet_num >= 4"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 5: Chapter drafts
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/05-introduction.md"
+    description: "Introduction draft must exist"
+    condition: "sheet_num >= 5"
+
+  - type: file_exists
+    path: "{workspace}/05-chapter-01.md"
+    description: "Chapter 1 draft must exist"
+    condition: "sheet_num >= 5"
+
+  - type: file_exists
+    path: "{workspace}/05-conclusion.md"
+    description: "Conclusion draft must exist"
+    condition: "sheet_num >= 5"
+
+  - type: file_exists
+    path: "{workspace}/05-draft-manifest.md"
+    description: "Draft manifest must exist"
+    condition: "sheet_num >= 5"
+
+  - type: content_contains
+    path: "{workspace}/05-draft-manifest.md"
+    pattern: "[Ww]ord [Cc]ount|[Ww]ords"
+    description: "Manifest must contain word counts"
+    condition: "sheet_num >= 5"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 6: Consistency review
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/06-consistency-report.md"
+    description: "Consistency report must exist"
+    condition: "sheet_num >= 6"
+
+  - type: file_exists
+    path: "{workspace}/06-issues-tracker.md"
+    description: "Issues tracker must exist"
+    condition: "sheet_num >= 6"
+
+  - type: content_contains
+    path: "{workspace}/06-consistency-report.md"
+    pattern: "[Ii]ssue|[Ee]rror|[Vv]iolation|[Ff]ix"
+    description: "Consistency report must document issues"
+    condition: "sheet_num >= 6"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 7: Structural revision
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/07-introduction.md"
+    description: "Revised introduction must exist"
+    condition: "sheet_num >= 7"
+
+  - type: file_exists
+    path: "{workspace}/07-chapter-01.md"
+    description: "Revised Chapter 1 must exist"
+    condition: "sheet_num >= 7"
+
+  - type: file_exists
+    path: "{workspace}/07-revision-log.md"
+    description: "Revision log must exist"
+    condition: "sheet_num >= 7"
+
+  - type: content_contains
+    path: "{workspace}/07-revision-log.md"
+    pattern: "[Rr]eadability|[Ss]core"
+    description: "Revision log must document readability"
+    condition: "sheet_num >= 7"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 8: Final manuscript
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/08-final-manuscript.md"
+    description: "Final manuscript must exist"
+    condition: "sheet_num >= 8"
+
+  - type: file_exists
+    path: "{workspace}/08-bibliography.md"
+    description: "Bibliography must exist"
+    condition: "sheet_num >= 8"
+
+  - type: file_exists
+    path: "{workspace}/08-manuscript-stats.md"
+    description: "Manuscript statistics must exist"
+    condition: "sheet_num >= 8"
+
+  - type: file_exists
+    path: "{workspace}/08-author-notes.md"
+    description: "Author notes must exist"
+    condition: "sheet_num >= 8"
+
+  - type: content_contains
+    path: "{workspace}/08-manuscript-stats.md"
+    pattern: "[Ww]ord [Cc]ount|[Tt]otal"
+    description: "Stats must include word count"
+    condition: "sheet_num >= 8"
+
+  - type: content_contains
+    path: "{workspace}/08-manuscript-stats.md"
+    pattern: "[Rr]eadability"
+    description: "Stats must include readability score"
+    condition: "sheet_num >= 8"
+
+notifications:
+  - type: desktop
+    on_events: [job_complete, job_failed, sheet_failed]
+
+state_backend: json
+pause_between_sheets_seconds: 10

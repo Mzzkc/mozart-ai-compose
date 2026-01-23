@@ -1,6 +1,6 @@
 # Mozart AI Compose - Usage Skill
 
-> **TL;DR**: Mozart orchestrates Claude prompts across sheets with validation, retry, and state management. Use `mozart status` → `diagnose` → `errors` BEFORE manual investigation.
+> **TL;DR**: Mozart is a **general-purpose cognitive orchestration system** that orchestrates Claude prompts across sheets with validation, retry, and state management. It works for coding, research, writing, data curation, strategic planning, and any task with multi-phase workflows and clear validation criteria. Use `mozart status` → `diagnose` → `errors` BEFORE manual investigation.
 
 ---
 
@@ -12,6 +12,10 @@
 | Understanding validation failures | Non-orchestrated AI work |
 | Resuming interrupted jobs | Unrelated batch tools |
 | Writing job configurations | |
+| **Multi-phase research projects** | |
+| **Long-form writing orchestration** | |
+| **Data curation pipelines** | |
+| **Strategic planning workflows** | |
 
 ---
 
@@ -30,6 +34,11 @@
 | `mozart list -w ./ws` | List all jobs |
 | `mozart logs job-id -w ./ws` | View/tail log files |
 | `mozart dashboard -w ./ws` | Start web dashboard |
+| `mozart patterns` | View global learning patterns |
+| `mozart pattern-show <id>` | Show pattern details with provenance |
+| `mozart pattern-quarantine <id>` | Quarantine a suspicious pattern |
+| `mozart pattern-validate <id>` | Validate a quarantined pattern |
+| `mozart recalculate-trust` | Recalculate all pattern trust scores |
 
 ### Global Options
 
@@ -182,6 +191,169 @@ mozart dashboard -r                  # Auto-reload (dev mode)
 | `--host` | | Bind address (default: 127.0.0.1) |
 | `--workspace` | `-w` | Workspace directory |
 | `--reload` | `-r` | Auto-reload for development |
+
+### `mozart patterns` (v19)
+
+View and manage global learning patterns with quarantine and trust filtering.
+
+```bash
+mozart patterns                      # List global patterns
+mozart patterns --quarantined        # Show quarantined patterns only
+mozart patterns --high-trust         # Patterns with trust >= 0.7
+mozart patterns --low-trust          # Patterns with trust <= 0.3
+mozart patterns -p 0.5               # Min priority threshold
+mozart patterns -j                   # JSON output
+```
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--global/--local` | `-g/-l` | Global or workspace patterns |
+| `--min-priority` | `-p` | Minimum priority score (0.0-1.0) |
+| `--limit` | `-n` | Max patterns to display (default: 20) |
+| `--json` | `-j` | JSON output for scripting |
+| `--quarantined` | `-q` | Only quarantined patterns |
+| `--high-trust` | | Trust >= 0.7 only |
+| `--low-trust` | | Trust <= 0.3 only |
+
+### `mozart pattern-show` (v19)
+
+Show detailed pattern information including provenance and trust.
+
+```bash
+mozart pattern-show abc123           # Show pattern by ID prefix
+mozart pattern-show abc123 -j        # JSON output
+```
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--json` | `-j` | JSON output |
+
+### `mozart pattern-quarantine` (v19)
+
+Quarantine a pattern to exclude it from automatic application.
+
+```bash
+mozart pattern-quarantine abc123                      # Quarantine by ID
+mozart pattern-quarantine abc123 -r "Causes errors"   # With reason
+```
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--reason` | `-r` | Reason for quarantine |
+
+### `mozart pattern-validate` (v19)
+
+Validate a quarantined pattern, restoring it to active status.
+
+```bash
+mozart pattern-validate abc123       # Validate by ID prefix
+```
+
+### `mozart recalculate-trust` (v19)
+
+Recalculate trust scores for all patterns based on effectiveness.
+
+```bash
+mozart recalculate-trust             # Recalculate all trust scores
+```
+
+---
+
+## Dashboard (Production)
+
+The Mozart Dashboard provides a full web UI for orchestrating jobs, monitoring status,
+and designing score configurations. Architecture: HTMX + Alpine.js + FastAPI.
+
+### Starting the Dashboard
+
+```bash
+# Basic start (localhost only)
+mozart dashboard --port 8080
+
+# With workspace directory
+mozart dashboard --workspace ./my-workspace --port 8080
+
+# For external connections
+mozart dashboard --host 0.0.0.0 --port 8080
+
+# Development mode with auto-reload
+mozart dashboard --reload
+```
+
+### Dashboard Features
+
+| Feature | Description |
+|---------|-------------|
+| Job List | View all jobs with real-time status updates |
+| Job Detail | Deep dive into sheets, validations, logs |
+| Job Control | Start, pause, resume, cancel jobs |
+| Log Streaming | Real-time SSE-powered log viewer |
+| Artifact Browser | Browse workspace files |
+| Score Editor | CodeMirror 6 YAML editor with validation |
+| Template Browser | One-click score templates |
+| AI Generation | Natural language to score YAML |
+| Dark Mode | System-aware theme switching |
+
+### API Endpoints
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/jobs` | List jobs with filtering |
+| GET | `/api/jobs/{job_id}` | Full job details |
+| POST | `/api/jobs` | Start new job |
+| POST | `/api/jobs/{job_id}/pause` | Pause running job |
+| POST | `/api/jobs/{job_id}/resume` | Resume paused job |
+| POST | `/api/jobs/{job_id}/cancel` | Cancel job |
+| GET | `/api/jobs/{job_id}/stream` | SSE status stream |
+| GET | `/api/jobs/{job_id}/logs` | SSE log streaming |
+| GET | `/api/jobs/{job_id}/artifacts` | List workspace files |
+| POST | `/api/scores/validate` | Validate score YAML |
+| POST | `/api/scores/generate` | AI-generate score |
+
+### MCP Server
+
+Mozart includes an MCP server for IDE integration:
+
+```bash
+# Start MCP server (stdio mode for Claude Desktop)
+mozart mcp
+
+# Configure in Claude Desktop:
+# Add to ~/.config/Claude/claude_desktop_config.json:
+{
+  "mcpServers": {
+    "mozart": {
+      "command": "mozart",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+**Available MCP Tools:**
+
+| Tool | Description |
+|------|-------------|
+| `list_jobs` | List all Mozart jobs |
+| `get_job` | Get job details |
+| `start_job` | Start a new job |
+| `pause_job` | Pause running job |
+| `resume_job` | Resume paused job |
+| `cancel_job` | Cancel job |
+| `get_logs` | Get job logs |
+| `list_artifacts` | List workspace files |
+| `get_artifact` | Get file contents |
+| `validate_score` | Validate score YAML |
+| `generate_score` | AI-generate score |
+
+**Available MCP Resources:**
+
+| URI | Description |
+|-----|-------------|
+| `mozart://jobs` | All jobs collection |
+| `mozart://jobs/{job_id}` | Single job state |
+| `mozart://jobs/{job_id}/logs` | Job execution logs |
+| `mozart://templates` | Score template list |
 
 ### `mozart diagnose`
 
@@ -553,16 +725,70 @@ concert:
   abort_concert_on_hook_failure: false
 ```
 
-### Template Variables
+### Prompt Section Purposes
 
-| Variable | Example |
-|----------|---------|
-| `{{ sheet_num }}` | `5` |
-| `{{ total_sheets }}` | `10` |
-| `{{ start_item }}` | `41` |
-| `{{ end_item }}` | `50` |
-| `{{ workspace }}` | `./workspace` |
-| `{{ job_name }}` | `my-job` |
+The `prompt:` block has distinct sections, each with a specific purpose:
+
+| Section | Purpose | Contains |
+|---------|---------|----------|
+| `template` | **Main instructions** - what to do per sheet | Jinja conditionals, phase-specific tasks, output requirements |
+| `template_file` | Alternative to inline template | Path to external .j2 file |
+| `variables` | **Reusable content blocks** | Preamble, directives, context - referenced via `{{ var_name }}` |
+| `stakes` | **Consequences and weight** - why this matters | Motivational framing, real-world impact, what's at stake |
+| `thinking_method` | Reasoning approach | Chain-of-thought instructions (optional) |
+
+**Example structure:**
+
+```yaml
+prompt:
+  variables:
+    # Context and background (the "what")
+    preamble: |
+      You are orchestrating a systematic literature review following PRISMA 2020.
+      This is sheet {{ sheet_num }} of {{ total_sheets }}.
+
+    # Instructions and rules (the "how")
+    directives: |
+      REQUIREMENTS:
+      - Do NOT fabricate citations
+      - Every claim must cite source with page number
+      - Use exact search terms, no paraphrasing
+      - Document exclusion reasons for every excluded study
+
+  template: |
+    {{ preamble }}
+
+    {% if sheet_num == 1 %}
+    ## Phase 1: Search Protocol
+    [Phase-specific instructions here]
+    {% elif sheet_num == 2 %}
+    ## Phase 2: Execute Search
+    [Phase-specific instructions here]
+    {% endif %}
+
+    {{ directives }}
+
+    {{ stakes }}
+
+  # Consequences and weight (the "why it matters")
+  stakes: |
+    This review may inform clinical guidelines affecting patient care.
+    Methodological shortcuts here propagate through the entire evidence base.
+    Rigor now prevents harm later. Excellence here saves lives.
+```
+
+### Built-in Template Variables
+
+| Variable | Example | Description |
+|----------|---------|-------------|
+| `{{ sheet_num }}` | `5` | Current sheet number |
+| `{{ total_sheets }}` | `10` | Total sheets in job |
+| `{{ start_item }}` | `41` | First item in this sheet |
+| `{{ end_item }}` | `50` | Last item in this sheet |
+| `{{ workspace }}` | `./workspace` | Workspace directory path |
+| `{{ job_name }}` | `my-job` | Job identifier |
+
+Custom variables are defined in `prompt.variables` and accessed the same way.
 
 ---
 
@@ -932,6 +1158,258 @@ cost_limits:
 
 ---
 
+## Mozart Beyond Coding
+
+Mozart is a **general-purpose cognitive orchestration system**, not just a coding tool. Any task with:
+1. Multiple phases that build on each other
+2. Clear validation criteria
+3. Value from orchestrated execution
+
+...can be orchestrated by Mozart.
+
+### Available Domain Examples
+
+These examples demonstrate proper prompt structure with stakes (consequences) separate from directives (instructions):
+
+| Example | Category | Sheets | Validations | Use Case |
+|---------|----------|--------|-------------|----------|
+| `systematic-literature-review.yaml` | Research | 8 | 17 | PRISMA-compliant academic reviews with dual-reviewer simulation |
+| `training-data-curation.yaml` | Data | 7 | 24 | ML dataset curation with inter-annotator agreement metrics |
+| `nonfiction-book.yaml` | Writing | 8 | 31 | Long-form book authoring with Snowflake Method structure |
+| `strategic-plan.yaml` | Planning | 8 | 39 | Business strategy with PESTEL → Porter → SWOT synthesis |
+
+**Study these examples for:**
+- Proper stakes usage (consequences, not instructions)
+- Directives embedded in template ("Output Requirements", "MUST include")
+- Domain-specific validation patterns
+- Anti-slop measures in practice
+
+### Core Cross-Domain Patterns
+
+These patterns from Mozart's evolution apply to ANY domain:
+
+| Pattern | Description | Example Application |
+|---------|-------------|---------------------|
+| **Discovery → Synthesis → Execution** | Earlier phases inform later phases | Research → Analysis → Writing |
+| **Multi-Perspective Review** | TDF-aligned expert analysis | Legal (contract, compliance, IP experts) |
+| **Convergence Scoring** | Issues flagged by multiple perspectives = priority | Investment due diligence |
+| **Tiered Remediation** | Quick wins → Structural → Major changes | Document editing pipeline |
+| **CV Thresholds** | Proceed when confidence ≥ 0.65 | Decision gates in any domain |
+| **Staged Validation** | Stage 1 (exists) → Stage 2 (content) → Stage 3 (quality) | Any multi-phase workflow |
+| **Concert (Job Chaining)** | Multi-job sequences via `on_success` | Book chapters, course modules |
+
+### Domain-Specific Validation Strategies
+
+**Research/Academic:**
+```yaml
+validations:
+  - type: content_regex
+    path: "{workspace}/search-protocol.md"
+    pattern: "databases?:\\s*\\d+"  # At least 1 database listed
+    description: "Search protocol includes databases"
+
+  - type: content_regex
+    path: "{workspace}/screening.md"
+    pattern: "kappa.*[0-9]\\.[0-9]+"  # Inter-rater agreement
+    description: "Dual-reviewer kappa score documented"
+```
+
+**Data Curation:**
+```yaml
+validations:
+  - type: command_succeeds
+    command: "python -c \"import json; d=json.load(open('schema.json')); assert 'fields' in d\""
+    description: "Schema file is valid JSON with fields"
+
+  - type: content_regex
+    path: "{workspace}/annotation-report.md"
+    pattern: "IAA.*0\\.[789]"  # High agreement (≥0.7)
+    description: "Inter-annotator agreement is acceptable"
+```
+
+**Writing/Authoring:**
+```yaml
+validations:
+  - type: content_regex
+    path: "{workspace}/chapter-{sheet_num}.md"
+    pattern: "^.{15000,}"  # Minimum word count proxy
+    description: "Chapter meets minimum length"
+
+  - type: content_contains
+    path: "{workspace}/entity-bible.md"
+    pattern: "CONSISTENCY_CHECK: PASS"
+    description: "Entity consistency validated"
+```
+
+**Strategic Planning:**
+```yaml
+validations:
+  - type: content_regex
+    path: "{workspace}/pestel.md"
+    pattern: "(Political|Economic|Social|Technological|Environmental|Legal).*:"
+    description: "All 6 PESTEL factors addressed"
+
+  - type: content_regex
+    path: "{workspace}/goals.md"
+    pattern: "SMART.*Specific.*Measurable"
+    description: "Goals follow SMART format"
+```
+
+### Anti-Slop Principles
+
+Mozart examples follow these principles to ensure **genuine quality**, not AI slop:
+
+| Principle | Implementation |
+|-----------|----------------|
+| **Quantitative Thresholds** | kappa ≥0.80, word counts, coverage percentages |
+| **Dual-Perspective Simulation** | Reviewer A/B agreement metrics, not single-pass |
+| **Evidence Linkage** | Every claim must cite source - no fabrication |
+| **Framework Coverage** | All 6 PESTEL factors, all 5 Porter forces - comprehensive |
+| **Explicit Anti-Slop Prompts** | "Do not fabricate", "no padding", "cite sources" |
+| **Intermediate Artifacts** | Human-reviewable files at each phase |
+| **Progressive Synthesis** | Each phase builds on previous outputs |
+
+### Stakes vs Directives
+
+**Stakes** and **directives** serve different purposes:
+
+| Type | Purpose | Examples |
+|------|---------|----------|
+| **Stakes** | Consequences and weight - why this matters | "This research will inform policy affecting millions" |
+| **Directives** | Instructions - what to do/not do | "Do not fabricate citations" |
+
+**Stakes give the work meaning and weight.** They answer "why does this matter?" and provide motivational framing:
+
+```yaml
+stakes: |
+  This literature review will be cited by researchers worldwide.
+  Methodological rigor here prevents years of wasted research downstream.
+
+  Quality work → advances the field, saves research hours, builds your reputation.
+  Sloppy work → propagates errors, wastes resources, erodes trust in AI assistance.
+```
+
+**Directives go in the template itself** (or a `directives` variable):
+
+```yaml
+prompt:
+  variables:
+    directives: |
+      QUALITY REQUIREMENTS:
+      - Do NOT fabricate citations, statistics, or quotes
+      - Every claim must cite a specific source
+      - No filler phrases ("It is important to note...", "In conclusion...")
+      - Options must be genuinely distinct, not variations of the same idea
+      - If you don't know something, say so explicitly
+      - Prefer depth over breadth - fewer points, fully developed
+
+      VALIDATION WILL CHECK:
+      - Minimum content thresholds (word counts, section counts)
+      - Required patterns (citations, frameworks, structure)
+      - Consistency across documents
+
+    stakes: |
+      The fate of this project depends on this sheet completing successfully.
+      This is the foundation that all subsequent work builds upon.
+      Excellence here compounds; mediocrity here cascades.
+
+  template: |
+    {{ directives }}
+
+    [... sheet-specific instructions ...]
+
+    {{ stakes }}
+```
+
+### Stakes Examples by Domain
+
+| Domain | Stakes Example |
+|--------|----------------|
+| **Research** | "This review will be read by policymakers. Rigor prevents harmful policy. Slop wastes taxpayer money." |
+| **Data Curation** | "Models trained on this data will make decisions affecting real people. Garbage in, garbage out. Lives depend on data quality." |
+| **Book Writing** | "Readers invest hours of their finite lives reading this. Honor that investment. Padding steals their time." |
+| **Strategic Planning** | "Executives will bet the company on these recommendations. Wrong analysis = layoffs, failed products, careers ended." |
+| **Code** | "This code will run in production. Bugs here become incidents at 3am. Quality now is sleep later." |
+
+### Slop Risk Assessment
+
+When designing non-coding scores, assess slop risk:
+
+| Risk Level | Description | Mitigation |
+|------------|-------------|------------|
+| 1 (Low) | Clear validation, hard to fake | Code with tests, data with schemas |
+| 2 (Low-Med) | Objective criteria exist | Research with citation counts |
+| 3 (Medium) | Quality subjective but measurable | Writing with word count + style checks |
+| 4 (Med-High) | Quality hard to validate | Add dual-perspective, quantitative gates |
+| 5 (High) | No clear criteria | **Reject** or restructure with explicit framework |
+
+**Rule:** Reject use cases with slop risk 4-5 unless strong mitigations exist.
+
+### Cross-Domain Pattern: Multi-Expert Review
+
+Adapt the code quality review pattern to any domain:
+
+```yaml
+# Sheet structure for multi-expert review
+prompt:
+  template: |
+    {% if sheet_num == 1 %}
+    ## Expert 1: [Domain Expert A]
+    Analyze from perspective: [specific focus]
+    Write findings to: {{ workspace }}/expert-a-review.md
+
+    {% elif sheet_num == 2 %}
+    ## Expert 2: [Domain Expert B]
+    Analyze from perspective: [different focus]
+    Write findings to: {{ workspace }}/expert-b-review.md
+
+    {% elif sheet_num == 3 %}
+    ## Synthesis
+    Read: {{ workspace }}/expert-a-review.md, {{ workspace }}/expert-b-review.md
+
+    Apply convergence scoring:
+    - Issues flagged by BOTH experts = HIGH priority
+    - Issues flagged by ONE expert = MEDIUM priority
+
+    Write synthesis to: {{ workspace }}/synthesis.md
+    {% endif %}
+```
+
+### Example: Literature Review Validation Progression
+
+```yaml
+# Stage 1: Protocol exists
+- type: file_exists
+  path: "{workspace}/01-search-protocol.md"
+  stage: 1
+
+# Stage 2: Protocol is complete
+- type: content_regex
+  path: "{workspace}/01-search-protocol.md"
+  pattern: "inclusion.criteria"
+  stage: 2
+
+# Stage 3: Search was executed
+- type: content_regex
+  path: "{workspace}/02-search-results.md"
+  pattern: "total.*results.*\\d+"
+  stage: 3
+
+# Stage 4: Dual-reviewer agreement
+- type: content_regex
+  path: "{workspace}/03-screening.md"
+  pattern: "kappa.*0\\.[89]"  # ≥0.8 required
+  stage: 4
+
+# Stage 5: Synthesis quality
+- type: content_regex
+  path: "{workspace}/07-synthesis.md"
+  pattern: "theme.*\\d+.*studies"  # Evidence of synthesis
+  stage: 5
+```
+
+---
+
 ## Architecture
 
 ```
@@ -1224,4 +1702,31 @@ COMMON OPTIONS                    NOTIFICATION EVENTS
 
 ---
 
-*Mozart AI Compose v0.x - Generated from source*
+## Pattern Catalog (18 Core Patterns)
+
+Mozart has evolved 18 core patterns through 20+ self-evolution cycles:
+
+| # | Pattern | Origin | Cross-Domain Applications |
+|---|---------|--------|---------------------------|
+| 1 | Discovery → Synthesis → Execution → Validation | Evolution scores | Research papers, strategic plans, book writing |
+| 2 | Multi-perspective expert review (TDF-aligned) | Code quality | Legal review, investment analysis, peer review |
+| 3 | Convergence scoring for prioritization | Code quality | Any multi-reviewer workflow |
+| 4 | Concert (multi-job chaining) | Dashboard | Book chapters, course modules, product launches |
+| 5 | Staged validations with quality gates | All configs | Any multi-phase workflow |
+| 6 | CV thresholds for decision gates | Evolution | Complex decision processes |
+| 7 | Mini-META reflection at each phase | Evolution | Self-improving workflows |
+| 8 | Parallel investigation agents | Evolution | Multi-source research |
+| 9 | Quality gates (tool-based) | Self-improvement | CI/CD-style workflows |
+| 10 | Tiered remediation (quick → structural → major) | Code quality | Document editing, process improvement |
+| 11 | Phase architecture for large projects | Dashboard | Enterprise-scale orchestration |
+| 12 | Decision documentation tables | Worktree | Auditable decision processes |
+| 13 | Risk assessment matrices | Worktree | Compliance, security, investment |
+| 14 | Evidence verification protocol | Evolution | Research, journalism, legal |
+| 15 | Auto-chain via hooks | Evolution | Continuous improvement loops |
+| 16 | Self-modifying artifacts | Evolution | Adaptive workflows |
+| 17 | Graceful degradation | All | Fault-tolerant orchestration |
+| 18 | Isolation for parallel safety | Worktree | Concurrent execution |
+
+---
+
+*Mozart AI Compose v0.x - Updated 2026-01-23 with Mozart Beyond Coding section*

@@ -1,0 +1,1107 @@
+# Example: Strategic Plan Development (Multi-Framework Synthesis)
+# Orchestrate comprehensive strategic planning using PESTEL, Porter's Five Forces, and SWOT
+#
+# This example demonstrates Mozart's capabilities BEYOND software development:
+# - Multi-framework synthesis (3+ analytical frameworks)
+# - Evidence-based strategic analysis
+# - Structured decision-making workflow
+# - Quantitative goal validation (SMART criteria)
+# - Business/organizational planning
+#
+# Use Cases:
+# - Business leaders developing organizational strategy
+# - Entrepreneurs planning market entry or expansion
+# - Consultants structuring strategic recommendations
+# - Non-profit directors planning organizational direction
+#
+# Usage:
+#   # 1. Customize variables in prompt.variables section
+#   # 2. Validate configuration
+#   mozart validate examples/strategic-plan.yaml
+#   # 3. Run the strategic planning process
+#   mozart run examples/strategic-plan.yaml
+#   # 4. Monitor progress
+#   mozart status strategic-plan
+#
+# Estimated time: 4-8 hours depending on scope
+# Outputs: Complete strategic plan with supporting analyses in workspace/
+
+name: "strategic-plan"
+description: "Strategic plan development using PESTEL, Porter's Five Forces, and SWOT with SMART goal validation"
+
+workspace: "./strategy-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  timeout_seconds: 3600    # 60 minutes per sheet - strategic analysis requires depth
+  disable_mcp: true        # Performance optimization
+
+  # Note: For best results, use a model with strong analytical capabilities
+  # Uncomment to specify: cli_model: claude-sonnet-4-20250514
+
+sheet:
+  size: 1           # One phase per sheet (recommended for complex analysis)
+  total_items: 8    # 8 strategic planning phases
+  start_item: 1
+
+retry:
+  max_retries: 2
+  base_delay_seconds: 60   # Longer delay for analytical tasks
+  max_completion_attempts: 2
+
+rate_limit:
+  wait_minutes: 60
+  max_waits: 3
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CUSTOMIZATION SECTION
+# Modify these variables to adapt the plan to your organization
+# ═══════════════════════════════════════════════════════════════════════════════
+
+prompt:
+  variables:
+    # ─────────────────────────────────────────────────────────────────────────
+    # REQUIRED: Define your organization
+    # ─────────────────────────────────────────────────────────────────────────
+
+    organization_name: "[CHANGE THIS: Your organization's name]"
+    organization_type: "[CHANGE THIS: e.g., 'B2B SaaS company', 'non-profit advocacy organization', 'healthcare provider network']"
+    organization_size: "[CHANGE THIS: e.g., '50-200 employees', 'revenue $10M-50M', 'operating in 3 countries']"
+
+    # Brief description of what the organization does
+    mission_statement: "[CHANGE THIS: Your current mission or purpose statement]"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # REQUIRED: Define the strategic context
+    # ─────────────────────────────────────────────────────────────────────────
+
+    # Why is strategic planning needed now?
+    planning_trigger: "[CHANGE THIS: e.g., 'entering new market', 'responding to competitive threat', 'post-merger integration', 'growth plateau']"
+
+    # Planning time horizon
+    planning_horizon: "[CHANGE THIS: e.g., '3 years (2025-2027)', '5 years (2025-2029)']"
+
+    # Primary industry/sector
+    industry: "[CHANGE THIS: e.g., 'enterprise software', 'renewable energy', 'professional services']"
+
+    # Geographic scope
+    geography: "[CHANGE THIS: e.g., 'North America', 'global', 'Western Europe', 'domestic (USA)']"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # REQUIRED: Define key stakeholders
+    # ─────────────────────────────────────────────────────────────────────────
+
+    primary_stakeholders: "[CHANGE THIS: e.g., 'board of directors, executive team, major investors']"
+    secondary_stakeholders: "[CHANGE THIS: e.g., 'employees, customers, partners, community']"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # REQUIRED: Define strategic priorities (initial hypotheses)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    # Top 3 strategic questions to answer
+    strategic_questions: |
+      [CHANGE THIS: Replace with your key questions, e.g.:
+      1. Should we expand into adjacent markets or deepen existing market position?
+      2. How do we respond to emerging competitive threats from well-funded entrants?
+      3. What capabilities do we need to build vs. acquire vs. partner for?]
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # OPTIONAL: Analysis parameters (sensible defaults provided)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    # Number of strategic options to generate (minimum 3)
+    strategic_options_count: "4"
+
+    # Risk tolerance level (high, medium, low)
+    risk_tolerance: "medium"
+
+    # Decision criteria weights (must sum to 100)
+    # Adjust to reflect organizational priorities
+    criteria_weights: |
+      Strategic fit: 25%
+      Financial impact: 25%
+      Implementation feasibility: 20%
+      Risk level: 15%
+      Competitive advantage: 15%
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PROMPT TEMPLATE
+  # Each sheet represents one phase of the strategic planning process
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  template: |
+    You are developing a comprehensive strategic plan using established strategic frameworks.
+
+    ═══════════════════════════════════════════════════════════════════════════════
+    ORGANIZATIONAL CONTEXT
+    ═══════════════════════════════════════════════════════════════════════════════
+
+    **Organization:** {{ organization_name }}
+    **Type:** {{ organization_type }}
+    **Size:** {{ organization_size }}
+
+    **Mission:**
+    {{ mission_statement }}
+
+    **Strategic Context:**
+    - Planning trigger: {{ planning_trigger }}
+    - Planning horizon: {{ planning_horizon }}
+    - Industry: {{ industry }}
+    - Geography: {{ geography }}
+
+    **Stakeholders:**
+    - Primary: {{ primary_stakeholders }}
+    - Secondary: {{ secondary_stakeholders }}
+
+    **Key Strategic Questions:**
+    {{ strategic_questions }}
+
+    **Analysis Parameters:**
+    - Strategic options to generate: {{ strategic_options_count }}
+    - Risk tolerance: {{ risk_tolerance }}
+    - Decision criteria weights:
+    {{ criteria_weights }}
+
+    **Phase:** {{ sheet_num }} of {{ total_sheets }}
+    **Workspace:** {{ workspace }}
+
+    ═══════════════════════════════════════════════════════════════════════════════
+
+    {% if sheet_num == 1 %}
+    ## Phase 1: Context & Scope Definition
+
+    **Objective:** Establish a clear scope for the strategic plan and align on planning parameters.
+
+    ### Tasks:
+
+    1. **Organizational Profile**
+       - Document current state of the organization
+       - Key products/services and their market position
+       - Revenue streams and profitability overview
+       - Current competitive positioning
+       - Recent significant changes or events
+
+    2. **Strategic Planning Scope**
+       - Confirm planning horizon: {{ planning_horizon }}
+       - Define boundaries (what's in scope, what's out)
+       - Identify key assumptions
+       - Document constraints (budget, resources, regulations)
+
+    3. **Stakeholder Analysis**
+       For each stakeholder group:
+       - Interests and concerns
+       - Influence level (high/medium/low)
+       - Current satisfaction level
+       - Key expectations from this planning process
+
+    4. **Success Criteria**
+       - How will we know the strategic plan succeeded?
+       - Define 3-5 high-level success metrics
+       - Establish baseline measurements where possible
+
+    5. **Planning Process Overview**
+       - Review the 8-phase approach
+       - Identify any data/input needs
+       - Note any known gaps or constraints
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/01-context-scope.md`
+
+    The context document MUST include:
+    - [ ] Organizational profile (current state summary)
+    - [ ] Scope definition (boundaries, assumptions, constraints)
+    - [ ] Stakeholder analysis matrix
+    - [ ] Success criteria with metrics
+    - [ ] Planning process notes
+
+    ### Quality Gate:
+    The scope must be specific enough that strategic options can be evaluated against clear criteria.
+
+    {% elif sheet_num == 2 %}
+    ## Phase 2: Environmental Scan (PESTEL Analysis)
+
+    **Objective:** Analyze the external macro-environment using the PESTEL framework.
+
+    ### Prerequisites:
+    Read the context from Phase 1: `{{ workspace }}/01-context-scope.md`
+
+    ### The PESTEL Framework
+
+    Analyze factors that could impact the organization over the {{ planning_horizon }} horizon.
+
+    ### Tasks:
+
+    1. **Political Factors**
+       - Government policies affecting the industry
+       - Regulatory environment and potential changes
+       - Political stability in operating regions
+       - Trade policies and international relations
+       - Taxation policies and incentives
+
+    2. **Economic Factors**
+       - Economic growth trends (GDP, industry growth)
+       - Interest rates and access to capital
+       - Inflation and cost pressures
+       - Labor market conditions
+       - Currency exchange considerations
+       - Economic cycles and timing
+
+    3. **Social/Societal Factors**
+       - Demographic shifts relevant to customers/employees
+       - Cultural trends and changing values
+       - Workforce expectations and labor trends
+       - Consumer behavior changes
+       - Education and skill availability
+
+    4. **Technological Factors**
+       - Emerging technologies relevant to industry
+       - Automation and AI implications
+       - Digital transformation requirements
+       - Technology adoption curves
+       - R&D investment trends
+       - Cybersecurity landscape
+
+    5. **Environmental Factors**
+       - Climate change implications
+       - Environmental regulations
+       - Sustainability expectations (customers, investors)
+       - Resource availability and costs
+       - Carbon footprint considerations
+
+    6. **Legal Factors**
+       - Industry-specific regulations
+       - Employment law changes
+       - Data privacy and protection requirements
+       - Intellectual property considerations
+       - Pending litigation or legal risks
+
+    ### For Each Factor:
+    - **Trend description:** What is happening?
+    - **Direction:** Increasing, stable, or decreasing?
+    - **Time horizon:** Near-term (<1 year), medium-term (1-3 years), long-term (>3 years)
+    - **Impact on organization:** High, medium, or low
+    - **Evidence/source:** What data supports this?
+    - **Implication:** What does this mean for strategy?
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/02-pestel-analysis.md`
+
+    Must include:
+    - [ ] All 6 PESTEL dimensions covered
+    - [ ] Minimum 3 factors per dimension
+    - [ ] Evidence citations for major claims
+    - [ ] Impact rating for each factor
+    - [ ] Summary of top 5 most impactful external factors
+    - [ ] Implications summary for strategic planning
+
+    ### Quality Gate:
+    Every factor must have evidence. Impact ratings must be justified. All 6 dimensions must have meaningful analysis (no filler).
+
+    {% elif sheet_num == 3 %}
+    ## Phase 3: Competitive Analysis (Porter's Five Forces)
+
+    **Objective:** Analyze the competitive dynamics of the industry using Porter's Five Forces.
+
+    ### Prerequisites:
+    - Context: `{{ workspace }}/01-context-scope.md`
+    - PESTEL: `{{ workspace }}/02-pestel-analysis.md`
+
+    ### Porter's Five Forces Framework
+
+    Assess the competitive intensity and attractiveness of the {{ industry }} industry.
+
+    ### Tasks:
+
+    1. **Threat of New Entrants**
+       Analyze barriers to entry:
+       - Capital requirements
+       - Economies of scale
+       - Product differentiation
+       - Access to distribution channels
+       - Regulatory barriers
+       - Incumbent advantages (brand, relationships)
+
+       **Rating:** High/Medium/Low threat
+       **Evidence:** Specific examples of recent entrants or barriers
+
+    2. **Bargaining Power of Suppliers**
+       Analyze supplier dynamics:
+       - Supplier concentration
+       - Switching costs
+       - Supplier differentiation
+       - Threat of forward integration
+       - Importance of volume to suppliers
+
+       **Rating:** High/Medium/Low power
+       **Evidence:** Key supplier relationships and dependencies
+
+    3. **Bargaining Power of Buyers**
+       Analyze customer dynamics:
+       - Buyer concentration
+       - Buyer switching costs
+       - Price sensitivity
+       - Product differentiation
+       - Threat of backward integration
+       - Buyer information availability
+
+       **Rating:** High/Medium/Low power
+       **Evidence:** Customer segments and their leverage
+
+    4. **Threat of Substitutes**
+       Analyze substitute products/services:
+       - Availability of close substitutes
+       - Switching costs to substitutes
+       - Price-performance of substitutes
+       - Buyer propensity to switch
+
+       **Rating:** High/Medium/Low threat
+       **Evidence:** Specific substitutes and their adoption trends
+
+    5. **Industry Rivalry**
+       Analyze competitive intensity:
+       - Number and balance of competitors
+       - Industry growth rate
+       - Fixed costs and exit barriers
+       - Product differentiation
+       - Strategic stakes
+       - Diversity of competitors
+
+       **Rating:** High/Medium/Low intensity
+       **Evidence:** Key competitors and competitive dynamics
+
+    ### Competitive Landscape Mapping
+
+    For the top 5 competitors:
+    - Market position and share
+    - Key strengths
+    - Key weaknesses
+    - Recent strategic moves
+    - Likely future actions
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/03-competitive-analysis.md`
+
+    Must include:
+    - [ ] All 5 forces analyzed with ratings
+    - [ ] Evidence for each force rating
+    - [ ] Competitor profiles (top 5)
+    - [ ] Industry attractiveness assessment
+    - [ ] Strategic implications for positioning
+    - [ ] Summary: What competitive factors matter most?
+
+    ### Quality Gate:
+    Every force rating must be supported by evidence. Competitor analysis must be specific, not generic. Industry attractiveness conclusion must follow from the analysis.
+
+    {% elif sheet_num == 4 %}
+    ## Phase 4: Internal Assessment (SWOT Analysis)
+
+    **Objective:** Assess internal strengths and weaknesses alongside external opportunities and threats.
+
+    ### Prerequisites:
+    - Context: `{{ workspace }}/01-context-scope.md`
+    - PESTEL (opportunities/threats): `{{ workspace }}/02-pestel-analysis.md`
+    - Porter's (competitive dynamics): `{{ workspace }}/03-competitive-analysis.md`
+
+    ### SWOT Framework
+
+    Synthesize internal capabilities and external environment into actionable insights.
+
+    ### Tasks:
+
+    1. **Strengths (Internal Positive)**
+       Identify organizational advantages:
+       - Core competencies (what do we do better than others?)
+       - Resources (financial, human, intellectual, physical)
+       - Market position and brand strength
+       - Customer relationships and loyalty
+       - Operational capabilities
+       - Technology/innovation advantages
+       - Culture and talent
+
+       For each strength:
+       - Evidence that this is a genuine strength
+       - How sustainable is this advantage?
+       - How relevant is it to future strategy?
+
+    2. **Weaknesses (Internal Negative)**
+       Identify organizational disadvantages:
+       - Capability gaps
+       - Resource constraints
+       - Market position weaknesses
+       - Operational inefficiencies
+       - Technology debt
+       - Culture or talent challenges
+
+       For each weakness:
+       - Evidence of the weakness
+       - Impact on competitive position
+       - Feasibility of addressing it
+
+    3. **Opportunities (External Positive)**
+       Synthesize from PESTEL and Porter's analysis:
+       - Market opportunities (new segments, geographies)
+       - Technology opportunities
+       - Regulatory changes creating openings
+       - Competitor weaknesses to exploit
+       - Partnership or acquisition possibilities
+       - Trend-driven opportunities
+
+       For each opportunity:
+       - Timeframe to act
+       - Alignment with strengths
+       - Resource requirements to capture
+
+    4. **Threats (External Negative)**
+       Synthesize from PESTEL and Porter's analysis:
+       - Competitive threats
+       - Technology disruption
+       - Regulatory risks
+       - Economic headwinds
+       - Talent market challenges
+       - Customer preference shifts
+
+       For each threat:
+       - Likelihood (high/medium/low)
+       - Potential impact (high/medium/low)
+       - Early warning indicators
+       - Possible mitigations
+
+    5. **SWOT Matrix & Cross-Analysis**
+       Create strategic combinations:
+       - **SO Strategies:** Use strengths to capture opportunities
+       - **WO Strategies:** Address weaknesses to enable opportunity capture
+       - **ST Strategies:** Use strengths to defend against threats
+       - **WT Strategies:** Minimize weaknesses and avoid threats
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/04-swot-analysis.md`
+
+    Must include:
+    - [ ] Strengths analysis (minimum 5 strengths)
+    - [ ] Weaknesses analysis (minimum 4 weaknesses)
+    - [ ] Opportunities (minimum 5, linked to PESTEL/Porter's)
+    - [ ] Threats (minimum 4, linked to PESTEL/Porter's)
+    - [ ] SWOT matrix (visual 2x2)
+    - [ ] Cross-analysis strategies (SO, WO, ST, WT)
+    - [ ] Prioritized insights for strategy development
+
+    ### Quality Gate:
+    SWOT must synthesize previous analyses, not start fresh. Every item must have evidence. Cross-analysis must generate actionable strategic directions.
+
+    {% elif sheet_num == 5 %}
+    ## Phase 5: Strategic Options Generation
+
+    **Objective:** Generate {{ strategic_options_count }} distinct strategic options to address the strategic questions.
+
+    ### Prerequisites:
+    - Context: `{{ workspace }}/01-context-scope.md`
+    - PESTEL: `{{ workspace }}/02-pestel-analysis.md`
+    - Porter's: `{{ workspace }}/03-competitive-analysis.md`
+    - SWOT: `{{ workspace }}/04-swot-analysis.md`
+
+    ### Strategic Questions to Address:
+    {{ strategic_questions }}
+
+    ### Tasks:
+
+    1. **Strategic Direction Categories**
+       Consider options across different strategic dimensions:
+       - **Growth strategies:** Market penetration, development, product development, diversification
+       - **Competitive strategies:** Cost leadership, differentiation, focus/niche
+       - **Corporate strategies:** Integration, partnerships, acquisitions, divestiture
+       - **Capability strategies:** Build, buy, borrow, or bridge
+
+    2. **Generate {{ strategic_options_count }} Distinct Options**
+       For each strategic option:
+
+       **Option Name:** Clear, memorable label
+
+       **Strategic Intent:** What is this option trying to achieve?
+
+       **Description:** 2-3 paragraph explanation of:
+       - What the organization would do differently
+       - Key initiatives and investments required
+       - Timeline for implementation
+       - Resource requirements (budget, talent, technology)
+
+       **Rationale:** Why might this work?
+       - Which strengths does it leverage?
+       - Which opportunities does it capture?
+       - How does it address weaknesses or threats?
+       - What competitive advantage does it create?
+
+       **Key Assumptions:** What must be true for this to succeed?
+
+       **Major Risks:** What could go wrong?
+
+       **Success Indicators:** How would we know if this is working?
+
+    3. **Option Distinctiveness Check**
+       Ensure options are genuinely different:
+       - Each option should have a unique strategic logic
+       - Options should not be subsets of each other
+       - Options should represent different risk/reward profiles
+       - At least one option should be "bold" (higher risk, higher reward)
+       - At least one option should be "conservative" (lower risk, more incremental)
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/05-strategic-options.md`
+
+    Must include:
+    - [ ] {{ strategic_options_count }} complete strategic options
+    - [ ] Each option with: intent, description, rationale, assumptions, risks, success indicators
+    - [ ] Distinctiveness analysis showing how options differ
+    - [ ] Option comparison summary table
+    - [ ] Initial feasibility notes for each option
+
+    ### Quality Gate:
+    Options must be genuinely distinct. Each option must be grounded in previous analyses. At least one option must directly address each strategic question.
+
+    {% elif sheet_num == 6 %}
+    ## Phase 6: Option Evaluation & Selection
+
+    **Objective:** Systematically evaluate strategic options and recommend a preferred strategy.
+
+    ### Prerequisites:
+    - All previous analyses
+    - Strategic options: `{{ workspace }}/05-strategic-options.md`
+
+    ### Evaluation Framework
+
+    Use weighted criteria scoring with {{ criteria_weights }}.
+
+    ### Tasks:
+
+    1. **Criteria Definition**
+       Define what each criterion means and how to score it:
+
+       For each criterion in the weights:
+       - Operationalized definition
+       - Scoring scale (1-5 with descriptors)
+       - Evidence required for each score level
+
+    2. **Systematic Scoring**
+       For each strategic option, score against each criterion:
+
+       | Option | [Criterion 1] | [Criterion 2] | ... | Weighted Total |
+
+       For each score:
+       - Score (1-5)
+       - Evidence/rationale for score
+       - Confidence level (high/medium/low)
+
+    3. **Sensitivity Analysis**
+       Test robustness of the evaluation:
+       - What if criterion weights change?
+       - What if key assumptions prove wrong?
+       - Which option "wins" under different scenarios?
+
+    4. **Trade-off Analysis**
+       Analyze key trade-offs between top options:
+       - What do we gain/lose with each choice?
+       - Which trade-offs align with organizational values?
+       - Which trade-offs are acceptable given risk tolerance: {{ risk_tolerance }}?
+
+    5. **Recommended Strategy**
+       - Primary recommendation with full justification
+       - Alternative if primary proves infeasible
+       - Hybrid possibilities (combining elements of options)
+       - What we're deliberately NOT doing and why
+
+    6. **Stakeholder Alignment Check**
+       For each stakeholder group:
+       - How does the recommended strategy serve their interests?
+       - Potential concerns or objections
+       - How to address or communicate
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/06-option-evaluation.md`
+
+    Must include:
+    - [ ] Criteria definitions with scoring scales
+    - [ ] Complete scoring matrix with rationales
+    - [ ] Weighted totals and ranking
+    - [ ] Sensitivity analysis results
+    - [ ] Trade-off analysis
+    - [ ] Primary recommendation with justification
+    - [ ] Stakeholder alignment assessment
+
+    ### Quality Gate:
+    Evaluation must use all criteria from {{ criteria_weights }}. Every score must have documented rationale. Recommendation must address the strategic questions.
+
+    {% elif sheet_num == 7 %}
+    ## Phase 7: Goals & Implementation Roadmap
+
+    **Objective:** Translate the selected strategy into SMART goals with an implementation roadmap.
+
+    ### Prerequisites:
+    - Selected strategy: `{{ workspace }}/06-option-evaluation.md`
+
+    ### SMART Goal Framework
+    - **S**pecific: Clear and unambiguous
+    - **M**easurable: Quantifiable with metrics
+    - **A**chievable: Realistic given resources
+    - **R**elevant: Aligned to strategic intent
+    - **T**ime-bound: Clear deadline
+
+    ### Tasks:
+
+    1. **Strategic Goals (3-5)**
+       Top-level goals for the {{ planning_horizon }} horizon:
+
+       For each goal:
+       - Goal statement (SMART format)
+       - Link to strategic intent
+       - Primary accountability
+       - Key success metrics
+       - Milestone checkpoints
+
+    2. **Annual Objectives**
+       Break strategic goals into year-by-year objectives:
+       - Year 1 objectives (immediate priorities)
+       - Year 2 objectives (building on Year 1)
+       - Year 3+ objectives (if applicable)
+
+    3. **Key Performance Indicators (KPIs)**
+       For each strategic goal:
+       - Leading indicators (predictive)
+       - Lagging indicators (outcomes)
+       - Targets and thresholds
+       - Measurement frequency
+       - Data sources
+
+    4. **Implementation Roadmap**
+       Quarter-by-quarter view of major initiatives:
+
+       | Quarter | Initiative | Owner | Dependencies | Resources |
+
+       First year should have specific detail.
+       Later years can be directional.
+
+    5. **Quick Wins**
+       Identify 3-5 initiatives for early momentum:
+       - Why they're quick wins
+       - Resource requirements
+       - Expected timeline
+       - Visible impact
+
+    6. **Resource Requirements**
+       - Budget estimate by year
+       - Talent/hiring needs
+       - Technology investments
+       - External resources (consultants, partners)
+
+    7. **Governance Model**
+       - How will progress be tracked?
+       - Review cadence
+       - Decision-making authority
+       - Escalation process
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/07-goals-roadmap.md`
+
+    Must include:
+    - [ ] 3-5 SMART strategic goals (all 5 criteria verified)
+    - [ ] Annual objectives breakdown
+    - [ ] KPI framework with targets
+    - [ ] Implementation roadmap (quarterly for Year 1)
+    - [ ] Quick wins identified
+    - [ ] Resource requirements summary
+    - [ ] Governance model
+
+    ### Quality Gate:
+    All goals must pass SMART criteria validation. Roadmap must be feasible given stated resources. KPIs must be measurable.
+
+    {% elif sheet_num == 8 %}
+    ## Phase 8: Risk Assessment & Contingency Planning
+
+    **Objective:** Identify strategic risks and develop contingency plans to ensure plan resilience.
+
+    ### Prerequisites:
+    - All previous documents
+    - Goals and roadmap: `{{ workspace }}/07-goals-roadmap.md`
+
+    ### Tasks:
+
+    1. **Strategic Risk Identification**
+       Identify risks to plan success:
+
+       Categories:
+       - **Execution risks:** Can we actually implement this?
+       - **Market risks:** Will the market evolve as expected?
+       - **Competitive risks:** How might competitors respond?
+       - **Resource risks:** Will we have what we need?
+       - **External risks:** What outside factors could derail us?
+       - **Assumption risks:** What if key assumptions are wrong?
+
+    2. **Risk Assessment Matrix**
+       For each identified risk:
+       - **Likelihood:** High (>60%), Medium (30-60%), Low (<30%)
+       - **Impact:** High (threatens strategic goals), Medium (requires adjustment), Low (minor deviation)
+       - **Velocity:** Fast (immediate impact), Medium (quarters), Slow (years)
+       - **Risk score:** Likelihood × Impact
+       - **Priority:** Based on score and velocity
+
+    3. **Mitigation Strategies**
+       For high-priority risks:
+       - Prevention: What can reduce likelihood?
+       - Preparation: What can reduce impact?
+       - Monitoring: Early warning indicators
+       - Ownership: Who is responsible?
+
+    4. **Contingency Plans**
+       For top 5 risks:
+       - **Trigger:** What indicates the risk is materializing?
+       - **Response plan:** What do we do if triggered?
+       - **Resources reserved:** What's held in reserve?
+       - **Communication plan:** Who needs to know?
+       - **Fallback position:** What's our "Plan B"?
+
+    5. **Scenario Planning**
+       Develop 3 scenarios:
+       - **Optimistic:** Key opportunities materialize, risks don't
+       - **Base case:** Most likely trajectory
+       - **Pessimistic:** Key risks materialize, opportunities don't
+
+       For each scenario:
+       - Key assumptions
+       - Implications for the strategic plan
+       - Adjustment strategies
+
+    6. **Strategic Plan Summary**
+       Executive summary of the complete strategic plan:
+       - Strategic context (from Phase 1)
+       - Key insights from analysis (Phases 2-4)
+       - Selected strategy (Phase 6)
+       - Implementation highlights (Phase 7)
+       - Risk management approach (this phase)
+       - Call to action for stakeholders
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/08-risk-contingency.md`
+
+    Must include:
+    - [ ] Risk inventory (minimum 10 risks)
+    - [ ] Risk assessment matrix with scores
+    - [ ] Mitigation strategies for high-priority risks
+    - [ ] Contingency plans for top 5 risks
+    - [ ] 3 scenarios with adjustment strategies
+
+    Create: `{{ workspace }}/08-strategic-plan-summary.md`
+
+    Must include:
+    - [ ] Executive summary (1-2 pages)
+    - [ ] Strategy at a glance (key choices, goals, initiatives)
+    - [ ] Critical success factors
+    - [ ] Immediate next steps
+    - [ ] Stakeholder-specific takeaways
+
+    Create: `{{ workspace }}/08-implementation-checklist.md`
+
+    Must include:
+    - [ ] Pre-launch checklist
+    - [ ] 30-day, 60-day, 90-day priorities
+    - [ ] Key decisions needed
+    - [ ] Resource mobilization steps
+    - [ ] Communication plan outline
+
+    ### Quality Gate:
+    Risk assessment must link to plan assumptions. Contingencies must be actionable. Summary must be stakeholder-ready.
+
+    {% endif %}
+
+    ═══════════════════════════════════════════════════════════════════════════════
+    ANTI-SLOP REQUIREMENTS
+    ═══════════════════════════════════════════════════════════════════════════════
+
+    This is strategic planning. Quality standards prevent generic consultant-speak:
+
+    1. **Evidence-Based:** Every strategic claim must cite evidence from analysis phases. No unsupported assertions about "industry trends" or "market opportunities."
+    2. **Specific to Context:** The plan must reflect {{ organization_name }}'s unique situation. Generic strategy frameworks filled with platitudes are unacceptable.
+    3. **Internally Consistent:** Options, evaluations, and recommendations must trace back to analyses. No contradictions between phases.
+    4. **Actionable:** Every recommendation must specify who does what by when. Vague "we should" statements are insufficient.
+    5. **Honest About Uncertainty:** If data is limited or assumptions are shaky, say so explicitly. False confidence is worse than acknowledged uncertainty.
+
+    Do NOT:
+    - Use generic strategic buzzwords without specific meaning
+    - Make claims about markets or competitors without evidence
+    - Skip difficult trade-offs or pretend there are easy answers
+    - Generate options that are obviously impractical
+    - Create goals that cannot be measured
+
+    ═══════════════════════════════════════════════════════════════════════════════
+
+  stakes: |
+    This strategic plan may guide real organizational decisions and resource allocation.
+    Stakeholders will invest time, money, and careers based on this direction.
+    Sloppy analysis leads to strategic missteps. Every phase must be rigorous.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VALIDATIONS
+# Quality gates ensure each phase meets strategic planning standards
+# ═══════════════════════════════════════════════════════════════════════════════
+
+validations:
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 1: Context and scope
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/01-context-scope.md"
+    description: "Context and scope document must exist"
+    condition: "sheet_num >= 1"
+
+  - type: content_contains
+    path: "{workspace}/01-context-scope.md"
+    pattern: "[Ss]cope|[Bb]oundary|[Bb]oundaries"
+    description: "Context must contain scope definition"
+    condition: "sheet_num >= 1"
+
+  - type: content_contains
+    path: "{workspace}/01-context-scope.md"
+    pattern: "[Ss]takeholder"
+    description: "Context must contain stakeholder analysis"
+    condition: "sheet_num >= 1"
+
+  - type: content_contains
+    path: "{workspace}/01-context-scope.md"
+    pattern: "[Ss]uccess|[Mm]etric|[Cc]riteria"
+    description: "Context must contain success criteria"
+    condition: "sheet_num >= 1"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 2: PESTEL analysis
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/02-pestel-analysis.md"
+    description: "PESTEL analysis must exist"
+    condition: "sheet_num >= 2"
+
+  - type: content_contains
+    path: "{workspace}/02-pestel-analysis.md"
+    pattern: "[Pp]olitical"
+    description: "PESTEL must cover Political factors"
+    condition: "sheet_num >= 2"
+
+  - type: content_contains
+    path: "{workspace}/02-pestel-analysis.md"
+    pattern: "[Ee]conomic"
+    description: "PESTEL must cover Economic factors"
+    condition: "sheet_num >= 2"
+
+  - type: content_contains
+    path: "{workspace}/02-pestel-analysis.md"
+    pattern: "[Ss]ocial|[Ss]ocietal"
+    description: "PESTEL must cover Social factors"
+    condition: "sheet_num >= 2"
+
+  - type: content_contains
+    path: "{workspace}/02-pestel-analysis.md"
+    pattern: "[Tt]echnolog"
+    description: "PESTEL must cover Technological factors"
+    condition: "sheet_num >= 2"
+
+  - type: content_contains
+    path: "{workspace}/02-pestel-analysis.md"
+    pattern: "[Ee]nvironment"
+    description: "PESTEL must cover Environmental factors"
+    condition: "sheet_num >= 2"
+
+  - type: content_contains
+    path: "{workspace}/02-pestel-analysis.md"
+    pattern: "[Ll]egal"
+    description: "PESTEL must cover Legal factors"
+    condition: "sheet_num >= 2"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 3: Porter's Five Forces
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/03-competitive-analysis.md"
+    description: "Competitive analysis must exist"
+    condition: "sheet_num >= 3"
+
+  - type: content_contains
+    path: "{workspace}/03-competitive-analysis.md"
+    pattern: "[Nn]ew [Ee]ntrant|[Bb]arrier.*[Ee]ntry"
+    description: "Porter's must cover threat of new entrants"
+    condition: "sheet_num >= 3"
+
+  - type: content_contains
+    path: "{workspace}/03-competitive-analysis.md"
+    pattern: "[Ss]upplier"
+    description: "Porter's must cover supplier power"
+    condition: "sheet_num >= 3"
+
+  - type: content_contains
+    path: "{workspace}/03-competitive-analysis.md"
+    pattern: "[Bb]uyer|[Cc]ustomer"
+    description: "Porter's must cover buyer power"
+    condition: "sheet_num >= 3"
+
+  - type: content_contains
+    path: "{workspace}/03-competitive-analysis.md"
+    pattern: "[Ss]ubstitut"
+    description: "Porter's must cover threat of substitutes"
+    condition: "sheet_num >= 3"
+
+  - type: content_contains
+    path: "{workspace}/03-competitive-analysis.md"
+    pattern: "[Rr]ivalry|[Cc]ompetit"
+    description: "Porter's must cover industry rivalry"
+    condition: "sheet_num >= 3"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 4: SWOT analysis
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/04-swot-analysis.md"
+    description: "SWOT analysis must exist"
+    condition: "sheet_num >= 4"
+
+  - type: content_contains
+    path: "{workspace}/04-swot-analysis.md"
+    pattern: "[Ss]trength"
+    description: "SWOT must cover Strengths"
+    condition: "sheet_num >= 4"
+
+  - type: content_contains
+    path: "{workspace}/04-swot-analysis.md"
+    pattern: "[Ww]eakness"
+    description: "SWOT must cover Weaknesses"
+    condition: "sheet_num >= 4"
+
+  - type: content_contains
+    path: "{workspace}/04-swot-analysis.md"
+    pattern: "[Oo]pportunit"
+    description: "SWOT must cover Opportunities"
+    condition: "sheet_num >= 4"
+
+  - type: content_contains
+    path: "{workspace}/04-swot-analysis.md"
+    pattern: "[Tt]hreat"
+    description: "SWOT must cover Threats"
+    condition: "sheet_num >= 4"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 5: Strategic options
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/05-strategic-options.md"
+    description: "Strategic options must exist"
+    condition: "sheet_num >= 5"
+
+  - type: content_contains
+    path: "{workspace}/05-strategic-options.md"
+    pattern: "[Oo]ption [0-9]|[Oo]ption 1"
+    description: "Options must be numbered"
+    condition: "sheet_num >= 5"
+
+  - type: content_contains
+    path: "{workspace}/05-strategic-options.md"
+    pattern: "[Rr]ationale|[Jj]ustif"
+    description: "Options must include rationales"
+    condition: "sheet_num >= 5"
+
+  - type: content_contains
+    path: "{workspace}/05-strategic-options.md"
+    pattern: "[Rr]isk|[Aa]ssumption"
+    description: "Options must address risks or assumptions"
+    condition: "sheet_num >= 5"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 6: Evaluation and selection
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/06-option-evaluation.md"
+    description: "Option evaluation must exist"
+    condition: "sheet_num >= 6"
+
+  - type: content_contains
+    path: "{workspace}/06-option-evaluation.md"
+    pattern: "[Ss]core|[Rr]ating|[Ww]eight"
+    description: "Evaluation must include scoring"
+    condition: "sheet_num >= 6"
+
+  - type: content_contains
+    path: "{workspace}/06-option-evaluation.md"
+    pattern: "[Rr]ecommend"
+    description: "Evaluation must include recommendation"
+    condition: "sheet_num >= 6"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 7: Goals and roadmap
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/07-goals-roadmap.md"
+    description: "Goals and roadmap must exist"
+    condition: "sheet_num >= 7"
+
+  - type: content_contains
+    path: "{workspace}/07-goals-roadmap.md"
+    pattern: "SMART|[Ss]pecific.*[Mm]easurable|[Mm]easurable.*[Aa]chievable"
+    description: "Goals must reference SMART criteria"
+    condition: "sheet_num >= 7"
+
+  - type: content_contains
+    path: "{workspace}/07-goals-roadmap.md"
+    pattern: "[Rr]oadmap|[Qq]uarter|[Mm]ilestone|[Tt]imeline"
+    description: "Must include implementation roadmap"
+    condition: "sheet_num >= 7"
+
+  - type: content_contains
+    path: "{workspace}/07-goals-roadmap.md"
+    pattern: "KPI|[Ii]ndicator|[Mm]etric"
+    description: "Must include KPIs or metrics"
+    condition: "sheet_num >= 7"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 8: Risk and contingency
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/08-risk-contingency.md"
+    description: "Risk assessment must exist"
+    condition: "sheet_num >= 8"
+
+  - type: file_exists
+    path: "{workspace}/08-strategic-plan-summary.md"
+    description: "Strategic plan summary must exist"
+    condition: "sheet_num >= 8"
+
+  - type: file_exists
+    path: "{workspace}/08-implementation-checklist.md"
+    description: "Implementation checklist must exist"
+    condition: "sheet_num >= 8"
+
+  - type: content_contains
+    path: "{workspace}/08-risk-contingency.md"
+    pattern: "[Rr]isk|[Mm]itigat"
+    description: "Risk document must address risks"
+    condition: "sheet_num >= 8"
+
+  - type: content_contains
+    path: "{workspace}/08-risk-contingency.md"
+    pattern: "[Cc]ontingency|[Ss]cenario"
+    description: "Risk document must include contingencies or scenarios"
+    condition: "sheet_num >= 8"
+
+  - type: content_contains
+    path: "{workspace}/08-strategic-plan-summary.md"
+    pattern: "[Ee]xecutive|[Ss]ummary"
+    description: "Summary must contain executive summary"
+    condition: "sheet_num >= 8"
+
+notifications:
+  - type: desktop
+    on_events: [job_complete, job_failed, sheet_failed]
+
+state_backend: json
+pause_between_sheets_seconds: 10

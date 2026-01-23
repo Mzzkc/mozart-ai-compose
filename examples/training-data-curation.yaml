@@ -1,0 +1,789 @@
+# Example: Training Data Curation for Machine Learning
+# Orchestrate high-quality dataset creation from schema design through annotation and validation
+#
+# This example demonstrates Mozart's capabilities BEYOND software development:
+# - Iterative refinement with quality gates
+# - Multi-annotator synthesis (TDF-aligned pattern)
+# - Quantitative quality metrics (Inter-Annotator Agreement)
+# - Documentation-driven workflow
+# - Pilot-to-production progression
+#
+# Use Cases:
+# - ML engineers creating custom training datasets
+# - Research labs annotating domain-specific corpora
+# - Data scientists curating labeled datasets for classification/NER/etc.
+# - Teams building ground truth for model evaluation
+#
+# Usage:
+#   # 1. Customize variables in prompt.variables section
+#   # 2. Validate configuration
+#   mozart validate examples/training-data-curation.yaml
+#   # 3. Run the curation pipeline
+#   mozart run examples/training-data-curation.yaml
+#   # 4. Monitor progress
+#   mozart status training-data-curation
+#
+# Estimated time: 3-6 hours depending on dataset size
+# Outputs: Curated, documented dataset with IAA metrics in workspace/
+
+name: "training-data-curation"
+description: "High-quality ML training data curation with inter-annotator agreement validation"
+
+workspace: "./data-curation-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  timeout_seconds: 2400    # 40 minutes per sheet - annotation tasks require careful attention
+  disable_mcp: true        # Performance optimization
+
+  # Note: For annotation consistency, use a deterministic model
+  # Uncomment to specify: cli_model: claude-sonnet-4-20250514
+
+sheet:
+  size: 1           # One phase per sheet (recommended for quality-critical workflows)
+  total_items: 7    # 7 annotation pipeline phases
+  start_item: 1
+
+retry:
+  max_retries: 2
+  base_delay_seconds: 45   # Longer delay for annotation tasks
+  max_completion_attempts: 2
+
+rate_limit:
+  wait_minutes: 60
+  max_waits: 3
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CUSTOMIZATION SECTION
+# Modify these variables to adapt the pipeline to your annotation task
+# ═══════════════════════════════════════════════════════════════════════════════
+
+prompt:
+  variables:
+    # ─────────────────────────────────────────────────────────────────────────
+    # REQUIRED: Define your annotation task
+    # ─────────────────────────────────────────────────────────────────────────
+
+    task_type: "[CHANGE THIS: e.g., 'text classification', 'named entity recognition', 'sentiment analysis', 'relation extraction']"
+    domain: "[CHANGE THIS: e.g., 'medical records', 'customer support tickets', 'legal contracts', 'social media posts']"
+
+    # Brief description of what annotators are labeling
+    task_description: "[CHANGE THIS: e.g., 'Classify customer support tickets by intent: billing, technical, cancellation, other']"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # REQUIRED: Label schema
+    # ─────────────────────────────────────────────────────────────────────────
+
+    # Define your label taxonomy (comma-separated for simple classification)
+    labels: "[CHANGE THIS: e.g., 'billing, technical_issue, cancellation, general_inquiry, complaint']"
+
+    # Is this multi-label (items can have multiple labels) or single-label?
+    multi_label: "false"
+
+    # For NER/sequence labeling, define entity types
+    entity_types: "[CHANGE THIS if NER: e.g., 'PERSON, ORGANIZATION, LOCATION, DATE' or 'N/A' for classification]"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # REQUIRED: Data source and scope
+    # ─────────────────────────────────────────────────────────────────────────
+
+    data_source: "[CHANGE THIS: e.g., 'Zendesk export from 2023', 'PubMed abstracts on diabetes', 'internal CRM notes']"
+    target_sample_size: "[CHANGE THIS: e.g., '500', '1000', '200']"
+
+    # Sampling strategy
+    sampling_method: "[CHANGE THIS: e.g., 'stratified random by category', 'temporal (recent first)', 'difficulty-stratified']"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # OPTIONAL: Quality thresholds (sensible defaults provided)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    # Minimum inter-annotator agreement for pilot phase
+    pilot_iaa_threshold: "0.70"
+
+    # Minimum inter-annotator agreement for final dataset
+    final_iaa_threshold: "0.80"
+
+    # Agreement metric to use (Fleiss' kappa for >2 annotators, Cohen's for 2)
+    iaa_metric: "[CHANGE THIS: e.g., 'Fleiss kappa', 'Cohen kappa', 'Krippendorff alpha']"
+
+    # Maximum acceptable class imbalance ratio (majority/minority)
+    max_class_imbalance: "10.0"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PROMPT TEMPLATE
+  # Each sheet represents one phase of the data curation pipeline
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  template: |
+    You are curating a high-quality training dataset for machine learning.
+
+    ═══════════════════════════════════════════════════════════════════════════════
+    TASK CONTEXT
+    ═══════════════════════════════════════════════════════════════════════════════
+
+    **Task Type:** {{ task_type }}
+    **Domain:** {{ domain }}
+    **Description:** {{ task_description }}
+
+    **Label Schema:**
+    - Labels: {{ labels }}
+    - Multi-label: {{ multi_label }}
+    - Entity types (if NER): {{ entity_types }}
+
+    **Data Source:**
+    - Source: {{ data_source }}
+    - Target size: {{ target_sample_size }} samples
+    - Sampling: {{ sampling_method }}
+
+    **Quality Thresholds:**
+    - Pilot IAA threshold: ≥{{ pilot_iaa_threshold }}
+    - Final IAA threshold: ≥{{ final_iaa_threshold }}
+    - IAA metric: {{ iaa_metric }}
+    - Max class imbalance: {{ max_class_imbalance }}:1
+
+    **Phase:** {{ sheet_num }} of {{ total_sheets }}
+    **Workspace:** {{ workspace }}
+
+    ═══════════════════════════════════════════════════════════════════════════════
+
+    {% if sheet_num == 1 %}
+    ## Phase 1: Task Definition & Annotation Schema
+
+    **Objective:** Create a rigorous, unambiguous annotation schema that enables consistent labeling.
+
+    ### Tasks:
+
+    1. **Formalize the Annotation Task**
+       - Define the exact input format (what annotators see)
+       - Define the exact output format (what they produce)
+       - Specify the granularity (document-level, sentence-level, token-level)
+       - Clarify edge cases and scope boundaries
+
+    2. **Design the Label Taxonomy**
+       - Create hierarchical taxonomy if needed
+       - Ensure labels are Mutually Exclusive and Collectively Exhaustive (MECE)
+       - Define each label with:
+         - Clear definition
+         - Positive examples (clear cases)
+         - Negative examples (what it's NOT)
+         - Boundary cases with guidance
+
+    3. **Create Annotation Guidelines**
+       - Step-by-step annotation instructions
+       - Decision trees for ambiguous cases
+       - Examples for every label/category
+       - Common mistakes and how to avoid them
+
+    4. **Define JSON Schema for Annotations**
+       - Machine-parseable annotation format
+       - Required and optional fields
+       - Validation rules
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/01-annotation-schema.md`
+
+    The schema document MUST include:
+    - [ ] Task definition with input/output specification
+    - [ ] Complete label taxonomy with definitions
+    - [ ] Positive and negative examples for each label
+    - [ ] Annotation guidelines (step-by-step)
+    - [ ] Decision tree for edge cases
+    - [ ] JSON schema for annotation format
+
+    Create: `{{ workspace }}/01-annotation-schema.json`
+
+    Machine-readable JSON Schema:
+    - [ ] Valid JSON Schema (draft-07 or later)
+    - [ ] All labels defined with descriptions
+    - [ ] Required/optional fields specified
+    - [ ] Example annotation included
+
+    ### Quality Gate:
+    Schema must be detailed enough that two independent annotators would label the same example identically.
+
+    {% elif sheet_num == 2 %}
+    ## Phase 2: Data Collection & Sampling Strategy
+
+    **Objective:** Collect raw data and create a principled sampling plan.
+
+    ### Prerequisites:
+    Read the schema from Phase 1: `{{ workspace }}/01-annotation-schema.md`
+
+    ### Tasks:
+
+    1. **Document Data Source**
+       - Source description and provenance
+       - Data format (CSV, JSON, text files, etc.)
+       - Total available data size
+       - Known biases or limitations
+       - Privacy/sensitivity considerations
+
+    2. **Design Sampling Plan**
+       Based on {{ sampling_method }}:
+       - Define strata or segments
+       - Calculate sample sizes per stratum
+       - Document rationale for sample size (power analysis if applicable)
+       - Plan for edge case representation
+
+    3. **Execute Initial Sample**
+       - Select {{ target_sample_size }} candidate samples
+       - Document selection criteria applied
+       - Note any samples excluded and why
+
+    4. **Create Raw Data Inventory**
+       - Unique IDs for each sample
+       - Basic metadata (date, source, length, etc.)
+       - Pre-annotation category estimate if available
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/02-sampling-plan.md`
+
+    Must include:
+    - [ ] Data source documentation (provenance, format, size)
+    - [ ] Sampling methodology with rationale
+    - [ ] Sample size justification
+    - [ ] Stratification details
+    - [ ] Known limitations and biases
+
+    Create: `{{ workspace }}/02-raw-data-inventory.md`
+
+    Must include:
+    - [ ] Sample inventory table (ID, metadata, source)
+    - [ ] Total samples: {{ target_sample_size }}
+    - [ ] Distribution across strata (if stratified)
+    - [ ] Exclusion log with reasons
+
+    ### Quality Gate:
+    Sampling plan must ensure diverse representation. Every exclusion must be documented.
+
+    {% elif sheet_num == 3 %}
+    ## Phase 3: Pilot Annotation
+
+    **Objective:** Test the annotation schema on a small sample, refine guidelines based on disagreements.
+
+    ### Prerequisites:
+    - Schema: `{{ workspace }}/01-annotation-schema.md`
+    - Data inventory: `{{ workspace }}/02-raw-data-inventory.md`
+
+    ### Tasks:
+
+    1. **Select Pilot Sample**
+       - Choose 20-30 diverse samples (5-10% of target)
+       - Include expected easy, medium, and hard cases
+       - Document pilot sample selection criteria
+
+    2. **Dual-Annotator Pilot**
+       Simulate two independent annotators:
+
+       **Annotator A:** Strict interpretation of guidelines
+       **Annotator B:** Domain expert with contextual knowledge
+
+       For each pilot sample:
+       - Annotator A label + reasoning
+       - Annotator B label + reasoning
+       - Agreement status
+
+    3. **Calculate Pilot IAA**
+       Using {{ iaa_metric }}:
+       - Show calculation step by step
+       - Target: ≥{{ pilot_iaa_threshold }}
+       - Identify systematic disagreement patterns
+
+    4. **Guideline Refinement**
+       Based on disagreements:
+       - Identify ambiguous definitions
+       - Add clarifying examples
+       - Update decision tree
+       - Document all changes made
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/03-pilot-annotations.md`
+
+    Must include:
+    - [ ] Pilot sample list with selection rationale
+    - [ ] Dual-annotator labels for each sample
+    - [ ] Reasoning documentation for disagreements
+    - [ ] {{ iaa_metric }} calculation (show work)
+    - [ ] IAA result: [value] (target: ≥{{ pilot_iaa_threshold }})
+
+    Create: `{{ workspace }}/03-guideline-refinements.md`
+
+    Must include:
+    - [ ] List of identified ambiguities
+    - [ ] Specific guideline changes (before/after)
+    - [ ] New examples added
+    - [ ] Decision tree updates
+    - [ ] Edge case catalog
+
+    ### Quality Gate:
+    Pilot IAA must achieve ≥{{ pilot_iaa_threshold }}. All disagreements must have documented resolutions.
+
+    {% elif sheet_num == 4 %}
+    ## Phase 4: Full Annotation (Round 1)
+
+    **Objective:** Annotate the full dataset using refined guidelines.
+
+    ### Prerequisites:
+    - Refined guidelines: `{{ workspace }}/03-guideline-refinements.md`
+    - Full inventory: `{{ workspace }}/02-raw-data-inventory.md`
+
+    ### Tasks:
+
+    1. **Apply Dual-Annotator Pattern**
+       For each sample in the full dataset:
+
+       **Annotator A** (Systematic):
+       - Apply guidelines strictly
+       - Document any hesitation
+
+       **Annotator B** (Domain-informed):
+       - Apply domain expertise
+       - Note contextual factors
+
+    2. **Track Annotation Progress**
+       - Completion percentage
+       - Running agreement rate
+       - Time per annotation (estimated)
+
+    3. **Document Disagreements**
+       For each disagreement:
+       - Sample ID
+       - Annotator A label + reasoning
+       - Annotator B label + reasoning
+       - Disagreement category (definition ambiguity, edge case, error, etc.)
+
+    4. **Create Disagreement Log**
+       - Systematic categorization
+       - Frequency analysis
+       - Patterns identified
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/04-round1-annotations.md`
+
+    Must include:
+    - [ ] Full annotation table (ID, A_label, B_label, agreement)
+    - [ ] Completion: {{ target_sample_size }} samples
+    - [ ] Running agreement rate by label
+    - [ ] Annotation time metrics
+
+    Create: `{{ workspace }}/04-disagreement-log.md`
+
+    Must include:
+    - [ ] All disagreements cataloged
+    - [ ] Disagreement categories with counts
+    - [ ] Pattern analysis
+    - [ ] Samples flagged for adjudication
+
+    ### Quality Gate:
+    All {{ target_sample_size }} samples must have dual annotations. Every disagreement must be logged.
+
+    {% elif sheet_num == 5 %}
+    ## Phase 5: Adjudication & Gold Standard Creation
+
+    **Objective:** Resolve all disagreements to create authoritative gold standard labels.
+
+    ### Prerequisites:
+    - Round 1 annotations: `{{ workspace }}/04-round1-annotations.md`
+    - Disagreement log: `{{ workspace }}/04-disagreement-log.md`
+
+    ### Tasks:
+
+    1. **Adjudication Process**
+       For each disagreement, provide:
+
+       **Adjudicator Analysis:**
+       - Review both annotator reasonings
+       - Consult guidelines and edge case catalog
+       - Apply domain expertise
+       - Make final determination with justification
+
+    2. **Document Adjudication Decisions**
+       - Original A/B labels
+       - Adjudicator decision
+       - Rationale (cite specific guideline or precedent)
+       - Any new edge case rules established
+
+    3. **Create Gold Standard Dataset**
+       - Merge agreed labels with adjudicated labels
+       - Assign confidence scores (high for agreement, medium for adjudicated)
+       - Final authoritative label for each sample
+
+    4. **Establish Precedent Catalog**
+       - Document novel edge cases resolved
+       - Create reusable decision precedents
+       - Update guidelines with new insights
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/05-adjudication-log.md`
+
+    Must include:
+    - [ ] Adjudication decision for each disagreement
+    - [ ] Rationale citing guidelines/precedent
+    - [ ] New precedents established
+    - [ ] Adjudicator confidence notes
+
+    Create: `{{ workspace }}/05-gold-standard.md`
+
+    Must include:
+    - [ ] Final labels for all {{ target_sample_size }} samples
+    - [ ] Confidence level per sample (high/medium/low)
+    - [ ] Source (agreement vs. adjudicated)
+    - [ ] Ready for quality analysis
+
+    ### Quality Gate:
+    Every sample must have exactly one gold standard label. All adjudication decisions must have documented rationale.
+
+    {% elif sheet_num == 6 %}
+    ## Phase 6: Quality Analysis & Metrics
+
+    **Objective:** Compute comprehensive quality metrics and analyze dataset characteristics.
+
+    ### Prerequisites:
+    - Gold standard: `{{ workspace }}/05-gold-standard.md`
+    - Round 1 annotations: `{{ workspace }}/04-round1-annotations.md`
+
+    ### Tasks:
+
+    1. **Compute Inter-Annotator Agreement**
+       Using {{ iaa_metric }}:
+       - Overall agreement score
+       - Per-label agreement scores
+       - Confusion matrix (what gets confused with what)
+       - Target: ≥{{ final_iaa_threshold }}
+
+    2. **Analyze Class Distribution**
+       - Count per label/category
+       - Imbalance ratio (majority/minority)
+       - Compare to expected distribution
+       - Flag if imbalance > {{ max_class_imbalance }}:1
+
+    3. **Identify Error Patterns**
+       - Most commonly confused label pairs
+       - Samples with low confidence
+       - Systematic annotator biases
+       - Difficult cases analysis
+
+    4. **Compute Dataset Statistics**
+       - Sample length distribution
+       - Label frequency histogram
+       - Annotation difficulty distribution
+       - Coverage of edge cases
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/06-quality-metrics.md`
+
+    Must include:
+    - [ ] {{ iaa_metric }} score: [value] (target: ≥{{ final_iaa_threshold }})
+    - [ ] Per-label agreement breakdown
+    - [ ] Confusion matrix
+    - [ ] Class distribution table
+    - [ ] Imbalance ratio: [value] (max: {{ max_class_imbalance }}:1)
+
+    Create: `{{ workspace }}/06-error-analysis.md`
+
+    Must include:
+    - [ ] Common confusion patterns
+    - [ ] Difficult cases analysis
+    - [ ] Annotator bias assessment
+    - [ ] Recommendations for improvement
+    - [ ] Samples flagged for potential re-annotation
+
+    ### Quality Gate:
+    Final IAA must achieve ≥{{ final_iaa_threshold }}. Class imbalance must be ≤{{ max_class_imbalance }}:1 or documented.
+
+    {% elif sheet_num == 7 %}
+    ## Phase 7: Dataset Documentation & Datasheet
+
+    **Objective:** Create comprehensive documentation following Datasheet for Datasets framework.
+
+    ### Prerequisites:
+    - All previous phase outputs in `{{ workspace }}/`
+
+    ### Tasks:
+
+    1. **Create Datasheet for Datasets**
+       Following Gebru et al. (2021) framework:
+
+       **Motivation:**
+       - Why was the dataset created?
+       - Who created it and for whom?
+       - Who funded it?
+
+       **Composition:**
+       - What do instances represent?
+       - How many instances?
+       - What data does each instance consist of?
+       - Is there missing information?
+       - Are there confidential data?
+
+       **Collection Process:**
+       - How was data collected?
+       - Who collected it?
+       - What mechanisms/procedures were used?
+       - What was the time frame?
+
+       **Preprocessing/Cleaning/Labeling:**
+       - What preprocessing was done?
+       - How was labeling done?
+       - Who were the annotators?
+       - What was the annotation process?
+
+       **Uses:**
+       - What tasks is this for?
+       - What shouldn't it be used for?
+       - Are there known limitations?
+
+       **Distribution:**
+       - How is it distributed?
+       - What license?
+       - Are there restrictions?
+
+       **Maintenance:**
+       - Who maintains it?
+       - How can errors be reported?
+       - Will it be updated?
+
+    2. **Create Usage Guide**
+       - Loading instructions (code examples)
+       - Recommended train/val/test splits
+       - Baseline performance expectations
+       - Known limitations and biases
+
+    3. **Create Final Dataset Package**
+       - Data files in standard format
+       - Schema documentation
+       - Quality metrics summary
+       - Changelog (empty for v1)
+
+    ### Output Requirements:
+
+    Create: `{{ workspace }}/07-datasheet.md`
+
+    Must include:
+    - [ ] Complete Datasheet for Datasets (all 7 sections)
+    - [ ] Motivation section
+    - [ ] Composition section with statistics
+    - [ ] Collection process documentation
+    - [ ] Preprocessing/labeling methodology
+    - [ ] Intended uses and limitations
+    - [ ] Distribution and licensing
+    - [ ] Maintenance plan
+
+    Create: `{{ workspace }}/07-usage-guide.md`
+
+    Must include:
+    - [ ] Data format specification
+    - [ ] Loading code examples
+    - [ ] Recommended splits
+    - [ ] Baseline expectations
+    - [ ] Known limitations summary
+
+    Create: `{{ workspace }}/07-final-summary.md`
+
+    Must include:
+    - [ ] Dataset name and version
+    - [ ] Total samples: {{ target_sample_size }}
+    - [ ] Final IAA: [value]
+    - [ ] Class distribution summary
+    - [ ] Quality certification statement
+    - [ ] Link to all documentation
+
+    ### Quality Gate:
+    Datasheet must be complete (all 7 sections). Dataset must be immediately usable by a new team member.
+
+    {% endif %}
+
+    ═══════════════════════════════════════════════════════════════════════════════
+    ANTI-SLOP REQUIREMENTS
+    ═══════════════════════════════════════════════════════════════════════════════
+
+    This is data curation for ML. Quality directly impacts model performance:
+
+    1. **Precise:** Every label must have a clear, unambiguous definition.
+    2. **Measurable:** IAA metrics must be calculated correctly with shown work.
+    3. **Consistent:** The same input must always produce the same output.
+    4. **Documented:** Every decision must be traceable to guidelines.
+    5. **Honest:** If agreement is low or distribution is skewed, say so explicitly.
+
+    Do NOT:
+    - Skip IAA calculations or provide estimates without computation
+    - Create synthetic annotations without dual-annotator simulation
+    - Gloss over disagreements without resolution
+    - Ignore class imbalance problems
+
+    ═══════════════════════════════════════════════════════════════════════════════
+
+  stakes: |
+    This training data will be used to train ML models. Data quality directly
+    determines model quality. Poor annotations create poor models. Every sample
+    matters; every label decision impacts downstream predictions.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VALIDATIONS
+# Quality gates ensure each phase meets data quality standards before proceeding
+# ═══════════════════════════════════════════════════════════════════════════════
+
+validations:
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 1: Schema completeness
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/01-annotation-schema.md"
+    description: "Annotation schema document must exist"
+    condition: "sheet_num >= 1"
+
+  - type: file_exists
+    path: "{workspace}/01-annotation-schema.json"
+    description: "JSON schema file must exist"
+    condition: "sheet_num >= 1"
+
+  - type: content_contains
+    path: "{workspace}/01-annotation-schema.md"
+    pattern: "Task [Dd]efinition"
+    description: "Schema must contain task definition"
+    condition: "sheet_num >= 1"
+
+  - type: content_contains
+    path: "{workspace}/01-annotation-schema.md"
+    pattern: "[Ee]xample"
+    description: "Schema must contain examples"
+    condition: "sheet_num >= 1"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 2: Sampling documentation
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/02-sampling-plan.md"
+    description: "Sampling plan must exist"
+    condition: "sheet_num >= 2"
+
+  - type: file_exists
+    path: "{workspace}/02-raw-data-inventory.md"
+    description: "Raw data inventory must exist"
+    condition: "sheet_num >= 2"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 3: Pilot annotation with IAA
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/03-pilot-annotations.md"
+    description: "Pilot annotations must exist"
+    condition: "sheet_num >= 3"
+
+  - type: file_exists
+    path: "{workspace}/03-guideline-refinements.md"
+    description: "Guideline refinements must exist"
+    condition: "sheet_num >= 3"
+
+  - type: content_contains
+    path: "{workspace}/03-pilot-annotations.md"
+    pattern: "[Kk]appa|[Aa]lpha|IAA|[Aa]greement"
+    description: "Pilot must document inter-annotator agreement"
+    condition: "sheet_num >= 3"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 4: Full annotation round
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/04-round1-annotations.md"
+    description: "Round 1 annotations must exist"
+    condition: "sheet_num >= 4"
+
+  - type: file_exists
+    path: "{workspace}/04-disagreement-log.md"
+    description: "Disagreement log must exist"
+    condition: "sheet_num >= 4"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 5: Adjudication and gold standard
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/05-adjudication-log.md"
+    description: "Adjudication log must exist"
+    condition: "sheet_num >= 5"
+
+  - type: file_exists
+    path: "{workspace}/05-gold-standard.md"
+    description: "Gold standard dataset must exist"
+    condition: "sheet_num >= 5"
+
+  - type: content_contains
+    path: "{workspace}/05-gold-standard.md"
+    pattern: "[Ll]abel|[Cc]onfidence"
+    description: "Gold standard must contain labels"
+    condition: "sheet_num >= 5"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 6: Quality metrics
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/06-quality-metrics.md"
+    description: "Quality metrics must exist"
+    condition: "sheet_num >= 6"
+
+  - type: file_exists
+    path: "{workspace}/06-error-analysis.md"
+    description: "Error analysis must exist"
+    condition: "sheet_num >= 6"
+
+  - type: content_contains
+    path: "{workspace}/06-quality-metrics.md"
+    pattern: "[Kk]appa|[Aa]lpha|IAA"
+    description: "Quality metrics must include IAA score"
+    condition: "sheet_num >= 6"
+
+  - type: content_contains
+    path: "{workspace}/06-quality-metrics.md"
+    pattern: "[Dd]istribution|[Ii]mbalance"
+    description: "Quality metrics must document class distribution"
+    condition: "sheet_num >= 6"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 7: Final documentation
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/07-datasheet.md"
+    description: "Datasheet for Datasets must exist"
+    condition: "sheet_num >= 7"
+
+  - type: file_exists
+    path: "{workspace}/07-usage-guide.md"
+    description: "Usage guide must exist"
+    condition: "sheet_num >= 7"
+
+  - type: file_exists
+    path: "{workspace}/07-final-summary.md"
+    description: "Final summary must exist"
+    condition: "sheet_num >= 7"
+
+  - type: content_contains
+    path: "{workspace}/07-datasheet.md"
+    pattern: "[Mm]otivation"
+    description: "Datasheet must have Motivation section"
+    condition: "sheet_num >= 7"
+
+  - type: content_contains
+    path: "{workspace}/07-datasheet.md"
+    pattern: "[Cc]omposition"
+    description: "Datasheet must have Composition section"
+    condition: "sheet_num >= 7"
+
+  - type: content_contains
+    path: "{workspace}/07-datasheet.md"
+    pattern: "[Ll]imitation"
+    description: "Datasheet must document limitations"
+    condition: "sheet_num >= 7"
+
+notifications:
+  - type: desktop
+    on_events: [job_complete, job_failed, sheet_failed]
+
+state_backend: json
+pause_between_sheets_seconds: 10

@@ -1,0 +1,230 @@
+# Mozart Examples
+
+This directory contains example Mozart configurations for various use cases. Mozart is a **general-purpose cognitive orchestration system**, not just a coding tool. These examples demonstrate its versatility across domains.
+
+## Quick Start Examples
+
+| Example | Purpose | Complexity |
+|---------|---------|------------|
+| [simple-sheet.yaml](simple-sheet.yaml) | Minimal Mozart configuration to get started | Simple |
+| [api-backend.yaml](api-backend.yaml) | Using Anthropic API directly instead of CLI | Simple |
+
+## Software Development Examples
+
+| Example | Purpose | Complexity |
+|---------|---------|------------|
+| [self-improvement.yaml](self-improvement.yaml) | Incremental codebase improvement with quality gates (pytest, mypy, ruff) | Medium |
+| [sheet-review.yaml](sheet-review.yaml) | Multi-agent coordinated code review with expert agents | High |
+| [worktree-isolation.yaml](worktree-isolation.yaml) | Parallel-safe execution using git worktrees | Medium |
+| [observability-demo.yaml](observability-demo.yaml) | Demonstrating logging, error tracking, and diagnostics | Medium |
+
+## Beyond Coding
+
+Mozart is a general-purpose cognitive orchestration system. These examples demonstrate Mozart's capabilities in domains beyond software development.
+
+| Example | Domain | Sheets | Key Innovation |
+|---------|--------|--------|----------------|
+| [systematic-literature-review.yaml](systematic-literature-review.yaml) | Research | 8 | PRISMA-compliant dual-reviewer validation |
+| [training-data-curation.yaml](training-data-curation.yaml) | Data | 7 | Inter-annotator agreement metrics |
+| [nonfiction-book.yaml](nonfiction-book.yaml) | Writing | 8 | Snowflake Method with word count gates |
+| [strategic-plan.yaml](strategic-plan.yaml) | Planning | 8 | Multi-framework synthesis (PESTEL, Porter, SWOT) |
+
+---
+
+## Example Categories
+
+### Writing & Authoring
+
+**[nonfiction-book.yaml](nonfiction-book.yaml)** - Author a non-fiction book using the Snowflake Method
+
+- Progressive elaboration from 25-word premise to 50,000+ word manuscript
+- Entity bible for cross-chapter consistency tracking
+- Word count gates at each phase (premise → synopsis → outline → drafts)
+- Readability validation (Flesch-Kincaid targets)
+- Consistency review loop: draft → audit → revision → polish
+
+### Research & Analysis
+
+**[systematic-literature-review.yaml](systematic-literature-review.yaml)** - PRISMA-compliant systematic review
+
+- 8 phases aligned with PRISMA 2020 methodology
+- Dual-reviewer simulation with inter-rater agreement (kappa ≥0.80)
+- PICO framework for research question structuring
+- Quality assessment using configurable frameworks (Cochrane RoB, etc.)
+- PRISMA flow diagram arithmetic validation
+
+### Data & Knowledge
+
+**[training-data-curation.yaml](training-data-curation.yaml)** - ML training dataset creation
+
+- Pilot-to-production progression (test guidelines before full annotation)
+- Dual-annotator pattern with adjudication workflow
+- Quantitative IAA metrics (Fleiss' kappa, Cohen's kappa, Krippendorff's alpha)
+- Class imbalance detection and documentation
+- Datasheet for Datasets framework (Gebru et al., 2021)
+
+### Planning & Strategy
+
+**[strategic-plan.yaml](strategic-plan.yaml)** - Multi-framework strategic planning
+
+- Three-framework synthesis: PESTEL → Porter's Five Forces → SWOT
+- SWOT synthesizes from prior analyses (not generated de novo)
+- SMART goal validation (all 5 criteria enforced)
+- Weighted criteria evaluation for strategic options
+- Risk register with mitigation traceability
+
+---
+
+## Quality Principles
+
+All examples follow these anti-slop principles:
+
+### 1. Validation at Every Stage
+Each sheet has measurable success criteria. Not just "did it run" but "is it good."
+
+```yaml
+validations:
+  - type: file_exists
+    path: "{{ workspace }}/05-data-extraction.md"
+  - type: content_contains
+    path: "{{ workspace }}/03-screening-decisions.md"
+    pattern: "kappa"  # Ensures agreement metric is calculated
+```
+
+### 2. Human-Reviewable Output
+Intermediate files for inspection. Every phase produces artifacts you can examine before the next phase runs.
+
+### 3. Clear Quality Gates
+Quantitative thresholds where possible:
+- Inter-rater agreement: κ ≥ 0.80
+- Word count minimums: 4000-6000 words per chapter
+- Framework coverage: all 6 PESTEL dimensions addressed
+
+### 4. Evidence-Based Content
+Citations and sources where applicable. Explicit requirements for evidence:
+- Claims must cite sources
+- Judgments must reference data
+- Fabrication is explicitly forbidden
+
+### 5. Iterative Refinement
+Multi-pass improvement built into workflow:
+- Draft → Review → Revision patterns
+- Pilot → Full execution progressions
+- Consistency audits between phases
+
+---
+
+## Running Examples
+
+```bash
+# Validate before running (always!)
+mozart validate examples/[example].yaml
+
+# Run the example
+mozart run examples/[example].yaml
+
+# Check status
+mozart status [job-name] --workspace ./[workspace]
+
+# Resume if interrupted
+mozart resume [job-name] --workspace ./[workspace]
+```
+
+### Running Long Jobs
+
+For jobs that take hours (literature reviews, book authoring), run detached:
+
+```bash
+# Detached execution (survives session changes)
+nohup mozart run examples/nonfiction-book.yaml > book-workspace/mozart.log 2>&1 &
+
+# Monitor progress
+tail -f book-workspace/mozart.log
+mozart status nonfiction-book --workspace ./book-workspace
+```
+
+---
+
+## Creating Your Own
+
+Use these examples as templates. Key customization points:
+
+### 1. Workspace
+Where outputs go. Each job needs its own workspace.
+
+```yaml
+workspace: "./my-project-workspace"
+```
+
+### 2. Backend Configuration
+Working directory, timeout, model selection.
+
+```yaml
+backend:
+  type: claude_cli
+  working_directory: /path/to/source/files  # Where to read from
+  timeout_seconds: 3600  # 60 min for complex tasks
+  disable_mcp: true  # Performance optimization
+```
+
+### 3. Variables
+Domain-specific context. All examples use `prompt.variables` for user customization:
+
+```yaml
+prompt:
+  variables:
+    research_topic: "Your specific topic here"
+    target_audience: "Who this is for"
+    # ... domain-specific parameters
+```
+
+### 4. Validations
+Quality criteria for your use case:
+
+```yaml
+validations:
+  # File must exist
+  - type: file_exists
+    path: "{{ workspace }}/output.md"
+
+  # File must contain specific content
+  - type: content_contains
+    path: "{{ workspace }}/output.md"
+    pattern: "conclusion"
+
+  # Command must succeed
+  - type: command_succeeds
+    command: "wc -w {{ workspace }}/output.md | awk '$1 >= 5000'"
+```
+
+---
+
+## Comprehensive Documentation
+
+For detailed Mozart usage, debugging, and configuration:
+
+- **[../skills/mozart-usage.md](../skills/mozart-usage.md)** - Comprehensive Mozart guide
+- **[../CLAUDE.md](../CLAUDE.md)** - Project-specific instructions and debugging protocols
+
+---
+
+## Validation Summary
+
+All examples pass `mozart validate`:
+
+| Example | Status | Sheets | Validations |
+|---------|--------|--------|-------------|
+| simple-sheet.yaml | ✓ | 2 | 0 |
+| api-backend.yaml | ✓ | 5 | 0 |
+| self-improvement.yaml | ✓ | 4 | 3 |
+| sheet-review.yaml | ✓ | 56 | 0 |
+| worktree-isolation.yaml | ✓ | 5 | 0 |
+| observability-demo.yaml | ✓ | 3 | 1 |
+| systematic-literature-review.yaml | ✓ | 8 | 17 |
+| training-data-curation.yaml | ✓ | 7 | 24 |
+| nonfiction-book.yaml | ✓ | 8 | 31 |
+| strategic-plan.yaml | ✓ | 8 | 39 |
+
+---
+
+*Examples created as part of Mozart Example Expansion project - 2026-01-23*
