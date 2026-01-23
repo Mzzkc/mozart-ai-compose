@@ -5,6 +5,7 @@ import asyncio
 import os
 import signal
 import sys
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -41,6 +42,18 @@ class JobActionResult:
     message: str
 
 
+@dataclass
+class ProcessHealth:
+    """Process health check result."""
+    pid: int | None
+    is_alive: bool
+    is_zombie_state: bool
+    process_exists: bool
+    cpu_percent: float | None = None
+    memory_mb: float | None = None
+    uptime_seconds: float | None = None
+
+
 class JobControlService:
     """Service for controlling job lifecycle."""
 
@@ -48,6 +61,7 @@ class JobControlService:
         self._state_backend = state_backend
         self._workspace_root = workspace_root or Path.cwd()
         self._running_processes: dict[str, asyncio.subprocess.Process] = {}
+        self._process_start_times: dict[str, float] = {}  # Track when processes started
 
     async def start_job(
         self,
@@ -117,8 +131,9 @@ class JobControlService:
                 cwd=str(self._workspace_root),
             )
 
-            # Track the process
+            # Track the process and its start time
             self._running_processes[job_id] = process
+            self._process_start_times[job_id] = time.time()
 
             # Parse config to get job details
             if config_content:
@@ -170,8 +185,27 @@ class JobControlService:
             )
             raise RuntimeError(f"Failed to start job: {e}") from e
 
+    def _get_job_workspace(self, state: CheckpointState) -> Path:
+        """Get the workspace path for a job state.
+
+        Args:
+            state: Job checkpoint state.
+
+        Returns:
+            Path to the job's workspace directory.
+        """
+        # Use worktree path if available (for isolated jobs)
+        if state.worktree_path:
+            return Path(state.worktree_path)
+
+        # Fall back to workspace root (CheckpointState doesn't store original workspace)
+        return self._workspace_root
+
     async def pause_job(self, job_id: str) -> JobActionResult:
-        """Pause a running job by sending SIGSTOP.
+        """Pause a running job gracefully using signal files.
+
+        Creates a pause signal file that the runner checks between sheet executions.
+        This provides graceful pause at sheet boundaries rather than SIGSTOP.
 
         Args:
             job_id: Job identifier.
@@ -196,60 +230,33 @@ class JobControlService:
                 message=f"Job is not running (status: {state.status.value})"
             )
 
-        pid = await self.get_job_pid(job_id)
-        if not pid:
-            return JobActionResult(
-                success=False,
-                job_id=job_id,
-                status=state.status.value,
-                message="No process ID found for job"
-            )
-
+        # Create pause signal file in job's workspace
         try:
-            os.kill(pid, signal.SIGSTOP)
+            workspace_path = self._get_job_workspace(state)
+            pause_signal_file = workspace_path / f".mozart-pause-{job_id}"
 
-            # Update state to paused
-            state.mark_job_paused()
-            await self._state_backend.save(state)
+            # Create the pause signal file
+            pause_signal_file.touch()
 
             logger.info(
-                "job_paused",
+                "job_pause_requested",
                 job_id=job_id,
-                pid=pid,
+                workspace=str(workspace_path),
+                signal_file=str(pause_signal_file),
             )
 
             return JobActionResult(
                 success=True,
                 job_id=job_id,
-                status=JobStatus.PAUSED.value,
-                message=f"Job {job_id} paused successfully"
-            )
-
-        except ProcessLookupError:
-            # Process already dead - mark as zombie
-            state.mark_zombie_detected("Process not found during pause")
-            await self._state_backend.save(state)
-
-            return JobActionResult(
-                success=False,
-                job_id=job_id,
-                status=JobStatus.PAUSED.value,
-                message=f"Process not found (marked as zombie): {job_id}"
-            )
-
-        except PermissionError:
-            return JobActionResult(
-                success=False,
-                job_id=job_id,
-                status=state.status.value,
-                message=f"Permission denied to pause job {job_id}"
+                status=JobStatus.RUNNING.value,  # Still running until runner processes signal
+                message=f"Pause request sent to job {job_id}. "
+                        f"Job will pause at next sheet boundary."
             )
 
         except OSError as e:
             logger.error(
-                "job_pause_failed",
+                "pause_signal_creation_failed",
                 job_id=job_id,
-                pid=pid,
                 error_type=type(e).__name__,
                 error_message=str(e),
             )
@@ -257,11 +264,14 @@ class JobControlService:
                 success=False,
                 job_id=job_id,
                 status=state.status.value,
-                message=f"Failed to pause job: {e}"
+                message=f"Failed to create pause signal: {e}"
             )
 
     async def resume_job(self, job_id: str) -> JobActionResult:
-        """Resume a paused job by sending SIGCONT.
+        """Resume a paused job and clean up pause signals.
+
+        For paused jobs with living processes, we don't need SIGCONT since the new
+        pause mechanism is file-based. We just update state and clean up signals.
 
         Args:
             job_id: Job identifier.
@@ -292,7 +302,11 @@ class JobControlService:
             return await self._restart_job_execution(job_id, state)
 
         try:
-            os.kill(pid, signal.SIGCONT)
+            # Clean up any pause signal files
+            workspace_path = self._get_job_workspace(state)
+            pause_signal_file = workspace_path / f".mozart-pause-{job_id}"
+            if pause_signal_file.exists():
+                pause_signal_file.unlink()
 
             # Update state to running
             state.status = JobStatus.RUNNING
@@ -303,6 +317,7 @@ class JobControlService:
                 "job_resumed",
                 job_id=job_id,
                 pid=pid,
+                pause_signal_cleaned=pause_signal_file.exists(),
             )
 
             return JobActionResult(
@@ -313,7 +328,14 @@ class JobControlService:
             )
 
         except ProcessLookupError:
-            # Process is dead - attempt restart
+            # Process is dead - clean up signals and attempt restart
+            workspace_path = self._get_job_workspace(state)
+            pause_signal_file = workspace_path / f".mozart-pause-{job_id}"
+            if pause_signal_file.exists():
+                try:
+                    pause_signal_file.unlink()
+                except OSError:
+                    pass  # Signal cleanup failure shouldn't block resume
             return await self._restart_job_execution(job_id, state)
 
         except PermissionError:
@@ -410,6 +432,8 @@ class JobControlService:
         # Clean up process tracking
         if job_id in self._running_processes:
             del self._running_processes[job_id]
+        if job_id in self._process_start_times:
+            del self._process_start_times[job_id]
 
         logger.info(
             "job_cancelled",
@@ -460,6 +484,8 @@ class JobControlService:
         # Clean up process tracking
         if job_id in self._running_processes:
             del self._running_processes[job_id]
+        if job_id in self._process_start_times:
+            del self._process_start_times[job_id]
 
         if deleted:
             logger.info(
@@ -502,6 +528,162 @@ class JobControlService:
 
         return None
 
+    async def verify_process_health(self, job_id: str) -> ProcessHealth:
+        """Verify comprehensive health of a job's process.
+
+        Performs deep process verification including:
+        - PID existence and liveness
+        - Zombie state detection via CheckpointState
+        - Process metrics (CPU, memory if available)
+        - Uptime calculation
+
+        Args:
+            job_id: Job identifier.
+
+        Returns:
+            ProcessHealth result with comprehensive process status.
+        """
+        # Get PID from various sources
+        pid = await self.get_job_pid(job_id)
+
+        # Get state for zombie detection
+        state = await self._state_backend.load(job_id)
+        is_zombie_state = state.is_zombie() if state else False
+
+        # Check if process exists in system
+        process_exists = False
+        if pid:
+            try:
+                os.kill(pid, 0)  # Signal 0 checks existence
+                process_exists = True
+            except (ProcessLookupError, PermissionError, OSError):
+                process_exists = False
+
+        # Calculate uptime if we have start time
+        uptime_seconds = None
+        if job_id in self._process_start_times and process_exists:
+            uptime_seconds = time.time() - self._process_start_times[job_id]
+
+        # Try to get process metrics (optional, may fail due to permissions)
+        cpu_percent = None
+        memory_mb = None
+        if pid and process_exists:
+            try:
+                # Use psutil if available for detailed metrics
+                import psutil
+            except ImportError:
+                # psutil not available - skip metrics collection
+                pass
+            else:
+                try:
+                    proc = psutil.Process(pid)
+                    cpu_percent = proc.cpu_percent(interval=0.1)
+                    memory_mb = proc.memory_info().rss / (1024 * 1024)  # Convert bytes to MB
+                except Exception:
+                    # Process metrics inaccessible (permissions, no such process, etc.)
+                    pass
+
+        is_alive = process_exists and not is_zombie_state
+
+        logger.debug(
+            "process_health_checked",
+            job_id=job_id,
+            pid=pid,
+            is_alive=is_alive,
+            is_zombie_state=is_zombie_state,
+            process_exists=process_exists,
+            uptime_seconds=uptime_seconds,
+            cpu_percent=cpu_percent,
+            memory_mb=memory_mb,
+        )
+
+        return ProcessHealth(
+            pid=pid,
+            is_alive=is_alive,
+            is_zombie_state=is_zombie_state,
+            process_exists=process_exists,
+            cpu_percent=cpu_percent,
+            memory_mb=memory_mb,
+            uptime_seconds=uptime_seconds,
+        )
+
+    async def cleanup_orphaned_processes(self) -> list[str]:
+        """Clean up orphaned process references.
+
+        Removes entries from _running_processes where the process has died
+        but we're still tracking it. This prevents memory leaks and stale
+        references.
+
+        Returns:
+            List of job IDs that had orphaned processes cleaned up.
+        """
+        orphaned_jobs = []
+
+        for job_id, process in list(self._running_processes.items()):
+            if process.returncode is not None:  # Process has exited
+                del self._running_processes[job_id]
+                if job_id in self._process_start_times:
+                    del self._process_start_times[job_id]
+                orphaned_jobs.append(job_id)
+
+                logger.info(
+                    "orphaned_process_cleaned",
+                    job_id=job_id,
+                    pid=process.pid,
+                    return_code=process.returncode,
+                )
+
+        return orphaned_jobs
+
+    async def detect_and_recover_zombies(self) -> list[str]:
+        """Detect and recover jobs in zombie state.
+
+        Scans all tracked jobs, detects zombie states using CheckpointState.is_zombie(),
+        and marks them for recovery. This integrates with Mozart's built-in zombie
+        detection system.
+
+        Returns:
+            List of job IDs that were detected and marked as zombies.
+        """
+        zombie_jobs = []
+
+        # Get all job states that might be zombies
+        # Note: This would need a method to list all jobs from state backend
+        # For now, we'll check tracked jobs and any we can load by ID
+        # Create a copy of keys to avoid "dictionary changed size during iteration" error
+        for job_id in list(self._running_processes.keys()):
+            try:
+                state = await self._state_backend.load(job_id)
+                if state and state.is_zombie():
+                    # Mark zombie detected using built-in method
+                    state.mark_zombie_detected("Dashboard detected dead PID")
+                    await self._state_backend.save(state)
+
+                    # Clean up our tracking
+                    if job_id in self._running_processes:
+                        del self._running_processes[job_id]
+                    if job_id in self._process_start_times:
+                        del self._process_start_times[job_id]
+
+                    zombie_jobs.append(job_id)
+
+                    logger.warning(
+                        "zombie_job_recovered",
+                        job_id=job_id,
+                        pid=state.pid,
+                        job_name=state.job_name,
+                    )
+
+            except Exception as e:
+                logger.error(
+                    "zombie_detection_error",
+                    job_id=job_id,
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                )
+
+        return zombie_jobs
+
     async def _restart_job_execution(
         self,
         job_id: str,
@@ -512,6 +694,15 @@ class JobControlService:
         Used when resuming a job whose process is dead.
         """
         try:
+            # Clean up any pause signal files before restart
+            workspace_path = self._get_job_workspace(state)
+            pause_signal_file = workspace_path / f".mozart-pause-{job_id}"
+            if pause_signal_file.exists():
+                try:
+                    pause_signal_file.unlink()
+                except OSError:
+                    pass  # Signal cleanup failure shouldn't block restart
+
             # Use mozart resume command with parameterized arguments
             cmd_args = [sys.executable, "-m", "mozart.cli", "resume", job_id]
 
@@ -526,8 +717,9 @@ class JobControlService:
                 cwd=str(self._workspace_root),
             )
 
-            # Track the new process
+            # Track the new process and its start time
             self._running_processes[job_id] = process
+            self._process_start_times[job_id] = time.time()
 
             # Update state
             state.status = JobStatus.RUNNING

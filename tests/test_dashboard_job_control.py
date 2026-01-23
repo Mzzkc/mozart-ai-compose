@@ -10,6 +10,7 @@ from mozart.core.checkpoint import CheckpointState, JobStatus
 from mozart.dashboard.services.job_control import (
     JobControlService,
     JobStartResult,
+    ProcessHealth,
 )
 from mozart.state.base import StateBackend
 
@@ -566,6 +567,369 @@ class TestJobControlService:
 
         pid = await job_control_service.get_job_pid(job_id)
         assert pid == 54321
+
+
+class TestProcessManagement:
+    """Test cases for enhanced process management features."""
+
+    @pytest.mark.asyncio
+    async def test_verify_process_health_alive_process(
+        self,
+        job_control_service: JobControlService,
+        mock_state_backend: MockStateBackend,
+    ):
+        """Test process health verification for alive process."""
+        job_id = "test-job-123"
+        state = CheckpointState(
+            job_id=job_id,
+            job_name="test-job",
+            total_sheets=2,
+            status=JobStatus.RUNNING,
+            pid=12345,
+        )
+        await mock_state_backend.save(state)
+
+        # Mock process start time
+        job_control_service._process_start_times[job_id] = 1000.0
+
+        with patch.object(job_control_service, "get_job_pid", return_value=12345):
+            with patch("os.kill"):  # Process exists
+                with patch("time.time", return_value=1100.0):  # 100 seconds later
+                    health = await job_control_service.verify_process_health(job_id)
+
+                    assert isinstance(health, ProcessHealth)
+                    assert health.pid == 12345
+                    assert health.is_alive is True
+                    assert health.is_zombie_state is False
+                    assert health.process_exists is True
+                    assert health.uptime_seconds == 100.0
+
+    @pytest.mark.asyncio
+    async def test_verify_process_health_zombie_state(
+        self,
+        job_control_service: JobControlService,
+        mock_state_backend: MockStateBackend,
+    ):
+        """Test process health verification for zombie state."""
+        job_id = "test-job-123"
+        state = CheckpointState(
+            job_id=job_id,
+            job_name="test-job",
+            total_sheets=2,
+            status=JobStatus.RUNNING,
+            pid=12345,
+        )
+        await mock_state_backend.save(state)
+
+        with patch.object(job_control_service, "get_job_pid", return_value=12345):
+            # Mock dead process but PID in state - this creates a zombie state
+            with patch("os.kill", side_effect=ProcessLookupError("No such process")):
+                health = await job_control_service.verify_process_health(job_id)
+
+                assert health.pid == 12345
+                assert health.is_alive is False
+                # Zombie state is detected when process doesn't exist but state shows running with PID
+                assert health.is_zombie_state is True
+                assert health.process_exists is False
+
+    @pytest.mark.asyncio
+    async def test_verify_process_health_with_metrics(
+        self,
+        job_control_service: JobControlService,
+        mock_state_backend: MockStateBackend,
+    ):
+        """Test process health verification with psutil metrics."""
+        job_id = "test-job-123"
+        state = CheckpointState(
+            job_id=job_id,
+            job_name="test-job",
+            total_sheets=2,
+            status=JobStatus.RUNNING,
+            pid=12345,
+        )
+        await mock_state_backend.save(state)
+
+        mock_process_metrics = Mock()
+        mock_process_metrics.cpu_percent.return_value = 15.5
+        mock_memory_info = Mock()
+        mock_memory_info.rss = 104857600  # 100 MB in bytes
+        mock_process_metrics.memory_info.return_value = mock_memory_info
+
+        with patch.object(job_control_service, "get_job_pid", return_value=12345):
+            with patch("os.kill"):  # Process exists
+                with patch("builtins.__import__") as mock_import:
+                    mock_psutil = Mock()
+                    mock_psutil.Process.return_value = mock_process_metrics
+                    mock_import.return_value = mock_psutil
+
+                    health = await job_control_service.verify_process_health(job_id)
+
+                    assert health.pid == 12345
+                    assert health.is_alive is True
+                    assert health.cpu_percent == 15.5
+                    assert health.memory_mb == 100.0  # 100 MB
+
+    @pytest.mark.asyncio
+    async def test_verify_process_health_no_psutil(
+        self,
+        job_control_service: JobControlService,
+        mock_state_backend: MockStateBackend,
+    ):
+        """Test process health verification when psutil is not available."""
+        job_id = "test-job-123"
+        state = CheckpointState(
+            job_id=job_id,
+            job_name="test-job",
+            total_sheets=2,
+            status=JobStatus.RUNNING,
+            pid=12345,
+        )
+        await mock_state_backend.save(state)
+
+        with patch.object(job_control_service, "get_job_pid", return_value=12345):
+            with patch("os.kill"):  # Process exists
+                # Instead of patching __import__, we can patch the specific import in the method
+                health = await job_control_service.verify_process_health(job_id)
+
+                assert health.pid == 12345
+                assert health.is_alive is True
+                assert health.cpu_percent is None
+                assert health.memory_mb is None
+
+    @pytest.mark.asyncio
+    async def test_cleanup_orphaned_processes(
+        self,
+        job_control_service: JobControlService,
+    ):
+        """Test cleanup of orphaned process references."""
+        # Add some mock processes
+        mock_process_1 = Mock()
+        mock_process_1.pid = 100
+        mock_process_1.returncode = None  # Still running
+
+        mock_process_2 = Mock()
+        mock_process_2.pid = 200
+        mock_process_2.returncode = 0  # Exited
+
+        mock_process_3 = Mock()
+        mock_process_3.pid = 300
+        mock_process_3.returncode = 1  # Exited with error
+
+        job_control_service._running_processes["job1"] = mock_process_1
+        job_control_service._running_processes["job2"] = mock_process_2
+        job_control_service._running_processes["job3"] = mock_process_3
+
+        job_control_service._process_start_times["job1"] = 1000.0
+        job_control_service._process_start_times["job2"] = 2000.0
+        job_control_service._process_start_times["job3"] = 3000.0
+
+        orphaned = await job_control_service.cleanup_orphaned_processes()
+
+        # Should clean up job2 and job3 (exited), but keep job1 (running)
+        assert set(orphaned) == {"job2", "job3"}
+        assert "job1" in job_control_service._running_processes
+        assert "job2" not in job_control_service._running_processes
+        assert "job3" not in job_control_service._running_processes
+
+        assert "job1" in job_control_service._process_start_times
+        assert "job2" not in job_control_service._process_start_times
+        assert "job3" not in job_control_service._process_start_times
+
+    @pytest.mark.asyncio
+    async def test_detect_and_recover_zombies(
+        self,
+        job_control_service: JobControlService,
+        mock_state_backend: MockStateBackend,
+    ):
+        """Test detection and recovery of zombie jobs."""
+        # Create mock jobs - one zombie, one alive
+        job_id_zombie = "zombie-job"
+        job_id_alive = "alive-job"
+
+        zombie_state = CheckpointState(
+            job_id=job_id_zombie,
+            job_name="zombie-job",
+            total_sheets=2,
+            status=JobStatus.RUNNING,
+            pid=12345,
+        )
+
+        alive_state = CheckpointState(
+            job_id=job_id_alive,
+            job_name="alive-job",
+            total_sheets=2,
+            status=JobStatus.RUNNING,
+            pid=54321,
+        )
+
+        await mock_state_backend.save(zombie_state)
+        await mock_state_backend.save(alive_state)
+
+        # Add to tracked processes
+        job_control_service._running_processes[job_id_zombie] = Mock()
+        job_control_service._running_processes[job_id_alive] = Mock()
+        job_control_service._process_start_times[job_id_zombie] = 1000.0
+        job_control_service._process_start_times[job_id_alive] = 2000.0
+
+        # Mock os.kill to simulate zombie (dead) process for first call, alive for second
+        def mock_kill_side_effect(pid, sig):
+            if pid == 12345:  # zombie job PID
+                raise ProcessLookupError("No such process")
+            elif pid == 54321:  # alive job PID
+                return None  # Process exists
+            else:
+                return None
+
+        with patch("os.kill", side_effect=mock_kill_side_effect):
+            zombie_jobs = await job_control_service.detect_and_recover_zombies()
+
+            assert zombie_jobs == [job_id_zombie]
+
+            # Verify zombie job was cleaned up from tracking
+            assert job_id_zombie not in job_control_service._running_processes
+            assert job_id_zombie not in job_control_service._process_start_times
+
+            # Verify alive job remains tracked
+            assert job_id_alive in job_control_service._running_processes
+            assert job_id_alive in job_control_service._process_start_times
+
+            # Verify zombie state was marked as recovered
+            recovered_state = await mock_state_backend.load(job_id_zombie)
+            assert recovered_state is not None
+            assert recovered_state.status == JobStatus.PAUSED
+            assert recovered_state.pid is None
+
+    @pytest.mark.asyncio
+    async def test_detect_and_recover_zombies_error_handling(
+        self,
+        job_control_service: JobControlService,
+        mock_state_backend: MockStateBackend,
+    ):
+        """Test zombie detection with error handling."""
+        job_id = "error-job"
+
+        # Add to tracked processes
+        job_control_service._running_processes[job_id] = Mock()
+
+        # Mock state backend load failure
+        with patch.object(mock_state_backend, "load", side_effect=Exception("State load error")):
+            zombie_jobs = await job_control_service.detect_and_recover_zombies()
+
+            # Should return empty list and handle error gracefully
+            assert zombie_jobs == []
+            # Process should still be tracked (not cleaned up due to error)
+            assert job_id in job_control_service._running_processes
+
+    @pytest.mark.asyncio
+    async def test_process_start_time_tracking(
+        self,
+        job_control_service: JobControlService,
+        sample_config_file: Path,
+    ):
+        """Test that process start times are properly tracked."""
+        mock_process = Mock()
+        mock_process.pid = 12345
+
+        start_time = 1000.0
+
+        with patch("asyncio.create_subprocess_exec") as mock_subprocess:
+            with patch("time.time", return_value=start_time):
+                mock_subprocess.return_value = mock_process
+
+                result = await job_control_service.start_job(config_path=sample_config_file)
+
+                # Verify start time was recorded
+                assert result.job_id in job_control_service._process_start_times
+                assert job_control_service._process_start_times[result.job_id] == start_time
+
+    @pytest.mark.asyncio
+    async def test_process_start_time_tracking_on_restart(
+        self,
+        job_control_service: JobControlService,
+        mock_state_backend: MockStateBackend,
+    ):
+        """Test that process start times are tracked on job restart."""
+        job_id = "test-job-123"
+        state = CheckpointState(
+            job_id=job_id,
+            job_name="test-job",
+            total_sheets=2,
+            status=JobStatus.PAUSED,
+        )
+        await mock_state_backend.save(state)
+
+        mock_process = Mock()
+        mock_process.pid = 54321
+        restart_time = 2000.0
+
+        with patch.object(job_control_service, "get_job_pid", return_value=None):
+            with patch("asyncio.create_subprocess_exec") as mock_subprocess:
+                with patch("time.time", return_value=restart_time):
+                    mock_subprocess.return_value = mock_process
+
+                    result = await job_control_service.resume_job(job_id)
+
+                    # Verify start time was recorded for restarted process
+                    assert job_id in job_control_service._process_start_times
+                    assert job_control_service._process_start_times[job_id] == restart_time
+
+    @pytest.mark.asyncio
+    async def test_process_cleanup_on_cancel(
+        self,
+        job_control_service: JobControlService,
+        mock_state_backend: MockStateBackend,
+    ):
+        """Test that process tracking is cleaned up on job cancel."""
+        job_id = "test-job-123"
+        state = CheckpointState(
+            job_id=job_id,
+            job_name="test-job",
+            total_sheets=2,
+            status=JobStatus.RUNNING,
+            pid=12345,
+        )
+        await mock_state_backend.save(state)
+
+        # Add to tracking
+        job_control_service._running_processes[job_id] = Mock()
+        job_control_service._process_start_times[job_id] = 1000.0
+
+        with patch("os.kill") as mock_kill:
+            with patch.object(job_control_service, "get_job_pid", return_value=12345):
+                with patch("asyncio.sleep"):
+                    mock_kill.side_effect = [None, ProcessLookupError("No such process")]
+
+                    await job_control_service.cancel_job(job_id)
+
+                    # Verify cleanup
+                    assert job_id not in job_control_service._running_processes
+                    assert job_id not in job_control_service._process_start_times
+
+    @pytest.mark.asyncio
+    async def test_process_cleanup_on_delete(
+        self,
+        job_control_service: JobControlService,
+        mock_state_backend: MockStateBackend,
+    ):
+        """Test that process tracking is cleaned up on job delete."""
+        job_id = "test-job-123"
+        state = CheckpointState(
+            job_id=job_id,
+            job_name="test-job",
+            total_sheets=2,
+            status=JobStatus.COMPLETED,
+        )
+        await mock_state_backend.save(state)
+
+        # Add to tracking
+        job_control_service._running_processes[job_id] = Mock()
+        job_control_service._process_start_times[job_id] = 1000.0
+
+        await job_control_service.delete_job(job_id)
+
+        # Verify cleanup
+        assert job_id not in job_control_service._running_processes
+        assert job_id not in job_control_service._process_start_times
 
 
 if __name__ == "__main__":
