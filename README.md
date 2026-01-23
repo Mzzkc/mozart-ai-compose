@@ -447,7 +447,7 @@ ruff check src/
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+Dual licensed under AGPL-3.0 (open source) or Commercial license. See [LICENSE](LICENSE) for details.
 
 ---
 
