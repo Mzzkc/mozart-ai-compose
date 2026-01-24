@@ -134,3 +134,13 @@ class Backend(ABC):
     def name(self) -> str:
         """Human-readable backend name."""
         ...
+
+    async def close(self) -> None:
+        """Close the backend and release resources.
+
+        Override in subclasses that hold persistent connections or resources.
+        Default implementation is a no-op for backends without cleanup needs.
+
+        This method should be idempotent - calling it multiple times should be safe.
+        """
+        pass
