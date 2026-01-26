@@ -36,6 +36,7 @@ ProgressCallback = Callable[[dict[str, Any]], None]
 # Timeout constants for subprocess management
 GRACEFUL_TERMINATION_TIMEOUT: float = 5.0  # Seconds to wait for graceful termination
 STREAM_READ_TIMEOUT: float = 1.0  # Seconds between stream read checks
+PROCESS_EXIT_TIMEOUT: float = 5.0  # Seconds to wait for process exit after streams close
 
 # Common signal names for human-readable output
 SIGNAL_NAMES: dict[int, str] = {
@@ -228,8 +229,13 @@ class ClaudeCliBackend(Backend):
 
         # Disable MCP servers for faster, isolated execution
         # This prevents resource contention and provides ~2x speedup
+        # Bug fix: --strict-mcp-config alone doesn't disable MCP servers - it means
+        # "only use servers from --mcp-config". We must also pass an empty config
+        # to actually disable all MCP servers. Without this, Claude spawns MCP
+        # servers as child processes and waits for them to exit, causing deadlocks.
+        # Note: The config must be valid JSON with "mcpServers" key, not just "{}"
         if self.disable_mcp:
-            cmd.append("--strict-mcp-config")
+            cmd.extend(["--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}'])
 
         # Model selection
         if self.cli_model:
@@ -302,12 +308,21 @@ class ClaudeCliBackend(Backend):
         try:
             # create_subprocess_exec is shell-injection safe
             # Arguments are passed as list, not interpolated into shell string
+            # Note: stdin=DEVNULL prevents Claude from inheriting stdin and potentially
+            # blocking on interactive prompts when running in background/detached mode.
+            #
+            # start_new_session=True creates a new process group, allowing us to kill
+            # Claude and all its children (MCP servers) with a single signal. This is
+            # needed to work around Claude Code Issue #1935 where MCP servers aren't
+            # properly cleaned up on exit.
             process = await asyncio.create_subprocess_exec(
                 *cmd,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self.working_directory,
                 env=os.environ.copy(),  # Explicit env passthrough for MCP plugins
+                start_new_session=True,  # Create new process group for clean cleanup
             )
 
             # Notify starting phase
@@ -586,8 +601,44 @@ class ClaudeCliBackend(Backend):
         except TimeoutError:
             raise  # Re-raise for caller to handle
 
-        # Wait for process to complete
-        await process.wait()
+        # Wait for process to complete with defensive cleanup.
+        #
+        # KNOWN BUG WORKAROUND (Claude Code Issue #1935):
+        # Claude Code does NOT properly terminate MCP server child processes when
+        # exiting. MCP servers (pyright, typescript-language-server, rust-analyzer, etc.)
+        # are spawned as child processes and Claude waits for them to exit - but they
+        # never do because they're long-running servers. This causes Claude to hang
+        # forever, which causes Mozart to hang forever.
+        #
+        # Fix: After streams close, wait briefly for Claude to exit. If it doesn't,
+        # kill the entire process group (Claude + all children including MCP servers).
+        try:
+            await asyncio.wait_for(process.wait(), timeout=PROCESS_EXIT_TIMEOUT)
+        except TimeoutError:
+            # Claude didn't exit - likely waiting on MCP server children
+            pid = process.pid
+            _logger.warning(
+                "process_exit_timeout",
+                message="Claude did not exit after streams closed (likely MCP server bug)",
+                pid=pid,
+                timeout_seconds=PROCESS_EXIT_TIMEOUT,
+            )
+
+            # Kill the entire process group to clean up MCP server children
+            # This is more reliable than trying to enumerate and kill children
+            try:
+                # First try SIGTERM to the process group
+                os.killpg(os.getpgid(pid), signal.SIGTERM)
+                await asyncio.sleep(0.5)
+            except (OSError, ProcessLookupError):
+                pass  # Process group may not exist or already dead
+
+            # Force kill the main process if still running
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass  # Already dead
+            await process.wait()
 
         return b"".join(stdout_chunks), b"".join(stderr_chunks)
 
