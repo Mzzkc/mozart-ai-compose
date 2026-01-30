@@ -608,6 +608,40 @@ class GroundingConfig(BaseModel):
     )
 
 
+class CrossSheetConfig(BaseModel):
+    """Configuration for cross-sheet context passing.
+
+    Enables templates to access outputs from previous sheets, allowing
+    later sheets to build on results from earlier ones without manual
+    file reading. This is useful for multi-phase workflows where each
+    sheet needs context from prior execution.
+    """
+
+    auto_capture_stdout: bool = Field(
+        default=False,
+        description="Automatically include previous sheets' stdout_tail in context. "
+        "When True, templates can access {{ previous_outputs[1] }} etc.",
+    )
+    max_output_chars: int = Field(
+        default=2000,
+        gt=0,
+        description="Maximum characters per previous sheet output. "
+        "Outputs are truncated to this limit to avoid bloating prompts.",
+    )
+    capture_files: list[str] = Field(
+        default_factory=list,
+        description="File path patterns to read between sheets. "
+        "Supports Jinja2 templating (e.g., '{{ workspace }}/sheet-{{ sheet_num - 1 }}.md'). "
+        "File contents are available in {{ previous_files }}.",
+    )
+    lookback_sheets: int = Field(
+        default=3,
+        ge=0,
+        description="Number of previous sheets to include (0 = all completed sheets). "
+        "Limits context size for jobs with many sheets.",
+    )
+
+
 class RateLimitConfig(BaseModel):
     """Configuration for rate limit detection and handling."""
 
@@ -1484,6 +1518,11 @@ class JobConfig(BaseModel):
         default=None,
         description="Mozart-Ollama bridge configuration. "
         "Enables Ollama backend with MCP tool support.",
+    )
+    cross_sheet: CrossSheetConfig | None = Field(
+        default=None,
+        description="Cross-sheet context configuration. "
+        "Enables passing outputs and files between sheets for multi-phase workflows.",
     )
 
     validations: list[ValidationRule] = Field(default_factory=list)

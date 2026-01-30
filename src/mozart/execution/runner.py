@@ -20,29 +20,30 @@ from rich.console import Console
 if TYPE_CHECKING:
     from mozart.execution.grounding import GroundingEngine, GroundingResult
     from mozart.execution.parallel import ParallelBatchResult, ParallelExecutor
-    from mozart.healing.context import ErrorContext
     from mozart.healing.coordinator import HealingReport, SelfHealingCoordinator
     from mozart.learning.global_store import GlobalLearningStore
 
 from mozart.backends.base import Backend, ExecutionResult
 from mozart.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
-from mozart.core.config import IsolationMode, JobConfig
+from mozart.core.config import CrossSheetConfig, IsolationMode, JobConfig
+from mozart.core.errors import (
+    ClassificationResult,
+    ClassifiedError,
+    ErrorClassifier,
+)
+from mozart.core.logging import ExecutionContext, MozartLogger, get_logger
+from mozart.execution.circuit_breaker import CircuitBreaker
 from mozart.execution.dag import (
     CycleDetectedError,
     DependencyDAG,
     InvalidDependencyError,
     build_dag_from_config,
 )
-from mozart.core.errors import (
-    ClassificationResult,
-    ClassifiedError,
-    ErrorCategory,
-    ErrorClassifier,
-    ErrorCode,
-)
-from mozart.core.logging import ExecutionContext, MozartLogger, get_logger
-from mozart.execution.circuit_breaker import CircuitBreaker
 from mozart.execution.escalation import (
+    CheckpointContext,
+    CheckpointHandler,
+    CheckpointResponse,
+    CheckpointTrigger,
     EscalationContext,
     EscalationHandler,
     EscalationResponse,
@@ -313,6 +314,9 @@ class RunnerContext:
     escalation_handler: EscalationHandler | None = None
     """Handler for low-confidence decisions (Phase 2 escalation)."""
 
+    checkpoint_handler: CheckpointHandler | None = None
+    """Handler for proactive pre-execution checkpoints (v21 Evolution)."""
+
     judgment_client: JudgmentClient | None = None
     """Client for TDF-aligned execution decisions (Phase 4 Recursive Light)."""
 
@@ -418,6 +422,7 @@ class JobRunner:
         self.console = console or Console()
         self.outcome_store = outcome_store
         self.escalation_handler = escalation_handler
+        self.checkpoint_handler: CheckpointHandler | None = None  # v21 Evolution
         self.judgment_client = judgment_client
         self.progress_callback = progress_callback
         self.execution_progress_callback = execution_progress_callback
@@ -515,7 +520,7 @@ class JobRunner:
         # Provides automatic diagnosis and remediation when retries are exhausted
         self._self_healing_enabled = self_healing_enabled
         self._self_healing_auto_confirm = self_healing_auto_confirm
-        self._healing_coordinator: "SelfHealingCoordinator | None" = None
+        self._healing_coordinator: SelfHealingCoordinator | None = None
         if self_healing_enabled:
             from mozart.healing.coordinator import SelfHealingCoordinator
             from mozart.healing.registry import create_default_registry
@@ -529,7 +534,7 @@ class JobRunner:
 
         # Parallel executor (v17 evolution: Parallel Sheet Execution)
         # Enables concurrent execution of independent sheets based on DAG
-        self._parallel_executor: "ParallelExecutor | None" = None
+        self._parallel_executor: ParallelExecutor | None = None
         if config.parallel.enabled:
             from mozart.execution.parallel import (
                 ParallelExecutionConfig,
@@ -744,7 +749,7 @@ class JobRunner:
         if worktree_path:
             # Override backend working directory to use worktree
             if hasattr(self.backend, "working_directory"):
-                setattr(self.backend, "working_directory", worktree_path)
+                self.backend.working_directory = worktree_path
             await self.state_backend.save(state)  # Persist worktree state
 
         try:
@@ -790,7 +795,7 @@ class JobRunner:
 
             # Restore original working directory if it was overridden
             if worktree_path and hasattr(self.backend, "working_directory"):
-                setattr(self.backend, "working_directory", original_working_directory)
+                self.backend.working_directory = original_working_directory
 
             # Remove signal handlers
             self._remove_signal_handlers()
@@ -1012,6 +1017,10 @@ class JobRunner:
             if self._shutdown_requested:
                 await self._handle_graceful_shutdown(state)
 
+            # Check for pause signal before starting sheet (Job Control Integration)
+            if self._check_pause_signal(state):
+                await self._handle_pause_request(state, next_sheet)
+
             sheet_start = time.monotonic()
 
             try:
@@ -1075,6 +1084,12 @@ class JobRunner:
                 await self._handle_graceful_shutdown(state)
                 return
 
+            # Check for pause signal (Job Control Integration)
+            if self._check_pause_signal(state):
+                # For parallel mode, pause after current batch completes
+                current_sheet = state.last_completed_sheet + 1
+                await self._handle_pause_request(state, current_sheet)
+
             # Get next batch of sheets that can run in parallel
             batch = self._parallel_executor.get_next_parallel_batch(state)
 
@@ -1106,6 +1121,18 @@ class JobRunner:
 
             # Synthesize batch outputs (v18 evolution: Result Synthesizer)
             await self._synthesize_batch_outputs(result, state)
+
+            # Save state after batch completion (fix: parallel batches weren't persisting)
+            # This ensures completed sheets are recorded even if later batches fail
+            # or the job is interrupted. Individual sheets also save, but this provides
+            # a batch-level checkpoint for resilience.
+            if result.completed:
+                await self.state_backend.save(state)
+                self._logger.debug(
+                    "parallel.batch_state_saved",
+                    completed_sheets=result.completed,
+                    failed_sheets=result.failed,
+                )
 
             # Handle failures
             if result.failed and self.config.parallel.fail_fast:
@@ -1331,9 +1358,7 @@ class JobRunner:
 
         # Determine if we should cleanup based on outcome
         should_cleanup = False
-        if state.status == JobStatus.COMPLETED and self.config.isolation.cleanup_on_success:
-            should_cleanup = True
-        elif state.status == JobStatus.FAILED and self.config.isolation.cleanup_on_failure:
+        if state.status == JobStatus.COMPLETED and self.config.isolation.cleanup_on_success or state.status == JobStatus.FAILED and self.config.isolation.cleanup_on_failure:
             should_cleanup = True
         elif state.status == JobStatus.PAUSED:
             # Never cleanup on pause - job will resume
@@ -1708,7 +1733,7 @@ class JobRunner:
         )
 
         self.console.print(
-            f"\n[yellow]Self-healing: Attempting to diagnose and fix error...[/yellow]"
+            "\n[yellow]Self-healing: Attempting to diagnose and fix error...[/yellow]"
         )
 
         # Create error context
@@ -1767,8 +1792,8 @@ class JobRunner:
         # Track execution timing for learning
         execution_start_time = time.monotonic()
 
-        # Build sheet context
-        sheet_context = self._build_sheet_context(sheet_num)
+        # Build sheet context (with cross-sheet data if configured)
+        sheet_context = self._build_sheet_context(sheet_num, state)
         validation_engine = ValidationEngine(
             self.config.workspace,
             sheet_context.to_dict(),
@@ -1919,6 +1944,36 @@ class JobRunner:
             patterns_injected=len(relevant_patterns),
         )
 
+        # v21 Evolution: Proactive Checkpoint System
+        # Check if we need approval BEFORE executing this sheet
+        checkpoint_result = await self._check_proactive_checkpoint(
+            state=state,
+            sheet_num=sheet_num,
+            prompt=current_prompt,
+            retry_count=0,
+        )
+        if checkpoint_result is not None:
+            # Handle checkpoint response
+            if checkpoint_result.action == "abort":
+                state.mark_job_failed("User aborted via checkpoint")
+                await self.state_backend.save(state)
+                raise FatalError(f"Sheet {sheet_num}: Aborted via checkpoint")
+            elif checkpoint_result.action == "skip":
+                state.mark_sheet_skipped(sheet_num, reason=checkpoint_result.guidance)
+                await self.state_backend.save(state)
+                self._logger.info(
+                    "sheet.skipped_via_checkpoint",
+                    sheet_num=sheet_num,
+                    guidance=checkpoint_result.guidance,
+                )
+                return
+            elif checkpoint_result.action == "modify_prompt" and checkpoint_result.modified_prompt:
+                current_prompt = checkpoint_result.modified_prompt
+                self._logger.info(
+                    "sheet.prompt_modified_via_checkpoint",
+                    sheet_num=sheet_num,
+                )
+
         while True:
             # Mark sheet started
             state.mark_sheet_started(sheet_num)
@@ -1972,11 +2027,25 @@ class JobRunner:
             )
             if cross_ws_enabled and self._global_learning_store is not None:
                 try:
-                    is_limited, wait_seconds = (
-                        self._global_learning_store.is_rate_limited(
-                            model=self.config.backend.model,
+                    # Use the correct model field based on backend type
+                    # CLI backend uses cli_model (may be None for default)
+                    # API backend uses model
+                    if self.config.backend.type == "claude_cli":
+                        effective_model = self.config.backend.cli_model
+                    else:
+                        effective_model = self.config.backend.model
+
+                    # Only check rate limits if we have a specific model
+                    # Jobs without a specified model shouldn't honor other jobs' limits
+                    # (they may be using different backends like Ollama)
+                    is_limited = False
+                    wait_seconds = None
+                    if effective_model is not None:
+                        is_limited, wait_seconds = (
+                            self._global_learning_store.is_rate_limited(
+                                model=effective_model,
+                            )
                         )
-                    )
                     if is_limited and wait_seconds and wait_seconds > 0:
                         self._logger.info(
                             "rate_limit.cross_workspace_honored",
@@ -2752,16 +2821,21 @@ class JobRunner:
                 current_prompt = original_prompt
                 await asyncio.sleep(self._get_retry_delay(normal_attempts))
 
-    def _build_sheet_context(self, sheet_num: int) -> SheetContext:
+    def _build_sheet_context(
+        self,
+        sheet_num: int,
+        state: CheckpointState | None = None,
+    ) -> SheetContext:
         """Build sheet context for template expansion.
 
         Args:
             sheet_num: Current sheet number.
+            state: Optional current job state for cross-sheet context.
 
         Returns:
-            SheetContext with item range and workspace.
+            SheetContext with item range, workspace, and optional cross-sheet data.
         """
-        return self.prompt_builder.build_sheet_context(
+        context = self.prompt_builder.build_sheet_context(
             sheet_num=sheet_num,
             total_sheets=self.config.sheet.total_sheets,
             sheet_size=self.config.sheet.size,
@@ -2769,6 +2843,120 @@ class JobRunner:
             start_item=self.config.sheet.start_item,
             workspace=self.config.workspace,
         )
+
+        # Populate cross-sheet context if configured
+        if self.config.cross_sheet and state:
+            cross_sheet = self.config.cross_sheet
+            self._populate_cross_sheet_context(context, state, sheet_num, cross_sheet)
+
+        return context
+
+    def _populate_cross_sheet_context(
+        self,
+        context: SheetContext,
+        state: CheckpointState,
+        sheet_num: int,
+        cross_sheet: "CrossSheetConfig",
+    ) -> None:
+        """Populate cross-sheet context from previous sheet outputs.
+
+        Adds previous_outputs and previous_files to the context based on
+        CrossSheetConfig settings.
+
+        Args:
+            context: SheetContext to populate.
+            state: Current job state with sheet history.
+            sheet_num: Current sheet number.
+            cross_sheet: Cross-sheet configuration.
+        """
+        # Auto-capture stdout from previous sheets
+        if cross_sheet.auto_capture_stdout:
+            # Calculate which sheets to include
+            if cross_sheet.lookback_sheets > 0:
+                start_sheet = max(1, sheet_num - cross_sheet.lookback_sheets)
+            else:
+                start_sheet = 1
+
+            max_chars = cross_sheet.max_output_chars
+
+            for prev_num in range(start_sheet, sheet_num):
+                prev_state = state.sheets.get(prev_num)
+                if prev_state and prev_state.stdout_tail:
+                    # Truncate to max_output_chars
+                    output = prev_state.stdout_tail
+                    if len(output) > max_chars:
+                        output = output[:max_chars] + "\n... [truncated]"
+                    context.previous_outputs[prev_num] = output
+
+        # Read configured file patterns
+        if cross_sheet.capture_files:
+            self._capture_cross_sheet_files(context, sheet_num, cross_sheet)
+
+    def _capture_cross_sheet_files(
+        self,
+        context: SheetContext,
+        sheet_num: int,
+        cross_sheet: CrossSheetConfig,
+    ) -> None:
+        """Capture file contents for cross-sheet context.
+
+        Reads files matching the configured patterns and adds their contents
+        to context.previous_files. Pattern variables are expanded using Jinja2.
+
+        Args:
+            context: SheetContext to populate.
+            sheet_num: Current sheet number.
+            cross_sheet: Cross-sheet configuration.
+        """
+        import glob
+
+        # Build template context for pattern expansion
+        template_vars = {
+            "workspace": str(self.config.workspace),
+            "sheet_num": sheet_num,
+        }
+
+        for pattern in cross_sheet.capture_files:
+            try:
+                # Expand Jinja2 variables in pattern
+                expanded_pattern = pattern
+                for var, val in template_vars.items():
+                    expanded_pattern = expanded_pattern.replace(
+                        f"{{{{ {var} }}}}", str(val)
+                    )
+                    # Also handle no-space format: {{var}}
+                    expanded_pattern = expanded_pattern.replace(
+                        f"{{{{{var}}}}}", str(val)
+                    )
+
+                # Resolve relative patterns against workspace
+                if not Path(expanded_pattern).is_absolute():
+                    expanded_pattern = str(self.config.workspace / expanded_pattern)
+
+                # Glob the pattern and read matching files
+                for file_path in glob.glob(expanded_pattern):
+                    path = Path(file_path)
+                    if path.is_file():
+                        try:
+                            content = path.read_text(encoding="utf-8")
+                            # Truncate if too large
+                            max_chars = cross_sheet.max_output_chars
+                            if len(content) > max_chars:
+                                content = content[:max_chars] + "\n... [truncated]"
+                            context.previous_files[str(path)] = content
+                        except (OSError, UnicodeDecodeError) as e:
+                            # Log but don't fail on file read errors
+                            self._logger.warning(
+                                "cross_sheet.file_read_error",
+                                path=str(path),
+                                error=str(e),
+                            )
+            except Exception as e:
+                self._logger.warning(
+                    "cross_sheet.pattern_error",
+                    pattern=pattern,
+                    error=str(e),
+                )
 
     def _query_relevant_patterns(
         self,
@@ -3423,26 +3611,41 @@ class JobRunner:
         # coordination. Other jobs can query this to avoid hitting the same limit.
         cross_ws_enabled = self.config.circuit_breaker.cross_workspace_coordination
         if cross_ws_enabled and self._global_learning_store is not None:
-            try:
-                self._global_learning_store.record_rate_limit_event(
-                    error_code=error_code,
-                    duration_seconds=wait_seconds,
+            # Use the correct model field based on backend type
+            if self.config.backend.type == "claude_cli":
+                effective_model = self.config.backend.cli_model
+            else:
+                effective_model = self.config.backend.model
+
+            # Only record if we have a specific model (otherwise other jobs
+            # can't meaningfully filter by model)
+            if effective_model is None:
+                self._logger.debug(
+                    "rate_limit.cross_workspace_skip_record",
                     job_id=state.job_id,
-                    model=self.config.backend.model,
+                    reason="no model specified for CLI backend",
                 )
-                self._logger.info(
-                    "rate_limit.cross_workspace_recorded",
-                    job_id=state.job_id,
-                    error_code=error_code,
-                    duration_seconds=wait_seconds,
-                )
-            except Exception as e:
-                # Global store failure shouldn't block rate limit handling
-                self._logger.warning(
-                    "rate_limit.cross_workspace_record_failed",
-                    job_id=state.job_id,
-                    error=str(e),
-                )
+            else:
+                try:
+                    self._global_learning_store.record_rate_limit_event(
+                        error_code=error_code,
+                        duration_seconds=wait_seconds,
+                        job_id=state.job_id,
+                        model=effective_model,
+                    )
+                    self._logger.info(
+                        "rate_limit.cross_workspace_recorded",
+                        job_id=state.job_id,
+                        error_code=error_code,
+                        duration_seconds=wait_seconds,
+                    )
+                except Exception as e:
+                    # Global store failure shouldn't block rate limit handling
+                    self._logger.warning(
+                        "rate_limit.cross_workspace_record_failed",
+                        job_id=state.job_id,
+                        error=str(e),
+                    )
 
         # Log detection - different event for quota vs rate limit
         if is_quota_exhaustion:
@@ -3909,7 +4112,25 @@ class JobRunner:
                 )
 
         # Low confidence -> escalate if enabled and handler available, else retry
+        # v21 Evolution: Check auto-apply BEFORE escalation if enabled
         if confidence < min_threshold:
+            # v21: Auto-apply check - bypass escalation when high-trust patterns exist
+            auto_apply_enabled = self.config.learning.auto_apply_enabled
+            auto_apply_threshold = self.config.learning.auto_apply_trust_threshold
+
+            if auto_apply_enabled and self._can_auto_apply(auto_apply_threshold):
+                self._logger.info(
+                    "auto_apply.bypass_escalation",
+                    confidence=confidence,
+                    threshold=auto_apply_threshold,
+                )
+                return (
+                    SheetExecutionMode.RETRY,
+                    f"low confidence ({confidence:.2f}) but auto-applying from high-trust "
+                    f"patterns{category_suffix}",
+                    semantic_hints,
+                )
+
             escalation_available = (
                 self.config.learning.escalation_enabled
                 and self.escalation_handler is not None
@@ -3943,6 +4164,49 @@ class JobRunner:
                 f"full retry needed{category_suffix}",
                 semantic_hints,
             )
+
+    def _can_auto_apply(self, trust_threshold: float) -> bool:
+        """Check if high-trust patterns exist that allow auto-apply.
+
+        v21 Evolution: Confidence Threshold Auto-Apply - queries the global
+        learning store for VALIDATED patterns with trust scores meeting
+        the threshold. If such patterns exist, escalation can be bypassed.
+
+        Args:
+            trust_threshold: Minimum trust score required (e.g., 0.85).
+
+        Returns:
+            True if high-trust patterns exist and auto-apply is viable.
+        """
+        # Check if global learning is enabled
+        if not self.config.learning.use_global_patterns:
+            return False
+
+        try:
+            from mozart.learning.global_store import get_global_store
+
+            store = get_global_store()
+            high_trust_patterns = store.get_patterns_for_auto_apply(
+                trust_threshold=trust_threshold,
+            )
+
+            if high_trust_patterns:
+                self._logger.debug(
+                    "auto_apply.patterns_found",
+                    count=len(high_trust_patterns),
+                    threshold=trust_threshold,
+                )
+                return True
+
+            return False
+
+        except Exception as e:
+            # On any error, don't block - just skip auto-apply
+            self._logger.warning(
+                "auto_apply.check_failed",
+                error=str(e),
+            )
+            return False
 
     async def _decide_with_judgment(
         self,
@@ -4118,6 +4382,109 @@ class JobRunner:
         else:
             # Unknown action - fall back to retry
             return SheetExecutionMode.RETRY
+
+    # =========================================================================
+    # v21 Evolution: Proactive Checkpoint System
+    # =========================================================================
+
+    async def _check_proactive_checkpoint(
+        self,
+        state: CheckpointState,
+        sheet_num: int,
+        prompt: str,
+        retry_count: int,
+    ) -> CheckpointResponse | None:
+        """Check if a proactive checkpoint is needed before sheet execution.
+
+        v21 Evolution: Proactive Checkpoint System - enables pre-execution approval
+        for configurable triggers.
+
+        Args:
+            state: Current job state.
+            sheet_num: Sheet number about to execute.
+            prompt: The prompt that will be used.
+            retry_count: Number of retry attempts already made.
+
+        Returns:
+            CheckpointResponse if checkpoint was triggered and user responded,
+            None if no checkpoint needed or checkpoints disabled.
+        """
+        # Check if checkpoints are enabled
+        if not self.config.checkpoints.enabled:
+            return None
+
+        # Check if we have a checkpoint handler
+        if self.checkpoint_handler is None:
+            # Auto-create console handler if triggers are configured
+            if self.config.checkpoints.triggers:
+                from mozart.execution.escalation import ConsoleCheckpointHandler
+                self.checkpoint_handler = ConsoleCheckpointHandler()
+            else:
+                return None
+
+        # Convert config triggers to CheckpointTrigger objects
+        triggers = [
+            CheckpointTrigger(
+                name=t.name,
+                sheet_nums=t.sheet_nums,
+                prompt_contains=t.prompt_contains,
+                min_retry_count=t.min_retry_count,
+                requires_confirmation=t.requires_confirmation,
+                message=t.message,
+            )
+            for t in self.config.checkpoints.triggers
+        ]
+
+        # Check if any trigger matches
+        matching_trigger = await self.checkpoint_handler.should_checkpoint(
+            sheet_num=sheet_num,
+            prompt=prompt,
+            retry_count=retry_count,
+            triggers=triggers,
+        )
+
+        if matching_trigger is None:
+            return None
+
+        # Log checkpoint trigger
+        self._logger.info(
+            "checkpoint.triggered",
+            sheet_num=sheet_num,
+            trigger_name=matching_trigger.name,
+            requires_confirmation=matching_trigger.requires_confirmation,
+        )
+
+        self.console.print(
+            f"[yellow]Sheet {sheet_num}: Checkpoint triggered - {matching_trigger.name}[/yellow]"
+        )
+
+        # Build checkpoint context
+        sheet_state = state.sheets.get(sheet_num)
+        previous_errors: list[str] = []
+        if sheet_state and sheet_state.error_message:
+            previous_errors = [sheet_state.error_message]
+
+        context = CheckpointContext(
+            job_id=state.job_id,
+            sheet_num=sheet_num,
+            prompt=prompt,
+            trigger=matching_trigger,
+            retry_count=retry_count,
+            previous_errors=previous_errors,
+        )
+
+        # Handle checkpoint
+        response = await self.checkpoint_handler.checkpoint(context)
+
+        # Log response
+        self._logger.info(
+            "checkpoint.response",
+            sheet_num=sheet_num,
+            action=response.action,
+            guidance=response.guidance,
+        )
+
+        return response
 
     async def _handle_escalation(
         self,

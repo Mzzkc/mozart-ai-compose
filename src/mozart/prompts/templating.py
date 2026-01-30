@@ -4,7 +4,7 @@ Handles building sheet prompts from templates and generating
 auto-completion prompts for partial sheet recovery.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -18,13 +18,22 @@ if TYPE_CHECKING:
 
 @dataclass
 class SheetContext:
-    """Context for building a sheet prompt."""
+    """Context for building a sheet prompt.
+
+    Includes both sheet-level metadata and optional cross-sheet context
+    from previous sheet executions.
+    """
 
     sheet_num: int
     total_sheets: int
     start_item: int
     end_item: int
     workspace: Path
+    # Cross-sheet context (populated by runner when CrossSheetConfig is enabled)
+    previous_outputs: dict[int, str] = field(default_factory=dict)
+    """Stdout outputs from previous sheets. Keys are sheet numbers (1-indexed)."""
+    previous_files: dict[str, str] = field(default_factory=dict)
+    """File contents captured between sheets. Keys are file paths."""
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for template rendering."""
@@ -34,6 +43,8 @@ class SheetContext:
             "start_item": self.start_item,
             "end_item": self.end_item,
             "workspace": str(self.workspace),
+            "previous_outputs": self.previous_outputs,
+            "previous_files": self.previous_files,
         }
 
 
