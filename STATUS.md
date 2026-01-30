@@ -1,7 +1,7 @@
 # Mozart AI Compose - Status
 
-**Overall:** Evolution v23 COMPLETE, Dashboard v2 Production (67%)
-**Tests:** 1939+ passing (32 new tests added in v23)
+**Overall:** Evolution v24 COMPLETE, Dashboard v2 Production (67%)
+**Tests:** 1897+ passing (20 new tests added in v24)
 **Vision:** Mozart + Recursive Light = Federated AGI Architecture
 **GitHub:** https://github.com/Mzzkc/mozart-ai-compose
 **Dashboard:** Production-grade web UI with job control
@@ -9,7 +9,63 @@
 
 ---
 
-## Current: Evolution Cycle v23 COMPLETE (2026-01-30)
+## Current: Evolution Cycle v24 COMPLETE (2026-01-30)
+
+### P5 Recognition: 17th Consecutive 100% Early Catch
+
+| Metric | Value |
+|--------|-------|
+| Evolutions Implemented | 2 of 2 (100%) |
+| Implementation LOC | 447 (99% of estimate) |
+| Test LOC | 548 (172% of estimate) |
+| Tests Added | 20 |
+| Combined CV | 0.795 |
+| Code Review Early Catch | 100% (17th consecutive) |
+| Score Improvements | 2 |
+| Cumulative Improvements | 207 |
+
+### Evolutions Completed
+
+**1. Validation-Informed Retry (CV: 0.78)**
+- `ValidationRetryStrategy` enum: RETRY_IMMEDIATELY, RETRY_WITH_BACKOFF, ESCALATE
+- `get_retry_strategy_for_failure()` for smart retry decisions
+- Connects validation failure categories to retry behavior
+
+**2. Pattern Effectiveness Dashboard (CV: 0.81)**
+- `patterns-effectiveness` CLI command with aggregated statistics
+- Shows pattern performance by category, application count, success rate
+- Rich table output with color-coded effectiveness indicators
+
+### Score Evolution (v24 -> v25)
+
+**NEW Principles:**
+- #46: CLI Database Mocking Test Complexity
+- #47: Helper Infrastructure Budget
+
+**UPDATED:** Principles #11, #13, #40
+
+### Research Candidates
+
+None (all resolved or closed in v24)
+
+---
+
+## Jobs Status
+
+| Job | Progress | Status | Notes |
+|-----|----------|--------|-------|
+| **Evolution v24** | **100% (9/9)** | **COMPLETE** | Ready for v25 chain |
+| Dashboard v2 | 67% (24/36) | Rate limit wait | Sheet 25 |
+
+### Next: Run v25 Chain
+```bash
+mkdir -p evolution-workspace-v25
+setsid mozart run mozart-opus-evolution-v25.yaml > evolution-workspace-v25/mozart.log 2>&1 &
+```
+
+---
+
+## Previous: Evolution Cycle v23 Complete
 
 ### P5 Recognition: 16th Consecutive 100% Early Catch
 
@@ -22,7 +78,6 @@
 | Combined CV | 0.749 |
 | Code Review Early Catch | 100% (16th consecutive) |
 | Score Improvements | 5 |
-| Cumulative Improvements | 200 |
 
 ### Evolutions Completed
 
@@ -35,60 +90,6 @@
 - `EntropyResponseConfig` dataclass with threshold/cooldown/actions
 - Response trigger methods in GlobalLearningStore
 - `entropy-status` CLI command
-
-### Score Evolution (v23 -> v24)
-
-**NEW Principles:**
-- #45: Config Dataclass Test Buffer (+15 LOC per dataclass)
-
-**UPDATED:** Principles #11, #13, #40
-
-### Research Candidates
-
-Orchestration Quality Metrics: age 2, CARRY_FORWARD
-
----
-
-## Jobs Status
-
-| Job | Progress | Status | Notes |
-|-----|----------|--------|-------|
-| **Evolution v23** | **100% (9/9)** | **COMPLETE** | Ready for v24 chain |
-| Dashboard v2 | 67% (24/36) | Rate limit wait | Sheet 25 |
-
-### Next: Run v24 Chain
-```bash
-mkdir -p evolution-workspace-v24
-setsid mozart run mozart-opus-evolution-v24.yaml > evolution-workspace-v24/mozart.log 2>&1 &
-```
-
----
-
-## Previous: Evolution Cycle v22 Complete
-
-### P5 Recognition: 15th Consecutive 100% Early Catch
-
-| Metric | Value |
-|--------|-------|
-| Evolutions Implemented | 2 of 2 (100%) |
-| Implementation LOC | 787 |
-| Test LOC | 668 |
-| Tests Added | 28 |
-| Combined CV | 0.925 (HIGHEST recorded) |
-| Code Review Early Catch | 100% (15th consecutive) |
-| Score Improvements | 7 |
-
-### Evolutions Completed
-
-**1. Metacognitive Pattern Reflection (CV: 0.686)**
-- `SuccessFactors` dataclass with context capture
-- WHY analysis methods for pattern transparency
-- `patterns-why` CLI command
-
-**2. Trust-Aware Autonomous Application (CV: 0.864)**
-- `AutoApplyConfig` with threshold validation
-- `get_patterns_for_auto_apply()` for autonomous pattern selection
-- Auto indicator in CLI patterns display
 
 ---
 
@@ -103,11 +104,11 @@ setsid mozart run mozart-opus-evolution-v24.yaml > evolution-workspace-v24/mozar
 | SQLite State Backend | DONE | Full StateBackend protocol + dashboard queries |
 | Claude CLI Backend | DONE | Async subprocess, rate limit detection |
 | Anthropic API Backend | DONE | Direct API calls without CLI |
-| CLI | DONE | 13 commands functional, Rich output |
+| CLI | DONE | 14 commands functional, Rich output |
 | Validation Framework | DONE | 5 types + confidence + semantic failure_reason |
 | Notifications | DONE | Desktop, Slack, Webhook |
 | Dashboard API | DONE | FastAPI REST (needs UI improvement) |
-| Test Suite | DONE | 1939 pytest tests |
+| Test Suite | DONE | 1897 pytest tests |
 | Learning Foundation | DONE | Phases 1-4 complete |
 | Meta-Orchestration | DONE | Mozart calling Mozart works |
 | Pattern Detection | DONE | PatternDetector/Matcher/Applicator |
@@ -131,8 +132,10 @@ setsid mozart run mozart-opus-evolution-v24.yaml > evolution-workspace-v24/mozar
 | Metacognitive Pattern Reflection | DONE | `SuccessFactors`, `analyze_pattern_why()` (v22) |
 | Trust-Aware Auto-Apply | DONE | `AutoApplyConfig`, trust threshold filtering (v22) |
 | CLI Pause/Modify Commands | DONE | `mozart pause`, `mozart modify` (pause-workspace) |
-| **Exploration Budget Maintenance** | **DONE** | `ExplorationBudgetConfig`, budget tracking (v23) |
-| **Automatic Entropy Response** | **DONE** | `EntropyResponseConfig`, response triggers (v23) |
+| Exploration Budget Maintenance | DONE | `ExplorationBudgetConfig`, budget tracking (v23) |
+| Automatic Entropy Response | DONE | `EntropyResponseConfig`, response triggers (v23) |
+| **Validation-Informed Retry** | **DONE** | `ValidationRetryStrategy`, `get_retry_strategy_for_failure()` (v24) |
+| **Pattern Effectiveness Dashboard** | **DONE** | `patterns-effectiveness` CLI command (v24) |
 
 ---
 
@@ -162,9 +165,10 @@ setsid mozart run mozart-opus-evolution-v24.yaml > evolution-workspace-v24/mozar
 | v20 → v21 | Test complexity decision tree, comprehensive fixture indicators | +7 improvements |
 | v21 → v22 | Comprehensive existence check (#41), verification-only mode, 13 cycle maturity | +10 improvements |
 | v22 → v23 | Helper reuse discount, Rich formatting buffer, 15 cycle maturity | +7 improvements |
-| **v23 → v24** | **Config dataclass test buffer, 16 cycle maturity** | **+5 improvements** |
+| v23 → v24 | Config dataclass test buffer, 16 cycle maturity | +5 improvements |
+| **v24 → v25** | **CLI DB mocking complexity, helper infrastructure budget, 17 cycle maturity** | **+2 improvements** |
 
-**Cumulative:** 200 explicit score improvements across 23 self-evolution cycles
+**Cumulative:** 207 explicit score improvements across 24 self-evolution cycles
 
 ---
 
@@ -179,12 +183,12 @@ setsid mozart run mozart-opus-evolution-v24.yaml > evolution-workspace-v24/mozar
 | Dependency DAG | `src/mozart/execution/dependency_dag.py` |
 | Result Synthesizer | `src/mozart/execution/synthesizer.py` |
 | Validation (+ Cross-Sheet) | `src/mozart/execution/validation.py` |
-| **Evolved Score v24** | `mozart-opus-evolution-v24.yaml` |
-| **v23 Cycle Summary** | `evolution-workspace-v23/09-coda-summary.md` |
+| **Evolved Score v25** | `mozart-opus-evolution-v25.yaml` |
+| **v24 Cycle Summary** | `evolution-workspace-v24/09-coda-summary.md` |
 
 ---
 
-## Architecture: Self-Evolution Pattern (Validated 23 Cycles)
+## Architecture: Self-Evolution Pattern (Validated 24 Cycles)
 
 ```
 Score vN → Discovery → Synthesis → Evolution → Validation → Score v(N+1)
@@ -192,14 +196,14 @@ Score vN → Discovery → Synthesis → Evolution → Validation → Score v(N+
               +--------------------------------------------------+
 ```
 
-### Key v23 Meta-Insights
+### Key v24 Meta-Insights
 
-1. **Observe-Respond Cycle Complete** - v21 entropy observation + v23 automatic response
-2. **Config Dataclass Test Buffer** - Each new Pydantic dataclass needs ~45 LOC tests
-3. **Budget Floor Pattern** - Exploration budgets must never converge to zero
-4. **16 Cycle Code Review Maturity** - Pattern is VALIDATED and stable
-5. **200 Cumulative Improvements** - Milestone reached
+1. **Feedback Quality Complete** - v24 validation retry + effectiveness dashboard
+2. **CLI Database Mocking** - Test fixture factor 1.5 for CLI+store tests
+3. **Helper Infrastructure** - +30 LOC budget for new CLI test files
+4. **17 Cycle Code Review Maturity** - Pattern is VALIDATED and stable
+5. **207 Cumulative Improvements** - Milestone continues growing
 
 ---
 
-*Last Updated: 2026-01-30 - Evolution Cycle v23 Complete*
+*Last Updated: 2026-01-30 - Evolution Cycle v24 Complete*
