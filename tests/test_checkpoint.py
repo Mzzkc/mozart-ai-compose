@@ -783,7 +783,7 @@ class TestZombieDetection:
         state.mark_zombie_detected()
 
         assert state.error_message is not None
-        assert "Zombie recovery" in state.error_message
+        assert "Recovered from stale running state" in state.error_message
         assert "PID 12345" in state.error_message
 
     def test_mark_zombie_detected_with_reason(self):
@@ -800,7 +800,12 @@ class TestZombieDetection:
         assert "External SIGKILL detected" in state.error_message
 
     def test_mark_zombie_detected_preserves_existing_error(self):
-        """Test that mark_zombie_detected preserves existing error message."""
+        """Test that mark_zombie_detected preserves existing error message.
+
+        When there's already an error message (like a real error condition),
+        the zombie recovery info is NOT appended - the original error is preserved.
+        This prevents informational zombie recovery from masking real errors.
+        """
         state = CheckpointState(
             job_id="test-job",
             job_name="Test",
@@ -811,8 +816,8 @@ class TestZombieDetection:
         )
         state.mark_zombie_detected()
 
-        assert "Zombie recovery" in state.error_message
-        assert "Rate limit exceeded" in state.error_message
+        # Existing error message should be preserved unchanged
+        assert state.error_message == "Rate limit exceeded"
 
     def test_is_zombie_alive_pid_never_zombie(self):
         """Test that alive PID is never detected as zombie regardless of update time."""

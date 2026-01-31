@@ -302,11 +302,16 @@ class JobControlService:
             return await self._restart_job_execution(job_id, state)
 
         try:
-            # Clean up any pause signal files
+            # Clean up any pause signal files (non-blocking - cleanup failure shouldn't block resume)
             workspace_path = self._get_job_workspace(state)
             pause_signal_file = workspace_path / f".mozart-pause-{job_id}"
+            signal_cleaned = False
             if pause_signal_file.exists():
-                pause_signal_file.unlink()
+                try:
+                    pause_signal_file.unlink()
+                    signal_cleaned = True
+                except OSError:
+                    pass  # Signal cleanup failure shouldn't block resume
 
             # Update state to running
             state.status = JobStatus.RUNNING
@@ -317,7 +322,7 @@ class JobControlService:
                 "job_resumed",
                 job_id=job_id,
                 pid=pid,
-                pause_signal_cleaned=pause_signal_file.exists(),
+                pause_signal_cleaned=signal_cleaned,
             )
 
             return JobActionResult(
