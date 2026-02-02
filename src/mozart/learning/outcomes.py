@@ -153,6 +153,7 @@ class JsonOutcomeStore:
         """
         self.store_path = store_path
         self._outcomes: list[SheetOutcome] = []
+        self._loaded: bool = False
 
     async def record(self, outcome: SheetOutcome) -> None:
         """Record a sheet outcome to the store.
@@ -163,7 +164,18 @@ class JsonOutcomeStore:
         Args:
             outcome: The sheet outcome to record.
         """
-        self._outcomes.append(outcome)
+        # Load existing outcomes first to avoid overwriting on fresh store instance
+        await self._load()
+
+        # Check if this sheet already has an outcome (update rather than duplicate)
+        existing_idx = next(
+            (i for i, o in enumerate(self._outcomes) if o.sheet_id == outcome.sheet_id),
+            None,
+        )
+        if existing_idx is not None:
+            self._outcomes[existing_idx] = outcome
+        else:
+            self._outcomes.append(outcome)
 
         # Detect patterns after accumulating enough data
         if len(self._outcomes) >= 5:
@@ -316,8 +328,16 @@ class JsonOutcomeStore:
         temp_path.rename(self.store_path)
 
     async def _load(self) -> None:
-        """Load outcomes from JSON file."""
+        """Load outcomes from JSON file.
+
+        Uses _loaded flag to avoid re-reading from disk on every call.
+        """
         import json
+
+        if self._loaded:
+            return
+
+        self._loaded = True
 
         if not self.store_path.exists():
             return
