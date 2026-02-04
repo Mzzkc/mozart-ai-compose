@@ -1,0 +1,769 @@
+"""Run lifecycle mixin for JobRunner.
+
+Contains the main run() method, state initialization, execution modes
+(sequential and parallel), completion handling, and learning aggregation.
+
+This mixin orchestrates the high-level job execution flow:
+1. Initialize state (new or resume)
+2. Choose execution mode (sequential vs parallel)
+3. Execute sheets with recovery
+4. Finalize and aggregate learning outcomes
+
+Architecture:
+    This mixin requires access to attributes and methods from:
+    - JobRunnerBase: config, backend, state_backend, console, etc.
+    - IsolationMixin: _setup_isolation(), _cleanup_isolation()
+    - SheetMixin: _execute_sheet_with_recovery(), _build_sheet_context()
+
+    It provides:
+    - run(): Main entry point
+    - _initialize_state(): State setup
+    - _execute_sequential_mode(): Sequential execution
+    - _execute_parallel_mode(): Parallel execution (v17 evolution)
+    - _finalize_summary(): Statistics aggregation
+    - _aggregate_to_global_store(): Global learning integration
+"""
+
+from __future__ import annotations
+
+import time
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from mozart.execution.parallel import ParallelBatchResult
+
+from mozart.core.checkpoint import CheckpointState, JobStatus, SheetStatus
+from mozart.core.config import IsolationMode
+from mozart.core.logging import ExecutionContext
+from mozart.execution.hooks import HookExecutor
+from mozart.utils.time import utc_now
+
+from .models import FatalError, GracefulShutdownError, RunSummary
+
+
+class LifecycleMixin:
+    """Mixin providing job run lifecycle methods.
+
+    Requires attributes from JobRunnerBase:
+        - config: JobConfig
+        - backend: Backend
+        - state_backend: StateBackend
+        - console: Console
+        - _logger: MozartLogger
+        - _parallel_executor: ParallelExecutor | None
+        - _dependency_dag: DependencyDAG | None
+        - _global_learning_store: GlobalLearningStore | None
+        - _summary: RunSummary | None
+        - _run_start_time: float
+        - _current_state: CheckpointState | None
+        - _sheet_times: list[float]
+        - _execution_context: ExecutionContext | None
+        - _shutdown_requested: bool
+
+    Requires methods from other mixins:
+        - _install_signal_handlers(): from JobRunnerBase
+        - _remove_signal_handlers(): from JobRunnerBase
+        - _handle_graceful_shutdown(): from JobRunnerBase
+        - _check_pause_signal(): from JobRunnerBase
+        - _handle_pause_request(): from JobRunnerBase
+        - _update_progress(): from JobRunnerBase
+        - _interruptible_sleep(): from JobRunnerBase
+        - _setup_isolation(): from IsolationMixin
+        - _cleanup_isolation(): from IsolationMixin
+        - _execute_sheet_with_recovery(): from SheetMixin
+    """
+
+    async def run(
+        self,
+        start_sheet: int | None = None,
+        config_path: str | None = None,
+    ) -> tuple[CheckpointState, RunSummary]:
+        """Run the job from start or resume point.
+
+        Args:
+            start_sheet: Optional sheet number to start from (overrides state).
+            config_path: Optional path to the original config file (for resume).
+
+        Returns:
+            Tuple of (CheckpointState, RunSummary) with final job state and
+            execution statistics.
+
+        Raises:
+            FatalError: If an unrecoverable error occurs.
+            GracefulShutdownError: If Ctrl+C was pressed and job was paused.
+        """
+        # Initialize timing and summary tracking
+        self._run_start_time = time.monotonic()
+        state = await self._initialize_state(start_sheet, config_path)
+        self._current_state = state
+
+        # Set running PID for zombie detection
+        state.set_running_pid()
+        await self.state_backend.save(state)
+
+        # Initialize run summary
+        self._summary = RunSummary(
+            job_id=state.job_id,
+            job_name=state.job_name,
+            total_sheets=state.total_sheets,
+        )
+
+        # Create execution context for correlation (Task 8: Logging Integration)
+        self._execution_context = ExecutionContext(
+            job_id=state.job_id,
+            component="runner",
+        )
+
+        # Install signal handlers for graceful shutdown
+        self._install_signal_handlers()
+
+        # Log job start with config summary
+        config_summary = self._get_config_summary()
+        self._logger.info(
+            "job.started",
+            job_id=state.job_id,
+            total_sheets=state.total_sheets,
+            resume_from=start_sheet,
+            config=config_summary,
+        )
+
+        # Set up worktree isolation if configured (v2 evolution: Worktree Isolation)
+        # Store original working directory for restoration if needed
+        # Note: working_directory is backend-specific (not in Backend protocol)
+        original_working_directory: Path | None = None
+        if hasattr(self.backend, "working_directory"):
+            original_working_directory = getattr(self.backend, "working_directory", None)
+        worktree_path = await self._setup_isolation(state)
+        if worktree_path:
+            # Override backend working directory to use worktree
+            if hasattr(self.backend, "working_directory"):
+                self.backend.working_directory = worktree_path
+            await self.state_backend.save(state)  # Persist worktree state
+
+        try:
+            # Choose execution mode: parallel or sequential (v17 evolution)
+            if self._parallel_executor is not None and self.config.parallel.enabled:
+                await self._execute_parallel_mode(state)
+            else:
+                await self._execute_sequential_mode(state)
+
+            # Mark job complete if we processed all sheets
+            if state.status == JobStatus.RUNNING:
+                state.status = JobStatus.COMPLETED
+                state.pid = None  # Clear PID on completion
+                await self.state_backend.save(state)
+
+            # Finalize summary
+            self._finalize_summary(state)
+
+            # Aggregate outcomes to global learning store (Movement IV-B integration)
+            await self._aggregate_to_global_store(state)
+
+            # Log job completion with summary
+            self._logger.info(
+                "job.completed",
+                job_id=state.job_id,
+                status=state.status.value,
+                duration_seconds=round(self._summary.total_duration_seconds, 2),
+                completed_sheets=self._summary.completed_sheets,
+                failed_sheets=self._summary.failed_sheets,
+                success_rate=round(self._summary.success_rate, 1),
+                validation_pass_rate=round(self._summary.validation_pass_rate, 1),
+                total_retries=self._summary.total_retries,
+            )
+
+            # Execute post-success hooks if job completed successfully
+            if state.status == JobStatus.COMPLETED and self.config.on_success:
+                await self._execute_post_success_hooks(state)
+
+            return state, self._summary
+        finally:
+            # Clean up worktree isolation if configured (v2 evolution: Worktree Isolation)
+            await self._cleanup_isolation(state)
+
+            # Restore original working directory if it was overridden
+            if worktree_path and hasattr(self.backend, "working_directory"):
+                self.backend.working_directory = original_working_directory
+
+            # Remove signal handlers
+            self._remove_signal_handlers()
+
+    async def _initialize_state(
+        self,
+        start_sheet: int | None,
+        config_path: str | None = None,
+    ) -> CheckpointState:
+        """Initialize or load job state.
+
+        Args:
+            start_sheet: Optional override for starting sheet.
+            config_path: Optional path to the original config file.
+
+        Returns:
+            CheckpointState ready for execution.
+        """
+        job_id = self.config.name
+        state = await self.state_backend.load(job_id)
+
+        if state is None:
+            # Serialize JobConfig for resume capability (Task 3: Config Storage)
+            config_snapshot = self.config.model_dump(mode="json")
+
+            state = CheckpointState(
+                job_id=job_id,
+                job_name=self.config.name,
+                total_sheets=self.config.sheet.total_sheets,
+                config_snapshot=config_snapshot,
+                config_path=config_path,
+            )
+            await self.state_backend.save(state)
+            self.console.print("[green]Created new job state[/green]")
+        else:
+            # Check if another process is already running this job
+            if state.status == JobStatus.RUNNING and state.pid is not None:
+                import os
+
+                try:
+                    os.kill(state.pid, 0)  # Check if process is alive
+                    # Process is alive - refuse to start
+                    raise FatalError(
+                        f"Job is already running (PID {state.pid}). "
+                        f"Use 'mozart status {job_id}' to check, or kill the other process first."
+                    )
+                except ProcessLookupError:
+                    # Process is dead - zombie state, recover it
+                    state.mark_zombie_detected("Detected on state load - process no longer running")
+                    await self.state_backend.save(state)
+                except PermissionError:
+                    # Can't check (different user) - warn but continue
+                    self._logger.warning(
+                        "cannot_check_running_process",
+                        job_id=job_id,
+                        pid=state.pid,
+                        reason="permission denied",
+                    )
+
+            self.console.print(
+                f"[yellow]Resuming from sheet {state.last_completed_sheet + 1}[/yellow]"
+            )
+
+        # Override starting sheet if specified
+        if start_sheet is not None:
+            state.last_completed_sheet = start_sheet - 1
+
+        return state
+
+    def _finalize_summary(self, state: CheckpointState) -> None:
+        """Finalize run summary with statistics from completed job.
+
+        Args:
+            state: Final job state to extract statistics from.
+        """
+        if self._summary is None:
+            return
+
+        # Calculate total duration
+        self._summary.total_duration_seconds = time.monotonic() - self._run_start_time
+        self._summary.final_status = state.status
+
+        # Aggregate sheet statistics
+        for sheet_state in state.sheets.values():
+            if sheet_state.status == SheetStatus.COMPLETED:
+                self._summary.completed_sheets += 1
+                if sheet_state.first_attempt_success:
+                    self._summary.first_attempt_successes += 1
+                # Track completion attempts
+                if sheet_state.completion_attempts:
+                    self._summary.total_completion_attempts += sheet_state.completion_attempts
+            elif sheet_state.status == SheetStatus.FAILED:
+                self._summary.failed_sheets += 1
+            elif sheet_state.status == SheetStatus.SKIPPED:
+                self._summary.skipped_sheets += 1
+
+            # Track retries (attempts - 1)
+            if sheet_state.attempt_count > 1:
+                self._summary.total_retries += sheet_state.attempt_count - 1
+
+            # Track validation results
+            if sheet_state.validation_passed is True:
+                self._summary.validation_pass_count += 1
+            elif sheet_state.validation_passed is False:
+                self._summary.validation_fail_count += 1
+
+        # Copy rate limit waits from state
+        self._summary.rate_limit_waits = state.rate_limit_waits
+
+    async def _execute_post_success_hooks(self, state: CheckpointState) -> None:
+        """Execute post-success hooks after job completion.
+
+        This enables concert orchestration where jobs can chain to other jobs.
+        Hooks run in Mozart's Python process, not inside Claude CLI.
+
+        Args:
+            state: Final job state (must have COMPLETED status).
+        """
+        if not self.config.on_success:
+            return
+
+        self._logger.info(
+            "hooks.executing",
+            job_id=state.job_id,
+            hook_count=len(self.config.on_success),
+            concert_enabled=self.config.concert.enabled,
+        )
+
+        # Create hook executor
+        executor = HookExecutor(
+            config=self.config,
+            workspace=self.config.workspace,
+            concert_context=None,  # TODO(concert-chaining): Pass concert context from parent job
+            # to enable job chaining. See ConcertConfig for context structure.
+        )
+
+        # Execute hooks
+        results = await executor.execute_hooks()
+
+        # Update summary with hook results
+        if self._summary:
+            self._summary.hook_results = results
+            self._summary.hooks_executed = len(results)
+            self._summary.hooks_succeeded = sum(1 for r in results if r.success)
+            self._summary.hooks_failed = sum(1 for r in results if not r.success)
+
+        # Log summary
+        if results:
+            self._logger.info(
+                "hooks.summary",
+                job_id=state.job_id,
+                hooks_executed=len(results),
+                hooks_succeeded=sum(1 for r in results if r.success),
+                hooks_failed=sum(1 for r in results if not r.success),
+            )
+
+    def get_summary(self) -> RunSummary | None:
+        """Get the current run summary.
+
+        Returns:
+            RunSummary if a run has been executed, None otherwise.
+        """
+        return self._summary
+
+    def _get_config_summary(self) -> dict[str, Any]:
+        """Build a safe config summary for logging.
+
+        Returns a dictionary with key configuration values that are safe
+        to log (no sensitive data like API keys or tokens).
+
+        Returns:
+            Dictionary with non-sensitive configuration summary.
+        """
+        return {
+            "backend_type": self.config.backend.type,
+            "sheet_size": self.config.sheet.size,
+            "total_items": self.config.sheet.total_items,
+            "max_retries": self.config.retry.max_retries,
+            "max_completion_attempts": self.config.retry.max_completion_attempts,
+            "workspace": str(self.config.workspace),
+            "validation_count": len(self.config.validations),
+            "rate_limit_wait_minutes": self.config.rate_limit.wait_minutes,
+            "learning_enabled": (
+                self.config.learning.enabled if hasattr(self.config, "learning") else False
+            ),
+            "circuit_breaker_enabled": self.config.circuit_breaker.enabled,
+            "circuit_breaker_threshold": self.config.circuit_breaker.failure_threshold,
+            "isolation_enabled": self.config.isolation.enabled,
+            "isolation_mode": self.config.isolation.mode.value if self.config.isolation.enabled else None,
+        }
+
+    # =========================================================================
+    # Sheet Dependency DAG (v17 evolution: Sheet Dependency DAG)
+    # =========================================================================
+
+    def _get_next_sheet_dag_aware(self, state: CheckpointState) -> int | None:
+        """Get the next sheet to execute, respecting DAG dependencies.
+
+        When a dependency DAG is configured, this method ensures sheets only
+        run when all their prerequisites are complete. Without a DAG, falls
+        back to the default sequential behavior.
+
+        Args:
+            state: Current job checkpoint state.
+
+        Returns:
+            Next sheet number to execute, or None if all complete or blocked.
+        """
+        # If no DAG configured, use default sequential behavior
+        if self._dependency_dag is None:
+            return state.get_next_sheet()
+
+        # Build set of completed sheet numbers
+        completed: set[int] = set()
+        for sheet_num in range(1, state.total_sheets + 1):
+            sheet_state = state.sheets.get(sheet_num)
+            if sheet_state and sheet_state.status == SheetStatus.COMPLETED:
+                completed.add(sheet_num)
+
+        # Check for in-progress sheet (resume from crash)
+        if state.current_sheet is not None:
+            sheet_state = state.sheets.get(state.current_sheet)
+            if sheet_state and sheet_state.status == SheetStatus.IN_PROGRESS:
+                # Verify dependencies are still satisfied (they should be)
+                deps = self._dependency_dag.get_dependencies(state.current_sheet)
+                if all(d in completed for d in deps):
+                    return state.current_sheet
+
+        # Get ready sheets (all dependencies satisfied)
+        ready_sheets = self._dependency_dag.get_ready_sheets(completed)
+
+        # Filter out sheets that are already complete
+        pending_ready = [s for s in ready_sheets if s not in completed]
+
+        if not pending_ready:
+            # All sheets either complete or blocked by incomplete dependencies
+            return None
+
+        # Return the first ready sheet (for sequential execution)
+        # Phase 2 (parallel) will return all ready sheets
+        return pending_ready[0]
+
+    def _get_completed_sheets(self, state: CheckpointState) -> set[int]:
+        """Get set of completed sheet numbers.
+
+        Helper method for DAG-aware execution tracking.
+
+        Args:
+            state: Current job checkpoint state.
+
+        Returns:
+            Set of sheet numbers with COMPLETED status.
+        """
+        completed: set[int] = set()
+        for sheet_num in range(1, state.total_sheets + 1):
+            sheet_state = state.sheets.get(sheet_num)
+            if sheet_state and sheet_state.status == SheetStatus.COMPLETED:
+                completed.add(sheet_num)
+        return completed
+
+    # =========================================================================
+    # Execution Modes
+    # =========================================================================
+
+    async def _execute_sequential_mode(self, state: CheckpointState) -> None:
+        """Execute sheets sequentially (one at a time).
+
+        This is the traditional execution mode, used when parallel
+        execution is disabled.
+
+        Args:
+            state: Job checkpoint state.
+        """
+        # Use DAG-aware sheet selection (v17 evolution)
+        # Falls back to sequential if no dependencies configured
+        next_sheet = self._get_next_sheet_dag_aware(state)
+        while next_sheet is not None and next_sheet <= state.total_sheets:
+            # Check for shutdown request before starting sheet
+            if self._shutdown_requested:
+                await self._handle_graceful_shutdown(state)
+
+            # Check for pause signal before starting sheet (Job Control Integration)
+            if self._check_pause_signal(state):
+                await self._handle_pause_request(state, next_sheet)
+
+            sheet_start = time.monotonic()
+
+            try:
+                await self._execute_sheet_with_recovery(state, next_sheet)
+            except FatalError as e:
+                state.mark_job_failed(str(e))
+                await self.state_backend.save(state)
+                # Update summary with failure before raising
+                self._finalize_summary(state)
+                # Log job failure
+                self._logger.error(
+                    "job.failed",
+                    job_id=state.job_id,
+                    sheet_num=next_sheet,
+                    error=str(e),
+                    duration_seconds=round(time.monotonic() - self._run_start_time, 2),
+                    completed_sheets=self._summary.completed_sheets if self._summary else 0,
+                )
+                raise
+
+            # Track sheet timing for ETA calculation
+            sheet_duration = time.monotonic() - sheet_start
+            self._sheet_times.append(sheet_duration)
+
+            # Update progress callback
+            self._update_progress(state)
+
+            # Pause between sheets
+            if next_sheet < state.total_sheets:
+                await self._interruptible_sleep(
+                    self.config.pause_between_sheets_seconds
+                )
+
+            # Use DAG-aware sheet selection (v17 evolution)
+            next_sheet = self._get_next_sheet_dag_aware(state)
+
+    async def _execute_parallel_mode(self, state: CheckpointState) -> None:
+        """Execute sheets in parallel when dependencies allow (v17 evolution).
+
+        Uses the ParallelExecutor to run batches of independent sheets
+        concurrently. Batches are determined by the dependency DAG.
+
+        Args:
+            state: Job checkpoint state.
+        """
+        if self._parallel_executor is None:
+            # Fall back to sequential if executor not configured
+            await self._execute_sequential_mode(state)
+            return
+
+        self._logger.info(
+            "parallel.mode_start",
+            total_sheets=state.total_sheets,
+            max_concurrent=self.config.parallel.max_concurrent,
+        )
+
+        batch_count = 0
+        while True:
+            # Check for shutdown request
+            if self._shutdown_requested:
+                await self._handle_graceful_shutdown(state)
+                return
+
+            # Check for pause signal (Job Control Integration)
+            if self._check_pause_signal(state):
+                # For parallel mode, pause after current batch completes
+                current_sheet = state.last_completed_sheet + 1
+                await self._handle_pause_request(state, current_sheet)
+
+            # Get next batch of sheets that can run in parallel
+            batch = self._parallel_executor.get_next_parallel_batch(state)
+
+            if not batch:
+                # No more sheets to execute
+                break
+
+            batch_count += 1
+            batch_start = time.monotonic()
+
+            self._logger.info(
+                "parallel.batch_executing",
+                batch_number=batch_count,
+                sheets=batch,
+            )
+
+            # Execute the batch
+            result = await self._parallel_executor.execute_batch(batch, state)
+
+            # Track timing (average per sheet in batch)
+            batch_duration = time.monotonic() - batch_start
+            if result.completed:
+                avg_duration = batch_duration / len(result.completed)
+                for _ in result.completed:
+                    self._sheet_times.append(avg_duration)
+
+            # Update progress
+            self._update_progress(state)
+
+            # Synthesize batch outputs (v18 evolution: Result Synthesizer)
+            await self._synthesize_batch_outputs(result, state)
+
+            # Save state after batch completion (fix: parallel batches weren't persisting)
+            # This ensures completed sheets are recorded even if later batches fail
+            # or the job is interrupted. Individual sheets also save, but this provides
+            # a batch-level checkpoint for resilience.
+            if result.completed:
+                await self.state_backend.save(state)
+                self._logger.debug(
+                    "parallel.batch_state_saved",
+                    completed_sheets=result.completed,
+                    failed_sheets=result.failed,
+                )
+
+            # Handle failures
+            if result.failed and self.config.parallel.fail_fast:
+                first_failed = result.failed[0]
+                error_msg = result.error_details.get(first_failed, "Unknown error")
+                state.mark_job_failed(f"Parallel batch failed: Sheet {first_failed} - {error_msg}")
+                await self.state_backend.save(state)
+                self._finalize_summary(state)
+                self._logger.error(
+                    "parallel.batch_failed",
+                    failed_sheets=result.failed,
+                    completed_sheets=result.completed,
+                )
+                raise FatalError(f"Sheet {first_failed} failed: {error_msg}")
+
+            # Pause between batches
+            completed_count = len(self._get_completed_sheets(state))
+            if completed_count < state.total_sheets:
+                await self._interruptible_sleep(
+                    self.config.pause_between_sheets_seconds
+                )
+
+        self._logger.info(
+            "parallel.mode_complete",
+            batches_executed=batch_count,
+        )
+
+    async def _synthesize_batch_outputs(
+        self,
+        result: "ParallelBatchResult",
+        state: CheckpointState,
+    ) -> None:
+        """Synthesize outputs from a completed parallel batch (v18 evolution).
+
+        Extracts content from completed sheets and runs synthesis to create
+        a unified result. The synthesis result is stored in checkpoint state.
+
+        Args:
+            result: ParallelBatchResult from batch execution.
+            state: Job checkpoint state.
+        """
+        from mozart.execution.synthesizer import ResultSynthesizer, SynthesisConfig
+
+        # Only synthesize if we have completed sheets
+        if not result.completed:
+            return
+
+        # Collect outputs from completed sheets
+        sheet_outputs: dict[int, str] = {}
+        for sheet_num in result.completed:
+            sheet_state = state.sheets.get(sheet_num)
+            if sheet_state and sheet_state.stdout_tail:
+                # Use stdout_tail as the output reference
+                sheet_outputs[sheet_num] = sheet_state.stdout_tail
+
+        if not sheet_outputs:
+            self._logger.debug(
+                "synthesizer.no_outputs",
+                batch_sheets=result.sheets,
+                completed=result.completed,
+            )
+            return
+
+        # Run synthesis
+        config = SynthesisConfig()
+        synthesizer = ResultSynthesizer(config)
+
+        synthesis_result = synthesizer.prepare_synthesis(
+            batch_sheets=result.sheets,
+            completed_sheets=result.completed,
+            failed_sheets=result.failed,
+            sheet_outputs=sheet_outputs,
+        )
+
+        if synthesis_result.status == "ready":
+            synthesis_result = synthesizer.execute_synthesis(synthesis_result)
+
+        # Store in checkpoint state
+        state.add_synthesis(synthesis_result.batch_id, synthesis_result.to_dict())
+
+        # Mark result as synthesis-ready
+        result.sheet_outputs = sheet_outputs
+        result.synthesis_ready = True
+
+        self._logger.info(
+            "synthesizer.batch_complete",
+            batch_id=synthesis_result.batch_id,
+            status=synthesis_result.status,
+            sheets_synthesized=len(sheet_outputs),
+        )
+
+    # =========================================================================
+    # Global Learning Aggregation (Movement IV-B)
+    # =========================================================================
+
+    async def _aggregate_to_global_store(self, state: CheckpointState) -> None:
+        """Aggregate job outcomes to the global learning store.
+
+        Called on job completion to record all outcomes and detect patterns
+        for cross-workspace learning. This is the key integration point for
+        Movement IV-B global learning.
+
+        Args:
+            state: Final job state with all sheet outcomes.
+        """
+        if self._global_learning_store is None:
+            return
+
+        # Import here to avoid circular imports
+        from mozart.learning.aggregator import EnhancedPatternAggregator
+        from mozart.learning.outcomes import SheetOutcome
+
+        try:
+            # Build SheetOutcome objects from state
+            outcomes: list[SheetOutcome] = []
+            for sheet_num, sheet_state in state.sheets.items():
+                outcome = SheetOutcome(
+                    sheet_id=f"{state.job_id}_sheet_{sheet_num}",
+                    job_id=state.job_id,
+                    validation_results=sheet_state.validation_details or [],
+                    execution_duration=sheet_state.execution_duration_seconds or 0.0,
+                    retry_count=max(0, sheet_state.attempt_count - 1),
+                    completion_mode_used=sheet_state.completion_attempts > 0,
+                    final_status=sheet_state.status,
+                    validation_pass_rate=(
+                        100.0
+                        if sheet_state.validation_passed
+                        else 0.0
+                        if sheet_state.validation_passed is False
+                        else 50.0  # Unknown
+                    ),
+                    first_attempt_success=sheet_state.first_attempt_success,
+                    timestamp=sheet_state.completed_at or utc_now(),
+                    # Output capture for pattern extraction (Evolution: Learning Data Collection)
+                    stdout_tail=sheet_state.stdout_tail or "",
+                    stderr_tail=sheet_state.stderr_tail or "",
+                    # v9 Evolution: Pattern Feedback Loop - pass applied pattern descriptions
+                    patterns_applied=sheet_state.applied_pattern_descriptions,
+                    # v11 Evolution: Grounding→Pattern Integration - pass grounding context
+                    grounding_passed=sheet_state.grounding_passed,
+                    grounding_confidence=sheet_state.grounding_confidence,
+                    grounding_guidance=sheet_state.grounding_guidance,
+                )
+                outcomes.append(outcome)
+
+            if not outcomes:
+                return
+
+            # Create aggregator and aggregate outcomes (use enhanced for output pattern extraction)
+            aggregator = EnhancedPatternAggregator(self._global_learning_store)
+            result = aggregator.aggregate_outcomes(
+                outcomes=outcomes,
+                workspace_path=self.config.workspace,
+                model=self.config.backend.model,
+            )
+
+            # Log aggregation results
+            self._logger.info(
+                "learning.global_aggregation",
+                job_id=state.job_id,
+                outcomes_recorded=result.outcomes_recorded,
+                patterns_detected=result.patterns_detected,
+                patterns_merged=result.patterns_merged,
+                priorities_updated=result.priorities_updated,
+            )
+
+            if result.outcomes_recorded > 0:
+                self.console.print(
+                    f"[dim]Global learning: {result.outcomes_recorded} outcomes recorded, "
+                    f"{result.patterns_detected} patterns detected[/dim]"
+                )
+
+        except Exception as e:
+            # Global learning failures should not block job completion
+            self._logger.warning(
+                "learning.global_aggregation_failed",
+                job_id=state.job_id,
+                error=str(e),
+            )
+
+
+# Re-export for convenience
+__all__ = [
+    "LifecycleMixin",
+]

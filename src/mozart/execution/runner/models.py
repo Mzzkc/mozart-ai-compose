@@ -1,0 +1,312 @@
+"""Data models for the job runner.
+
+Contains dataclasses, enums, and exceptions used by the JobRunner
+and its mixin components. These are extracted to enable clean imports
+and avoid circular dependencies during modularization.
+"""
+
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import TYPE_CHECKING, Any
+
+from rich.console import Console
+
+if TYPE_CHECKING:
+    from mozart.execution.grounding import GroundingEngine, GroundingResult
+    from mozart.learning.global_store import GlobalLearningStore
+
+from mozart.core.checkpoint import JobStatus
+from mozart.execution.escalation import CheckpointHandler, EscalationHandler
+from mozart.execution.hooks import HookResult
+from mozart.learning.judgment import JudgmentClient
+from mozart.learning.outcomes import OutcomeStore
+
+
+@dataclass
+class RunSummary:
+    """Summary of a completed job run.
+
+    Tracks key metrics for display at job completion:
+    - Total execution time
+    - Sheet success/failure counts
+    - Validation pass rate
+    - Retry statistics
+    - Cost tracking
+    """
+
+    job_id: str
+    job_name: str
+    total_sheets: int
+    completed_sheets: int = 0
+    failed_sheets: int = 0
+    skipped_sheets: int = 0
+    total_duration_seconds: float = 0.0
+    total_retries: int = 0
+    total_completion_attempts: int = 0
+    rate_limit_waits: int = 0
+    validation_pass_count: int = 0
+    validation_fail_count: int = 0
+    first_attempt_successes: int = 0
+    final_status: JobStatus = field(default=JobStatus.PENDING)
+
+    # Cost tracking (v4 evolution: Cost Circuit Breaker)
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_estimated_cost: float = 0.0
+    cost_limit_hit: bool = False
+
+    # Hook execution results (Concert orchestration)
+    hook_results: list[HookResult] = field(default_factory=list)
+    hooks_executed: int = 0
+    hooks_succeeded: int = 0
+    hooks_failed: int = 0
+
+    @property
+    def success_rate(self) -> float:
+        """Calculate sheet success rate as percentage."""
+        if self.total_sheets == 0:
+            return 0.0
+        return (self.completed_sheets / self.total_sheets) * 100
+
+    @property
+    def validation_pass_rate(self) -> float:
+        """Calculate validation pass rate as percentage."""
+        total = self.validation_pass_count + self.validation_fail_count
+        if total == 0:
+            return 100.0  # No validations = 100% pass
+        return (self.validation_pass_count / total) * 100
+
+    @property
+    def first_attempt_rate(self) -> float:
+        """Calculate first-attempt success rate as percentage."""
+        if self.completed_sheets == 0:
+            return 0.0
+        return (self.first_attempt_successes / self.completed_sheets) * 100
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert summary to dictionary for JSON output."""
+        return {
+            "job_id": self.job_id,
+            "job_name": self.job_name,
+            "status": self.final_status.value,
+            "duration_seconds": round(self.total_duration_seconds, 2),
+            "duration_formatted": self._format_duration(self.total_duration_seconds),
+            "sheets": {
+                "total": self.total_sheets,
+                "completed": self.completed_sheets,
+                "failed": self.failed_sheets,
+                "skipped": self.skipped_sheets,
+                "success_rate": round(self.success_rate, 1),
+            },
+            "validation": {
+                "passed": self.validation_pass_count,
+                "failed": self.validation_fail_count,
+                "pass_rate": round(self.validation_pass_rate, 1),
+            },
+            "execution": {
+                "total_retries": self.total_retries,
+                "completion_attempts": self.total_completion_attempts,
+                "rate_limit_waits": self.rate_limit_waits,
+                "first_attempt_successes": self.first_attempt_successes,
+                "first_attempt_rate": round(self.first_attempt_rate, 1),
+            },
+        }
+
+    @staticmethod
+    def _format_duration(seconds: float) -> str:
+        """Format duration in human-readable form."""
+        if seconds < 60:
+            return f"{seconds:.1f}s"
+        elif seconds < 3600:
+            minutes = int(seconds // 60)
+            secs = int(seconds % 60)
+            return f"{minutes}m {secs}s"
+        else:
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            return f"{hours}h {minutes}m"
+
+
+@dataclass
+class GroundingDecisionContext:
+    """Context from grounding hooks for completion mode decisions.
+
+    Encapsulates grounding results to inform decision-making about
+    whether to retry, complete, or escalate. This integrates external
+    validation signals into the adaptive execution flow.
+
+    v10 Evolution: Grounding→Completion Integration
+    """
+
+    passed: bool
+    """Whether all grounding hooks passed."""
+
+    message: str
+    """Human-readable summary of grounding results."""
+
+    confidence: float = 1.0
+    """Average confidence across all grounding results (0.0-1.0)."""
+
+    should_escalate: bool = False
+    """Whether any grounding hook recommends escalation."""
+
+    recovery_guidance: str | None = None
+    """Optional guidance for recovery from grounding failures."""
+
+    hooks_executed: int = 0
+    """Number of grounding hooks that were executed."""
+
+    @classmethod
+    def from_results(cls, results: list["GroundingResult"]) -> "GroundingDecisionContext":
+        """Build context from grounding results list.
+
+        Args:
+            results: List of GroundingResult from grounding hooks.
+
+        Returns:
+            GroundingDecisionContext summarizing the results.
+        """
+        if not results:
+            return cls(passed=True, message="No grounding hooks executed", hooks_executed=0)
+
+        passed = all(r.passed for r in results)
+        confidences = [r.confidence for r in results]
+        avg_confidence = sum(confidences) / len(confidences) if confidences else 1.0
+        should_escalate = any(r.should_escalate for r in results)
+
+        # Collect recovery guidance from failed hooks
+        failed = [r for r in results if not r.passed]
+        recovery_guidance = None
+        if failed:
+            guidance_parts = [r.recovery_guidance for r in failed if r.recovery_guidance]
+            if guidance_parts:
+                recovery_guidance = "; ".join(guidance_parts)
+
+        # Build message
+        if passed:
+            message = f"All {len(results)} grounding check(s) passed"
+        else:
+            failures = ", ".join(f"{r.hook_name}: {r.message}" for r in failed)
+            message = f"{len(failed)}/{len(results)} grounding check(s) failed: {failures}"
+
+        return cls(
+            passed=passed,
+            message=message,
+            confidence=avg_confidence,
+            should_escalate=should_escalate,
+            recovery_guidance=recovery_guidance,
+            hooks_executed=len(results),
+        )
+
+    @classmethod
+    def disabled(cls) -> "GroundingDecisionContext":
+        """Create context when grounding is disabled.
+
+        Returns:
+            GroundingDecisionContext indicating grounding was not run.
+        """
+        return cls(passed=True, message="Grounding not enabled", hooks_executed=0)
+
+
+class SheetExecutionMode(str, Enum):
+    """Mode of sheet execution."""
+
+    NORMAL = "normal"
+    """Standard first-time execution."""
+
+    COMPLETION = "completion"
+    """Completion mode after partial success - focused on missing items."""
+
+    RETRY = "retry"
+    """Full retry after completion mode exhausted or minority passed."""
+
+    ESCALATE = "escalate"
+    """Escalation mode - low confidence requires external decision."""
+
+
+class FatalError(Exception):
+    """Non-recoverable error that should stop the job."""
+
+    pass
+
+
+class GracefulShutdownError(Exception):
+    """Raised when Ctrl+C is pressed to trigger graceful shutdown.
+
+    This exception is caught by the runner to save state before exiting.
+    """
+
+    pass
+
+
+@dataclass
+class RunnerContext:
+    """Optional context components for JobRunner.
+
+    Groups optional dependencies that configure learning, escalation,
+    and progress reporting. Using a context object reduces the parameter
+    count in JobRunner.__init__ from 11 to 5 required parameters plus
+    one optional context object.
+
+    Usage:
+        # Without context (minimal setup)
+        runner = JobRunner(config, backend, state_backend)
+
+        # With learning enabled
+        context = RunnerContext(
+            outcome_store=JsonOutcomeStore(workspace),
+            global_learning_store=get_global_store(),
+        )
+        runner = JobRunner(config, backend, state_backend, context=context)
+    """
+
+    # Learning components
+    outcome_store: OutcomeStore | None = None
+    """Store for recording sheet outcomes (Phase 1 learning)."""
+
+    escalation_handler: EscalationHandler | None = None
+    """Handler for low-confidence decisions (Phase 2 escalation)."""
+
+    checkpoint_handler: CheckpointHandler | None = None
+    """Handler for proactive pre-execution checkpoints (v21 Evolution)."""
+
+    judgment_client: JudgmentClient | None = None
+    """Client for TDF-aligned execution decisions (Phase 4 Recursive Light)."""
+
+    global_learning_store: "GlobalLearningStore | None" = None
+    """Store for cross-workspace learning (Evolution #3, #8)."""
+
+    # External validation
+    grounding_engine: "GroundingEngine | None" = None
+    """Engine for external validation of sheet outputs (v8 Grounding)."""
+
+    # UI and progress reporting
+    console: Console | None = None
+    """Rich console for output display."""
+
+    progress_callback: Callable[[int, int, float | None], None] | None = None
+    """Callback for progress updates: (completed, total, eta_seconds)."""
+
+    execution_progress_callback: Callable[[dict[str, Any]], None] | None = None
+    """Callback for real-time execution progress during sheet runs."""
+
+    # Self-healing configuration (v11 Evolution: Self-Healing)
+    self_healing_enabled: bool = False
+    """Enable automatic diagnosis and remediation when retries are exhausted."""
+
+    self_healing_auto_confirm: bool = False
+    """Auto-confirm suggested fixes (equivalent to --yes flag)."""
+
+
+# Re-export commonly used types from other modules for convenience
+# This allows other runner modules to import from models.py instead
+# of managing multiple import sources
+__all__ = [
+    "FatalError",
+    "GracefulShutdownError",
+    "GroundingDecisionContext",
+    "RunSummary",
+    "RunnerContext",
+    "SheetExecutionMode",
+]
