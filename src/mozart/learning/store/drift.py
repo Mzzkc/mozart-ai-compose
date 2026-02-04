@@ -19,14 +19,14 @@ import math
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from mozart.core.logging import get_logger
-
 from .models import DriftMetrics, EpistemicDriftMetrics, EvolutionTrajectoryEntry, PatternRecord
+
+# Import logger from base module for consistency across all mixins
+from .base import _logger
 
 if TYPE_CHECKING:
     import sqlite3
-
-_logger = get_logger("learning.global_store")
+    from contextlib import AbstractContextManager
 
 
 class DriftMixin:
@@ -44,7 +44,7 @@ class DriftMixin:
 
     # Type hints for attributes provided by the composed class
     if TYPE_CHECKING:
-        def _get_connection(self) -> sqlite3.Connection: ...
+        def _get_connection(self) -> AbstractContextManager[sqlite3.Connection]: ...
 
     # =========================================================================
     # v12 Evolution: Goal Drift Detection - Effectiveness Drift
@@ -650,6 +650,8 @@ class DriftMixin:
         Returns:
             List of PatternRecord objects with priority_score = 0.
         """
+        from .models import QuarantineStatus, SuccessFactors
+
         with self._get_connection() as conn:
             cursor = conn.execute(
                 """
@@ -663,6 +665,7 @@ class DriftMixin:
 
             records = []
             for row in cursor.fetchall():
+                # Construct PatternRecord with all v19/v22 fields
                 records.append(
                     PatternRecord(
                         id=row["id"],
@@ -680,6 +683,31 @@ class DriftMixin:
                         suggested_action=row["suggested_action"],
                         context_tags=json.loads(row["context_tags"] or "[]"),
                         priority_score=row["priority_score"],
+                        # v19: Quarantine & Provenance fields
+                        quarantine_status=QuarantineStatus(row["quarantine_status"])
+                        if row["quarantine_status"]
+                        else QuarantineStatus.PENDING,
+                        provenance_job_hash=row["provenance_job_hash"],
+                        provenance_sheet_num=row["provenance_sheet_num"],
+                        quarantined_at=datetime.fromisoformat(row["quarantined_at"])
+                        if row["quarantined_at"]
+                        else None,
+                        validated_at=datetime.fromisoformat(row["validated_at"])
+                        if row["validated_at"]
+                        else None,
+                        quarantine_reason=row["quarantine_reason"],
+                        # v19: Trust Scoring fields
+                        trust_score=row["trust_score"] if row["trust_score"] is not None else 0.5,
+                        trust_calculation_date=datetime.fromisoformat(row["trust_calculation_date"])
+                        if row["trust_calculation_date"]
+                        else None,
+                        # v22: Metacognitive Pattern Reflection fields
+                        success_factors=SuccessFactors.from_dict(json.loads(row["success_factors"]))
+                        if row["success_factors"]
+                        else None,
+                        success_factors_updated_at=datetime.fromisoformat(row["success_factors_updated_at"])
+                        if row["success_factors_updated_at"]
+                        else None,
                     )
                 )
 

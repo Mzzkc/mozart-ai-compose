@@ -138,19 +138,21 @@ class EscalationMixin:
             List of EscalationDecisionRecord objects.
         """
         with self._get_connection() as conn:
-            conditions: list[str] = []
-            params: list[str | int] = []
+            where_clauses: list[str] = []
+            query_params: list[str | int] = []
 
             if job_id is not None:
                 job_hash = self.hash_job(job_id)
-                conditions.append("job_hash = ?")
-                params.append(job_hash)
+                where_clauses.append("job_hash = ?")
+                query_params.append(job_hash)
 
             if action is not None:
-                conditions.append("action = ?")
-                params.append(action)
+                where_clauses.append("action = ?")
+                query_params.append(action)
 
-            where_clause = " AND ".join(conditions) if conditions else "1=1"
+            # Safety: where_clauses contains only hardcoded column comparisons,
+            # all user values go through query_params as placeholders
+            where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
 
             cursor = conn.execute(
                 f"""
@@ -159,7 +161,7 @@ class EscalationMixin:
                 ORDER BY recorded_at DESC
                 LIMIT ?
                 """,
-                (*params, limit),
+                (*query_params, limit),
             )
 
             records = []

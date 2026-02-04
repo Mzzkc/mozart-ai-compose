@@ -147,6 +147,18 @@ class JobControlService:
             if not workspace:
                 workspace = Path(config.workspace) if config.workspace else self._workspace_root
 
+            # Create and save initial state to backend for dashboard tracking
+            # The runner will update this state as it executes
+            initial_state = CheckpointState(
+                job_id=job_id,
+                job_name=config.name,
+                total_sheets=config.sheet.total_sheets,
+                status=JobStatus.RUNNING,
+                pid=process.pid,
+                started_at=datetime.now(),
+            )
+            await self._state_backend.save(initial_state)
+
             logger.info(
                 "job_started",
                 job_id=job_id,
@@ -584,8 +596,8 @@ class JobControlService:
                     proc = psutil.Process(pid)
                     cpu_percent = proc.cpu_percent(interval=0.1)
                     memory_mb = proc.memory_info().rss / (1024 * 1024)  # Convert bytes to MB
-                except Exception:
-                    # Process metrics inaccessible (permissions, no such process, etc.)
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    # Process metrics inaccessible (permissions, no such process, zombie, etc.)
                     pass
 
         is_alive = process_exists and not is_zombie_state

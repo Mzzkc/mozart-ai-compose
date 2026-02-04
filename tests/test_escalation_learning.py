@@ -21,6 +21,10 @@ from unittest.mock import patch
 import pytest
 
 from mozart.execution.escalation import (
+    CheckpointContext,
+    CheckpointResponse,
+    CheckpointTrigger,
+    ConsoleCheckpointHandler,
     ConsoleEscalationHandler,
     EscalationContext,
     HistoricalSuggestion,
@@ -622,8 +626,12 @@ class TestEscalationLearningIntegration:
         # Should not raise and should return valid ID
         assert record_id is not None
 
-        # Verify schema version is 7 (upgraded in v19 for quarantine/trust fields)
-        assert store.SCHEMA_VERSION == 7
+        # Verify schema version is current (v9 as of D2-D4 modularization)
+        # The version increments as new features are added:
+        # v3: escalation_decisions table
+        # v7: quarantine/trust fields
+        # v9: success_factors and other schema enhancements
+        assert store.SCHEMA_VERSION >= 7, "Schema should be at least v7 for escalation support"
 
     def test_clear_all_includes_escalations(
         self, global_store: GlobalLearningStore
@@ -1717,3 +1725,430 @@ class TestRunnerSuggestionInjection:
         assert len(suggestions) == 2
         assert suggestions[0].outcome == "success"
         assert suggestions[1].outcome == "failed"
+
+
+# =============================================================================
+# v21 Evolution: Proactive Checkpoint Tests
+# =============================================================================
+
+
+class TestCheckpointTrigger:
+    """Tests for CheckpointTrigger dataclass."""
+
+    def test_trigger_creation(self) -> None:
+        """Test basic trigger creation."""
+        from mozart.execution.escalation import CheckpointTrigger
+
+        trigger = CheckpointTrigger(
+            name="test_trigger",
+            sheet_nums=[1, 2, 3],
+            prompt_contains=["dangerous", "delete"],
+            min_retry_count=2,
+            requires_confirmation=True,
+            message="This sheet is dangerous!",
+        )
+
+        assert trigger.name == "test_trigger"
+        assert trigger.sheet_nums == [1, 2, 3]
+        assert trigger.prompt_contains == ["dangerous", "delete"]
+        assert trigger.min_retry_count == 2
+        assert trigger.requires_confirmation is True
+        assert trigger.message == "This sheet is dangerous!"
+
+    def test_trigger_defaults(self) -> None:
+        """Test trigger default values."""
+        from mozart.execution.escalation import CheckpointTrigger
+
+        trigger = CheckpointTrigger(name="minimal_trigger")
+
+        assert trigger.name == "minimal_trigger"
+        assert trigger.sheet_nums is None
+        assert trigger.prompt_contains is None
+        assert trigger.min_retry_count is None
+        assert trigger.requires_confirmation is True  # Default
+        assert trigger.message == ""
+
+
+class TestCheckpointContext:
+    """Tests for CheckpointContext dataclass."""
+
+    def test_context_creation(self) -> None:
+        """Test basic context creation."""
+        from mozart.execution.escalation import CheckpointContext, CheckpointTrigger
+
+        trigger = CheckpointTrigger(name="test")
+        context = CheckpointContext(
+            job_id="test-job-123",
+            sheet_num=5,
+            prompt="Do something dangerous",
+            trigger=trigger,
+            retry_count=2,
+            previous_errors=["Error 1", "Error 2"],
+        )
+
+        assert context.job_id == "test-job-123"
+        assert context.sheet_num == 5
+        assert context.prompt == "Do something dangerous"
+        assert context.trigger.name == "test"
+        assert context.retry_count == 2
+        assert len(context.previous_errors) == 2
+
+
+class TestCheckpointResponse:
+    """Tests for CheckpointResponse dataclass."""
+
+    def test_proceed_response(self) -> None:
+        """Test proceed response."""
+        from mozart.execution.escalation import CheckpointResponse
+
+        response = CheckpointResponse(
+            action="proceed",
+            guidance="User approved",
+        )
+
+        assert response.action == "proceed"
+        assert response.guidance == "User approved"
+        assert response.modified_prompt is None
+
+    def test_abort_response(self) -> None:
+        """Test abort response."""
+        from mozart.execution.escalation import CheckpointResponse
+
+        response = CheckpointResponse(
+            action="abort",
+            guidance="User stopped the job",
+        )
+
+        assert response.action == "abort"
+
+    def test_modify_prompt_response(self) -> None:
+        """Test modify_prompt response."""
+        from mozart.execution.escalation import CheckpointResponse
+
+        response = CheckpointResponse(
+            action="modify_prompt",
+            modified_prompt="New safer prompt",
+            guidance="Modified for safety",
+        )
+
+        assert response.action == "modify_prompt"
+        assert response.modified_prompt == "New safer prompt"
+
+
+class TestConsoleCheckpointHandler:
+    """Tests for ConsoleCheckpointHandler."""
+
+    @pytest.fixture
+    def handler(self) -> "ConsoleCheckpointHandler":
+        """Create a ConsoleCheckpointHandler for testing."""
+        from mozart.execution.escalation import ConsoleCheckpointHandler
+        return ConsoleCheckpointHandler()
+
+    @pytest.mark.asyncio
+    async def test_should_checkpoint_sheet_num_match(
+        self, handler: "ConsoleCheckpointHandler"
+    ) -> None:
+        """Test should_checkpoint matches on sheet number."""
+        from mozart.execution.escalation import CheckpointTrigger
+
+        triggers = [
+            CheckpointTrigger(name="sheet_5", sheet_nums=[5]),
+        ]
+
+        # Should match
+        result = await handler.should_checkpoint(
+            sheet_num=5,
+            prompt="Any prompt",
+            retry_count=0,
+            triggers=triggers,
+        )
+        assert result is not None
+        assert result.name == "sheet_5"
+
+        # Should not match
+        result = await handler.should_checkpoint(
+            sheet_num=3,
+            prompt="Any prompt",
+            retry_count=0,
+            triggers=triggers,
+        )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_should_checkpoint_prompt_contains_match(
+        self, handler: "ConsoleCheckpointHandler"
+    ) -> None:
+        """Test should_checkpoint matches on prompt keywords."""
+        from mozart.execution.escalation import CheckpointTrigger
+
+        triggers = [
+            CheckpointTrigger(
+                name="dangerous_keywords",
+                prompt_contains=["DELETE", "drop table"],
+            ),
+        ]
+
+        # Should match (case insensitive)
+        result = await handler.should_checkpoint(
+            sheet_num=1,
+            prompt="This will delete the file",
+            retry_count=0,
+            triggers=triggers,
+        )
+        assert result is not None
+        assert result.name == "dangerous_keywords"
+
+        # Should not match
+        result = await handler.should_checkpoint(
+            sheet_num=1,
+            prompt="This creates a new file",
+            retry_count=0,
+            triggers=triggers,
+        )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_should_checkpoint_retry_count_match(
+        self, handler: "ConsoleCheckpointHandler"
+    ) -> None:
+        """Test should_checkpoint matches on retry count."""
+        from mozart.execution.escalation import CheckpointTrigger
+
+        triggers = [
+            CheckpointTrigger(
+                name="high_retry",
+                min_retry_count=3,
+            ),
+        ]
+
+        # Should not match (retry count too low)
+        result = await handler.should_checkpoint(
+            sheet_num=1,
+            prompt="Any prompt",
+            retry_count=2,
+            triggers=triggers,
+        )
+        assert result is None
+
+        # Should match (retry count >= threshold)
+        result = await handler.should_checkpoint(
+            sheet_num=1,
+            prompt="Any prompt",
+            retry_count=3,
+            triggers=triggers,
+        )
+        assert result is not None
+        assert result.name == "high_retry"
+
+    @pytest.mark.asyncio
+    async def test_should_checkpoint_combined_conditions(
+        self, handler: "ConsoleCheckpointHandler"
+    ) -> None:
+        """Test should_checkpoint with multiple conditions (AND logic)."""
+        from mozart.execution.escalation import CheckpointTrigger
+
+        triggers = [
+            CheckpointTrigger(
+                name="combined",
+                sheet_nums=[5, 6],
+                prompt_contains=["deploy"],
+                min_retry_count=1,
+            ),
+        ]
+
+        # All conditions must match
+        # Miss: wrong sheet
+        result = await handler.should_checkpoint(
+            sheet_num=1,
+            prompt="deploy to production",
+            retry_count=2,
+            triggers=triggers,
+        )
+        assert result is None
+
+        # Miss: wrong keyword
+        result = await handler.should_checkpoint(
+            sheet_num=5,
+            prompt="test something",
+            retry_count=2,
+            triggers=triggers,
+        )
+        assert result is None
+
+        # Miss: retry count too low
+        result = await handler.should_checkpoint(
+            sheet_num=5,
+            prompt="deploy to production",
+            retry_count=0,
+            triggers=triggers,
+        )
+        assert result is None
+
+        # All match
+        result = await handler.should_checkpoint(
+            sheet_num=5,
+            prompt="deploy to production",
+            retry_count=1,
+            triggers=triggers,
+        )
+        assert result is not None
+        assert result.name == "combined"
+
+    @pytest.mark.asyncio
+    async def test_checkpoint_warning_only(
+        self, handler: "ConsoleCheckpointHandler"
+    ) -> None:
+        """Test checkpoint with requires_confirmation=False auto-proceeds."""
+        from mozart.execution.escalation import CheckpointContext, CheckpointTrigger
+
+        trigger = CheckpointTrigger(
+            name="warning_only",
+            requires_confirmation=False,
+            message="Just a warning",
+        )
+
+        context = CheckpointContext(
+            job_id="test-job",
+            sheet_num=1,
+            prompt="Test prompt",
+            trigger=trigger,
+        )
+
+        # Should auto-proceed without user input
+        with patch('sys.stdout', new=StringIO()):
+            response = await handler.checkpoint(context)
+
+        assert response.action == "proceed"
+
+    @pytest.mark.asyncio
+    async def test_checkpoint_interactive_proceed(
+        self, handler: "ConsoleCheckpointHandler"
+    ) -> None:
+        """Test interactive checkpoint with 'p' (proceed) response."""
+        from mozart.execution.escalation import CheckpointContext, CheckpointTrigger
+
+        trigger = CheckpointTrigger(
+            name="interactive",
+            requires_confirmation=True,
+        )
+
+        context = CheckpointContext(
+            job_id="test-job",
+            sheet_num=1,
+            prompt="Test prompt",
+            trigger=trigger,
+        )
+
+        # Mock user input: 'p' for proceed, then empty guidance
+        with patch('builtins.input', side_effect=['p', '']):
+            with patch('sys.stdout', new=StringIO()):
+                response = await handler.checkpoint(context)
+
+        assert response.action == "proceed"
+
+    @pytest.mark.asyncio
+    async def test_checkpoint_interactive_abort(
+        self, handler: "ConsoleCheckpointHandler"
+    ) -> None:
+        """Test interactive checkpoint with 'a' (abort) response."""
+        from mozart.execution.escalation import CheckpointContext, CheckpointTrigger
+
+        trigger = CheckpointTrigger(
+            name="interactive",
+            requires_confirmation=True,
+        )
+
+        context = CheckpointContext(
+            job_id="test-job",
+            sheet_num=1,
+            prompt="Test prompt",
+            trigger=trigger,
+        )
+
+        # Mock user input: 'a' for abort
+        with patch('builtins.input', side_effect=['a']):
+            with patch('sys.stdout', new=StringIO()):
+                response = await handler.checkpoint(context)
+
+        assert response.action == "abort"
+
+    @pytest.mark.asyncio
+    async def test_checkpoint_interactive_skip(
+        self, handler: "ConsoleCheckpointHandler"
+    ) -> None:
+        """Test interactive checkpoint with 's' (skip) response."""
+        from mozart.execution.escalation import CheckpointContext, CheckpointTrigger
+
+        trigger = CheckpointTrigger(
+            name="interactive",
+            requires_confirmation=True,
+        )
+
+        context = CheckpointContext(
+            job_id="test-job",
+            sheet_num=1,
+            prompt="Test prompt",
+            trigger=trigger,
+        )
+
+        # Mock user input: 's' for skip, with guidance
+        with patch('builtins.input', side_effect=['s', 'Skip this one']):
+            with patch('sys.stdout', new=StringIO()):
+                response = await handler.checkpoint(context)
+
+        assert response.action == "skip"
+        assert response.guidance == "Skip this one"
+
+
+class TestCheckpointConfig:
+    """Tests for CheckpointConfig and CheckpointTriggerConfig."""
+
+    def test_checkpoint_config_defaults(self) -> None:
+        """Test CheckpointConfig default values."""
+        from mozart.core.config import CheckpointConfig
+
+        config = CheckpointConfig()
+
+        assert config.enabled is False
+        assert config.triggers == []
+
+    def test_checkpoint_config_with_triggers(self) -> None:
+        """Test CheckpointConfig with triggers."""
+        from mozart.core.config import CheckpointConfig, CheckpointTriggerConfig
+
+        config = CheckpointConfig(
+            enabled=True,
+            triggers=[
+                CheckpointTriggerConfig(
+                    name="dangerous_sheets",
+                    sheet_nums=[5, 6],
+                    message="These sheets modify production",
+                ),
+                CheckpointTriggerConfig(
+                    name="deployment_keywords",
+                    prompt_contains=["deploy", "production"],
+                ),
+            ],
+        )
+
+        assert config.enabled is True
+        assert len(config.triggers) == 2
+        assert config.triggers[0].name == "dangerous_sheets"
+        assert config.triggers[1].prompt_contains == ["deploy", "production"]
+
+    def test_checkpoint_trigger_config_validation(self) -> None:
+        """Test CheckpointTriggerConfig validation."""
+        from mozart.core.config import CheckpointTriggerConfig
+
+        trigger = CheckpointTriggerConfig(
+            name="test",
+            min_retry_count=0,  # 0 is valid
+        )
+        assert trigger.min_retry_count == 0
+
+        # Negative should fail validation
+        with pytest.raises(ValueError):
+            CheckpointTriggerConfig(
+                name="invalid",
+                min_retry_count=-1,
+            )

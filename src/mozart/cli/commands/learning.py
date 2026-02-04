@@ -37,16 +37,13 @@ from __future__ import annotations
 
 import json as json_lib
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import Annotated, Any
 
 import typer
 from rich.panel import Panel
 from rich.table import Table
 
 from ..output import console
-
-if TYPE_CHECKING:
-    pass
 
 
 # =============================================================================
@@ -382,14 +379,14 @@ def learning_insights(
     table.add_column("Freq", justify="right")
     table.add_column("Effectiveness", justify="right")
 
-    for p in patterns:
-        desc_str = p.description or ""
+    for pattern in patterns:
+        desc_str = pattern.description or ""
         desc = desc_str[:45] + "..." if len(desc_str) > 45 else desc_str
         table.add_row(
-            p.pattern_type,
+            pattern.pattern_type,
             desc or "[no description]",
-            str(p.occurrence_count),
-            f"{p.effectiveness_score:.0%}" if p.effectiveness_score else "-",
+            str(pattern.occurrence_count),
+            f"{pattern.effectiveness_score:.0%}" if pattern.effectiveness_score else "-",
         )
 
     console.print(table)

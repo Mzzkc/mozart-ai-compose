@@ -216,8 +216,12 @@ class PatternMixin:
         Returns:
             The application record ID.
         """
-        # Note: validation_passed is accepted but not stored in current schema
-        _ = validation_passed  # Acknowledge but unused in this version
+        # TODO(v25): Add validation_passed column to pattern_applications table
+        # This parameter is accepted for API compatibility but not yet stored.
+        # Future: Store and use for validation-aware effectiveness calculation,
+        # differentiating patterns that help pass validation vs those that just
+        # reduce retry count.
+        _ = validation_passed  # Suppress unused variable warning
         app_id = str(uuid.uuid4())
         now = datetime.now()
         now_iso = now.isoformat()
@@ -627,6 +631,29 @@ class PatternMixin:
                 records.append(self._row_to_pattern_record(row))
 
             return records
+
+    def _row_to_discovery_event(self, row: sqlite3.Row) -> PatternDiscoveryEvent:
+        """Convert a database row to a PatternDiscoveryEvent.
+
+        v14: Helper method to centralize PatternDiscoveryEvent construction.
+
+        Args:
+            row: Database row from pattern_discovery_events table.
+
+        Returns:
+            PatternDiscoveryEvent instance with all fields populated.
+        """
+        return PatternDiscoveryEvent(
+            id=row["id"],
+            pattern_id=row["pattern_id"],
+            pattern_name=row["pattern_name"],
+            pattern_type=row["pattern_type"],
+            source_job_hash=row["source_job_hash"],
+            recorded_at=datetime.fromisoformat(row["recorded_at"]),
+            expires_at=datetime.fromisoformat(row["expires_at"]),
+            effectiveness_score=row["effectiveness_score"],
+            context_tags=json.loads(row["context_tags"] or "[]"),
+        )
 
     def _row_to_pattern_record(self, row: sqlite3.Row) -> PatternRecord:
         """Convert a database row to a PatternRecord.
@@ -1484,24 +1511,7 @@ class PatternMixin:
             params.append(limit)
 
             cursor = conn.execute(query, params)
-            events = []
-
-            for row in cursor.fetchall():
-                events.append(
-                    PatternDiscoveryEvent(
-                        id=row["id"],
-                        pattern_id=row["pattern_id"],
-                        pattern_name=row["pattern_name"],
-                        pattern_type=row["pattern_type"],
-                        source_job_hash=row["source_job_hash"],
-                        recorded_at=datetime.fromisoformat(row["recorded_at"]),
-                        expires_at=datetime.fromisoformat(row["expires_at"]),
-                        effectiveness_score=row["effectiveness_score"],
-                        context_tags=json.loads(row["context_tags"] or "[]"),
-                    )
-                )
-
-            return events
+            return [self._row_to_discovery_event(row) for row in cursor.fetchall()]
 
     def cleanup_expired_pattern_discoveries(self) -> int:
         """Remove expired pattern discovery events.
@@ -1562,151 +1572,7 @@ class PatternMixin:
                     (now.isoformat(),),
                 )
 
-            events = []
-            for row in cursor.fetchall():
-                events.append(
-                    PatternDiscoveryEvent(
-                        id=row["id"],
-                        pattern_id=row["pattern_id"],
-                        pattern_name=row["pattern_name"],
-                        pattern_type=row["pattern_type"],
-                        source_job_hash=row["source_job_hash"],
-                        recorded_at=datetime.fromisoformat(row["recorded_at"]),
-                        expires_at=datetime.fromisoformat(row["expires_at"]),
-                        effectiveness_score=row["effectiveness_score"],
-                        context_tags=json.loads(row["context_tags"] or "[]"),
-                    )
-                )
-
-            return events
-
-    # =========================================================================
-    # Evolution v14: Pattern Auto-Retirement
-    # =========================================================================
-
-    def retire_drifting_patterns(
-        self,
-        drift_threshold: float = 0.2,
-        window_size: int = 5,
-        require_negative_drift: bool = True,
-    ) -> list[tuple[str, str, float]]:
-        """Retire patterns that are drifting negatively.
-
-        Connects the drift detection infrastructure (DriftMetrics) to action.
-        Patterns that have drifted significantly AND in a negative direction
-        are retired by setting their priority_score to 0.
-
-        v14 Evolution: Pattern Auto-Retirement - enables automated pattern
-        lifecycle management based on empirical effectiveness drift.
-
-        Note: This method requires the DriftMixin to be present in the
-        composed class for get_drifting_patterns().
-
-        Args:
-            drift_threshold: Minimum drift magnitude to consider (default 0.2).
-            window_size: Applications per window for drift calculation.
-            require_negative_drift: If True, only retire patterns with
-                negative drift (getting worse). If False, also retire
-                patterns with positive anomalous drift.
-
-        Returns:
-            List of (pattern_id, pattern_name, drift_magnitude) tuples for
-            patterns that were retired.
-        """
-        retired: list[tuple[str, str, float]] = []
-
-        # Get all patterns exceeding drift threshold
-        # Note: get_drifting_patterns is provided by DriftMixin
-        drifting = self.get_drifting_patterns(  # type: ignore[attr-defined]
-            drift_threshold=drift_threshold,
-            window_size=window_size,
-            limit=100,  # Process up to 100 drifting patterns
-        )
-
-        if not drifting:
-            _logger.debug("No drifting patterns found - nothing to retire")
-            return retired
-
-        with self._get_connection() as conn:
-            for metrics in drifting:
-                # Only retire if negative drift (getting worse)
-                if require_negative_drift and metrics.drift_direction != "negative":
-                    _logger.debug(
-                        f"Skipping {metrics.pattern_name}: drift is {metrics.drift_direction}, "
-                        f"not negative"
-                    )
-                    continue
-
-                # threshold_exceeded should already be True from get_drifting_patterns()
-                # but double-check for safety
-                if not metrics.threshold_exceeded:
-                    continue
-
-                # Retire by setting priority_score to 0
-                # Also update suggested_action to document the retirement
-                retirement_reason = (
-                    f"Auto-retired: drift {metrics.drift_direction} "
-                    f"({metrics.drift_magnitude:.2f}), "
-                    f"effectiveness {metrics.effectiveness_before:.2f} → "
-                    f"{metrics.effectiveness_after:.2f}"
-                )
-
-                conn.execute(
-                    """
-                    UPDATE patterns
-                    SET priority_score = 0,
-                        suggested_action = ?
-                    WHERE id = ?
-                    """,
-                    (retirement_reason, metrics.pattern_id),
-                )
-
-                retired.append((
-                    metrics.pattern_id,
-                    metrics.pattern_name,
-                    metrics.drift_magnitude,
-                ))
-
-                _logger.info(
-                    f"Retired pattern '{metrics.pattern_name}': {retirement_reason}"
-                )
-
-        if retired:
-            _logger.info(
-                f"Pattern auto-retirement complete: {len(retired)} patterns retired"
-            )
-
-        return retired
-
-    def get_retired_patterns(self, limit: int = 50) -> list[PatternRecord]:
-        """Get patterns that have been retired (priority_score = 0).
-
-        Returns patterns that were retired through auto-retirement or
-        manual deprecation, useful for review and potential recovery.
-
-        Args:
-            limit: Maximum number of patterns to return.
-
-        Returns:
-            List of PatternRecord objects with priority_score = 0.
-        """
-        with self._get_connection() as conn:
-            cursor = conn.execute(
-                """
-                SELECT * FROM patterns
-                WHERE priority_score = 0
-                ORDER BY last_seen DESC
-                LIMIT ?
-                """,
-                (limit,),
-            )
-
-            records = []
-            for row in cursor.fetchall():
-                records.append(self._row_to_pattern_record(row))
-
-            return records
-
+            return [self._row_to_discovery_event(row) for row in cursor.fetchall()]
 
 # Export public API
 __all__ = [

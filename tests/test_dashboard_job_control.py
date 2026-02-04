@@ -196,7 +196,7 @@ class TestJobControlService:
         job_control_service: JobControlService,
         mock_state_backend: MockStateBackend,
     ):
-        """Test pausing a running job."""
+        """Test pausing a running job using file-based pause signals."""
         # Create a mock running job state
         job_id = "test-job-123"
         state = CheckpointState(
@@ -208,22 +208,21 @@ class TestJobControlService:
         )
         await mock_state_backend.save(state)
 
-        with patch("os.kill") as mock_kill:
-            with patch.object(job_control_service, "get_job_pid", return_value=12345):
-                result = await job_control_service.pause_job(job_id)
+        result = await job_control_service.pause_job(job_id)
 
-                assert result.success is True
-                assert result.job_id == job_id
-                assert result.status == JobStatus.PAUSED.value
-                assert "paused successfully" in result.message
+        # File-based pause: request is sent, but job remains RUNNING until runner processes it
+        assert result.success is True
+        assert result.job_id == job_id
+        assert result.status == JobStatus.RUNNING.value  # Still running until runner picks up signal
+        assert "Pause request sent" in result.message
 
-                # Verify SIGSTOP was sent
-                mock_kill.assert_called_once_with(12345, signal.SIGSTOP)
+        # Verify pause signal file was created
+        workspace_path = job_control_service._workspace_root
+        pause_signal_file = workspace_path / f".mozart-pause-{job_id}"
+        assert pause_signal_file.exists()
 
-                # Verify state was updated
-                updated_state = await mock_state_backend.load(job_id)
-                assert updated_state is not None
-                assert updated_state.status == JobStatus.PAUSED
+        # Cleanup pause file
+        pause_signal_file.unlink()
 
     @pytest.mark.asyncio
     async def test_pause_job_not_found(
@@ -266,7 +265,11 @@ class TestJobControlService:
         job_control_service: JobControlService,
         mock_state_backend: MockStateBackend,
     ):
-        """Test pausing a job whose process is dead."""
+        """Test pausing a job whose process is dead - still creates pause signal file.
+
+        With file-based pause, we still create the signal file. The job will be
+        paused at next check even if process is dead (defensive design).
+        """
         job_id = "test-job-123"
         state = CheckpointState(
             job_id=job_id,
@@ -277,21 +280,21 @@ class TestJobControlService:
         )
         await mock_state_backend.save(state)
 
-        with patch("os.kill") as mock_kill:
-            with patch.object(job_control_service, "get_job_pid", return_value=12345):
-                # Simulate ProcessLookupError
-                mock_kill.side_effect = ProcessLookupError("No such process")
+        # File-based pause doesn't check process health - it just creates the file
+        result = await job_control_service.pause_job(job_id)
 
-                result = await job_control_service.pause_job(job_id)
+        # Pause request is still sent (file created)
+        assert result.success is True
+        assert result.status == JobStatus.RUNNING.value  # Still running until runner processes signal
+        assert "Pause request sent" in result.message
 
-                assert result.success is False
-                assert result.status == JobStatus.PAUSED.value
-                assert "marked as zombie" in result.message
+        # Verify pause signal file was created
+        workspace_path = job_control_service._workspace_root
+        pause_signal_file = workspace_path / f".mozart-pause-{job_id}"
+        assert pause_signal_file.exists()
 
-                # Verify state was marked as paused (zombie recovery)
-                updated_state = await mock_state_backend.load(job_id)
-                assert updated_state is not None
-                assert updated_state.status == JobStatus.PAUSED
+        # Cleanup pause file
+        pause_signal_file.unlink()
 
     @pytest.mark.asyncio
     async def test_resume_paused_job(
@@ -299,7 +302,11 @@ class TestJobControlService:
         job_control_service: JobControlService,
         mock_state_backend: MockStateBackend,
     ):
-        """Test resuming a paused job."""
+        """Test resuming a paused job using file-based signals.
+
+        With file-based pause, resume cleans up the signal file and updates state.
+        No SIGCONT is sent since pause was file-based, not SIGSTOP-based.
+        """
         job_id = "test-job-123"
         state = CheckpointState(
             job_id=job_id,
@@ -310,22 +317,26 @@ class TestJobControlService:
         )
         await mock_state_backend.save(state)
 
-        with patch("os.kill") as mock_kill:
-            with patch.object(job_control_service, "get_job_pid", return_value=12345):
-                result = await job_control_service.resume_job(job_id)
+        # Create pause signal file that would exist from a pause operation
+        workspace_path = job_control_service._workspace_root
+        pause_signal_file = workspace_path / f".mozart-pause-{job_id}"
+        pause_signal_file.touch()
 
-                assert result.success is True
-                assert result.job_id == job_id
-                assert result.status == JobStatus.RUNNING.value
-                assert "resumed successfully" in result.message
+        with patch.object(job_control_service, "get_job_pid", return_value=12345):
+            result = await job_control_service.resume_job(job_id)
 
-                # Verify SIGCONT was sent
-                mock_kill.assert_called_once_with(12345, signal.SIGCONT)
+            assert result.success is True
+            assert result.job_id == job_id
+            assert result.status == JobStatus.RUNNING.value
+            assert "resumed successfully" in result.message
 
-                # Verify state was updated
-                updated_state = await mock_state_backend.load(job_id)
-                assert updated_state is not None
-                assert updated_state.status == JobStatus.RUNNING
+            # Verify pause signal file was cleaned up
+            assert not pause_signal_file.exists()
+
+            # Verify state was updated
+            updated_state = await mock_state_backend.load(job_id)
+            assert updated_state is not None
+            assert updated_state.status == JobStatus.RUNNING
 
     @pytest.mark.asyncio
     async def test_resume_job_not_paused(

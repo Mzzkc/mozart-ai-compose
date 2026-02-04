@@ -20,8 +20,39 @@ Usage remains unchanged:
     store = GlobalLearningStore()
 """
 
-from mozart.learning.store import *  # noqa: F401, F403
-from mozart.learning.store import GlobalLearningStore, get_global_store
+from mozart.learning.store import (
+    # Main class
+    GlobalLearningStore,
+    # Singleton accessor
+    get_global_store,
+    # Base class and constants
+    GlobalLearningStoreBase,
+    DEFAULT_GLOBAL_STORE_PATH,
+    # Mixins (for advanced usage/testing)
+    PatternMixin,
+    ExecutionMixin,
+    RateLimitMixin,
+    DriftMixin,
+    EscalationMixin,
+    BudgetMixin,
+    # Models - Enums
+    QuarantineStatus,
+    # Models - Core records
+    PatternRecord,
+    ExecutionRecord,
+    ErrorRecoveryRecord,
+    RateLimitEvent,
+    EscalationDecisionRecord,
+    PatternDiscoveryEvent,
+    # Models - Metrics and analysis
+    DriftMetrics,
+    EpistemicDriftMetrics,
+    SuccessFactors,
+    EvolutionTrajectoryEntry,
+    # Models - Budget management
+    ExplorationBudgetRecord,
+    EntropyResponseRecord,
+)
 
 __all__ = [
     # Main class

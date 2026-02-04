@@ -100,9 +100,12 @@ class TestJobLifecycleIntegration:
         mock_subprocess,
         client,
         sample_config_content,
-        temp_workspace
+        temp_workspace,
     ):
-        """Test complete job lifecycle: start → pause → resume → cancel."""
+        """Test complete job lifecycle: start → pause → resume → cancel.
+
+        Uses file-based pause mechanism (signal files) instead of SIGSTOP/SIGCONT.
+        """
         # Mock subprocess for job execution
         mock_process = AsyncMock()
         mock_process.pid = 12345
@@ -112,106 +115,107 @@ class TestJobLifecycleIntegration:
         mock_process.kill = AsyncMock()
         mock_subprocess.return_value = mock_process
 
-        # Mock tempfile operations for config content
-        with patch('tempfile.mkstemp') as mock_mkstemp, \
-             patch('builtins.open') as mock_open, \
-             patch('os.close') as mock_close:
+        # Write the config content to a real temp file
+        import tempfile as real_tempfile
+        with real_tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+            f.write(sample_config_content)
+            temp_config_path = f.name
 
-            mock_mkstemp.return_value = (3, "/tmp/test.yaml")
-            mock_file = mock_open.return_value.__enter__.return_value
+        # Track state for mock os.kill behavior
+        kill_call_count = 0
+        process_is_dead = False
 
-            # 1. Start job
-            start_response = client.post(
-                "/api/jobs",
-                json={
-                    "config_content": sample_config_content,
-                    "workspace": str(temp_workspace / "test-job")
-                }
-            )
-
-        assert start_response.status_code == 200
-        start_data = start_response.json()
-        assert start_data["success"] is True
-        assert "job_id" in start_data
-        assert start_data["status"] == "running"
-        assert start_data["total_sheets"] == 2
-
-        job_id = start_data["job_id"]
-
-        # Manually create state record since we're mocking the subprocess
-        # In real execution, Mozart CLI creates this state
-        from mozart.dashboard.app import get_state_backend
-        from mozart.core.checkpoint import CheckpointState, JobStatus
-        from datetime import datetime
-
-        backend = get_state_backend()
-        job_state = CheckpointState(
-            job_id=job_id,
-            job_name="test-integration-job",
-            status=JobStatus.RUNNING,
-            total_sheets=2,
-            last_completed_sheet=0,
-            current_sheet=1,
-            worktree_path=str(temp_workspace / "test-job"),
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
-            pid=12345,  # Match the mock process PID
-        )
-        await backend.save(job_state)
-
-        # 2. Pause job
-        # Mock os.kill to simulate both process existence check and pause signal
         def mock_kill_handler(pid, sig):
+            """Mock os.kill to make mock process appear alive."""
+            nonlocal kill_call_count, process_is_dead
             if sig == 0:  # Process existence check
-                return  # Success (no exception means process exists)
-            elif sig == signal.SIGSTOP:  # Pause signal
-                return  # Success
-
-        with patch('os.kill', side_effect=mock_kill_handler):
-            pause_response = client.post(f"/api/jobs/{job_id}/pause")
-
-            assert pause_response.status_code == 200
-            pause_data = pause_response.json()
-            assert pause_data["success"] is True
-            assert pause_data["job_id"] == job_id
-
-        # 3. Resume job
-        def mock_kill_handler_resume(pid, sig):
-            if sig == 0:  # Process existence check
-                return  # Success
-            elif sig == signal.SIGCONT:  # Resume signal
-                return  # Success
-
-        with patch('os.kill', side_effect=mock_kill_handler_resume):
-            resume_response = client.post(f"/api/jobs/{job_id}/resume")
-
-            assert resume_response.status_code == 200
-            resume_data = resume_response.json()
-            assert resume_data["success"] is True
-            assert resume_data["job_id"] == job_id
-
-        # 4. Cancel job
-        def mock_kill_handler_cancel(pid, sig):
-            if sig == 0:  # Process existence check - first call succeeds, second fails (process dead)
-                if not hasattr(mock_kill_handler_cancel, 'call_count'):
-                    mock_kill_handler_cancel.call_count = 0
-                mock_kill_handler_cancel.call_count += 1
-                if mock_kill_handler_cancel.call_count > 2:  # First check=exists, SIGTERM, second check=dead
+                kill_call_count += 1
+                if process_is_dead:
                     raise ProcessLookupError()  # Process is dead
                 return  # Process exists
             elif sig == signal.SIGTERM:  # Terminate signal
-                return  # Success
+                return  # Success (process will be marked dead after this)
+            # For other signals, just succeed
 
-        with patch('os.kill', side_effect=mock_kill_handler_cancel):
-            cancel_response = client.post(f"/api/jobs/{job_id}/cancel")
+        # Patch os.kill throughout the entire test
+        with patch('os.kill', side_effect=mock_kill_handler):
+            try:
+                # 1. Start job using config path
+                start_response = client.post(
+                    "/api/jobs",
+                    json={
+                        "config_path": temp_config_path,
+                        "workspace": str(temp_workspace / "test-job")
+                    }
+                )
 
-            assert cancel_response.status_code == 200
-            cancel_data = cancel_response.json()
-            assert cancel_data["success"] is True
-            assert cancel_data["job_id"] == job_id
+                assert start_response.status_code == 200
+                start_data = start_response.json()
+                assert start_data["success"] is True
+                assert "job_id" in start_data
+                assert start_data["status"] == "running"
+                assert start_data["total_sheets"] == 2
 
-        # The cancel operation uses os.kill directly, not process.terminate()
-        # So we don't check mock_process.terminate() calls
+                job_id = start_data["job_id"]
+
+                # Verify state is saved by start_job
+                from mozart.dashboard.app import get_state_backend
+                backend = get_state_backend()
+                job_state = await backend.load(job_id)
+                assert job_state is not None
+                assert job_state.status == JobStatus.RUNNING
+
+                # 2. Pause job (file-based)
+                pause_response = client.post(f"/api/jobs/{job_id}/pause")
+
+                assert pause_response.status_code == 200
+                pause_data = pause_response.json()
+                assert pause_data["success"] is True
+                assert pause_data["job_id"] == job_id
+                # File-based pause keeps status as RUNNING until runner processes signal
+                assert pause_data["status"] == JobStatus.RUNNING.value
+                assert "Pause request sent" in pause_data["message"]
+
+                # Manually update state to PAUSED to simulate runner processing the signal
+                job_state = await backend.load(job_id)
+                assert job_state is not None
+                job_state.status = JobStatus.PAUSED
+                await backend.save(job_state)
+
+                # 3. Resume job (file-based - cleans up signal files)
+                resume_response = client.post(f"/api/jobs/{job_id}/resume")
+
+                assert resume_response.status_code == 200
+                resume_data = resume_response.json()
+                assert resume_data["success"] is True
+                assert resume_data["job_id"] == job_id
+
+                # 4. Cancel job - mark process as dead after SIGTERM
+                # Reset call count for cancel phase
+                kill_call_count = 0
+
+                # After SIGTERM, the process should appear dead
+                original_handler = mock_kill_handler
+
+                def mock_kill_cancel(pid, sig):
+                    nonlocal process_is_dead
+                    if sig == signal.SIGTERM:
+                        process_is_dead = True  # Mark dead after terminate
+                    return original_handler(pid, sig)
+
+                with patch('os.kill', side_effect=mock_kill_cancel):
+                    cancel_response = client.post(f"/api/jobs/{job_id}/cancel")
+
+                    assert cancel_response.status_code == 200
+                    cancel_data = cancel_response.json()
+                    assert cancel_data["success"] is True
+                    assert cancel_data["job_id"] == job_id
+
+            finally:
+                # Clean up temp config file
+                import os as os_mod
+                if os_mod.path.exists(temp_config_path):
+                    os_mod.unlink(temp_config_path)
 
     async def test_sse_receives_job_updates(self, client, sse_manager, backend):
         """Test that SSE stream receives job status updates."""
@@ -231,8 +235,8 @@ class TestJobLifecycleIntegration:
 
         await backend.save(job_state)
 
-        # Connect to SSE stream
-        sse_response = client.get(f"/api/stream/{job_id}")
+        # Connect to SSE stream (correct URL: /api/jobs/{job_id}/stream)
+        sse_response = client.get(f"/api/jobs/{job_id}/stream")
         assert sse_response.status_code == 200
         assert sse_response.headers["content-type"] == "text/event-stream"
 
@@ -542,5 +546,6 @@ class TestPerformanceAndReliability:
         await sse_manager.broadcast_to_job(job_id, test_event)
 
         # Connection management is handled by the SSE stream endpoint
-        # This test verifies the API structure is correct for cleanup
-        assert True  # Basic structure test passed
+        # Verify the connection registry exists and can track connections
+        assert hasattr(sse_manager, "_connections"), "SSE manager should have connection registry"
+        assert isinstance(sse_manager._connections, dict), "Connection registry should be a dict"

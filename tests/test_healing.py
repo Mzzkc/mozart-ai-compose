@@ -304,7 +304,7 @@ class TestCreateMissingWorkspaceRemedy:
 
         # Rollback
         rolled_back = remedy.rollback(result)
-        assert rolled_back
+        assert rolled_back, "Rollback should succeed for created workspace"
         assert not workspace.exists()
 
 

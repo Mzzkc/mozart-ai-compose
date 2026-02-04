@@ -4,6 +4,10 @@ Provides a mechanism for escalating to external decision-makers (human or AI)
 when sheet confidence is too low to proceed automatically.
 
 Phase 2 of AGI Evolution: Confidence-Based Execution
+
+v21 Evolution: Proactive Checkpoint System - adds pre-execution checkpoints
+that ask for confirmation BEFORE dangerous operations, complementing the
+reactive escalation system.
 """
 
 from dataclasses import dataclass, field
@@ -11,6 +15,138 @@ from typing import Any, Literal, Protocol, runtime_checkable
 
 from mozart.core.checkpoint import SheetState
 from mozart.execution.validation import SheetValidationResult
+
+
+# =============================================================================
+# v21 Evolution: Proactive Checkpoint System
+# =============================================================================
+
+
+@dataclass
+class CheckpointTrigger:
+    """Configuration for a proactive checkpoint trigger.
+
+    Defines conditions that should trigger a pre-execution checkpoint,
+    asking for confirmation BEFORE the sheet executes.
+
+    v21 Evolution: Proactive Checkpoint System - enables pre-action validation.
+    """
+
+    name: str
+    """Name/identifier for this trigger."""
+
+    sheet_nums: list[int] | None = None
+    """Specific sheet numbers to checkpoint (None = all sheets)."""
+
+    prompt_contains: list[str] | None = None
+    """Keywords in prompt that trigger checkpoint (case-insensitive)."""
+
+    min_retry_count: int | None = None
+    """Trigger if retry count >= this value."""
+
+    requires_confirmation: bool = True
+    """Whether to require explicit confirmation (True) or just warn (False)."""
+
+    message: str = ""
+    """Custom message to show when checkpoint triggers."""
+
+
+@dataclass
+class CheckpointContext:
+    """Context provided to checkpoint handlers for decision-making.
+
+    Contains all relevant information about the sheet that's about to execute,
+    enabling informed pre-execution decisions.
+
+    v21 Evolution: Proactive Checkpoint System.
+    """
+
+    job_id: str
+    """Unique identifier for the job."""
+
+    sheet_num: int
+    """Sheet number about to execute."""
+
+    prompt: str
+    """The prompt that will be used for sheet execution."""
+
+    trigger: CheckpointTrigger
+    """The trigger that caused this checkpoint."""
+
+    retry_count: int = 0
+    """Number of retry attempts already made for this sheet."""
+
+    previous_errors: list[str] = field(default_factory=list)
+    """Errors from previous attempts (if any)."""
+
+
+@dataclass
+class CheckpointResponse:
+    """Response from a checkpoint handler specifying how to proceed.
+
+    v21 Evolution: Proactive Checkpoint System.
+    """
+
+    action: Literal["proceed", "abort", "skip", "modify_prompt"]
+    """Action to take:
+    - proceed: Continue with execution
+    - abort: Stop the entire job
+    - skip: Skip this sheet and continue to the next
+    - modify_prompt: Proceed with modified prompt
+    """
+
+    modified_prompt: str | None = None
+    """Modified prompt to use if action is 'modify_prompt'."""
+
+    guidance: str | None = None
+    """Optional guidance or reasoning for the decision."""
+
+
+@runtime_checkable
+class CheckpointHandler(Protocol):
+    """Protocol for proactive checkpoint handlers.
+
+    Implementations can be console-based (human), API-based (AI judgment),
+    or any other decision-making mechanism.
+
+    v21 Evolution: Proactive Checkpoint System - enables pre-execution checkpoints.
+    """
+
+    async def should_checkpoint(
+        self,
+        sheet_num: int,
+        prompt: str,
+        retry_count: int,
+        triggers: list[CheckpointTrigger],
+    ) -> CheckpointTrigger | None:
+        """Determine if a checkpoint is needed before sheet execution.
+
+        Args:
+            sheet_num: Sheet number about to execute.
+            prompt: The prompt to be used.
+            retry_count: Number of retry attempts already made.
+            triggers: List of configured checkpoint triggers.
+
+        Returns:
+            The matching CheckpointTrigger if checkpoint needed, None otherwise.
+        """
+        ...
+
+    async def checkpoint(self, context: CheckpointContext) -> CheckpointResponse:
+        """Handle checkpoint and return the decision.
+
+        Args:
+            context: Full context about the checkpoint trigger.
+
+        Returns:
+            CheckpointResponse with the action to take.
+        """
+        ...
+
+
+# =============================================================================
+# Reactive Escalation (existing system)
+# =============================================================================
 
 
 @dataclass
@@ -376,4 +512,217 @@ class ConsoleEscalationHandler:
             return instruction[8:].strip()
         else:
             # Default: append as additional instruction
+            return original_prompt + "\n\n---\nAdditional guidance: " + instruction
+
+
+# =============================================================================
+# v21 Evolution: Console Checkpoint Handler
+# =============================================================================
+
+
+class ConsoleCheckpointHandler:
+    """Console-based checkpoint handler that prompts the user before execution.
+
+    Implements the CheckpointHandler protocol for interactive
+    human-in-the-loop decision making BEFORE sheet execution.
+
+    v21 Evolution: Proactive Checkpoint System.
+    """
+
+    async def should_checkpoint(
+        self,
+        sheet_num: int,
+        prompt: str,
+        retry_count: int,
+        triggers: list[CheckpointTrigger],
+    ) -> CheckpointTrigger | None:
+        """Determine if a checkpoint is needed before sheet execution.
+
+        Checks all configured triggers against the current sheet context.
+
+        Args:
+            sheet_num: Sheet number about to execute.
+            prompt: The prompt to be used.
+            retry_count: Number of retry attempts already made.
+            triggers: List of configured checkpoint triggers.
+
+        Returns:
+            The first matching CheckpointTrigger, or None if no checkpoint needed.
+        """
+        prompt_lower = prompt.lower()
+
+        for trigger in triggers:
+            # Check sheet number match
+            if trigger.sheet_nums is not None:
+                if sheet_num not in trigger.sheet_nums:
+                    continue
+
+            # Check prompt keyword match
+            if trigger.prompt_contains is not None:
+                keyword_match = any(
+                    kw.lower() in prompt_lower
+                    for kw in trigger.prompt_contains
+                )
+                if not keyword_match:
+                    continue
+
+            # Check retry count threshold
+            if trigger.min_retry_count is not None:
+                if retry_count < trigger.min_retry_count:
+                    continue
+
+            # All conditions passed - trigger matched
+            return trigger
+
+        return None
+
+    async def checkpoint(self, context: CheckpointContext) -> CheckpointResponse:
+        """Handle checkpoint and prompt user for decision.
+
+        Args:
+            context: Full context about the checkpoint trigger.
+
+        Returns:
+            CheckpointResponse with the action to take.
+        """
+        self._print_checkpoint_prompt(context)
+
+        if not context.trigger.requires_confirmation:
+            # Warning only - proceed automatically
+            return CheckpointResponse(
+                action="proceed",
+                guidance="Auto-proceed (warning-only checkpoint)",
+            )
+
+        return await self._prompt_for_checkpoint_action(context)
+
+    def _print_checkpoint_prompt(self, context: CheckpointContext) -> None:
+        """Print checkpoint prompt to console."""
+        separator = "=" * 60
+        print(f"\n{separator}")
+        print("CHECKPOINT - Pre-Execution Approval Required")
+        print(separator)
+        print(f"Job ID:       {context.job_id}")
+        print(f"Sheet:        {context.sheet_num}")
+        print(f"Retry Count:  {context.retry_count}")
+        print(f"Trigger:      {context.trigger.name}")
+
+        if context.trigger.message:
+            print("-" * 60)
+            print(f"MESSAGE: {context.trigger.message}")
+
+        # Show prompt preview (truncated)
+        print("-" * 60)
+        prompt_preview = context.prompt[:300]
+        if len(context.prompt) > 300:
+            prompt_preview += "..."
+        print(f"Prompt preview:\n{prompt_preview}")
+
+        # Show previous errors if any
+        if context.previous_errors:
+            print("-" * 60)
+            print("Previous errors:")
+            for i, error in enumerate(context.previous_errors[-3:], 1):
+                error_short = error[:100] + "..." if len(error) > 100 else error
+                print(f"  {i}. {error_short}")
+
+        print(separator)
+
+    async def _prompt_for_checkpoint_action(
+        self,
+        context: CheckpointContext,
+    ) -> CheckpointResponse:
+        """Prompt user for checkpoint action.
+
+        Args:
+            context: Checkpoint context.
+
+        Returns:
+            CheckpointResponse based on user choice.
+        """
+        print("\nActions:")
+        print("  [p] Proceed - Continue with sheet execution")
+        print("  [s] Skip    - Skip this sheet and continue")
+        print("  [a] Abort   - Stop the entire job")
+        print("  [m] Modify  - Proceed with modified prompt")
+        print()
+
+        while True:
+            try:
+                choice = input("Choose action [p/s/a/m]: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print("\nNo input available, defaulting to abort.")
+                return CheckpointResponse(
+                    action="abort",
+                    guidance="Non-interactive environment or interrupted",
+                )
+
+            if choice == "p":
+                guidance = self._get_optional_guidance()
+                return CheckpointResponse(
+                    action="proceed",
+                    guidance=guidance,
+                )
+
+            elif choice == "s":
+                guidance = self._get_optional_guidance()
+                return CheckpointResponse(
+                    action="skip",
+                    guidance=guidance,
+                )
+
+            elif choice == "a":
+                return CheckpointResponse(
+                    action="abort",
+                    guidance="User aborted via checkpoint",
+                )
+
+            elif choice == "m":
+                modified_prompt = self._get_modified_prompt(context.prompt)
+                if modified_prompt is None:
+                    print("Modification cancelled, please choose again.")
+                    continue
+                guidance = self._get_optional_guidance()
+                return CheckpointResponse(
+                    action="modify_prompt",
+                    modified_prompt=modified_prompt,
+                    guidance=guidance,
+                )
+
+            else:
+                print(f"Invalid choice: '{choice}'. Please enter p, s, a, or m.")
+
+    def _get_optional_guidance(self) -> str | None:
+        """Prompt for optional guidance/notes."""
+        try:
+            guidance = input("Add notes (optional, press Enter to skip): ").strip()
+            return guidance if guidance else None
+        except (EOFError, KeyboardInterrupt):
+            return None
+
+    def _get_modified_prompt(self, original_prompt: str) -> str | None:
+        """Get modified prompt from user."""
+        print("\nOriginal prompt (first 500 chars):")
+        print("-" * 40)
+        print(original_prompt[:500])
+        if len(original_prompt) > 500:
+            print("...")
+        print("-" * 40)
+
+        print("\nEnter modification instructions (or 'cancel' to go back):")
+        print("You can add a prefix, suffix, or replacement instruction.")
+
+        try:
+            instruction = input("> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return None
+
+        if instruction.lower() == "cancel":
+            return None
+
+        if instruction.startswith("PREFIX:"):
+            return instruction[7:].strip() + "\n\n" + original_prompt
+        elif instruction.startswith("REPLACE:"):
+            return instruction[8:].strip()
+        else:
             return original_prompt + "\n\n---\nAdditional guidance: " + instruction

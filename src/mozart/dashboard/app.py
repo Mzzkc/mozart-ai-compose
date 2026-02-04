@@ -95,7 +95,21 @@ def create_app(
     )
 
     # CORS middleware
-    allowed_origins = cors_origins or ["*"]
+    # Default to localhost origins for security; use MOZART_DEV=1 for permissive mode
+    import os
+    if cors_origins:
+        allowed_origins = cors_origins
+    elif os.environ.get("MOZART_DEV") == "1":
+        # Development mode: allow all origins
+        allowed_origins = ["*"]
+    else:
+        # Production default: restrict to localhost
+        allowed_origins = [
+            "http://localhost:3000",
+            "http://localhost:8000",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:8000",
+        ]
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins,
@@ -121,12 +135,14 @@ def create_app(
     from mozart.dashboard.routes.artifacts import router as artifacts_router
     from mozart.dashboard.routes.jobs import router as jobs_router
     from mozart.dashboard.routes.pages import router as pages_router
+    from mozart.dashboard.routes.scores import router as scores_router
     from mozart.dashboard.routes.stream import router as stream_router
 
     app.include_router(base_router)
     app.include_router(jobs_router)
     app.include_router(artifacts_router)
     app.include_router(pages_router)
+    app.include_router(scores_router)
     app.include_router(stream_router)
 
     # Health check endpoint (at root level)

@@ -667,6 +667,37 @@ class CheckpointState(BaseModel):
             error_message=error_message[:100] if error_message else None,
         )
 
+    def mark_sheet_skipped(
+        self,
+        sheet_num: int,
+        reason: str | None = None,
+    ) -> None:
+        """Mark a sheet as skipped.
+
+        v21 Evolution: Proactive Checkpoint System - supports skipping sheets
+        via checkpoint response.
+
+        Args:
+            sheet_num: Sheet number to skip.
+            reason: Optional reason for skipping (stored in error_message field).
+        """
+        self.updated_at = utc_now()
+
+        sheet = self.sheets[sheet_num]
+        sheet.status = SheetStatus.SKIPPED
+        sheet.completed_at = utc_now()
+        if reason:
+            sheet.error_message = reason
+
+        self.current_sheet = None
+
+        _logger.info(
+            "sheet_skipped",
+            job_id=self.job_id,
+            sheet_num=sheet_num,
+            reason=reason,
+        )
+
     def mark_job_failed(self, error_message: str) -> None:
         """Mark the entire job as failed."""
         previous_status = self.status
@@ -774,15 +805,18 @@ class CheckpointState(BaseModel):
         self.pid = None
         self.updated_at = utc_now()
 
-        # Build zombie recovery message
-        zombie_msg = f"Zombie recovery: job was RUNNING (PID {previous_pid}) but process dead"
+        # Build zombie recovery message - this is informational, not an error
+        # The job has been successfully recovered and can be resumed
+        zombie_msg = (
+            f"Recovered from stale running state (PID {previous_pid} no longer active). "
+            "Job is now paused and ready to resume."
+        )
         if reason:
-            zombie_msg += f". {reason}"
+            zombie_msg += f" Trigger: {reason}"
 
-        # Preserve any existing error message
-        if self.error_message:
-            self.error_message = f"{zombie_msg}. Previous error: {self.error_message}"
-        else:
+        # Only set error_message if there isn't already a real error
+        # Zombie recovery is informational, not an error condition
+        if not self.error_message:
             self.error_message = zombie_msg
 
         _logger.warning(

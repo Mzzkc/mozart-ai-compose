@@ -950,19 +950,29 @@ class ValidationEngine:
         - mypy: `mypy src/`
         - ruff: `ruff check src/`
 
-        Security Note:
-            This method executes arbitrary shell commands with shell=True.
-            Commands come from job configuration files (YAML), which are
-            trusted by design - they are authored by the job creator who
-            has full control over the execution environment. The shell=True
-            parameter is intentional to support shell features like pipes,
-            redirects, and environment variable expansion.
+        Security Note (shell=True usage):
+            This method executes shell commands with shell=True, which enables
+            shell features like pipes, redirects, and variable expansion but
+            also carries inherent shell injection risks.
 
-            This is NOT a security vulnerability because:
-            1. Job configs are not user-supplied input - they're authored
-               by the same entity that controls the execution environment
-            2. The working directory is constrained to the job workspace
+            **Trust Model:**
+            Commands come from job configuration files (YAML), which are
+            treated as trusted code - they are authored by the job creator who
+            has full control over the execution environment, similar to how
+            Makefiles or CI/CD scripts are trusted.
+
+            **Mitigations in place:**
+            1. Config files are authored locally, not from untrusted input
+            2. Working directory is constrained to the job workspace
             3. Commands have a 5-minute timeout to prevent resource exhaustion
+            4. No template expansion occurs on the command itself (commands
+               are executed exactly as written in config)
+
+            **When NOT to use command_succeeds:**
+            - Never interpolate untrusted data into commands
+            - Never allow users to provide arbitrary commands via UI/API
+            - If you need to run commands with variable data, use
+              ValidationRule.working_directory for path customization
 
         Args:
             rule: Validation rule with command to execute.

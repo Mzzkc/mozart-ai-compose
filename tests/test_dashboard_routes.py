@@ -315,12 +315,27 @@ class TestJobRoutes:
         assert response.status_code == 404
         assert "Job not found" in response.json()["detail"]
 
-    def test_delete_job_running(self, client, sample_job_state):
+    def test_delete_job_running(self, client, temp_state_dir):
         """Test deleting running job (should fail)."""
-        with patch('mozart.dashboard.services.job_control.JobControlService.delete_job') as mock_delete:
+        # Create a running job state with a PID (indicating active process)
+        import asyncio
+        running_state = CheckpointState(
+            job_id="test-job-123",
+            job_name="Test Job",
+            status=JobStatus.RUNNING,
+            total_sheets=5,
+            last_completed_sheet=2,
+            current_sheet=3,
+            worktree_path="/tmp/test-workspace",
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
+            pid=12345,  # PID must be set for running job check
+        )
+        backend = JsonStateBackend(temp_state_dir)
+        asyncio.get_event_loop().run_until_complete(backend.save(running_state))
 
-            mock_delete.return_value = False
-
+        # Mock os.kill to make the process appear alive (prevents deletion)
+        with patch('os.kill'):
             response = client.delete("/api/jobs/test-job-123")
 
         assert response.status_code == 409

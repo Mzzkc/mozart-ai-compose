@@ -5,7 +5,10 @@ The create_default_registry() factory returns a registry with
 all built-in remedies pre-registered.
 """
 
+import logging
 from typing import TYPE_CHECKING
+
+_logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from mozart.healing.context import ErrorContext
@@ -90,7 +93,11 @@ class RemedyRegistry:
                     applicable.append((remedy, diagnosis))
             except Exception:
                 # Individual remedy failures shouldn't block finding others
-                pass
+                _logger.warning(
+                    "Remedy %s.diagnose() raised exception",
+                    remedy.name,
+                    exc_info=True,
+                )
 
         # Sort by diagnosis confidence, highest first
         applicable.sort(key=lambda x: x[1].confidence, reverse=True)

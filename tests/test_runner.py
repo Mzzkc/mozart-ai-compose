@@ -86,6 +86,7 @@ def sample_config() -> JobConfig:
             "max_retries": 2,
         },
         "validations": [],  # No validations for simpler tests
+        "pause_between_sheets_seconds": 0,  # Fast tests: no pause between sheets
     })
 
 
@@ -974,10 +975,10 @@ class TestRunnerLoggingIntegration:
         # Patch validation and preflight to pass
         with (
             patch(
-                "mozart.execution.runner.ValidationEngine.run_validations"
+                "mozart.execution.runner.sheet.ValidationEngine.run_validations"
             ) as mock_validation,
             patch(
-                "mozart.execution.runner.ValidationEngine.snapshot_mtime_files"
+                "mozart.execution.runner.sheet.ValidationEngine.snapshot_mtime_files"
             ),
             patch.object(
                 runner, "_run_preflight_checks", return_value=make_mock_preflight_result()
@@ -1075,10 +1076,10 @@ class TestRunnerLoggingIntegration:
         # Patch validation and preflight to pass
         with (
             patch(
-                "mozart.execution.runner.ValidationEngine.run_validations"
+                "mozart.execution.runner.sheet.ValidationEngine.run_validations"
             ) as mock_validation,
             patch(
-                "mozart.execution.runner.ValidationEngine.snapshot_mtime_files"
+                "mozart.execution.runner.sheet.ValidationEngine.snapshot_mtime_files"
             ),
             patch.object(
                 runner, "_run_preflight_checks", return_value=make_mock_preflight_result()
@@ -1148,10 +1149,10 @@ class TestRunnerLoggingIntegration:
         # Patch validation and preflight to pass
         with (
             patch(
-                "mozart.execution.runner.ValidationEngine.run_validations"
+                "mozart.execution.runner.sheet.ValidationEngine.run_validations"
             ) as mock_validation,
             patch(
-                "mozart.execution.runner.ValidationEngine.snapshot_mtime_files"
+                "mozart.execution.runner.sheet.ValidationEngine.snapshot_mtime_files"
             ),
             patch.object(
                 runner, "_run_preflight_checks", return_value=make_mock_preflight_result()
@@ -1240,10 +1241,10 @@ class TestRunnerLoggingIntegration:
         # Patch validation and preflight to return our warning result
         with (
             patch(
-                "mozart.execution.runner.ValidationEngine.run_validations"
+                "mozart.execution.runner.sheet.ValidationEngine.run_validations"
             ) as mock_validation,
             patch(
-                "mozart.execution.runner.ValidationEngine.snapshot_mtime_files"
+                "mozart.execution.runner.sheet.ValidationEngine.snapshot_mtime_files"
             ),
             patch.object(
                 runner, "_run_preflight_checks", return_value=preflight_with_warnings
@@ -1417,10 +1418,10 @@ class TestLoggingLevelFiltering:
 
         with (
             patch(
-                "mozart.execution.runner.ValidationEngine.run_validations"
+                "mozart.execution.runner.sheet.ValidationEngine.run_validations"
             ) as mock_validation,
             patch(
-                "mozart.execution.runner.ValidationEngine.snapshot_mtime_files"
+                "mozart.execution.runner.sheet.ValidationEngine.snapshot_mtime_files"
             ),
             patch.object(
                 runner, "_run_preflight_checks", return_value=make_mock_preflight_result()
@@ -1619,3 +1620,293 @@ class TestActiveBroadcastPolling:
 
         # Should not raise
         await runner._poll_broadcast_discoveries("test-job", sheet_num=1)
+
+
+# =============================================================================
+# TestCostTracking
+# =============================================================================
+
+
+class TestCostTracking:
+    """Tests for CostMixin cost tracking functionality.
+
+    Tests the cost tracking methods:
+    - _track_cost(): Token usage and cost calculation
+    - _check_cost_limits(): Per-sheet and per-job cost limits
+    - _estimate_prompt_tokens(): Token estimation
+    - _format_cost(): Cost formatting
+    """
+
+    @pytest.fixture
+    def cost_enabled_config(self) -> JobConfig:
+        """Create a config with cost tracking enabled."""
+        return JobConfig.model_validate({
+            "name": "test-cost-job",
+            "description": "Test job for cost tracking tests",
+            "backend": {
+                "type": "claude_cli",
+                "skip_permissions": True,
+            },
+            "sheet": {
+                "size": 10,
+                "total_items": 30,
+            },
+            "prompt": {
+                "template": "Process sheet {{ sheet_num }}.",
+            },
+            "cost_limits": {
+                "enabled": True,
+                "max_cost_per_sheet": 1.0,
+                "max_cost_per_job": 10.0,
+                "cost_per_1k_input_tokens": 0.003,
+                "cost_per_1k_output_tokens": 0.015,
+                "warn_at_percent": 80,
+            },
+        })
+
+    @pytest.fixture
+    def cost_runner(
+        self,
+        cost_enabled_config: JobConfig,
+        mock_backend: MagicMock,
+        mock_state_backend: MagicMock,
+    ) -> JobRunner:
+        """Create a runner with cost tracking enabled."""
+        return JobRunner(
+            config=cost_enabled_config,
+            backend=mock_backend,
+            state_backend=mock_state_backend,
+        )
+
+    def test_track_cost_with_exact_tokens(
+        self,
+        cost_runner: JobRunner,
+    ) -> None:
+        """Test cost tracking with exact token counts from API."""
+        from mozart.backends.base import ExecutionResult
+        from mozart.core.checkpoint import CheckpointState, SheetState
+
+        result = ExecutionResult(
+            success=True,
+            stdout="Output",
+            stderr="",
+            exit_code=0,
+            duration_seconds=1.0,
+            input_tokens=1000,
+            output_tokens=500,
+        )
+        sheet_state = SheetState(sheet_num=1)
+        state = CheckpointState(
+            job_id="test", job_name="Test", total_sheets=1
+        )
+
+        input_tokens, output_tokens, cost, confidence = cost_runner._track_cost(
+            result, sheet_state, state
+        )
+
+        assert input_tokens == 1000
+        assert output_tokens == 500
+        # Cost = (1000/1000 * 0.003) + (500/1000 * 0.015) = 0.003 + 0.0075 = 0.0105
+        assert abs(cost - 0.0105) < 0.0001
+        assert confidence == 1.0  # Exact counts
+
+    def test_track_cost_with_legacy_tokens(
+        self,
+        cost_runner: JobRunner,
+    ) -> None:
+        """Test cost tracking with legacy tokens_used field."""
+        from mozart.backends.base import ExecutionResult
+        from mozart.core.checkpoint import CheckpointState, SheetState
+
+        result = ExecutionResult(
+            success=True,
+            stdout="Output",
+            stderr="",
+            exit_code=0,
+            duration_seconds=1.0,
+            tokens_used=1000,  # Legacy field
+        )
+        sheet_state = SheetState(sheet_num=1)
+        state = CheckpointState(
+            job_id="test", job_name="Test", total_sheets=1
+        )
+
+        _, output_tokens, _, confidence = cost_runner._track_cost(
+            result, sheet_state, state
+        )
+
+        assert output_tokens == 1000
+        assert confidence == 0.85  # Lower confidence for legacy
+
+    def test_track_cost_with_estimation(
+        self,
+        cost_runner: JobRunner,
+    ) -> None:
+        """Test cost tracking with character-based estimation."""
+        from mozart.backends.base import ExecutionResult
+        from mozart.core.checkpoint import CheckpointState, SheetState
+
+        # 400 chars => ~100 tokens (4 chars per token)
+        result = ExecutionResult(
+            success=True,
+            stdout="x" * 400,
+            stderr="",
+            exit_code=0,
+            duration_seconds=1.0,
+        )
+        sheet_state = SheetState(sheet_num=1)
+        state = CheckpointState(
+            job_id="test", job_name="Test", total_sheets=1
+        )
+
+        _, output_tokens, _, confidence = cost_runner._track_cost(
+            result, sheet_state, state
+        )
+
+        assert output_tokens == 100  # 400 chars / 4
+        assert confidence == 0.7  # Lowest confidence for estimation
+
+    def test_track_cost_accumulates_to_state(
+        self,
+        cost_runner: JobRunner,
+    ) -> None:
+        """Test that costs accumulate across multiple calls."""
+        from mozart.backends.base import ExecutionResult
+        from mozart.core.checkpoint import CheckpointState, SheetState
+
+        state = CheckpointState(
+            job_id="test", job_name="Test", total_sheets=3
+        )
+
+        # Track cost for 3 sheets
+        for i in range(3):
+            result = ExecutionResult(
+                success=True,
+                stdout="Output",
+                stderr="",
+                exit_code=0,
+                duration_seconds=1.0,
+                input_tokens=1000,
+                output_tokens=500,
+            )
+            sheet_state = SheetState(sheet_num=i + 1)
+            cost_runner._track_cost(result, sheet_state, state)
+
+        # Total should be 3x the individual cost
+        expected_cost = 3 * 0.0105
+        assert abs(state.total_estimated_cost - expected_cost) < 0.0001
+        assert state.total_input_tokens == 3000
+        assert state.total_output_tokens == 1500
+
+    def test_check_cost_limits_passes_within_limits(
+        self,
+        cost_runner: JobRunner,
+    ) -> None:
+        """Test that cost limit check passes when within limits."""
+        from mozart.core.checkpoint import CheckpointState, SheetState
+
+        sheet_state = SheetState(sheet_num=1)
+        sheet_state.estimated_cost = 0.5  # Below max_cost_per_sheet (1.0)
+        state = CheckpointState(
+            job_id="test", job_name="Test", total_sheets=1
+        )
+        state.total_estimated_cost = 5.0  # Below max_cost_per_job (10.0)
+
+        exceeded, reason = cost_runner._check_cost_limits(sheet_state, state)
+
+        assert exceeded is False
+        assert reason is None
+
+    def test_check_cost_limits_fails_on_sheet_limit(
+        self,
+        cost_runner: JobRunner,
+    ) -> None:
+        """Test that cost limit check fails when sheet limit exceeded."""
+        from mozart.core.checkpoint import CheckpointState, SheetState
+
+        sheet_state = SheetState(sheet_num=1)
+        sheet_state.estimated_cost = 1.5  # Above max_cost_per_sheet (1.0)
+        state = CheckpointState(
+            job_id="test", job_name="Test", total_sheets=1
+        )
+
+        exceeded, reason = cost_runner._check_cost_limits(sheet_state, state)
+
+        assert exceeded is True
+        assert "Sheet cost" in reason
+        assert "exceeded limit" in reason
+
+    def test_check_cost_limits_fails_on_job_limit(
+        self,
+        cost_runner: JobRunner,
+    ) -> None:
+        """Test that cost limit check fails when job limit exceeded."""
+        from mozart.core.checkpoint import CheckpointState, SheetState
+
+        sheet_state = SheetState(sheet_num=1)
+        sheet_state.estimated_cost = 0.5
+        state = CheckpointState(
+            job_id="test", job_name="Test", total_sheets=1
+        )
+        state.total_estimated_cost = 11.0  # Above max_cost_per_job (10.0)
+
+        exceeded, reason = cost_runner._check_cost_limits(sheet_state, state)
+
+        assert exceeded is True
+        assert "Job cost" in reason
+        assert "exceeded limit" in reason
+
+    def test_check_cost_limits_disabled_passes_always(
+        self,
+        mock_backend: MagicMock,
+        mock_state_backend: MagicMock,
+    ) -> None:
+        """Test that cost limits always pass when disabled."""
+        from mozart.core.checkpoint import CheckpointState, SheetState
+
+        config = JobConfig.model_validate({
+            "name": "test-job",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 10, "total_items": 30},
+            "prompt": {"template": "Test"},
+            "cost_limits": {"enabled": False},  # Disabled
+        })
+        runner = JobRunner(
+            config=config,
+            backend=mock_backend,
+            state_backend=mock_state_backend,
+        )
+
+        sheet_state = SheetState(sheet_num=1)
+        sheet_state.estimated_cost = 1000.0  # Very high
+        state = CheckpointState(
+            job_id="test", job_name="Test", total_sheets=1
+        )
+        state.total_estimated_cost = 1000.0
+
+        exceeded, reason = runner._check_cost_limits(sheet_state, state)
+
+        assert exceeded is False  # Passes because disabled
+        assert reason is None
+
+    def test_estimate_prompt_tokens(
+        self,
+        cost_runner: JobRunner,
+    ) -> None:
+        """Test prompt token estimation."""
+        # 400 chars => 100 tokens
+        assert cost_runner._estimate_prompt_tokens("x" * 400) == 100
+        # 3 chars => minimum 1 token
+        assert cost_runner._estimate_prompt_tokens("abc") == 1
+        # Empty string => minimum 1 token
+        assert cost_runner._estimate_prompt_tokens("") == 1
+
+    def test_format_cost(
+        self,
+        cost_runner: JobRunner,
+    ) -> None:
+        """Test cost formatting."""
+        assert cost_runner._format_cost(0.0042) == "$0.0042"  # < 0.01
+        assert cost_runner._format_cost(0.123) == "$0.123"  # < 1.0
+        assert cost_runner._format_cost(1.23) == "$1.23"  # >= 1.0
+        assert cost_runner._format_cost(12.34) == "$12.34"

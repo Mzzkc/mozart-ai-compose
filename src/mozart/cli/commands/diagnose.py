@@ -29,7 +29,7 @@ import json as json_module
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import typer
 from rich.panel import Panel
@@ -58,10 +58,6 @@ from ..output import (
     format_error_details,
     infer_error_type,
 )
-
-if TYPE_CHECKING:
-    pass
-
 
 # =============================================================================
 # logs command
@@ -666,10 +662,10 @@ def _build_diagnostic_report(job: CheckpointState) -> dict[str, Any]:
 
     # Progress summary
     completed_count = sum(
-        1 for b in job.sheets.values() if b.status == SheetStatus.COMPLETED
+        1 for sheet in job.sheets.values() if sheet.status == SheetStatus.COMPLETED
     )
     failed_count = sum(
-        1 for b in job.sheets.values() if b.status == SheetStatus.FAILED
+        1 for sheet in job.sheets.values() if sheet.status == SheetStatus.FAILED
     )
     report["progress"] = {
         "total_sheets": job.total_sheets,

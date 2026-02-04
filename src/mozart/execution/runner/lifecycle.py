@@ -186,6 +186,9 @@ class LifecycleMixin:
             if worktree_path and hasattr(self.backend, "working_directory"):
                 self.backend.working_directory = original_working_directory
 
+            # Close backend to release resources (connections, subprocesses, etc.)
+            await self.backend.close()
+
             # Remove signal handlers
             self._remove_signal_handlers()
 
@@ -756,10 +759,13 @@ class LifecycleMixin:
 
         except Exception as e:
             # Global learning failures should not block job completion
+            # Log with exc_info to capture full stack trace for debugging
             self._logger.warning(
                 "learning.global_aggregation_failed",
                 job_id=state.job_id,
                 error=str(e),
+                error_type=type(e).__name__,
+                exc_info=True,
             )
 
 

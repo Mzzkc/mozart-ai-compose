@@ -354,8 +354,8 @@ class PromptBuilder:
                 if placeholder in result:
                     result = result.replace(placeholder, str(val))
             return result
-        except Exception:
-            # If expansion fails, return original
+        except (KeyError, TypeError, AttributeError):
+            # If expansion fails due to missing key or incompatible type, return original
             return value
 
     def _build_default_prompt(self, context: SheetContext) -> str:

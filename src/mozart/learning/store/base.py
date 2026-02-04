@@ -96,8 +96,13 @@ class GlobalLearningStoreBase:
             conn.row_factory = sqlite3.Row
             yield conn
             conn.commit()
-        except Exception:
+        except Exception as e:
             conn.rollback()
+            # Log context before re-raising to aid debugging
+            # The exception chain is preserved for full stack trace
+            _logger.debug(
+                f"Database operation failed on {self.db_path}: {type(e).__name__}: {e}"
+            )
             raise
         finally:
             conn.close()

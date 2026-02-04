@@ -216,11 +216,8 @@ class TestMCPServerIntegration:
     async def test_error_handling(self, mcp_server):
         """Test error handling across tool categories."""
         # Test unknown tool
-        try:
+        with pytest.raises(ValueError, match="Unknown tool"):
             await mcp_server.call_tool("unknown_tool", {})
-            assert False, "Should have raised ValueError"
-        except ValueError as e:
-            assert "Unknown tool" in str(e)
 
         # Test invalid arguments
         result = await mcp_server.call_tool("get_job", {})  # Missing job_id

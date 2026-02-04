@@ -7,6 +7,7 @@ Phase 5 of Mozart implementation: Missing README features.
 """
 
 import os
+import re
 from dataclasses import asdict
 from datetime import datetime
 from typing import Any
@@ -21,6 +22,9 @@ from mozart.notifications.base import (
 
 # Module-level logger for webhook notifications
 _logger = get_logger("notifications.webhook")
+
+# Pre-compiled regex for environment variable expansion (${VAR} syntax)
+_ENV_VAR_PATTERN = re.compile(r"\$\{(\w+)\}")
 
 
 def _serialize_context(context: NotificationContext) -> dict[str, Any]:
@@ -128,11 +132,9 @@ class WebhookNotifier:
         """
         expanded: dict[str, str] = {}
         for key, value in headers.items():
-            # Simple ${VAR} expansion
+            # Simple ${VAR} expansion using pre-compiled pattern
             if "${" in value:
-                import re
-                pattern = r"\$\{(\w+)\}"
-                matches = re.findall(pattern, value)
+                matches = _ENV_VAR_PATTERN.findall(value)
                 for var_name in matches:
                     env_value = os.environ.get(var_name, "")
                     value = value.replace(f"${{{var_name}}}", env_value)
@@ -254,10 +256,13 @@ class WebhookNotifier:
 
         last_error: str | None = None
 
+        # Type narrowing: _url is verified non-None by caller (send method)
+        assert self._url is not None, "URL must be set before sending requests"
+
         for attempt in range(self._max_retries + 1):
             try:
                 response = await client.post(
-                    self._url,  # type: ignore[arg-type]
+                    self._url,
                     json=payload,
                 )
 

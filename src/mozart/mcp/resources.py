@@ -95,7 +95,7 @@ class ConfigResources:
                     "mimeType": "application/json"
                 })
             except Exception:
-                pass  # State backend not available
+                logger.debug("State backend not available for job resources", exc_info=True)
 
         return resources
 

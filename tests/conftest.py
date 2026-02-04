@@ -15,19 +15,20 @@ def reset_logging_state() -> Generator[None, None, None]:
 
     This ensures test isolation for logging configuration.
     """
-    import mozart.cli as cli_module
+    # Import helpers module directly for access to internal state
+    from mozart.cli import helpers as cli_helpers
 
     # Store original state
-    original_configured = cli_module._logging_configured
-    original_log_level = cli_module._log_level
-    original_log_file = cli_module._log_file
-    original_log_format = cli_module._log_format
+    original_configured = cli_helpers._logging_configured
+    original_log_level = cli_helpers._log_level
+    original_log_file = cli_helpers._log_file
+    original_log_format = cli_helpers._log_format
 
     # Reset state before test
-    cli_module._logging_configured = False
-    cli_module._log_level = "INFO"
-    cli_module._log_file = None
-    cli_module._log_format = "console"
+    cli_helpers._logging_configured = False
+    cli_helpers._log_level = "INFO"  # type: ignore[assignment]
+    cli_helpers._log_file = None
+    cli_helpers._log_format = "console"  # type: ignore[assignment]
 
     # Reset structlog to default state
     structlog.reset_defaults()
@@ -41,10 +42,10 @@ def reset_logging_state() -> Generator[None, None, None]:
     yield
 
     # Restore state after test
-    cli_module._logging_configured = original_configured
-    cli_module._log_level = original_log_level
-    cli_module._log_file = original_log_file
-    cli_module._log_format = original_log_format
+    cli_helpers._logging_configured = original_configured
+    cli_helpers._log_level = original_log_level
+    cli_helpers._log_file = original_log_file
+    cli_helpers._log_format = original_log_format
 
     # Restore original handlers
     for handler in root_logger.handlers[:]:

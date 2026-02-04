@@ -322,7 +322,10 @@ class RecoveryMixin:
         state: CheckpointState,
         error_code: str,
         wait_seconds: float,
-        _is_quota_exhaustion: bool,  # Kept for future differentiation
+        # TODO(rate-limit-differentiation): Use is_quota_exhaustion to record
+        # different event types - quota exhaustion should have different
+        # cross-workspace coordination behavior than temporary rate limits
+        _is_quota_exhaustion: bool,
     ) -> None:
         """Record rate limit event to global store for cross-workspace coordination.
 
@@ -333,8 +336,8 @@ class RecoveryMixin:
             state: Current job state.
             error_code: The error code (E101, E104).
             wait_seconds: Duration of the wait.
-            _is_quota_exhaustion: Whether this is quota exhaustion vs rate limit
-                (currently unused but kept for future differentiation).
+            _is_quota_exhaustion: Whether this is quota exhaustion vs rate limit.
+                Currently passed to API but not stored differently.
         """
         cross_ws_enabled = self.config.circuit_breaker.cross_workspace_coordination
         if not cross_ws_enabled or self._global_learning_store is None:
