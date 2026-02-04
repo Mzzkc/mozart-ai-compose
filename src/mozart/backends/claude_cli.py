@@ -165,6 +165,11 @@ class ClaudeCliBackend(Backend):
         self.progress_interval_seconds = progress_interval_seconds
         self.cli_extra_args = cli_extra_args or []
 
+        # Real-time output logging paths (set per-sheet by runner)
+        # Industry standard: separate files for stdout and stderr
+        self._stdout_log_path: Path | None = None
+        self._stderr_log_path: Path | None = None
+
         # Verify claude CLI is available
         self._claude_path = shutil.which("claude")
 
@@ -190,6 +195,29 @@ class ClaudeCliBackend(Backend):
     @property
     def name(self) -> str:
         return "claude-cli"
+
+    def set_output_log_path(self, path: Path | None) -> None:
+        """Set base path for real-time output logging.
+
+        Called per-sheet by runner to enable streaming output to log files.
+        This provides visibility into Claude's output during long executions.
+
+        Uses industry-standard separate files for stdout and stderr:
+        - {path}.stdout.log - standard output
+        - {path}.stderr.log - standard error
+
+        This enables clean `tail -f` monitoring without stream interleaving.
+
+        Args:
+            path: Base path for log files (without extension), or None to disable.
+                  Example: workspace/logs/sheet-01 creates sheet-01.stdout.log
+        """
+        if path is None:
+            self._stdout_log_path = None
+            self._stderr_log_path = None
+        else:
+            self._stdout_log_path = path.with_suffix(".stdout.log")
+            self._stderr_log_path = path.with_suffix(".stderr.log")
 
     def _inject_operator_imperative(self, prompt: str) -> str:
         """Inject Mozart operator imperative into prompt.
@@ -308,6 +336,15 @@ class ClaudeCliBackend(Backend):
         # Track process for cleanup on exception
         process: asyncio.subprocess.Process | None = None
 
+        # Clear/create output log files for this execution (real-time visibility)
+        for log_path in (self._stdout_log_path, self._stderr_log_path):
+            if log_path:
+                try:
+                    log_path.parent.mkdir(parents=True, exist_ok=True)
+                    log_path.write_bytes(b"")  # Truncate/create
+                except OSError:
+                    pass  # Don't fail execution if logging setup fails
+
         try:
             # create_subprocess_exec is shell-injection safe
             # Arguments are passed as list, not interpolated into shell string
@@ -351,6 +388,20 @@ class ClaudeCliBackend(Backend):
                         process.communicate(),
                         timeout=self.timeout_seconds,
                     )
+
+                    # Write full output to separate log files (non-streaming mode)
+                    if self._stdout_log_path:
+                        try:
+                            with open(self._stdout_log_path, "wb") as f:
+                                f.write(stdout_bytes)
+                        except OSError:
+                            pass  # Don't fail execution if logging fails
+                    if self._stderr_log_path:
+                        try:
+                            with open(self._stderr_log_path, "wb") as f:
+                                f.write(stderr_bytes)
+                        except OSError:
+                            pass  # Don't fail execution if logging fails
 
                 # Update final byte/line counts for progress tracking
                 bytes_received = len(stdout_bytes) + len(stderr_bytes)
@@ -602,6 +653,17 @@ class ClaudeCliBackend(Backend):
                     break  # EOF
 
                 chunks.append(chunk)
+
+                # Write chunk to appropriate log file (real-time visibility)
+                log_path = self._stdout_log_path if is_stdout else self._stderr_log_path
+                if log_path:
+                    try:
+                        with open(log_path, "ab") as f:
+                            f.write(chunk)
+                            f.flush()  # Ensure immediate visibility for tail -f
+                    except OSError:
+                        pass  # Don't fail execution if logging fails
+
                 chunk_bytes = len(chunk)
                 chunk_lines = chunk.count(b"\n")
 

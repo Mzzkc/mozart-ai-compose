@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Literal
 
 from mozart.utils.time import utc_now
@@ -142,5 +143,23 @@ class Backend(ABC):
         Default implementation is a no-op for backends without cleanup needs.
 
         This method should be idempotent - calling it multiple times should be safe.
+        """
+        pass
+
+    def set_output_log_path(self, _path: Path | None) -> None:
+        """Set base path for real-time output logging.
+
+        Called per-sheet by runner to enable streaming output to log files.
+        This provides visibility into backend output during long executions.
+
+        Uses industry-standard separate files for stdout and stderr:
+        - {path}.stdout.log - standard output
+        - {path}.stderr.log - standard error
+
+        Override in subclasses that support real-time output streaming.
+        Default implementation is a no-op for backends without this capability.
+
+        Args:
+            _path: Base path for log files (without extension), or None to disable.
         """
         pass

@@ -45,12 +45,27 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from rich.console import Console
+
+    from mozart.backends.base import Backend
     from mozart.core.checkpoint import SheetState
-    from mozart.core.config import CrossSheetConfig
-    from mozart.execution.grounding import GroundingResult
+    from mozart.core.config import CrossSheetConfig, JobConfig
+    from mozart.core.errors import ErrorClassifier
+    from mozart.core.logging import MozartLogger
+    from mozart.execution.circuit_breaker import CircuitBreaker
+    from mozart.execution.escalation import CheckpointHandler, EscalationHandler
+    from mozart.execution.grounding import GroundingEngine
+    from mozart.execution.preflight import PreflightChecker
+    from mozart.execution.retry_strategy import AdaptiveRetryStrategy
     from mozart.execution.validation import SheetValidationResult
-    from mozart.healing.coordinator import HealingReport
-    from mozart.learning.judgment import JudgmentQuery, JudgmentResponse
+    from mozart.healing.coordinator import HealingReport, SelfHealingCoordinator
+    from mozart.learning.global_store import GlobalLearningStore
+    from mozart.learning.judgment import JudgmentClient, JudgmentQuery, JudgmentResponse
+    from mozart.learning.outcomes import OutcomeStore
+    from mozart.prompts.templating import PromptBuilder
+    from mozart.state.base import StateBackend
+
+    from .models import RunSummary
 
 from mozart.backends.base import ExecutionResult
 from mozart.core.checkpoint import CheckpointState, SheetStatus
@@ -85,41 +100,96 @@ from .models import (
 class SheetExecutionMixin:
     """Mixin providing sheet execution methods for JobRunner.
 
-    Requires attributes from JobRunnerBase:
-        - config: JobConfig
-        - backend: Backend
-        - state_backend: StateBackend
-        - console: Console
-        - _logger: MozartLogger
-        - _circuit_breaker: CircuitBreaker | None
-        - _global_learning_store: GlobalLearningStore | None
-        - _grounding_engine: GroundingEngine | None
-        - _healing_coordinator: SelfHealingCoordinator | None
-        - _retry_strategy: AdaptiveRetryStrategy
-        - outcome_store: OutcomeStore | None
-        - escalation_handler: EscalationHandler | None
-        - checkpoint_handler: CheckpointHandler | None
-        - judgment_client: JudgmentClient | None
-        - preflight_checker: PreflightChecker
-        - prompt_builder: PromptBuilder
-        - error_classifier: ErrorClassifier
-        - _current_sheet_num: int | None
-        - _execution_progress_snapshots: list[dict]
-        - _current_sheet_patterns: list[str]
-        - _applied_pattern_ids: list[str]
-        - _exploration_pattern_ids: list[str]
-        - _exploitation_pattern_ids: list[str]
-        - _shutdown_requested: bool
-
-    Requires methods from other mixins:
-        - _interruptible_sleep(): from JobRunnerBase
-        - _query_relevant_patterns(): from PatternsMixin
-        - _record_pattern_feedback(): from PatternsMixin
-        - _try_self_healing(): from RecoveryMixin
-        - _handle_rate_limit(): from RecoveryMixin
-        - _track_cost(): from CostMixin
-        - _check_cost_limits(): from CostMixin
+    This mixin is composed with JobRunnerBase and other mixins to form the
+    complete JobRunner class. Type annotations below declare the expected
+    interface from other mixins for type checker compatibility.
     """
+
+    # Type declarations for attributes from JobRunnerBase
+    # These are populated at runtime by the base class __init__
+    if TYPE_CHECKING:
+        config: JobConfig
+        backend: Backend
+        state_backend: StateBackend
+        console: Console
+        outcome_store: OutcomeStore | None
+        escalation_handler: EscalationHandler | None
+        checkpoint_handler: CheckpointHandler | None
+        judgment_client: JudgmentClient | None
+        preflight_checker: PreflightChecker
+        prompt_builder: PromptBuilder
+        error_classifier: ErrorClassifier
+        _logger: MozartLogger
+        _circuit_breaker: CircuitBreaker | None
+        _global_learning_store: GlobalLearningStore | None
+        _grounding_engine: GroundingEngine | None
+        _healing_coordinator: SelfHealingCoordinator | None
+        _retry_strategy: AdaptiveRetryStrategy
+        _current_sheet_num: int | None
+        _execution_progress_snapshots: list[dict[str, Any]]
+        _current_sheet_patterns: list[str]
+        _applied_pattern_ids: list[str]
+        _exploration_pattern_ids: list[str]
+        _exploitation_pattern_ids: list[str]
+        _shutdown_requested: bool
+        _summary: RunSummary | None
+
+        # Methods from JobRunnerBase
+        async def _interruptible_sleep(self, seconds: float) -> None: ...
+
+        # Methods from PatternsMixin
+        def _query_relevant_patterns(
+            self,
+            job_id: str,
+            sheet_num: int,
+            context_tags: list[str] | None = None,
+        ) -> tuple[list[str], list[str]]: ...
+
+        async def _record_pattern_feedback(
+            self,
+            pattern_ids: list[str],
+            validation_passed: bool,
+            first_attempt_success: bool,
+            sheet_num: int,
+            grounding_confidence: float | None = None,
+            validation_types: list[str] | None = None,
+            error_categories: list[str] | None = None,
+            prior_sheet_status: str | None = None,
+            retry_iteration: int = 0,
+            escalation_was_pending: bool = False,
+        ) -> None: ...
+
+        # Methods from RecoveryMixin
+        async def _try_self_healing(
+            self,
+            result: ExecutionResult,
+            error: ClassifiedError,
+            config_path: Path | None,
+            sheet_num: int,
+            retry_count: int,
+            max_retries: int,
+        ) -> HealingReport | None: ...
+
+        async def _handle_rate_limit(
+            self,
+            state: CheckpointState,
+            error_code: str = "E101",
+            suggested_wait_seconds: float | None = None,
+        ) -> None: ...
+
+        # Methods from CostMixin
+        def _track_cost(
+            self,
+            result: ExecutionResult,
+            sheet_state: SheetState,
+            state: CheckpointState,
+        ) -> None: ...
+
+        def _check_cost_limits(
+            self,
+            sheet_state: SheetState,
+            state: CheckpointState,
+        ) -> tuple[bool, str | None]: ...
 
     async def _execute_sheet_with_recovery(
         self,
@@ -396,6 +466,11 @@ class SheetExecutionMixin:
                     )
 
             # Execute
+            # Set per-sheet output log base path for real-time visibility
+            # Backend creates: sheet-01.stdout.log and sheet-01.stderr.log
+            output_log_base = self.config.workspace / "logs" / f"sheet-{sheet_num:02d}"
+            self.backend.set_output_log_path(output_log_base)
+
             self.console.print(
                 f"[blue]Sheet {sheet_num}: {current_mode.value} execution[/blue]"
             )
@@ -596,7 +671,9 @@ class SheetExecutionMixin:
                 validation_types_set = {
                     r.rule.type for r in validation_result.results if r.rule and r.rule.type
                 }
-                validation_types_list = sorted(validation_types_set) if validation_types_set else None
+                validation_types_list: list[str] | None = (
+                    sorted(validation_types_set) if validation_types_set else None
+                )
 
                 escalation_pending = bool(
                     sheet_state.outcome_data

@@ -47,7 +47,32 @@ class GlobalLearningStoreBase:
 
     # Schema version - increment when schema changes
     # v9: Added exploration_budget and entropy_responses tables for v23 evolutions
-    SCHEMA_VERSION = 9
+    # v10: Added proper column migration for existing tables
+    SCHEMA_VERSION = 10
+
+    # Expected columns for tables that may need migration
+    # Format: {table_name: [(column_name, column_definition), ...]}
+    # Only include columns added after initial table creation
+    _COLUMN_MIGRATIONS: dict[str, list[tuple[str, str]]] = {
+        "patterns": [
+            # v19 additions
+            ("quarantine_status", "TEXT DEFAULT 'pending'"),
+            ("provenance_job_hash", "TEXT"),
+            ("provenance_sheet_num", "INTEGER"),
+            ("quarantined_at", "TIMESTAMP"),
+            ("validated_at", "TIMESTAMP"),
+            ("quarantine_reason", "TEXT"),
+            ("trust_score", "REAL DEFAULT 0.5"),
+            ("trust_calculation_date", "TIMESTAMP"),
+            # v22 additions
+            ("success_factors", "TEXT"),
+            ("success_factors_updated_at", "TIMESTAMP"),
+        ],
+        "pattern_applications": [
+            # v12 addition
+            ("grounding_confidence", "REAL"),
+        ],
+    }
 
     def __init__(self, db_path: Path | None = None) -> None:
         """Initialize the global learning store.
@@ -137,6 +162,9 @@ class GlobalLearningStoreBase:
                 current_version = 0
 
             if current_version < self.SCHEMA_VERSION:
+                # First migrate columns (for existing tables)
+                self._migrate_columns(conn)
+                # Then create/update schema (creates new tables and indexes)
                 self._create_schema(conn)
 
     def _create_schema(self, conn: sqlite3.Connection) -> None:
@@ -458,6 +486,48 @@ class GlobalLearningStoreBase:
         )
 
         self._logger.info(f"Created global learning schema v{self.SCHEMA_VERSION}")
+
+    def _migrate_columns(self, conn: sqlite3.Connection) -> None:
+        """Add missing columns to existing tables.
+
+        This handles the case where a database was created with an older schema
+        and needs new columns added. Uses ALTER TABLE which is idempotent-safe
+        (we check for column existence before adding).
+
+        Only migrates tables that already exist - new tables are handled by
+        _create_schema which runs after this method.
+
+        Args:
+            conn: Active database connection.
+        """
+        for table_name, columns in self._COLUMN_MIGRATIONS.items():
+            # Check if table exists first
+            cursor = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                (table_name,),
+            )
+            if not cursor.fetchone():
+                # Table doesn't exist yet - _create_schema will create it
+                continue
+
+            # Get existing columns for this table
+            cursor = conn.execute(f"PRAGMA table_info({table_name})")
+            existing_columns = {row["name"] for row in cursor.fetchall()}
+
+            # Add any missing columns
+            for column_name, column_def in columns:
+                if column_name not in existing_columns:
+                    try:
+                        conn.execute(
+                            f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}"
+                        )
+                        self._logger.info(
+                            f"Added column {column_name} to {table_name}"
+                        )
+                    except sqlite3.OperationalError as e:
+                        # Column might already exist (race condition) - that's fine
+                        if "duplicate column name" not in str(e).lower():
+                            raise
 
     @staticmethod
     def hash_workspace(workspace_path: Path) -> str:
