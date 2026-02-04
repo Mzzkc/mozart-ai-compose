@@ -1,39 +1,38 @@
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║              CONTINUOUS QUALITY IMPROVEMENT                                  ║
 # ║                                                                              ║
-# ║  Generic quality review that chains into itself for continuous improvement   ║
-# ║  Can be used on ANY Python project                                           ║
+# ║  Comprehensive quality review with expert perspectives, issue discovery,     ║
+# ║  batched remediation, and automatic commits. Self-chains for continuous      ║
+# ║  improvement until codebase reaches 100% quality.                            ║
 # ║                                                                              ║
 # ║  Usage:                                                                      ║
 # ║    cd /path/to/your/project                                                  ║
 # ║    mozart run /path/to/examples/quality-continuous.yaml                      ║
 # ║                                                                              ║
-# ║  The job will:                                                               ║
-# ║    1. Discover issues across 10 categories                                   ║
-# ║    2. Fix issues in batches (quick wins → medium → significant)              ║
-# ║    3. Verify tests still pass                                                ║
-# ║    4. Commit changes with summary                                            ║
-# ║    5. Chain to next iteration (up to 10 total)                               ║
+# ║  Goal: Close the gap between 90% LLM completion and 100% production quality  ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 name: "quality-continuous"
-description: "Continuous quality improvement - finds, fixes, and commits issues iteratively"
+description: "Expert reviews + issue discovery + batched fixes + commits, self-chaining"
 
 workspace: "./.quality-workspace"
 
 backend:
   type: claude_cli
   skip_permissions: true
-  timeout_seconds: 1800
+  timeout_seconds: 2400  # 40 min per sheet for thorough analysis
 
 cross_sheet:
   auto_capture_stdout: true
-  max_output_chars: 2000
-  lookback_sheets: 1
+  max_output_chars: 3000
+  lookback_sheets: 2
+  capture_files:
+    - "{{ workspace }}/*.md"
+    - "{{ workspace }}/*.yaml"
 
 sheet:
   size: 1
-  total_items: 6
+  total_items: 10
 
 retry:
   max_retries: 2
@@ -44,7 +43,8 @@ prompt:
 
     {% if sheet_num == 1 %}
     ╔══════════════════════════════════════════════════════════════════════════════╗
-    ║  SHEET 1: DISCOVER ISSUES                                                    ║
+    ║  SHEET 1: ARCHITECTURE REVIEW                                                ║
+    ║  "Structure reveals intent; misalignment reveals bugs"                       ║
     ╚══════════════════════════════════════════════════════════════════════════════╝
 
     **Step 0: Track iteration**
@@ -60,162 +60,561 @@ prompt:
     echo "=== QUALITY ITERATION $ITER ==="
     ```
 
-    **Step 1: Understand the project**
+    You are the **Architecture Analyst**. Your job is to find structural issues
+    that cause bugs, maintenance burden, and incomplete implementations.
+
+    **1. Module Cohesion & Correctness**
+    - Do modules have single responsibilities?
+    - Are there methods that belong elsewhere (feature envy)?
+    - Are return types consistent? Do functions return what they claim?
+    - Are edge cases handled or silently ignored?
+    - Do functions do what their names suggest?
+
+    **2. Import Graph & Dependencies**
     ```bash
-    ls -la src/ 2>/dev/null || ls -la lib/ 2>/dev/null || ls -la .
-    find . -name "*.py" -type f | wc -l
+    # Check for circular imports
+    find . -name "*.py" -type f | head -20 | xargs grep -l "^from\|^import" | head -10
+
+    # Look for tight coupling
+    grep -r "from.*import \*" --include="*.py" | head -10
+    ```
+    - Circular dependencies?
+    - Wildcard imports hiding dependencies?
+    - Modules importing from implementation details instead of interfaces?
+
+    **3. Code Flow & Control**
+    - Are there unreachable code paths?
+    - Do early returns leave resources uncleaned?
+    - Are async/await patterns consistent?
+    - Do loops have proper termination conditions?
+    - Are there infinite loop risks?
+
+    **4. Cleanup & Resource Management**
+    - Are files/connections/locks properly closed?
+    - Do context managers cover all resource acquisition?
+    - Are there finally blocks that should exist but don't?
+    - Do destructors/cleanup methods actually get called?
+
+    **5. Interface Consistency**
+    - Are public APIs clearly defined?
+    - Do similar functions have similar signatures?
+    - Are optional parameters actually optional in usage?
+    - Do exceptions match documentation?
+
+    **Output to:** {{ workspace }}/01-architecture-review.md
+
+    Format:
+    ```markdown
+    # Architecture Review (Iteration N)
+
+    ## Correctness Issues
+    | Location | Issue | Severity | Fix |
+    |----------|-------|----------|-----|
+
+    ## Code Flow Problems
+    | Location | Issue | Risk |
+    |----------|-------|------|
+
+    ## Cleanup Gaps
+    | Resource | Location | Missing Cleanup |
+    |----------|----------|-----------------|
+
+    ## Structural Issues
+    | Module | Cohesion | Problems |
+    |--------|----------|----------|
+
+    ## Top 5 Architecture Fixes Needed
+    1. [Most critical]
+    ...
     ```
 
-    **Step 2: Find 20 issues across 10 categories (2 per category)**
+    {% elif sheet_num == 2 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 2: TEST COVERAGE REVIEW                                               ║
+    ║  "Untested code is broken code waiting to be discovered"                     ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
 
-    Categories:
-    1. Dead Code - unused imports, unreachable code
-    2. Complexity - functions >50 LOC, deep nesting
-    3. Naming - unclear or inconsistent names
-    4. Error Handling - bare excepts, swallowed errors
-    5. Type Safety - missing hints, Any abuse
-    6. Duplication - copy-paste code patterns
-    7. Documentation - missing/stale docstrings
-    8. Testing Gaps - untested code paths
-    9. Performance - O(n²) loops, repeated work
-    10. Security - path injection, unsafe defaults
+    You are the **Test Coverage Analyst**. Find gaps that let bugs slip through.
 
-    **Output to:** {{ workspace }}/01-issues.yaml
+    **1. Unit Test Gaps**
+    ```bash
+    # List test files
+    find . -name "test_*.py" -o -name "*_test.py" | head -20
 
+    # Count tests
+    grep -r "def test_" --include="*.py" | wc -l
+
+    # Find source files without corresponding tests
+    for f in $(find src -name "*.py" -type f 2>/dev/null | head -20); do
+      base=$(basename "$f" .py)
+      if ! find . -name "test_${base}.py" -o -name "${base}_test.py" 2>/dev/null | grep -q .; then
+        echo "No test for: $f"
+      fi
+    done
+    ```
+
+    **2. Functional Test Gaps**
+    - Are there end-to-end tests for critical user flows?
+    - Do integration tests cover module boundaries?
+    - Are error paths tested, not just happy paths?
+    - Do tests verify actual behavior or just call functions?
+
+    **3. Smoke Test Coverage**
+    - Can the app start without crashing?
+    - Do basic commands work (--help, --version)?
+    - Does import of main modules succeed?
+    - Are config files validated on load?
+    ```bash
+    # Check for smoke tests
+    grep -r "smoke\|sanity\|basic" --include="test_*.py" | head -10
+
+    # Check if main entry points are tested
+    grep -r "def test.*main\|def test.*cli\|def test.*app" --include="*.py" | head -10
+    ```
+
+    **4. Edge Case Coverage**
+    - Empty inputs
+    - None/null values
+    - Boundary values (0, -1, max_int)
+    - Unicode/special characters
+    - Concurrent access
+    - Network failures
+    - Disk full scenarios
+
+    **5. Test Quality Issues**
+    - Tests that always pass (no assertions)
+    - Tests that test implementation, not behavior
+    - Flaky tests (timing-dependent)
+    - Tests with shared mutable state
+    - Missing cleanup in test fixtures
+
+    **Output to:** {{ workspace }}/02-test-coverage-review.md
+
+    Format:
+    ```markdown
+    # Test Coverage Review (Iteration N)
+
+    ## Missing Unit Tests
+    | Module | Functions Untested | Priority |
+    |--------|-------------------|----------|
+
+    ## Functional Test Gaps
+    | User Flow | Current Coverage | Gap |
+    |-----------|-----------------|-----|
+
+    ## Missing Smoke Tests
+    | Entry Point | Test Exists? | Impact if Broken |
+    |-------------|--------------|------------------|
+
+    ## Edge Cases Not Covered
+    | Scenario | Files Affected | Risk |
+    |----------|---------------|------|
+
+    ## Test Quality Issues
+    | Test File | Issue | Fix |
+    |-----------|-------|-----|
+
+    ## Top 5 Test Gaps to Fix
+    1. [Most critical gap]
+    ...
+    ```
+
+    {% elif sheet_num == 3 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 3: CODE DEBT & SIMPLICITY REVIEW                                      ║
+    ║  "Complexity is the enemy of reliability"                                    ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    You are the **Code Debt & Simplicity Analyst**. Find complexity that hides bugs.
+
+    **1. Dead Code & Cruft**
+    ```bash
+    # Find TODO/FIXME comments
+    grep -rn "TODO\|FIXME\|HACK\|XXX" --include="*.py" | head -20
+
+    # Find commented-out code blocks
+    grep -rn "^#.*def \|^#.*class \|^#.*import " --include="*.py" | head -10
+
+    # Find unused imports (basic check)
+    for f in $(find . -name "*.py" -type f | head -20); do
+      unused=$(python3 -c "
+    import ast, sys
+    try:
+      tree = ast.parse(open('$f').read())
+      imports = [n.names[0].name if hasattr(n, 'names') else n.module for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom))]
+      print(' '.join(imports[:5]))
+    except: pass
+    " 2>/dev/null)
+      [ -n "$unused" ] && echo "$f: $unused"
+    done | head -10
+    ```
+
+    **2. Complexity Hotspots**
+    - Functions over 50 lines
+    - Nesting deeper than 4 levels
+    - Functions with more than 5 parameters
+    - Classes with more than 10 methods
+    - Files over 500 lines
+    ```bash
+    # Find large files
+    find . -name "*.py" -type f -exec wc -l {} \; | sort -rn | head -10
+
+    # Find deeply nested code
+    grep -rn "        if\|        for\|        while" --include="*.py" | head -10
+    ```
+
+    **3. Code Simplicity Issues**
+    - Overly clever one-liners that should be expanded
+    - Premature abstractions (interfaces with one implementation)
+    - Over-engineering (factory factories, abstract abstract classes)
+    - Magic numbers without constants
+    - Boolean parameters that should be enums
+    - Long parameter lists that should be config objects
+
+    **4. Naming & Clarity**
+    - Single-letter variables (except loop counters)
+    - Misleading names (is_valid that doesn't validate)
+    - Inconsistent naming (mixedCase vs snake_case)
+    - Abbreviations that aren't obvious
+    - Names that don't match behavior
+
+    **5. Type Hint Completeness**
+    ```bash
+    # Find functions without type hints
+    grep -rn "def .*:" --include="*.py" | grep -v "def .*->.*:" | head -10
+
+    # Find Any usage
+    grep -rn ": Any\|-> Any" --include="*.py" | head -10
+    ```
+
+    **Output to:** {{ workspace }}/03-code-debt-review.md
+
+    Format:
+    ```markdown
+    # Code Debt & Simplicity Review (Iteration N)
+
+    ## Dead Code to Remove
+    | Location | Type | Lines | Safe to Delete? |
+    |----------|------|-------|-----------------|
+
+    ## Complexity Hotspots
+    | File | Function | LOC | Nesting | Params | Recommendation |
+    |------|----------|-----|---------|--------|----------------|
+
+    ## Over-Engineering
+    | Location | Pattern | Simpler Alternative |
+    |----------|---------|---------------------|
+
+    ## Naming Issues
+    | Location | Current Name | Problem | Suggested |
+    |----------|--------------|---------|-----------|
+
+    ## Type Hint Gaps
+    | File | Functions Missing Hints | Priority |
+    |------|------------------------|----------|
+
+    ## Top 5 Simplification Opportunities
+    1. [Most impactful simplification]
+    ...
+    ```
+
+    {% elif sheet_num == 4 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 4: CATEGORY DISCOVERY (30 Specific Issues)                            ║
+    ║  "Systematic discovery reveals patterns invisible to intuition"              ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    {% if previous_outputs %}
+    ## Expert Reviews Summary
+    {{ previous_outputs[1][:600] if 1 in previous_outputs else "" }}
+    {{ previous_outputs[2][:600] if 2 in previous_outputs else "" }}
+    {{ previous_outputs[3][:600] if 3 in previous_outputs else "" }}
+    {% endif %}
+
+    Find **30 specific, actionable issues** across 10 categories (3 per category).
+    Focus on issues the expert reviews may have missed.
+
+    **Categories:**
+    1. **Dead Code** - unused imports, unreachable branches, orphan functions
+    2. **Complexity** - functions >50 LOC, deep nesting, complex conditionals
+    3. **Naming** - unclear names, inconsistent conventions, misleading names
+    4. **Error Handling** - bare excepts, swallowed errors, missing context
+    5. **Type Safety** - missing hints, Any abuse, type: ignore without reason
+    6. **Duplication** - copy-paste code, repeated patterns extractable to functions
+    7. **Documentation** - missing docstrings, stale comments, wrong docs
+    8. **Testing Gaps** - untested paths, assertions that don't assert
+    9. **Performance** - O(n²) loops, repeated computations, unnecessary allocations
+    10. **Security** - path injection, unsafe deserialization, hardcoded secrets
+
+    **Output to:** {{ workspace }}/04-category-discovery.yaml
+
+    Format each issue:
     ```yaml
-    iteration: N
     issues:
       - id: Q001
         category: Dead Code
         file: path/to/file.py
         line: N
         severity: critical | high | medium | low
-        description: Brief description
+        description: Specific description of the issue
+        current_code: |
+          [5-10 line snippet showing the problem]
+        suggested_fix: How to fix it
         fix_effort: quick | medium | significant
     ```
 
-    {% elif sheet_num == 2 %}
-    ╔══════════════════════════════════════════════════════════════════════════════╗
-    ║  SHEET 2: QUICK WINS                                                         ║
-    ╚══════════════════════════════════════════════════════════════════════════════╝
-
-    Read {{ workspace }}/01-issues.yaml
-
-    **Fix all `fix_effort: quick` issues:**
-    - Unused imports
-    - Simple type hints
-    - Dead code removal
-    - Basic docstrings
-
-    **Rules:**
-    - Minimal changes only
-    - Test after each fix
-    - Skip risky changes
-
-    **Output to:** {{ workspace }}/02-quick-wins.md
-
-    {% elif sheet_num == 3 %}
-    ╔══════════════════════════════════════════════════════════════════════════════╗
-    ║  SHEET 3: MEDIUM EFFORT                                                      ║
-    ╚══════════════════════════════════════════════════════════════════════════════╝
-
-    **Fix `fix_effort: medium` issues:**
-    - Error handling improvements
-    - Function decomposition
-    - Duplicate extraction
-
-    **Output to:** {{ workspace }}/03-medium-fixes.md
-
-    {% elif sheet_num == 4 %}
-    ╔══════════════════════════════════════════════════════════════════════════════╗
-    ║  SHEET 4: SIGNIFICANT FIXES                                                  ║
-    ╚══════════════════════════════════════════════════════════════════════════════╝
-
-    **Fix `fix_effort: significant` issues:**
-    - Write missing tests
-    - Refactor complex functions
-    - Fix security issues
-
-    **Be conservative - skip major architectural changes.**
-
-    **Output to:** {{ workspace }}/04-significant-fixes.md
-
     {% elif sheet_num == 5 %}
     ╔══════════════════════════════════════════════════════════════════════════════╗
-    ║  SHEET 5: VERIFY & SUMMARIZE                                                 ║
+    ║  SHEET 5: SYNTHESIS & PRIORITIZATION                                         ║
+    ║  "Wisdom is knowing which fires to fight first"                              ║
     ╚══════════════════════════════════════════════════════════════════════════════╝
 
-    **Run full test suite:**
-    ```bash
-    pytest --tb=short 2>&1 | tail -50
+    Read all review files and create a prioritized remediation plan.
+
+    **Files to synthesize:**
+    - {{ workspace }}/01-architecture-review.md
+    - {{ workspace }}/02-test-coverage-review.md
+    - {{ workspace }}/03-code-debt-review.md
+    - {{ workspace }}/04-category-discovery.yaml
+
+    **Create prioritized plan:**
+
+    1. **Deduplicate** - Remove issues found by multiple reviewers
+    2. **Score** each issue: `severity × impact × (1/effort)`
+       - Critical = 4, High = 3, Medium = 2, Low = 1
+       - Quick effort = 3, Medium = 2, Significant = 1
+    3. **Batch** into 3 remediation groups:
+       - **Batch 1 (Sheet 6):** Quick wins - high impact, low effort
+       - **Batch 2 (Sheet 7):** Medium effort - structural fixes
+       - **Batch 3 (Sheet 8):** Significant - refactoring, new tests
+
+    **Output to:** {{ workspace }}/05-fix-plan.md
+
+    Format:
+    ```markdown
+    # Quality Remediation Plan (Iteration N)
+
+    ## Summary
+    | Metric | Count |
+    |--------|-------|
+    | Total unique issues | N |
+    | Duplicates removed | N |
+    | Critical | N |
+    | High | N |
+
+    ## Batch 1: Quick Wins (Sheet 6)
+    | ID | Issue | Score | File |
+    |----|-------|-------|------|
+
+    ## Batch 2: Medium Effort (Sheet 7)
+    | ID | Issue | Score | File |
+    |----|-------|-------|------|
+
+    ## Batch 3: Significant (Sheet 8)
+    | ID | Issue | Score | File |
+    |----|-------|-------|------|
     ```
 
-    **Create summary:**
+    {% elif sheet_num == 6 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 6: BATCH 1 - QUICK WINS                                               ║
+    ║  "Low-hanging fruit that compounds into significant improvement"             ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
 
-    **Output to:** {{ workspace }}/05-summary.md
+    Read {{ workspace }}/05-fix-plan.md and fix all Batch 1 issues.
+
+    **Fix quick wins:**
+    - Remove unused imports
+    - Delete dead code
+    - Add missing type hints (simple cases)
+    - Fix obvious naming issues
+    - Add missing docstrings
+    - Remove commented-out code
+
+    **Rules:**
+    - One logical change at a time
+    - Run tests after each change: `pytest -x -q --tb=short`
+    - Skip if change is riskier than expected
+    - Document what you fixed and what you skipped
+
+    **Output to:** {{ workspace }}/06-batch1-fixes.md
 
     ```markdown
-    # Quality Iteration N Summary
+    # Batch 1 Results: Quick Wins
 
-    ## Issues Found: N
-    ## Issues Fixed: N
-    ## Issues Skipped: N
+    ## Fixed (N issues)
+    | ID | What was fixed | File |
+    |----|---------------|------|
 
-    ## Changes Made
-    - [list of changes]
+    ## Skipped (N issues)
+    | ID | Why skipped |
+    |----|-------------|
 
     ## Test Results
     [pytest output]
     ```
 
-    {% elif sheet_num == 6 %}
+    {% elif sheet_num == 7 %}
     ╔══════════════════════════════════════════════════════════════════════════════╗
-    ║  SHEET 6: COMMIT CHANGES                                                     ║
+    ║  SHEET 7: BATCH 2 - MEDIUM EFFORT                                            ║
+    ║  "Structural improvements that prevent future bugs"                          ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/05-fix-plan.md and fix Batch 2 issues.
+
+    **Fix medium effort issues:**
+    - Error handling improvements
+    - Extract duplicated code
+    - Simplify complex conditionals
+    - Add type hints requiring analysis
+    - Fix code flow issues
+    - Add missing cleanup/resource management
+
+    **Rules:**
+    - Test after each change
+    - If a fix causes test failures, revert and skip
+    - Document architectural decisions
+
+    **Output to:** {{ workspace }}/07-batch2-fixes.md
+
+    {% elif sheet_num == 8 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 8: BATCH 3 - SIGNIFICANT FIXES                                        ║
+    ║  "The 10% that separates good from production-ready"                         ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/05-fix-plan.md and address Batch 3 issues.
+
+    **Fix significant issues:**
+    - Write missing unit tests
+    - Write missing smoke tests
+    - Refactor complex functions
+    - Fix security issues
+    - Add missing functional tests
+
+    **Be conservative:**
+    - Only fix issues with clear solutions
+    - Skip major architectural changes
+    - Prioritize tests over refactoring
+    - Document why you skipped anything
+
+    **Output to:** {{ workspace }}/08-batch3-fixes.md
+
+    {% elif sheet_num == 9 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 9: VERIFICATION & SUMMARY                                             ║
+    ║  "Measure twice, commit once"                                                ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Step 1: Run full test suite**
+    ```bash
+    pytest --tb=short 2>&1 | tail -50
+    ```
+
+    **Step 2: Run type checker (if available)**
+    ```bash
+    mypy src/ --ignore-missing-imports 2>&1 | tail -30 || echo "mypy not configured"
+    ```
+
+    **Step 3: Check for regressions**
+    ```bash
+    # Verify imports still work
+    python -c "import sys; sys.path.insert(0, 'src'); __import__('$(ls src/ | head -1)')" 2>&1 || echo "Import check skipped"
+    ```
+
+    **Step 4: Summarize this iteration**
+
+    Read all batch results and create summary.
+
+    **Output to:** {{ workspace }}/09-summary.md
+
+    ```markdown
+    # Quality Iteration N Summary
+
+    ## Issues Found
+    | Source | Count |
+    |--------|-------|
+    | Architecture Review | N |
+    | Test Coverage Review | N |
+    | Code Debt Review | N |
+    | Category Discovery | N |
+    | **Total (deduplicated)** | **N** |
+
+    ## Issues Fixed
+    | Batch | Fixed | Skipped |
+    |-------|-------|---------|
+    | Quick Wins | N | N |
+    | Medium | N | N |
+    | Significant | N | N |
+    | **Total** | **N** | **N** |
+
+    ## Key Improvements
+    - [List major improvements]
+
+    ## Remaining Issues
+    - [List issues deferred to next iteration]
+
+    ## Test Results
+    [pytest output]
+
+    ## Recommendation
+    - [ ] More issues remain - continue to next iteration
+    - [ ] Codebase is clean - quality target achieved
+    ```
+
+    {% elif sheet_num == 10 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 10: COMMIT CHANGES                                                    ║
+    ║  "Ship it"                                                                   ║
     ╚══════════════════════════════════════════════════════════════════════════════╝
 
     **Step 1: Check for changes**
     ```bash
-    git status --short
+    git status --short | grep -E "\.py$" | head -20
     ```
 
-    **Step 2: If there are changes, commit them**
-
-    Read {{ workspace }}/05-summary.md for the commit message content.
+    **Step 2: Stage and commit if there are changes**
 
     ```bash
-    # Stage all changed Python files (not workspace files)
+    # Stage all Python file changes
     git add -A -- '*.py'
 
     # Check what's staged
     git diff --cached --stat
 
-    # Create commit with iteration number
+    # Get iteration number
     ITER=$(cat {{ workspace }}/.iteration)
-    git commit -m "refactor: Quality iteration $ITER improvements
 
-    $(cat {{ workspace }}/05-summary.md | head -30)
+    # Create commit
+    git commit -m "refactor: Quality iteration $ITER - $(date +%Y-%m-%d)
+
+    $(head -40 {{ workspace }}/09-summary.md)
 
     Co-Authored-By: Mozart Quality Score <noreply@mozart.ai>"
+
+    echo "Commit created for iteration $ITER"
     ```
 
-    **Step 3: Verify commit succeeded**
+    **Step 3: Verify commit**
     ```bash
     git log --oneline -1
+    git show --stat HEAD | tail -20
     ```
 
-    **Output to:** {{ workspace }}/06-commit.md
+    **Output to:** {{ workspace }}/10-commit.md
 
     ```markdown
-    # Commit Results
+    # Commit Results (Iteration N)
 
-    ## Staged Files
-    [list]
+    ## Changes Committed
+    [git diff --stat output]
 
-    ## Commit Hash
-    [hash]
+    ## Commit
+    [git log output]
 
-    ## Commit Message
-    [message]
+    ## Next Steps
+    - If issues remain: Next iteration will run automatically
+    - If clean: Quality target achieved
     ```
 
     {% endif %}
@@ -224,58 +623,81 @@ prompt:
     preamble: |
       ╔══════════════════════════════════════════════════════════════════════════╗
       ║              CONTINUOUS QUALITY IMPROVEMENT                              ║
-      ║  Find issues → Fix issues → Verify → Commit → Repeat                    ║
+      ║                                                                          ║
+      ║  Goal: Close the gap between 90% LLM completion and 100% quality         ║
+      ║                                                                          ║
+      ║  Expert Reviews → Issue Discovery → Prioritization → Fix → Commit        ║
       ╚══════════════════════════════════════════════════════════════════════════╝
 
-      **Principles:**
-      1. Minimal, targeted changes
-      2. Test after every change
-      3. Skip risky fixes
-      4. Document everything
-      5. Commit at the end
+      **The Last 10% Checklist:**
+      - Correctness: Does code do what it claims?
+      - Completeness: Are edge cases handled?
+      - Cleanup: Are resources properly released?
+      - Clarity: Can a new developer understand it?
+      - Coverage: Are critical paths tested?
 
 validations:
   - type: file_exists
-    path: "{workspace}/01-issues.yaml"
-    description: "Issues file must exist"
+    path: "{workspace}/01-architecture-review.md"
+    description: "Architecture review must exist"
     condition: "sheet_num >= 1"
 
   - type: file_exists
-    path: "{workspace}/02-quick-wins.md"
-    description: "Quick wins report must exist"
+    path: "{workspace}/02-test-coverage-review.md"
+    description: "Test coverage review must exist"
     condition: "sheet_num >= 2"
 
   - type: file_exists
-    path: "{workspace}/03-medium-fixes.md"
-    description: "Medium fixes report must exist"
+    path: "{workspace}/03-code-debt-review.md"
+    description: "Code debt review must exist"
     condition: "sheet_num >= 3"
 
   - type: file_exists
-    path: "{workspace}/04-significant-fixes.md"
-    description: "Significant fixes report must exist"
+    path: "{workspace}/04-category-discovery.yaml"
+    description: "Category discovery must exist"
     condition: "sheet_num >= 4"
 
   - type: file_exists
-    path: "{workspace}/05-summary.md"
-    description: "Summary must exist"
+    path: "{workspace}/05-fix-plan.md"
+    description: "Fix plan must exist"
     condition: "sheet_num >= 5"
 
   - type: file_exists
-    path: "{workspace}/06-commit.md"
+    path: "{workspace}/06-batch1-fixes.md"
+    description: "Batch 1 results must exist"
+    condition: "sheet_num >= 6"
+
+  - type: file_exists
+    path: "{workspace}/07-batch2-fixes.md"
+    description: "Batch 2 results must exist"
+    condition: "sheet_num >= 7"
+
+  - type: file_exists
+    path: "{workspace}/08-batch3-fixes.md"
+    description: "Batch 3 results must exist"
+    condition: "sheet_num >= 8"
+
+  - type: file_exists
+    path: "{workspace}/09-summary.md"
+    description: "Summary must exist"
+    condition: "sheet_num >= 9"
+
+  - type: file_exists
+    path: "{workspace}/10-commit.md"
     description: "Commit report must exist"
-    condition: "sheet_num == 6"
+    condition: "sheet_num == 10"
 
   # Tests must pass before committing
   - type: command_succeeds
     command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed|no tests'"
     description: "Tests must pass"
-    condition: "sheet_num >= 5"
+    condition: "sheet_num >= 9"
 
-  # Verify commit was created (check git log for recent commit)
+  # Verify commit was created
   - type: command_succeeds
-    command: "git log --oneline -1 --since='5 minutes ago' | grep -E 'Quality iteration|refactor'"
-    description: "Commit must be created"
-    condition: "sheet_num == 6"
+    command: "git log --oneline -1 --since='10 minutes ago' 2>/dev/null | grep -qE '.' && echo 'passed' || echo 'no recent commit'"
+    description: "Recent commit should exist"
+    condition: "sheet_num == 10"
 
 # Self-chain for continuous improvement
 on_success:
@@ -287,5 +709,5 @@ on_success:
 concert:
   enabled: true
   max_chain_depth: 10
-  cooldown_between_jobs_seconds: 60
+  cooldown_between_jobs_seconds: 120  # 2 min cooldown between iterations
   inherit_workspace: false
