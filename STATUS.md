@@ -1,7 +1,7 @@
 # Mozart AI Compose - Status
 
-**Overall:** Evolution v24 COMPLETE, Dashboard v2 Production (67%)
-**Tests:** 1897+ passing (20 new tests added in v24)
+**Overall:** Real-time Output Logging + Schema Migration (2026-02-04)
+**Tests:** 1897+ passing
 **Vision:** Mozart + Recursive Light = Federated AGI Architecture
 **GitHub:** https://github.com/Mzzkc/mozart-ai-compose
 **Dashboard:** Production-grade web UI with job control
@@ -9,7 +9,34 @@
 
 ---
 
-## Current: Evolution Cycle v24 COMPLETE (2026-01-30)
+## Current: Real-time Output Logging (2026-02-04)
+
+### New Features
+
+**1. Real-time Output Logging**
+- `set_output_log_path()` method on Backend ABC
+- Industry-standard separate files: `sheet-NN.stdout.log`, `sheet-NN.stderr.log`
+- Enables `tail -f` monitoring during long executions
+- Files: `backends/base.py`, `backends/claude_cli.py`, `runner/sheet.py`
+
+**2. Schema Migration System (v10)**
+- `_COLUMN_MIGRATIONS` dict for tracking column additions
+- `_migrate_columns()` adds missing columns to existing tables
+- Fixed `IndexError` on `success_factors` column in existing DBs
+
+**3. Type Safety**
+- Fixed 210+ type errors in `SheetExecutionMixin`
+- Proper mixin type declarations
+
+### Jobs Running
+
+| Job | Progress | Status |
+|-----|----------|--------|
+| quality-continuous | Iteration 2 | Running (self-chaining) |
+
+---
+
+## Previous: Evolution Cycle v24 COMPLETE (2026-01-30)
 
 ### P5 Recognition: 17th Consecutive 100% Early Catch
 
