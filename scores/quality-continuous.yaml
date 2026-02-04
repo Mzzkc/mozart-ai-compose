@@ -1,0 +1,298 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║              CONTINUOUS QUALITY IMPROVEMENT SCORE                            ║
+# ║                                                                              ║
+# ║  Generic quality review that chains into itself for continuous improvement   ║
+# ║  Can be used on ANY Python project                                           ║
+# ║                                                                              ║
+# ║  Usage:                                                                      ║
+# ║    mozart run scores/quality-continuous.yaml                                 ║
+# ║                                                                              ║
+# ║  The job will:                                                               ║
+# ║    1. Discover issues across 10 categories                                   ║
+# ║    2. Fix issues in batches (quick wins → medium → significant)              ║
+# ║    3. Verify tests still pass                                                ║
+# ║    4. Chain to next iteration (up to max_iterations)                         ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+name: "quality-continuous"
+description: "Continuous quality improvement - finds and fixes issues iteratively"
+
+# Single workspace - iterations build on each other
+workspace: "./.quality-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  # working_directory inherited from where mozart is run
+  timeout_seconds: 1800  # 30 min per sheet max
+
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 2000
+  lookback_sheets: 1
+
+sheet:
+  size: 1
+  total_items: 5
+
+retry:
+  max_retries: 2
+  max_completion_attempts: 1
+
+prompt:
+  template: |
+    {{ preamble }}
+
+    {% if sheet_num == 1 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 1: CODEBASE DISCOVERY & ISSUE IDENTIFICATION                          ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Task:** Analyze codebase and find specific issues to fix.
+
+    **Step 0: Track iteration**
+    ```bash
+    # Read or initialize iteration counter
+    if [ -f {{ workspace }}/.iteration ]; then
+      ITER=$(cat {{ workspace }}/.iteration)
+      ITER=$((ITER + 1))
+    else
+      ITER=1
+    fi
+    echo $ITER > {{ workspace }}/.iteration
+    echo "=== QUALITY ITERATION $ITER ==="
+
+    # Check previous issues file if exists
+    if [ -f {{ workspace }}/01-issues.yaml ]; then
+      echo "Previous iteration found issues:"
+      grep -c "id: Q" {{ workspace }}/01-issues.yaml || echo "0"
+      # Archive previous results
+      mv {{ workspace }}/01-issues.yaml {{ workspace }}/01-issues-prev.yaml 2>/dev/null || true
+    fi
+    ```
+
+    **Step 1: Understand the project**
+    ```bash
+    # Find the source directory
+    ls -la src/ 2>/dev/null || ls -la lib/ 2>/dev/null || ls -la .
+
+    # Find test directory
+    ls -la tests/ 2>/dev/null || ls -la test/ 2>/dev/null
+
+    # Check for pyproject.toml or setup.py
+    cat pyproject.toml 2>/dev/null | head -30 || cat setup.py 2>/dev/null | head -30
+
+    # Get file counts
+    find . -name "*.py" -type f | wc -l
+    ```
+
+    **Step 2: Find issues across 10 categories (2 issues per category = 20 total)**
+
+    Categories:
+    1. **Dead Code** - unused imports, unreachable code
+    2. **Complexity** - functions >50 LOC, deep nesting
+    3. **Naming** - unclear or inconsistent names
+    4. **Error Handling** - bare excepts, swallowed errors
+    5. **Type Safety** - missing hints, Any abuse
+    6. **Duplication** - copy-paste code patterns
+    7. **Documentation** - missing/stale docstrings
+    8. **Testing Gaps** - untested code paths
+    9. **Performance** - O(n²) loops, repeated work
+    10. **Security** - path injection, unsafe defaults
+
+    **Focus on:**
+    - Recently modified files (check git log)
+    - Large files (>300 LOC)
+    - Files with low test coverage
+
+    **Output to:** {{ workspace }}/01-issues.yaml
+
+    Format each issue as:
+    ```yaml
+    issues:
+      - id: Q001
+        category: Dead Code
+        file: path/to/file.py
+        line: N
+        severity: critical | high | medium | low
+        description: Brief description
+        fix_effort: quick | medium | significant
+    ```
+
+    {% elif sheet_num == 2 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 2: QUICK WINS (< 5 min each)                                          ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/01-issues.yaml
+
+    **Fix all issues marked `fix_effort: quick`:**
+    - Unused imports
+    - Missing type hints on simple functions
+    - Obvious dead code
+    - Simple naming improvements
+    - Missing docstrings on public functions
+
+    **Rules:**
+    - Make minimal changes - don't refactor unrelated code
+    - Run tests after each fix to ensure nothing breaks
+    - Skip if fix would require significant changes
+
+    **After fixes, run:**
+    ```bash
+    # Verify tests pass
+    pytest -x -q --tb=short 2>&1 | tail -20
+    ```
+
+    **Output to:** {{ workspace }}/02-quick-wins.md
+
+    Document what was fixed:
+    ```markdown
+    # Quick Wins Applied
+
+    ## Fixed (N issues)
+    - Q001: [what was fixed]
+    - Q002: [what was fixed]
+
+    ## Skipped (N issues)
+    - Q003: [why skipped]
+
+    ## Test Results
+    [pytest output]
+    ```
+
+    {% elif sheet_num == 3 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 3: MEDIUM EFFORT FIXES                                                ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/01-issues.yaml and {{ workspace }}/02-quick-wins.md
+
+    **Fix issues marked `fix_effort: medium`:**
+    - Error handling improvements
+    - Function decomposition for complexity
+    - Duplicate code extraction
+    - Type hint additions requiring analysis
+
+    **Rules:**
+    - One logical change at a time
+    - Test after each change
+    - Document any architectural decisions
+
+    **Output to:** {{ workspace }}/03-medium-fixes.md
+
+    {% elif sheet_num == 4 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 4: SIGNIFICANT FIXES (Tests, Refactoring)                             ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read previous sheets' outputs.
+
+    **Address `fix_effort: significant` issues:**
+    - Write missing tests for coverage gaps
+    - Refactor complex functions
+    - Fix security issues
+
+    **Be conservative:**
+    - Only fix issues with clear solutions
+    - Skip anything requiring major architectural changes
+    - Prioritize test additions over refactoring
+
+    **Output to:** {{ workspace }}/04-significant-fixes.md
+
+    {% elif sheet_num == 5 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 5: VERIFICATION & ITERATION DECISION                                  ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Step 1: Run full test suite**
+    ```bash
+    pytest --tb=short 2>&1 | tail -50
+    ```
+
+    **Step 2: Check iteration count**
+    ```bash
+    # Count how many times we've run
+    ls -1 {{ workspace }}/../.quality-workspace-* 2>/dev/null | wc -l || echo "0"
+    ```
+
+    **Step 3: Summarize this iteration**
+
+    **Output to:** {{ workspace }}/05-summary.md
+
+    ```markdown
+    # Quality Iteration Summary
+
+    ## Issues Found: N
+    ## Issues Fixed: N
+    ## Issues Skipped: N (with reasons)
+
+    ## Test Results
+    [Full pytest output]
+
+    ## Recommendation
+    - [ ] More issues remain - chain to next iteration
+    - [ ] Codebase is clean - no more iterations needed
+    ```
+
+    {% endif %}
+
+  variables:
+    preamble: |
+      ╔══════════════════════════════════════════════════════════════════════════╗
+      ║              CONTINUOUS QUALITY IMPROVEMENT                              ║
+      ║                                                                          ║
+      ║  Find issues → Fix issues → Verify → Repeat                             ║
+      ╚══════════════════════════════════════════════════════════════════════════╝
+
+      **Principles:**
+      1. Make targeted, minimal changes
+      2. Test after every change
+      3. Skip risky fixes - flag for human review
+      4. Document everything
+
+validations:
+  - type: file_exists
+    path: "{workspace}/01-issues.yaml"
+    description: "Issues file must exist"
+    condition: "sheet_num >= 1"
+
+  - type: file_exists
+    path: "{workspace}/02-quick-wins.md"
+    description: "Quick wins report must exist"
+    condition: "sheet_num >= 2"
+
+  - type: file_exists
+    path: "{workspace}/03-medium-fixes.md"
+    description: "Medium fixes report must exist"
+    condition: "sheet_num >= 3"
+
+  - type: file_exists
+    path: "{workspace}/04-significant-fixes.md"
+    description: "Significant fixes report must exist"
+    condition: "sheet_num >= 4"
+
+  - type: file_exists
+    path: "{workspace}/05-summary.md"
+    description: "Summary must exist"
+    condition: "sheet_num == 5"
+
+  # Tests must still pass at the end
+  - type: command_succeeds
+    command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed|no tests'"
+    description: "Tests must pass after all fixes"
+    condition: "sheet_num == 5"
+
+# Self-chain for continuous improvement
+# max_chain_depth controls total iterations (10 max)
+on_success:
+  - type: run_job
+    job_path: "scores/quality-continuous.yaml"
+    description: "Chain to next quality iteration"
+    detached: true
+
+concert:
+  enabled: true
+  max_chain_depth: 10  # Stop after 10 iterations
+  cooldown_between_jobs_seconds: 60
+  inherit_workspace: false  # Each chain gets fresh Mozart state, but same workspace dir
