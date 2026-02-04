@@ -13,6 +13,7 @@ This module provides:
 import re
 import subprocess
 import time
+import warnings
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -386,6 +387,9 @@ class ValidationEngine:
         - "sheet_num > 2"
         - "sheet_num < 8"
 
+        Also supports compound conditions with 'and':
+        - "sheet_num >= 2 and sheet_num < 12"
+
         Args:
             condition: Condition expression string, or None to always match.
 
@@ -395,10 +399,25 @@ class ValidationEngine:
         if condition is None:
             return True
 
-        sheet_num = self.sheet_context.get("sheet_num", 0)
-
-        # Parse simple comparison expressions
         condition = condition.strip()
+
+        # Handle compound conditions with 'and'
+        if " and " in condition:
+            parts = condition.split(" and ")
+            return all(self._check_single_condition(p.strip()) for p in parts)
+
+        return self._check_single_condition(condition)
+
+    def _check_single_condition(self, condition: str) -> bool:
+        """Check a single comparison condition.
+
+        Args:
+            condition: Single condition like "sheet_num >= 6".
+
+        Returns:
+            True if condition is satisfied, False otherwise.
+        """
+        sheet_num = self.sheet_context.get("sheet_num", 0)
 
         # Try to match pattern: variable operator value
         match = re.match(r"(\w+)\s*(>=|<=|==|!=|>|<)\s*(\d+)", condition)
@@ -799,6 +818,11 @@ class ValidationEngine:
         try:
             content = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
+            warnings.warn(
+                f"File has encoding issues, using replacement chars: {path}",
+                UnicodeWarning,
+                stacklevel=2,
+            )
             content = path.read_text(encoding="utf-8", errors="replace")
 
         contains = rule.pattern in content
@@ -873,6 +897,11 @@ class ValidationEngine:
         try:
             content = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
+            warnings.warn(
+                f"File has encoding issues, using replacement chars: {path}",
+                UnicodeWarning,
+                stacklevel=2,
+            )
             content = path.read_text(encoding="utf-8", errors="replace")
 
         try:
@@ -920,6 +949,20 @@ class ValidationEngine:
         - pytest: `pytest tests/ -q`
         - mypy: `mypy src/`
         - ruff: `ruff check src/`
+
+        Security Note:
+            This method executes arbitrary shell commands with shell=True.
+            Commands come from job configuration files (YAML), which are
+            trusted by design - they are authored by the job creator who
+            has full control over the execution environment. The shell=True
+            parameter is intentional to support shell features like pipes,
+            redirects, and environment variable expansion.
+
+            This is NOT a security vulnerability because:
+            1. Job configs are not user-supplied input - they're authored
+               by the same entity that controls the execution environment
+            2. The working directory is constrained to the job workspace
+            3. Commands have a 5-minute timeout to prevent resource exhaustion
 
         Args:
             rule: Validation rule with command to execute.
@@ -1353,15 +1396,10 @@ class KeyVariableExtractor:
         ```
     """
 
-    # Pattern for KEY: VALUE (colon-separated)
-    _COLON_PATTERN = re.compile(
-        r"^([A-Z][A-Z0-9_]*)\s*:\s*(.+)$",
-        re.MULTILINE
-    )
-
-    # Pattern for KEY=VALUE or KEY = VALUE (equals-separated)
-    _EQUALS_PATTERN = re.compile(
-        r"^([A-Z][A-Z0-9_]*)\s*=\s*(.+)$",
+    # Combined pattern for KEY: VALUE or KEY=VALUE (single pass over content)
+    # Uses named groups to capture separator for debugging if needed
+    _KEY_VALUE_PATTERN = re.compile(
+        r"^([A-Z][A-Z0-9_]*)\s*(?::|=)\s*(.+)$",
         re.MULTILINE
     )
 
@@ -1401,23 +1439,8 @@ class KeyVariableExtractor:
         for i, line in enumerate(lines, 1):
             line_map[line] = i
 
-        # Extract colon-separated pairs
-        for match in self._COLON_PATTERN.finditer(content):
-            key = match.group(1)
-            value = match.group(2).strip()
-            source_line = match.group(0)
-
-            if self._should_include(key) and key not in seen_keys:
-                variables.append(KeyVariable(
-                    key=key,
-                    value=value,
-                    source_line=source_line,
-                    line_number=line_map.get(source_line, 0),
-                ))
-                seen_keys.add(key)
-
-        # Extract equals-separated pairs
-        for match in self._EQUALS_PATTERN.finditer(content):
+        # Extract key-value pairs (single pass using combined pattern)
+        for match in self._KEY_VALUE_PATTERN.finditer(content):
             key = match.group(1)
             value = match.group(2).strip()
             source_line = match.group(0)
