@@ -305,6 +305,9 @@ class ClaudeCliBackend(Backend):
                 })
                 last_progress_time = now
 
+        # Track process for cleanup on exception
+        process: asyncio.subprocess.Process | None = None
+
         try:
             # create_subprocess_exec is shell-injection safe
             # Arguments are passed as list, not interpolated into shell string
@@ -503,6 +506,28 @@ class ClaudeCliBackend(Backend):
             )
         except Exception as e:
             duration = time.monotonic() - start_time
+
+            # CRITICAL: Kill orphaned process to prevent leaks
+            # If exception occurs after process started but before completion,
+            # the process would otherwise be left running indefinitely
+            if process is not None and process.returncode is None:
+                _logger.warning(
+                    "killing_orphaned_process",
+                    pid=process.pid,
+                    reason="exception_during_execution",
+                    error=str(e),
+                )
+                try:
+                    # Kill entire process group (includes MCP servers)
+                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                except (OSError, ProcessLookupError):
+                    pass
+                try:
+                    process.kill()
+                    await process.wait()
+                except ProcessLookupError:
+                    pass
+
             _logger.exception(
                 "execution_exception",
                 error_message=str(e),
