@@ -96,6 +96,13 @@ def run(
         "-y",
         help="Auto-confirm suggested fixes when using --self-healing",
     ),
+    fresh: bool = typer.Option(
+        False,
+        "--fresh",
+        help="Delete existing state before running, ensuring a fresh start. "
+        "Use this for self-chaining jobs or when you want to re-run a completed job "
+        "from scratch without resuming from previous state.",
+    ),
 ) -> None:
     """Run a job from a YAML configuration file."""
     from mozart.core.config import JobConfig
@@ -144,7 +151,7 @@ def run(
     # Actually run the job
     if not is_quiet() and not json_output:
         console.print("\n[green]Starting job...[/green]")
-    asyncio.run(_run_job(config, start_sheet, json_output, escalation, self_healing, yes))
+    asyncio.run(_run_job(config, start_sheet, json_output, escalation, self_healing, yes, fresh))
 
 
 async def _run_job(
@@ -154,6 +161,7 @@ async def _run_job(
     escalation: bool = False,
     self_healing: bool = False,
     auto_confirm: bool = False,
+    fresh: bool = False,
 ) -> None:
     """Run the job asynchronously using the JobRunner with progress display."""
     from mozart.backends.anthropic_api import AnthropicApiBackend
@@ -168,6 +176,18 @@ async def _run_job(
 
     # Setup backends based on config
     state_backend = create_state_backend_from_config(config)
+
+    # Delete existing state if --fresh flag is set (clean start)
+    if fresh:
+        deleted = await state_backend.delete(config.name)
+        if deleted and not is_quiet() and not json_output:
+            console.print(
+                f"[yellow]--fresh: Deleted existing state for '{config.name}'[/yellow]"
+            )
+        elif not deleted and is_verbose() and not json_output:
+            console.print(
+                f"[dim]--fresh: No existing state found for '{config.name}'[/dim]"
+            )
 
     # Create appropriate backend based on type
     backend: Backend

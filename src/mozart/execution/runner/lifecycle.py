@@ -98,6 +98,11 @@ class LifecycleMixin:
         state = await self._initialize_state(start_sheet, config_path)
         self._current_state = state
 
+        # Track if job was already completed when we loaded state.
+        # Used to prevent on_success hooks from firing when zero new work
+        # was done (e.g., self-chaining job loads its own completed state).
+        was_already_completed = state.status == JobStatus.COMPLETED
+
         # Set running PID for zombie detection
         state.set_running_pid()
         await self.state_backend.save(state)
@@ -173,9 +178,27 @@ class LifecycleMixin:
                 total_retries=self._summary.total_retries,
             )
 
-            # Execute post-success hooks if job completed successfully
-            if state.status == JobStatus.COMPLETED and self.config.on_success:
+            # Execute post-success hooks if job completed successfully.
+            # Skip hooks if the job was already COMPLETED when we loaded state,
+            # meaning zero new sheets were executed this run. This prevents
+            # infinite self-chaining loops where a completed job re-triggers
+            # its own on_success hook without doing any work.
+            if (
+                state.status == JobStatus.COMPLETED
+                and self.config.on_success
+                and not was_already_completed
+            ):
                 await self._execute_post_success_hooks(state)
+            elif (
+                state.status == JobStatus.COMPLETED
+                and self.config.on_success
+                and was_already_completed
+            ):
+                self._logger.info(
+                    "hooks.skipped_zero_work",
+                    job_id=state.job_id,
+                    reason="Job was already completed when loaded — no new sheets executed",
+                )
 
             return state, self._summary
         finally:

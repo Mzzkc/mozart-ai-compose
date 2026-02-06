@@ -930,6 +930,12 @@ class PostSuccessHookConfig(BaseModel):
         description="For run_job hooks: if true, spawn the job and don't wait for completion. "
         "Use this for infinite chaining where each job spawns the next.",
     )
+    fresh: bool = Field(
+        default=False,
+        description="For run_job hooks: if true, pass --fresh to the chained job so it "
+        "starts with clean state instead of resuming from previous state. "
+        "Required for self-chaining jobs that reuse the same workspace.",
+    )
 
 
 class ConcertConfig(BaseModel):

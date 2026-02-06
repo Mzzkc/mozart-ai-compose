@@ -32,7 +32,7 @@ cross_sheet:
 
 sheet:
   size: 1
-  total_items: 10
+  total_items: 13  # Reviews(1-5) + Batch1(6-7) + Batch2(8-9) + Batch3(10-11) + Verify(12) + Commit(13)
 
 retry:
   max_retries: 2
@@ -417,11 +417,14 @@ prompt:
 
     {% elif sheet_num == 6 %}
     ╔══════════════════════════════════════════════════════════════════════════════╗
-    ║  SHEET 6: BATCH 1 - QUICK WINS                                               ║
+    ║  SHEET 6: BATCH 1 - QUICK WINS (MANDATORY 70%+ COMPLETION)                   ║
     ║  "Low-hanging fruit that compounds into significant improvement"             ║
     ╚══════════════════════════════════════════════════════════════════════════════╝
 
-    Read {{ workspace }}/05-fix-plan.md and fix all Batch 1 issues.
+    Read {{ workspace }}/05-fix-plan.md and fix Batch 1 issues.
+
+    **MANDATORY REQUIREMENT: You MUST complete at least 70% of Batch 1 issues.**
+    Validation will FAIL if you skip more than 30%.
 
     **Fix quick wins:**
     - Remove unused imports
@@ -434,33 +437,86 @@ prompt:
     **Rules:**
     - One logical change at a time
     - Run tests after each change: `pytest -x -q --tb=short`
-    - Skip if change is riskier than expected
-    - Document what you fixed and what you skipped
+    - DO NOT SKIP unless genuinely blocked (not "risky" or "low benefit")
+    - "Already fixed" is acceptable ONLY if you verify it's actually fixed
+
+    **Valid skip reasons (ONLY these):**
+    - Would break existing tests (must show which test)
+    - Requires schema/migration change
+    - File/function no longer exists
+    - Already implemented (must verify with grep/code check)
+
+    **INVALID skip reasons (will fail validation):**
+    - "Risky" without specific test failure
+    - "Low benefit" - that's not your call
+    - "Extensive testing needed" - that's the job
+    - "Better for future version" - do it now
 
     **Output to:** {{ workspace }}/06-batch1-fixes.md
 
+    Format EXACTLY (validation parses this):
     ```markdown
     # Batch 1 Results: Quick Wins
 
-    ## Fixed (N issues)
-    | ID | What was fixed | File |
-    |----|---------------|------|
+    **Total:** N issues
+    **Fixed:** N issues
+    **Completion:** N% (MUST BE >= 70%)
 
-    ## Skipped (N issues)
-    | ID | Why skipped |
-    |----|-------------|
+    ## Fixed
+    | ID | What was fixed | File | Verified |
+    |----|---------------|------|----------|
+
+    ## Deferred (max 30%)
+    | ID | Blocker reason | Evidence |
+    |----|----------------|----------|
 
     ## Test Results
-    [pytest output]
+    [pytest output showing all tests pass]
     ```
 
     {% elif sheet_num == 7 %}
     ╔══════════════════════════════════════════════════════════════════════════════╗
-    ║  SHEET 7: BATCH 2 - MEDIUM EFFORT                                            ║
+    ║  SHEET 7: BATCH 1 - COMPLETION PASS (FINISH REMAINING)                       ║
+    ║  "No excuses - complete what was deferred"                                   ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/06-batch1-fixes.md and complete ALL deferred items.
+
+    **MANDATORY: Complete every deferred item or prove it's impossible.**
+
+    For each deferred item from Batch 1:
+    1. Re-attempt the fix
+    2. If still blocked, provide CONCRETE evidence (error message, failing test)
+    3. "Risky" or "complex" are NOT acceptable - do the work
+
+    **Output to:** {{ workspace }}/07-batch1-completion.md
+
+    Format:
+    ```markdown
+    # Batch 1 Completion Pass
+
+    **Deferred from first pass:** N items
+    **Now completed:** N items
+    **Still blocked:** N items (must be 0 or have concrete evidence)
+
+    ## Completed
+    | ID | What was fixed | Evidence it works |
+    |----|---------------|-------------------|
+
+    ## Truly Blocked (with proof)
+    | ID | Blocker | Error message/test failure |
+    |----|---------|---------------------------|
+    ```
+
+    {% elif sheet_num == 8 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 8: BATCH 2 - MEDIUM EFFORT (MANDATORY 70%+ COMPLETION)                ║
     ║  "Structural improvements that prevent future bugs"                          ║
     ╚══════════════════════════════════════════════════════════════════════════════╝
 
     Read {{ workspace }}/05-fix-plan.md and fix Batch 2 issues.
+
+    **MANDATORY REQUIREMENT: You MUST complete at least 70% of Batch 2 issues.**
 
     **Fix medium effort issues:**
     - Error handling improvements
@@ -472,37 +528,154 @@ prompt:
 
     **Rules:**
     - Test after each change
-    - If a fix causes test failures, revert and skip
-    - Document architectural decisions
+    - If a fix causes test failures, debug and fix the test issue
+    - DO NOT give up on an issue without genuine blocker evidence
+    - "Complex" is not a valid skip reason - break it into steps
 
-    **Output to:** {{ workspace }}/07-batch2-fixes.md
+    **Valid skip reasons (ONLY these):**
+    - Would require database schema change
+    - Would break public API contract
+    - File/function no longer exists
+    - Already implemented (must verify)
 
-    {% elif sheet_num == 8 %}
+    **Output to:** {{ workspace }}/08-batch2-fixes.md
+
+    Format EXACTLY:
+    ```markdown
+    # Batch 2 Results: Medium Effort
+
+    **Total:** N issues
+    **Fixed:** N issues
+    **Completion:** N% (MUST BE >= 70%)
+
+    ## Fixed
+    | ID | What was fixed | File | Test verification |
+    |----|---------------|------|-------------------|
+
+    ## Deferred (max 30%)
+    | ID | Blocker | Evidence command/output |
+    |----|---------|------------------------|
+    ```
+
+    {% elif sheet_num == 9 %}
     ╔══════════════════════════════════════════════════════════════════════════════╗
-    ║  SHEET 8: BATCH 3 - SIGNIFICANT FIXES                                        ║
+    ║  SHEET 9: BATCH 2 - COMPLETION PASS (FINISH REMAINING)                       ║
+    ║  "No excuses - complete what was deferred"                                   ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/08-batch2-fixes.md and complete ALL deferred items.
+
+    **MANDATORY: Complete every deferred item or prove it's impossible.**
+
+    For each deferred item:
+    1. Re-attempt the fix with fresh approach
+    2. If blocked, provide CONCRETE evidence (specific error, test failure)
+    3. "Would require significant effort" is NOT acceptable - do the work
+
+    **Output to:** {{ workspace }}/09-batch2-completion.md
+
+    Format:
+    ```markdown
+    # Batch 2 Completion Pass
+
+    **Deferred from first pass:** N items
+    **Now completed:** N items
+    **Still blocked:** N items (must have concrete proof)
+
+    ## Completed
+    | ID | What was fixed | Test verification |
+    |----|---------------|-------------------|
+
+    ## Truly Blocked (with proof)
+    | ID | Blocker | Specific error/failure |
+    |----|---------|----------------------|
+    ```
+
+    {% elif sheet_num == 10 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 10: BATCH 3 - SIGNIFICANT FIXES (MANDATORY 50%+ COMPLETION)           ║
     ║  "The 10% that separates good from production-ready"                         ║
     ╚══════════════════════════════════════════════════════════════════════════════╝
 
     Read {{ workspace }}/05-fix-plan.md and address Batch 3 issues.
 
+    **MANDATORY REQUIREMENT: You MUST complete at least 50% of Batch 3 issues.**
+    These are significant but that doesn't mean optional.
+
     **Fix significant issues:**
-    - Write missing unit tests
+    - Write missing unit tests (PRIORITY - no skipping test writing)
     - Write missing smoke tests
-    - Refactor complex functions
-    - Fix security issues
+    - Refactor complex functions (break into smaller steps)
+    - Fix security issues (CRITICAL - no skipping)
     - Add missing functional tests
 
-    **Be conservative:**
-    - Only fix issues with clear solutions
-    - Skip major architectural changes
-    - Prioritize tests over refactoring
-    - Document why you skipped anything
+    **DO NOT be conservative. Be thorough:**
+    - Tests are NEVER optional - write them
+    - Security issues are NEVER optional - fix them
+    - "Major architectural change" is not a skip reason - do it incrementally
 
-    **Output to:** {{ workspace }}/08-batch3-fixes.md
+    **Valid skip reasons (ONLY these):**
+    - Would require multi-day refactoring (estimate hours)
+    - Requires external dependency change
+    - Already has adequate test coverage (show coverage proof)
 
-    {% elif sheet_num == 9 %}
+    **Output to:** {{ workspace }}/10-batch3-fixes.md
+
+    Format EXACTLY:
+    ```markdown
+    # Batch 3 Results: Significant Fixes
+
+    **Total:** N issues
+    **Fixed:** N issues
+    **Completion:** N% (MUST BE >= 50%)
+
+    ## Fixed
+    | ID | What was fixed | File | Tests added/passed |
+    |----|---------------|------|-------------------|
+
+    ## Deferred
+    | ID | Blocker | Estimated effort | Why not now |
+    |----|---------|------------------|-------------|
+    ```
+
+    {% elif sheet_num == 11 %}
     ╔══════════════════════════════════════════════════════════════════════════════╗
-    ║  SHEET 9: VERIFICATION & SUMMARY                                             ║
+    ║  SHEET 11: BATCH 3 - COMPLETION PASS (FINISH REMAINING)                      ║
+    ║  "Tests and security are NEVER optional"                                     ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/10-batch3-fixes.md and complete ALL deferred items.
+
+    **MANDATORY: Complete every deferred item. No exceptions for tests/security.**
+
+    For each deferred item:
+    1. If it's a missing test - WRITE THE TEST
+    2. If it's a security issue - FIX IT
+    3. If it's refactoring - do it incrementally, one function at a time
+    4. Only truly multi-day efforts can remain (must estimate hours)
+
+    **Output to:** {{ workspace }}/11-batch3-completion.md
+
+    Format:
+    ```markdown
+    # Batch 3 Completion Pass
+
+    **Deferred from first pass:** N items
+    **Now completed:** N items
+    **Remaining (multi-day only):** N items
+
+    ## Completed
+    | ID | What was fixed | Tests added |
+    |----|---------------|-------------|
+
+    ## Multi-Day Items (deferred to next iteration)
+    | ID | Estimated hours | What's needed |
+    |----|-----------------|---------------|
+    ```
+
+    {% elif sheet_num == 12 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 12: VERIFICATION & SUMMARY                                            ║
     ║  "Measure twice, commit once"                                                ║
     ╚══════════════════════════════════════════════════════════════════════════════╝
 
@@ -526,7 +699,15 @@ prompt:
 
     Read all batch results and create summary.
 
-    **Output to:** {{ workspace }}/09-summary.md
+    **Output to:** {{ workspace }}/12-summary.md
+
+    Read all batch results and completion passes:
+    - {{ workspace }}/06-batch1-fixes.md
+    - {{ workspace }}/07-batch1-completion.md
+    - {{ workspace }}/08-batch2-fixes.md
+    - {{ workspace }}/09-batch2-completion.md
+    - {{ workspace }}/10-batch3-fixes.md
+    - {{ workspace }}/11-batch3-completion.md
 
     ```markdown
     # Quality Iteration N Summary
@@ -540,31 +721,30 @@ prompt:
     | Category Discovery | N |
     | **Total (deduplicated)** | **N** |
 
-    ## Issues Fixed
-    | Batch | Fixed | Skipped |
-    |-------|-------|---------|
-    | Quick Wins | N | N |
-    | Medium | N | N |
-    | Significant | N | N |
-    | **Total** | **N** | **N** |
+    ## Issues Fixed (First Pass + Completion)
+    | Batch | First Pass | Completion | Total | Remaining |
+    |-------|------------|------------|-------|-----------|
+    | Quick Wins | N | N | N | N |
+    | Medium | N | N | N | N |
+    | Significant | N | N | N | N |
+    | **Total** | **N** | **N** | **N** | **N** |
+
+    ## Overall Completion Rate
+    **N%** of identified issues resolved
 
     ## Key Improvements
     - [List major improvements]
 
-    ## Remaining Issues
-    - [List issues deferred to next iteration]
+    ## Remaining Issues (for next iteration)
+    - [Only truly blocked items]
 
     ## Test Results
     [pytest output]
-
-    ## Recommendation
-    - [ ] More issues remain - continue to next iteration
-    - [ ] Codebase is clean - quality target achieved
     ```
 
-    {% elif sheet_num == 10 %}
+    {% elif sheet_num == 13 %}
     ╔══════════════════════════════════════════════════════════════════════════════╗
-    ║  SHEET 10: COMMIT CHANGES                                                    ║
+    ║  SHEET 13: COMMIT CHANGES                                                    ║
     ║  "Ship it"                                                                   ║
     ╚══════════════════════════════════════════════════════════════════════════════╝
 
@@ -588,7 +768,7 @@ prompt:
     # Create commit
     git commit -m "refactor: Quality iteration $ITER - $(date +%Y-%m-%d)
 
-    $(head -40 {{ workspace }}/09-summary.md)
+    $(head -40 {{ workspace }}/12-summary.md)
 
     Co-Authored-By: Mozart Quality Score <noreply@mozart.ai>"
 
@@ -601,7 +781,7 @@ prompt:
     git show --stat HEAD | tail -20
     ```
 
-    **Output to:** {{ workspace }}/10-commit.md
+    **Output to:** {{ workspace }}/13-commit.md
 
     ```markdown
     # Commit Results (Iteration N)
@@ -667,37 +847,124 @@ validations:
     description: "Batch 1 results must exist"
     condition: "sheet_num >= 6"
 
+  # Batch 1: Must have 70%+ completion
+  - type: command_succeeds
+    command: |
+      FILE="{workspace}/06-batch1-fixes.md"
+      if [ ! -f "$FILE" ]; then echo "file missing"; exit 1; fi
+      COMPLETION=$(grep -oE 'Completion.*[0-9]+%' "$FILE" | grep -oE '[0-9]+' | head -1)
+      if [ -z "$COMPLETION" ]; then
+        # Fallback: calculate from Fixed/Total
+        FIXED=$(grep -E '^\*\*Fixed:\*\*' "$FILE" | grep -oE '[0-9]+' | head -1)
+        TOTAL=$(grep -E '^\*\*Total:\*\*' "$FILE" | grep -oE '[0-9]+' | head -1)
+        if [ -n "$FIXED" ] && [ -n "$TOTAL" ] && [ "$TOTAL" -gt 0 ]; then
+          COMPLETION=$((FIXED * 100 / TOTAL))
+        fi
+      fi
+      if [ -n "$COMPLETION" ] && [ "$COMPLETION" -ge 70 ]; then
+        echo "Batch 1 completion: ${COMPLETION}% (>=70% required) - PASSED"
+      else
+        echo "Batch 1 completion: ${COMPLETION:-unknown}% (>=70% required) - FAILED"
+        exit 1
+      fi
+    description: "Batch 1 must have >=70% completion rate"
+    condition: "sheet_num >= 6"
+
+  # Sheet 7: Batch 1 Completion Pass
   - type: file_exists
-    path: "{workspace}/07-batch2-fixes.md"
-    description: "Batch 2 results must exist"
+    path: "{workspace}/07-batch1-completion.md"
+    description: "Batch 1 completion pass must exist"
     condition: "sheet_num >= 7"
 
+  # Sheet 8: Batch 2 First Pass
   - type: file_exists
-    path: "{workspace}/08-batch3-fixes.md"
-    description: "Batch 3 results must exist"
+    path: "{workspace}/08-batch2-fixes.md"
+    description: "Batch 2 results must exist"
     condition: "sheet_num >= 8"
 
+  - type: command_succeeds
+    command: |
+      FILE="{workspace}/08-batch2-fixes.md"
+      if [ ! -f "$FILE" ]; then echo "file missing"; exit 1; fi
+      COMPLETION=$(grep -oE 'Completion.*[0-9]+%' "$FILE" | grep -oE '[0-9]+' | head -1)
+      if [ -z "$COMPLETION" ]; then
+        FIXED=$(grep -E '^\*\*Fixed:\*\*' "$FILE" | grep -oE '[0-9]+' | head -1)
+        TOTAL=$(grep -E '^\*\*Total:\*\*' "$FILE" | grep -oE '[0-9]+' | head -1)
+        if [ -n "$FIXED" ] && [ -n "$TOTAL" ] && [ "$TOTAL" -gt 0 ]; then
+          COMPLETION=$((FIXED * 100 / TOTAL))
+        fi
+      fi
+      if [ -n "$COMPLETION" ] && [ "$COMPLETION" -ge 70 ]; then
+        echo "Batch 2 completion: ${COMPLETION}% (>=70% required) - PASSED"
+      else
+        echo "Batch 2 completion: ${COMPLETION:-unknown}% (>=70% required) - FAILED"
+        exit 1
+      fi
+    description: "Batch 2 must have >=70% completion rate"
+    condition: "sheet_num >= 8"
+
+  # Sheet 9: Batch 2 Completion Pass
   - type: file_exists
-    path: "{workspace}/09-summary.md"
-    description: "Summary must exist"
+    path: "{workspace}/09-batch2-completion.md"
+    description: "Batch 2 completion pass must exist"
     condition: "sheet_num >= 9"
 
+  # Sheet 10: Batch 3 First Pass
   - type: file_exists
-    path: "{workspace}/10-commit.md"
-    description: "Commit report must exist"
-    condition: "sheet_num == 10"
+    path: "{workspace}/10-batch3-fixes.md"
+    description: "Batch 3 results must exist"
+    condition: "sheet_num >= 10"
+
+  - type: command_succeeds
+    command: |
+      FILE="{workspace}/10-batch3-fixes.md"
+      if [ ! -f "$FILE" ]; then echo "file missing"; exit 1; fi
+      COMPLETION=$(grep -oE 'Completion.*[0-9]+%' "$FILE" | grep -oE '[0-9]+' | head -1)
+      if [ -z "$COMPLETION" ]; then
+        FIXED=$(grep -E '^\*\*Fixed:\*\*' "$FILE" | grep -oE '[0-9]+' | head -1)
+        TOTAL=$(grep -E '^\*\*Total:\*\*' "$FILE" | grep -oE '[0-9]+' | head -1)
+        if [ -n "$FIXED" ] && [ -n "$TOTAL" ] && [ "$TOTAL" -gt 0 ]; then
+          COMPLETION=$((FIXED * 100 / TOTAL))
+        fi
+      fi
+      if [ -n "$COMPLETION" ] && [ "$COMPLETION" -ge 50 ]; then
+        echo "Batch 3 completion: ${COMPLETION}% (>=50% required) - PASSED"
+      else
+        echo "Batch 3 completion: ${COMPLETION:-unknown}% (>=50% required) - FAILED"
+        exit 1
+      fi
+    description: "Batch 3 must have >=50% completion rate"
+    condition: "sheet_num >= 10"
+
+  # Sheet 11: Batch 3 Completion Pass
+  - type: file_exists
+    path: "{workspace}/11-batch3-completion.md"
+    description: "Batch 3 completion pass must exist"
+    condition: "sheet_num >= 11"
+
+  # Sheet 12: Verification & Summary
+  - type: file_exists
+    path: "{workspace}/12-summary.md"
+    description: "Summary must exist"
+    condition: "sheet_num >= 12"
 
   # Tests must pass before committing
   - type: command_succeeds
     command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed|no tests'"
     description: "Tests must pass"
-    condition: "sheet_num >= 9"
+    condition: "sheet_num >= 12"
+
+  # Sheet 13: Commit
+  - type: file_exists
+    path: "{workspace}/13-commit.md"
+    description: "Commit report must exist"
+    condition: "sheet_num == 13"
 
   # Verify commit was created
   - type: command_succeeds
     command: "git log --oneline -1 --since='10 minutes ago' 2>/dev/null | grep -qE '.' && echo 'passed' || echo 'no recent commit'"
     description: "Recent commit should exist"
-    condition: "sheet_num == 10"
+    condition: "sheet_num == 13"
 
 # Self-chain for continuous improvement
 on_success:
@@ -705,6 +972,7 @@ on_success:
     job_path: "examples/quality-continuous.yaml"
     description: "Chain to next quality iteration"
     detached: true
+    fresh: true  # Clear previous run's state to prevent infinite empty-run loop
 
 concert:
   enabled: true

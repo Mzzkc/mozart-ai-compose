@@ -264,6 +264,8 @@ class HookExecutor:
 
         # Build mozart command as argument list (safe, no shell injection)
         cmd = ["mozart", "run", str(job_path)]
+        if hook.fresh:
+            cmd.append("--fresh")
         if chained_workspace:
             cmd.extend(["--workspace", str(chained_workspace)])
 
