@@ -201,8 +201,8 @@ class PreflightChecker:
             token_warning_threshold: Token count above which to warn.
             token_error_threshold: Token count above which to error.
         """
-        self.workspace = workspace
-        self.working_directory = working_directory or workspace
+        self.workspace = workspace.resolve()
+        self.working_directory = (working_directory or workspace).resolve()
         self.token_warning_threshold = token_warning_threshold
         self.token_error_threshold = token_error_threshold
 

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -53,6 +54,7 @@ from ..output import (
 if TYPE_CHECKING:
     from mozart.core.checkpoint import CheckpointState
 
+_logger = logging.getLogger(__name__)
 
 # =============================================================================
 # CLI Commands
@@ -174,7 +176,8 @@ async def _status_job(
             if job:
                 found_job = job
                 break
-        except Exception:
+        except Exception as e:
+            _logger.debug("Error querying backend for %s: %s", job_id, e)
             continue
 
     if not found_job:

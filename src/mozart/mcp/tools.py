@@ -11,6 +11,7 @@ Each tool follows the MCP specification for parameter schemas and return values.
 Tools leverage the existing JobControlService for consistent behavior with the dashboard.
 """
 
+import asyncio
 import logging
 import re
 from datetime import datetime
@@ -687,25 +688,25 @@ class ArtifactTools:
         if file_size > max_size:
             raise ValueError(f"File too large: {file_size} bytes (max {max_size})")
 
-        # Read file content
-        try:
-            with open(target_file, encoding=encoding) as f:
-                content = f.read()
-        except UnicodeDecodeError:
-            # Try alternative encodings
-            for alt_encoding in ['latin-1', 'cp1252']:
-                try:
-                    with open(target_file, encoding=alt_encoding) as f:
-                        content = f.read()
-                        content = f"[File read with {alt_encoding} encoding]\n{content}"
-                    break
-                except UnicodeDecodeError:
-                    continue
-            else:
+        # Read file content in a thread to avoid blocking the event loop
+        def _sync_read_file() -> str:
+            try:
+                with open(target_file, encoding=encoding) as f:
+                    return f.read()
+            except UnicodeDecodeError:
+                for alt_encoding in ['latin-1', 'cp1252']:
+                    try:
+                        with open(target_file, encoding=alt_encoding) as f:
+                            data = f.read()
+                            return f"[File read with {alt_encoding} encoding]\n{data}"
+                    except UnicodeDecodeError:
+                        continue
                 # Final fallback to binary representation
                 with open(target_file, 'rb') as f:
                     raw_data = f.read()[:1000]  # First 1KB only
-                    content = f"Binary file: {file_size} bytes\nFirst 1KB (hex): {raw_data.hex()}"
+                    return f"Binary file: {file_size} bytes\nFirst 1KB (hex): {raw_data.hex()}"
+
+        content = await asyncio.to_thread(_sync_read_file)
 
         # Format file size in human-readable format
         if file_size < 1024:
@@ -773,9 +774,12 @@ class ArtifactTools:
                 result += f"📄 {log_type} Log: {log_file.name}\n"
                 result += "-" * 40 + "\n"
 
-                # Read the log file
-                with open(log_file, encoding='utf-8', errors='ignore') as f:
-                    log_lines = f.readlines()
+                # Read the log file in a thread to avoid blocking the event loop
+                def _sync_read_log(path: Path = log_file) -> list[str]:
+                    with open(path, encoding='utf-8', errors='ignore') as f:
+                        return f.readlines()
+
+                log_lines = await asyncio.to_thread(_sync_read_log)
 
                 # Filter by log level if specified
                 filtered_lines = []

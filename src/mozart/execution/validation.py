@@ -340,7 +340,7 @@ class ValidationEngine:
             workspace: Base workspace directory.
             sheet_context: Context dict with sheet_num, start_item, end_item, etc.
         """
-        self.workspace = workspace
+        self.workspace = workspace.resolve()
         self.sheet_context = sheet_context
         self._mtime_tracker = FileModificationTracker()
 
@@ -997,15 +997,31 @@ class ValidationEngine:
             else self.workspace
         )
 
+        # Expand {workspace}, {sheet_num}, etc. in command strings,
+        # matching the same variable expansion used in expand_path().
+        # Use str.replace() instead of str.format() to avoid conflicts
+        # with shell variable syntax like ${VAR} and ${VAR:-default}.
+        context = dict(self.sheet_context)
+        context["workspace"] = str(self.workspace)
+        expanded_command = rule.command
+        for key, value in context.items():
+            expanded_command = expanded_command.replace(
+                "{" + key + "}", str(value)
+            )
+
         # Get a display-friendly command summary
         display_command = (
-            rule.command[:50] + "..." if len(rule.command) > 50 else rule.command
+            expanded_command[:50] + "..."
+            if len(expanded_command) > 50
+            else expanded_command
         )
 
         try:
+            # Use explicit ["/bin/sh", "-c", command] instead of shell=True
+            # to prevent argument injection. shell=True passes to the system
+            # shell which may vary; explicit invocation is deterministic.
             result = subprocess.run(
-                rule.command,
-                shell=True,
+                ["/bin/sh", "-c", expanded_command],
                 cwd=str(cwd),
                 capture_output=True,
                 text=True,

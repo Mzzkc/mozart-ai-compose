@@ -458,7 +458,7 @@ class SheetExecutionMixin:
                             f"waiting {wait_seconds:.0f}s[/yellow]"
                         )
                         await self._interruptible_sleep(wait_seconds)
-                except Exception as e:
+                except Exception as e:  # Non-critical: cross-workspace check
                     self._logger.warning(
                         "rate_limit.cross_workspace_check_failed",
                         sheet_num=sheet_num,

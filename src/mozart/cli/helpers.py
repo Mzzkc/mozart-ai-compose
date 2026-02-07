@@ -149,7 +149,7 @@ def set_log_file(path: Path | None) -> None:
     """Set the log file path.
 
     When a log file is specified, logs are written to the file in
-    human-readable format. Rich CLI output (progress bars, status tables)
+    console format. Rich CLI output (progress bars, status tables)
     is separate from structured logging and still displays on console.
 
     Args:
@@ -388,7 +388,8 @@ async def find_job_state(
             job = await backend.load(job_id)
             if job:
                 return job, backend
-        except Exception:
+        except Exception as e:
+            _logger.debug("Error querying backend for %s: %s", job_id, e)
             continue
 
     return None, None

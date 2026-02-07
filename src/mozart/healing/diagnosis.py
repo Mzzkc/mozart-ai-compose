@@ -5,8 +5,11 @@ Diagnosis objects, sorted by confidence. Each diagnosis identifies
 what went wrong, why, and how to fix it.
 """
 
+import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
+
+_logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from mozart.healing.context import ErrorContext
@@ -108,8 +111,11 @@ class DiagnosisEngine:
                     diagnoses.append(diagnosis)
             except Exception:
                 # Individual remedy failures shouldn't block diagnosis
-                # Could add logging here for debugging
-                pass
+                _logger.debug(
+                    "Remedy %s failed during diagnosis",
+                    type(remedy).__name__,
+                    exc_info=True,
+                )
 
         # Sort by confidence, highest first
         diagnoses.sort(key=lambda d: d.confidence, reverse=True)

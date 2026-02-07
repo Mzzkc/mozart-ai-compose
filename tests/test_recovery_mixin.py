@@ -610,6 +610,91 @@ class TestSelfHealing:
         assert report is not None
         mock_healing_coordinator.heal.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_healing_with_remedies_applied(
+        self,
+        runner: JobRunner,
+    ) -> None:
+        """Test healing report when remedies are successfully applied."""
+        mock_report = MagicMock()
+        mock_report.any_remedies_applied = True
+        mock_report.actions_taken = [("create_workspace", "Created missing workspace directory")]
+        mock_report.issues_remaining = 0
+        mock_report.should_retry = True
+
+        coordinator = AsyncMock()
+        coordinator.heal = AsyncMock(return_value=mock_report)
+        runner._healing_coordinator = coordinator
+
+        result = ExecutionResult(
+            success=False,
+            stdout="",
+            stderr="No such directory: /workspace",
+            exit_code=1,
+            duration_seconds=1.0,
+        )
+        error = ClassifiedError(
+            error_code=ErrorCode.PREFLIGHT_PATH_MISSING,
+            category=ErrorCategory.CONFIGURATION,
+            message="Workspace directory missing",
+        )
+
+        report = await runner._try_self_healing(
+            result=result,
+            error=error,
+            config_path=Path("/test/config.yaml"),
+            sheet_num=1,
+            retry_count=3,
+            max_retries=3,
+        )
+
+        assert report is not None
+        assert report.any_remedies_applied is True
+        assert len(report.actions_taken) == 1
+        assert report.should_retry is True
+
+    @pytest.mark.asyncio
+    async def test_healing_with_no_applicable_remedies(
+        self,
+        runner: JobRunner,
+    ) -> None:
+        """Test healing when coordinator finds no applicable remedies."""
+        mock_report = MagicMock()
+        mock_report.any_remedies_applied = False
+        mock_report.actions_taken = []
+        mock_report.issues_remaining = 1
+        mock_report.should_retry = False
+
+        coordinator = AsyncMock()
+        coordinator.heal = AsyncMock(return_value=mock_report)
+        runner._healing_coordinator = coordinator
+
+        result = ExecutionResult(
+            success=False,
+            stdout="",
+            stderr="Unknown catastrophic error",
+            exit_code=1,
+            duration_seconds=1.0,
+        )
+        error = ClassifiedError(
+            error_code=ErrorCode.EXECUTION_UNKNOWN,
+            category=ErrorCategory.TRANSIENT,
+            message="Unknown error",
+        )
+
+        report = await runner._try_self_healing(
+            result=result,
+            error=error,
+            config_path=None,
+            sheet_num=1,
+            retry_count=3,
+            max_retries=3,
+        )
+
+        assert report is not None
+        assert report.any_remedies_applied is False
+        assert report.should_retry is False
+
 
 # =============================================================================
 # TestBroadcastPolling

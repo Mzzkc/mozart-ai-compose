@@ -1,9 +1,10 @@
 """Simplified test for runner pause functionality."""
 import tempfile
 from pathlib import Path
+from unittest.mock import AsyncMock
 
-import pytest
 from mozart.core.checkpoint import CheckpointState, JobStatus
+from mozart.core.config import JobConfig
 from mozart.execution.runner import JobRunner
 
 
@@ -21,15 +22,21 @@ def test_pause_signal_detection():
             status=JobStatus.RUNNING,
         )
 
-        # Create a minimal runner instance (we're only testing the pause detection method)
-        runner = JobRunner(
-            config=None,  # We'll only test methods that don't need config
-            backend=None,
-            state_backend=None,
-        )
+        # Create a minimal config with workspace set to temp dir
+        config = JobConfig.model_validate({
+            "name": "test-pause",
+            "description": "Test pause signal detection",
+            "backend": {"type": "claude_cli", "skip_permissions": True},
+            "sheet": {"size": 10, "total_items": 30},
+            "prompt": {"template": "Process sheet {{ sheet_num }}."},
+            "workspace": str(temp_workspace),
+        })
 
-        # Mock the config workspace
-        runner.config = type('MockConfig', (), {'workspace': str(temp_workspace)})()
+        runner = JobRunner(
+            config=config,
+            backend=AsyncMock(),
+            state_backend=AsyncMock(),
+        )
 
         # Test 1: No pause signal file - should return False
         assert not runner._check_pause_signal(state)
@@ -43,7 +50,8 @@ def test_pause_signal_detection():
         runner._clear_pause_signal(state)
         assert not pause_signal_file.exists()
 
-        print("All basic pause signal tests passed!")
+        # Test 4: After clearing, detection should return False again
+        assert not runner._check_pause_signal(state)
 
 
 if __name__ == "__main__":

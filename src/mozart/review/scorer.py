@@ -171,8 +171,9 @@ class GitDiffProvider:
         try:
             if self.since_commit:
                 # Diff from specific commit
+                # Use "--" separator to prevent flag injection from since_commit
                 result = subprocess.run(
-                    ["git", "diff", self.since_commit, "HEAD"],
+                    ["git", "diff", self.since_commit, "HEAD", "--"],
                     cwd=str(workspace),
                     capture_output=True,
                     text=True,

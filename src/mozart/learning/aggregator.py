@@ -198,41 +198,40 @@ class PatternAggregator:
         # Get all patterns (even low priority ones for recalculation)
         patterns = self.global_store.get_patterns(min_priority=0.0, limit=1000)
 
-        # Update each pattern's priority
-        with self.global_store._get_connection() as conn:
-            for pattern in patterns:
-                new_priority = self.weighter.calculate_priority(
-                    occurrence_count=pattern.occurrence_count,
-                    led_to_success_count=pattern.led_to_success_count,
-                    led_to_failure_count=pattern.led_to_failure_count,
-                    last_confirmed=pattern.last_confirmed,
-                    variance=pattern.variance,
-                )
+        # Batch-compute new priorities, then update all at once with executemany
+        updates: list[tuple[float, str]] = []
+        for pattern in patterns:
+            new_priority = self.weighter.calculate_priority(
+                occurrence_count=pattern.occurrence_count,
+                led_to_success_count=pattern.led_to_success_count,
+                led_to_failure_count=pattern.led_to_failure_count,
+                last_confirmed=pattern.last_confirmed,
+                variance=pattern.variance,
+            )
+            updates.append((new_priority, pattern.id))
 
-                conn.execute(
-                    "UPDATE patterns SET priority_score = ? WHERE id = ?",
-                    (new_priority, pattern.id),
-                )
+        with self.global_store._get_connection() as conn:
+            conn.executemany(
+                "UPDATE patterns SET priority_score = ? WHERE id = ?",
+                updates,
+            )
 
     def _record_pattern_applications(
         self,
-        outcome: SheetOutcome,
+        outcome: SheetOutcome,  # noqa: ARG002 - reserved for future use
         execution_ids: list[str],  # noqa: ARG002 - reserved for future use
     ) -> None:
-        """Record which patterns were applied to an outcome.
+        """Stub: pattern application recording not yet implemented.
 
-        This creates the effectiveness feedback loop.
+        Will correlate applied patterns with outcomes to create an
+        effectiveness feedback loop. Currently a no-op.
 
         Args:
             outcome: The sheet outcome with patterns_applied field.
             execution_ids: List of execution IDs for this batch.
         """
-        if not outcome.patterns_applied:
-            return
-
-        # Pattern applications are tracked during execution when patterns
-        # are matched and applied. This method is a placeholder for future
-        # enhancement where we correlate applied patterns with outcomes.
+        # NOT YET IMPLEMENTED: correlate applied patterns with outcomes
+        pass
 
     def merge_with_conflict_resolution(
         self,

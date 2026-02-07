@@ -12,7 +12,15 @@ The DAG is a foundation for parallel sheet execution (Evolution 2 of v17).
 
 from collections import defaultdict
 from dataclasses import dataclass, field
+from enum import IntEnum
 from typing import Any
+
+
+class _VisitState(IntEnum):
+    """DFS visit states for cycle detection."""
+    UNVISITED = 0
+    IN_PROGRESS = 1
+    COMPLETED = 2
 
 
 class CycleDetectedError(Exception):
@@ -158,23 +166,24 @@ class DependencyDAG:
         Raises:
             CycleDetectedError: If a cycle is detected, includes the cycle path.
         """
-        # Track visit state: 0=unvisited, 1=in_progress, 2=completed
-        state = dict.fromkeys(range(1, self.total_sheets + 1), 0)
+        state: dict[int, _VisitState] = dict.fromkeys(
+            range(1, self.total_sheets + 1), _VisitState.UNVISITED
+        )
         # Track path for cycle reconstruction
         path: list[int] = []
 
         def dfs(sheet: int) -> bool:
             """DFS visit. Returns True if cycle detected."""
-            if state[sheet] == 1:  # Currently visiting - cycle found
+            if state[sheet] == _VisitState.IN_PROGRESS:
                 # Find cycle start in path
                 cycle_start = path.index(sheet)
                 cycle = path[cycle_start:] + [sheet]
                 raise CycleDetectedError(cycle)
 
-            if state[sheet] == 2:  # Already completed
+            if state[sheet] == _VisitState.COMPLETED:
                 return False
 
-            state[sheet] = 1  # Mark as in-progress
+            state[sheet] = _VisitState.IN_PROGRESS
             path.append(sheet)
 
             # Visit all sheets that this sheet points to (forward edges)
@@ -182,7 +191,7 @@ class DependencyDAG:
                 dfs(dependent)
 
             path.pop()
-            state[sheet] = 2  # Mark as completed
+            state[sheet] = _VisitState.COMPLETED
             return False
 
         # Run DFS from all unvisited nodes

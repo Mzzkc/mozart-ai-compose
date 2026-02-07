@@ -5,7 +5,6 @@ would cause runtime errors.
 """
 
 import difflib
-import re
 from pathlib import Path
 
 import jinja2

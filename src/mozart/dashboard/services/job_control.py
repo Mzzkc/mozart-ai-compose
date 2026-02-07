@@ -140,7 +140,8 @@ class JobControlService:
                 config = JobConfig.from_yaml_string(config_content)
             else:
                 # config_path is guaranteed to exist due to earlier check
-                assert config_path is not None, "config_path should not be None here"
+                if config_path is None:
+                    raise ValueError("config_path must not be None when config_content is empty")
                 config = JobConfig.from_yaml(config_path)
 
             # Determine workspace

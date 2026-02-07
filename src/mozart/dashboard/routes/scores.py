@@ -1,9 +1,12 @@
 """Score configuration validation API endpoints."""
 from __future__ import annotations
 
+import logging
 import tempfile
 from pathlib import Path
 from typing import Any
+
+_logger = logging.getLogger(__name__)
 
 import yaml
 from fastapi import APIRouter
@@ -380,7 +383,8 @@ def analyze_template(name: str, content: str) -> TemplateResponse:
             content=content,
             estimated_duration=f"{sheets * 15}-{sheets * 30} min" if sheets > 1 else "5-15 min"
         )
-    except Exception:
+    except (yaml.YAMLError, KeyError, TypeError, AttributeError, ValueError):
+        _logger.debug("Failed to parse template metadata for %s", name, exc_info=True)
         # Fallback metadata if parsing fails
         return TemplateResponse(
             name=name,

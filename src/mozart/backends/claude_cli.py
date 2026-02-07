@@ -255,13 +255,11 @@ class ClaudeCliBackend(Backend):
         # Output format for subprocess execution
         cmd.extend(["--output-format", self.output_format])
 
-        # Disable MCP servers for faster, isolated execution
-        # This prevents resource contention and provides ~2x speedup
-        # Bug fix: --strict-mcp-config alone doesn't disable MCP servers - it means
-        # "only use servers from --mcp-config". We must also pass an empty config
-        # to actually disable all MCP servers. Without this, Claude spawns MCP
-        # servers as child processes and waits for them to exit, causing deadlocks.
-        # Note: The config must be valid JSON with "mcpServers" key, not just "{}"
+        # Disable MCP servers for faster, isolated execution.
+        # --strict-mcp-config means "only use servers from --mcp-config",
+        # so we pass an empty config to disable all MCP servers. Without
+        # both flags, Claude spawns MCP servers as child processes that
+        # cause deadlocks. Config must have "mcpServers" key (not just "{}").
         if self.disable_mcp:
             cmd.extend(["--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}'])
 
@@ -642,10 +640,14 @@ class ClaudeCliBackend(Backend):
                         stream.read(4096),  # 4KB chunks
                         timeout=STREAM_READ_TIMEOUT,  # Check timeout every second
                     )
-                except TimeoutError:
+                except TimeoutError as read_timeout:
                     # 1-second read timeout - check overall timeout
-                    if time.monotonic() - start_time > self.timeout_seconds:
-                        raise TimeoutError("Execution timeout exceeded") from None
+                    elapsed = time.monotonic() - start_time
+                    if elapsed > self.timeout_seconds:
+                        raise TimeoutError(
+                            f"Execution timeout exceeded "
+                            f"({elapsed:.0f}s > {self.timeout_seconds}s limit)"
+                        ) from read_timeout
                     # Otherwise just continue reading
                     continue
 

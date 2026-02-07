@@ -8,7 +8,6 @@ Covers:
 - Basic hook execution flow
 """
 
-import asyncio
 from pathlib import Path
 
 import pytest
@@ -145,16 +144,15 @@ class TestHookExecutor:
 
         assert "Processed 1 sheets" == result
 
-    def test_no_hooks_returns_empty(self, minimal_config: JobConfig) -> None:
+    @pytest.mark.asyncio
+    async def test_no_hooks_returns_empty(self, minimal_config: JobConfig) -> None:
         """execute_hooks should return empty list when no hooks configured."""
         executor = HookExecutor(
             config=minimal_config,
             workspace=Path("/test"),
         )
 
-        result = asyncio.get_event_loop().run_until_complete(
-            executor.execute_hooks()
-        )
+        result = await executor.execute_hooks()
 
         assert result == []
 

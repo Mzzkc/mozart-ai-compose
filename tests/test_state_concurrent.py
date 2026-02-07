@@ -417,6 +417,132 @@ class TestFileSystemEdgeCases:
         assert loaded is not None
 
 
+class TestZombieDetectionAndRecovery:
+    """Tests for zombie state detection and auto-recovery in load()."""
+
+    @pytest.mark.asyncio
+    async def test_zombie_detection_on_load(self, tmp_path: Path) -> None:
+        """Test that a RUNNING state with dead PID is detected as zombie."""
+        backend = JsonStateBackend(tmp_path)
+
+        # Create state with RUNNING status and a PID that doesn't exist
+        dead_pid = 2_000_000_000
+        state = CheckpointState(
+            job_id="zombie-test",
+            job_name="Zombie Test",
+            total_sheets=5,
+            last_completed_sheet=2,
+            status=JobStatus.RUNNING,
+            pid=dead_pid,
+        )
+        await backend.save(state)
+
+        # Load should detect zombie and auto-recover to PAUSED
+        loaded = await backend.load("zombie-test")
+        assert loaded is not None
+        assert loaded.status == JobStatus.PAUSED
+        assert loaded.pid is None
+
+        # Verify the recovery was persisted
+        reloaded = await backend.load("zombie-test")
+        assert reloaded is not None
+        assert reloaded.status == JobStatus.PAUSED
+
+    @pytest.mark.asyncio
+    async def test_non_zombie_running_state_no_pid(self, tmp_path: Path) -> None:
+        """Test that a RUNNING state without PID is not treated as zombie."""
+        backend = JsonStateBackend(tmp_path)
+
+        state = CheckpointState(
+            job_id="no-pid-test",
+            job_name="No PID Test",
+            total_sheets=5,
+            status=JobStatus.RUNNING,
+            pid=None,
+        )
+        await backend.save(state)
+
+        loaded = await backend.load("no-pid-test")
+        assert loaded is not None
+        # No PID means can't detect zombie - remains RUNNING
+        assert loaded.status == JobStatus.RUNNING
+
+    @pytest.mark.asyncio
+    async def test_non_running_status_not_zombie(self, tmp_path: Path) -> None:
+        """Test that non-RUNNING states are never treated as zombie."""
+        backend = JsonStateBackend(tmp_path)
+
+        for status in [JobStatus.PAUSED, JobStatus.COMPLETED, JobStatus.FAILED]:
+            state = CheckpointState(
+                job_id=f"status-{status.value}",
+                job_name="Status Test",
+                total_sheets=3,
+                status=status,
+                pid=2_000_000_000,  # Dead PID but wrong status
+            )
+            await backend.save(state)
+
+            loaded = await backend.load(f"status-{status.value}")
+            assert loaded is not None
+            assert loaded.status == status  # Status unchanged
+
+    @pytest.mark.asyncio
+    async def test_truncated_json_returns_none(self, tmp_path: Path) -> None:
+        """Test that a truncated JSON file (crash during write) returns None."""
+        backend = JsonStateBackend(tmp_path)
+
+        state_file = tmp_path / "truncated.json"
+        state_file.write_text('{"job_id": "truncated", "job_name": "Test", "total_she')
+
+        result = await backend.load("truncated")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_empty_file_returns_none(self, tmp_path: Path) -> None:
+        """Test that an empty state file returns None."""
+        backend = JsonStateBackend(tmp_path)
+
+        state_file = tmp_path / "empty.json"
+        state_file.write_text("")
+
+        result = await backend.load("empty")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_nonexistent_job_returns_none(self, tmp_path: Path) -> None:
+        """Test that loading a job with no state file returns None."""
+        backend = JsonStateBackend(tmp_path)
+
+        result = await backend.load("does-not-exist")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_zombie_recovery_preserves_sheet_progress(self, tmp_path: Path) -> None:
+        """Test that zombie recovery preserves completed sheet data."""
+        backend = JsonStateBackend(tmp_path)
+
+        state = CheckpointState(
+            job_id="zombie-progress",
+            job_name="Zombie Progress Test",
+            total_sheets=10,
+            last_completed_sheet=5,
+            status=JobStatus.RUNNING,
+            pid=2_000_000_000,
+        )
+        # Add some sheet progress
+        for i in range(1, 6):
+            state.mark_sheet_started(i)
+            state.mark_sheet_completed(i)
+        await backend.save(state)
+
+        # Load should recover from zombie but keep progress
+        loaded = await backend.load("zombie-progress")
+        assert loaded is not None
+        assert loaded.status == JobStatus.PAUSED
+        assert loaded.last_completed_sheet == 5
+        assert len(loaded.sheets) == 5
+
+
 class TestConcurrencyStress:
     """Stress tests for concurrent access patterns."""
 
