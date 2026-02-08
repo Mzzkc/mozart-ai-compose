@@ -1,0 +1,1038 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║              AUTOMATED ISSUE FIXER                                          ║
+# ║                                                                              ║
+# ║  Picks one open GitHub issue, investigates it, plans a fix, and either      ║
+# ║  fixes it directly (simple) or generates & runs a dedicated Mozart score    ║
+# ║  (complex). Self-chains to fix the next issue.                              ║
+# ║                                                                              ║
+# ║  Usage:                                                                      ║
+# ║    cd /path/to/your/project                                                  ║
+# ║    setsid mozart run examples/issue-fixer.yaml > .bugfix-workspace/mozart.log 2>&1 &  ║
+# ║                                                                              ║
+# ║  Prerequisites:                                                              ║
+# ║    - gh CLI authenticated (gh auth login)                                    ║
+# ║    - Open issues with 'bug' or 'mozart-quality' labels                      ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+name: "issue-fixer"
+description: "Investigate and fix one GitHub issue per run, generating subordinate scores for complex fixes"
+
+workspace: "./.bugfix-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  # 8-hour ceiling: quick sheets finish in minutes, monitoring sheet may need hours.
+  # Per-sheet timeouts would be better (see GitHub enhancement request).
+  timeout_seconds: 28800
+
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 3000
+  lookback_sheets: 2
+  capture_files:
+    - "{{ workspace }}/*.md"
+    - "{{ workspace }}/*.yaml"
+
+sheet:
+  size: 1
+  total_items: 8  # Survey(1) + Investigate(2) + Decision(3) + Execute/Compose(4) + Review(5) + Finalize(6) + Monitor(7) + Commit(8)
+
+retry:
+  max_retries: 2
+
+prompt:
+  template: |
+    {{ preamble }}
+
+    {% if sheet_num == 1 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 1: SURVEY & SELECT                                                    ║
+    ║  "Fix the most important thing first"                                        ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Step 0: Archive previous iteration outputs (if any)**
+    ```bash
+    mkdir -p {{ workspace }}
+    if [ -f {{ workspace }}/01-selected-bug.md ]; then
+      ARCHIVE="{{ workspace }}/archive/$(date +%Y%m%d-%H%M%S)"
+      mkdir -p "$ARCHIVE"
+      mv {{ workspace }}/0[1-8]-*.md "$ARCHIVE/" 2>/dev/null || true
+      mv {{ workspace }}/04-generated-score.yaml "$ARCHIVE/" 2>/dev/null || true
+      echo "Archived previous outputs to $ARCHIVE"
+    fi
+
+    # Track iteration
+    if [ -f {{ workspace }}/.iteration ]; then
+      ITER=$(cat {{ workspace }}/.iteration)
+      ITER=$((ITER + 1))
+    else
+      ITER=1
+    fi
+    echo $ITER > {{ workspace }}/.iteration
+    echo "=== ISSUE FIXER ITERATION $ITER ==="
+    ```
+
+    **Step 1: List open issues**
+    ```bash
+    # Get open bugs and quality issues, ordered by priority
+    gh issue list --state open --label "bug" --json number,title,body,labels,createdAt --limit 20
+    gh issue list --state open --label "mozart-quality" --json number,title,body,labels,createdAt --limit 10
+    ```
+
+    **Step 2: Prioritize and select ONE issue**
+
+    If there are NO open issues with the 'bug' or 'mozart-quality' labels, write
+    your output file with:
+    ```markdown
+    # No Open Issues Remain
+
+    NO_ISSUES_REMAINING
+
+    All issues with 'bug' or 'mozart-quality' labels have been resolved.
+    The issue fixer has completed its work.
+    ```
+    Then stop — do not attempt further steps.
+
+    If there ARE open issues, rank them by:
+    1. **CRITICAL** severity (mentioned in title or body) — fix first
+    2. **High** severity — fix second
+    3. **Medium** severity — fix third
+    4. **Issues with clear root cause** — easier to verify fix
+    5. **Issues that block other issues** — unblock compound fixes
+
+    Select the SINGLE highest-priority issue that hasn't been attempted recently.
+    Check `{{ workspace }}/archive/` to see if any issues were attempted in previous
+    iterations and skip those that were already fixed or are explicitly deferred.
+
+    **Step 3: Claim the issue on GitHub**
+    After selecting an issue, comment on it to prevent concurrent instances from
+    picking the same one:
+    ```bash
+    ITER=$(cat {{ workspace }}/.iteration 2>/dev/null || echo "?")
+    gh issue comment $ISSUE_NUM --body "Mozart Issue Fixer: investigating this issue (iteration $ITER)"
+    ```
+
+    **Step 4: Write selection rationale**
+
+    **Output to:** {{ workspace }}/01-selected-bug.md
+
+    Format:
+    ```markdown
+    # Selected Issue: #N — Title
+
+    ## Selection Rationale
+    - **Severity:** CRITICAL/High/Medium/Low
+    - **Why this one:** [Why this issue over others]
+    - **Dependencies:** [Does this block or depend on other issues?]
+    - **Estimated scope:** Quick initial assessment
+
+    ## Issue Details
+    [Full issue body from GitHub]
+
+    ## Open Issues Considered
+    | # | Title | Severity | Why Not Selected |
+    |---|-------|----------|------------------|
+    ```
+
+    {% elif sheet_num == 2 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 2: DEEP INVESTIGATION                                                 ║
+    ║  "Understand the disease before prescribing the cure"                        ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/01-selected-bug.md.
+
+    **If it contains `NO_ISSUES_REMAINING`:** There are no open issues to investigate.
+    Write a brief report to {{ workspace }}/02-investigation.md:
+    ```markdown
+    # Investigation: No Open Issues
+
+    No issues to investigate. All bugs and quality items have been resolved.
+
+    ## Complexity Assessment
+    **VERDICT: NONE**
+    ```
+    Then stop.
+
+    **Otherwise, investigate the selected issue thoroughly:**
+
+    **Step 1: Understand the issue**
+    - Read the issue description and any linked files
+    - Reproduce the bug if possible (or trace the code path that causes it)
+    - Identify the root cause, not just the symptom
+
+    **Step 2: Map the blast radius**
+    - Which files are affected?
+    - Which functions need to change?
+    - What tests exist for the affected code?
+    - What could break if we change these files?
+    ```bash
+    # Find relevant source files
+    grep -rn "KEYWORD" --include="*.py" src/ | head -20
+
+    # Find relevant tests
+    grep -rn "KEYWORD" --include="*.py" tests/ | head -20
+
+    # Check what the affected code does
+    # [Read specific files identified in the issue]
+    ```
+
+    **Step 3: Plan the fix**
+    Write a detailed, step-by-step fix plan:
+    - Each step should be a single, testable change
+    - Include what tests to add or modify
+    - Include what to verify after each step
+    - Note any risks or edge cases
+
+    **Output to:** {{ workspace }}/02-investigation.md
+
+    Format:
+    ```markdown
+    # Investigation: Issue #N — Title
+
+    ## Root Cause
+    [Detailed explanation with code references]
+
+    ## Affected Files
+    | File | What Changes | Risk |
+    |------|-------------|------|
+
+    ## Fix Plan
+    ### Step 1: [Description]
+    - Change: [specific change]
+    - Verify: [how to verify this step]
+    ### Step 2: ...
+    [continue for all steps]
+
+    ## Tests Required
+    | Test | File | What It Verifies |
+    |------|------|-----------------|
+    ```
+
+    **NOTE:** Do NOT include a VERDICT in this sheet. A separate reviewer will
+    assess complexity in the next sheet.
+
+    {% elif sheet_num == 3 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 3: COMPLEXITY DECISION                                                ║
+    ║  "A second opinion catches what the first one missed"                        ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/02-investigation.md.
+
+    **If it contains `VERDICT: NONE`:** There are no open issues. Write a brief
+    report to {{ workspace }}/03-decision.md:
+    ```markdown
+    # Complexity Decision: No Open Issues
+
+    **VERDICT: NONE**
+
+    No issues to assess. All bugs and quality items have been resolved.
+    ```
+    Then stop.
+
+    **Otherwise, you are a DIFFERENT agent from the investigator.** Your job is to
+    independently assess the complexity of this fix based on the investigation report.
+
+    **Review critically:**
+    1. Is the root cause analysis convincing? Or are there gaps?
+    2. Is the fix plan complete? Or are steps missing?
+    3. Are the affected files correctly identified?
+    4. Is the complexity assessment honest? Consider:
+       - Would the investigator benefit from calling it SIMPLE to avoid work?
+       - Or COMPLEX to sound thorough when a focused fix would work?
+
+    **Assess complexity independently:**
+
+    **SIMPLE** (all must be true):
+    - Fewer than 5 files to modify
+    - Less than ~200 lines of changes
+    - No architectural changes needed
+    - Existing tests cover the affected code paths (or new tests are straightforward)
+    - The fix plan is clear and confidence is high
+    - Estimated time: under 30 minutes of focused work
+
+    **COMPLEX** (any one is true):
+    - 5+ files to modify
+    - Requires new test infrastructure or fixtures
+    - Involves architectural changes or protocol modifications
+    - Multiple subsystems need coordinated changes
+    - High risk of regression without careful step-by-step execution
+    - Estimated time: over 1 hour of focused work
+
+    **Output to:** {{ workspace }}/03-decision.md
+
+    Format:
+    ```markdown
+    # Complexity Decision: Issue #N — Title
+
+    ## Investigation Quality
+    | Aspect | Rating | Notes |
+    |--------|--------|-------|
+    | Root cause analysis | Strong/Weak/Missing | [details] |
+    | Fix plan completeness | Complete/Partial/Incomplete | [details] |
+    | Affected files identified | All/Most/Some | [details] |
+
+    ## Independent Complexity Assessment
+    - Files to modify: N
+    - Lines of changes (estimated): N
+    - New tests needed: N
+    - Architectural changes: Yes/No
+    - Estimated effort: [time]
+    - Rationale: [Why simple/complex]
+
+    **VERDICT: SIMPLE** or **VERDICT: COMPLEX**
+    ```
+
+    {% elif sheet_num == 4 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 4: EXECUTE OR COMPOSE                                                 ║
+    ║  "Match the solution to the problem's complexity"                            ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/03-decision.md and check the VERDICT line.
+
+    **If VERDICT: NONE:** No issues to fix. Write a brief skip report to
+    {{ workspace }}/04-result.md:
+    ```markdown
+    # Fix Result (No Issues)
+
+    **Path:** NONE
+    **Status:** SKIPPED — no open issues to fix
+    ```
+    Then stop.
+
+    ─────────────────────────────────────────────────────────────────────────────
+    PATH A — SIMPLE FIX (VERDICT: SIMPLE)
+    ─────────────────────────────────────────────────────────────────────────────
+
+    If the verdict is SIMPLE, execute the fix plan directly:
+
+    1. Read {{ workspace }}/02-investigation.md for the fix plan
+    2. Follow each step in the fix plan sequentially
+    3. After each step, run relevant tests:
+       ```bash
+       pytest -x -q --tb=short [relevant_test_files] 2>&1 | tail -20
+       ```
+    4. If a step causes test failures, debug and fix before continuing
+    5. After all steps, run the full test suite:
+       ```bash
+       pytest -x -q --tb=short 2>&1 | tail -30
+       ```
+
+    Write your results to {{ workspace }}/04-result.md with:
+    ```markdown
+    # Fix Result (Simple Path)
+
+    **Issue:** #N — Title
+    **Path:** SIMPLE
+    **Status:** COMPLETED / PARTIALLY_COMPLETED
+
+    ## Changes Made
+    | Step | File | Change | Tests Pass |
+    |------|------|--------|-----------|
+
+    ## Test Results
+    [pytest output]
+
+    ## Files Modified
+    [git diff --stat output]
+    ```
+
+    ─────────────────────────────────────────────────────────────────────────────
+    PATH B — SCORE COMPOSITION (VERDICT: COMPLEX)
+    ─────────────────────────────────────────────────────────────────────────────
+
+    If the verdict is COMPLEX, you must write a Mozart score to orchestrate the fix.
+
+    **Step 1: Study existing scores**
+    Read these files to understand Mozart score patterns and best practices:
+    ```bash
+    ls examples/*.yaml
+    cat examples/quality-continuous.yaml | head -100  # Structure and conventions
+    cat examples/simple-task.yaml 2>/dev/null | head -50  # Simple example
+    ```
+
+    Understand:
+    - How sheets are numbered and structured
+    - How validations work (file_exists, command_succeeds, conditions)
+    - How template variables ({{ workspace }}, {{ sheet_num }}) are used
+    - How cross_sheet context passing works
+    - How retry and completion mode work
+
+    **Step 2: Design the score**
+    Design a score specifically for this fix. The score should:
+    - Break the fix plan into sequential sheets (one logical step per sheet)
+    - Include validations that verify each step completed correctly
+    - Include test execution after code changes
+    - Have a final verification + commit sheet
+    - Use sensible timeouts (2400s for code changes, 1200s for reviews)
+
+    **Step 3: Write the score**
+    Write the score to {{ workspace }}/04-generated-score.yaml
+
+    The score MUST include:
+    - Clear name and description referencing the issue number
+    - Workspace set inside the YAML: `workspace: {{ workspace }}/inner-run`
+    - Proper backend config
+    - Validations for every sheet
+    - A final sheet that runs tests and reports results (but does NOT commit —
+      the outer score handles the commit)
+
+    The score MUST NOT:
+    - Self-chain (the outer issue-fixer handles iteration)
+    - Commit changes (the outer score handles this)
+    - Modify files outside the project directory
+    - Have more than 8 sheets (keep it focused)
+
+    Also write {{ workspace }}/04-result.md with:
+    ```markdown
+    # Score Composition Result (Complex Path)
+
+    **Issue:** #N — Title
+    **Path:** COMPLEX
+    **Score:** {{ workspace }}/04-generated-score.yaml
+
+    ## Score Design
+    | Sheet | Purpose | Timeout |
+    |-------|---------|---------|
+
+    ## Validation Coverage
+    | Sheet | Validations | What They Check |
+    |-------|------------|-----------------|
+
+    ## Risk Assessment
+    - [What could go wrong with the generated score]
+    ```
+
+    {% elif sheet_num == 5 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 5: REVIEW                                                             ║
+    ║  "Two eyes catch what one misses"                                            ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/04-result.md to determine which path was taken.
+
+    **If Path: NONE:** No issues to review. Write a brief skip report to
+    {{ workspace }}/05-review.md:
+    ```markdown
+    # Review: No Open Issues
+
+    **Path:** NONE
+    **Verdict:** APPROVED — nothing to review
+    ```
+    Then stop.
+
+    ─────────────────────────────────────────────────────────────────────────────
+    PATH A — REVIEW SIMPLE FIX
+    ─────────────────────────────────────────────────────────────────────────────
+
+    If Path: SIMPLE, review the code changes:
+
+    1. **Correctness:** Do the changes actually fix the root cause?
+       ```bash
+       git diff --stat
+       git diff  # Full diff
+       ```
+    2. **Completeness:** Were all steps in the fix plan executed?
+    3. **Tests:** Are the tests sufficient? Do they cover edge cases?
+    4. **Regressions:** Could these changes break anything else?
+       ```bash
+       pytest -x -q --tb=short 2>&1 | tail -20
+       ```
+    5. **Code quality:** Is the code clean, simple, well-named?
+
+    If changes are needed, make them directly. Do not just list problems —
+    fix them.
+
+    ─────────────────────────────────────────────────────────────────────────────
+    PATH B — REVIEW GENERATED SCORE
+    ─────────────────────────────────────────────────────────────────────────────
+
+    If Path: COMPLEX, review the generated score at
+    {{ workspace }}/04-generated-score.yaml:
+
+    1. **Prompt quality:**
+       - Are prompts clear and actionable?
+       - Does each sheet have a single, focused purpose?
+       - Are instructions specific enough that another AI could follow them?
+    2. **Validation coverage:**
+       - Does every sheet have meaningful validations?
+       - Are validations checking outcomes, not just file existence?
+       - Will completion mode have useful signal if validations fail?
+    3. **Error handling:**
+       - What happens if a step fails? Will the score recover?
+       - Are timeouts appropriate for each sheet's workload?
+    4. **Best practices:**
+       - Does the score follow patterns from quality-continuous.yaml?
+       - Are template variables used correctly?
+       - Is the workspace isolation correct?
+
+    **IMPROVE the score directly.** Edit {{ workspace }}/04-generated-score.yaml
+    to fix any issues you find. Do not just list problems.
+
+    Then validate the score:
+    ```bash
+    mozart validate {{ workspace }}/04-generated-score.yaml 2>&1
+    ```
+
+    **Output to:** {{ workspace }}/05-review.md
+
+    Format:
+    ```markdown
+    # Review: Issue #N
+
+    **Path:** SIMPLE / COMPLEX
+    **Verdict:** APPROVED / APPROVED_WITH_CHANGES
+
+    ## Issues Found and Fixed
+    | Issue | Severity | Resolution |
+    |-------|----------|-----------|
+
+    ## Changes Made During Review
+    [Description of improvements]
+
+    ## Remaining Risks
+    [Any concerns that couldn't be addressed]
+
+    ## Validation Results (complex path only)
+    [mozart validate output]
+    ```
+
+    {% elif sheet_num == 6 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 6: FINALIZE OR LAUNCH                                                 ║
+    ║  "Ready... aim..."                                                           ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/04-result.md to determine which path was taken.
+
+    **If Path: NONE:** No issues to finalize. Write a brief skip report to
+    {{ workspace }}/06-status.md:
+    ```markdown
+    # Finalize Status
+
+    **Path:** NONE
+    **Status:** SKIPPED — no open issues to fix
+    ```
+    Then stop.
+
+    ─────────────────────────────────────────────────────────────────────────────
+    PATH A — FINALIZE SIMPLE FIX
+    ─────────────────────────────────────────────────────────────────────────────
+
+    If Path: SIMPLE:
+
+    1. Apply any remaining improvements from the review
+    2. Run the full test suite one final time:
+       ```bash
+       pytest -x -q --tb=short 2>&1 | tail -30
+       ```
+    3. Verify all changes are correct:
+       ```bash
+       git diff --stat
+       ```
+
+    Write {{ workspace }}/06-status.md:
+    ```markdown
+    # Finalize Status
+
+    **Path:** SIMPLE
+    **Status:** READY_TO_COMMIT
+    **Tests:** [pass/fail summary]
+    ```
+
+    ─────────────────────────────────────────────────────────────────────────────
+    PATH B — LAUNCH INNER SCORE
+    ─────────────────────────────────────────────────────────────────────────────
+
+    If Path: COMPLEX:
+
+    1. Verify the reviewed score is valid:
+       ```bash
+       mozart validate {{ workspace }}/04-generated-score.yaml
+       ```
+
+    2. Launch the inner score with setsid for persistence:
+       ```bash
+       INNER_WS="{{ workspace }}/inner-run"
+       mkdir -p "$INNER_WS"
+       setsid mozart run {{ workspace }}/04-generated-score.yaml \
+         > "$INNER_WS/mozart.log" 2>&1 &
+       MOZART_PID=$!
+       echo "$MOZART_PID" > {{ workspace }}/inner-pid.txt
+       echo "Launched inner score with PID $MOZART_PID"
+       ```
+
+    3. Wait 30 seconds and verify it started:
+       ```bash
+       sleep 30
+       mozart status $(cat {{ workspace }}/04-generated-score.yaml | grep '^name:' | awk '{print $2}' | tr -d '"') \
+         --workspace {{ workspace }}/inner-run 2>&1
+       ```
+
+    4. If the inner score failed to start, diagnose and report the error.
+
+    Write {{ workspace }}/06-status.md:
+    ```markdown
+    # Launch Status
+
+    **Path:** COMPLEX
+    **Inner Score:** {{ workspace }}/04-generated-score.yaml
+    **Inner Workspace:** {{ workspace }}/inner-run
+    **Status:** LAUNCHED / FAILED_TO_LAUNCH
+    **PID:** [process ID]
+
+    ## Initial Status
+    [mozart status output]
+    ```
+
+    {% elif sheet_num == 7 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 7: MONITOR TO COMPLETION                                              ║
+    ║  "Watchful patience; decisive intervention"                                  ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **TIMEOUT AWARENESS: This sheet may run for several hours. You have up to
+    8 hours. Use that time wisely — monitor patiently, intervene decisively.**
+
+    Read {{ workspace }}/06-status.md to determine what to do.
+
+    ─────────────────────────────────────────────────────────────────────────────
+    PATH A — SIMPLE FIX (already done) or NO ISSUES
+    ─────────────────────────────────────────────────────────────────────────────
+
+    If Path: SIMPLE and Status: READY_TO_COMMIT, or Path: NONE, there is nothing
+    to monitor. Write a brief report and proceed:
+    ```markdown
+    # Monitor Report
+
+    **Path:** SIMPLE / NONE
+    **Status:** SKIPPED — fix was completed in previous sheets (or no issues)
+    ```
+    Write this to {{ workspace }}/07-monitor.md and stop.
+
+    ─────────────────────────────────────────────────────────────────────────────
+    PATH B — MONITOR INNER SCORE
+    ─────────────────────────────────────────────────────────────────────────────
+
+    If Path: COMPLEX, monitor the inner score to completion.
+
+    **Determine the inner job name:**
+    ```bash
+    INNER_NAME=$(grep '^name:' {{ workspace }}/04-generated-score.yaml | awk '{print $2}' | tr -d '"')
+    INNER_WS="{{ workspace }}/inner-run"
+    echo "Monitoring: $INNER_NAME in $INNER_WS"
+    ```
+
+    **Monitoring loop:**
+    Check status every 2 minutes. Between checks, review recent log output for
+    problems. If you detect an issue, diagnose and attempt to fix it.
+
+    ```bash
+    # Check status
+    mozart status "$INNER_NAME" --workspace "$INNER_WS" 2>&1
+
+    # Check recent log output
+    tail -30 "$INNER_WS/mozart.log" 2>/dev/null
+    ```
+
+    **What to watch for:**
+    - **Sheet failures:** Check which validation failed and why
+    - **Timeouts:** If a sheet times out, check if it made partial progress
+    - **Rate limits:** Note them but don't intervene (Mozart handles these)
+    - **Stuck processes:** If no log output for 10+ minutes on an active sheet,
+      investigate with `mozart diagnose`
+
+    **When to intervene:**
+    - If the inner score fails completely and won't recover, document why
+    - If you identify a fixable issue (typo in score, wrong path), you may
+      pause the inner score, fix the issue, and resume
+    - If validation keeps failing on the same check, investigate root cause
+
+    **When the inner score completes:**
+    ```bash
+    mozart status "$INNER_NAME" --workspace "$INNER_WS" 2>&1
+    # Verify: Status should be COMPLETED
+    # Check: What sheets passed/failed
+    # Verify: Tests pass in the project directory
+    pytest -x -q --tb=short 2>&1 | tail -20
+    ```
+
+    **Output to:** {{ workspace }}/07-monitor.md
+
+    Format:
+    ```markdown
+    # Monitor Report: Issue #N
+
+    **Path:** COMPLEX
+    **Inner Score:** [name]
+    **Duration:** [how long the inner score ran]
+    **Final Status:** COMPLETED / FAILED
+
+    ## Timeline
+    | Time | Event | Action Taken |
+    |------|-------|-------------|
+
+    ## Sheets Summary
+    | Sheet | Status | Notes |
+    |-------|--------|-------|
+
+    ## Interventions
+    | Time | Problem | Resolution |
+    |------|---------|-----------|
+
+    ## Test Results (after inner score completion)
+    [pytest output]
+
+    ## Issues Encountered
+    [Any Mozart bugs, unexpected behaviors, or problems during monitoring]
+    ```
+
+    {% elif sheet_num == 8 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 8: COMMIT & CLOSE                                                     ║
+    ║  "Ship it and track it"                                                      ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/03-decision.md to check the verdict.
+
+    **If VERDICT: NONE:** No issues were fixed this iteration. Write a brief
+    report to {{ workspace }}/08-commit.md:
+    ```markdown
+    # Commit & Close Report (Iteration N)
+
+    ## Issue
+    - **Number:** N/A
+    - **Path:** NONE
+
+    ## Result
+    No open issues found — nothing to commit or close.
+    The issue fixer has completed its work.
+    ```
+    Then stop. Do NOT attempt to commit or close any issues.
+
+    **Otherwise, proceed with commit and close:**
+
+    **Step 1: Verify everything is clean**
+    ```bash
+    # Run full test suite
+    pytest -x -q --tb=short 2>&1 | tail -30
+
+    # Check what changed
+    git diff --stat
+    git status --short | head -20
+    ```
+
+    If tests fail, DO NOT commit. Debug and fix the failures first.
+
+    **Step 2: Read issue details for commit message**
+    ```bash
+    ISSUE_NUM=$(grep -oE '#[0-9]+' {{ workspace }}/01-selected-bug.md | head -1 | tr -d '#')
+    echo "Issue: $ISSUE_NUM"
+    ```
+
+    **Step 3: Stage and commit**
+    ```bash
+    # Stage file changes (broad enough for non-Python fixes)
+    git add -A -- '*.py' '*.yaml' '*.sql' '*.html' '*.toml'
+
+    # Check what's staged
+    git diff --cached --stat
+
+    # Get iteration number and issue number
+    ITER=$(cat {{ workspace }}/.iteration 2>/dev/null || echo "?")
+    ISSUE_NUM=$(grep -oE '#[0-9]+' {{ workspace }}/01-selected-bug.md | head -1 | tr -d '#')
+
+    # Commit with reference to the issue
+    git commit -m "fix: Resolve issue $ISSUE_NUM
+
+    $(head -5 {{ workspace }}/01-selected-bug.md | tail -4)
+
+    Fixes #$ISSUE_NUM
+
+    Co-Authored-By: Mozart AI Compose <noreply@mozart.ai>"
+
+    echo "Committed fix for issue $ISSUE_NUM"
+    ```
+
+    **Step 4: Close the GitHub issue**
+    ```bash
+    ISSUE_NUM=$(grep -oE '#[0-9]+' {{ workspace }}/01-selected-bug.md | head -1 | tr -d '#')
+
+    # Read the summary from investigation
+    SUMMARY=$(head -30 {{ workspace }}/02-investigation.md)
+
+    gh issue close "$ISSUE_NUM" --comment "Fixed in $(git log --oneline -1).
+
+    **Root cause:** $(grep -A 3 '## Root Cause' {{ workspace }}/02-investigation.md | tail -2)
+
+    **Changes:** $(git diff --stat HEAD~1)
+
+    *Closed automatically by Mozart Issue Fixer (iteration $(cat {{ workspace }}/.iteration))*"
+    ```
+
+    **Step 5: Remove the "investigating" comment claim (cleanup)**
+    The claim comment from Sheet 1 is no longer needed since the issue is now closed.
+
+    **Step 6: Archive this iteration's records**
+    ```bash
+    ITER=$(cat {{ workspace }}/.iteration 2>/dev/null || echo "0")
+    ARCHIVE="{{ workspace }}/archive/iteration-$ITER"
+    mkdir -p "$ARCHIVE"
+    cp {{ workspace }}/0[1-8]-*.md "$ARCHIVE/" 2>/dev/null || true
+    cp {{ workspace }}/04-generated-score.yaml "$ARCHIVE/" 2>/dev/null || true
+    cp {{ workspace }}/feedback-log.md "$ARCHIVE/" 2>/dev/null || true
+    echo "Archived iteration $ITER outputs to $ARCHIVE"
+    ```
+
+    **Output to:** {{ workspace }}/08-commit.md
+
+    Format:
+    ```markdown
+    # Commit & Close Report (Iteration N)
+
+    ## Issue
+    - **Number:** #N
+    - **Title:** [title]
+    - **Path:** SIMPLE / COMPLEX
+
+    ## Commit
+    [git log --oneline -1 output]
+    [git diff --stat HEAD~1 output]
+
+    ## GitHub Issue Status
+    - Closed: Yes/No
+    - Comment posted: Yes/No
+
+    ## Records Archived
+    [List of archived files]
+
+    ## Next Steps
+    - If more open issues exist: Next iteration will run automatically
+    - If no issues remain: Issue fixer complete
+    ```
+
+    {% endif %}
+
+    {{ feedback_footer }}
+
+  variables:
+    preamble: |
+      ╔══════════════════════════════════════════════════════════════════════════╗
+      ║              AUTOMATED ISSUE FIXER                                      ║
+      ║                                                                          ║
+      ║  Pick one bug. Investigate. Fix or compose. Ship.                        ║
+      ║                                                                          ║
+      ║  You are part of a multi-sheet pipeline. Each sheet has a focused job.   ║
+      ║  Do your job well. The next sheet builds on your output.                 ║
+      ╚══════════════════════════════════════════════════════════════════════════╝
+
+    feedback_footer: |
+
+      ──────────────────────────────────────────────────────────────────────────
+      SHEET FEEDBACK (REQUIRED — append to your output file)
+      ──────────────────────────────────────────────────────────────────────────
+
+      After completing your primary task, append this section to your output file.
+      Be honest and specific — this feedback directly improves Mozart.
+
+      ### Sheet Feedback
+      | Metric | Rating (1-5) | Notes |
+      |--------|-------------|-------|
+      | Prompt clarity | | Was the task clear? |
+      | Context sufficiency | | Did you have everything you needed? |
+      | Task actionability | | Could you act without guessing? |
+      | Prompt efficiency | | Was the prompt concise or bloated? |
+
+      **Mozart issues encountered:**
+      List any bugs, errors, unexpected behaviors, or workspace problems:
+      - [description + evidence, or "None"]
+
+      **Suggestions for this sheet:**
+      - [How to improve the prompt, workflow, or tooling]
+
+      If you encountered any Mozart system bugs (not code bugs you're fixing),
+      also append them to feedback-log.md in your output directory (same location
+      as your main output file) with:
+      - Sheet number and timestamp
+      - Description of the issue
+      - Evidence (error message, unexpected output, etc.)
+      - Severity: blocker / annoying / minor
+
+validations:
+  # Sheet 1: Bug selected (or no-issues marker)
+  - type: file_exists
+    path: "{workspace}/01-selected-bug.md"
+    description: "Bug selection report must exist"
+    condition: "sheet_num >= 1"
+
+  - type: command_succeeds
+    command: |
+      FILE="{workspace}/01-selected-bug.md"
+      if grep -qE '#[0-9]+' "$FILE" || grep -q 'NO_ISSUES_REMAINING' "$FILE"; then
+        echo "Valid selection or no-issues marker found"
+      else
+        echo "No issue number or completion marker found"
+        exit 1
+      fi
+    description: "Selection must reference a GitHub issue number or indicate no issues remain"
+    condition: "sheet_num >= 1"
+
+  # Sheet 2: Investigation complete
+  - type: file_exists
+    path: "{workspace}/02-investigation.md"
+    description: "Investigation report must exist"
+    condition: "sheet_num >= 2"
+
+  # Sheet 3: Complexity decision with verdict
+  - type: file_exists
+    path: "{workspace}/03-decision.md"
+    description: "Complexity decision report must exist"
+    condition: "sheet_num >= 3"
+
+  - type: command_succeeds
+    command: |
+      FILE="{workspace}/03-decision.md"
+      if grep -qE 'VERDICT: (SIMPLE|COMPLEX|NONE)' "$FILE"; then
+        VERDICT=$(grep -oE 'VERDICT: (SIMPLE|COMPLEX|NONE)' "$FILE" | head -1)
+        echo "Found: $VERDICT"
+      else
+        echo "No VERDICT: SIMPLE, COMPLEX, or NONE found"
+        exit 1
+      fi
+    description: "Decision must include a complexity verdict (SIMPLE, COMPLEX, or NONE)"
+    condition: "sheet_num >= 3"
+
+  # Sheet 4: Result exists (either fix or score)
+  - type: file_exists
+    path: "{workspace}/04-result.md"
+    description: "Execution/composition result must exist"
+    condition: "sheet_num >= 4"
+
+  - type: command_succeeds
+    command: |
+      RESULT="{workspace}/04-result.md"
+      if grep -q 'Path: NONE' "$RESULT"; then
+        echo "No-issues path — skip check"
+      elif grep -q 'Path: SIMPLE' "$RESULT"; then
+        # Simple path: check that changes were described
+        if grep -qE 'Status: (COMPLETED|PARTIALLY_COMPLETED)' "$RESULT"; then
+          echo "Simple fix completed"
+        else
+          echo "Simple fix has no status"
+          exit 1
+        fi
+      elif grep -q 'Path: COMPLEX' "$RESULT"; then
+        # Complex path: check that score was generated
+        if [ -f "{workspace}/04-generated-score.yaml" ]; then
+          echo "Score generated"
+        else
+          echo "Complex path chosen but no score generated"
+          exit 1
+        fi
+      else
+        echo "No path indicator found"
+        exit 1
+      fi
+    description: "Result must show completed fix, generated score, or no-issues skip"
+    condition: "sheet_num >= 4"
+
+  # Sheet 5: Review complete with approval
+  - type: file_exists
+    path: "{workspace}/05-review.md"
+    description: "Review report must exist"
+    condition: "sheet_num >= 5"
+
+  - type: command_succeeds
+    command: |
+      FILE="{workspace}/05-review.md"
+      if grep -qE 'Verdict: APPROVED' "$FILE"; then
+        echo "Review approved"
+      else
+        echo "Review did not approve the fix or score"
+        exit 1
+      fi
+    description: "Review must approve the fix or score"
+    condition: "sheet_num >= 5"
+
+  # Sheet 6: Status report
+  - type: file_exists
+    path: "{workspace}/06-status.md"
+    description: "Finalize/launch status must exist"
+    condition: "sheet_num >= 6"
+
+  # Sheet 7: Monitor report with outcome
+  - type: file_exists
+    path: "{workspace}/07-monitor.md"
+    description: "Monitor report must exist"
+    condition: "sheet_num >= 7"
+
+  - type: command_succeeds
+    command: |
+      FILE="{workspace}/07-monitor.md"
+      if grep -qE 'Status: (SKIPPED|COMPLETED)' "$FILE" || grep -q 'Final Status: COMPLETED' "$FILE"; then
+        echo "Monitoring completed or skipped"
+      else
+        echo "Monitor report does not show completion"
+        exit 1
+      fi
+    description: "Monitor must show COMPLETED or SKIPPED status"
+    condition: "sheet_num >= 7"
+
+  # Sheet 8: Commit report
+  - type: file_exists
+    path: "{workspace}/08-commit.md"
+    description: "Commit report must exist"
+    condition: "sheet_num == 8"
+
+  # Tests must pass before considering done (only when there was actual work)
+  - type: command_succeeds
+    command: |
+      VERDICT=$(grep -oE 'VERDICT: (SIMPLE|COMPLEX|NONE)' "{workspace}/03-decision.md" 2>/dev/null | head -1)
+      if echo "$VERDICT" | grep -q 'NONE'; then
+        echo "No work this iteration — test check not required"
+      else
+        pytest -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed|no tests'
+      fi
+    description: "Tests must pass (skipped when no issues to fix)"
+    condition: "sheet_num >= 8"
+
+  # Verify commit was created (only when there was actual work)
+  - type: command_succeeds
+    command: |
+      VERDICT=$(grep -oE 'VERDICT: (SIMPLE|COMPLEX|NONE)' "{workspace}/03-decision.md" 2>/dev/null | head -1)
+      if echo "$VERDICT" | grep -q 'NONE'; then
+        echo "No work this iteration — commit not required"
+      else
+        git log --oneline -1 --since='1 hour ago' 2>/dev/null | grep -qE '.' && echo 'passed' || echo 'no recent commit'
+      fi
+    description: "Recent commit should exist (skipped when no issues to fix)"
+    condition: "sheet_num == 8"
+
+  # Prevent self-chain when there are no issues left
+  - type: command_succeeds
+    command: |
+      if grep -q 'NO_ISSUES_REMAINING' "{workspace}/01-selected-bug.md" 2>/dev/null; then
+        echo "No issues remaining — stopping self-chain"
+        exit 1
+      else
+        echo "Issues were processed — chain may continue"
+      fi
+    description: "Self-chain gate: fails when no issues remain to prevent empty iterations"
+    condition: "sheet_num == 8"
+
+# Self-chain to fix next issue
+on_success:
+  - type: run_job
+    job_path: "examples/issue-fixer.yaml"
+    description: "Chain to fix next issue"
+    detached: true
+    fresh: true
+
+concert:
+  enabled: true
+  max_chain_depth: 20  # Can fix up to 20 issues in a chain
+  cooldown_between_jobs_seconds: 300  # 5 min between fixes
+  inherit_workspace: false

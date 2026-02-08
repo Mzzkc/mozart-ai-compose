@@ -32,7 +32,7 @@ cross_sheet:
 
 sheet:
   size: 1
-  total_items: 13  # Reviews(1-5) + Batch1(6-7) + Batch2(8-9) + Batch3(10-11) + Verify(12) + Commit(13)
+  total_items: 14  # Reviews(1-5) + Batch1(6-7) + Batch2(8-9) + Batch3(10-11) + Verify(12) + Commit(13) + Issues(14)
 
 retry:
   max_retries: 2
@@ -770,7 +770,7 @@ prompt:
 
     $(head -40 {{ workspace }}/12-summary.md)
 
-    Co-Authored-By: Mozart Quality Score <noreply@mozart.ai>"
+    Co-Authored-By: Mozart AI Compose <noreply@mozart.ai>"
 
     echo "Commit created for iteration $ITER"
     ```
@@ -795,6 +795,91 @@ prompt:
     ## Next Steps
     - If issues remain: Next iteration will run automatically
     - If clean: Quality target achieved
+    ```
+
+    {% elif sheet_num == 14 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 14: FILE GITHUB ISSUES FOR DEFERRED ITEMS                             ║
+    ║  "What we can't do today, we document for tomorrow"                          ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    File a GitHub issue tracking items that were deferred to future iterations.
+    This prevents re-discovery waste and creates a real backlog for humans.
+
+    **Step 1: Check prerequisites**
+    ```bash
+    gh auth status
+    gh repo view --json name,owner
+    ```
+    If `gh` is not available or this isn't a GitHub repo, write a report noting
+    "Skipped: no GitHub access" in your output file and stop.
+
+    **Step 2: Collect remaining items**
+    Read these files and gather ALL deferred/blocked/remaining items:
+    - {{ workspace }}/12-summary.md → "Remaining Issues" section
+    - {{ workspace }}/07-batch1-completion.md → "Truly Blocked" items
+    - {{ workspace }}/09-batch2-completion.md → "Truly Blocked" items
+    - {{ workspace }}/11-batch3-completion.md → "Multi-Day Items" section
+
+    If there are NO remaining items (everything was fixed this iteration),
+    write "All issues resolved — no GitHub issues needed" in your output
+    file and stop. Do NOT create an empty tracking issue.
+
+    **Step 3: Deduplicate against existing issues**
+    ```bash
+    gh issue list --label "mozart-quality" --state open --json number,title,body --limit 10
+    ```
+    - If a previous iteration's tracking issue exists and ALL its checklist
+      items were resolved this iteration, close it with comment:
+      "All items resolved in quality iteration N."
+    - Note which items are already tracked to avoid filing duplicates.
+
+    **Step 4: Create tracking issue**
+    Create the label if it doesn't already exist:
+    ```bash
+    gh label create "mozart-quality" \
+      --description "Deferred items from automated quality review" \
+      --color "d4c5f9" 2>/dev/null || true
+    ```
+
+    Create ONE issue containing a checklist of all remaining items.
+
+    Issue requirements:
+    - **Title:** `Quality Iteration N: M deferred items requiring manual effort`
+    - **Label:** `mozart-quality`
+    - **Body must include:**
+      - Checkbox list (`- [ ]`) of each deferred item with effort estimate
+      - Category for each item (structural, testing, performance, etc.)
+      - Summary table: issues found vs fixed vs deferred this iteration
+      - Footer: `*Filed automatically by Mozart Quality Score*`
+
+    Do NOT create individual issues per item — one summary issue per iteration.
+
+    **Output to:** {{ workspace }}/14-issues-filed.md
+
+    Format:
+    ```markdown
+    # GitHub Issues Filed (Iteration N)
+
+    ## Summary
+    | Metric | Count |
+    |--------|-------|
+    | Remaining items collected | N |
+    | New issues created | N |
+    | Previous issues closed | N |
+    | Items already tracked (deduped) | N |
+
+    ## Issues Created
+    | Issue # | Title | Deferred Items |
+    |---------|-------|----------------|
+
+    ## Issues Closed (resolved this iteration)
+    | Issue # | Reason |
+    |---------|--------|
+
+    ## All Tracked Items
+    | ID | Description | Effort Estimate | GitHub Issue # |
+    |----|-------------|-----------------|----------------|
     ```
 
     {% endif %}
@@ -965,6 +1050,12 @@ validations:
     command: "git log --oneline -1 --since='10 minutes ago' 2>/dev/null | grep -qE '.' && echo 'passed' || echo 'no recent commit'"
     description: "Recent commit should exist"
     condition: "sheet_num == 13"
+
+  # Sheet 14: GitHub Issues for Deferred Items
+  - type: file_exists
+    path: "{workspace}/14-issues-filed.md"
+    description: "Issue filing report must exist"
+    condition: "sheet_num >= 14"
 
 # Self-chain for continuous improvement
 on_success:
