@@ -111,7 +111,7 @@ class DiagnosisEngine:
                     diagnoses.append(diagnosis)
             except Exception:
                 # Individual remedy failures shouldn't block diagnosis
-                _logger.debug(
+                _logger.warning(
                     "Remedy %s failed during diagnosis",
                     type(remedy).__name__,
                     exc_info=True,

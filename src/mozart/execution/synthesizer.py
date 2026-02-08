@@ -299,12 +299,16 @@ class ResultSynthesizer:
             Updated SynthesisResult with synthesis complete.
         """
         if result.status != "ready":
-            self._logger.warning(
+            msg = (
+                f"execute_synthesis() called with status='{result.status}' "
+                f"(expected 'ready') for batch '{result.batch_id}'"
+            )
+            self._logger.error(
                 "synthesizer.invalid_state",
                 batch_id=result.batch_id,
                 status=result.status,
             )
-            return result
+            raise ValueError(msg)
 
         try:
             if result.strategy == SynthesisStrategy.MERGE:

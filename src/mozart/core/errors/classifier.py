@@ -2,17 +2,13 @@
 
 This is the main classifier class that analyzes stdout, stderr, exit codes,
 and signals to produce ClassifiedError instances with appropriate retry behavior.
-
-This module provides:
-- _emit_deprecation_warning(): Helper for deprecated API warnings
-- ErrorClassifier: Main classifier class with pattern matching and JSON parsing
 """
 
 from __future__ import annotations
 
 import re
 import signal
-import warnings
+
 from mozart.core.logging import get_logger
 
 from .codes import ErrorCategory, ErrorCode, ExitReason
@@ -22,27 +18,6 @@ from .signals import FATAL_SIGNALS, RETRIABLE_SIGNALS, get_signal_name
 
 # Module-level logger for error classification
 _logger = get_logger("errors")
-
-
-# =============================================================================
-# Deprecation Helpers
-# =============================================================================
-
-
-def _emit_deprecation_warning(old_name: str, new_name: str) -> None:
-    """Issue a deprecation warning for old API usage.
-
-    Used internally to warn callers about deprecated API methods.
-
-    Args:
-        old_name: Name of the deprecated method/function.
-        new_name: Name of the replacement method/function.
-    """
-    warnings.warn(
-        f"{old_name} is deprecated, use {new_name} instead",
-        DeprecationWarning,
-        stacklevel=3,
-    )
 
 
 # =============================================================================
@@ -284,6 +259,13 @@ class ErrorClassifier:
     ) -> ClassifiedError:
         """Classify an error based on output, exit code, and signal.
 
+        Delegates to sub-classifiers in priority order:
+        1. Signal-based exits (_classify_signal)
+        2. Timeout exit reason
+        3. Pattern-matching on output (_classify_by_pattern)
+        4. Exit code analysis (_classify_by_exit_code)
+        5. Unknown fallback
+
         Args:
             stdout: Standard output from the command
             stderr: Standard error from the command
@@ -299,7 +281,7 @@ class ErrorClassifier:
         if exception:
             combined += f"\n{str(exception)}"
 
-        # Handle signal-based exits first (new in Task 3)
+        # 1. Signal-based exits
         if exit_signal is not None:
             result = self._classify_signal(
                 exit_signal=exit_signal,
@@ -320,7 +302,7 @@ class ErrorClassifier:
             )
             return result
 
-        # Handle timeout exit reason (even without signal)
+        # 2. Timeout exit reason (even without signal)
         if exit_reason == "timeout":
             result = ClassifiedError(
                 category=ErrorCategory.TIMEOUT,
@@ -343,16 +325,62 @@ class ErrorClassifier:
             )
             return result
 
-        # Check for token quota exhaustion FIRST (more specific than rate limit)
-        # This is when Claude Max says "tokens exhausted, resets at 9pm"
+        # 3. Pattern-matching on output text
+        pattern_result = self._classify_by_pattern(
+            combined, exit_code, exit_reason, exception,
+        )
+        if pattern_result is not None:
+            return pattern_result
+
+        # 4. Exit code analysis
+        exit_code_result = self._classify_by_exit_code(
+            exit_code, exit_reason, exception,
+        )
+        if exit_code_result is not None:
+            return exit_code_result
+
+        # 5. Unknown fallback
+        result = ClassifiedError(
+            category=ErrorCategory.FATAL,
+            message=f"Unknown error (exit_code={exit_code})",
+            error_code=ErrorCode.UNKNOWN,
+            original_error=exception,
+            exit_code=exit_code,
+            exit_signal=None,
+            exit_reason=exit_reason,
+            retriable=False,
+        )
+        _logger.warning(
+            "error_classified",
+            category=result.category.value,
+            error_code=result.error_code.value,
+            exit_code=exit_code,
+            retriable=result.retriable,
+            message=result.message,
+        )
+        return result
+
+    def _classify_by_pattern(
+        self,
+        combined: str,
+        exit_code: int | None,
+        exit_reason: ExitReason | None,
+        exception: Exception | None,
+    ) -> ClassifiedError | None:
+        """Classify error by matching output text against known patterns.
+
+        Checks patterns in priority order: quota exhaustion, rate limits,
+        ENOENT, CLI mode mismatch, auth, MCP, DNS, SSL, network.
+
+        Returns None if no pattern matches.
+        """
+        # Quota exhaustion (most specific rate limit variant)
         if self._matches_any(combined, self.quota_exhaustion_patterns):
-            # Try to parse reset time from message
             wait_seconds = self.parse_reset_time(combined)
             if wait_seconds is None:
-                wait_seconds = 3600.0  # Default 1 hour if no time found
-
+                wait_seconds = 3600.0
             result = ClassifiedError(
-                category=ErrorCategory.RATE_LIMIT,  # Same category, different handling
+                category=ErrorCategory.RATE_LIMIT,
                 message="Token quota exhausted - waiting until reset",
                 error_code=ErrorCode.QUOTA_EXHAUSTED,
                 original_error=exception,
@@ -373,13 +401,13 @@ class ErrorClassifier:
             )
             return result
 
-        # Check for rate limiting (most common retriable)
+        # Rate limiting (most common retriable)
         if self._matches_any(combined, self.rate_limit_patterns):
-            # Differentiate between capacity vs rate limit
-            if self._matches_any(combined, self.capacity_patterns):
-                error_code = ErrorCode.CAPACITY_EXCEEDED
-            else:
-                error_code = ErrorCode.RATE_LIMIT_API
+            error_code = (
+                ErrorCode.CAPACITY_EXCEEDED
+                if self._matches_any(combined, self.capacity_patterns)
+                else ErrorCode.RATE_LIMIT_API
+            )
             result = ClassifiedError(
                 category=ErrorCategory.RATE_LIMIT,
                 message="Rate limit detected",
@@ -389,7 +417,7 @@ class ErrorClassifier:
                 exit_signal=None,
                 exit_reason=exit_reason,
                 retriable=True,
-                suggested_wait_seconds=3600.0,  # 1 hour default
+                suggested_wait_seconds=3600.0,
             )
             _logger.warning(
                 "error_classified",
@@ -402,8 +430,7 @@ class ErrorClassifier:
             )
             return result
 
-        # Check for ENOENT (missing binary/file) FIRST
-        # This is often the REAL cause when CLI reports misleading errors like "streaming mode"
+        # ENOENT (missing binary/file) - often the real cause behind misleading errors
         if self._matches_any(combined, self.enoent_patterns):
             result = ClassifiedError(
                 category=ErrorCategory.CONFIGURATION,
@@ -413,7 +440,7 @@ class ErrorClassifier:
                 exit_code=exit_code,
                 exit_signal=None,
                 exit_reason=exit_reason,
-                retriable=True,  # Retriable - the file might appear after reinstall/update
+                retriable=True,
                 suggested_wait_seconds=30,
             )
             _logger.error(
@@ -427,8 +454,7 @@ class ErrorClassifier:
             )
             return result
 
-        # Check for CLI mode mismatch (must be before auth check)
-        # "streaming mode" error can look like auth failure but is config issue
+        # CLI mode mismatch (must be before auth check)
         if self._matches_any(combined, self.cli_mode_patterns):
             result = ClassifiedError(
                 category=ErrorCategory.CONFIGURATION,
@@ -451,7 +477,7 @@ class ErrorClassifier:
             )
             return result
 
-        # Check for auth failures (fatal)
+        # Auth failures (fatal)
         if self._matches_any(combined, self.auth_patterns):
             result = ClassifiedError(
                 category=ErrorCategory.AUTH,
@@ -473,7 +499,7 @@ class ErrorClassifier:
             )
             return result
 
-        # Check for MCP/Plugin configuration errors (non-retriable)
+        # MCP/Plugin configuration errors (non-retriable)
         if self._matches_any(combined, self.mcp_patterns):
             result = ClassifiedError(
                 category=ErrorCategory.CONFIGURATION,
@@ -496,81 +522,65 @@ class ErrorClassifier:
             )
             return result
 
-        # Check for network issues (retriable with backoff)
-        # Check specific sub-types first for more precise error codes
-        if self._matches_any(combined, self.dns_patterns):
-            result = ClassifiedError(
-                category=ErrorCategory.NETWORK,
-                message="DNS resolution failed",
-                error_code=ErrorCode.NETWORK_DNS_ERROR,
-                original_error=exception,
-                exit_code=exit_code,
-                exit_signal=None,
-                exit_reason=exit_reason,
-                retriable=True,
-                suggested_wait_seconds=30.0,
-            )
-            _logger.warning(
-                "error_classified",
-                category=result.category.value,
-                error_code=result.error_code.value,
-                exit_code=exit_code,
-                retriable=result.retriable,
-                suggested_wait=result.suggested_wait_seconds,
-                message=result.message,
-            )
-            return result
+        # Network issues: DNS, SSL, generic (checked in specificity order)
+        return self._classify_network_pattern(combined, exit_code, exit_reason, exception)
 
-        if self._matches_any(combined, self.ssl_patterns):
-            result = ClassifiedError(
-                category=ErrorCategory.NETWORK,
-                message="SSL/TLS error",
-                error_code=ErrorCode.NETWORK_SSL_ERROR,
-                original_error=exception,
-                exit_code=exit_code,
-                exit_signal=None,
-                exit_reason=exit_reason,
-                retriable=True,
-                suggested_wait_seconds=30.0,
-            )
-            _logger.warning(
-                "error_classified",
-                category=result.category.value,
-                error_code=result.error_code.value,
-                exit_code=exit_code,
-                retriable=result.retriable,
-                suggested_wait=result.suggested_wait_seconds,
-                message=result.message,
-            )
-            return result
+    def _classify_network_pattern(
+        self,
+        combined: str,
+        exit_code: int | None,
+        exit_reason: ExitReason | None,
+        exception: Exception | None,
+    ) -> ClassifiedError | None:
+        """Classify network-related errors by pattern specificity.
 
-        if self._matches_any(combined, self.network_patterns):
-            result = ClassifiedError(
-                category=ErrorCategory.NETWORK,
-                message="Network connectivity issue",
-                error_code=ErrorCode.NETWORK_CONNECTION_FAILED,
-                original_error=exception,
-                exit_code=exit_code,
-                exit_signal=None,
-                exit_reason=exit_reason,
-                retriable=True,
-                suggested_wait_seconds=30.0,
-            )
-            _logger.warning(
-                "error_classified",
-                category=result.category.value,
-                error_code=result.error_code.value,
-                exit_code=exit_code,
-                retriable=result.retriable,
-                suggested_wait=result.suggested_wait_seconds,
-                message=result.message,
-            )
-            return result
+        Checks DNS → SSL → generic network in order.
+        Returns None if no network pattern matches.
+        """
+        _NETWORK_CHECKS = [
+            (self.dns_patterns, "DNS resolution failed",
+             ErrorCode.NETWORK_DNS_ERROR),
+            (self.ssl_patterns, "SSL/TLS error",
+             ErrorCode.NETWORK_SSL_ERROR),
+            (self.network_patterns, "Network connectivity issue",
+             ErrorCode.NETWORK_CONNECTION_FAILED),
+        ]
+        for patterns, message, error_code in _NETWORK_CHECKS:
+            if self._matches_any(combined, patterns):
+                result = ClassifiedError(
+                    category=ErrorCategory.NETWORK,
+                    message=message,
+                    error_code=error_code,
+                    original_error=exception,
+                    exit_code=exit_code,
+                    exit_signal=None,
+                    exit_reason=exit_reason,
+                    retriable=True,
+                    suggested_wait_seconds=30.0,
+                )
+                _logger.warning(
+                    "error_classified",
+                    category=result.category.value,
+                    error_code=result.error_code.value,
+                    exit_code=exit_code,
+                    retriable=result.retriable,
+                    suggested_wait=result.suggested_wait_seconds,
+                    message=result.message,
+                )
+                return result
+        return None
 
-        # Check exit code
+    def _classify_by_exit_code(
+        self,
+        exit_code: int | None,
+        exit_reason: ExitReason | None,
+        exception: Exception | None,
+    ) -> ClassifiedError | None:
+        """Classify error based on process exit code.
+
+        Returns None if exit_code is None (signal-killed) or unrecognized.
+        """
         if exit_code == 0:
-            # Command succeeded but might have validation issues
-            # Note: This is not an error, just needs validation - no warning log
             return ClassifiedError(
                 category=ErrorCategory.VALIDATION,
                 message="Command succeeded but output validation needed",
@@ -581,97 +591,76 @@ class ErrorClassifier:
                 retriable=True,
             )
 
-        if exit_code is not None:
-            # Non-zero exit codes
-            if exit_code in (1, 2):
-                # Common transient errors
-                result = ClassifiedError(
-                    category=ErrorCategory.TRANSIENT,
-                    message=f"Command failed with exit code {exit_code}",
-                    error_code=ErrorCode.EXECUTION_UNKNOWN,
-                    original_error=exception,
-                    exit_code=exit_code,
-                    exit_signal=None,
-                    exit_reason=exit_reason,
-                    retriable=True,
-                    suggested_wait_seconds=10.0,
-                )
-                _logger.warning(
-                    "error_classified",
-                    category=result.category.value,
-                    error_code=result.error_code.value,
-                    exit_code=exit_code,
-                    retriable=result.retriable,
-                    suggested_wait=result.suggested_wait_seconds,
-                    message=result.message,
-                )
-                return result
+        if exit_code is None:
+            return None
 
-            if exit_code == 124:
-                # Timeout (from `timeout` command - legacy support)
-                result = ClassifiedError(
-                    category=ErrorCategory.TIMEOUT,
-                    message="Command timed out",
-                    error_code=ErrorCode.EXECUTION_TIMEOUT,
-                    exit_code=exit_code,
-                    exit_signal=None,
-                    exit_reason=exit_reason,
-                    retriable=True,
-                    suggested_wait_seconds=60.0,
-                )
-                _logger.warning(
-                    "error_classified",
-                    category=result.category.value,
-                    error_code=result.error_code.value,
-                    exit_code=exit_code,
-                    retriable=result.retriable,
-                    suggested_wait=result.suggested_wait_seconds,
-                    message=result.message,
-                )
-                return result
+        if exit_code in (1, 2):
+            result = ClassifiedError(
+                category=ErrorCategory.TRANSIENT,
+                message=f"Command failed with exit code {exit_code}",
+                error_code=ErrorCode.EXECUTION_UNKNOWN,
+                original_error=exception,
+                exit_code=exit_code,
+                exit_signal=None,
+                exit_reason=exit_reason,
+                retriable=True,
+                suggested_wait_seconds=10.0,
+            )
+            _logger.warning(
+                "error_classified",
+                category=result.category.value,
+                error_code=result.error_code.value,
+                exit_code=exit_code,
+                retriable=result.retriable,
+                suggested_wait=result.suggested_wait_seconds,
+                message=result.message,
+            )
+            return result
 
-            if exit_code == 127:
-                # Command not found
-                result = ClassifiedError(
-                    category=ErrorCategory.FATAL,
-                    message=f"Command not found (exit_code={exit_code})",
-                    error_code=ErrorCode.BACKEND_NOT_FOUND,
-                    original_error=exception,
-                    exit_code=exit_code,
-                    exit_signal=None,
-                    exit_reason=exit_reason,
-                    retriable=False,
-                )
-                _logger.warning(
-                    "error_classified",
-                    category=result.category.value,
-                    error_code=result.error_code.value,
-                    exit_code=exit_code,
-                    retriable=result.retriable,
-                    message=result.message,
-                )
-                return result
+        if exit_code == 124:
+            result = ClassifiedError(
+                category=ErrorCategory.TIMEOUT,
+                message="Command timed out",
+                error_code=ErrorCode.EXECUTION_TIMEOUT,
+                exit_code=exit_code,
+                exit_signal=None,
+                exit_reason=exit_reason,
+                retriable=True,
+                suggested_wait_seconds=60.0,
+            )
+            _logger.warning(
+                "error_classified",
+                category=result.category.value,
+                error_code=result.error_code.value,
+                exit_code=exit_code,
+                retriable=result.retriable,
+                suggested_wait=result.suggested_wait_seconds,
+                message=result.message,
+            )
+            return result
 
-        # Default to unknown for unclassified errors
-        result = ClassifiedError(
-            category=ErrorCategory.FATAL,
-            message=f"Unknown error (exit_code={exit_code})",
-            error_code=ErrorCode.UNKNOWN,
-            original_error=exception,
-            exit_code=exit_code,
-            exit_signal=None,
-            exit_reason=exit_reason,
-            retriable=False,
-        )
-        _logger.warning(
-            "error_classified",
-            category=result.category.value,
-            error_code=result.error_code.value,
-            exit_code=exit_code,
-            retriable=result.retriable,
-            message=result.message,
-        )
-        return result
+        if exit_code == 127:
+            result = ClassifiedError(
+                category=ErrorCategory.FATAL,
+                message=f"Command not found (exit_code={exit_code})",
+                error_code=ErrorCode.BACKEND_NOT_FOUND,
+                original_error=exception,
+                exit_code=exit_code,
+                exit_signal=None,
+                exit_reason=exit_reason,
+                retriable=False,
+            )
+            _logger.warning(
+                "error_classified",
+                category=result.category.value,
+                error_code=result.error_code.value,
+                exit_code=exit_code,
+                retriable=result.retriable,
+                message=result.message,
+            )
+            return result
+
+        return None
 
     def _classify_signal(
         self,

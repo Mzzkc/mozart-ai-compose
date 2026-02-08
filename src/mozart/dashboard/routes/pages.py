@@ -3,6 +3,8 @@
 Handles HTML page rendering (non-API endpoints).
 """
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -10,6 +12,8 @@ from fastapi.templating import Jinja2Templates
 from mozart.core.checkpoint import JobStatus
 from mozart.dashboard.app import get_state_backend, get_templates
 from mozart.state.base import StateBackend
+
+_logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Pages"])
 
@@ -42,7 +46,7 @@ async def jobs_page(
 async def jobs_list_partial(
     request: Request,
     status: JobStatus | None = Query(None, description="Filter by job status"),
-    limit: int = Query(50, description="Maximum number of jobs"),
+    limit: int = Query(50, ge=1, le=500, description="Maximum number of jobs"),
     templates: Jinja2Templates = Depends(get_templates),
     backend: StateBackend = Depends(get_state_backend),
 ) -> HTMLResponse:
@@ -198,90 +202,34 @@ async def templates_list_partial(
 ) -> HTMLResponse:
     """Render the templates grid partial (HTMX target)."""
     try:
-        # Import template analysis function from scores router
         import yaml
-        import re
-        from mozart.scores.templates import list_templates, get_template_path, TEMPLATE_FILES
+        from mozart.scores.templates import list_templates, get_template_path
+        from mozart.dashboard.routes.scores import analyze_template
 
         template_dict = list_templates()
         filtered_templates = []
-
-        # Category mapping for analysis
-        category_map = {
-            'simple-task': 'workflow',
-            'multi-sheet': 'workflow',
-            'review-cycle': 'workflow',
-            'data-processing': 'data',
-            'testing-workflow': 'testing',
-            'deployment-pipeline': 'deployment'
-        }
 
         for name in template_dict:
             try:
                 template_path = get_template_path(name)
                 content = template_path.read_text()
-
-                # Parse YAML to extract metadata
-                data = yaml.safe_load(content)
-                sheets = data.get('sheet', {}).get('total_sheets', 1)
-
-                # Determine complexity
-                if sheets == 1:
-                    tmpl_complexity = 'simple'
-                elif sheets <= 3:
-                    tmpl_complexity = 'medium'
-                else:
-                    tmpl_complexity = 'complex'
-
-                tmpl_category = category_map.get(name, 'general')
+                tmpl = analyze_template(name, content)
 
                 # Apply filters
-                if category and tmpl_category != category:
+                if category and tmpl.category != category:
                     continue
-                if complexity and tmpl_complexity != complexity:
+                if complexity and tmpl.complexity != complexity:
                     continue
-                if search and search.lower() not in name.lower() and search.lower() not in data.get('name', '').lower():
-                    continue
+                if search:
+                    data = yaml.safe_load(content)
+                    data_name = data.get('name', '') if isinstance(data, dict) else ''
+                    if search.lower() not in name.lower() and search.lower() not in data_name.lower():
+                        continue
 
-                # Extract features
-                features = []
-                if 'dependencies' in data.get('sheet', {}):
-                    features.append('Multi-sheet dependencies')
-                if data.get('validations'):
-                    features.append(f"{len(data['validations'])} validation checks")
-                if data.get('notifications'):
-                    features.append('Automated notifications')
-                if '{{' in content:
-                    features.append('Customizable variables')
-
-                # Extract variables
-                variables = []
-                var_pattern = r'{{\s*(\w+)(?:\s*\|\s*default\([^)]*\))?\s*}}'
-                var_matches = re.findall(var_pattern, content)
-                for var in set(var_matches):
-                    variables.append({
-                        'name': var,
-                        'description': f'Template variable: {var}'
-                    })
-
-                template = {
-                    'name': name,
-                    'title': name.replace('-', ' ').title(),
-                    'filename': TEMPLATE_FILES[name],
-                    'description': f"A {tmpl_complexity} {tmpl_category} template with {sheets} sheet{'s' if sheets != 1 else ''}",
-                    'complexity': tmpl_complexity,
-                    'sheets': sheets,
-                    'category': tmpl_category,
-                    'features': features,
-                    'variables': variables,
-                    'content': content,
-                    'estimated_duration': f"{sheets * 15}-{sheets * 30} min" if sheets > 1 else "5-15 min"
-                }
-
-                filtered_templates.append(template)
+                filtered_templates.append(tmpl.model_dump())
 
             except Exception:
-                # Skip templates that can't be loaded
+                _logger.warning("Failed to load template, skipping", exc_info=True)
                 continue
 
         return templates.TemplateResponse(

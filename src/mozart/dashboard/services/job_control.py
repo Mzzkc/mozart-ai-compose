@@ -97,6 +97,7 @@ class JobControlService:
         # Generate unique job ID
         job_id = str(uuid.uuid4())[:8]  # Short ID for readability
 
+        temp_path: str | None = None
         try:
             # Build command arguments - using create_subprocess_exec for security
             cmd_args = [sys.executable, "-m", "mozart.cli", "run"]
@@ -130,6 +131,17 @@ class JobControlService:
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(self._workspace_root),
             )
+
+            # Clean up temp file after subprocess has had time to read it
+            if temp_path is not None:
+                async def _cleanup_temp(path: str) -> None:
+                    await asyncio.sleep(5)  # Give subprocess time to read config
+                    try:
+                        os.unlink(path)
+                    except OSError:
+                        pass
+
+                asyncio.create_task(_cleanup_temp(temp_path))
 
             # Track the process and its start time
             self._running_processes[job_id] = process

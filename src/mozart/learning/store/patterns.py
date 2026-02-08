@@ -18,8 +18,11 @@ import json
 import sqlite3
 import uuid
 from datetime import datetime
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING, Any
 
+from mozart.core.logging import MozartLogger
 from mozart.learning.store.models import (
     PatternDiscoveryEvent,
     PatternRecord,
@@ -81,9 +84,9 @@ class PatternMixin:
     - get_retired_patterns: Get deprecated patterns
     """
 
-    # Type hints for attributes provided by the composed class
-    _logger: Any
-    _get_connection: Any
+    # Type hints for attributes provided by GlobalLearningStoreBase
+    _logger: MozartLogger
+    _get_connection: Callable[[], AbstractContextManager[sqlite3.Connection]]
 
     def record_pattern(
         self,

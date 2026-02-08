@@ -6,6 +6,8 @@ Tests cover:
 - Backend logging: Verifies appropriate log levels and content
 """
 
+import asyncio
+import signal as signal_module
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -781,3 +783,271 @@ class TestRecursiveLightBackendLogging:
         assert len(conn_logs) == 1
         assert conn_logs[0]["level"] == "warning"
         assert "test:8080" in conn_logs[0]["endpoint"]
+
+
+# ============================================================================
+# ClaudeCliBackend._build_command() Tests (FIX-43)
+# ============================================================================
+
+
+class TestBuildCommand:
+    """Tests for ClaudeCliBackend._build_command() subprocess command construction."""
+
+    def _make_backend(self, **kwargs: Any) -> ClaudeCliBackend:
+        """Create a backend with a fake claude path for testing."""
+        backend = ClaudeCliBackend(**kwargs)
+        backend._claude_path = "/usr/local/bin/claude"
+        return backend
+
+    def test_basic_command_structure(self) -> None:
+        """Verify basic command: claude -p <prompt> --output-format text."""
+        backend = self._make_backend()
+        cmd = backend._build_command("hello world")
+        assert cmd[0] == "/usr/local/bin/claude"
+        assert "-p" in cmd
+        p_idx = cmd.index("-p")
+        assert "hello world" in cmd[p_idx + 1]
+
+    def test_skip_permissions_flag(self) -> None:
+        """Verify --dangerously-skip-permissions when skip_permissions=True."""
+        backend = self._make_backend(skip_permissions=True)
+        cmd = backend._build_command("test")
+        assert "--dangerously-skip-permissions" in cmd
+
+    def test_no_skip_permissions_flag(self) -> None:
+        """Verify flag absent when skip_permissions=False."""
+        backend = self._make_backend(skip_permissions=False)
+        cmd = backend._build_command("test")
+        assert "--dangerously-skip-permissions" not in cmd
+
+    def test_output_format(self) -> None:
+        """Verify --output-format is set correctly."""
+        backend = self._make_backend(output_format="json")
+        cmd = backend._build_command("test")
+        idx = cmd.index("--output-format")
+        assert cmd[idx + 1] == "json"
+
+    def test_disable_mcp(self) -> None:
+        """Verify MCP disabled with --strict-mcp-config flag."""
+        backend = self._make_backend(disable_mcp=True)
+        cmd = backend._build_command("test")
+        assert "--strict-mcp-config" in cmd
+        assert "--mcp-config" in cmd
+
+    def test_mcp_not_disabled(self) -> None:
+        """Verify MCP flags absent when disable_mcp=False."""
+        backend = self._make_backend(disable_mcp=False)
+        cmd = backend._build_command("test")
+        assert "--strict-mcp-config" not in cmd
+
+    def test_model_selection(self) -> None:
+        """Verify --model flag with custom model."""
+        backend = self._make_backend(cli_model="claude-opus-4-6")
+        cmd = backend._build_command("test")
+        idx = cmd.index("--model")
+        assert cmd[idx + 1] == "claude-opus-4-6"
+
+    def test_allowed_tools(self) -> None:
+        """Verify --allowedTools flag."""
+        backend = self._make_backend(allowed_tools=["Bash", "Read"])
+        cmd = backend._build_command("test")
+        idx = cmd.index("--allowedTools")
+        assert cmd[idx + 1] == "Bash,Read"
+
+    def test_system_prompt_file(self) -> None:
+        """Verify --system-prompt flag."""
+        from pathlib import Path
+        backend = self._make_backend(system_prompt_file=Path("/tmp/prompt.md"))
+        cmd = backend._build_command("test")
+        idx = cmd.index("--system-prompt")
+        assert cmd[idx + 1] == "/tmp/prompt.md"
+
+    def test_extra_args_appended_last(self) -> None:
+        """Verify cli_extra_args are appended at the end."""
+        backend = self._make_backend(cli_extra_args=["--verbose", "--debug"])
+        cmd = backend._build_command("test")
+        assert cmd[-2] == "--verbose"
+        assert cmd[-1] == "--debug"
+
+    def test_raises_without_claude_path(self) -> None:
+        """Verify RuntimeError when claude CLI not found."""
+        backend = ClaudeCliBackend()
+        backend._claude_path = None
+        with pytest.raises(RuntimeError, match="claude CLI not found"):
+            backend._build_command("test")
+
+    def test_operator_imperative_injected(self) -> None:
+        """Verify the operator imperative is injected into the prompt."""
+        backend = self._make_backend()
+        cmd = backend._build_command("user prompt")
+        p_idx = cmd.index("-p")
+        full_prompt = cmd[p_idx + 1]
+        assert "NEVER WRAP MOZART" in full_prompt
+        assert "user prompt" in full_prompt
+
+
+# ============================================================================
+# ClaudeCliBackend._execute_impl() Tests (FIX-49)
+# ============================================================================
+
+
+def _make_mock_process(
+    returncode: int | None = 0,
+    stdout: bytes = b"output text",
+    stderr: bytes = b"",
+    pid: int = 12345,
+) -> MagicMock:
+    """Create a mock asyncio.subprocess.Process."""
+    proc = MagicMock(spec=asyncio.subprocess.Process)
+    proc.returncode = returncode
+    proc.pid = pid
+    proc.communicate = AsyncMock(return_value=(stdout, stderr))
+    proc.wait = AsyncMock(return_value=returncode)
+    proc.kill = MagicMock()
+    proc.terminate = MagicMock()
+    return proc
+
+
+class TestExecuteImpl:
+    """Tests for ClaudeCliBackend._execute_impl() subprocess execution."""
+
+    def _make_backend(self, **kwargs: Any) -> ClaudeCliBackend:
+        backend = ClaudeCliBackend(**kwargs)
+        backend._claude_path = "/usr/local/bin/claude"
+        return backend
+
+    @pytest.mark.asyncio
+    async def test_successful_execution(self) -> None:
+        """Test normal execution with exit_code=0."""
+        backend = self._make_backend()
+        proc = _make_mock_process(returncode=0, stdout=b"hello world", stderr=b"")
+
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)):
+            result = await backend._execute_impl("test prompt")
+
+        assert result.success is True
+        assert result.exit_code == 0
+        assert result.exit_signal is None
+        assert result.exit_reason == "completed"
+        assert result.stdout == "hello world"
+        assert result.stderr == ""
+        assert result.duration_seconds > 0
+
+    @pytest.mark.asyncio
+    async def test_nonzero_exit_code(self) -> None:
+        """Test failed execution with exit_code=1."""
+        backend = self._make_backend()
+        proc = _make_mock_process(returncode=1, stdout=b"", stderr=b"error occurred")
+
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)):
+            result = await backend._execute_impl("test prompt")
+
+        assert result.success is False
+        assert result.exit_code == 1
+        assert result.exit_signal is None
+        assert result.exit_reason == "completed"
+        assert result.stderr == "error occurred"
+
+    @pytest.mark.asyncio
+    async def test_signal_kill_negative_returncode(self) -> None:
+        """Test process killed by signal (returncode < 0)."""
+        backend = self._make_backend()
+        # -9 means SIGKILL
+        proc = _make_mock_process(returncode=-9, stdout=b"partial", stderr=b"")
+
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)):
+            result = await backend._execute_impl("test prompt")
+
+        assert result.success is False
+        assert result.exit_code is None
+        assert result.exit_signal == 9
+        assert result.exit_reason == "killed"
+        assert "SIGKILL" in result.stderr
+
+    @pytest.mark.asyncio
+    async def test_timeout_returns_timeout_result(self) -> None:
+        """Test timeout produces correct result with exit_reason='timeout'."""
+        backend = self._make_backend(timeout_seconds=1)
+        proc = _make_mock_process()
+        proc.communicate = AsyncMock(side_effect=TimeoutError)
+        proc.returncode = None  # Still running when timeout hits
+
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)):
+            # Patch wait_for to propagate TimeoutError
+            with patch("asyncio.wait_for", side_effect=TimeoutError):
+                result = await backend._execute_impl("test prompt")
+
+        assert result.success is False
+        assert result.exit_reason == "timeout"
+        assert result.exit_signal == signal_module.SIGKILL
+        assert "timed out" in result.stderr.lower()
+
+    @pytest.mark.asyncio
+    async def test_file_not_found_returns_127(self) -> None:
+        """Test missing CLI binary returns exit_code=127."""
+        backend = self._make_backend()
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            AsyncMock(side_effect=FileNotFoundError("claude not found")),
+        ):
+            result = await backend._execute_impl("test prompt")
+
+        assert result.success is False
+        assert result.exit_code == 127
+        assert result.exit_reason == "error"
+        assert result.error_type == "not_found"
+
+    @pytest.mark.asyncio
+    async def test_general_exception_kills_orphan(self) -> None:
+        """Test that orphaned process is killed on unexpected exception."""
+        backend = self._make_backend()
+        proc = _make_mock_process()
+        proc.returncode = None  # Process still running
+
+        async def _failing_communicate() -> None:
+            raise RuntimeError("unexpected")
+
+        proc.communicate = _failing_communicate
+
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)):
+            with patch("os.killpg") as mock_killpg:
+                with patch("os.getpgid", return_value=12345):
+                    result = await backend._execute_impl("test prompt")
+
+        assert result.success is False
+        assert result.error_type == "exception"
+        assert result.error_message is not None
+        assert "unexpected" in result.error_message
+        # Should have attempted to kill the orphaned process group
+        mock_killpg.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_detection_in_output(self) -> None:
+        """Test that rate_limited flag is set when output contains rate limit patterns."""
+        backend = self._make_backend()
+        proc = _make_mock_process(
+            returncode=1, stdout=b"Error: rate limit exceeded", stderr=b""
+        )
+
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)):
+            result = await backend._execute_impl("test prompt")
+
+        assert result.rate_limited is True
+        assert result.error_type == "rate_limit"
+
+    @pytest.mark.asyncio
+    async def test_none_returncode_handled(self) -> None:
+        """Test that None returncode (shouldn't happen) is handled gracefully."""
+        backend = self._make_backend()
+        proc = _make_mock_process(returncode=0, stdout=b"ok", stderr=b"")
+        # Simulate None returncode after communicate
+        proc.returncode = None
+
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)):
+            result = await backend._execute_impl("test prompt")
+
+        # Should handle gracefully as error
+        assert result.exit_reason == "error"
+        assert result.exit_code is None
+        assert result.exit_signal is None

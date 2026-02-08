@@ -59,19 +59,6 @@ _logger = get_logger("process_manager")
 GRACEFUL_TERMINATION_TIMEOUT: float = 5.0  # Seconds to wait for graceful termination
 PROCESS_EXIT_TIMEOUT: float = 5.0  # Seconds to wait for process exit after streams close
 
-# Common signal names for human-readable output
-SIGNAL_NAMES: dict[int, str] = {
-    signal.SIGTERM: "SIGTERM",
-    signal.SIGKILL: "SIGKILL",
-    signal.SIGINT: "SIGINT",
-    signal.SIGHUP: "SIGHUP",
-}
-
-
-def get_signal_name(sig: int) -> str:
-    """Get human-readable signal name."""
-    return SIGNAL_NAMES.get(sig, f"signal {sig}")
-
 
 @dataclass
 class ProcessResult:

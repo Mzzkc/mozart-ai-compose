@@ -466,14 +466,12 @@ class TestResultSynthesizerExecute:
         assert "exceeds limit" in result.error_message
 
     def test_execute_on_non_ready_status(self, sample_outputs):
-        """Execute does nothing if status is not ready."""
+        """Execute raises ValueError if status is not ready."""
         synthesizer = ResultSynthesizer()
 
         result = SynthesisResult(batch_id="test", status="failed")
-        result = synthesizer.execute_synthesis(result)
-
-        assert result.status == "failed"
-        assert result.synthesized_content is None
+        with pytest.raises(ValueError, match="expected 'ready'"):
+            synthesizer.execute_synthesis(result)
 
     def test_execute_sets_completed_at(self, sample_outputs):
         """Execute sets completed_at timestamp."""

@@ -551,8 +551,8 @@ class TestPauseResumeErrorCases:
         """Test pause signal detection when workspace doesn't exist."""
         state, state_backend = test_state
 
-        # Use non-existent workspace
-        mock_config.workspace = "/path/that/does/not/exist"
+        # Use non-existent workspace (must be Path for PreflightChecker)
+        mock_config.workspace = Path("/path/that/does/not/exist")
         runner = JobRunner(
             config=mock_config,
             backend=mock_backend,

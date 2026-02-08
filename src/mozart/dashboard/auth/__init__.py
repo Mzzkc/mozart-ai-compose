@@ -34,7 +34,8 @@ class AuthConfig:
 
     Attributes:
         mode: Authentication mode (disabled, api_key, localhost_only)
-        api_keys: List of valid API keys (hashed)
+        api_keys: List of valid API key hashes (SHA256). Keys are hashed
+            at load time by from_env() so plaintext is never stored.
         localhost_bypass: Allow localhost to bypass auth when mode is api_key
         excluded_paths: Paths that don't require authentication
         header_name: Header name for API key
@@ -66,13 +67,15 @@ class AuthConfig:
         mode = AuthMode(mode_str.lower())
 
         api_keys_str = os.getenv("MOZART_API_KEYS", "")
-        api_keys = [k.strip() for k in api_keys_str.split(",") if k.strip()]
+        raw_keys = [k.strip() for k in api_keys_str.split(",") if k.strip()]
+        # Hash keys immediately so plaintext is never stored in the config object
+        hashed_keys = [hash_api_key(k) for k in raw_keys]
 
         localhost_bypass = os.getenv("MOZART_LOCALHOST_BYPASS", "true").lower() == "true"
 
         return cls(
             mode=mode,
-            api_keys=api_keys,
+            api_keys=hashed_keys,
             localhost_bypass=localhost_bypass,
         )
 
@@ -204,9 +207,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     headers={"WWW-Authenticate": "ApiKey"},
                 )
 
-            # Check against hashed keys
-            hashed_keys = [hash_api_key(k) for k in self.config.api_keys]
-            if not verify_api_key(api_key, hashed_keys):
+            # Keys are already hashed at load time (from_env)
+            if not verify_api_key(api_key, self.config.api_keys):
                 return JSONResponse(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     content={"detail": "Invalid API key"},
@@ -270,8 +272,8 @@ async def require_api_key(
             headers={"WWW-Authenticate": "ApiKey"},
         )
 
-    hashed_keys = [hash_api_key(k) for k in config.api_keys]
-    if not verify_api_key(api_key, hashed_keys):
+    # Keys are already hashed at load time (from_env)
+    if not verify_api_key(api_key, config.api_keys):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API key",

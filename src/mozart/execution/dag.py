@@ -12,8 +12,36 @@ The DAG is a foundation for parallel sheet execution (Evolution 2 of v17).
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from enum import IntEnum
+from enum import Enum, IntEnum
 from typing import Any
+
+
+class DAGReadyStatus(Enum):
+    """Result of querying the DAG for the next executable sheet.
+
+    Distinguishes between "all sheets are done" and "remaining sheets are
+    blocked by failed/incomplete dependencies" — previously both returned
+    None, causing silent deadlocks.
+    """
+
+    READY = "ready"
+    ALL_COMPLETE = "all_complete"
+    BLOCKED = "blocked"
+
+
+@dataclass(frozen=True)
+class DAGNextResult:
+    """Result of a DAG-aware next-sheet query.
+
+    Attributes:
+        status: Whether a sheet is ready, all are complete, or remaining are blocked.
+        sheet_num: The next sheet to execute (only set when status == READY).
+        blocked_sheets: Sheets that can't run because deps failed (only when BLOCKED).
+    """
+
+    status: DAGReadyStatus
+    sheet_num: int | None = None
+    blocked_sheets: list[int] = field(default_factory=list)
 
 
 class _VisitState(IntEnum):

@@ -447,8 +447,11 @@ class JobRunnerBase:
         Raises:
             GracefulShutdownError: Always raised after handling pause.
         """
-        # Clear the pause signal to acknowledge handling
-        self._clear_pause_signal(state)
+        # Clear the pause signal to acknowledge handling (non-critical)
+        try:
+            self._clear_pause_signal(state)
+        except OSError:
+            self._logger.debug("Failed to clear pause signal file", exc_info=True)
 
         # Update state to paused
         state.mark_job_paused()

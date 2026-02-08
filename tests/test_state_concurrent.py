@@ -276,29 +276,33 @@ class TestCorruptedStateRecovery:
 
     @pytest.mark.asyncio
     async def test_load_corrupted_json(self, tmp_path: Path) -> None:
-        """Test loading a corrupted JSON file."""
+        """Test loading a corrupted JSON file raises StateCorruptionError."""
+        from mozart.state.json_backend import StateCorruptionError
+
         backend = JsonStateBackend(tmp_path)
 
         # Write corrupted JSON directly
         state_file = tmp_path / "corrupted.json"
         state_file.write_text("{invalid json content}")
 
-        # Load should return None, not raise
-        result = await backend.load("corrupted")
-        assert result is None
+        # Load should raise StateCorruptionError
+        with pytest.raises(StateCorruptionError, match="json_decode"):
+            await backend.load("corrupted")
 
     @pytest.mark.asyncio
     async def test_load_invalid_schema(self, tmp_path: Path) -> None:
-        """Test loading JSON with invalid schema."""
+        """Test loading JSON with invalid schema raises StateCorruptionError."""
+        from mozart.state.json_backend import StateCorruptionError
+
         backend = JsonStateBackend(tmp_path)
 
         # Write valid JSON but invalid schema
         state_file = tmp_path / "invalid-schema.json"
         state_file.write_text('{"foo": "bar"}')
 
-        # Load should return None due to validation error
-        result = await backend.load("invalid-schema")
-        assert result is None
+        # Load should raise StateCorruptionError due to validation error
+        with pytest.raises(StateCorruptionError, match="validation"):
+            await backend.load("invalid-schema")
 
     @pytest.mark.asyncio
     async def test_load_partial_write(self, tmp_path: Path) -> None:
@@ -487,26 +491,30 @@ class TestZombieDetectionAndRecovery:
             assert loaded.status == status  # Status unchanged
 
     @pytest.mark.asyncio
-    async def test_truncated_json_returns_none(self, tmp_path: Path) -> None:
-        """Test that a truncated JSON file (crash during write) returns None."""
+    async def test_truncated_json_raises_corruption_error(self, tmp_path: Path) -> None:
+        """Test that a truncated JSON file (crash during write) raises StateCorruptionError."""
+        from mozart.state.json_backend import StateCorruptionError
+
         backend = JsonStateBackend(tmp_path)
 
         state_file = tmp_path / "truncated.json"
         state_file.write_text('{"job_id": "truncated", "job_name": "Test", "total_she')
 
-        result = await backend.load("truncated")
-        assert result is None
+        with pytest.raises(StateCorruptionError, match="json_decode"):
+            await backend.load("truncated")
 
     @pytest.mark.asyncio
-    async def test_empty_file_returns_none(self, tmp_path: Path) -> None:
-        """Test that an empty state file returns None."""
+    async def test_empty_file_raises_corruption_error(self, tmp_path: Path) -> None:
+        """Test that an empty state file raises StateCorruptionError."""
+        from mozart.state.json_backend import StateCorruptionError
+
         backend = JsonStateBackend(tmp_path)
 
         state_file = tmp_path / "empty.json"
         state_file.write_text("")
 
-        result = await backend.load("empty")
-        assert result is None
+        with pytest.raises(StateCorruptionError, match="json_decode"):
+            await backend.load("empty")
 
     @pytest.mark.asyncio
     async def test_nonexistent_job_returns_none(self, tmp_path: Path) -> None:

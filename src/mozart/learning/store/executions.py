@@ -13,11 +13,15 @@ Extracted from global_store.py as part of the modularization effort.
 
 import json
 import re
+import sqlite3
 import uuid
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mozart.core.logging import MozartLogger
 from mozart.learning.outcomes import SheetOutcome
 from mozart.learning.store.models import ExecutionRecord
 
@@ -56,11 +60,11 @@ class ExecutionMixin:
     - get_similar_workspaces: Get workspaces in the same cluster
     """
 
-    # Type hints for attributes provided by the composed class
-    _logger: Any
-    _get_connection: Any
-    hash_workspace: Any
-    hash_job: Any
+    # Type hints for attributes provided by GlobalLearningStoreBase
+    _logger: MozartLogger
+    _get_connection: Callable[[], AbstractContextManager[sqlite3.Connection]]
+    hash_workspace: staticmethod  # (Path) -> str
+    hash_job: staticmethod  # (str, str | None) -> str
 
     def record_outcome(
         self,

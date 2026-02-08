@@ -439,6 +439,14 @@ class RetryStrategyConfig:
             raise ValueError("rapid_failure_window must be positive")
         if self.rapid_failure_threshold < 1:
             raise ValueError("rapid_failure_threshold must be >= 1")
+        if not 0.0 <= self.jitter_factor <= 1.0:
+            raise ValueError("jitter_factor must be between 0.0 and 1.0")
+        if not 0.0 <= self.min_confidence <= 1.0:
+            raise ValueError("min_confidence must be between 0.0 and 1.0")
+        if self.repeated_error_threshold < 1:
+            raise ValueError("repeated_error_threshold must be >= 1")
+        if self.repeated_error_strategy_change_threshold < 1:
+            raise ValueError("repeated_error_strategy_change_threshold must be >= 1")
 
 
 class AdaptiveRetryStrategy:
@@ -1000,6 +1008,8 @@ class AdaptiveRetryStrategy:
 
                 # Blend: weight * learned + (1 - weight) * static
                 blended = weight * learned_delay + (1 - weight) * static_delay
+                # Clamp to valid range to prevent corrupted/extreme learned values
+                blended = max(self.config.base_delay, min(blended, self.config.max_delay))
                 return blended, "learned_blend"
             else:
                 # History exists but no successful samples yet -> bootstrap phase
@@ -1020,6 +1030,11 @@ class AdaptiveRetryStrategy:
                 )
                 # Only use global store result if it's not just a static fallback
                 if strategy != "static_fallback":
+                    # Clamp to valid range to prevent corrupted/extreme learned values
+                    global_delay = max(
+                        self.config.base_delay,
+                        min(global_delay, self.config.max_delay),
+                    )
                     _logger.debug(
                         "retry_strategy.global_learned_delay",
                         error_code=error_code.value,

@@ -1,7 +1,5 @@
 """Tests for mozart.execution.circuit_breaker module."""
 
-import time
-
 import pytest
 
 from mozart.execution.circuit_breaker import (
@@ -9,6 +7,16 @@ from mozart.execution.circuit_breaker import (
     CircuitBreakerStats,
     CircuitState,
 )
+
+
+def _advance_circuit_breaker_time(cb: CircuitBreaker, seconds: float) -> None:
+    """Advance a circuit breaker's internal time by manipulating _last_failure_time.
+
+    This avoids time.sleep() in tests by shifting the recorded failure time
+    backwards, making the breaker think time has passed.
+    """
+    if cb._last_failure_time is not None:
+        cb._last_failure_time -= seconds
 
 
 class TestCircuitState:
@@ -205,8 +213,8 @@ class TestCircuitBreakerOpenState:
         cb.record_failure()
         assert cb.get_state() == CircuitState.OPEN
 
-        # Wait for recovery timeout
-        time.sleep(0.15)
+        # Simulate time passing beyond recovery_timeout
+        _advance_circuit_breaker_time(cb, 0.15)
 
         # State check should trigger transition
         assert cb.get_state() == CircuitState.HALF_OPEN
@@ -228,7 +236,7 @@ class TestCircuitBreakerHalfOpenState:
         """Test that HALF_OPEN allows requests."""
         cb = CircuitBreaker(failure_threshold=1, recovery_timeout=0.01)
         cb.record_failure()
-        time.sleep(0.02)
+        _advance_circuit_breaker_time(cb, 0.02)
 
         assert cb.get_state() == CircuitState.HALF_OPEN
         assert cb.can_execute() is True
@@ -237,7 +245,7 @@ class TestCircuitBreakerHalfOpenState:
         """Test that success in HALF_OPEN transitions to CLOSED."""
         cb = CircuitBreaker(failure_threshold=1, recovery_timeout=0.01)
         cb.record_failure()
-        time.sleep(0.02)
+        _advance_circuit_breaker_time(cb, 0.02)
 
         assert cb.get_state() == CircuitState.HALF_OPEN
 
@@ -248,7 +256,7 @@ class TestCircuitBreakerHalfOpenState:
         """Test that failure in HALF_OPEN transitions back to OPEN."""
         cb = CircuitBreaker(failure_threshold=1, recovery_timeout=0.01)
         cb.record_failure()
-        time.sleep(0.02)
+        _advance_circuit_breaker_time(cb, 0.02)
 
         assert cb.get_state() == CircuitState.HALF_OPEN
 
@@ -259,7 +267,7 @@ class TestCircuitBreakerHalfOpenState:
         """Test that half-open transition increments counter."""
         cb = CircuitBreaker(failure_threshold=1, recovery_timeout=0.01)
         cb.record_failure()
-        time.sleep(0.02)
+        _advance_circuit_breaker_time(cb, 0.02)
 
         # Trigger the transition check
         cb.get_state()
@@ -433,7 +441,7 @@ class TestCircuitBreakerEdgeCases:
         """Test with very short recovery timeout."""
         cb = CircuitBreaker(failure_threshold=1, recovery_timeout=0.001)
         cb.record_failure()
-        time.sleep(0.01)
+        _advance_circuit_breaker_time(cb, 0.01)
         assert cb.get_state() == CircuitState.HALF_OPEN
 
     def test_success_when_open_has_no_effect(self):

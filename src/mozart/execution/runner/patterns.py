@@ -30,6 +30,7 @@ Architecture:
 from __future__ import annotations
 
 import random
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -38,6 +39,26 @@ if TYPE_CHECKING:
 from mozart.core.config import JobConfig
 from mozart.core.logging import MozartLogger
 from mozart.learning.outcomes import OutcomeStore
+
+
+@dataclass
+class PatternFeedbackContext:
+    """Context for recording pattern application feedback.
+
+    Groups the parameters needed by _record_pattern_feedback into a
+    single typed object, reducing the method's parameter count from 10
+    to 3 (self, pattern_ids, ctx).
+    """
+
+    validation_passed: bool
+    first_attempt_success: bool
+    sheet_num: int
+    grounding_confidence: float | None = None
+    validation_types: list[str] | None = None
+    error_categories: list[str] | None = None
+    prior_sheet_status: str | None = None
+    retry_iteration: int = 0
+    escalation_was_pending: bool = False
 
 
 class PatternsMixin:
@@ -365,15 +386,7 @@ class PatternsMixin:
     async def _record_pattern_feedback(
         self,
         pattern_ids: list[str],
-        validation_passed: bool,
-        first_attempt_success: bool,
-        sheet_num: int,
-        grounding_confidence: float | None = None,
-        validation_types: list[str] | None = None,
-        error_categories: list[str] | None = None,
-        prior_sheet_status: str | None = None,
-        retry_iteration: int = 0,
-        escalation_was_pending: bool = False,
+        ctx: PatternFeedbackContext,
     ) -> None:
         """Record pattern application feedback to global learning store.
 
@@ -390,16 +403,8 @@ class PatternsMixin:
 
         Args:
             pattern_ids: List of pattern IDs that were applied.
-            validation_passed: Whether the sheet validations passed.
-            first_attempt_success: Whether the sheet succeeded on first attempt.
-            sheet_num: Sheet number for logging context.
-            grounding_confidence: Grounding confidence (0.0-1.0) from external validation.
-                                 None if grounding hooks were not executed.
-            validation_types: Validation types active (file, regex, artifact, etc.)
-            error_categories: Error categories present in execution.
-            prior_sheet_status: Status of prior sheet (completed, failed, skipped).
-            retry_iteration: Which retry attempt this is (0 = first attempt).
-            escalation_was_pending: Whether escalation was pending.
+            ctx: Feedback context containing validation results, sheet info,
+                 and metacognitive context for success factor analysis.
         """
         if self._global_learning_store is None or not pattern_ids:
             return
@@ -407,7 +412,7 @@ class PatternsMixin:
         # Determine outcome improvement:
         # - outcome_improved=True if validation passed AND first_attempt
         # - outcome_improved=False if validation failed (patterns didn't help)
-        outcome_improved = validation_passed and first_attempt_success
+        outcome_improved = ctx.validation_passed and ctx.first_attempt_success
 
         for pattern_id in pattern_ids:
             try:
@@ -420,13 +425,13 @@ class PatternsMixin:
 
                 self._global_learning_store.record_pattern_application(
                     pattern_id=pattern_id,
-                    execution_id=f"sheet_{sheet_num}",
+                    execution_id=f"sheet_{ctx.sheet_num}",
                     outcome_improved=outcome_improved,
                     retry_count_before=0,  # We don't track this per-pattern
-                    retry_count_after=0 if first_attempt_success else 1,
+                    retry_count_after=0 if ctx.first_attempt_success else 1,
                     application_mode=application_mode,
-                    validation_passed=validation_passed,
-                    grounding_confidence=grounding_confidence,
+                    validation_passed=ctx.validation_passed,
+                    grounding_confidence=ctx.grounding_confidence,
                 )
 
                 # v22 Evolution: Update success factors when pattern succeeds
@@ -434,37 +439,37 @@ class PatternsMixin:
                 if outcome_improved:
                     self._global_learning_store.update_success_factors(
                         pattern_id=pattern_id,
-                        validation_types=validation_types,
-                        error_categories=error_categories,
-                        prior_sheet_status=prior_sheet_status,
-                        retry_iteration=retry_iteration,
-                        escalation_was_pending=escalation_was_pending,
-                        grounding_confidence=grounding_confidence,
+                        validation_types=ctx.validation_types,
+                        error_categories=ctx.error_categories,
+                        prior_sheet_status=ctx.prior_sheet_status,
+                        retry_iteration=ctx.retry_iteration,
+                        escalation_was_pending=ctx.escalation_was_pending,
+                        grounding_confidence=ctx.grounding_confidence,
                     )
                     self._logger.debug(
                         "learning.success_factors_updated",
                         pattern_id=pattern_id,
-                        sheet_num=sheet_num,
-                        validation_types=validation_types,
-                        prior_sheet_status=prior_sheet_status,
+                        sheet_num=ctx.sheet_num,
+                        validation_types=ctx.validation_types,
+                        prior_sheet_status=ctx.prior_sheet_status,
                     )
 
                 self._logger.debug(
                     "learning.pattern_feedback_recorded",
                     pattern_id=pattern_id,
-                    sheet_num=sheet_num,
+                    sheet_num=ctx.sheet_num,
                     outcome_improved=outcome_improved,
-                    validation_passed=validation_passed,
-                    first_attempt_success=first_attempt_success,
+                    validation_passed=ctx.validation_passed,
+                    first_attempt_success=ctx.first_attempt_success,
                     application_mode=application_mode,
-                    grounding_confidence=grounding_confidence,
+                    grounding_confidence=ctx.grounding_confidence,
                 )
             except Exception as e:
                 # Pattern feedback recording should not block execution
                 self._logger.warning(
                     "learning.pattern_feedback_failed",
                     pattern_id=pattern_id,
-                    sheet_num=sheet_num,
+                    sheet_num=ctx.sheet_num,
                     error=str(e),
                 )
 

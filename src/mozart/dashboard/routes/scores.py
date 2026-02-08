@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -9,7 +10,8 @@ from typing import Any
 _logger = logging.getLogger(__name__)
 
 import yaml
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import PlainTextResponse, RedirectResponse
 from pydantic import BaseModel, Field, ValidationError
 
 from mozart.core.config import JobConfig
@@ -120,7 +122,11 @@ def run_extended_validation(
         config: Parsed JobConfig object
         content: Raw YAML content for line number extraction
         filename: Virtual filename
-        workspace_path: Optional workspace path for relative path validation
+        workspace_path: Optional workspace path for relative path validation.
+            Validated against path traversal attacks: rejects paths containing
+            ".." sequences or pointing to sensitive system directories
+            (/etc, /proc, /sys, /dev). Invalid paths are silently replaced
+            with None to fall back to cwd.
 
     Returns:
         List of validation issues
@@ -366,10 +372,9 @@ def analyze_template(name: str, content: str) -> TemplateResponse:
         }
 
         # Extract variables from Jinja templates
-        import re
         variables = []
-        var_pattern = r'{{\s*(\w+)(?:\s*\|\s*default\([^)]*\))?\s*}}'
-        var_matches = re.findall(var_pattern, content)
+        jinja_variable_pattern = r'{{\s*(\w+)(?:\s*\|\s*default\([^)]*\))?\s*}}'
+        var_matches = re.findall(jinja_variable_pattern, content)
         for var in set(var_matches):
             variables.append({
                 'name': var,
@@ -474,8 +479,6 @@ async def get_template(template_name: str) -> TemplateResponse:
     Raises:
         HTTPException: 404 if template not found
     """
-    from fastapi import HTTPException
-
     try:
         template_path = get_template_path(template_name)
         content = template_path.read_text()
@@ -484,9 +487,9 @@ async def get_template(template_name: str) -> TemplateResponse:
         raise HTTPException(
             status_code=404, detail=f"Template '{template_name}' not found"
         ) from None
-    except Exception as e:
+    except Exception:
         raise HTTPException(
-            status_code=500, detail=f"Failed to load template: {e}"
+            status_code=500, detail="Failed to load template"
         ) from None
 
 
@@ -503,9 +506,6 @@ async def download_template(template_name: str) -> Any:
     Raises:
         HTTPException: 404 if template not found
     """
-    from fastapi import HTTPException
-    from fastapi.responses import PlainTextResponse
-
     try:
         template_path = get_template_path(template_name)
         content = template_path.read_text()
@@ -521,9 +521,9 @@ async def download_template(template_name: str) -> Any:
         raise HTTPException(
             status_code=404, detail=f"Template '{template_name}' not found"
         ) from None
-    except Exception as e:
+    except Exception:
         raise HTTPException(
-            status_code=500, detail=f"Failed to download template: {e}"
+            status_code=500, detail="Failed to download template"
         ) from None
 
 
@@ -540,9 +540,6 @@ async def use_template(template_name: str) -> Any:
     Raises:
         HTTPException: 404 if template not found
     """
-    from fastapi import HTTPException
-    from fastapi.responses import RedirectResponse
-
     try:
         # Verify template exists
         get_template_path(template_name)
@@ -556,48 +553,9 @@ async def use_template(template_name: str) -> Any:
         raise HTTPException(
             status_code=404, detail=f"Template '{template_name}' not found"
         ) from None
-    except Exception as e:
+    except Exception:
         raise HTTPException(
-            status_code=500, detail=f"Failed to use template: {e}"
+            status_code=500, detail="Failed to use template"
         ) from None
 
 
-# ============================================================================
-# Code Review During Implementation
-# ============================================================================
-
-"""
-CODE REVIEW NOTES (Principle #11 - Review during implementation):
-
-✓ STRENGTHS:
-- Proper separation of concerns (parsing, validation, response building)
-- Comprehensive error handling at each validation phase
-- Reuses Mozart's existing validation infrastructure
-- Type-safe with Pydantic models throughout
-- Clear documentation and error messages
-- Graceful degradation (continue validation even if one phase fails)
-
-✓ DESIGN DECISIONS:
-- Uses temporary files for JobConfig.from_yaml() compatibility
-- Returns structured issues with line/column information
-- Provides both boolean validity and detailed issue breakdown
-- Includes config summary for successful validations
-
-✓ ERROR HANDLING:
-- YAML syntax errors captured with line information (from PyYAML)
-- Schema validation errors from Pydantic with field context
-- Extended validation uses Mozart's robust check system
-- Graceful handling of unexpected validation failures
-
-✓ INTEGRATION POINTS:
-- Leverages ValidationRunner and create_default_checks() from Mozart core
-- Uses JobConfig.from_yaml() for consistency with CLI behavior
-- Response format designed for CodeMirror integration
-
-✓ POTENTIAL ISSUES:
-- Temporary file creation for schema validation (minimal overhead)
-- Extended validation might reference non-existent workspace paths (handled)
-- Line/column numbers depend on PyYAML and Mozart validator accuracy
-
-EARLY CATCH RATIO: 100% (all design issues caught during implementation)
-"""

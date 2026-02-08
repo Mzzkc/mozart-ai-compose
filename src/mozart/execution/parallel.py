@@ -123,10 +123,13 @@ class ParallelExecutionConfig:
 
 
 class _LockingStateBackend:
-    """Wraps a StateBackend to serialize save() calls under an asyncio.Lock.
+    """Wraps a StateBackend to serialize save() and load() under an asyncio.Lock.
 
     Used during parallel execution to prevent concurrent sheets from
     interleaving state mutations and corrupting checkpoint data.
+
+    Both save() and load() are locked to prevent TOCTOU races where a
+    concurrent sheet reads partially-written state.
     """
 
     def __init__(self, inner: "StateBackend", lock: asyncio.Lock) -> None:
@@ -136,6 +139,10 @@ class _LockingStateBackend:
     async def save(self, state: "CheckpointState") -> None:
         async with self._lock:
             await self._inner.save(state)
+
+    async def load(self, job_id: str = "") -> "CheckpointState | None":
+        async with self._lock:
+            return await self._inner.load(job_id)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)
@@ -228,10 +235,10 @@ class ParallelExecutor:
         lock = self.runner._state_lock
         self.runner.state_backend = _LockingStateBackend(original_backend, lock)  # type: ignore[assignment]
 
+        tasks: dict[int, asyncio.Task[None]] = {}
         try:
             # Use TaskGroup for structured concurrency (Python 3.11+)
             async with asyncio.TaskGroup() as tg:
-                tasks: dict[int, asyncio.Task[None]] = {}
                 for sheet_num in batch:
                     task = tg.create_task(
                         self._execute_single_sheet(sheet_num, state),
@@ -251,22 +258,35 @@ class ParallelExecutor:
 
         except* Exception as eg:
             # TaskGroup raises ExceptionGroup on failure
-            # Extract individual exceptions
-            for exc in eg.exceptions:
-                # Try to find which sheet failed
-                # This is a fallback - normally we catch per-task
-                error_msg = str(exc)
-                self._logger.error(
-                    "parallel.task_exception",
-                    error=error_msg,
-                )
-
-            # Mark any sheets without results as failed
-            for sheet_num in batch:
-                if sheet_num not in result.completed and sheet_num not in result.failed:
+            # Extract per-task error details from the tasks dict (still accessible)
+            for sheet_num, task in tasks.items():
+                if task.done() and task.cancelled():
                     result.failed.append(sheet_num)
-                    if sheet_num not in result.error_details:
-                        result.error_details[sheet_num] = "Task failed in parallel group"
+                    result.error_details[sheet_num] = "Task cancelled"
+                elif task.done() and (task_exc := task.exception()) is not None:
+                    result.failed.append(sheet_num)
+                    # Preserve exception type and message for diagnostics
+                    result.error_details[sheet_num] = (
+                        f"{type(task_exc).__name__}: {task_exc}"
+                    )
+                    self._logger.error(
+                        "parallel.sheet_failed_in_group",
+                        sheet_num=sheet_num,
+                        error_type=type(task_exc).__name__,
+                        error=str(task_exc),
+                    )
+                elif task.done():
+                    result.completed.append(sheet_num)
+
+            # Log any ungrouped exceptions that couldn't be mapped to tasks
+            mapped_errors = {str(t.exception()) for t in tasks.values() if t.done() and t.exception() is not None}
+            for exc in eg.exceptions:
+                if str(exc) not in mapped_errors:
+                    self._logger.error(
+                        "parallel.unmapped_exception",
+                        error_type=type(exc).__name__,
+                        error=str(exc),
+                    )
 
         finally:
             # Restore original state backend

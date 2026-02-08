@@ -259,7 +259,7 @@ class SheetState(BaseModel):
     )
     similar_outcomes_count: int = Field(
         default=0,
-        description="Number of similar historical outcomes found",
+        description="Deprecated: always 0. Retained for SQLite schema compatibility.",
     )
     first_attempt_success: bool = Field(
         default=False,

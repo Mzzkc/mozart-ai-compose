@@ -18,6 +18,7 @@ import pytest
 from mozart.core.checkpoint import CheckpointState, JobStatus
 from mozart.core.config import JobConfig
 from mozart.execution.runner import JobRunner
+from mozart.execution.runner.patterns import PatternFeedbackContext
 
 
 # =============================================================================
@@ -334,9 +335,11 @@ class TestRecordPatternFeedback:
         # Should not raise
         await runner._record_pattern_feedback(
             pattern_ids=["p1", "p2"],
-            validation_passed=True,
-            first_attempt_success=True,
-            sheet_num=1,
+            ctx=PatternFeedbackContext(
+                validation_passed=True,
+                first_attempt_success=True,
+                sheet_num=1,
+            ),
         )
 
     @pytest.mark.asyncio
@@ -348,9 +351,11 @@ class TestRecordPatternFeedback:
         """Test that recording does nothing with empty pattern list."""
         await runner_with_global_store._record_pattern_feedback(
             pattern_ids=[],
-            validation_passed=True,
-            first_attempt_success=True,
-            sheet_num=1,
+            ctx=PatternFeedbackContext(
+                validation_passed=True,
+                first_attempt_success=True,
+                sheet_num=1,
+            ),
         )
 
         mock_global_store.record_pattern_application.assert_not_called()
@@ -364,9 +369,11 @@ class TestRecordPatternFeedback:
         """Test that each pattern gets a feedback record."""
         await runner_with_global_store._record_pattern_feedback(
             pattern_ids=["p1", "p2", "p3"],
-            validation_passed=True,
-            first_attempt_success=True,
-            sheet_num=1,
+            ctx=PatternFeedbackContext(
+                validation_passed=True,
+                first_attempt_success=True,
+                sheet_num=1,
+            ),
         )
 
         # Should call record_pattern_application 3 times
@@ -381,9 +388,11 @@ class TestRecordPatternFeedback:
         """Test that outcome_improved=True when validation passed and first attempt."""
         await runner_with_global_store._record_pattern_feedback(
             pattern_ids=["p1"],
-            validation_passed=True,
-            first_attempt_success=True,
-            sheet_num=1,
+            ctx=PatternFeedbackContext(
+                validation_passed=True,
+                first_attempt_success=True,
+                sheet_num=1,
+            ),
         )
 
         call_kwargs = mock_global_store.record_pattern_application.call_args.kwargs
@@ -398,9 +407,11 @@ class TestRecordPatternFeedback:
         """Test that outcome_improved=False when validation failed."""
         await runner_with_global_store._record_pattern_feedback(
             pattern_ids=["p1"],
-            validation_passed=False,
-            first_attempt_success=False,
-            sheet_num=1,
+            ctx=PatternFeedbackContext(
+                validation_passed=False,
+                first_attempt_success=False,
+                sheet_num=1,
+            ),
         )
 
         call_kwargs = mock_global_store.record_pattern_application.call_args.kwargs
@@ -415,9 +426,11 @@ class TestRecordPatternFeedback:
         """Test that outcome_improved=False when not first attempt."""
         await runner_with_global_store._record_pattern_feedback(
             pattern_ids=["p1"],
-            validation_passed=True,
-            first_attempt_success=False,  # Required retry
-            sheet_num=1,
+            ctx=PatternFeedbackContext(
+                validation_passed=True,
+                first_attempt_success=False,  # Required retry
+                sheet_num=1,
+            ),
         )
 
         call_kwargs = mock_global_store.record_pattern_application.call_args.kwargs
@@ -432,10 +445,12 @@ class TestRecordPatternFeedback:
         """Test that grounding confidence is passed to global store."""
         await runner_with_global_store._record_pattern_feedback(
             pattern_ids=["p1"],
-            validation_passed=True,
-            first_attempt_success=True,
-            sheet_num=1,
-            grounding_confidence=0.85,
+            ctx=PatternFeedbackContext(
+                validation_passed=True,
+                first_attempt_success=True,
+                sheet_num=1,
+                grounding_confidence=0.85,
+            ),
         )
 
         call_kwargs = mock_global_store.record_pattern_application.call_args.kwargs
@@ -450,12 +465,14 @@ class TestRecordPatternFeedback:
         """Test that success factors are updated when pattern succeeds."""
         await runner_with_global_store._record_pattern_feedback(
             pattern_ids=["p1"],
-            validation_passed=True,
-            first_attempt_success=True,
-            sheet_num=1,
-            validation_types=["file_exists", "content_regex"],
-            error_categories=["rate_limit"],
-            prior_sheet_status="completed",
+            ctx=PatternFeedbackContext(
+                validation_passed=True,
+                first_attempt_success=True,
+                sheet_num=1,
+                validation_types=["file_exists", "content_regex"],
+                error_categories=["rate_limit"],
+                prior_sheet_status="completed",
+            ),
         )
 
         mock_global_store.update_success_factors.assert_called_once()
@@ -474,9 +491,11 @@ class TestRecordPatternFeedback:
         """Test that success factors are NOT updated when pattern fails."""
         await runner_with_global_store._record_pattern_feedback(
             pattern_ids=["p1"],
-            validation_passed=False,
-            first_attempt_success=False,
-            sheet_num=1,
+            ctx=PatternFeedbackContext(
+                validation_passed=False,
+                first_attempt_success=False,
+                sheet_num=1,
+            ),
         )
 
         mock_global_store.update_success_factors.assert_not_called()
@@ -494,9 +513,11 @@ class TestRecordPatternFeedback:
 
         await runner_with_global_store._record_pattern_feedback(
             pattern_ids=["p_explore", "p_exploit"],
-            validation_passed=True,
-            first_attempt_success=True,
-            sheet_num=1,
+            ctx=PatternFeedbackContext(
+                validation_passed=True,
+                first_attempt_success=True,
+                sheet_num=1,
+            ),
         )
 
         # Check first call (exploration pattern)
@@ -519,9 +540,11 @@ class TestRecordPatternFeedback:
         # Should not raise
         await runner_with_global_store._record_pattern_feedback(
             pattern_ids=["p1"],
-            validation_passed=True,
-            first_attempt_success=True,
-            sheet_num=1,
+            ctx=PatternFeedbackContext(
+                validation_passed=True,
+                first_attempt_success=True,
+                sheet_num=1,
+            ),
         )
 
 

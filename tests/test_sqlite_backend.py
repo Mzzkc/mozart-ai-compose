@@ -190,7 +190,7 @@ class TestSheetStatePreservation:
             similar_outcomes_count=5,
             first_attempt_success=True,
             outcome_category="success_first_try",
-            outcome_data={"key": "value", "nested": {"a": 1}},
+            outcome_data={"escalation_record_id": "esc-001"},
         )
         await sqlite_backend.save(sample_state)
 
@@ -203,7 +203,7 @@ class TestSheetStatePreservation:
         assert sheet.similar_outcomes_count == 5
         assert sheet.first_attempt_success is True
         assert sheet.outcome_category == "success_first_try"
-        assert sheet.outcome_data == {"key": "value", "nested": {"a": 1}}
+        assert sheet.outcome_data == {"escalation_record_id": "esc-001"}
 
     async def test_sheet_validation_fields_preserved(
         self, sqlite_backend: SQLiteStateBackend, sample_state: CheckpointState
@@ -215,7 +215,7 @@ class TestSheetStatePreservation:
             sheet_num=1,
             status=SheetStatus.COMPLETED,
             validation_passed=True,
-            validation_details=[{"type": "file_exists", "passed": True}],
+            validation_details=[{"rule_type": "file_exists", "passed": True}],
             passed_validations=["File check", "Content check"],
             failed_validations=["Size check"],
             last_pass_percentage=66.7,
@@ -227,7 +227,7 @@ class TestSheetStatePreservation:
         sheet = loaded.sheets[1]
 
         assert sheet.validation_passed is True
-        assert sheet.validation_details == [{"type": "file_exists", "passed": True}]
+        assert sheet.validation_details == [{"rule_type": "file_exists", "passed": True}]
         assert sheet.passed_validations == ["File check", "Content check"]
         assert sheet.failed_validations == ["Size check"]
         assert sheet.last_pass_percentage == 66.7

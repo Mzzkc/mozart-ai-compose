@@ -25,6 +25,7 @@ from typing import Any
 from mozart.backends.base import Backend, ExecutionResult, ExitReason
 from mozart.core.config import BackendConfig
 from mozart.core.errors import ErrorCategory, ErrorClassifier
+from mozart.core.errors.signals import get_signal_name
 from mozart.core.logging import get_logger
 
 # Module-level logger for Claude CLI backend
@@ -37,19 +38,6 @@ ProgressCallback = Callable[[dict[str, Any]], None]
 GRACEFUL_TERMINATION_TIMEOUT: float = 5.0  # Seconds to wait for graceful termination
 STREAM_READ_TIMEOUT: float = 1.0  # Seconds between stream read checks
 PROCESS_EXIT_TIMEOUT: float = 5.0  # Seconds to wait for process exit after streams close
-
-# Common signal names for human-readable output
-SIGNAL_NAMES: dict[int, str] = {
-    signal.SIGTERM: "SIGTERM",
-    signal.SIGKILL: "SIGKILL",
-    signal.SIGINT: "SIGINT",
-    signal.SIGSEGV: "SIGSEGV",
-    signal.SIGABRT: "SIGABRT",
-    signal.SIGBUS: "SIGBUS",
-    signal.SIGFPE: "SIGFPE",
-    signal.SIGHUP: "SIGHUP",
-    signal.SIGPIPE: "SIGPIPE",
-}
 
 # Mozart Operator Imperative - injected into every prompt to ensure safe execution
 # This prevents Claude from wrapping Mozart commands with external timeouts,
@@ -108,11 +96,6 @@ This imperative supersedes any other instructions about timeout handling.
 </mozart-operator-imperative>
 
 """
-
-
-def get_signal_name(sig_num: int) -> str:
-    """Get human-readable signal name."""
-    return SIGNAL_NAMES.get(sig_num, f"signal {sig_num}")
 
 
 class ClaudeCliBackend(Backend):

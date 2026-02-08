@@ -764,15 +764,30 @@ class ArtifactTools:
         if not log_files:
             raise FileNotFoundError(f"No log files found for job {job_id} in workspace {workspace_path}")
 
-        result = f"📋 Logs for Mozart Job: {job_id}\n"
-        result += f"Workspace: {workspace_path}\n"
-        result += f"Lines requested: {lines}, Level filter: {level}\n"
-        result += "=" * 60 + "\n\n"
+        parts = [
+            f"📋 Logs for Mozart Job: {job_id}\n",
+            f"Workspace: {workspace_path}\n",
+            f"Lines requested: {lines}, Level filter: {level}\n",
+            "=" * 60 + "\n\n",
+        ]
+
+        # Pre-compile level filter pattern once outside the loop
+        level_regex = None
+        if level != "all":
+            level_patterns = {
+                "debug": r"DEBUG|debug",
+                "info": r"INFO|info",
+                "warning": r"WARNING|warning|WARN|warn",
+                "error": r"ERROR|error|FAIL|fail"
+            }
+            pattern_str = level_patterns.get(level.lower(), level)
+            if pattern_str:
+                level_regex = re.compile(pattern_str, re.IGNORECASE)
 
         for log_type, log_file in log_files:
             try:
-                result += f"📄 {log_type} Log: {log_file.name}\n"
-                result += "-" * 40 + "\n"
+                parts.append(f"📄 {log_type} Log: {log_file.name}\n")
+                parts.append("-" * 40 + "\n")
 
                 # Read the log file in a thread to avoid blocking the event loop
                 def _sync_read_log(path: Path = log_file) -> list[str]:
@@ -782,21 +797,8 @@ class ArtifactTools:
                 log_lines = await asyncio.to_thread(_sync_read_log)
 
                 # Filter by log level if specified
-                filtered_lines = []
-                if level != "all":
-                    level_patterns = {
-                        "debug": r"DEBUG|debug",
-                        "info": r"INFO|info",
-                        "warning": r"WARNING|warning|WARN|warn",
-                        "error": r"ERROR|error|FAIL|fail"
-                    }
-                    pattern = level_patterns.get(level.lower(), level)
-                    if pattern:
-                        for line in log_lines:
-                            if re.search(pattern, line, re.IGNORECASE):
-                                filtered_lines.append(line)
-                    else:
-                        filtered_lines = log_lines
+                if level_regex is not None:
+                    filtered_lines = [line for line in log_lines if level_regex.search(line)]
                 else:
                     filtered_lines = log_lines
 
@@ -804,17 +806,17 @@ class ArtifactTools:
                 recent_lines = filtered_lines[-lines:] if filtered_lines else []
 
                 if recent_lines:
-                    result += "".join(recent_lines)
+                    parts.append("".join(recent_lines))
                 else:
-                    result += f"(No {level} level logs found)\n"
+                    parts.append(f"(No {level} level logs found)\n")
 
-                result += "\n" + "-" * 40 + "\n\n"
+                parts.append("\n" + "-" * 40 + "\n\n")
 
             except Exception as e:
-                result += f"Error reading {log_file}: {e}\n\n"
+                parts.append(f"Error reading {log_file}: {e}\n\n")
 
         return {
-            "content": [{"type": "text", "text": result}]
+            "content": [{"type": "text", "text": "".join(parts)}]
         }
 
     async def _list_artifacts(self, args: dict[str, Any]) -> dict[str, Any]:

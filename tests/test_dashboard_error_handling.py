@@ -51,7 +51,11 @@ class MockStateBackend(StateBackend):
         status,
         error_message: str | None = None,
     ) -> None:
-        pass
+        state = await self.load(job_id)
+        if state and sheet_num in state.sheets:
+            state.sheets[sheet_num].status = status
+            if error_message:
+                state.sheets[sheet_num].error_message = error_message
 
 
 @pytest.fixture
@@ -114,7 +118,7 @@ class TestHTTPErrorCodes:
         assert response.status_code == 400
         error = response.json()
         assert "detail" in error
-        assert "Must provide either config_content or config_path" in error["detail"]
+        assert error["detail"] == "Invalid job configuration"
 
         # Both config sources provided
         response = client.post("/api/jobs", json={
@@ -122,7 +126,7 @@ class TestHTTPErrorCodes:
             "config_path": "/some/path.yaml"
         })
         assert response.status_code == 400
-        assert "Cannot provide both" in response.json()["detail"]
+        assert response.json()["detail"] == "Invalid job configuration"
 
         # Invalid start_sheet (negative)
         response = client.post("/api/jobs", json={
@@ -206,7 +210,7 @@ class TestHTTPErrorCodes:
             assert response.status_code == 500
             error = response.json()
             assert "detail" in error
-            assert "Process creation failed" in error["detail"]
+            assert error["detail"] == "Failed to start job"
 
         # Simulate state backend failure during operations
         mock_state_backend.should_fail_load = True
@@ -274,10 +278,8 @@ class TestJobStateValidation:
         mock_state_backend.states[job_id] = completed_state
 
         response = client.post(f"/api/jobs/{job_id}/pause")
-        assert response.status_code == 200  # Service handles gracefully
-        data = response.json()
-        assert data["success"] is False
-        assert "Job is not running" in data["message"]
+        assert response.status_code == 409  # State conflict
+        assert "Job is not running" in response.json()["detail"]
 
         # Test pausing already paused job
         paused_state = CheckpointState(
@@ -290,10 +292,8 @@ class TestJobStateValidation:
         mock_state_backend.states[job_id] = paused_state
 
         response = client.post(f"/api/jobs/{job_id}/pause")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["success"] is False
-        assert "Job is not running" in data["message"]
+        assert response.status_code == 409  # State conflict
+        assert "Job is not running" in response.json()["detail"]
 
     def test_resume_job_state_validation(
         self,
@@ -315,10 +315,8 @@ class TestJobStateValidation:
         mock_state_backend.states[job_id] = running_state
 
         response = client.post(f"/api/jobs/{job_id}/resume")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["success"] is False
-        assert "Job is not paused" in data["message"]
+        assert response.status_code == 409  # State conflict
+        assert "Job is not paused" in response.json()["detail"]
 
         # Test resuming completed job
         completed_state = CheckpointState(
@@ -330,10 +328,8 @@ class TestJobStateValidation:
         mock_state_backend.states[job_id] = completed_state
 
         response = client.post(f"/api/jobs/{job_id}/resume")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["success"] is False
-        assert "Job is not paused" in data["message"]
+        assert response.status_code == 409  # State conflict
+        assert "Job is not paused" in response.json()["detail"]
 
     def test_cancel_job_state_validation(
         self,
@@ -354,10 +350,8 @@ class TestJobStateValidation:
         mock_state_backend.states[job_id] = completed_state
 
         response = client.post(f"/api/jobs/{job_id}/cancel")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["success"] is False
-        assert "Job already finished" in data["message"]
+        assert response.status_code == 409  # State conflict
+        assert "Job already finished" in response.json()["detail"]
 
 
 class TestProcessErrorHandling:
@@ -386,10 +380,8 @@ class TestProcessErrorHandling:
         # Simulate file creation failure (e.g., workspace not found)
         with patch("pathlib.Path.touch", side_effect=FileNotFoundError("No such directory")):
             response = client.post(f"/api/jobs/{job_id}/pause")
-            assert response.status_code == 200
-            data = response.json()
-            # Should handle gracefully
-            assert data["success"] is False
+            # Service returns success=False, route returns 409
+            assert response.status_code == 409
 
     def test_permission_denied_handling(
         self,
@@ -414,11 +406,9 @@ class TestProcessErrorHandling:
         # Mock Path.touch to raise PermissionError
         with patch("pathlib.Path.touch", side_effect=PermissionError("Operation not permitted")):
             response = client.post(f"/api/jobs/{job_id}/pause")
-            assert response.status_code == 200
-            data = response.json()
-            # Should handle permission error gracefully
-            assert data["success"] is False
-            assert "Failed to create pause signal" in data["message"]
+            # Service returns success=False, route returns 409
+            assert response.status_code == 409
+            assert "Failed to create pause signal" in response.json()["detail"]
 
     def test_subprocess_creation_errors(
         self,

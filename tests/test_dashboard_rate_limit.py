@@ -95,20 +95,19 @@ class TestSlidingWindowCounter:
 
     def test_window_expiry(self):
         """Test that old requests expire from window."""
-        # Use very short window for test
-        counter = SlidingWindowCounter(window_seconds=1, max_requests=2)
+        counter = SlidingWindowCounter(window_seconds=60, max_requests=2)
+        base_time = 1000000.0
 
-        # Use up limit
-        counter.is_allowed("test-key")
-        counter.is_allowed("test-key")
-        allowed1, _, _ = counter.is_allowed("test-key")
+        # Use up limit at base_time
+        with patch("mozart.dashboard.auth.rate_limit.time.time", return_value=base_time):
+            counter.is_allowed("test-key")
+            counter.is_allowed("test-key")
+            allowed1, _, _ = counter.is_allowed("test-key")
         assert allowed1 is False
 
-        # Wait for window to expire
-        time.sleep(1.1)
-
-        # Should be allowed again
-        allowed2, _, _ = counter.is_allowed("test-key")
+        # Advance time beyond 60s window
+        with patch("mozart.dashboard.auth.rate_limit.time.time", return_value=base_time + 61):
+            allowed2, _, _ = counter.is_allowed("test-key")
         assert allowed2 is True
 
 

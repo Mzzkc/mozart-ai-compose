@@ -23,8 +23,8 @@ from mozart.backends.process_manager import (
     PROCESS_EXIT_TIMEOUT,
     ProcessManager,
     ProcessResult,
-    get_signal_name,
 )
+from mozart.core.errors.signals import get_signal_name
 
 
 class TestGetSignalName:

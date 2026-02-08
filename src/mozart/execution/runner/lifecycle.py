@@ -414,17 +414,23 @@ class LifecycleMixin:
 
         Returns:
             Next sheet number to execute, or None if all complete or blocked.
+            When blocked by failed dependencies, logs a warning with details.
         """
+        from mozart.execution.dag import DAGNextResult, DAGReadyStatus
+
         # If no DAG configured, use default sequential behavior
         if self._dependency_dag is None:
             return state.get_next_sheet()
 
-        # Build set of completed sheet numbers
+        # Build set of completed and failed sheet numbers
         completed: set[int] = set()
+        failed: set[int] = set()
         for sheet_num in range(1, state.total_sheets + 1):
             sheet_state = state.sheets.get(sheet_num)
             if sheet_state and sheet_state.status == SheetStatus.COMPLETED:
                 completed.add(sheet_num)
+            elif sheet_state and sheet_state.status == SheetStatus.FAILED:
+                failed.add(sheet_num)
 
         # Check for in-progress sheet (resume from crash)
         if state.current_sheet is not None:
@@ -441,13 +447,29 @@ class LifecycleMixin:
         # Filter out sheets that are already complete
         pending_ready = [s for s in ready_sheets if s not in completed]
 
-        if not pending_ready:
-            # All sheets either complete or blocked by incomplete dependencies
+        if pending_ready:
+            return pending_ready[0]
+
+        # No ready sheets — distinguish "all done" from "blocked by failed deps"
+        all_processed = completed | failed
+        remaining = set(range(1, state.total_sheets + 1)) - all_processed
+        if not remaining:
+            # All sheets completed or failed — job is done
             return None
 
-        # Return the first ready sheet (for sequential execution)
-        # Phase 2 (parallel) will return all ready sheets
-        return pending_ready[0]
+        # Some sheets remain but none are ready: blocked by failed dependencies
+        blocked_sheets = sorted(remaining)
+        self._logger.warning(
+            "dag.sheets_blocked",
+            blocked_sheets=blocked_sheets,
+            failed_dependencies=sorted(failed),
+            completed=sorted(completed),
+            message=(
+                f"Sheets {blocked_sheets} are blocked because their dependencies "
+                f"include failed sheets {sorted(failed)}"
+            ),
+        )
+        return None
 
     def _get_completed_sheets(self, state: CheckpointState) -> set[int]:
         """Get set of completed sheet numbers.

@@ -84,6 +84,12 @@ def sample_config() -> JobConfig:
         },
         "retry": {
             "max_retries": 2,
+            "base_delay_seconds": 0.01,  # Fast tests: near-zero retry delay
+            "max_delay_seconds": 0.1,
+            "jitter": False,
+        },
+        "rate_limit": {
+            "wait_minutes": 1,  # Minimum integer; tests that need rate limit use shorter override
         },
         "validations": [],  # No validations for simpler tests
         "pause_between_sheets_seconds": 0,  # Fast tests: no pause between sheets
@@ -1074,7 +1080,13 @@ class TestRunnerLoggingIntegration:
                     ],
                 )
 
-        # Patch validation and preflight to pass
+        # Patch validation, preflight, and asyncio.sleep to avoid real waits.
+        # The error classifier returns suggested_wait=3600s for rate limits,
+        # which overrides config.rate_limit.wait_minutes. We must patch sleep
+        # to prevent the test from sleeping for an hour.
+        async def fast_sleep(seconds: float) -> None:
+            pass  # Skip all sleeps in tests
+
         with (
             patch(
                 "mozart.execution.runner.sheet.ValidationEngine.run_validations"
@@ -1085,6 +1097,9 @@ class TestRunnerLoggingIntegration:
             patch.object(
                 runner, "_run_preflight_checks", return_value=make_mock_preflight_result()
             ),
+            patch("mozart.execution.runner.recovery.asyncio.sleep", side_effect=fast_sleep),
+            patch("mozart.execution.runner.sheet.asyncio.sleep", side_effect=fast_sleep),
+            patch("mozart.execution.runner.base.asyncio.sleep", side_effect=fast_sleep),
         ):
             mock_validation.side_effect = validation_side_effect
             sample_config.sheet.total_items = 10
@@ -1417,6 +1432,10 @@ class TestLoggingLevelFiltering:
                     ],
                 )
 
+        # Patch asyncio.sleep to avoid 3600s waits from error classifier
+        async def fast_sleep(seconds: float) -> None:
+            pass
+
         with (
             patch(
                 "mozart.execution.runner.sheet.ValidationEngine.run_validations"
@@ -1427,6 +1446,9 @@ class TestLoggingLevelFiltering:
             patch.object(
                 runner, "_run_preflight_checks", return_value=make_mock_preflight_result()
             ),
+            patch("mozart.execution.runner.recovery.asyncio.sleep", side_effect=fast_sleep),
+            patch("mozart.execution.runner.sheet.asyncio.sleep", side_effect=fast_sleep),
+            patch("mozart.execution.runner.base.asyncio.sleep", side_effect=fast_sleep),
         ):
             mock_validation.side_effect = validation_side_effect
             sample_config.sheet.total_items = 10

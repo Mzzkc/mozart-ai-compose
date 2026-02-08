@@ -52,7 +52,7 @@ class TestAuthConfig:
             config = AuthConfig.from_env()
 
             assert config.mode == AuthMode.API_KEY
-            assert config.api_keys == ["key1", "key2", "key3"]
+            assert config.api_keys == [hash_api_key("key1"), hash_api_key("key2"), hash_api_key("key3")]
             assert config.localhost_bypass is False
 
     def test_from_env_disabled_mode(self):
@@ -221,7 +221,7 @@ class TestAuthMiddleware:
         """Test excluded paths bypass authentication."""
         config = AuthConfig(
             mode=AuthMode.API_KEY,
-            api_keys=["secret"],
+            api_keys=[hash_api_key("secret")],
             localhost_bypass=False,
         )
         app = create_app(config)
@@ -235,7 +235,7 @@ class TestAuthMiddleware:
         """Test API key required when localhost bypass disabled."""
         config = AuthConfig(
             mode=AuthMode.API_KEY,
-            api_keys=["valid-key"],
+            api_keys=[hash_api_key("valid-key")],
             localhost_bypass=False,
         )
         app = create_app(config)
@@ -250,7 +250,7 @@ class TestAuthMiddleware:
         """Test valid API key allows access."""
         config = AuthConfig(
             mode=AuthMode.API_KEY,
-            api_keys=["valid-key"],
+            api_keys=[hash_api_key("valid-key")],
             localhost_bypass=False,
         )
         app = create_app(config)
@@ -263,7 +263,7 @@ class TestAuthMiddleware:
         """Test invalid API key is rejected."""
         config = AuthConfig(
             mode=AuthMode.API_KEY,
-            api_keys=["valid-key"],
+            api_keys=[hash_api_key("valid-key")],
             localhost_bypass=False,
         )
         app = create_app(config)
@@ -277,7 +277,7 @@ class TestAuthMiddleware:
         """Test API key mode with localhost bypass enabled."""
         config = AuthConfig(
             mode=AuthMode.API_KEY,
-            api_keys=["secret"],
+            api_keys=[hash_api_key("secret")],
             localhost_bypass=True,  # Default
         )
         app = create_app(config)

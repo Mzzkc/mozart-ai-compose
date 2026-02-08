@@ -489,7 +489,7 @@ async def wait_for_pause_ack(
                 # Consider this as "acknowledged" since it's no longer running
                 return True
         except Exception:
-            pass  # Ignore transient errors during polling
+            _logger.warning("Error polling pause state", exc_info=True)
 
         await asyncio.sleep(poll_interval)
 

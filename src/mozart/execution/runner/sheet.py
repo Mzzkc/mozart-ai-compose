@@ -45,6 +45,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from mozart.core.constants import TRUNCATE_STDOUT_TAIL_CHARS
+from mozart.execution.runner.patterns import PatternFeedbackContext
 
 if TYPE_CHECKING:
     from rich.console import Console
@@ -150,15 +151,7 @@ class SheetExecutionMixin:
         async def _record_pattern_feedback(
             self,
             pattern_ids: list[str],
-            validation_passed: bool,
-            first_attempt_success: bool,
-            sheet_num: int,
-            grounding_confidence: float | None = None,
-            validation_types: list[str] | None = None,
-            error_categories: list[str] | None = None,
-            prior_sheet_status: str | None = None,
-            retry_iteration: int = 0,
-            escalation_was_pending: bool = False,
+            ctx: "PatternFeedbackContext",
         ) -> None: ...
 
         # Methods from RecoveryMixin
@@ -233,6 +226,9 @@ class SheetExecutionMixin:
         max_completion = self.config.retry.max_completion_attempts
 
         # Track execution history for judgment (Phase 4)
+        # Capped to prevent unbounded memory growth during long retry loops.
+        # Most recent results are most relevant for judgment decisions.
+        _MAX_EXECUTION_HISTORY = 20
         execution_history: list[ExecutionResult] = []
 
         # Track error history for adaptive retry (Task 13)
@@ -242,78 +238,13 @@ class SheetExecutionMixin:
         pending_recovery: dict[str, Any] | None = None
 
         # Query learned patterns before building prompt (Learning Activation)
-        relevant_patterns: list[str] = []
-        self._current_sheet_patterns = []
-        self._applied_pattern_ids = []
-
-        # Query from local outcome store first (workspace-specific)
-        if self.outcome_store is not None:
-            try:
-                relevant_patterns = await self.outcome_store.get_relevant_patterns(
-                    context={
-                        "job_id": state.job_id,
-                        "sheet_num": sheet_num,
-                    },
-                    limit=3,
-                )
-            except Exception as e:
-                self._logger.debug(
-                    "patterns.query_local_failed",
-                    sheet_num=sheet_num,
-                    error=str(e),
-                )
-
-        # Query from global learning store (cross-workspace patterns)
-        global_patterns, global_pattern_ids = self._query_relevant_patterns(
-            job_id=state.job_id,
-            sheet_num=sheet_num,
-        )
-
-        # Combine patterns (local first, then global, deduplicated)
-        if global_patterns:
-            for i, gp in enumerate(global_patterns):
-                if gp not in relevant_patterns:
-                    relevant_patterns.append(gp)
-                    self._applied_pattern_ids.append(global_pattern_ids[i])
-
-        # Store applied patterns for feedback tracking
-        self._current_sheet_patterns = relevant_patterns.copy()
-
-        if relevant_patterns:
-            self._logger.debug(
-                "patterns.combined",
-                sheet_num=sheet_num,
-                local_count=len(relevant_patterns) - len(global_patterns),
-                global_count=len(global_patterns),
-                total_patterns=len(relevant_patterns),
-            )
+        relevant_patterns = await self._gather_learned_patterns(state, sheet_num)
 
         # Get applicable validation rules for this sheet
         applicable_rules = validation_engine.get_applicable_rules(self.config.validations)
 
         # Query historical validation failures for history-aware prompts (Evolution v6)
-        historical_failures: list[HistoricalFailure] = []
-        try:
-            failure_history_store = FailureHistoryStore(state)
-            historical_failures = failure_history_store.query_recent_failures(
-                current_sheet=sheet_num,
-                lookback_sheets=3,
-                limit=3,
-            )
-
-            if historical_failures:
-                self._logger.debug(
-                    "history.failures_found",
-                    sheet_num=sheet_num,
-                    failure_count=len(historical_failures),
-                    sheets=[f.sheet_num for f in historical_failures],
-                )
-        except Exception as e:
-            self._logger.debug(
-                "history.query_failed",
-                sheet_num=sheet_num,
-                error=str(e),
-            )
+        historical_failures = self._query_historical_failures(state, sheet_num)
 
         # Build original prompt with learned patterns, validation requirements,
         # and historical failures (Evolution v6: History-Aware Prompt Generation)
@@ -512,6 +443,8 @@ class SheetExecutionMixin:
 
             # Track execution result for judgment (Phase 4)
             execution_history.append(result)
+            if len(execution_history) > _MAX_EXECUTION_HISTORY:
+                execution_history = execution_history[-_MAX_EXECUTION_HISTORY:]
 
             # ===== VALIDATION-FIRST APPROACH =====
             validation_start = time.monotonic()
@@ -686,14 +619,16 @@ class SheetExecutionMixin:
 
                 await self._record_pattern_feedback(
                     pattern_ids=self._applied_pattern_ids,
-                    validation_passed=True,
-                    first_attempt_success=first_attempt_success,
-                    sheet_num=sheet_num,
-                    grounding_confidence=grounding_ctx.confidence if grounding_ctx.hooks_executed > 0 else None,
-                    validation_types=validation_types_list,
-                    prior_sheet_status=prior_status,
-                    retry_iteration=normal_attempts - 1 if normal_attempts > 0 else 0,
-                    escalation_was_pending=escalation_pending,
+                    ctx=PatternFeedbackContext(
+                        validation_passed=True,
+                        first_attempt_success=first_attempt_success,
+                        sheet_num=sheet_num,
+                        grounding_confidence=grounding_ctx.confidence if grounding_ctx.hooks_executed > 0 else None,
+                        validation_types=validation_types_list,
+                        prior_sheet_status=prior_status,
+                        retry_iteration=normal_attempts - 1 if normal_attempts > 0 else 0,
+                        escalation_was_pending=escalation_pending,
+                    ),
                 )
 
                 state.mark_sheet_completed(
@@ -899,10 +834,12 @@ class SheetExecutionMixin:
                     sheet_state.applied_pattern_descriptions = self._current_sheet_patterns.copy()
                     await self._record_pattern_feedback(
                         pattern_ids=self._applied_pattern_ids,
-                        validation_passed=False,
-                        first_attempt_success=False,
-                        sheet_num=sheet_num,
-                        grounding_confidence=grounding_ctx.confidence if grounding_ctx.hooks_executed > 0 else None,
+                        ctx=PatternFeedbackContext(
+                            validation_passed=False,
+                            first_attempt_success=False,
+                            sheet_num=sheet_num,
+                            grounding_confidence=grounding_ctx.confidence if grounding_ctx.hooks_executed > 0 else None,
+                        ),
                     )
 
                     state.mark_sheet_failed(
@@ -1133,10 +1070,12 @@ class SheetExecutionMixin:
                     sheet_state.applied_pattern_descriptions = self._current_sheet_patterns.copy()
                     await self._record_pattern_feedback(
                         pattern_ids=self._applied_pattern_ids,
-                        validation_passed=False,
-                        first_attempt_success=False,
-                        sheet_num=sheet_num,
-                        grounding_confidence=grounding_ctx.confidence if grounding_ctx.hooks_executed > 0 else None,
+                        ctx=PatternFeedbackContext(
+                            validation_passed=False,
+                            first_attempt_success=False,
+                            sheet_num=sheet_num,
+                            grounding_confidence=grounding_ctx.confidence if grounding_ctx.hooks_executed > 0 else None,
+                        ),
                     )
 
                     state.mark_sheet_failed(
@@ -1160,6 +1099,115 @@ class SheetExecutionMixin:
                 current_mode = SheetExecutionMode.RETRY
                 current_prompt = original_prompt
                 await asyncio.sleep(self._get_retry_delay(normal_attempts))
+
+    async def _gather_learned_patterns(
+        self,
+        state: CheckpointState,
+        sheet_num: int,
+    ) -> list[str]:
+        """Query and combine local + global learned patterns for a sheet.
+
+        Queries the local outcome store first (workspace-specific patterns),
+        then the global learning store (cross-workspace patterns), and
+        deduplicates the results. Updates self._current_sheet_patterns and
+        self._applied_pattern_ids for feedback tracking.
+
+        Args:
+            state: Current job state (for job_id).
+            sheet_num: Sheet number to query patterns for.
+
+        Returns:
+            Combined list of pattern descriptions (local-first ordering).
+        """
+        relevant_patterns: list[str] = []
+        self._current_sheet_patterns = []
+        self._applied_pattern_ids = []
+
+        # Query from local outcome store first (workspace-specific)
+        if self.outcome_store is not None:
+            try:
+                relevant_patterns = await self.outcome_store.get_relevant_patterns(
+                    context={
+                        "job_id": state.job_id,
+                        "sheet_num": sheet_num,
+                    },
+                    limit=3,
+                )
+            except Exception as e:
+                self._logger.debug(
+                    "patterns.query_local_failed",
+                    sheet_num=sheet_num,
+                    error=str(e),
+                )
+
+        # Query from global learning store (cross-workspace patterns)
+        global_patterns, global_pattern_ids = self._query_relevant_patterns(
+            job_id=state.job_id,
+            sheet_num=sheet_num,
+        )
+
+        # Combine patterns (local first, then global, deduplicated)
+        if global_patterns:
+            for i, gp in enumerate(global_patterns):
+                if gp not in relevant_patterns:
+                    relevant_patterns.append(gp)
+                    self._applied_pattern_ids.append(global_pattern_ids[i])
+
+        # Store applied patterns for feedback tracking
+        self._current_sheet_patterns = relevant_patterns.copy()
+
+        if relevant_patterns:
+            self._logger.debug(
+                "patterns.combined",
+                sheet_num=sheet_num,
+                local_count=len(relevant_patterns) - len(global_patterns),
+                global_count=len(global_patterns),
+                total_patterns=len(relevant_patterns),
+            )
+
+        return relevant_patterns
+
+    def _query_historical_failures(
+        self,
+        state: CheckpointState,
+        sheet_num: int,
+    ) -> list[HistoricalFailure]:
+        """Query recent validation failures from prior sheets.
+
+        Uses FailureHistoryStore to find failures from nearby sheets,
+        which are injected into prompts for history-aware execution.
+
+        Args:
+            state: Current job state (contains sheet histories).
+            sheet_num: Current sheet number.
+
+        Returns:
+            List of recent failures (empty on error or if none found).
+        """
+        historical_failures: list[HistoricalFailure] = []
+        try:
+            failure_history_store = FailureHistoryStore(state)
+            historical_failures = failure_history_store.query_recent_failures(
+                current_sheet=sheet_num,
+                lookback_sheets=3,
+                limit=3,
+            )
+
+            if historical_failures:
+                self._logger.debug(
+                    "history.failures_found",
+                    sheet_num=sheet_num,
+                    failure_count=len(historical_failures),
+                    sheets=[f.sheet_num for f in historical_failures],
+                )
+        except Exception as e:
+            self._logger.debug(
+                "history.query_failed",
+                sheet_num=sheet_num,
+                error=str(e),
+            )
+
+        return historical_failures
 
     def _build_sheet_context(
         self,
@@ -1937,8 +1985,6 @@ class SheetExecutionMixin:
                 "has_stderr": bool(result.stderr),
             })
 
-        similar_outcomes: list[dict[str, Any]] = []
-
         return JudgmentQuery(
             job_id=self.config.name,
             sheet_num=sheet_num,
@@ -1947,7 +1993,6 @@ class SheetExecutionMixin:
             error_patterns=error_patterns,
             retry_count=normal_attempts,
             confidence=validation_result.aggregate_confidence,
-            similar_outcomes=similar_outcomes,
         )
 
     def _map_judgment_to_mode(

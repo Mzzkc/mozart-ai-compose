@@ -251,12 +251,19 @@ class GroundingEngine:
         """Get the number of registered hooks."""
         return len(self._hooks)
 
+    # Circuit breaker: abort after this many consecutive hook failures
+    CIRCUIT_BREAKER_THRESHOLD = 3
+
     async def run_hooks(
         self,
         context: GroundingContext,
         phase: GroundingPhase,
     ) -> list[GroundingResult]:
         """Run all hooks matching the specified phase.
+
+        Includes a circuit breaker: after CIRCUIT_BREAKER_THRESHOLD consecutive
+        failures (timeout or exception), remaining hooks are skipped to avoid
+        wasting O(hooks x timeout) when an external service is down.
 
         Args:
             context: Context for grounding validation.
@@ -268,10 +275,26 @@ class GroundingEngine:
         import asyncio
 
         results: list[GroundingResult] = []
+        consecutive_failures = 0
 
         for hook in self._hooks:
             # Check if hook should run in this phase
             if hook.phase not in (phase, GroundingPhase.BOTH):
+                continue
+
+            # Circuit breaker: skip remaining hooks after too many failures
+            if consecutive_failures >= self.CIRCUIT_BREAKER_THRESHOLD:
+                results.append(
+                    GroundingResult(
+                        passed=False,
+                        hook_name=hook.name,
+                        message=(
+                            f"Skipped: circuit breaker open after "
+                            f"{consecutive_failures} consecutive failures"
+                        ),
+                        should_escalate=self._config.escalate_on_failure,
+                    )
+                )
                 continue
 
             try:
@@ -281,7 +304,12 @@ class GroundingEngine:
                     timeout=self._config.timeout_seconds,
                 )
                 results.append(result)
+                if result.passed:
+                    consecutive_failures = 0
+                else:
+                    consecutive_failures += 1
             except asyncio.TimeoutError:
+                consecutive_failures += 1
                 results.append(
                     GroundingResult(
                         passed=False,
@@ -291,6 +319,7 @@ class GroundingEngine:
                     )
                 )
             except Exception as e:
+                consecutive_failures += 1
                 results.append(
                     GroundingResult(
                         passed=False,

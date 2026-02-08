@@ -327,6 +327,25 @@ class RecursiveLightBackend(Backend):
             quality_conditions=quality_conditions,
         )
 
+    @staticmethod
+    def _find_dict_by_keys(
+        data: dict[str, Any], keys: tuple[str, ...]
+    ) -> dict[str, Any] | None:
+        """Find the first dict value in data matching one of the candidate keys.
+
+        Args:
+            data: JSON response from RL API.
+            keys: Candidate keys to search for, in priority order.
+
+        Returns:
+            The first dict found, or None if no key matched.
+        """
+        for key in keys:
+            value = data.get(key)
+            if isinstance(value, dict):
+                return value
+        return None
+
     def _extract_domain_activations(
         self, data: dict[str, Any]
     ) -> dict[str, float] | None:
@@ -343,17 +362,16 @@ class RecursiveLightBackend(Backend):
         Returns:
             Dict mapping domain names to activation levels, or None.
         """
-        for key in ("domains", "domain_activations", "activations"):
-            if key in data and isinstance(data[key], dict):
-                result: dict[str, float] = {}
-                for domain, value in data[key].items():
-                    try:
-                        result[str(domain)] = float(value)
-                    except (TypeError, ValueError):
-                        continue
-                if result:
-                    return result
-        return None
+        raw = self._find_dict_by_keys(data, ("domains", "domain_activations", "activations"))
+        if raw is None:
+            return None
+        result: dict[str, float] = {}
+        for domain, value in raw.items():
+            try:
+                result[str(domain)] = float(value)
+            except (TypeError, ValueError):
+                continue
+        return result or None
 
     def _extract_boundary_states(
         self, data: dict[str, Any]
@@ -370,15 +388,14 @@ class RecursiveLightBackend(Backend):
         Returns:
             Dict mapping boundary names to state dicts, or None.
         """
-        for key in ("boundaries", "boundary_states"):
-            if key in data and isinstance(data[key], dict):
-                result: dict[str, dict[str, Any]] = {}
-                for boundary, state in data[key].items():
-                    if isinstance(state, dict):
-                        result[str(boundary)] = dict(state)
-                if result:
-                    return result
-        return None
+        raw = self._find_dict_by_keys(data, ("boundaries", "boundary_states"))
+        if raw is None:
+            return None
+        result: dict[str, dict[str, Any]] = {}
+        for boundary, state in raw.items():
+            if isinstance(state, dict):
+                result[str(boundary)] = dict(state)
+        return result or None
 
     def _extract_quality_conditions(
         self, data: dict[str, Any]
@@ -396,17 +413,16 @@ class RecursiveLightBackend(Backend):
         Returns:
             Dict mapping condition names to values, or None.
         """
-        for key in ("quality", "quality_conditions", "conditions"):
-            if key in data and isinstance(data[key], dict):
-                result: dict[str, float] = {}
-                for condition, value in data[key].items():
-                    try:
-                        result[str(condition)] = float(value)
-                    except (TypeError, ValueError):
-                        continue
-                if result:
-                    return result
-        return None
+        raw = self._find_dict_by_keys(data, ("quality", "quality_conditions", "conditions"))
+        if raw is None:
+            return None
+        result: dict[str, float] = {}
+        for condition, value in raw.items():
+            try:
+                result[str(condition)] = float(value)
+            except (TypeError, ValueError):
+                continue
+        return result or None
 
     async def health_check(self) -> bool:
         """Check if Recursive Light server is available and responding.
@@ -445,15 +461,4 @@ class RecursiveLightBackend(Backend):
             await self._client.aclose()
             self._client = None
 
-    async def __aenter__(self) -> "RecursiveLightBackend":
-        """Async context manager entry."""
-        return self
 
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: Any,
-    ) -> None:
-        """Async context manager exit - closes client."""
-        await self.close()

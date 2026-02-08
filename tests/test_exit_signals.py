@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from mozart.backends.base import ExecutionResult, ExitReason
-from mozart.backends.claude_cli import ClaudeCliBackend, get_signal_name, SIGNAL_NAMES
+from mozart.backends.claude_cli import ClaudeCliBackend
 from mozart.core.checkpoint import SheetState, SheetStatus
 from mozart.core.errors import (
     ClassifiedError,
@@ -21,7 +21,7 @@ from mozart.core.errors import (
     ErrorClassifier,
     FATAL_SIGNALS,
     RETRIABLE_SIGNALS,
-    get_signal_name as errors_get_signal_name,
+    get_signal_name,
 )
 
 
@@ -617,6 +617,6 @@ class TestSignalConstants:
         assert signal.SIGTERM not in FATAL_SIGNALS
 
     def test_signal_names_mapping(self) -> None:
-        """Test SIGNAL_NAMES maps correctly."""
-        assert SIGNAL_NAMES[signal.SIGTERM] == "SIGTERM"
-        assert SIGNAL_NAMES[signal.SIGKILL] == "SIGKILL"
+        """Test get_signal_name maps correctly."""
+        assert get_signal_name(signal.SIGTERM) == "SIGTERM"
+        assert get_signal_name(signal.SIGKILL) == "SIGKILL"

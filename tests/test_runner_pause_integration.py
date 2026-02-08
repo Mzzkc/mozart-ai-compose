@@ -146,7 +146,7 @@ class TestJobRunnerPauseHandling:
 
         # Should raise GracefulShutdownError and update state
         with pytest.raises(GracefulShutdownError) as exc_info:
-            await runner._handle_pause_request(state, sheet_num=3)
+            await runner._handle_pause_request(state, current_sheet=3)
 
         # Verify error message
         assert "paused at sheet 3" in str(exc_info.value)
@@ -172,7 +172,7 @@ class TestJobRunnerPauseHandling:
 
             # Should still handle pause gracefully
             with pytest.raises(GracefulShutdownError):
-                await runner._handle_pause_request(state, sheet_num=2)
+                await runner._handle_pause_request(state, current_sheet=2)
 
 
 class TestSequentialExecutionPauseIntegration:
@@ -351,8 +351,9 @@ class TestJobControlServicePauseSignaling:
         # Verify signal file was cleaned up
         assert not pause_signal_file.exists()
 
-        # Verify state was updated
-        updated_state = await state_backend.load(state.job_id)
+        # Verify state was updated (patch is_zombie since PID 12345 is not a real process)
+        with patch.object(CheckpointState, 'is_zombie', return_value=False):
+            updated_state = await state_backend.load(state.job_id)
         assert updated_state.status == JobStatus.RUNNING
 
 
@@ -370,49 +371,53 @@ class TestPauseResumeIntegrationFlow:
         state_backend = JsonStateBackend(state_dir=temp_workspace)
         job_control = JobControlService(state_backend, temp_workspace)
 
-        # Create initial state
-        state = CheckpointState(
-            job_id="integration-test-123",
-            job_name="integration-test",
-            total_sheets=3,
-            last_completed_sheet=0,
-            status=JobStatus.RUNNING,
-            pid=12345,
-        )
-        await state_backend.save(state)
+        # Patch is_zombie throughout since PID 12345 is not a real process
+        with patch.object(CheckpointState, 'is_zombie', return_value=False):
+            # Create initial state
+            state = CheckpointState(
+                job_id="integration-test-123",
+                job_name="integration-test",
+                total_sheets=3,
+                last_completed_sheet=0,
+                status=JobStatus.RUNNING,
+                pid=12345,
+            )
+            await state_backend.save(state)
 
-        # Phase 1: Request pause
-        pause_result = await job_control.pause_job(state.job_id)
-        assert pause_result.success
+            # Phase 1: Request pause
+            pause_result = await job_control.pause_job(state.job_id)
+            assert pause_result.success
 
-        # Verify pause signal file exists
-        pause_signal_file = temp_workspace / f".mozart-pause-{state.job_id}"
-        assert pause_signal_file.exists()
+            # Verify pause signal file exists
+            pause_signal_file = temp_workspace / f".mozart-pause-{state.job_id}"
+            assert pause_signal_file.exists()
 
-        # Phase 2: Simulate runner detecting pause and handling it
-        runner = JobRunner(config=mock_config, backend=mock_backend, state_backend=state_backend)
-        runner.console = MagicMock()
+            # Phase 2: Simulate runner detecting pause and handling it
+            runner = JobRunner(config=mock_config, backend=mock_backend, state_backend=state_backend)
+            runner.console = MagicMock()
 
-        # JobRunner should detect pause signal
-        assert runner._check_pause_signal(state)
+            # JobRunner should detect pause signal
+            assert runner._check_pause_signal(state)
 
-        # Simulate pause handling (would happen in execution loop)
-        with pytest.raises(GracefulShutdownError):
-            await runner._handle_pause_request(state, current_sheet=2)
+            # Simulate pause handling (would happen in execution loop)
+            with pytest.raises(GracefulShutdownError):
+                await runner._handle_pause_request(state, current_sheet=2)
 
-        # State should be paused and signal cleaned
-        updated_state = await state_backend.load(state.job_id)
-        assert updated_state.status == JobStatus.PAUSED
-        assert not pause_signal_file.exists()
+            # State should be paused and signal cleaned
+            updated_state = await state_backend.load(state.job_id)
+            assert updated_state.status == JobStatus.PAUSED
+            assert not pause_signal_file.exists()
 
-        # Phase 3: Resume the job
-        job_control.get_job_pid = AsyncMock(return_value=12345)
-        resume_result = await job_control.resume_job(state.job_id)
-        assert resume_result.success
+            # Phase 3: Resume the job
+            updated_state.pid = 12345
+            await state_backend.save(updated_state)
+            job_control.get_job_pid = AsyncMock(return_value=12345)
+            resume_result = await job_control.resume_job(state.job_id)
+            assert resume_result.success
 
-        # State should be running
-        final_state = await state_backend.load(state.job_id)
-        assert final_state.status == JobStatus.RUNNING
+            # State should be running
+            final_state = await state_backend.load(state.job_id)
+            assert final_state.status == JobStatus.RUNNING
 
     async def test_pause_with_dead_process_restart(
         self,

@@ -134,12 +134,12 @@ async def start_job(
 
         return StartJobResponse.from_start_result(result)
 
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid job configuration") from None
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Configuration file not found") from None
+    except RuntimeError:
+        raise HTTPException(status_code=500, detail="Failed to start job") from None
 
 
 
@@ -164,8 +164,10 @@ async def pause_job(
     """
     result = await job_service.pause_job(job_id)
 
-    if not result.success and "not found" in result.message:
-        raise HTTPException(status_code=404, detail=result.message)
+    if not result.success:
+        if "not found" in result.message:
+            raise HTTPException(status_code=404, detail=result.message)
+        raise HTTPException(status_code=409, detail=result.message)
 
     return JobActionResponse.from_action_result(result)
 
@@ -187,12 +189,14 @@ async def resume_job(
         Operation result and updated job status
 
     Raises:
-        HTTPException: 404 if job not found, 400 if not resumable
+        HTTPException: 404 if job not found, 409 if not resumable
     """
     result = await job_service.resume_job(job_id)
 
-    if not result.success and "not found" in result.message:
-        raise HTTPException(status_code=404, detail=result.message)
+    if not result.success:
+        if "not found" in result.message:
+            raise HTTPException(status_code=404, detail=result.message)
+        raise HTTPException(status_code=409, detail=result.message)
 
     return JobActionResponse.from_action_result(result)
 
@@ -214,12 +218,14 @@ async def cancel_job(
         Operation result and updated job status
 
     Raises:
-        HTTPException: 404 if job not found
+        HTTPException: 404 if job not found, 409 if not cancellable
     """
     result = await job_service.cancel_job(job_id)
 
-    if not result.success and "not found" in result.message:
-        raise HTTPException(status_code=404, detail=result.message)
+    if not result.success:
+        if "not found" in result.message:
+            raise HTTPException(status_code=404, detail=result.message)
+        raise HTTPException(status_code=409, detail=result.message)
 
     return JobActionResponse.from_action_result(result)
 

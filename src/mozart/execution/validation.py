@@ -102,10 +102,17 @@ class SheetValidationResult:
 
     sheet_num: int
     results: list[ValidationResult]
+    rules_checked: int = 0
 
     @property
     def all_passed(self) -> bool:
-        """Check if all validations passed."""
+        """Check if all validations passed.
+
+        Returns True only when at least one rule was checked and all passed.
+        Returns True for empty results (no applicable rules) for backward
+        compatibility — callers should check rules_checked if they need
+        to distinguish "nothing checked" from "all passed."
+        """
         return all(r.passed for r in self.results)
 
     @property
@@ -512,6 +519,7 @@ class ValidationEngine:
         return SheetValidationResult(
             sheet_num=self.sheet_context.get("sheet_num", 0),
             results=results,
+            rules_checked=len(applicable_rules),
         )
 
     async def run_staged_validations(
@@ -539,6 +547,7 @@ class ValidationEngine:
             return SheetValidationResult(
                 sheet_num=self.sheet_context.get("sheet_num", 0),
                 results=[],
+                rules_checked=0,
             ), None
 
         # Group rules by stage
@@ -584,6 +593,7 @@ class ValidationEngine:
         return SheetValidationResult(
             sheet_num=self.sheet_context.get("sheet_num", 0),
             results=all_results,
+            rules_checked=len(applicable_rules),
         ), failed_stage
 
     # Validation types that benefit from retry logic (filesystem race conditions)

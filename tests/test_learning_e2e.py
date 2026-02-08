@@ -13,6 +13,7 @@ import pytest
 
 from mozart.core.checkpoint import SheetStatus
 from mozart.learning.global_store import GlobalLearningStore
+from mozart.learning.outcomes import SheetOutcome
 
 
 @pytest.fixture
@@ -455,3 +456,174 @@ class TestSuccessFactorsE2E:
         # Query execution statistics
         stats = store.get_execution_stats()
         assert stats["total_executions"] >= 3
+
+
+class TestMultiRunMeasurementE2E:
+    """E2E test for the full multi-run learning measurement cycle.
+
+    FIX-15: Verifies that the system can detect a pattern from a failure,
+    store it, apply it on a subsequent run, record the execution outcome,
+    and then measure the pattern's effectiveness through trust scores and
+    execution statistics — closing the full learning feedback loop.
+    """
+
+    def test_detect_store_apply_measure_cycle(
+        self, store: GlobalLearningStore
+    ) -> None:
+        """Full cycle: discover from failure -> store -> apply on next run -> measure improvement.
+
+        Run 1: Sheet fails, pattern discovered from the failure.
+        Run 2: Pattern queried and applied, execution succeeds, outcome recorded.
+        Measurement: Trust score and effectiveness reflect the improvement.
+        """
+        # === Run 1: Failure and Pattern Discovery ===
+        # Simulate a failed execution outcome (no pattern applied)
+        failed_outcome = SheetOutcome(
+            sheet_id="sheet-1",
+            job_id="measurement-job",
+            validation_results=[{"passed": False, "rule_type": "file_exists"}],
+            execution_duration=15.0,
+            retry_count=3,
+            completion_mode_used=True,
+            final_status=SheetStatus.FAILED,
+            validation_pass_rate=0.0,
+            first_attempt_success=False,
+            patterns_applied=[],
+        )
+        store.record_outcome(
+            outcome=failed_outcome,
+            workspace_path=Path("/tmp/measurement-test"),
+            model="claude-sonnet-4-20250514",
+            error_codes=["E009"],
+        )
+
+        # Discover a pattern from the failure
+        pattern_id = store.record_pattern(
+            pattern_type="validation_fix",
+            pattern_name="explicit_output_instruction",
+            description="Add explicit output file creation instruction to prompt",
+            context_tags=["validation", "file_exists", "output"],
+            suggested_action="Append: 'Create the output file at the specified path'",
+            provenance_job_hash="measurement-job",
+            provenance_sheet_num=1,
+        )
+
+        # Get baseline trust score (new pattern, minimal trust)
+        baseline_trust = store.calculate_trust_score(pattern_id)
+
+        # === Run 2: Pattern Application with Successful Outcome ===
+        # Query applicable patterns (simulates what runner does before execution)
+        patterns = store.get_patterns_for_auto_apply(
+            trust_threshold=0.0,
+            require_validated=False,
+            limit=5,
+            context_tags=["validation"],
+        )
+        applicable = [p for p in patterns if p.id == pattern_id]
+        assert len(applicable) == 1, "Pattern should be discoverable for Run 2"
+
+        # Record successful execution outcome WITH the pattern applied
+        success_outcome = SheetOutcome(
+            sheet_id="sheet-1",
+            job_id="measurement-job-run2",
+            validation_results=[{"passed": True, "rule_type": "file_exists"}],
+            execution_duration=8.0,
+            retry_count=0,
+            completion_mode_used=False,
+            final_status=SheetStatus.COMPLETED,
+            validation_pass_rate=1.0,
+            first_attempt_success=True,
+            patterns_applied=[applicable[0].description or ""],
+        )
+        store.record_outcome(
+            outcome=success_outcome,
+            workspace_path=Path("/tmp/measurement-test"),
+            model="claude-sonnet-4-20250514",
+        )
+
+        # Record pattern application with positive outcome
+        app_id = store.record_pattern_application(
+            pattern_id=pattern_id,
+            execution_id="measurement-job-run2-exec",
+            outcome_improved=True,
+            retry_count_before=3,
+            retry_count_after=0,
+            application_mode="exploitation",
+            validation_passed=True,
+        )
+        assert app_id is not None
+
+        # === Measurement Phase ===
+        # Trust score should have increased after successful application
+        updated_trust = store.calculate_trust_score(pattern_id)
+        assert updated_trust is not None
+        assert updated_trust >= (baseline_trust or 0), (
+            f"Trust should not decrease after success: {updated_trust} < {baseline_trust}"
+        )
+
+        # Pattern should have positive success metrics
+        final_patterns = store.get_patterns_for_auto_apply(
+            trust_threshold=0.0,
+            require_validated=False,
+            limit=10,
+        )
+        final = [p for p in final_patterns if p.id == pattern_id]
+        assert len(final) == 1
+        assert final[0].led_to_success_count >= 1
+        assert final[0].effectiveness_score > 0
+
+        # Execution stats should reflect both runs
+        stats = store.get_execution_stats()
+        assert stats["total_executions"] >= 2
+
+    def test_pattern_degrades_on_repeated_failure(
+        self, store: GlobalLearningStore
+    ) -> None:
+        """Verify that a pattern's trust degrades when it consistently fails.
+
+        This is the negative measurement: when a pattern doesn't help,
+        the system should learn to stop applying it.
+        """
+        # Discover a pattern
+        pattern_id = store.record_pattern(
+            pattern_type="prompt_tweak",
+            pattern_name="bad_advice_pattern",
+            description="A pattern that doesn't actually help",
+            context_tags=["test"],
+        )
+
+        baseline_trust = store.calculate_trust_score(pattern_id)
+
+        # Record 5 failed applications (pattern applied but didn't help)
+        for i in range(5):
+            store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"degrade-exec-{i}",
+                outcome_improved=False,
+                retry_count_before=1,
+                retry_count_after=3,  # Got worse
+                application_mode="exploitation",
+                validation_passed=False,
+            )
+
+        # Trust should be lower or at least not improved
+        degraded_trust = store.calculate_trust_score(pattern_id)
+        final_patterns = store.get_patterns_for_auto_apply(
+            trust_threshold=0.0,
+            require_validated=False,
+            limit=10,
+        )
+        final = [p for p in final_patterns if p.id == pattern_id]
+        assert len(final) == 1
+        assert final[0].led_to_failure_count >= 5
+
+        # With a reasonable trust threshold, this pattern should be excluded
+        filtered = store.get_patterns_for_auto_apply(
+            trust_threshold=0.8,
+            require_validated=False,
+            limit=10,
+        )
+        filtered_ids = {p.id for p in filtered}
+        assert pattern_id not in filtered_ids, (
+            "Failed pattern should be excluded at high trust threshold"
+        )

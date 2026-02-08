@@ -43,8 +43,8 @@ class JudgmentQuery:
     confidence: float
     """Current aggregate confidence score (0.0-1.0)."""
 
-    similar_outcomes: list[dict[str, Any]]
-    """Similar past outcomes retrieved from OutcomeStore."""
+    similar_outcomes: list[dict[str, Any]] = field(default_factory=list)
+    """Similar past outcomes retrieved from OutcomeStore. Deprecated: always empty."""
 
 
 @dataclass

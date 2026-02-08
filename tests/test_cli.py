@@ -1,14 +1,18 @@
 """Tests for Mozart CLI commands."""
 
+import asyncio
 import json
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import pytest
+from click.exceptions import Exit as ClickExit
 from typer.testing import CliRunner
 
 from mozart.cli import app
 from mozart.core.checkpoint import SheetState, SheetStatus, CheckpointState, JobStatus
+from mozart.state import SQLiteStateBackend
 
 # Module-level runner is safe: CliRunner is stateless (no mutable state between invocations).
 # Each invoke() call creates an isolated Click context.
@@ -628,6 +632,356 @@ class TestResumeCommand:
 
         # Should have proceeded with force
         assert "Force restarting" in result.stdout
+
+
+class TestFindJobState:
+    """Unit tests for _find_job_state() in resume.py.
+
+    Tests the 5-level backend search and status validation logic
+    directly, without going through the CLI runner.
+    """
+
+    @pytest.fixture
+    def paused_state(self) -> CheckpointState:
+        """A paused job state for testing."""
+        return CheckpointState(
+            job_id="test-job",
+            job_name="Test Job",
+            total_sheets=5,
+            last_completed_sheet=2,
+            status=JobStatus.PAUSED,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+
+    def test_find_job_state_json_backend(self, tmp_path: Path, paused_state: CheckpointState) -> None:
+        """Test _find_job_state finds state from JSON backend."""
+        from mozart.cli.commands.resume import _find_job_state
+
+        state_file = tmp_path / "test-job.json"
+        state_file.write_text(json.dumps(paused_state.model_dump(mode="json"), default=str))
+
+        found_state, found_backend = asyncio.run(
+            _find_job_state("test-job", tmp_path, force=False)
+        )
+        assert found_state.job_id == "test-job"
+        assert found_state.status == JobStatus.PAUSED
+
+    def test_find_job_state_sqlite_priority(self, tmp_path: Path, paused_state: CheckpointState) -> None:
+        """Test _find_job_state prefers SQLite backend when workspace has .mozart-state.db."""
+        from mozart.cli.commands.resume import _find_job_state
+
+        # Create both a JSON and SQLite state file
+        state_file = tmp_path / "test-job.json"
+        state_file.write_text(json.dumps(paused_state.model_dump(mode="json"), default=str))
+
+        # Create a SQLite backend with the same job
+        sqlite_path = tmp_path / ".mozart-state.db"
+        sqlite_backend = SQLiteStateBackend(sqlite_path)
+        asyncio.run(sqlite_backend.save(paused_state))
+
+        found_state, found_backend = asyncio.run(
+            _find_job_state("test-job", tmp_path, force=False)
+        )
+        assert found_state.job_id == "test-job"
+        # SQLite is checked first when workspace is specified
+        assert isinstance(found_backend, SQLiteStateBackend)
+
+    def test_find_job_state_not_found_exits(self, tmp_path: Path) -> None:
+        """Test _find_job_state raises Exit when job doesn't exist."""
+        from mozart.cli.commands.resume import _find_job_state
+        import typer
+
+        workspace = tmp_path / "empty_ws"
+        workspace.mkdir()
+
+        with pytest.raises((SystemExit, ClickExit)):
+            asyncio.run(_find_job_state("nonexistent", workspace, force=False))
+
+    def test_find_job_state_completed_blocked(self, tmp_path: Path) -> None:
+        """Test _find_job_state blocks completed jobs without force."""
+        from mozart.cli.commands.resume import _find_job_state
+
+        state = CheckpointState(
+            job_id="done-job",
+            job_name="Done Job",
+            total_sheets=5,
+            last_completed_sheet=5,
+            status=JobStatus.COMPLETED,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+        state_file = tmp_path / "done-job.json"
+        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
+
+        with pytest.raises((SystemExit, ClickExit)):
+            asyncio.run(_find_job_state("done-job", tmp_path, force=False))
+
+    def test_find_job_state_completed_with_force(self, tmp_path: Path) -> None:
+        """Test _find_job_state allows completed jobs with force=True."""
+        from mozart.cli.commands.resume import _find_job_state
+
+        state = CheckpointState(
+            job_id="done-job",
+            job_name="Done Job",
+            total_sheets=5,
+            last_completed_sheet=5,
+            status=JobStatus.COMPLETED,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+        state_file = tmp_path / "done-job.json"
+        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
+
+        found_state, _ = asyncio.run(
+            _find_job_state("done-job", tmp_path, force=True)
+        )
+        assert found_state.status == JobStatus.COMPLETED
+
+    def test_find_job_state_pending_blocked(self, tmp_path: Path) -> None:
+        """Test _find_job_state blocks pending (never started) jobs."""
+        from mozart.cli.commands.resume import _find_job_state
+
+        state = CheckpointState(
+            job_id="pending-job",
+            job_name="Pending Job",
+            total_sheets=5,
+            last_completed_sheet=0,
+            status=JobStatus.PENDING,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+        state_file = tmp_path / "pending-job.json"
+        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
+
+        with pytest.raises((SystemExit, ClickExit)):
+            asyncio.run(_find_job_state("pending-job", tmp_path, force=False))
+
+    def test_find_job_state_workspace_not_found(self, tmp_path: Path) -> None:
+        """Test _find_job_state exits when workspace doesn't exist."""
+        from mozart.cli.commands.resume import _find_job_state
+
+        fake_workspace = tmp_path / "does_not_exist"
+
+        with pytest.raises((SystemExit, ClickExit)):
+            asyncio.run(_find_job_state("job", fake_workspace, force=False))
+
+    def test_find_job_state_running_allowed(self, tmp_path: Path) -> None:
+        """Test _find_job_state allows resuming RUNNING jobs (crash recovery)."""
+        from mozart.cli.commands.resume import _find_job_state
+
+        state = CheckpointState(
+            job_id="running-job",
+            job_name="Running Job",
+            total_sheets=5,
+            last_completed_sheet=3,
+            status=JobStatus.RUNNING,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+        state_file = tmp_path / "running-job.json"
+        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
+
+        found_state, _ = asyncio.run(
+            _find_job_state("running-job", tmp_path, force=False)
+        )
+        assert found_state.status == JobStatus.RUNNING
+
+
+class TestReconstructConfig:
+    """Unit tests for _reconstruct_config() in resume.py.
+
+    Tests the 4-tier priority fallback for config reconstruction:
+    1. Provided --config file
+    2. --reload-config from original path
+    3. Cached config_snapshot
+    4. Stored config_path
+    """
+
+    @pytest.fixture
+    def config_dict(self) -> dict:
+        """Minimal valid config dict."""
+        return {
+            "name": "test-job",
+            "sheet": {"size": 5, "total_items": 10},
+            "prompt": {"template": "Do something"},
+        }
+
+    def test_priority1_config_file(self, tmp_path: Path, config_dict: dict) -> None:
+        """Test Priority 1: explicit --config file always wins."""
+        import yaml
+        from mozart.cli.commands.resume import _reconstruct_config
+
+        config_path = tmp_path / "explicit.yaml"
+        config_path.write_text(yaml.dump(config_dict))
+
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test Job",
+            total_sheets=5,
+            last_completed_sheet=2,
+            status=JobStatus.PAUSED,
+            config_snapshot={"name": "old-config", "sheet": {"size": 1}, "prompt": {"template": "Old"}},
+        )
+
+        config, was_reloaded = _reconstruct_config(state, config_path, reload_config=False)
+        assert config.name == "test-job"
+        assert was_reloaded is True
+
+    def test_priority2_reload_from_stored_path(self, tmp_path: Path, config_dict: dict) -> None:
+        """Test Priority 2: --reload-config uses stored config_path."""
+        import yaml
+        from mozart.cli.commands.resume import _reconstruct_config
+
+        config_path = tmp_path / "original.yaml"
+        config_path.write_text(yaml.dump(config_dict))
+
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test Job",
+            total_sheets=5,
+            last_completed_sheet=2,
+            status=JobStatus.PAUSED,
+            config_path=str(config_path),
+        )
+
+        config, was_reloaded = _reconstruct_config(state, config_file=None, reload_config=True)
+        assert config.name == "test-job"
+        assert was_reloaded is True
+
+    def test_priority2_reload_missing_path_exits(self, tmp_path: Path) -> None:
+        """Test Priority 2: --reload-config exits when stored config_path missing."""
+        from mozart.cli.commands.resume import _reconstruct_config
+
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test Job",
+            total_sheets=5,
+            last_completed_sheet=2,
+            status=JobStatus.PAUSED,
+            config_path=str(tmp_path / "gone.yaml"),
+        )
+
+        with pytest.raises((SystemExit, ClickExit)):
+            _reconstruct_config(state, config_file=None, reload_config=True)
+
+    def test_priority2_reload_no_config_path_exits(self) -> None:
+        """Test Priority 2: --reload-config exits when no config_path stored."""
+        from mozart.cli.commands.resume import _reconstruct_config
+
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test Job",
+            total_sheets=5,
+            last_completed_sheet=2,
+            status=JobStatus.PAUSED,
+            config_path=None,
+        )
+
+        with pytest.raises((SystemExit, ClickExit)):
+            _reconstruct_config(state, config_file=None, reload_config=True)
+
+    def test_priority3_config_snapshot(self, config_dict: dict) -> None:
+        """Test Priority 3: reconstruct from config_snapshot in state."""
+        from mozart.cli.commands.resume import _reconstruct_config
+
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test Job",
+            total_sheets=5,
+            last_completed_sheet=2,
+            status=JobStatus.PAUSED,
+            config_snapshot=config_dict,
+        )
+
+        config, was_reloaded = _reconstruct_config(state, config_file=None, reload_config=False)
+        assert config.name == "test-job"
+        assert was_reloaded is False
+
+    def test_priority3_invalid_snapshot_exits(self) -> None:
+        """Test Priority 3: invalid config_snapshot raises Exit."""
+        from mozart.cli.commands.resume import _reconstruct_config
+
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test Job",
+            total_sheets=5,
+            last_completed_sheet=2,
+            status=JobStatus.PAUSED,
+            config_snapshot={"invalid": "config"},
+        )
+
+        with pytest.raises((SystemExit, ClickExit)):
+            _reconstruct_config(state, config_file=None, reload_config=False)
+
+    def test_priority4_stored_config_path(self, tmp_path: Path, config_dict: dict) -> None:
+        """Test Priority 4: loads from stored config_path as last resort."""
+        import yaml
+        from mozart.cli.commands.resume import _reconstruct_config
+
+        config_path = tmp_path / "stored.yaml"
+        config_path.write_text(yaml.dump(config_dict))
+
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test Job",
+            total_sheets=5,
+            last_completed_sheet=2,
+            status=JobStatus.PAUSED,
+            config_snapshot=None,
+            config_path=str(config_path),
+        )
+
+        config, was_reloaded = _reconstruct_config(state, config_file=None, reload_config=False)
+        assert config.name == "test-job"
+        assert was_reloaded is False
+
+    def test_no_config_available_exits(self) -> None:
+        """Test all priorities exhausted raises Exit."""
+        from mozart.cli.commands.resume import _reconstruct_config
+
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test Job",
+            total_sheets=5,
+            last_completed_sheet=2,
+            status=JobStatus.PAUSED,
+            config_snapshot=None,
+            config_path=None,
+        )
+
+        with pytest.raises((SystemExit, ClickExit)):
+            _reconstruct_config(state, config_file=None, reload_config=False)
+
+    def test_config_file_overrides_snapshot(self, tmp_path: Path) -> None:
+        """Test Priority 1 overrides existing snapshot (not used)."""
+        import yaml
+        from mozart.cli.commands.resume import _reconstruct_config
+
+        new_config = {
+            "name": "new-config",
+            "sheet": {"size": 3, "total_items": 9},
+            "prompt": {"template": "New prompt"},
+        }
+        config_path = tmp_path / "new.yaml"
+        config_path.write_text(yaml.dump(new_config))
+
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test Job",
+            total_sheets=5,
+            last_completed_sheet=2,
+            status=JobStatus.PAUSED,
+            config_snapshot={
+                "name": "old-config",
+                "sheet": {"size": 5, "total_items": 10},
+                "prompt": {"template": "Old prompt"},
+            },
+        )
+
+        config, was_reloaded = _reconstruct_config(state, config_path, reload_config=False)
+        assert config.name == "new-config"
+        assert was_reloaded is True
 
 
 class TestDashboardCommand:

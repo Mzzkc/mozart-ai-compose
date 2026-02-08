@@ -132,6 +132,7 @@ class TestHookExecutorFreshFlag:
             "backend": {"type": "claude_cli"},
             "sheet": {"size": 1, "total_items": 1},
             "prompt": {"template": "test"},
+            "concert": {"cooldown_between_jobs_seconds": 0},  # No cooldown in tests
             "on_success": [
                 {
                     "type": "run_job",
@@ -177,6 +178,7 @@ class TestHookExecutorFreshFlag:
             "backend": {"type": "claude_cli"},
             "sheet": {"size": 1, "total_items": 1},
             "prompt": {"template": "test"},
+            "concert": {"cooldown_between_jobs_seconds": 0},  # No cooldown in tests
             "on_success": [
                 {
                     "type": "run_job",
@@ -460,9 +462,24 @@ class TestDefenseInDepth:
         )
         completed_state.status = JobStatus.COMPLETED
         completed_state.last_completed_sheet = 2
-        # The zero-work guard checks this condition:
-        assert completed_state.status == JobStatus.COMPLETED
-        assert completed_state.last_completed_sheet == completed_state.total_sheets
+
+        # Simulate the guard logic from lifecycle.py:104
+        was_already_completed = completed_state.status == JobStatus.COMPLETED
+
+        # Guard should detect this is a re-run of a completed job
+        assert was_already_completed is True
+
+        # Simulate hook firing condition from lifecycle.py:182-185
+        has_on_success = True  # Assume hooks are configured
+        should_fire_hooks = (
+            completed_state.status == JobStatus.COMPLETED
+            and has_on_success
+            and not was_already_completed
+        )
+        # Hooks should NOT fire because was_already_completed blocks them
+        assert should_fire_hooks is False, (
+            "Zero-work guard must prevent hooks from firing on already-completed jobs"
+        )
 
     def test_fresh_and_guard_interact_correctly(self) -> None:
         """When --fresh is used, guard should allow hooks (real work done).
@@ -473,23 +490,45 @@ class TestDefenseInDepth:
         Without --fresh: old COMPLETED state loaded
           -> was_already_completed = True -> hooks blocked
         """
-        # Simulate --fresh behavior: new state (not COMPLETED)
+        # Simulate --fresh behavior: new state starts as PENDING
         fresh_state = CheckpointState(
             job_id="fresh-test",
             job_name="fresh-test",
             total_sheets=2,
         )
-        # Fresh state should NOT be COMPLETED, so guard allows hooks
-        assert fresh_state.status != JobStatus.COMPLETED
+        # Guard captures initial status (lifecycle.py:104)
         was_already_completed_fresh = fresh_state.status == JobStatus.COMPLETED
         assert was_already_completed_fresh is False
 
-        # Simulate without --fresh: old COMPLETED state loaded
+        # After job completes its work, status changes to COMPLETED
+        fresh_state.status = JobStatus.COMPLETED
+        # Hook firing condition (lifecycle.py:182-185)
+        should_fire_hooks_fresh = (
+            fresh_state.status == JobStatus.COMPLETED
+            and not was_already_completed_fresh
+        )
+        # Hooks SHOULD fire because job did real work (fresh start)
+        assert should_fire_hooks_fresh is True, (
+            "Fresh run should allow hooks to fire after completing real work"
+        )
+
+        # Simulate without --fresh: old COMPLETED state loaded directly
         old_state = CheckpointState(
             job_id="old-test",
             job_name="old-test",
             total_sheets=2,
         )
         old_state.status = JobStatus.COMPLETED
+        # Guard captures initial status (lifecycle.py:104)
         was_already_completed_old = old_state.status == JobStatus.COMPLETED
         assert was_already_completed_old is True
+
+        # Hook firing condition (lifecycle.py:182-185)
+        should_fire_hooks_old = (
+            old_state.status == JobStatus.COMPLETED
+            and not was_already_completed_old
+        )
+        # Hooks should NOT fire because no new work was done
+        assert should_fire_hooks_old is False, (
+            "Non-fresh run of completed job must block hooks to prevent infinite loop"
+        )

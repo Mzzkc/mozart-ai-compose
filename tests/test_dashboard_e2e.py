@@ -213,7 +213,7 @@ class TestJobLifecycleE2E:
         # Test starting job without config
         response = client.post("/api/jobs", json={})
         assert response.status_code == 400
-        assert "Must provide either config_content or config_path" in response.json()["detail"]
+        assert response.json()["detail"] == "Invalid job configuration"
 
         # Test starting job with nonexistent file
         response = client.post("/api/jobs", json={
@@ -254,12 +254,10 @@ class TestJobLifecycleE2E:
         )
         await mock_state_backend.save(completed_state)
 
-        # Test pausing completed job
+        # Test pausing completed job (returns 409 Conflict)
         response = client.post(f"/api/jobs/{completed_job_id}/pause")
-        assert response.status_code == 200  # Service handles this gracefully
-        data = response.json()
-        assert data["success"] is False
-        assert "Job is not running" in data["message"]
+        assert response.status_code == 409
+        assert "Job is not running" in response.json()["detail"]
 
         # Test deleting running job
         running_job_id = "running-job"

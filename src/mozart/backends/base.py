@@ -165,6 +165,19 @@ class Backend(ABC):
         """
         pass
 
+    async def __aenter__(self) -> "Backend":
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> None:
+        """Async context manager exit — ensures close() is called."""
+        await self.close()
+
     def set_output_log_path(self, _path: Path | None) -> None:
         """Set base path for real-time output logging.
 

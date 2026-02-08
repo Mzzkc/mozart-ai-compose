@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from mozart.learning.outcomes import SheetOutcome
@@ -217,22 +217,6 @@ class DetectedPattern:
             return f"🔍 Semantic insight: {self.description} ({seen}){trust_indicator}"
         else:
             return f"{self.description}{trust_indicator}"
-
-
-class PatternDetectorProtocol(Protocol):
-    """Protocol for pattern detection implementations."""
-
-    def detect_all(self) -> list[DetectedPattern]:
-        """Detect all patterns from outcomes."""
-        ...
-
-
-class PatternMatcherProtocol(Protocol):
-    """Protocol for pattern matching implementations."""
-
-    def match(self, context: dict[str, Any]) -> list[DetectedPattern]:
-        """Match patterns to a given context."""
-        ...
 
 
 class PatternDetector:
