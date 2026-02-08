@@ -135,15 +135,11 @@ class LifecycleMixin:
 
         # Set up worktree isolation if configured (v2 evolution: Worktree Isolation)
         # Store original working directory for restoration if needed
-        # Note: working_directory is backend-specific (not in Backend protocol)
-        original_working_directory: Path | None = None
-        if hasattr(self.backend, "working_directory"):
-            original_working_directory = getattr(self.backend, "working_directory", None)
+        original_working_directory: Path | None = self.backend.working_directory
         worktree_path = await self._setup_isolation(state)
         if worktree_path:
             # Override backend working directory to use worktree
-            if hasattr(self.backend, "working_directory"):
-                self.backend.working_directory = worktree_path
+            self.backend.working_directory = worktree_path
             await self.state_backend.save(state)  # Persist worktree state
 
         try:
@@ -206,7 +202,7 @@ class LifecycleMixin:
             await self._cleanup_isolation(state)
 
             # Restore original working directory if it was overridden
-            if worktree_path and hasattr(self.backend, "working_directory"):
+            if worktree_path:
                 self.backend.working_directory = original_working_directory
 
             # Close backend to release resources (connections, subprocesses, etc.)

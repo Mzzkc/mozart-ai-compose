@@ -251,7 +251,9 @@ class CompressingRotatingFileHandler(RotatingFileHandler):
                     try:
                         os.remove(old_file)
                     except OSError:
-                        pass
+                        # Can't use logger here (inside log handler = recursion risk)
+                        import sys
+                        print(f"Warning: failed to remove old log backup {old_file}", file=sys.stderr)
 
         # Reopen the base file for writing
         if not self.delay:

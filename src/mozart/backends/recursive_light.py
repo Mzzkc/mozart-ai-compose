@@ -9,6 +9,7 @@ Phase 3: Language Bridge implementation.
 import time
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -59,6 +60,7 @@ class RecursiveLightBackend(Backend):
         self.rl_endpoint = rl_endpoint.rstrip("/")
         self.user_id = user_id or str(uuid.uuid4())
         self.timeout = timeout
+        self._working_directory: Path | None = None
         self._client: httpx.AsyncClient | None = None
 
     @classmethod

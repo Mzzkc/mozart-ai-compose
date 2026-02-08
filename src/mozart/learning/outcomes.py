@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from mozart.core.checkpoint import SheetStatus
+from mozart.core.checkpoint import SheetStatus, ValidationDetailDict
 
 if TYPE_CHECKING:
     from mozart.learning.patterns import DetectedPattern
@@ -21,7 +21,7 @@ class SheetOutcome:
 
     sheet_id: str
     job_id: str
-    validation_results: list[dict[str, Any]]  # Serialized ValidationResult data
+    validation_results: list[ValidationDetailDict]  # Serialized ValidationResult data
     execution_duration: float
     retry_count: int
     completion_mode_used: bool

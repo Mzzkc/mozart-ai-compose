@@ -10,50 +10,15 @@ from fastapi.testclient import TestClient
 from httpx import AsyncClient
 
 from mozart.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
+from mozart.state.memory import InMemoryStateBackend
 from mozart.dashboard.app import create_app
 from mozart.dashboard.services.job_control import JobControlService
-from mozart.state.base import StateBackend
-
-
-class MockStateBackend(StateBackend):
-    """Mock state backend for E2E testing."""
-
-    def __init__(self):
-        self.states: dict[str, CheckpointState] = {}
-
-    async def load(self, job_id: str) -> CheckpointState | None:
-        return self.states.get(job_id)
-
-    async def save(self, state: CheckpointState) -> None:
-        self.states[state.job_id] = state
-
-    async def delete(self, job_id: str) -> bool:
-        if job_id in self.states:
-            del self.states[job_id]
-            return True
-        return False
-
-    async def list_jobs(self) -> list[CheckpointState]:
-        return list(self.states.values())
-
-    async def get_next_sheet(self, job_id: str) -> int | None:
-        state = await self.load(job_id)
-        return state.get_next_sheet() if state else None
-
-    async def mark_sheet_status(
-        self,
-        job_id: str,
-        sheet_num: int,
-        status,
-        error_message: str | None = None,
-    ) -> None:
-        pass
 
 
 @pytest.fixture
 def mock_state_backend():
-    """Mock state backend for testing."""
-    return MockStateBackend()
+    """In-memory state backend for testing."""
+    return InMemoryStateBackend()
 
 
 @pytest.fixture
@@ -109,7 +74,7 @@ class TestJobLifecycleE2E:
         self,
         client: TestClient,
         sample_config_file: Path,
-        mock_state_backend: MockStateBackend,
+        mock_state_backend: InMemoryStateBackend,
     ):
         """Test complete job lifecycle: start -> pause -> resume -> cancel -> delete."""
 
@@ -211,7 +176,7 @@ class TestJobLifecycleE2E:
         self,
         client: TestClient,
         sample_yaml_config: str,
-        mock_state_backend: MockStateBackend,
+        mock_state_backend: InMemoryStateBackend,
     ):
         """Test starting job with inline config content."""
 
@@ -241,7 +206,7 @@ class TestJobLifecycleE2E:
     async def test_job_error_scenarios(
         self,
         client: TestClient,
-        mock_state_backend: MockStateBackend,
+        mock_state_backend: InMemoryStateBackend,
     ):
         """Test various error scenarios in job lifecycle."""
 
@@ -275,7 +240,7 @@ class TestJobLifecycleE2E:
     async def test_job_state_validation_errors(
         self,
         client: TestClient,
-        mock_state_backend: MockStateBackend,
+        mock_state_backend: InMemoryStateBackend,
     ):
         """Test job state validation and error handling."""
 
@@ -320,7 +285,7 @@ class TestSheetDetailsE2E:
     async def test_get_sheet_details_success(
         self,
         client: TestClient,
-        mock_state_backend: MockStateBackend,
+        mock_state_backend: InMemoryStateBackend,
     ):
         """Test getting detailed sheet information."""
 
@@ -415,7 +380,7 @@ class TestSheetDetailsE2E:
     async def test_get_sheet_details_errors(
         self,
         client: TestClient,
-        mock_state_backend: MockStateBackend,
+        mock_state_backend: InMemoryStateBackend,
     ):
         """Test error cases for sheet details API."""
 
@@ -446,7 +411,7 @@ class TestProcessManagementE2E:
     async def test_zombie_detection_and_recovery(
         self,
         client: TestClient,
-        mock_state_backend: MockStateBackend,
+        mock_state_backend: InMemoryStateBackend,
         sample_config_file: Path,
     ):
         """Test zombie process detection and recovery through full lifecycle.
@@ -488,7 +453,7 @@ class TestProcessManagementE2E:
     async def test_process_restart_on_resume(
         self,
         client: TestClient,
-        mock_state_backend: MockStateBackend,
+        mock_state_backend: InMemoryStateBackend,
     ):
         """Test process restart when resuming a dead process."""
 
@@ -526,7 +491,7 @@ class TestProcessManagementE2E:
     async def test_graceful_cancellation_with_timeout(
         self,
         client: TestClient,
-        mock_state_backend: MockStateBackend,
+        mock_state_backend: InMemoryStateBackend,
     ):
         """Test graceful job cancellation with SIGTERM -> SIGKILL progression."""
 

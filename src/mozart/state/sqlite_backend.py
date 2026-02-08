@@ -191,15 +191,19 @@ class SQLiteStateBackend(StateBackend):
         """Schema migration v2: Add config_path column for resume support.
 
         Task 3: Config Storage for Resume - enables resume without config file.
+        Idempotent: checks column existence before ALTER to handle interrupted migrations.
         """
-        # Add config_path column to jobs table
-        await db.execute(
-            "ALTER TABLE jobs ADD COLUMN config_path TEXT"
-        )
+        # Check if column already exists (handles interrupted migrations)
+        cursor = await db.execute("PRAGMA table_info(jobs)")
+        columns = {row[1] for row in await cursor.fetchall()}
+        if "config_path" not in columns:
+            await db.execute(
+                "ALTER TABLE jobs ADD COLUMN config_path TEXT"
+            )
 
-        # Record migration
+        # Record migration (INSERT OR IGNORE for idempotency)
         await db.execute(
-            "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
+            "INSERT OR IGNORE INTO schema_version (version, applied_at) VALUES (?, ?)",
             (2, utc_now().isoformat()),
         )
 

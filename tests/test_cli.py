@@ -10,6 +10,8 @@ from typer.testing import CliRunner
 from mozart.cli import app
 from mozart.core.checkpoint import SheetState, SheetStatus, CheckpointState, JobStatus
 
+# Module-level runner is safe: CliRunner is stateless (no mutable state between invocations).
+# Each invoke() call creates an isolated Click context.
 runner = CliRunner()
 
 

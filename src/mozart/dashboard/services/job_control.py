@@ -324,7 +324,7 @@ class JobControlService:
                     pause_signal_file.unlink()
                     signal_cleaned = True
                 except OSError:
-                    pass  # Signal cleanup failure shouldn't block resume
+                    logger.debug("Failed to clean pause signal on resume", exc_info=True)
 
             # Update state to running
             state.status = JobStatus.RUNNING
@@ -353,7 +353,7 @@ class JobControlService:
                 try:
                     pause_signal_file.unlink()
                 except OSError:
-                    pass  # Signal cleanup failure shouldn't block resume
+                    logger.debug("Failed to clean pause signal on dead process resume", exc_info=True)
             return await self._restart_job_execution(job_id, state)
 
         except PermissionError:
@@ -719,7 +719,7 @@ class JobControlService:
                 try:
                     pause_signal_file.unlink()
                 except OSError:
-                    pass  # Signal cleanup failure shouldn't block restart
+                    logger.debug("Failed to clean pause signal on restart", exc_info=True)
 
             # Use mozart resume command with parameterized arguments
             cmd_args = [sys.executable, "-m", "mozart.cli", "resume", job_id]

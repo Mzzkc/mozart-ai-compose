@@ -5,7 +5,7 @@ Defines the state that gets persisted between runs for resumable orchestration.
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -26,6 +26,102 @@ MAX_ERROR_HISTORY: int = 10  # Maximum number of error records to keep per sheet
 
 # Type alias for error types
 ErrorType = Literal["transient", "rate_limit", "permanent"]
+
+# --- TypedDict definitions for structured state fields ---
+
+
+class ValidationDetailDict(TypedDict, total=False):
+    """Schema for individual validation result entries in SheetState.validation_details.
+
+    All keys are optional (total=False) to support partial dicts from
+    legacy data and simplified test fixtures.
+    """
+
+    rule_type: str
+    description: str | None
+    path: str | None
+    pattern: str | None
+    passed: bool
+    actual_value: str | None
+    expected_value: str | None
+    error_message: str | None
+    checked_at: str  # ISO format datetime
+    check_duration_ms: float
+    confidence: float
+    confidence_factors: dict[str, float]
+    failure_reason: str | None
+    failure_category: str | None
+    suggested_fix: str | None
+
+
+class PromptMetricsDict(TypedDict, total=False):
+    """Schema for prompt analysis metrics in SheetState.prompt_metrics.
+
+    All keys are optional (total=False) to support partial metrics from
+    legacy data or simplified test fixtures.
+    """
+
+    character_count: int
+    estimated_tokens: int
+    line_count: int
+    word_count: int
+    has_file_references: bool
+    referenced_paths: list[str]
+
+
+class ProgressSnapshotDict(TypedDict, total=False):
+    """Schema for execution progress snapshots in SheetState.progress_snapshots.
+
+    All keys are optional (total=False) because snapshots may contain varying
+    subsets depending on when they were captured.
+    """
+
+    sheet_num: int
+    bytes_received: int
+    lines_received: int
+    elapsed_seconds: float
+    phase: str  # "starting", "executing", "completed"
+    snapshot_at: str  # ISO format datetime
+
+
+class ErrorContextDict(TypedDict, total=False):
+    """Schema for error context in CheckpointErrorRecord.context.
+
+    All keys optional since context varies by error type.
+    """
+
+    exit_code: int
+    signal: int
+    category: str
+
+
+class OutcomeDataDict(TypedDict, total=False):
+    """Schema for structured outcome data in SheetState.outcome_data.
+
+    All keys optional since this is extensible for learning/pattern recognition.
+    """
+
+    escalation_record_id: str
+
+
+class SynthesisResultDict(TypedDict, total=False):
+    """Schema for synthesis result entries in CheckpointState.synthesis_results.
+
+    All keys are optional (total=False) to support partial data from
+    legacy state files and test fixtures.
+    """
+
+    batch_id: str
+    sheets: list[int]
+    strategy: str  # "merge", "summarize", "pass_through"
+    status: str  # "pending", "ready", "done", "failed"
+    created_at: str  # ISO format datetime
+    completed_at: str | None
+    sheet_outputs: dict[int, str]
+    synthesized_content: str | None
+    error_message: str | None
+    metadata: dict[str, Any]
+    conflict_detection: dict[str, Any] | None
 
 
 class SheetStatus(str, Enum):
@@ -108,7 +204,7 @@ class SheetState(BaseModel):
     error_message: str | None = None
     error_category: str | None = None
     validation_passed: bool | None = None
-    validation_details: list[dict[str, Any]] | None = None
+    validation_details: list[ValidationDetailDict] | None = None
 
     # Exit signal differentiation (Task 3: Exit Signal Differentiation)
     exit_signal: int | None = Field(
@@ -147,7 +243,7 @@ class SheetState(BaseModel):
     )
 
     # Learning metadata (Phase 1: Learning Foundation)
-    outcome_data: dict[str, Any] | None = Field(
+    outcome_data: OutcomeDataDict | None = Field(
         default=None,
         description="Structured outcome data for learning and pattern recognition",
     )
@@ -192,7 +288,7 @@ class SheetState(BaseModel):
     )
 
     # Preflight metrics (Task 2: Prompt Metrics and Pre-flight Checks)
-    prompt_metrics: dict[str, Any] | None = Field(
+    prompt_metrics: PromptMetricsDict | None = Field(
         default=None,
         description="Prompt analysis metrics (character_count, estimated_tokens, etc.)",
     )
@@ -202,7 +298,7 @@ class SheetState(BaseModel):
     )
 
     # Execution progress tracking (Task 4: Execution Progress Tracking)
-    progress_snapshots: list[dict[str, Any]] = Field(
+    progress_snapshots: list[ProgressSnapshotDict] = Field(
         default_factory=list,
         description="Periodic progress records during execution (bytes, lines, phase)",
     )
@@ -489,12 +585,12 @@ class CheckpointState(BaseModel):
     )
 
     # Synthesis tracking (v18 evolution: Result Synthesizer Pattern)
-    synthesis_results: dict[str, dict[str, Any]] = Field(
+    synthesis_results: dict[str, SynthesisResultDict] = Field(
         default_factory=dict,
         description="Synthesis results keyed by batch_id (v18: Result Synthesizer)",
     )
 
-    def get_synthesis(self, batch_id: str) -> dict[str, Any] | None:
+    def get_synthesis(self, batch_id: str) -> SynthesisResultDict | None:
         """Get synthesis result by batch ID.
 
         Args:
@@ -505,7 +601,7 @@ class CheckpointState(BaseModel):
         """
         return self.synthesis_results.get(batch_id)
 
-    def add_synthesis(self, batch_id: str, result: dict[str, Any]) -> None:
+    def add_synthesis(self, batch_id: str, result: SynthesisResultDict) -> None:
         """Add or update a synthesis result.
 
         Args:
@@ -586,7 +682,7 @@ class CheckpointState(BaseModel):
         self,
         sheet_num: int,
         validation_passed: bool = True,
-        validation_details: list[dict[str, Any]] | None = None,
+        validation_details: list[ValidationDetailDict] | None = None,
     ) -> None:
         """Mark a sheet as completed."""
         self.updated_at = utc_now()
@@ -703,6 +799,7 @@ class CheckpointState(BaseModel):
         previous_status = self.status
         self.status = JobStatus.FAILED
         self.error_message = error_message
+        self.pid = None  # Clear PID so stale PID doesn't block resume
         self.completed_at = utc_now()
         self.updated_at = utc_now()
 

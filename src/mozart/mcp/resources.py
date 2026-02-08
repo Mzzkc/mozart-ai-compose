@@ -664,195 +664,12 @@ notifications:
         """Get collection of Mozart job configuration templates."""
         templates = {
             "templates": {
-                "code-analysis": {
-                    "name": "Code Analysis Template",
-                    "description": "Template for analyzing codebases and generating documentation",
-                    "use_cases": ["code review", "documentation generation", "architecture analysis"],
-                    "config": {
-                        "job_id": "code-analysis-{timestamp}",
-                        "description": "Analyze codebase structure and patterns",
-                        "backend": {
-                            "backend_type": "claude_cli",
-                            "disable_mcp": True,
-                            "timeout_seconds": 300
-                        },
-                        "sheets": [
-                            {
-                                "name": "scan-codebase",
-                                "prompt": "Scan the current directory and provide an overview of:\n1. Project structure and key files\n2. Programming languages and frameworks used\n3. Main functionality and purpose\n\nFocus on understanding the codebase architecture.",
-                                "timeout_seconds": 180,
-                                "max_retries": 2,
-                                "validation": [
-                                    {
-                                        "type": "regex_match",
-                                        "description": "Output contains project structure analysis",
-                                        "pattern": "structure|files|directories"
-                                    }
-                                ]
-                            },
-                            {
-                                "name": "analyze-patterns",
-                                "prompt": "Based on the codebase scan, analyze:\n1. Architectural patterns and design principles\n2. Code quality and potential improvements\n3. Documentation gaps\n\nPrevious scan: {{ sheets.0.output }}",
-                                "dependencies": ["scan-codebase"],
-                                "timeout_seconds": 240,
-                                "validation": [
-                                    {
-                                        "type": "regex_match",
-                                        "description": "Analysis contains patterns and improvements",
-                                        "pattern": "patterns|quality|improvements"
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                },
-                "test-generation": {
-                    "name": "Test Generation Template",
-                    "description": "Template for generating comprehensive tests for existing code",
-                    "use_cases": ["test coverage", "quality assurance", "regression testing"],
-                    "config": {
-                        "job_id": "test-generation-{timestamp}",
-                        "description": "Generate comprehensive tests for codebase",
-                        "backend": {
-                            "backend_type": "claude_cli",
-                            "disable_mcp": True
-                        },
-                        "sheets": [
-                            {
-                                "name": "identify-testable-units",
-                                "prompt": "Identify functions, classes, and modules that need test coverage:\n1. List main functions and classes\n2. Identify current test coverage gaps\n3. Prioritize by importance and complexity",
-                                "timeout_seconds": 180,
-                                "validation": [
-                                    {
-                                        "type": "regex_match",
-                                        "description": "Lists testable units",
-                                        "pattern": "functions|classes|coverage|test"
-                                    }
-                                ]
-                            },
-                            {
-                                "name": "generate-unit-tests",
-                                "prompt": "Generate unit tests for the identified components:\n1. Create comprehensive test cases\n2. Include edge cases and error conditions\n3. Follow project testing conventions\n\nComponents to test: {{ sheets.0.output }}",
-                                "dependencies": ["identify-testable-units"],
-                                "timeout_seconds": 300,
-                                "validation": [
-                                    {
-                                        "type": "file_exists",
-                                        "description": "Test files created",
-                                        "path": "tests/"
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                },
-                "documentation": {
-                    "name": "Documentation Template",
-                    "description": "Template for generating project documentation",
-                    "use_cases": ["API documentation", "user guides", "README creation"],
-                    "config": {
-                        "job_id": "documentation-{timestamp}",
-                        "description": "Generate comprehensive project documentation",
-                        "backend": {
-                            "backend_type": "claude_cli",
-                            "disable_mcp": True
-                        },
-                        "sheets": [
-                            {
-                                "name": "create-readme",
-                                "prompt": "Create a comprehensive README.md file including:\n1. Project description and purpose\n2. Installation instructions\n3. Usage examples\n4. Contributing guidelines",
-                                "timeout_seconds": 240,
-                                "validation": [
-                                    {
-                                        "type": "file_exists",
-                                        "description": "README.md created",
-                                        "path": "README.md"
-                                    },
-                                    {
-                                        "type": "regex_match",
-                                        "description": "README contains required sections",
-                                        "pattern": "Installation|Usage|Contributing"
-                                    }
-                                ]
-                            },
-                            {
-                                "name": "api-documentation",
-                                "prompt": "Generate API documentation:\n1. Document all public functions and classes\n2. Include parameter descriptions and examples\n3. Add usage examples for key features",
-                                "timeout_seconds": 300,
-                                "validation": [
-                                    {
-                                        "type": "file_exists",
-                                        "description": "API documentation created",
-                                        "path": "docs/"
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                },
-                "refactoring": {
-                    "name": "Code Refactoring Template",
-                    "description": "Template for systematic code refactoring and improvement",
-                    "use_cases": ["code cleanup", "performance optimization", "modernization"],
-                    "config": {
-                        "job_id": "refactoring-{timestamp}",
-                        "description": "Systematic code refactoring and improvement",
-                        "backend": {
-                            "backend_type": "claude_cli",
-                            "disable_mcp": True
-                        },
-                        "learning": {
-                            "enabled": True,
-                            "pattern_detection": True
-                        },
-                        "sheets": [
-                            {
-                                "name": "identify-improvements",
-                                "prompt": "Identify code improvements:\n1. Find code duplication and redundancy\n2. Identify performance bottlenecks\n3. Look for outdated patterns or deprecated usage\n4. Suggest modernization opportunities",
-                                "timeout_seconds": 180,
-                                "validation": [
-                                    {
-                                        "type": "regex_match",
-                                        "description": "Identifies specific improvements",
-                                        "pattern": "duplication|performance|deprecated|improvements"
-                                    }
-                                ]
-                            },
-                            {
-                                "name": "implement-refactoring",
-                                "prompt": "Implement the identified improvements:\n1. Refactor duplicated code into reusable functions\n2. Optimize performance bottlenecks\n3. Update deprecated usage\n4. Ensure backward compatibility\n\nImprovements to implement: {{ sheets.0.output }}",
-                                "dependencies": ["identify-improvements"],
-                                "timeout_seconds": 400,
-                                "max_retries": 2,
-                                "validation": [
-                                    {
-                                        "type": "custom",
-                                        "description": "Code still compiles after refactoring",
-                                        "command": "python -m py_compile **/*.py"
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                }
+                "code-analysis": _build_code_analysis_template(),
+                "test-generation": _build_test_generation_template(),
+                "documentation": _build_documentation_template(),
+                "refactoring": _build_refactoring_template(),
             },
-            "usage": {
-                "description": "Mozart job templates provide starting points for common development tasks",
-                "how_to_use": [
-                    "Copy the desired template configuration",
-                    "Replace {timestamp} placeholders with actual values",
-                    "Modify prompts and validation rules for your specific needs",
-                    "Add or remove sheets based on your requirements",
-                    "Configure backend settings for your environment"
-                ],
-                "customization_tips": [
-                    "Adjust timeout_seconds based on expected task complexity",
-                    "Add sheet dependencies to ensure proper execution order",
-                    "Use regex_match validation for content verification",
-                    "Use file_exists validation for output verification",
-                    "Enable learning to improve performance over time"
-                ]
-            }
+            "usage": _build_template_usage_guide(),
         }
 
         return {
@@ -864,6 +681,249 @@ notifications:
                 }
             ]
         }
+
+
+def _build_code_analysis_template() -> dict[str, Any]:
+    """Build code analysis job template."""
+    return {
+        "name": "Code Analysis Template",
+        "description": "Template for analyzing codebases and generating documentation",
+        "use_cases": ["code review", "documentation generation", "architecture analysis"],
+        "config": {
+            "job_id": "code-analysis-{timestamp}",
+            "description": "Analyze codebase structure and patterns",
+            "backend": {
+                "backend_type": "claude_cli",
+                "disable_mcp": True,
+                "timeout_seconds": 300,
+            },
+            "sheets": [
+                {
+                    "name": "scan-codebase",
+                    "prompt": (
+                        "Scan the current directory and provide an overview of:\n"
+                        "1. Project structure and key files\n"
+                        "2. Programming languages and frameworks used\n"
+                        "3. Main functionality and purpose\n\n"
+                        "Focus on understanding the codebase architecture."
+                    ),
+                    "timeout_seconds": 180,
+                    "max_retries": 2,
+                    "validation": [
+                        {
+                            "type": "regex_match",
+                            "description": "Output contains project structure analysis",
+                            "pattern": "structure|files|directories",
+                        }
+                    ],
+                },
+                {
+                    "name": "analyze-patterns",
+                    "prompt": (
+                        "Based on the codebase scan, analyze:\n"
+                        "1. Architectural patterns and design principles\n"
+                        "2. Code quality and potential improvements\n"
+                        "3. Documentation gaps\n\n"
+                        "Previous scan: {{ sheets.0.output }}"
+                    ),
+                    "dependencies": ["scan-codebase"],
+                    "timeout_seconds": 240,
+                    "validation": [
+                        {
+                            "type": "regex_match",
+                            "description": "Analysis contains patterns and improvements",
+                            "pattern": "patterns|quality|improvements",
+                        }
+                    ],
+                },
+            ],
+        },
+    }
+
+
+def _build_test_generation_template() -> dict[str, Any]:
+    """Build test generation job template."""
+    return {
+        "name": "Test Generation Template",
+        "description": "Template for generating comprehensive tests for existing code",
+        "use_cases": ["test coverage", "quality assurance", "regression testing"],
+        "config": {
+            "job_id": "test-generation-{timestamp}",
+            "description": "Generate comprehensive tests for codebase",
+            "backend": {"backend_type": "claude_cli", "disable_mcp": True},
+            "sheets": [
+                {
+                    "name": "identify-testable-units",
+                    "prompt": (
+                        "Identify functions, classes, and modules that need test coverage:\n"
+                        "1. List main functions and classes\n"
+                        "2. Identify current test coverage gaps\n"
+                        "3. Prioritize by importance and complexity"
+                    ),
+                    "timeout_seconds": 180,
+                    "validation": [
+                        {
+                            "type": "regex_match",
+                            "description": "Lists testable units",
+                            "pattern": "functions|classes|coverage|test",
+                        }
+                    ],
+                },
+                {
+                    "name": "generate-unit-tests",
+                    "prompt": (
+                        "Generate unit tests for the identified components:\n"
+                        "1. Create comprehensive test cases\n"
+                        "2. Include edge cases and error conditions\n"
+                        "3. Follow project testing conventions\n\n"
+                        "Components to test: {{ sheets.0.output }}"
+                    ),
+                    "dependencies": ["identify-testable-units"],
+                    "timeout_seconds": 300,
+                    "validation": [
+                        {
+                            "type": "file_exists",
+                            "description": "Test files created",
+                            "path": "tests/",
+                        }
+                    ],
+                },
+            ],
+        },
+    }
+
+
+def _build_documentation_template() -> dict[str, Any]:
+    """Build documentation generation job template."""
+    return {
+        "name": "Documentation Template",
+        "description": "Template for generating project documentation",
+        "use_cases": ["API documentation", "user guides", "README creation"],
+        "config": {
+            "job_id": "documentation-{timestamp}",
+            "description": "Generate comprehensive project documentation",
+            "backend": {"backend_type": "claude_cli", "disable_mcp": True},
+            "sheets": [
+                {
+                    "name": "create-readme",
+                    "prompt": (
+                        "Create a comprehensive README.md file including:\n"
+                        "1. Project description and purpose\n"
+                        "2. Installation instructions\n"
+                        "3. Usage examples\n"
+                        "4. Contributing guidelines"
+                    ),
+                    "timeout_seconds": 240,
+                    "validation": [
+                        {
+                            "type": "file_exists",
+                            "description": "README.md created",
+                            "path": "README.md",
+                        },
+                        {
+                            "type": "regex_match",
+                            "description": "README contains required sections",
+                            "pattern": "Installation|Usage|Contributing",
+                        },
+                    ],
+                },
+                {
+                    "name": "api-documentation",
+                    "prompt": (
+                        "Generate API documentation:\n"
+                        "1. Document all public functions and classes\n"
+                        "2. Include parameter descriptions and examples\n"
+                        "3. Add usage examples for key features"
+                    ),
+                    "timeout_seconds": 300,
+                    "validation": [
+                        {
+                            "type": "file_exists",
+                            "description": "API documentation created",
+                            "path": "docs/",
+                        }
+                    ],
+                },
+            ],
+        },
+    }
+
+
+def _build_refactoring_template() -> dict[str, Any]:
+    """Build code refactoring job template."""
+    return {
+        "name": "Code Refactoring Template",
+        "description": "Template for systematic code refactoring and improvement",
+        "use_cases": ["code cleanup", "performance optimization", "modernization"],
+        "config": {
+            "job_id": "refactoring-{timestamp}",
+            "description": "Systematic code refactoring and improvement",
+            "backend": {"backend_type": "claude_cli", "disable_mcp": True},
+            "learning": {"enabled": True, "pattern_detection": True},
+            "sheets": [
+                {
+                    "name": "identify-improvements",
+                    "prompt": (
+                        "Identify code improvements:\n"
+                        "1. Find code duplication and redundancy\n"
+                        "2. Identify performance bottlenecks\n"
+                        "3. Look for outdated patterns or deprecated usage\n"
+                        "4. Suggest modernization opportunities"
+                    ),
+                    "timeout_seconds": 180,
+                    "validation": [
+                        {
+                            "type": "regex_match",
+                            "description": "Identifies specific improvements",
+                            "pattern": "duplication|performance|deprecated|improvements",
+                        }
+                    ],
+                },
+                {
+                    "name": "implement-refactoring",
+                    "prompt": (
+                        "Implement the identified improvements:\n"
+                        "1. Refactor duplicated code into reusable functions\n"
+                        "2. Optimize performance bottlenecks\n"
+                        "3. Update deprecated usage\n"
+                        "4. Ensure backward compatibility\n\n"
+                        "Improvements to implement: {{ sheets.0.output }}"
+                    ),
+                    "dependencies": ["identify-improvements"],
+                    "timeout_seconds": 400,
+                    "max_retries": 2,
+                    "validation": [
+                        {
+                            "type": "custom",
+                            "description": "Code still compiles after refactoring",
+                            "command": "python -m py_compile **/*.py",
+                        }
+                    ],
+                },
+            ],
+        },
+    }
+
+
+def _build_template_usage_guide() -> dict[str, Any]:
+    """Build usage guidance for job templates."""
+    return {
+        "description": "Mozart job templates provide starting points for common development tasks",
+        "how_to_use": [
+            "Copy the desired template configuration",
+            "Replace {timestamp} placeholders with actual values",
+            "Modify prompts and validation rules for your specific needs",
+            "Add or remove sheets based on your requirements",
+            "Configure backend settings for your environment",
+        ],
+        "customization_tips": [
+            "Adjust timeout_seconds based on expected task complexity",
+            "Add sheet dependencies to ensure proper execution order",
+            "Use regex_match validation for content verification",
+            "Use file_exists validation for output verification",
+            "Enable learning to improve performance over time",
+        ],
+    }
 
 
 # Code Review During Implementation:

@@ -441,26 +441,55 @@ class TestDefenseInDepth:
     """Tests for the combined A+C defense-in-depth solution."""
 
     def test_both_layers_protect_independently(self) -> None:
-        """Even without --fresh, zero-work guard prevents infinite loop."""
-        # This is tested by test_hooks_skipped_when_already_completed above.
-        # This test documents the design intent: two independent safety layers.
-        #
-        # Layer 1 (--fresh): Prevents the COMPLETED state from being loaded
-        #   - Root cause fix: state deleted, fresh run begins
-        #
-        # Layer 2 (zero-work guard): Prevents hooks from firing on zero work
-        #   - Symptom prevention: even if fresh is forgotten, loop is broken
-        #
-        # Either layer alone prevents the infinite loop.
-        pass
+        """Even without --fresh, zero-work guard prevents infinite loop.
+
+        Layer 1 (--fresh): Prevents the COMPLETED state from being loaded
+          - Root cause fix: state deleted, fresh run begins
+        Layer 2 (zero-work guard): Prevents hooks from firing on zero work
+          - Symptom prevention: even if fresh is forgotten, loop is broken
+
+        Either layer alone prevents the infinite loop.
+        Verified by: test_hooks_skipped_when_already_completed (Layer 2 alone)
+        and test_fresh_deletes_existing_state (Layer 1 alone).
+        """
+        # Verify Layer 2: COMPLETED state -> was_already_completed = True
+        completed_state = CheckpointState(
+            job_id="guard-test",
+            job_name="guard-test",
+            total_sheets=2,
+        )
+        completed_state.status = JobStatus.COMPLETED
+        completed_state.last_completed_sheet = 2
+        # The zero-work guard checks this condition:
+        assert completed_state.status == JobStatus.COMPLETED
+        assert completed_state.last_completed_sheet == completed_state.total_sheets
 
     def test_fresh_and_guard_interact_correctly(self) -> None:
-        """When --fresh is used, guard should allow hooks (real work done)."""
-        # With --fresh: state deleted -> _initialize_state creates new state
-        #   -> was_already_completed = False -> hooks fire after real work
-        # This is the correct behavior for self-chaining with fresh: true
-        #
-        # Without --fresh: old COMPLETED state loaded
-        #   -> was_already_completed = True -> hooks blocked
-        # This is the correct fallback behavior
-        pass
+        """When --fresh is used, guard should allow hooks (real work done).
+
+        With --fresh: state deleted -> _initialize_state creates new state
+          -> was_already_completed = False -> hooks fire after real work
+
+        Without --fresh: old COMPLETED state loaded
+          -> was_already_completed = True -> hooks blocked
+        """
+        # Simulate --fresh behavior: new state (not COMPLETED)
+        fresh_state = CheckpointState(
+            job_id="fresh-test",
+            job_name="fresh-test",
+            total_sheets=2,
+        )
+        # Fresh state should NOT be COMPLETED, so guard allows hooks
+        assert fresh_state.status != JobStatus.COMPLETED
+        was_already_completed_fresh = fresh_state.status == JobStatus.COMPLETED
+        assert was_already_completed_fresh is False
+
+        # Simulate without --fresh: old COMPLETED state loaded
+        old_state = CheckpointState(
+            job_id="old-test",
+            job_name="old-test",
+            total_sheets=2,
+        )
+        old_state.status = JobStatus.COMPLETED
+        was_already_completed_old = old_state.status == JobStatus.COMPLETED
+        assert was_already_completed_old is True

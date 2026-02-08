@@ -196,7 +196,7 @@ class DependencyDAG:
 
         # Run DFS from all unvisited nodes
         for sheet in range(1, self.total_sheets + 1):
-            if state[sheet] == 0:
+            if state[sheet] == _VisitState.UNVISITED:
                 dfs(sheet)
 
     def get_execution_order(self) -> list[int]:

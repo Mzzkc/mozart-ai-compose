@@ -19,6 +19,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
+from mozart.core.checkpoint import SynthesisResultDict
+
 from mozart.core.logging import get_logger
 from mozart.utils.time import utc_now
 
@@ -106,7 +108,7 @@ class SynthesisResult:
         """True if synthesis completed successfully."""
         return self.status == "done"
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> SynthesisResultDict:
         """Serialize to dictionary for persistence."""
         return {
             "batch_id": self.batch_id,
@@ -120,10 +122,10 @@ class SynthesisResult:
             "error_message": self.error_message,
             "metadata": self.metadata,
             "conflict_detection": self.conflict_detection,
-        }
+        }  # type: ignore[return-value]
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "SynthesisResult":
+    def from_dict(cls, data: SynthesisResultDict) -> "SynthesisResult":
         """Deserialize from dictionary."""
         created_at = data.get("created_at")
         completed_at = data.get("completed_at")

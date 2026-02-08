@@ -29,7 +29,7 @@ router = APIRouter(prefix="/api/scores", tags=["Score Editor"])
 
 class ValidateConfigRequest(BaseModel):
     """Request to validate a YAML configuration."""
-    content: str = Field(..., description="YAML configuration content to validate")
+    content: str = Field(..., max_length=1_000_000, description="YAML configuration content to validate")
     filename: str = Field("config.yaml", description="Virtual filename for context")
     workspace_path: str | None = Field(
         None, description="Optional workspace path for relative path validation"
@@ -125,6 +125,14 @@ def run_extended_validation(
     Returns:
         List of validation issues
     """
+    # Validate workspace_path to prevent path traversal attacks
+    if workspace_path is not None:
+        ws = Path(workspace_path).resolve()
+        # Reject paths containing traversal sequences or pointing to sensitive locations
+        if ".." in workspace_path or str(ws).startswith(("/etc", "/proc", "/sys", "/dev")):
+            _logger.warning("Rejected suspicious workspace_path: %s", workspace_path)
+            workspace_path = None
+
     # Create a virtual config path for the validator
     # Use workspace_path as base if provided, otherwise use current directory
     config_path = (

@@ -8,6 +8,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mozart.core.checkpoint import ValidationDetailDict
+from mozart.core.constants import HEALING_CONTEXT_TAIL_CHARS
+
 if TYPE_CHECKING:
     from mozart.backends.base import ExecutionResult
     from mozart.core.config import JobConfig
@@ -69,7 +72,7 @@ class ErrorContext:
 
     # Additional metadata
     raw_config_yaml: str | None = None
-    validation_details: list[dict[str, Any]] = field(default_factory=list)
+    validation_details: list[ValidationDetailDict] = field(default_factory=list)
 
     @classmethod
     def from_execution_result(
@@ -117,8 +120,8 @@ class ErrorContext:
             error_category=error_category,
             exit_code=result.exit_code,
             signal=result.exit_signal,
-            stdout_tail=result.stdout[-10000:] if result.stdout else "",
-            stderr_tail=result.stderr[-10000:] if result.stderr else "",
+            stdout_tail=result.stdout[-HEALING_CONTEXT_TAIL_CHARS:] if result.stdout else "",
+            stderr_tail=result.stderr[-HEALING_CONTEXT_TAIL_CHARS:] if result.stderr else "",
             config_path=config_path,
             config=config,
             workspace=config.workspace,

@@ -25,6 +25,7 @@ This module contains helpers used across multiple CLI command modules:
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -118,16 +119,28 @@ def is_quiet() -> bool:
 # Logging configuration
 # =============================================================================
 
-# Global logging configuration state
-_log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "WARNING"
-_log_file: Path | None = None
-_log_format: Literal["json", "console", "both"] = "console"
-_logging_configured: bool = False
+
+@dataclass
+class CliLoggingConfig:
+    """Centralized CLI logging configuration state.
+
+    Replaces 4 module-level variables with a single typed dataclass.
+    All getter/setter functions below delegate to this instance.
+    """
+
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "WARNING"
+    file: Path | None = None
+    format: Literal["json", "console", "both"] = "console"
+    configured: bool = False
+
+
+# Single global config instance
+_log_config = CliLoggingConfig()
 
 
 def get_log_level() -> str:
     """Get current log level."""
-    return _log_level
+    return _log_config.level
 
 
 def set_log_level(level: str) -> None:
@@ -136,13 +149,12 @@ def set_log_level(level: str) -> None:
     Args:
         level: Log level string (DEBUG, INFO, WARNING, ERROR).
     """
-    global _log_level
-    _log_level = level  # type: ignore[assignment]
+    _log_config.level = level  # type: ignore[assignment]
 
 
 def get_log_file() -> Path | None:
     """Get current log file path."""
-    return _log_file
+    return _log_config.file
 
 
 def set_log_file(path: Path | None) -> None:
@@ -155,15 +167,14 @@ def set_log_file(path: Path | None) -> None:
     Args:
         path: Path for log file output, or None to disable file logging.
     """
-    global _log_file, _log_format
-    _log_file = path
+    _log_config.file = path
     if path:
-        _log_format = "console"
+        _log_config.format = "console"
 
 
 def get_log_format() -> str:
     """Get current log format."""
-    return _log_format
+    return _log_config.format
 
 
 def set_log_format(fmt: str) -> None:
@@ -172,8 +183,7 @@ def set_log_format(fmt: str) -> None:
     Args:
         fmt: Log format string (json, console, both).
     """
-    global _log_format
-    _log_format = fmt  # type: ignore[assignment]
+    _log_config.format = fmt  # type: ignore[assignment]
 
 
 def configure_global_logging(console: Console) -> None:
@@ -188,17 +198,16 @@ def configure_global_logging(console: Console) -> None:
     Raises:
         typer.Exit: If logging configuration fails.
     """
-    global _logging_configured
-    if _logging_configured:
+    if _log_config.configured:
         return
 
     try:
         configure_logging(
-            level=_log_level,
-            format=_log_format,
-            file_path=_log_file,
+            level=_log_config.level,
+            format=_log_config.format,
+            file_path=_log_config.file,
         )
-        _logging_configured = True
+        _log_config.configured = True
         # Note: Intentionally not logging here to avoid polluting --json output
         # If debugging is needed, use --log-file to redirect logs
     except ValueError as e:
@@ -210,11 +219,10 @@ def configure_global_logging(console: Console) -> None:
 def reset_logging_state() -> None:
     """Reset logging state (primarily for testing).
 
-    This resets the _logging_configured flag so logging can be
+    This resets the configured flag so logging can be
     reconfigured in tests.
     """
-    global _logging_configured
-    _logging_configured = False
+    _log_config.configured = False
 
 
 # =============================================================================
@@ -487,62 +495,6 @@ async def wait_for_pause_ack(
 
 
 # =============================================================================
-# Duration formatting
-# =============================================================================
-
-
-def format_duration(seconds: float | None) -> str:
-    """Format a duration in seconds to human-readable string.
-
-    Args:
-        seconds: Duration in seconds, or None.
-
-    Returns:
-        Human-readable duration string (e.g., "5.2s", "3m 12s", "1h 30m").
-    """
-    if seconds is None:
-        return "N/A"
-
-    if seconds < 60:
-        return f"{seconds:.1f}s"
-    elif seconds < 3600:
-        minutes = int(seconds // 60)
-        secs = int(seconds % 60)
-        return f"{minutes}m {secs}s"
-    else:
-        hours = int(seconds // 3600)
-        minutes = int((seconds % 3600) // 60)
-        return f"{hours}h {minutes}m"
-
-
-# =============================================================================
-# Error type inference
-# =============================================================================
-
-
-def infer_error_type(
-    error_category: str | None,
-) -> Literal["transient", "rate_limit", "permanent"]:
-    """Infer error type from error category string.
-
-    Args:
-        error_category: Error category from sheet state.
-
-    Returns:
-        Error type literal: transient, rate_limit, or permanent.
-    """
-    if error_category is None:
-        return "permanent"
-
-    category_lower = error_category.lower()
-    if "rate" in category_lower or "limit" in category_lower:
-        return "rate_limit"
-    if category_lower in ("transient", "timeout", "network", "signal"):
-        return "transient"
-    return "permanent"
-
-
-# =============================================================================
 # Last activity time
 # =============================================================================
 
@@ -612,8 +564,6 @@ __all__ = [
     "create_pause_signal",
     "wait_for_pause_ack",
     # Utilities
-    "format_duration",
-    "infer_error_type",
     "get_last_activity_time",
     # Logger
     "_logger",

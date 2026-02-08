@@ -215,7 +215,7 @@ def format_validation_status(passed: bool | None) -> str:
 
 
 # =============================================================================
-# Error type inference (moved from helpers.py for cohesion)
+# Error type inference
 # =============================================================================
 
 
@@ -570,11 +570,17 @@ def format_error_details(error: Any) -> str:
             lines.append(f"[bold]Context:[/bold] {context_str}")
 
     if error.stdout_tail:
-        lines.append(f"\n[bold]Stdout (tail):[/bold]\n[dim]{error.stdout_tail[:500]}[/dim]")
+        from mozart.core.constants import TRUNCATE_STDOUT_TAIL_CHARS
+        lines.append(
+            f"\n[bold]Stdout (tail):[/bold]\n"
+            f"[dim]{error.stdout_tail[:TRUNCATE_STDOUT_TAIL_CHARS]}[/dim]"
+        )
 
     if error.stderr_tail:
+        from mozart.core.constants import TRUNCATE_STDOUT_TAIL_CHARS
         lines.append(
-            f"\n[bold]Stderr (tail):[/bold]\n[red dim]{error.stderr_tail[:500]}[/red dim]"
+            f"\n[bold]Stderr (tail):[/bold]\n"
+            f"[red dim]{error.stderr_tail[:TRUNCATE_STDOUT_TAIL_CHARS]}[/red dim]"
         )
 
     if error.stack_trace:

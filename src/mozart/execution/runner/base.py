@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     from mozart.learning.global_store import GlobalLearningStore
 
 from mozart.backends.base import Backend
-from mozart.core.checkpoint import CheckpointState, JobStatus
+from mozart.core.checkpoint import CheckpointState, JobStatus, ProgressSnapshotDict
 from mozart.core.config import JobConfig
 from mozart.core.errors import ErrorClassifier
 from mozart.core.logging import ExecutionContext, MozartLogger, get_logger
@@ -192,6 +192,9 @@ class JobRunnerBase:
         self._exploration_pattern_ids: list[str] = []
         self._exploitation_pattern_ids: list[str] = []
 
+        # Lock for parallel state mutations (FIX-04: race condition guard)
+        self._state_lock: asyncio.Lock = asyncio.Lock()
+
         # Graceful shutdown state
         self._shutdown_requested = False
         self._current_state: CheckpointState | None = None
@@ -207,7 +210,7 @@ class JobRunnerBase:
 
         # Execution progress tracking (Task 4)
         self._current_sheet_num: int | None = None
-        self._execution_progress_snapshots: list[dict[str, Any]] = []
+        self._execution_progress_snapshots: list[ProgressSnapshotDict] = []
 
         # Structured logging (Task 8: Logging Integration)
         self._logger: MozartLogger = get_logger("runner")

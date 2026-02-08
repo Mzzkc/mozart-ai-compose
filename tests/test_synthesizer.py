@@ -771,8 +771,8 @@ class TestCLISynthesisDisplay:
             },
         }
 
-        # Capture output
-        with patch("mozart.cli.console") as mock_console:
+        # Capture output - patch where console is used, not where it's re-exported
+        with patch("mozart.cli.commands.status.console") as mock_console:
             _output_status_rich(state)
 
             # Find synthesis section in calls
@@ -798,7 +798,7 @@ class TestCLISynthesisDisplay:
         # Empty synthesis_results
         state.synthesis_results = {}
 
-        with patch("mozart.cli.console") as mock_console:
+        with patch("mozart.cli.commands.status.console") as mock_console:
             _output_status_rich(state)
 
             call_args_list = mock_console.print.call_args_list

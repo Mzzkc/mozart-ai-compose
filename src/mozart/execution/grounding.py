@@ -13,6 +13,8 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
+from mozart.core.checkpoint import ValidationDetailDict
+
 
 class GroundingPhase(str, Enum):
     """When the grounding hook should execute relative to validation."""
@@ -53,7 +55,7 @@ class GroundingContext:
     validation_passed: bool | None = None
     """Result of internal validation (None if pre_validation phase)."""
 
-    validation_details: list[dict[str, Any]] = field(default_factory=list)
+    validation_details: list[ValidationDetailDict] = field(default_factory=list)
     """Detailed validation results from internal engine."""
 
     metadata: dict[str, Any] = field(default_factory=dict)

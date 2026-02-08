@@ -10,6 +10,7 @@ This module provides:
 - FailureHistoryStore: Queries past validation failures for history-aware prompts
 """
 
+import asyncio
 import re
 import subprocess
 import time
@@ -19,6 +20,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mozart.core.checkpoint import ValidationDetailDict
 from mozart.core.config import ValidationRule
 from mozart.utils.time import utc_now
 
@@ -53,7 +55,7 @@ class ValidationResult:
     """Hint for how to fix the issue.
     Example: 'Ensure the file is created in workspace/output/'"""
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> ValidationDetailDict:
         """Convert to serializable dictionary."""
         return {
             "rule_type": self.rule.type,
@@ -71,7 +73,7 @@ class ValidationResult:
             "failure_reason": self.failure_reason,
             "failure_category": self.failure_category,
             "suggested_fix": self.suggested_fix,
-        }
+        }  # type: ignore[return-value]
 
     def format_failure_summary(self) -> str:
         """Format failure information for prompt injection.
@@ -203,7 +205,7 @@ class SheetValidationResult:
         """Get results that failed."""
         return [r for r in self.results if not r.passed]
 
-    def to_dict_list(self) -> list[dict[str, Any]]:
+    def to_dict_list(self) -> list[ValidationDetailDict]:
         """Convert all results to serializable list."""
         return [r.to_dict() for r in self.results]
 
@@ -484,7 +486,7 @@ class ValidationEngine:
         """
         return self._filter_applicable_rules(rules)
 
-    def run_validations(self, rules: list[ValidationRule]) -> SheetValidationResult:
+    async def run_validations(self, rules: list[ValidationRule]) -> SheetValidationResult:
         """Execute all validation rules and return aggregate result.
 
         This method runs all validations without staging. For staged execution
@@ -504,7 +506,7 @@ class ValidationEngine:
         results: list[ValidationResult] = []
 
         for rule in applicable_rules:
-            result = self._run_single_validation(rule)
+            result = await self._run_single_validation(rule)
             results.append(result)
 
         return SheetValidationResult(
@@ -512,7 +514,7 @@ class ValidationEngine:
             results=results,
         )
 
-    def run_staged_validations(
+    async def run_staged_validations(
         self, rules: list[ValidationRule]
     ) -> tuple[SheetValidationResult, int | None]:
         """Execute validations in stage order with fail-fast behavior.
@@ -556,7 +558,7 @@ class ValidationEngine:
             stage_passed = True
 
             for rule in stage_rules:
-                result = self._run_single_validation(rule)
+                result = await self._run_single_validation(rule)
                 all_results.append(result)
                 if not result.passed:
                     stage_passed = False
@@ -593,7 +595,7 @@ class ValidationEngine:
         "command_succeeds",
     })
 
-    def _run_single_validation(self, rule: ValidationRule) -> ValidationResult:
+    async def _run_single_validation(self, rule: ValidationRule) -> ValidationResult:
         """Execute a single validation rule with optional retry logic.
 
         For file-based validations, retries help handle filesystem race conditions
@@ -643,9 +645,9 @@ class ValidationEngine:
 
                 last_result = result
 
-                # If more attempts remaining, wait and retry
+                # If more attempts remaining, wait and retry (non-blocking)
                 if attempt < max_attempts - 1:
-                    time.sleep(delay_seconds)
+                    await asyncio.sleep(delay_seconds)
 
             except Exception as e:
                 last_result = ValidationResult(
@@ -655,7 +657,7 @@ class ValidationEngine:
                     error_message=f"Validation error: {e}",
                 )
                 if attempt < max_attempts - 1:
-                    time.sleep(delay_seconds)
+                    await asyncio.sleep(delay_seconds)
 
         # Return the last failed result
         if last_result:

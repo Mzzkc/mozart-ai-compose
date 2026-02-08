@@ -24,6 +24,7 @@ from mozart.execution.dag import DependencyDAG
 if TYPE_CHECKING:
     from mozart.core.checkpoint import CheckpointState
     from mozart.execution.runner import JobRunner
+    from mozart.state.base import StateBackend
 
 # Module logger
 _logger = get_logger("parallel")
@@ -121,6 +122,25 @@ class ParallelExecutionConfig:
     budget_per_sheet: float | None = None
 
 
+class _LockingStateBackend:
+    """Wraps a StateBackend to serialize save() calls under an asyncio.Lock.
+
+    Used during parallel execution to prevent concurrent sheets from
+    interleaving state mutations and corrupting checkpoint data.
+    """
+
+    def __init__(self, inner: "StateBackend", lock: asyncio.Lock) -> None:
+        self._inner = inner
+        self._lock = lock
+
+    async def save(self, state: "CheckpointState") -> None:
+        async with self._lock:
+            await self._inner.save(state)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
 class ParallelExecutor:
     """Executes sheets in parallel using asyncio.TaskGroup.
 
@@ -151,7 +171,7 @@ class ParallelExecutor:
         """Initialize parallel executor.
 
         Args:
-            runner: JobRunner to execute individual sheets.
+            runner: Any object satisfying ParallelExecutorHost protocol.
             config: Parallel execution configuration.
         """
         self.runner = runner
@@ -203,6 +223,11 @@ class ParallelExecutor:
             skipped=len(result.skipped),
         )
 
+        # Install locking wrapper to serialize state saves across concurrent sheets
+        original_backend = self.runner.state_backend
+        lock = self.runner._state_lock
+        self.runner.state_backend = _LockingStateBackend(original_backend, lock)  # type: ignore[assignment]
+
         try:
             # Use TaskGroup for structured concurrency (Python 3.11+)
             async with asyncio.TaskGroup() as tg:
@@ -242,6 +267,10 @@ class ParallelExecutor:
                     result.failed.append(sheet_num)
                     if sheet_num not in result.error_details:
                         result.error_details[sheet_num] = "Task failed in parallel group"
+
+        finally:
+            # Restore original state backend
+            self.runner.state_backend = original_backend
 
         result.duration_seconds = time.monotonic() - start_time
         result.completed.sort()

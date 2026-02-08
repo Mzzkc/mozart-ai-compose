@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from mozart.core.checkpoint import PromptMetricsDict
+
 # Common file path patterns to extract from prompts
 FILE_PATH_PATTERNS = [
     # Unix-style absolute paths: /path/to/file.txt
@@ -109,7 +111,7 @@ class PromptMetrics:
 
         return sorted(paths)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> PromptMetricsDict:
         """Convert to serializable dictionary."""
         return {
             "character_count": self.character_count,
@@ -118,7 +120,7 @@ class PromptMetrics:
             "word_count": self.word_count,
             "has_file_references": self.has_file_references,
             "referenced_paths": self.referenced_paths,
-        }
+        }  # type: ignore[return-value]
 
 
 @dataclass

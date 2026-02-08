@@ -1081,7 +1081,7 @@ class TestStateBackendLogging:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ):
         """Test that JSON backend logs corruption detection."""
-        from mozart.state.json_backend import JsonStateBackend
+        from mozart.state.json_backend import JsonStateBackend, StateCorruptionError
 
         state_dir = tmp_path / "state"
         state_dir.mkdir()
@@ -1098,8 +1098,8 @@ class TestStateBackendLogging:
         corrupted_file = state_dir / "test-job.json"
         corrupted_file.write_text("{ this is not valid json")
 
-        loaded = await backend.load("test-job")
-        assert loaded is None
+        with pytest.raises(StateCorruptionError):
+            await backend.load("test-job")
 
         captured = capsys.readouterr()
         err = strip_ansi(captured.err)

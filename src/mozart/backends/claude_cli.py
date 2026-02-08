@@ -159,7 +159,7 @@ class ClaudeCliBackend(Backend):
         self.cli_model = cli_model
         self.allowed_tools = allowed_tools
         self.system_prompt_file = system_prompt_file
-        self.working_directory = working_directory
+        self._working_directory = working_directory
         self.timeout_seconds = timeout_seconds
         self.progress_callback = progress_callback
         self.progress_interval_seconds = progress_interval_seconds

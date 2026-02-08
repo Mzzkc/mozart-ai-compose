@@ -10,6 +10,7 @@ SENSITIVE_PATTERNS to automatically redact fields containing 'api_key', 'token',
 
 import os
 import time
+from pathlib import Path
 
 import anthropic
 
@@ -51,6 +52,7 @@ class AnthropicApiBackend(Backend):
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.timeout_seconds = timeout_seconds
+        self._working_directory: Path | None = None
 
         # Get API key from environment
         self._api_key = os.environ.get(api_key_env)

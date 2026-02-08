@@ -343,11 +343,6 @@ class LearningConfig(BaseModel):
         default=True,
         description="Query and apply patterns from global learning store",
     )
-    time_aware_scheduling: bool = Field(
-        default=False,
-        description="Enable time-aware scheduling based on historical success patterns. "
-        "When enabled, warns if executing during historically problematic hours.",
-    )
     # Pattern Application: Exploration mode (epsilon-greedy)
     exploration_rate: float = Field(
         default=0.15,

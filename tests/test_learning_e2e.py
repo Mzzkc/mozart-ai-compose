@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from mozart.core.checkpoint import SheetStatus
 from mozart.learning.global_store import GlobalLearningStore
 
 
@@ -241,3 +242,216 @@ class TestLearningCycleE2E:
         found = [p for p in patterns if p.id == pattern_id]
         assert len(found) == 1
         assert found[0].led_to_failure_count >= 3
+
+
+class TestErrorRecoveryLearningE2E:
+    """E2E tests for error recovery wait time learning.
+
+    FIX-11g: Tests that the full cycle of error recovery recording
+    and learned wait time retrieval works across simulated job runs.
+    """
+
+    def test_error_recovery_learn_and_apply_wait_time(
+        self, store: GlobalLearningStore
+    ) -> None:
+        """Test: record recoveries -> learned wait time adapts.
+
+        Simulates multiple error recovery events and verifies the store
+        returns learned wait times based on successful recoveries.
+        """
+        error_code = "E101"
+        model = "claude-sonnet-4-20250514"
+
+        # Record several successful recoveries with consistent wait times
+        for i in range(5):
+            store.record_error_recovery(
+                error_code=error_code,
+                suggested_wait=60.0,
+                actual_wait=45.0,
+                recovery_success=True,
+                model=model,
+            )
+
+        # Record one failed recovery (shorter wait didn't work)
+        store.record_error_recovery(
+            error_code=error_code,
+            suggested_wait=60.0,
+            actual_wait=10.0,
+            recovery_success=False,
+            model=model,
+        )
+
+        # Query learned wait time - should converge toward successful waits
+        delay, confidence, strategy = store.get_learned_wait_time_with_fallback(
+            error_code=error_code,
+            static_delay=60.0,
+            model=model,
+            min_samples=3,
+            min_confidence=0.5,
+        )
+
+        assert strategy != "static_fallback", "Should have learned from recoveries"
+        assert confidence >= 0.5, "5 successful samples should give reasonable confidence"
+        # Learned delay should be closer to 45.0 (the successful actual_wait)
+        assert delay > 0
+
+    def test_error_recovery_insufficient_samples_falls_back(
+        self, store: GlobalLearningStore
+    ) -> None:
+        """Test: with too few samples, falls back to static delay."""
+        delay, confidence, strategy = store.get_learned_wait_time_with_fallback(
+            error_code="E999",
+            static_delay=120.0,
+            min_samples=5,
+            min_confidence=0.8,
+        )
+
+        assert strategy == "static_fallback"
+        assert delay == 120.0
+
+
+class TestTrustScoreEvolutionE2E:
+    """E2E tests for pattern trust score evolution through lifecycle.
+
+    FIX-11g: Tests the quarantine → validate → auto-apply trust lifecycle.
+    """
+
+    def test_trust_score_evolves_through_applications(
+        self, store: GlobalLearningStore
+    ) -> None:
+        """Pattern trust score should increase after successful applications."""
+        pattern_id = store.record_pattern(
+            pattern_type="prompt_tweak",
+            pattern_name="add_file_path_hint",
+            description="Add explicit file path hint to prompt",
+            context_tags=["prompt", "file"],
+        )
+
+        # Get initial trust score
+        initial_trust = store.calculate_trust_score(pattern_id)
+
+        # Record several successful applications
+        for i in range(5):
+            store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"exec-trust-{i}",
+                outcome_improved=True,
+                retry_count_before=2,
+                retry_count_after=0,
+                application_mode="exploitation",
+                validation_passed=True,
+            )
+
+        # Trust should increase
+        updated_trust = store.calculate_trust_score(pattern_id)
+        assert updated_trust >= initial_trust
+
+    def test_quarantine_lifecycle(self, store: GlobalLearningStore) -> None:
+        """Test pattern quarantine -> validate -> auto-apply eligibility."""
+        pattern_id = store.record_pattern(
+            pattern_type="error_recovery",
+            pattern_name="lifecycle_test_pattern",
+            description="Test quarantine lifecycle",
+            context_tags=["test"],
+        )
+
+        # Initially PENDING - not eligible for auto-apply with require_validated
+        patterns = store.get_patterns_for_auto_apply(
+            trust_threshold=0.0,
+            require_validated=True,
+            limit=10,
+        )
+        validated_ids = {p.id for p in patterns}
+        assert pattern_id not in validated_ids
+
+        # Validate the pattern
+        store.validate_pattern(pattern_id)
+
+        # Now should be eligible for auto-apply
+        patterns = store.get_patterns_for_auto_apply(
+            trust_threshold=0.0,
+            require_validated=True,
+            limit=10,
+        )
+        validated_ids = {p.id for p in patterns}
+        assert pattern_id in validated_ids
+
+        # Retire the pattern
+        store.retire_pattern(pattern_id)
+
+        # Retired patterns should not be eligible
+        patterns = store.get_patterns_for_auto_apply(
+            trust_threshold=0.0,
+            require_validated=True,
+            limit=10,
+        )
+        retired_ids = {p.id for p in patterns}
+        assert pattern_id not in retired_ids
+
+
+class TestSuccessFactorsE2E:
+    """E2E tests for success factor recording and analysis.
+
+    FIX-11g: Tests the metacognitive reflection system that tracks
+    WHY patterns succeed.
+    """
+
+    def test_success_factors_recorded_and_analyzed(
+        self, store: GlobalLearningStore
+    ) -> None:
+        """Test recording success factors and querying pattern analysis."""
+        pattern_id = store.record_pattern(
+            pattern_type="validation_fix",
+            pattern_name="fix_output_format",
+            description="Fix output to match expected format",
+            context_tags=["validation", "format"],
+        )
+
+        # Record success factors
+        store.update_success_factors(
+            pattern_id=pattern_id,
+            validation_types=["file_exists", "content_regex"],
+            error_categories=["missing"],
+            prior_sheet_status="completed",
+            retry_iteration=0,
+            escalation_was_pending=False,
+            grounding_confidence=0.95,
+        )
+
+        # Analyze why the pattern works
+        analysis = store.analyze_pattern_why(pattern_id)
+
+        assert analysis is not None
+        assert analysis["pattern_name"] == "fix_output_format"
+        assert analysis["has_factors"] is True
+
+    def test_execution_stats_reflect_recorded_outcomes(
+        self, store: GlobalLearningStore
+    ) -> None:
+        """Test that execution stats aggregate recorded outcomes."""
+        from mozart.learning.outcomes import SheetOutcome
+
+        # Record outcomes from simulated job execution
+        for i in range(3):
+            outcome = SheetOutcome(
+                sheet_id=f"sheet-{i}",
+                job_id="stats-test-job",
+                validation_results=[{"passed": True, "rule_type": "file_exists"}],
+                execution_duration=10.0 + i,
+                retry_count=0,
+                completion_mode_used=False,
+                final_status=SheetStatus.COMPLETED,
+                validation_pass_rate=1.0,
+                first_attempt_success=True,
+                patterns_applied=[],
+            )
+
+            store.record_outcome(
+                outcome=outcome,
+                workspace_path=Path("/tmp/stats-test"),
+                model="claude-sonnet-4-20250514",
+            )
+
+        # Query execution statistics
+        stats = store.get_execution_stats()
+        assert stats["total_executions"] >= 3

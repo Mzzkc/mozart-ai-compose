@@ -13,7 +13,7 @@ reactive escalation system.
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 
-from mozart.core.checkpoint import SheetState
+from mozart.core.checkpoint import SheetState, ValidationDetailDict
 from mozart.execution.validation import SheetValidationResult
 
 
@@ -190,7 +190,7 @@ class EscalationContext:
     sheet_num: int
     """Sheet number that triggered escalation."""
 
-    validation_results: list[dict[str, Any]]
+    validation_results: list[ValidationDetailDict]
     """Serialized validation results from the sheet."""
 
     confidence: float

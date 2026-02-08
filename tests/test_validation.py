@@ -161,7 +161,7 @@ class TestSheetValidationResult:
 class TestValidationEngine:
     """Tests for ValidationEngine."""
 
-    def test_file_exists_pass(self, temp_workspace: Path):
+    async def test_file_exists_pass(self, temp_workspace: Path):
         """Test file_exists validation passes when file exists."""
         # Create test file
         test_file = temp_workspace / "output.txt"
@@ -176,10 +176,10 @@ class TestValidationEngine:
             workspace=temp_workspace,
             sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
-        sheet_result = engine.run_validations([rule])
+        sheet_result = await engine.run_validations([rule])
         assert sheet_result.results[0].passed is True
 
-    def test_file_exists_fail(self, temp_workspace: Path):
+    async def test_file_exists_fail(self, temp_workspace: Path):
         """Test file_exists validation fails when file missing."""
         rule = ValidationRule(
             type="file_exists",
@@ -190,10 +190,10 @@ class TestValidationEngine:
             workspace=temp_workspace,
             sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
-        sheet_result = engine.run_validations([rule])
+        sheet_result = await engine.run_validations([rule])
         assert sheet_result.results[0].passed is False
 
-    def test_content_contains_pass(self, temp_workspace: Path):
+    async def test_content_contains_pass(self, temp_workspace: Path):
         """Test content_contains validation passes when pattern found."""
         test_file = temp_workspace / "log.txt"
         test_file.write_text("Operation completed: SUCCESS")
@@ -208,10 +208,10 @@ class TestValidationEngine:
             workspace=temp_workspace,
             sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
-        sheet_result = engine.run_validations([rule])
+        sheet_result = await engine.run_validations([rule])
         assert sheet_result.results[0].passed is True
 
-    def test_content_contains_fail(self, temp_workspace: Path):
+    async def test_content_contains_fail(self, temp_workspace: Path):
         """Test content_contains validation fails when pattern not found."""
         test_file = temp_workspace / "log.txt"
         test_file.write_text("Operation failed: ERROR")
@@ -226,10 +226,10 @@ class TestValidationEngine:
             workspace=temp_workspace,
             sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
-        sheet_result = engine.run_validations([rule])
+        sheet_result = await engine.run_validations([rule])
         assert sheet_result.results[0].passed is False
 
-    def test_path_template_expansion(self, temp_workspace: Path):
+    async def test_path_template_expansion(self, temp_workspace: Path):
         """Test path templates are expanded correctly."""
         test_file = temp_workspace / "sheet-1-output.txt"
         test_file.write_text("content")
@@ -243,10 +243,10 @@ class TestValidationEngine:
             workspace=temp_workspace,
             sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
-        sheet_result = engine.run_validations([rule])
+        sheet_result = await engine.run_validations([rule])
         assert sheet_result.results[0].passed is True
 
-    def test_run_validations(self, temp_workspace: Path):
+    async def test_run_validations(self, temp_workspace: Path):
         """Test validating multiple rules."""
         # Create test files
         (temp_workspace / "file1.txt").write_text("SUCCESS")
@@ -271,14 +271,14 @@ class TestValidationEngine:
             workspace=temp_workspace,
             sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
-        sheet_result = engine.run_validations(rules)
+        sheet_result = await engine.run_validations(rules)
 
         assert len(sheet_result.results) == 3
         assert len(sheet_result.get_passed_results()) == 2
         assert len(sheet_result.get_failed_results()) == 1
         assert sheet_result.pass_percentage == pytest.approx(66.67, rel=0.01)
 
-    def test_command_succeeds_pass(self, temp_workspace: Path):
+    async def test_command_succeeds_pass(self, temp_workspace: Path):
         """Test command_succeeds validation passes when command succeeds."""
         rule = ValidationRule(
             type="command_succeeds",
@@ -289,11 +289,11 @@ class TestValidationEngine:
             workspace=temp_workspace,
             sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
-        sheet_result = engine.run_validations([rule])
+        sheet_result = await engine.run_validations([rule])
         assert sheet_result.results[0].passed is True
         assert sheet_result.results[0].actual_value == "exit_code=0"
 
-    def test_command_succeeds_fail(self, temp_workspace: Path):
+    async def test_command_succeeds_fail(self, temp_workspace: Path):
         """Test command_succeeds validation fails when command fails."""
         rule = ValidationRule(
             type="command_succeeds",
@@ -304,11 +304,11 @@ class TestValidationEngine:
             workspace=temp_workspace,
             sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
-        sheet_result = engine.run_validations([rule])
+        sheet_result = await engine.run_validations([rule])
         assert sheet_result.results[0].passed is False
         assert sheet_result.results[0].actual_value == "exit_code=1"
 
-    def test_command_succeeds_with_working_directory(self, temp_workspace: Path):
+    async def test_command_succeeds_with_working_directory(self, temp_workspace: Path):
         """Test command_succeeds uses specified working directory."""
         # Create a subdirectory
         subdir = temp_workspace / "subdir"
@@ -325,14 +325,14 @@ class TestValidationEngine:
             workspace=temp_workspace,
             sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
-        sheet_result = engine.run_validations([rule])
+        sheet_result = await engine.run_validations([rule])
         assert sheet_result.results[0].passed is True
 
 
 class TestStagedValidation:
     """Tests for staged validation with fail-fast behavior."""
 
-    def test_staged_validation_all_pass(self, temp_workspace: Path):
+    async def test_staged_validation_all_pass(self, temp_workspace: Path):
         """Test staged validation when all stages pass."""
         # Create test files
         (temp_workspace / "file1.txt").write_text("content1")
@@ -356,13 +356,13 @@ class TestStagedValidation:
             workspace=temp_workspace,
             sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
-        result, failed_stage = engine.run_staged_validations(rules)
+        result, failed_stage = await engine.run_staged_validations(rules)
 
         assert failed_stage is None
         assert result.all_passed is True
         assert len(result.results) == 2
 
-    def test_staged_validation_fail_fast(self, temp_workspace: Path):
+    async def test_staged_validation_fail_fast(self, temp_workspace: Path):
         """Test that failure in stage 1 skips stage 2."""
         # Create only file2, not file1
         (temp_workspace / "file2.txt").write_text("content2")
@@ -385,7 +385,7 @@ class TestStagedValidation:
             workspace=temp_workspace,
             sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
-        result, failed_stage = engine.run_staged_validations(rules)
+        result, failed_stage = await engine.run_staged_validations(rules)
 
         assert failed_stage == 1
         assert result.all_passed is False
@@ -396,7 +396,7 @@ class TestStagedValidation:
         assert result.results[1].passed is False
         assert result.results[1].failure_category == "skipped"
 
-    def test_staged_validation_multiple_in_same_stage(self, temp_workspace: Path):
+    async def test_staged_validation_multiple_in_same_stage(self, temp_workspace: Path):
         """Test multiple validations in the same stage."""
         (temp_workspace / "file1.txt").write_text("content1")
         # file2 doesn't exist
@@ -425,7 +425,7 @@ class TestStagedValidation:
             workspace=temp_workspace,
             sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
-        result, failed_stage = engine.run_staged_validations(rules)
+        result, failed_stage = await engine.run_staged_validations(rules)
 
         assert failed_stage == 1
         assert len(result.results) == 3
@@ -436,13 +436,13 @@ class TestStagedValidation:
         # Stage 2 was skipped
         assert result.results[2].failure_category == "skipped"
 
-    def test_staged_validation_empty_rules(self, temp_workspace: Path):
+    async def test_staged_validation_empty_rules(self, temp_workspace: Path):
         """Test staged validation with empty rules."""
         engine = ValidationEngine(
             workspace=temp_workspace,
             sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
-        result, failed_stage = engine.run_staged_validations([])
+        result, failed_stage = await engine.run_staged_validations([])
 
         assert failed_stage is None
         assert len(result.results) == 0
@@ -459,7 +459,7 @@ class TestStagedValidation:
         )
         assert rule.stage == 1
 
-    def test_staged_validation_non_sequential_stages(self, temp_workspace: Path):
+    async def test_staged_validation_non_sequential_stages(self, temp_workspace: Path):
         """Test staged validation with non-sequential stage numbers."""
         (temp_workspace / "file.txt").write_text("content")
 
@@ -481,12 +481,12 @@ class TestStagedValidation:
             workspace=temp_workspace,
             sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
-        result, failed_stage = engine.run_staged_validations(rules)
+        result, failed_stage = await engine.run_staged_validations(rules)
 
         assert failed_stage is None
         assert result.all_passed is True
 
-    def test_executed_pass_percentage_excludes_skipped(self, temp_workspace: Path):
+    async def test_executed_pass_percentage_excludes_skipped(self, temp_workspace: Path):
         """Test that executed_pass_percentage excludes skipped validations.
 
         This is critical for completion mode decisions - skipped validations
@@ -528,7 +528,7 @@ class TestStagedValidation:
             workspace=temp_workspace,
             sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
-        result, failed_stage = engine.run_staged_validations(rules)
+        result, failed_stage = await engine.run_staged_validations(rules)
 
         # Stage 1 failed (1/2 passed), stages 2-3 skipped
         assert failed_stage == 1
@@ -828,7 +828,7 @@ class TestValidationRetry:
         )
         assert rule.retry_count == 0
 
-    def test_file_exists_retries_on_missing_file(self, temp_workspace: Path):
+    async def test_file_exists_retries_on_missing_file(self, temp_workspace: Path):
         """Test file_exists retries when file initially missing.
 
         This simulates the race condition where a sheet creates a file
@@ -861,13 +861,13 @@ class TestValidationRetry:
             sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
 
-        result = engine.run_validations([rule])
+        result = await engine.run_validations([rule])
         thread.join()
 
         # Should pass after retries
         assert result.results[0].passed is True
 
-    def test_file_exists_fails_without_retry(self, temp_workspace: Path):
+    async def test_file_exists_fails_without_retry(self, temp_workspace: Path):
         """Test file_exists fails immediately when retry disabled."""
         import threading
         import time
@@ -894,13 +894,13 @@ class TestValidationRetry:
             sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
 
-        result = engine.run_validations([rule])
+        result = await engine.run_validations([rule])
         thread.join()
 
         # Should fail because no retry
         assert result.results[0].passed is False
 
-    def test_content_contains_retries_on_incomplete_content(self, temp_workspace: Path):
+    async def test_content_contains_retries_on_incomplete_content(self, temp_workspace: Path):
         """Test content_contains retries when content initially incomplete."""
         import threading
         import time
@@ -929,13 +929,13 @@ class TestValidationRetry:
             sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
 
-        result = engine.run_validations([rule])
+        result = await engine.run_validations([rule])
         thread.join()
 
         # Should pass after retries find the complete content
         assert result.results[0].passed is True
 
-    def test_command_succeeds_retries(self, temp_workspace: Path):
+    async def test_command_succeeds_retries(self, temp_workspace: Path):
         """Test command_succeeds retries on transient failures."""
         import threading
         import time
@@ -964,13 +964,13 @@ class TestValidationRetry:
             sheet_context={"sheet_num": 1, "workspace": str(temp_workspace)},
         )
 
-        result = engine.run_validations([rule])
+        result = await engine.run_validations([rule])
         thread.join()
 
         # Should pass after retries
         assert result.results[0].passed is True
 
-    def test_immediate_pass_no_extra_retries(self, temp_workspace: Path):
+    async def test_immediate_pass_no_extra_retries(self, temp_workspace: Path):
         """Test that validation returns immediately on success (no unnecessary retries)."""
         import time
 
@@ -989,7 +989,7 @@ class TestValidationRetry:
         )
 
         start = time.monotonic()
-        result = engine.run_validations([rule])
+        result = await engine.run_validations([rule])
         elapsed = time.monotonic() - start
 
         assert result.results[0].passed is True

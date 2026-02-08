@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from mozart.core.constants import SSE_QUEUE_TIMEOUT_SECONDS
+
 logger = logging.getLogger(__name__)
 
 
@@ -47,22 +49,35 @@ class ClientConnection:
 class SSEManager:
     """Manages SSE connections and broadcasts."""
 
-    def __init__(self) -> None:
+    DEFAULT_MAX_CONNECTIONS = 100
+
+    def __init__(self, max_connections: int = DEFAULT_MAX_CONNECTIONS) -> None:
         # job_id -> {client_id -> conn}
         self._connections: dict[str, dict[str, ClientConnection]] = {}
         self._lock = asyncio.Lock()
+        self._max_connections = max_connections
 
     async def connect(self, job_id: str, client_id: str | None = None) -> AsyncIterator[str]:
         """Connect a client and yield SSE events."""
         if client_id is None:
             client_id = str(uuid.uuid4())
 
-        logger.info(f"SSE client {client_id} connecting to job {job_id}")
+        logger.info("SSE client connecting", extra={"client_id": client_id, "job_id": job_id})
 
         # Create connection
         connection = ClientConnection(client_id=client_id, job_id=job_id)
 
         async with self._lock:
+            # Enforce max connection limit to prevent resource exhaustion
+            total = sum(len(clients) for clients in self._connections.values())
+            if total >= self._max_connections:
+                logger.warning(
+                    "SSE connection rejected: max connections reached",
+                    extra={"client_id": client_id, "job_id": job_id, "max": self._max_connections},
+                )
+                raise ConnectionError(
+                    f"Maximum SSE connections ({self._max_connections}) reached"
+                )
             if job_id not in self._connections:
                 self._connections[job_id] = {}
             self._connections[job_id][client_id] = connection
@@ -80,7 +95,9 @@ class SSEManager:
             while True:
                 try:
                     # Wait for event with timeout to allow graceful shutdown
-                    event = await asyncio.wait_for(connection.queue.get(), timeout=30.0)
+                    event = await asyncio.wait_for(
+                        connection.queue.get(), timeout=SSE_QUEUE_TIMEOUT_SECONDS
+                    )
                     yield event.format()
                     connection.queue.task_done()
                 except TimeoutError:
@@ -92,10 +109,10 @@ class SSEManager:
                     )
                     yield heartbeat.format()
                 except asyncio.CancelledError:
-                    logger.info(f"SSE client {client_id} connection cancelled")
+                    logger.info("SSE client connection cancelled", extra={"client_id": client_id})
                     break
-                except Exception as e:
-                    logger.error(f"Error in SSE client {client_id}: {e}")
+                except Exception:
+                    logger.exception("Error in SSE event loop", extra={"client_id": client_id})
                     break
 
         finally:
@@ -103,7 +120,7 @@ class SSEManager:
 
     async def disconnect(self, job_id: str, client_id: str) -> None:
         """Disconnect a client."""
-        logger.info(f"SSE client {client_id} disconnecting from job {job_id}")
+        logger.info("SSE client disconnecting", extra={"client_id": client_id, "job_id": job_id})
 
         async with self._lock:
             if job_id in self._connections:
@@ -121,7 +138,7 @@ class SSEManager:
 
         async with self._lock:
             if job_id not in self._connections:
-                logger.debug(f"No SSE clients connected to job {job_id}")
+                logger.debug("No SSE clients connected", extra={"job_id": job_id})
                 return 0
 
             # Copy connections to avoid holding lock during queue operations
@@ -133,12 +150,12 @@ class SSEManager:
                 connection.queue.put_nowait(event)
                 sent_count += 1
             except asyncio.QueueFull:
-                logger.warning(f"SSE client {client_id} queue is full, skipping event")
+                logger.warning("SSE client queue full, skipping event", extra={"client_id": client_id})
                 # Don't disconnect; client might catch up
-            except Exception as e:
-                logger.error(f"Error sending event to SSE client {client_id}: {e}")
+            except Exception:
+                logger.exception("Error sending SSE event", extra={"client_id": client_id})
 
-        logger.debug(f"Broadcast event '{event.event}' to {sent_count} clients for job {job_id}")
+        logger.debug("Broadcast SSE event", extra={"event": event.event, "sent_count": sent_count, "job_id": job_id})
         return sent_count
 
     async def send_job_update(self, job_id: str, status: str, data: dict[str, Any]) -> int:
@@ -190,21 +207,21 @@ class SSEManager:
         """Close all active connections (for shutdown)."""
         logger.info("Closing all SSE connections")
 
+        # Snapshot and clear under lock, then notify outside the lock
         async with self._lock:
-            # Cancel all queues to trigger connection cleanup
-            for clients in self._connections.values():
-                for client_id, connection in clients.items():
-                    try:
-                        # Send close event to gracefully notify clients
-                        close_event = SSEEvent(
-                            event="close",
-                            data=json.dumps({"reason": "server_shutdown"})
-                        )
-                        connection.queue.put_nowait(close_event)
-                    except asyncio.QueueFull:
-                        pass  # Ignore if queue is full during shutdown
-                    except Exception as e:
-                        logger.debug(f"Error sending close event to {client_id}: {e}")
-
-            # Clear all connections
+            all_connections = dict(self._connections)
             self._connections.clear()
+
+        # Send close events without holding the lock
+        close_event = SSEEvent(
+            event="close",
+            data=json.dumps({"reason": "server_shutdown"})
+        )
+        for clients in all_connections.values():
+            for client_id, connection in clients.items():
+                try:
+                    connection.queue.put_nowait(close_event)
+                except asyncio.QueueFull:
+                    pass  # Ignore if queue is full during shutdown
+                except Exception:
+                    logger.debug("Error sending close event", extra={"client_id": client_id}, exc_info=True)

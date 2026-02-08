@@ -124,38 +124,27 @@ def resume(
     )
 
 
-async def _resume_job(
+async def _find_job_state(
     job_id: str,
-    config_file: Path | None,
     workspace: Path | None,
     force: bool,
-    escalation: bool = False,
-    reload_config: bool = False,
-    self_healing: bool = False,
-    auto_confirm: bool = False,
-) -> None:
-    """Resume a paused or failed job.
+) -> tuple[CheckpointState, StateBackend]:
+    """Find and validate job state from available backends.
+
+    Searches SQLite and JSON backends (in priority order) for the job state,
+    then validates the job is in a resumable status.
 
     Args:
-        job_id: Job ID to resume.
-        config_file: Optional path to config file.
+        job_id: Job ID to find.
         workspace: Optional workspace directory to search.
-        force: Force resume even if job appears completed.
-        escalation: Enable human-in-the-loop escalation for low-confidence sheets.
-        reload_config: If True, reload config from yaml file instead of cached snapshot.
-        self_healing: Enable automatic diagnosis and remediation.
-        auto_confirm: Auto-confirm suggested fixes.
+        force: Allow resuming completed jobs.
+
+    Returns:
+        Tuple of (found_state, found_backend).
+
+    Raises:
+        typer.Exit: If job not found or not in resumable state.
     """
-    from mozart.backends.anthropic_api import AnthropicApiBackend
-    from mozart.backends.base import Backend
-    from mozart.backends.claude_cli import ClaudeCliBackend
-    from mozart.backends.recursive_light import RecursiveLightBackend
-    from mozart.execution.runner import FatalError, GracefulShutdownError, JobRunner
-    from mozart.learning.outcomes import JsonOutcomeStore
-
-    configure_global_logging(console)
-
-    # Find job state in backends
     backends: list[StateBackend] = []
 
     if workspace:
@@ -173,7 +162,6 @@ async def _resume_job(
         if sqlite_cwd.exists():
             backends.append(SQLiteStateBackend(sqlite_cwd))
 
-    # Find job in backends
     found_state: CheckpointState | None = None
     found_backend: StateBackend | None = None
 
@@ -214,22 +202,45 @@ async def _resume_job(
             console.print("[dim]Use 'mozart run' to start the job.[/dim]")
             raise typer.Exit(1)
 
-    # Reconstruct JobConfig
-    config: JobConfig | None = None
-    config_was_reloaded = False
+    return found_state, found_backend
 
+
+def _reconstruct_config(
+    found_state: CheckpointState,
+    config_file: Path | None,
+    reload_config: bool,
+) -> tuple[JobConfig, bool]:
+    """Reconstruct JobConfig using 4-tier priority fallback.
+
+    Priority order:
+    1. Provided --config file
+    2. --reload-config from original path
+    3. Cached config_snapshot in state
+    4. Stored config_path (last resort)
+
+    Args:
+        found_state: Job checkpoint state with config_snapshot/config_path.
+        config_file: Optional explicit config file path.
+        reload_config: Whether to reload from original yaml path.
+
+    Returns:
+        Tuple of (config, was_reloaded).
+
+    Raises:
+        typer.Exit: If no config source available or loading fails.
+    """
     # Priority 1: Use provided config file (always takes precedence)
     if config_file:
         try:
             config = JobConfig.from_yaml(config_file)
             console.print(f"[dim]Using config from: {config_file}[/dim]")
-            config_was_reloaded = True
+            return config, True
         except Exception as e:
             console.print(f"[red]Error loading config file:[/red] {e}")
             raise typer.Exit(1) from None
 
     # Priority 2: If reload_config, force reload from config_path
-    elif reload_config:
+    if reload_config:
         if found_state.config_path:
             config_path = Path(found_state.config_path)
             if config_path.exists():
@@ -238,7 +249,7 @@ async def _resume_job(
                     console.print(
                         f"[cyan]Reloaded config from:[/cyan] {config_path}"
                     )
-                    config_was_reloaded = True
+                    return config, True
                 except Exception as e:
                     console.print(f"[red]Error reloading config:[/red] {e}")
                     raise typer.Exit(1) from None
@@ -256,10 +267,11 @@ async def _resume_job(
             raise typer.Exit(1)
 
     # Priority 3: Reconstruct from config_snapshot (default)
-    elif found_state.config_snapshot:
+    if found_state.config_snapshot:
         try:
             config = JobConfig.model_validate(found_state.config_snapshot)
             console.print("[dim]Reconstructed config from saved state[/dim]")
+            return config, False
         except Exception as e:
             console.print(f"[red]Error reconstructing config from snapshot:[/red] {e}")
             console.print(
@@ -268,12 +280,13 @@ async def _resume_job(
             raise typer.Exit(1) from None
 
     # Priority 4: Try to load from stored config_path as last resort
-    elif found_state.config_path:
+    if found_state.config_path:
         config_path = Path(found_state.config_path)
         if config_path.exists():
             try:
                 config = JobConfig.from_yaml(config_path)
                 console.print(f"[dim]Loaded config from stored path: {config_path}[/dim]")
+                return config, False
             except Exception as e:
                 console.print(f"[red]Error loading stored config:[/red] {e}")
                 raise typer.Exit(1) from None
@@ -283,16 +296,56 @@ async def _resume_job(
             )
             console.print("[dim]Hint: Provide a config file with --config flag.[/dim]")
             raise typer.Exit(1)
-    else:
-        console.print(
-            "[red]Cannot resume: No config available.[/red]\n"
-            "The job state doesn't contain a config snapshot.\n"
-            "Please provide a config file with --config flag."
-        )
-        raise typer.Exit(1)
+
+    console.print(
+        "[red]Cannot resume: No config available.[/red]\n"
+        "The job state doesn't contain a config snapshot.\n"
+        "Please provide a config file with --config flag."
+    )
+    raise typer.Exit(1)
+
+
+async def _resume_job(
+    job_id: str,
+    config_file: Path | None,
+    workspace: Path | None,
+    force: bool,
+    escalation: bool = False,
+    reload_config: bool = False,
+    self_healing: bool = False,
+    auto_confirm: bool = False,
+) -> None:
+    """Resume a paused or failed job.
+
+    Args:
+        job_id: Job ID to resume.
+        config_file: Optional path to config file.
+        workspace: Optional workspace directory to search.
+        force: Force resume even if job appears completed.
+        escalation: Enable human-in-the-loop escalation for low-confidence sheets.
+        reload_config: If True, reload config from yaml file instead of cached snapshot.
+        self_healing: Enable automatic diagnosis and remediation.
+        auto_confirm: Auto-confirm suggested fixes.
+    """
+    from mozart.backends.anthropic_api import AnthropicApiBackend
+    from mozart.backends.base import Backend
+    from mozart.backends.claude_cli import ClaudeCliBackend
+    from mozart.backends.recursive_light import RecursiveLightBackend
+    from mozart.execution.runner import FatalError, GracefulShutdownError, JobRunner
+    from mozart.learning.outcomes import JsonOutcomeStore
+
+    configure_global_logging(console)
+
+    # Phase 1: Find and validate job state
+    found_state, found_backend = await _find_job_state(job_id, workspace, force)
+
+    # Phase 2: Reconstruct config
+    config, config_was_reloaded = _reconstruct_config(
+        found_state, config_file, reload_config
+    )
 
     # Update config_snapshot in state if config was reloaded
-    if config_was_reloaded and config:
+    if config_was_reloaded:
         found_state.config_snapshot = config.model_dump(mode="json")
         console.print("[dim]Updated cached config snapshot[/dim]")
 
@@ -323,7 +376,7 @@ async def _resume_job(
     found_state.error_message = None  # Clear previous error
     await found_backend.save(found_state)
 
-    # Setup backends for execution
+    # Phase 3: Setup backends and features for execution
     backend: Backend
     if config.backend.type == "recursive_light":
         rl_config = config.backend.recursive_light

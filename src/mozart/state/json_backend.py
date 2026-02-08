@@ -17,6 +17,22 @@ from mozart.utils.time import utc_now
 _logger = get_logger("state.json")
 
 
+class StateCorruptionError(Exception):
+    """Raised when a state file exists but contains corrupt or invalid data.
+
+    Distinguishes corrupt state (data loss) from missing state (normal for new jobs).
+    """
+
+    def __init__(self, job_id: str, path: str, error_type: str, detail: str) -> None:
+        self.job_id = job_id
+        self.path = path
+        self.error_type = error_type
+        super().__init__(
+            f"Corrupt state file for job '{job_id}' at {path}: "
+            f"{error_type} - {detail}"
+        )
+
+
 class JsonStateBackend(StateBackend):
     """JSON file-based state storage.
 
@@ -79,7 +95,6 @@ class JsonStateBackend(StateBackend):
             )
             return state
         except json.JSONDecodeError as e:
-            # Corrupted state file - log and return None
             _logger.error(
                 "checkpoint_corruption_detected",
                 job_id=job_id,
@@ -87,9 +102,13 @@ class JsonStateBackend(StateBackend):
                 error_type="json_decode",
                 error=str(e),
             )
-            return None
+            raise StateCorruptionError(
+                job_id=job_id,
+                path=str(state_file),
+                error_type="json_decode",
+                detail=str(e),
+            ) from e
         except ValueError as e:
-            # Validation error - log and return None
             _logger.error(
                 "checkpoint_corruption_detected",
                 job_id=job_id,
@@ -97,7 +116,12 @@ class JsonStateBackend(StateBackend):
                 error_type="validation",
                 error=str(e),
             )
-            return None
+            raise StateCorruptionError(
+                job_id=job_id,
+                path=str(state_file),
+                error_type="validation",
+                detail=str(e),
+            ) from e
 
     async def save(self, state: CheckpointState) -> None:
         """Save state to JSON file."""

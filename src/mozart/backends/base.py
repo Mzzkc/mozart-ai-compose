@@ -136,6 +136,25 @@ class Backend(ABC):
         """Human-readable backend name."""
         ...
 
+    @property
+    def working_directory(self) -> Path | None:
+        """Working directory for backend execution.
+
+        Subprocess-based backends (e.g. ClaudeCliBackend) use this as the cwd
+        for child processes. API-based backends store it but don't use it directly.
+
+        Returns None if no working directory is set, meaning the process CWD is used.
+        """
+        return self._working_directory
+
+    @working_directory.setter
+    def working_directory(self, value: Path | None) -> None:
+        """Set working directory for backend execution.
+
+        Called by worktree isolation to override the working directory at runtime.
+        """
+        self._working_directory = value
+
     async def close(self) -> None:
         """Close the backend and release resources.
 

@@ -164,7 +164,7 @@ async def _recover_job(
             workspace=config.workspace,
             sheet_context=sheet_context,
         )
-        result = validation_engine.run_validations(config.validations)
+        result = await validation_engine.run_validations(config.validations)
 
         # Show results
         for vr in result.results:

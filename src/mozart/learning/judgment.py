@@ -11,6 +11,8 @@ from typing import Any, Literal, Protocol, runtime_checkable
 
 import httpx
 
+from mozart.core.checkpoint import ValidationDetailDict
+
 
 @dataclass
 class JudgmentQuery:
@@ -26,7 +28,7 @@ class JudgmentQuery:
     sheet_num: int
     """Current sheet number being executed."""
 
-    validation_results: list[dict[str, Any]]
+    validation_results: list[ValidationDetailDict]
     """Serialized validation results from the sheet."""
 
     execution_history: list[dict[str, Any]]
@@ -435,7 +437,7 @@ class LocalJudgmentClient:
         )
 
     def _calculate_pass_rate(
-        self, validation_results: list[dict[str, Any]]
+        self, validation_results: list[ValidationDetailDict]
     ) -> float:
         """Calculate validation pass rate from results.
 

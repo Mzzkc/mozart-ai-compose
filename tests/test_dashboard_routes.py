@@ -1,6 +1,6 @@
 """Tests for dashboard API routes."""
 import tempfile
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -81,6 +81,7 @@ class TestJobModels:
 @pytest.fixture
 def sample_job_state():
     """Create sample job state."""
+    now = datetime.now(UTC)
     return CheckpointState(
         job_id="test-job-123",
         job_name="Test Job",
@@ -89,8 +90,8 @@ def sample_job_state():
         last_completed_sheet=2,
         current_sheet=3,
         worktree_path="/tmp/test-workspace",
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
+        created_at=now,
+        updated_at=now,
     )
 
 

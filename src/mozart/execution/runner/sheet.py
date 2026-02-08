@@ -44,6 +44,8 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mozart.core.constants import TRUNCATE_STDOUT_TAIL_CHARS
+
 if TYPE_CHECKING:
     from rich.console import Console
 
@@ -68,7 +70,7 @@ if TYPE_CHECKING:
     from .models import RunSummary
 
 from mozart.backends.base import ExecutionResult
-from mozart.core.checkpoint import CheckpointState, SheetStatus
+from mozart.core.checkpoint import CheckpointState, ProgressSnapshotDict, SheetStatus
 from mozart.core.errors import ClassificationResult, ClassifiedError
 from mozart.execution.escalation import (
     CheckpointContext,
@@ -126,7 +128,7 @@ class SheetExecutionMixin:
         _healing_coordinator: SelfHealingCoordinator | None
         _retry_strategy: AdaptiveRetryStrategy
         _current_sheet_num: int | None
-        _execution_progress_snapshots: list[dict[str, Any]]
+        _execution_progress_snapshots: list[ProgressSnapshotDict]
         _current_sheet_patterns: list[str]
         _applied_pattern_ids: list[str]
         _exploration_pattern_ids: list[str]
@@ -225,6 +227,8 @@ class SheetExecutionMixin:
         # Track attempts
         normal_attempts = 0
         completion_attempts = 0
+        healing_attempts = 0
+        max_healing_cycles = 2  # Cap healing to prevent unlimited retry loops
         max_retries = self.config.retry.max_retries
         max_completion = self.config.retry.max_completion_attempts
 
@@ -511,7 +515,7 @@ class SheetExecutionMixin:
 
             # ===== VALIDATION-FIRST APPROACH =====
             validation_start = time.monotonic()
-            validation_result = validation_engine.run_validations(
+            validation_result = await validation_engine.run_validations(
                 self.config.validations
             )
             validation_duration = time.monotonic() - validation_start
@@ -642,7 +646,7 @@ class SheetExecutionMixin:
                 execution_duration = time.monotonic() - execution_start_time
 
                 # Determine outcome category based on execution path
-                first_attempt_success = (normal_attempts == 1 and completion_attempts == 0)
+                first_attempt_success = (normal_attempts == 0 and completion_attempts == 0)
                 if first_attempt_success:
                     outcome_category = "success_first_try"
                 elif completion_attempts > 0:
@@ -850,7 +854,7 @@ class SheetExecutionMixin:
                         validations_passed=passed_count,
                         validations_failed=failed_count,
                         failed_validation_names=[f.rule.description for f in failed_validations],
-                        stdout_tail=result.stdout[-500:] if result.stdout else None,
+                        stdout_tail=result.stdout[-TRUNCATE_STDOUT_TAIL_CHARS:] if result.stdout else None,
                     )
                     raise FatalError(
                         f"Sheet {sheet_num}: {error.message}{validation_info}"
@@ -867,7 +871,7 @@ class SheetExecutionMixin:
                 # Check both max retries and adaptive strategy recommendation
                 if normal_attempts >= max_retries:
                     # v11 Evolution: Try self-healing before giving up
-                    if self._healing_coordinator is not None:
+                    if self._healing_coordinator is not None and healing_attempts < max_healing_cycles:
                         healing_report = await self._try_self_healing(
                             result=result,
                             error=error,
@@ -877,11 +881,14 @@ class SheetExecutionMixin:
                             max_retries=max_retries,
                         )
                         if healing_report and healing_report.should_retry:
-                            normal_attempts = 0
+                            healing_attempts += 1
+                            normal_attempts = max_retries - 1  # Grant one more retry, not a full reset
                             self.console.print(healing_report.format())
                             self._logger.info(
                                 "sheet.healed",
                                 sheet_num=sheet_num,
+                                healing_attempt=healing_attempts,
+                                max_healing_cycles=max_healing_cycles,
                                 remedies_applied=len(healing_report.actions_taken),
                             )
                             continue

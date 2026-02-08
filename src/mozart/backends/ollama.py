@@ -15,6 +15,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
 import httpx
@@ -24,7 +25,7 @@ from mozart.core.logging import get_logger
 from mozart.utils.time import utc_now
 
 if TYPE_CHECKING:
-    from mozart.bridge.mcp_proxy import MCPProxyService, ToolResult
+    from mozart.bridge.mcp_proxy import MCPProxyService, MCPTool, ToolResult
     from mozart.core.config import BackendConfig
 
 # Module-level logger
@@ -113,6 +114,7 @@ class OllamaBackend(Backend):
         self.keep_alive = keep_alive
         self.max_tool_iterations = max_tool_iterations
         self.mcp_proxy = mcp_proxy
+        self._working_directory: Path | None = None
 
         # HTTP client with connection pooling
         self._client: httpx.AsyncClient | None = None
@@ -462,7 +464,7 @@ class OllamaBackend(Backend):
             return f"[Tool Error]\n{text}"
         return text
 
-    def _translate_tools_to_ollama(self, mcp_tools: list[Any]) -> list[dict[str, Any]]:
+    def _translate_tools_to_ollama(self, mcp_tools: list["MCPTool"]) -> list[dict[str, Any]]:
         """Translate MCP tool schemas to Ollama function format.
 
         Ollama uses OpenAI-style function calling format:

@@ -7,12 +7,18 @@ Uses a sliding window algorithm with in-memory storage.
 from __future__ import annotations
 
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from threading import Lock
 from typing import Any
 
 from fastapi import Request, status
+
+from mozart.core.constants import (
+    RATE_LIMIT_BURST_LIMIT,
+    RATE_LIMIT_REQUESTS_PER_HOUR,
+    RATE_LIMIT_REQUESTS_PER_MINUTE,
+)
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp
@@ -32,9 +38,9 @@ class RateLimitConfig:
     """
 
     enabled: bool = True
-    requests_per_minute: int = 60
-    requests_per_hour: int = 1000
-    burst_limit: int = 10
+    requests_per_minute: int = RATE_LIMIT_REQUESTS_PER_MINUTE
+    requests_per_hour: int = RATE_LIMIT_REQUESTS_PER_HOUR
+    burst_limit: int = RATE_LIMIT_BURST_LIMIT
     excluded_paths: list[str] = field(
         default_factory=lambda: [
             "/health",
@@ -62,8 +68,18 @@ class SlidingWindowCounter:
         """
         self.window_seconds = window_seconds
         self.max_requests = max_requests
-        self._buckets: dict[str, list[float]] = defaultdict(list)
+        self._buckets: dict[str, deque[float]] = defaultdict(deque)
         self._lock = Lock()
+
+    def _cleanup_bucket(self, key: str, window_start: float) -> None:
+        """Remove expired entries from a bucket. Must be called under self._lock.
+
+        O(k) where k = expired entries (vs O(n) for full list rebuild),
+        since timestamps are appended chronologically.
+        """
+        bucket = self._buckets[key]
+        while bucket and bucket[0] <= window_start:
+            bucket.popleft()
 
     def is_allowed(self, key: str) -> tuple[bool, int, int]:
         """Check if request is allowed and record it.
@@ -78,16 +94,13 @@ class SlidingWindowCounter:
         window_start = now - self.window_seconds
 
         with self._lock:
-            # Clean old entries
-            self._buckets[key] = [
-                t for t in self._buckets[key] if t > window_start
-            ]
+            self._cleanup_bucket(key, window_start)
 
             current_count = len(self._buckets[key])
 
             if current_count >= self.max_requests:
-                # Calculate when oldest request expires
-                oldest = min(self._buckets[key]) if self._buckets[key] else now
+                # Timestamps are appended chronologically, so [0] is the oldest
+                oldest = self._buckets[key][0] if self._buckets[key] else now
                 reset_time = int(oldest + self.window_seconds - now) + 1
                 return False, 0, reset_time
 
@@ -110,9 +123,7 @@ class SlidingWindowCounter:
         window_start = now - self.window_seconds
 
         with self._lock:
-            self._buckets[key] = [
-                t for t in self._buckets[key] if t > window_start
-            ]
+            self._cleanup_bucket(key, window_start)
             return len(self._buckets[key])
 
     def reset(self, key: str | None = None) -> None:
