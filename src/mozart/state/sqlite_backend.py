@@ -25,7 +25,7 @@ from mozart.utils.time import utc_now
 _logger = get_logger("state.sqlite")
 
 # Current schema version for migration support
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class SQLiteStateBackend(StateBackend):
@@ -275,7 +275,12 @@ class SQLiteStateBackend(StateBackend):
         try:
             return json.loads(s)
         except json.JSONDecodeError as exc:
-            _logger.warning("json_parse_failed", raw_length=len(s) if s else 0, error=str(exc))
+            _logger.warning(
+                "json_parse_failed",
+                raw_length=len(s) if s else 0,
+                raw_preview=s[:100] if s else "",
+                error=str(exc),
+            )
             return None
 
     async def load(self, job_id: str) -> CheckpointState | None:
@@ -406,6 +411,11 @@ class SQLiteStateBackend(StateBackend):
         state.updated_at = utc_now()
 
         async with self._connect() as db:
+            # Wrap all writes in an explicit transaction so that a crash
+            # between the job upsert and the last sheet upsert doesn't
+            # leave the database in an inconsistent state.
+            await db.execute("BEGIN IMMEDIATE")
+
             # Upsert job record
             await db.execute(
                 """

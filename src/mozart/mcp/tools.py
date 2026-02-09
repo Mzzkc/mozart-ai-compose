@@ -24,6 +24,14 @@ from ..state.json_backend import JsonStateBackend
 logger = logging.getLogger(__name__)
 
 
+def _make_error_response(error: Exception) -> dict[str, Any]:
+    """Create a standardized MCP error response."""
+    return {
+        "content": [{"type": "text", "text": f"Error: {error}"}],
+        "isError": True,
+    }
+
+
 class JobTools:
     """Mozart job lifecycle management tools.
 
@@ -118,11 +126,8 @@ class JobTools:
                 raise ValueError(f"Unknown job tool: {name}")
 
         except Exception as e:
-            logger.exception(f"Error executing tool {name}")
-            return {
-                "content": [{"type": "text", "text": f"Error: {str(e)}"}],
-                "isError": True
-            }
+            logger.exception("Error executing tool %s", name)
+            return _make_error_response(e)
 
     async def _list_jobs(self, args: dict[str, Any]) -> dict[str, Any]:
         """List all jobs with status information."""
@@ -328,11 +333,8 @@ class ControlTools:
                 raise ValueError(f"Unknown control tool: {name}")
 
         except Exception as e:
-            logger.exception(f"Error executing control tool {name}")
-            return {
-                "content": [{"type": "text", "text": f"Error: {str(e)}"}],
-                "isError": True
-            }
+            logger.exception("Error executing control tool %s", name)
+            return _make_error_response(e)
 
     async def _pause_job(self, args: dict[str, Any]) -> dict[str, Any]:
         """Pause a running job using graceful signal-based mechanism."""
@@ -586,6 +588,7 @@ class ArtifactTools:
 
     def __init__(self, workspace_root: Path):
         self.workspace_root = workspace_root
+        self._custom_level_cache: dict[str, re.Pattern[str]] = {}
 
     async def list_tools(self) -> list[dict[str, Any]]:
         """List all artifact management tools."""
@@ -610,10 +613,26 @@ class ArtifactTools:
             return await handler(arguments)
         except Exception as e:
             logger.exception("Error executing artifact tool %s", name)
-            return {
-                "content": [{"type": "text", "text": f"Error: {e}"}],
-                "isError": True,
-            }
+            return _make_error_response(e)
+
+    def _validate_workspace_path(self, workspace: Path, target: Path) -> tuple[Path, Path]:
+        """Validate that target is within workspace and workspace is within workspace_root.
+
+        Returns resolved (workspace, target) paths.
+        Raises PermissionError if path escapes allowed boundaries.
+        """
+        target = target.resolve()
+        workspace = workspace.resolve()
+        workspace_root = self.workspace_root.resolve()
+        try:
+            workspace.relative_to(workspace_root)
+        except ValueError:
+            raise PermissionError("Access denied: Workspace outside allowed root")
+        try:
+            target.relative_to(workspace)
+        except ValueError:
+            raise PermissionError("Access denied: Path outside workspace")
+        return workspace, target
 
     async def _list_files(self, args: dict[str, Any]) -> dict[str, Any]:
         """List files in workspace."""
@@ -623,13 +642,8 @@ class ArtifactTools:
 
         target_dir = workspace / subpath
 
-        # Security: Ensure we stay within workspace
-        try:
-            target_dir = target_dir.resolve()
-            workspace = workspace.resolve()
-            target_dir.relative_to(workspace)
-        except ValueError:
-            raise PermissionError("Access denied: Path outside workspace")
+        # Security: Ensure we stay within workspace and workspace_root
+        workspace, target_dir = self._validate_workspace_path(workspace, target_dir)
 
         if not target_dir.exists():
             raise FileNotFoundError(f"Directory not found: {target_dir}")
@@ -680,13 +694,8 @@ class ArtifactTools:
 
         target_file = workspace / file_path
 
-        # Security: Ensure we stay within workspace
-        try:
-            target_file = target_file.resolve()
-            workspace = workspace.resolve()
-            target_file.relative_to(workspace)
-        except ValueError:
-            raise PermissionError("Access denied: Path outside workspace")
+        # Security: Ensure we stay within workspace and workspace_root
+        workspace, target_file = self._validate_workspace_path(workspace, target_file)
 
         if not target_file.exists():
             raise FileNotFoundError(f"File not found: {target_file}")
@@ -781,8 +790,12 @@ class ArtifactTools:
         if level != "all":
             level_regex = self._LOG_LEVEL_PATTERNS.get(level.lower())
             if level_regex is None:
-                # Custom level string — compile on demand
-                level_regex = re.compile(re.escape(level), re.IGNORECASE)
+                # Custom level string — compile on demand with caching
+                level_key = level.lower()
+                level_regex = self._custom_level_cache.get(level_key)
+                if level_regex is None:
+                    level_regex = re.compile(re.escape(level), re.IGNORECASE)
+                    self._custom_level_cache[level_key] = level_regex
 
         for log_type, log_file in log_files:
             try:
@@ -834,6 +847,9 @@ class ArtifactTools:
 
         if not workspace_path.exists():
             raise FileNotFoundError(f"Workspace not found: {workspace_path}")
+
+        # Security: Ensure workspace is within allowed root
+        workspace_path, _ = self._validate_workspace_path(workspace_path, workspace_path)
 
         result = f"🎯 Artifacts for Mozart Job: {job_id}\n"
         result += f"Workspace: {workspace_path}\n"
@@ -921,13 +937,8 @@ class ArtifactTools:
         workspace_path = Path(workspace)
         target_artifact = workspace_path / artifact_path
 
-        # Security: Ensure we stay within workspace
-        try:
-            target_artifact = target_artifact.resolve()
-            workspace_path = workspace_path.resolve()
-            target_artifact.relative_to(workspace_path)
-        except ValueError:
-            raise PermissionError("Access denied: Artifact path outside workspace")
+        # Security: Ensure we stay within workspace and workspace_root
+        workspace_path, target_artifact = self._validate_workspace_path(workspace_path, target_artifact)
 
         if not target_artifact.exists():
             raise FileNotFoundError(f"Artifact not found: {artifact_path}")
@@ -1110,11 +1121,8 @@ class ScoreTools:
                 raise ValueError(f"Unknown score tool: {name}")
 
         except Exception as e:
-            logger.exception(f"Error executing score tool {name}")
-            return {
-                "content": [{"type": "text", "text": f"Error: {str(e)}"}],
-                "isError": True
-            }
+            logger.exception("Error executing score tool %s", name)
+            return _make_error_response(e)
 
     async def _validate_score(self, args: dict[str, Any]) -> dict[str, Any]:
         """Validate code changes meet quality score thresholds."""

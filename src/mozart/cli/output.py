@@ -34,7 +34,6 @@ from rich.progress import (
     BarColumn,
     Progress,
     SpinnerColumn,
-    TaskID,
     TextColumn,
     TimeElapsedColumn,
 )
@@ -53,8 +52,9 @@ if TYPE_CHECKING:
 # Shared console instance
 # =============================================================================
 
-# NOTE: Command modules should use this console or accept it as a parameter
-# to ensure consistent output handling (respecting --quiet, --json, etc.)
+# NOTE: Command modules should use this console or accept it as a parameter.
+# Quiet/JSON modes are handled by the is_quiet()/is_json() guards in each
+# command, NOT by this Console instance itself.
 console = Console()
 
 
@@ -581,7 +581,8 @@ def output_error(
             result["error_code"] = error_code
         if hints:
             result["hints"] = hints
-        result.update(json_extras)  # type: ignore[arg-type]
+        for k, v in json_extras.items():
+            result[k] = v
         import json as _json
 
         out.print(_json.dumps(result, indent=2))
@@ -768,7 +769,6 @@ __all__ = [
     "Panel",
     "Progress",
     "Table",
-    "TaskID",
     "BarColumn",
     "SpinnerColumn",
     "TextColumn",

@@ -749,7 +749,7 @@ class TestLearningActivationIntegration:
         app_id = global_store.record_pattern_application(
             pattern_id=pattern_id,
             execution_id=exec_id,
-            outcome_improved=True,
+            pattern_led_to_success=True,
             retry_count_before=1,
             retry_count_after=0,
         )
@@ -1960,7 +1960,7 @@ class TestPatternEffectivenessUpdate:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"exec_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
                 application_mode="exploitation",
             )
 
@@ -1987,7 +1987,7 @@ class TestPatternEffectivenessUpdate:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"exec_{i}",
-                outcome_improved=False,
+                pattern_led_to_success=False,
                 application_mode="exploitation",
             )
 
@@ -2013,13 +2013,13 @@ class TestPatternEffectivenessUpdate:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"success_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
             )
         for i in range(2):
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"failure_{i}",
-                outcome_improved=False,
+                pattern_led_to_success=False,
             )
 
         updated = global_store.get_patterns(min_priority=0.0)
@@ -2043,12 +2043,12 @@ class TestPatternEffectivenessUpdate:
         global_store.record_pattern_application(
             pattern_id=pattern_id,
             execution_id="exec_1",
-            outcome_improved=True,
+            pattern_led_to_success=True,
         )
         global_store.record_pattern_application(
             pattern_id=pattern_id,
             execution_id="exec_2",
-            outcome_improved=True,
+            pattern_led_to_success=True,
         )
 
         updated = global_store.get_patterns(min_priority=0.0)
@@ -2091,7 +2091,7 @@ class TestPriorityRecalculation:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"exec_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
             )
 
         updated = global_store.get_patterns(min_priority=0.0)
@@ -2119,7 +2119,7 @@ class TestPriorityRecalculation:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"success_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
             )
 
         patterns = global_store.get_patterns(min_priority=0.0)
@@ -2131,7 +2131,7 @@ class TestPriorityRecalculation:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"failure_{i}",
-                outcome_improved=False,
+                pattern_led_to_success=False,
             )
 
         patterns = global_store.get_patterns(min_priority=0.0)
@@ -2159,7 +2159,7 @@ class TestPriorityRecalculation:
                 global_store.record_pattern_application(
                     pattern_id=pid,
                     execution_id=f"exec_{i}_{j}",
-                    outcome_improved=j % 2 == 0,  # Alternating outcomes
+                    pattern_led_to_success=j % 2 == 0,  # Alternating outcomes
                 )
 
         # Batch recalculate all priorities
@@ -2189,7 +2189,7 @@ class TestPriorityRecalculation:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"exec_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
             )
 
         # Manually update effectiveness
@@ -2250,7 +2250,7 @@ class TestFeedbackLoopIntegration:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"sheet_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
                 retry_count_before=2,
                 retry_count_after=0,
                 application_mode="exploitation",
@@ -2287,7 +2287,7 @@ class TestFeedbackLoopIntegration:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"sheet_fail_{i}",
-                outcome_improved=False,
+                pattern_led_to_success=False,
                 application_mode="exploitation",
                 validation_passed=False,
             )
@@ -2328,14 +2328,14 @@ class TestFeedbackLoopIntegration:
         global_store.record_pattern_application(
             pattern_id=exploration_pattern_id,
             execution_id="explore_exec",
-            outcome_improved=True,
+            pattern_led_to_success=True,
             application_mode="exploration",  # Low priority pattern selected via exploration
         )
 
         global_store.record_pattern_application(
             pattern_id=exploitation_pattern_id,
             execution_id="exploit_exec",
-            outcome_improved=True,
+            pattern_led_to_success=True,
             application_mode="exploitation",  # High priority pattern selected normally
         )
 
@@ -2367,7 +2367,7 @@ class TestFeedbackLoopIntegration:
             global_store.record_pattern_application(
                 pattern_id=pid,
                 execution_id=execution_id,
-                outcome_improved=True,
+                pattern_led_to_success=True,
             )
 
         # Verify all patterns were updated
@@ -2399,7 +2399,7 @@ class TestFeedbackLoopIntegration:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"success_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
             )
 
         patterns = global_store.get_patterns(min_priority=0.0)
@@ -2412,7 +2412,7 @@ class TestFeedbackLoopIntegration:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"failure_{i}",
-                outcome_improved=False,
+                pattern_led_to_success=False,
             )
 
         patterns = global_store.get_patterns(min_priority=0.0)
@@ -2450,7 +2450,7 @@ class TestGroundingWeightedEffectiveness:
         global_store.record_pattern_application(
             pattern_id=pattern_id,
             execution_id="grounding_test_1",
-            outcome_improved=True,
+            pattern_led_to_success=True,
             grounding_confidence=0.95,
         )
 
@@ -2478,7 +2478,7 @@ class TestGroundingWeightedEffectiveness:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"no_grounding_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
                 grounding_confidence=None,  # No grounding data
             )
 
@@ -2502,7 +2502,7 @@ class TestGroundingWeightedEffectiveness:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"high_grounding_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
                 grounding_confidence=0.95,  # High grounding
             )
 
@@ -2527,7 +2527,7 @@ class TestGroundingWeightedEffectiveness:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"low_grounding_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
                 grounding_confidence=0.1,  # Low grounding
             )
 
@@ -2556,7 +2556,7 @@ class TestGroundingWeightedEffectiveness:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"mixed_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
                 grounding_confidence=g,
             )
 
@@ -2582,7 +2582,7 @@ class TestGroundingWeightedEffectiveness:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"success_high_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
                 grounding_confidence=0.9,
             )
 
@@ -2591,7 +2591,7 @@ class TestGroundingWeightedEffectiveness:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"failure_low_{i}",
-                outcome_improved=False,
+                pattern_led_to_success=False,
                 grounding_confidence=0.3,
             )
 
@@ -2631,7 +2631,7 @@ class TestGoalDriftDetection:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"old_success_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
                 grounding_confidence=0.8,
             )
 
@@ -2639,7 +2639,7 @@ class TestGoalDriftDetection:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"new_failure_{i}",
-                outcome_improved=False,
+                pattern_led_to_success=False,
                 grounding_confidence=0.8,
             )
 
@@ -2665,7 +2665,7 @@ class TestGoalDriftDetection:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"old_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
                 grounding_confidence=0.9,
             )
 
@@ -2673,7 +2673,7 @@ class TestGoalDriftDetection:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"new_{i}",
-                outcome_improved=False,
+                pattern_led_to_success=False,
                 grounding_confidence=0.9,
             )
 
@@ -2707,7 +2707,7 @@ class TestGoalDriftDetection:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"old_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
                 grounding_confidence=0.3,  # Low grounding
             )
 
@@ -2715,7 +2715,7 @@ class TestGoalDriftDetection:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"new_{i}",
-                outcome_improved=False,
+                pattern_led_to_success=False,
                 grounding_confidence=0.3,  # Low grounding
             )
 
@@ -2741,14 +2741,14 @@ class TestGoalDriftDetection:
             global_store.record_pattern_application(
                 pattern_id=pattern_improving,
                 execution_id=f"old_fail_{i}",
-                outcome_improved=False,
+                pattern_led_to_success=False,
             )
 
         for i in range(5):
             global_store.record_pattern_application(
                 pattern_id=pattern_improving,
                 execution_id=f"new_success_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
             )
 
         metrics = global_store.calculate_effectiveness_drift(pattern_improving)
@@ -2765,7 +2765,7 @@ class TestGoalDriftDetection:
             global_store.record_pattern_application(
                 pattern_id=pattern_stable,
                 execution_id=f"consistent_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
             )
 
         metrics = global_store.calculate_effectiveness_drift(pattern_stable)
@@ -2786,7 +2786,7 @@ class TestGoalDriftDetection:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"success_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
                 grounding_confidence=0.9,
             )
 
@@ -2810,7 +2810,7 @@ class TestGoalDriftDetection:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"short_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
             )
 
         metrics = global_store.calculate_effectiveness_drift(pattern_id)
@@ -2830,14 +2830,14 @@ class TestGoalDriftDetection:
             global_store.record_pattern_application(
                 pattern_id=drifting_id,
                 execution_id=f"old_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
             )
 
         for i in range(5):
             global_store.record_pattern_application(
                 pattern_id=drifting_id,
                 execution_id=f"new_{i}",
-                outcome_improved=False,
+                pattern_led_to_success=False,
             )
 
         # Create a stable pattern
@@ -2850,7 +2850,7 @@ class TestGoalDriftDetection:
             global_store.record_pattern_application(
                 pattern_id=stable_id,
                 execution_id=f"stable_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
             )
 
         # Get drifting patterns
@@ -2877,7 +2877,7 @@ class TestGoalDriftDetection:
                 global_store.record_pattern_application(
                     pattern_id=pid,
                     execution_id=f"summary_{i}_{j}",
-                    outcome_improved=(j < 5),  # First 5 success, last 5 fail
+                    pattern_led_to_success=(j < 5),  # First 5 success, last 5 fail
                 )
 
         summary = global_store.get_pattern_drift_summary()
@@ -2902,14 +2902,14 @@ class TestGoalDriftDetection:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"old_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
             )
 
         for i in range(10):
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"new_{i}",
-                outcome_improved=False,
+                pattern_led_to_success=False,
             )
 
         # Test with window_size=5
@@ -2950,7 +2950,7 @@ class TestPatternAutoRetirement:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"old_success_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
                 grounding_confidence=0.9,
             )
 
@@ -2958,7 +2958,7 @@ class TestPatternAutoRetirement:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"new_failure_{i}",
-                outcome_improved=False,
+                pattern_led_to_success=False,
                 grounding_confidence=0.9,
             )
 
@@ -2996,7 +2996,7 @@ class TestPatternAutoRetirement:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"old_failure_{i}",
-                outcome_improved=False,
+                pattern_led_to_success=False,
                 grounding_confidence=0.9,
             )
 
@@ -3004,7 +3004,7 @@ class TestPatternAutoRetirement:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"new_success_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
                 grounding_confidence=0.9,
             )
 
@@ -3041,7 +3041,7 @@ class TestPatternAutoRetirement:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"app_{i}",
-                outcome_improved=(i % 2 == 0),
+                pattern_led_to_success=(i % 2 == 0),
                 grounding_confidence=0.9,
             )
 
@@ -3049,7 +3049,7 @@ class TestPatternAutoRetirement:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"app2_{i}",
-                outcome_improved=(i % 2 == 0),
+                pattern_led_to_success=(i % 2 == 0),
                 grounding_confidence=0.9,
             )
 
@@ -3085,7 +3085,7 @@ class TestPatternAutoRetirement:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"app_{i}",
-                outcome_improved=(i < 5),  # First 5 success, last 5 failure
+                pattern_led_to_success=(i < 5),  # First 5 success, last 5 failure
                 grounding_confidence=0.9,
             )
 
@@ -3122,14 +3122,14 @@ class TestPatternAutoRetirement:
             global_store.record_pattern_application(
                 pattern_id=improving_id,
                 execution_id=f"imp_old_{i}",
-                outcome_improved=False,
+                pattern_led_to_success=False,
                 grounding_confidence=0.9,
             )
         for i in range(5):
             global_store.record_pattern_application(
                 pattern_id=improving_id,
                 execution_id=f"imp_new_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
                 grounding_confidence=0.9,
             )
 
@@ -3138,14 +3138,14 @@ class TestPatternAutoRetirement:
             global_store.record_pattern_application(
                 pattern_id=degrading_id,
                 execution_id=f"deg_old_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
                 grounding_confidence=0.9,
             )
         for i in range(5):
             global_store.record_pattern_application(
                 pattern_id=degrading_id,
                 execution_id=f"deg_new_{i}",
-                outcome_improved=False,
+                pattern_led_to_success=False,
                 grounding_confidence=0.9,
             )
 
@@ -3181,14 +3181,14 @@ class TestPatternAutoRetirement:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"old_{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
                 grounding_confidence=0.9,
             )
         for i in range(5):
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"new_{i}",
-                outcome_improved=False,
+                pattern_led_to_success=False,
                 grounding_confidence=0.9,
             )
 
@@ -4721,7 +4721,7 @@ class TestPatternSuccessFactorsIntegration:
             global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id="test_exec",
-                outcome_improved=True,
+                pattern_led_to_success=True,
             )
 
         analysis = global_store.analyze_pattern_why(pattern_id)

@@ -338,9 +338,9 @@ class ErrorClassifier:
         if pattern_result is not None:
             return pattern_result
 
-        # 4. Exit code analysis
+        # 4. Exit code analysis (with output for non-transient detection)
         exit_code_result = self._classify_by_exit_code(
-            exit_code, exit_reason, exception,
+            exit_code, exit_reason, exception, combined,
         )
         if exit_code_result is not None:
             return exit_code_result
@@ -532,8 +532,13 @@ class ErrorClassifier:
         exit_code: int | None,
         exit_reason: ExitReason | None,
         exception: Exception | None,
+        combined: str = "",
     ) -> ClassifiedError | None:
         """Classify error based on process exit code.
+
+        For exit codes 1/2, checks output for non-transient indicators before
+        defaulting to TRANSIENT classification. This prevents wasting retries
+        on errors like permission denied or validation failures.
 
         Returns None if exit_code is None (signal-killed) or unrecognized.
         """
@@ -552,16 +557,43 @@ class ErrorClassifier:
             return None
 
         if exit_code in (1, 2):
+            # Check output for non-transient error indicators before defaulting
+            # to TRANSIENT. Exit code 1 can mean permission denied, validation
+            # failure, or other non-retriable errors.
+            _NON_TRANSIENT_INDICATORS = (
+                "permission denied",
+                "access denied",
+                "not permitted",
+                "validation failed",
+                "invalid argument",
+                "syntax error",
+            )
+            combined_lower = combined.lower()
+            is_non_transient = any(
+                ind in combined_lower for ind in _NON_TRANSIENT_INDICATORS
+            )
+
+            if is_non_transient:
+                category = ErrorCategory.FATAL
+                retriable = False
+                message = f"Non-transient failure with exit code {exit_code}"
+                suggested_wait = None
+            else:
+                category = ErrorCategory.TRANSIENT
+                retriable = True
+                message = f"Command failed with exit code {exit_code}"
+                suggested_wait = 10.0
+
             result = ClassifiedError(
-                category=ErrorCategory.TRANSIENT,
-                message=f"Command failed with exit code {exit_code}",
+                category=category,
+                message=message,
                 error_code=ErrorCode.EXECUTION_UNKNOWN,
                 original_error=exception,
                 exit_code=exit_code,
                 exit_signal=None,
                 exit_reason=exit_reason,
-                retriable=True,
-                suggested_wait_seconds=10.0,
+                retriable=retriable,
+                suggested_wait_seconds=suggested_wait,
             )
             _logger.warning(
                 "error_classified",

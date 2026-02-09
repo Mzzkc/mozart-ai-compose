@@ -111,7 +111,10 @@ class CostMixin:
 
         Returns:
             Tuple of (input_tokens, output_tokens, estimated_cost, confidence).
-            confidence is 1.0 for exact API counts, lower for estimates.
+            confidence ranges from 0.0 to 1.0:
+              - 1.0: exact counts from API backend (input_tokens/output_tokens set)
+              - 0.85: estimated from deprecated tokens_used field (total only)
+              - 0.7: estimated from output character length (~4 chars/token heuristic)
         """
         config = self.config.cost_limits
 
@@ -127,6 +130,13 @@ class CostMixin:
             confidence = 1.0  # Exact counts from API
         elif result.tokens_used is not None:
             # Legacy: only total tokens available (deprecated field)
+            import warnings
+            warnings.warn(
+                "Backend produced deprecated 'tokens_used' field; "
+                "use 'input_tokens'/'output_tokens' instead",
+                DeprecationWarning,
+                stacklevel=2,
+            )
             output_tokens = result.tokens_used
             # Estimate input from output (rough heuristic: input ~= 2x output for prompts)
             input_tokens = output_tokens * 2

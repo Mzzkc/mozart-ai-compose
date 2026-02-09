@@ -101,7 +101,7 @@ class LifecycleMixin:
         # Track if job was already completed when we loaded state.
         # Used to prevent on_success hooks from firing when zero new work
         # was done (e.g., self-chaining job loads its own completed state).
-        was_already_completed = state.status == JobStatus.COMPLETED
+        loaded_as_completed = state.status == JobStatus.COMPLETED
 
         # Set running PID for zombie detection
         state.set_running_pid()
@@ -182,22 +182,15 @@ class LifecycleMixin:
             # meaning zero new sheets were executed this run. This prevents
             # infinite self-chaining loops where a completed job re-triggers
             # its own on_success hook without doing any work.
-            if (
-                state.status == JobStatus.COMPLETED
-                and self.config.on_success
-                and not was_already_completed
-            ):
-                await self._execute_post_success_hooks(state)
-            elif (
-                state.status == JobStatus.COMPLETED
-                and self.config.on_success
-                and was_already_completed
-            ):
-                self._logger.info(
-                    "hooks.skipped_zero_work",
-                    job_id=state.job_id,
-                    reason="Job was already completed when loaded — no new sheets executed",
-                )
+            if state.status == JobStatus.COMPLETED and self.config.on_success:
+                if not loaded_as_completed:
+                    await self._execute_post_success_hooks(state)
+                else:
+                    self._logger.info(
+                        "hooks.skipped_zero_work",
+                        job_id=state.job_id,
+                        reason="Job was already completed when loaded — no new sheets executed",
+                    )
 
             return state, self._summary
         finally:
@@ -428,8 +421,7 @@ class LifecycleMixin:
         executor = HookExecutor(
             config=self.config,
             workspace=self.config.workspace,
-            concert_context=None,  # TODO(concert-chaining): Pass concert context from parent job
-            # to enable job chaining. See ConcertConfig for context structure.
+            concert_context=None,  # Concert chaining not yet implemented (see GitHub issue)
         )
 
         # Execute hooks
@@ -524,9 +516,16 @@ class LifecycleMixin:
         if state.current_sheet is not None:
             sheet_state = state.sheets.get(state.current_sheet)
             if sheet_state and sheet_state.status == SheetStatus.IN_PROGRESS:
-                # Verify dependencies are still satisfied (they should be)
+                # Verify dependencies are still satisfied — a dependency
+                # may have FAILED since the job was paused/crashed.
                 deps = self._dependency_dag.get_dependencies(state.current_sheet)
-                if all(d in completed for d in deps):
+                if any(d in failed for d in deps):
+                    self._logger.warning(
+                        "dag.resume_blocked_by_failed_dep",
+                        sheet_num=state.current_sheet,
+                        failed_deps=sorted(d for d in deps if d in failed),
+                    )
+                elif all(d in completed for d in deps):
                     return state.current_sheet
 
         # Get ready sheets (all dependencies satisfied)
@@ -852,6 +851,8 @@ class LifecycleMixin:
                     stderr_tail=sheet_state.stderr_tail or "",
                     # v9 Evolution: Pattern Feedback Loop - pass applied pattern descriptions
                     patterns_applied=sheet_state.applied_pattern_descriptions,
+                    # Error history for recurring error pattern detection
+                    error_history=[e.model_dump() for e in sheet_state.error_history],
                     # v11 Evolution: Grounding→Pattern Integration - pass grounding context
                     grounding_passed=sheet_state.grounding_passed,
                     grounding_confidence=sheet_state.grounding_confidence,

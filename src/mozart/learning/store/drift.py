@@ -104,7 +104,7 @@ class DriftMixin:
             # Ordered by applied_at DESC to get most recent first
             cursor = conn.execute(
                 """
-                SELECT outcome_improved, grounding_confidence, applied_at
+                SELECT pattern_led_to_success, grounding_confidence, applied_at
                 FROM pattern_applications
                 WHERE pattern_id = ?
                 ORDER BY applied_at DESC
@@ -129,7 +129,7 @@ class DriftMixin:
             # Calculate effectiveness for each window
             # effectiveness = success_rate with Laplace smoothing
             def calc_effectiveness(apps: list) -> tuple[float, list[float]]:
-                successes = sum(1 for a in apps if a["outcome_improved"])
+                successes = sum(1 for a in apps if a["pattern_led_to_success"])
                 eff = (successes + 0.5) / (len(apps) + 1)  # Laplace smoothing
                 grounding_vals = [
                     a["grounding_confidence"]

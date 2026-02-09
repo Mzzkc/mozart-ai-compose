@@ -501,10 +501,9 @@ class PatternDetector:
         error_categories: dict[str, int] = {}
 
         for outcome in self.outcomes:
-            # Extract error codes from error_history if available
-            error_history = getattr(outcome, "error_history", None)
-            if error_history and isinstance(error_history, list):
-                for error_entry in error_history:
+            # Extract error codes from error_history
+            if outcome.error_history:
+                for error_entry in outcome.error_history:
                     if isinstance(error_entry, dict):
                         error_code = error_entry.get("error_code")
                         if error_code:

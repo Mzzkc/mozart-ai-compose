@@ -3,7 +3,7 @@
 Provides methods for creating, updating, and managing pattern effectiveness:
 - record_pattern: Create or update a pattern
 - record_pattern_application: Record pattern usage and update effectiveness
-- _calculate_effectiveness_v2: Bayesian moving average with decay
+- _calculate_effectiveness: Bayesian moving average with decay
 - _calculate_priority_score: Priority from effectiveness and frequency
 - update_pattern_effectiveness: Manual effectiveness recalculation
 - recalculate_all_pattern_priorities: Batch priority recalculation
@@ -130,7 +130,7 @@ class PatternCrudMixin:
         self,
         pattern_id: str,
         execution_id: str,
-        outcome_improved: bool,
+        pattern_led_to_success: bool,
         retry_count_before: int = 0,
         retry_count_after: int = 0,
         application_mode: str = "exploitation",
@@ -145,7 +145,8 @@ class PatternCrudMixin:
         Args:
             pattern_id: The pattern that was applied.
             execution_id: The execution it was applied to.
-            outcome_improved: Whether the outcome was better than baseline.
+            pattern_led_to_success: Whether applying this pattern led to
+                execution success (validation passed on first attempt).
             retry_count_before: Retry count before pattern applied.
             retry_count_after: Retry count after pattern applied.
             application_mode: 'exploration' or 'exploitation'.
@@ -161,11 +162,23 @@ class PatternCrudMixin:
         now_iso = now.isoformat()
 
         with self._get_connection() as conn:
+            # Guard: verify pattern exists before recording application
+            exists = conn.execute(
+                "SELECT 1 FROM patterns WHERE id = ?", (pattern_id,)
+            ).fetchone()
+            if not exists:
+                _logger.warning(
+                    "pattern_application_skipped",
+                    pattern_id=pattern_id,
+                    reason="pattern_not_found",
+                )
+                return app_id
+
             conn.execute(
                 """
                 INSERT INTO pattern_applications (
                     id, pattern_id, execution_id, applied_at,
-                    outcome_improved, retry_count_before, retry_count_after,
+                    pattern_led_to_success, retry_count_before, retry_count_after,
                     grounding_confidence
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -174,14 +187,14 @@ class PatternCrudMixin:
                     pattern_id,
                     execution_id,
                     now_iso,
-                    outcome_improved,
+                    pattern_led_to_success,
                     retry_count_before,
                     retry_count_after,
                     grounding_confidence,
                 ),
             )
 
-            if outcome_improved:
+            if pattern_led_to_success:
                 conn.execute(
                     """
                     UPDATE patterns SET
@@ -212,11 +225,17 @@ class PatternCrudMixin:
             row = cursor.fetchone()
 
             if row:
-                new_effectiveness = self._calculate_effectiveness_v2(
+                last_confirmed_raw = row["last_confirmed"]
+                last_confirmed = (
+                    datetime.fromisoformat(last_confirmed_raw)
+                    if last_confirmed_raw
+                    else now
+                )
+                new_effectiveness = self._calculate_effectiveness(
                     pattern_id=pattern_id,
                     led_to_success_count=row["led_to_success_count"],
                     led_to_failure_count=row["led_to_failure_count"],
-                    last_confirmed=datetime.fromisoformat(row["last_confirmed"]),
+                    last_confirmed=last_confirmed,
                     now=now,
                     conn=conn,
                 )
@@ -244,7 +263,83 @@ class PatternCrudMixin:
 
         return app_id
 
-    def _calculate_effectiveness_v2(
+    @staticmethod
+    def _fetch_recent_applications(
+        conn: sqlite3.Connection,
+        pattern_id: str,
+        limit: int = 5,
+    ) -> tuple[float | None, float]:
+        """Fetch recent application statistics from the database.
+
+        Separates data fetching from the effectiveness formula so each
+        concern can be tested and understood independently.
+
+        Args:
+            conn: Database connection.
+            pattern_id: Pattern to query.
+            limit: Number of recent applications to consider.
+
+        Returns:
+            Tuple of (recent_success_rate, avg_grounding_confidence).
+            recent_success_rate is None if no recent applications exist.
+        """
+        cursor = conn.execute(
+            """
+            SELECT pattern_led_to_success, grounding_confidence
+            FROM pattern_applications
+            WHERE pattern_id = ?
+            ORDER BY applied_at DESC
+            LIMIT ?
+            """,
+            (pattern_id, limit),
+        )
+        recent_apps = cursor.fetchall()
+
+        if not recent_apps:
+            return None, 1.0
+
+        recent_successes = sum(1 for app in recent_apps if app["pattern_led_to_success"])
+        recent_rate = recent_successes / len(recent_apps)
+
+        grounding_values = [
+            app["grounding_confidence"]
+            for app in recent_apps
+            if app["grounding_confidence"] is not None
+        ]
+        avg_grounding = (
+            sum(grounding_values) / len(grounding_values)
+            if grounding_values
+            else 1.0
+        )
+
+        return recent_rate, avg_grounding
+
+    @staticmethod
+    def _bayesian_effectiveness(
+        historical: float,
+        recent: float,
+        days_since_confirmed: int,
+        avg_grounding: float,
+        alpha: float = 0.7,
+    ) -> float:
+        """Pure math: Bayesian moving average with recency decay and grounding weight.
+
+        Args:
+            historical: Historical success rate (Laplace-smoothed).
+            recent: Recent success rate from last N applications.
+            days_since_confirmed: Days since pattern last led to success.
+            avg_grounding: Average grounding confidence (0.0-1.0).
+            alpha: Weight for recent vs historical (0.0-1.0).
+
+        Returns:
+            Effectiveness score between 0.0 and 1.0.
+        """
+        combined = alpha * recent + (1 - alpha) * historical
+        decay = 0.9 ** (days_since_confirmed / 30.0)
+        grounding_weight = 0.7 + 0.3 * avg_grounding
+        return combined * decay * grounding_weight
+
+    def _calculate_effectiveness(
         self,
         pattern_id: str,
         led_to_success_count: int,
@@ -256,9 +351,7 @@ class PatternCrudMixin:
     ) -> float:
         """Calculate effectiveness score using Bayesian moving average with decay.
 
-        Formula:
-            base_effectiveness = (alpha * recent + (1-alpha) * historical) * recency_decay
-            effectiveness = base_effectiveness * grounding_weight
+        Orchestrates data prep and math helpers to produce the final score.
 
         Args:
             pattern_id: The pattern being calculated.
@@ -279,46 +372,17 @@ class PatternCrudMixin:
 
         historical = (led_to_success_count + 0.5) / (total + 1)
 
-        cursor = conn.execute(
-            """
-            SELECT outcome_improved, grounding_confidence
-            FROM pattern_applications
-            WHERE pattern_id = ?
-            ORDER BY applied_at DESC
-            LIMIT 5
-            """,
-            (pattern_id,),
-        )
-        recent_apps = cursor.fetchall()
-
-        if recent_apps:
-            recent_successes = sum(1 for app in recent_apps if app["outcome_improved"])
-            recent = recent_successes / len(recent_apps)
-
-            grounding_values = [
-                app["grounding_confidence"]
-                for app in recent_apps
-                if app["grounding_confidence"] is not None
-            ]
-            if grounding_values:
-                avg_grounding = sum(grounding_values) / len(grounding_values)
-            else:
-                avg_grounding = 1.0
-        else:
-            recent = historical
-            avg_grounding = 1.0
-
-        alpha = 0.7
-        combined = alpha * recent + (1 - alpha) * historical
+        recent_rate, avg_grounding = self._fetch_recent_applications(conn, pattern_id)
+        recent = recent_rate if recent_rate is not None else historical
 
         days_since = (now - last_confirmed).days
-        decay = 0.9 ** (days_since / 30.0)
 
-        base_effectiveness = combined * decay
-
-        grounding_weight = 0.7 + 0.3 * avg_grounding
-
-        return base_effectiveness * grounding_weight
+        return self._bayesian_effectiveness(
+            historical=historical,
+            recent=recent,
+            days_since_confirmed=days_since,
+            avg_grounding=avg_grounding,
+        )
 
     def _calculate_priority_score(
         self,
@@ -371,11 +435,17 @@ class PatternCrudMixin:
                 return None
 
             now = datetime.now()
-            new_effectiveness = self._calculate_effectiveness_v2(
+            last_confirmed_raw = row["last_confirmed"]
+            last_confirmed = (
+                datetime.fromisoformat(last_confirmed_raw)
+                if last_confirmed_raw
+                else now
+            )
+            new_effectiveness = self._calculate_effectiveness(
                 pattern_id=pattern_id,
                 led_to_success_count=row["led_to_success_count"],
                 led_to_failure_count=row["led_to_failure_count"],
-                last_confirmed=datetime.fromisoformat(row["last_confirmed"]),
+                last_confirmed=last_confirmed,
                 now=now,
                 conn=conn,
             )

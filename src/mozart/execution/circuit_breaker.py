@@ -429,19 +429,6 @@ class CircuitBreaker:
                 )
             return exceeded
 
-    def get_cost_summary(self) -> dict[str, float]:
-        """Get cost summary for reporting.
-
-        Returns:
-            Dictionary with input_tokens, output_tokens, and estimated_cost.
-        """
-        with self._lock:
-            return {
-                "input_tokens": self._stats.total_input_tokens,
-                "output_tokens": self._stats.total_output_tokens,
-                "estimated_cost_usd": round(self._stats.total_estimated_cost, 4),
-            }
-
     def get_stats(self) -> CircuitBreakerStats:
         """Get current statistics.
 

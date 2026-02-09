@@ -449,6 +449,66 @@ class TestReadySheets:
 
         assert ready == [1, 2, 3, 4, 5]
 
+    def test_independent_and_dependent_sheets_mixed(self) -> None:
+        """Independent sheets stay ready even when dependent ones are blocked."""
+        # Sheet 2 depends on 1, but 3 has no deps
+        dag = DependencyDAG.from_dependencies(
+            total_sheets=3,
+            dependencies={2: [1]},
+        )
+
+        ready = dag.get_ready_sheets(completed=set())
+
+        # Sheets 1 and 3 are ready (no deps); sheet 2 is blocked on 1
+        assert ready == [1, 3]
+
+    def test_completed_set_larger_than_total(self) -> None:
+        """Superset of completed sheets doesn't break ready calculation."""
+        dag = DependencyDAG.from_dependencies(
+            total_sheets=3,
+            dependencies={3: [1, 2]},
+        )
+
+        # Pass extra sheet numbers that don't exist in the DAG
+        ready = dag.get_ready_sheets(completed={1, 2, 3, 99})
+
+        assert ready == []
+
+    def test_progressive_readiness_complex_dag(self) -> None:
+        """Track progressive readiness through a complex DAG step by step."""
+        dag = DependencyDAG.from_dependencies(
+            total_sheets=6,
+            dependencies={
+                2: [1],
+                3: [1],
+                4: [2, 3],
+                5: [2],
+                6: [4, 5],
+            },
+        )
+
+        # Step 0: nothing completed
+        assert dag.get_ready_sheets(set()) == [1]
+
+        # Step 1: 1 done → 2, 3 unblocked
+        assert dag.get_ready_sheets({1}) == [2, 3]
+
+        # Step 2: 1,2 done → 3 still ready, 5 now ready (needs only 2)
+        assert dag.get_ready_sheets({1, 2}) == [3, 5]
+
+        # Step 3: 1,2,3 done → 4 ready (needs 2,3), 5 still ready
+        assert dag.get_ready_sheets({1, 2, 3}) == [4, 5]
+
+        # Step 4: 1,2,3,4,5 done → 6 ready
+        assert dag.get_ready_sheets({1, 2, 3, 4, 5}) == [6]
+
+    def test_single_sheet_ready_then_done(self) -> None:
+        """Single-sheet DAG: ready when empty, done when completed."""
+        dag = DependencyDAG.from_dependencies(total_sheets=1, dependencies=None)
+
+        assert dag.get_ready_sheets(set()) == [1]
+        assert dag.get_ready_sheets({1}) == []
+
 
 # =============================================================================
 # Serialization Tests

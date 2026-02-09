@@ -29,9 +29,8 @@ from rich.panel import Panel
 from mozart.core.checkpoint import JobStatus, SheetStatus
 from mozart.core.config import JobConfig
 from mozart.execution.validation import ValidationEngine
-from mozart.state import JsonStateBackend
 
-from ..helpers import configure_global_logging
+from ..helpers import configure_global_logging, require_job_state
 from ..output import console
 
 
@@ -90,37 +89,8 @@ async def _recover_job(
     """
     configure_global_logging(console)
 
-    # Find job state
-    state_file = None
-    search_paths: list[Path] = []
-
-    if workspace:
-        search_paths.append(workspace)
-    else:
-        search_paths.extend([
-            Path.cwd(),
-            Path.cwd() / job_id,
-            Path.home() / ".mozart" / "state",
-        ])
-
-    for search_path in search_paths:
-        candidate = search_path / f"{job_id}.json"
-        if candidate.exists():
-            state_file = candidate
-            break
-
-    if not state_file:
-        console.print(f"[red]Job state not found: {job_id}[/red]")
-        console.print(f"[dim]Searched: {', '.join(str(p) for p in search_paths)}[/dim]")
-        raise typer.Exit(1)
-
-    # Load state
-    state_backend = JsonStateBackend(state_file.parent)
-    state = await state_backend.load(job_id)
-
-    if not state:
-        console.print(f"[red]Could not load state for job: {job_id}[/red]")
-        raise typer.Exit(1)
+    # Find job state using shared discovery helper
+    state, state_backend = await require_job_state(job_id, workspace)
 
     # Reconstruct config from snapshot
     if not state.config_snapshot:

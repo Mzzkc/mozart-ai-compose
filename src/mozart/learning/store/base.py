@@ -88,7 +88,8 @@ class GlobalLearningStoreBase:
     # Schema version - increment when schema changes
     # v9: Added exploration_budget and entropy_responses tables for v23 evolutions
     # v10: Added proper column migration for existing tables
-    SCHEMA_VERSION = 10
+    # v11: Renamed outcome_improved → pattern_led_to_success in pattern_applications
+    SCHEMA_VERSION = 11
 
     # Expected columns for tables that may need migration
     # Format: {table_name: [(column_name, column_definition), ...]}
@@ -111,6 +112,16 @@ class GlobalLearningStoreBase:
         "pattern_applications": [
             # v12 addition
             ("grounding_confidence", "REAL"),
+        ],
+    }
+
+    # Column renames: {table: [(old_name, new_name), ...]}
+    # Applied during migration for databases with older schema
+    _COLUMN_RENAMES: dict[str, list[tuple[str, str]]] = {
+        "pattern_applications": [
+            # v11: Clarify semantics — not "did outcome improve vs baseline"
+            # but "did the pattern lead to execution success"
+            ("outcome_improved", "pattern_led_to_success"),
         ],
     }
 
@@ -356,7 +367,7 @@ class GlobalLearningStoreBase:
                 pattern_id TEXT,
                 execution_id TEXT,
                 applied_at TIMESTAMP,
-                outcome_improved BOOLEAN,
+                pattern_led_to_success BOOLEAN,
                 retry_count_before INTEGER,
                 retry_count_after INTEGER,
                 grounding_confidence REAL
@@ -631,6 +642,36 @@ class GlobalLearningStoreBase:
                         # Column might already exist (race condition) - that's fine
                         if "duplicate column name" not in str(e).lower():
                             raise
+
+        # Phase 2: Column renames (SQLite 3.25.0+)
+        for table_name, renames in self._COLUMN_RENAMES.items():
+            cursor = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                (table_name,),
+            )
+            if not cursor.fetchone():
+                continue
+
+            cursor = conn.execute(f"PRAGMA table_info({table_name})")
+            existing_columns = {row["name"] for row in cursor.fetchall()}
+
+            for old_name, new_name in renames:
+                if old_name in existing_columns and new_name not in existing_columns:
+                    try:
+                        conn.execute(
+                            f"ALTER TABLE {table_name} RENAME COLUMN {old_name} TO {new_name}"
+                        )
+                        self._logger.info(
+                            f"Renamed column {old_name} → {new_name} in {table_name}"
+                        )
+                    except sqlite3.OperationalError:
+                        # SQLite < 3.25.0: RENAME COLUMN not supported.
+                        # Column keeps old name; SQL queries use new name in DDL
+                        # but SELECT by old name still works via existing data.
+                        self._logger.warning(
+                            f"Cannot rename {old_name} → {new_name} in {table_name} "
+                            f"(SQLite too old). Column will keep old name."
+                        )
 
     @staticmethod
     def hash_workspace(workspace_path: Path) -> str:

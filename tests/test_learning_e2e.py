@@ -70,7 +70,7 @@ class TestLearningCycleE2E:
         app_id = store.record_pattern_application(
             pattern_id=pattern_id,
             execution_id="exec-001",
-            outcome_improved=True,
+            pattern_led_to_success=True,
             retry_count_before=2,
             retry_count_after=0,
             application_mode="exploitation",
@@ -186,7 +186,7 @@ class TestLearningCycleE2E:
         app_id = store.record_pattern_application(
             pattern_id=pattern_id,
             execution_id="run-2-exec-001",
-            outcome_improved=True,
+            pattern_led_to_success=True,
             retry_count_before=1,
             retry_count_after=0,
             application_mode="exploitation",
@@ -227,7 +227,7 @@ class TestLearningCycleE2E:
             store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"exec-fail-{i}",
-                outcome_improved=False,
+                pattern_led_to_success=False,
                 retry_count_before=1,
                 retry_count_after=2,  # Got worse
                 application_mode="exploitation",
@@ -336,7 +336,7 @@ class TestTrustScoreEvolutionE2E:
             store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"exec-trust-{i}",
-                outcome_improved=True,
+                pattern_led_to_success=True,
                 retry_count_before=2,
                 retry_count_after=0,
                 application_mode="exploitation",
@@ -545,7 +545,7 @@ class TestMultiRunMeasurementE2E:
         app_id = store.record_pattern_application(
             pattern_id=pattern_id,
             execution_id="measurement-job-run2-exec",
-            outcome_improved=True,
+            pattern_led_to_success=True,
             retry_count_before=3,
             retry_count_after=0,
             application_mode="exploitation",
@@ -599,7 +599,7 @@ class TestMultiRunMeasurementE2E:
             store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id=f"degrade-exec-{i}",
-                outcome_improved=False,
+                pattern_led_to_success=False,
                 retry_count_before=1,
                 retry_count_after=3,  # Got worse
                 application_mode="exploitation",

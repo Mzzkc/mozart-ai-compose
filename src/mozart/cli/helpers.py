@@ -430,6 +430,7 @@ async def require_job_state(
     if workspace and not workspace.exists():
         output_error(
             f"{ErrorMessages.WORKSPACE_NOT_FOUND}: {workspace}",
+            error_code="E501",
             hints=["Check the workspace path exists"],
             json_output=json_output,
         )
@@ -440,6 +441,7 @@ async def require_job_state(
     if found_state is None or found_backend is None:
         output_error(
             f"{ErrorMessages.JOB_NOT_FOUND}: {job_id}",
+            error_code="E501",
             hints=[
                 "Use --workspace to specify the directory containing the job state",
                 "Run 'mozart list' to see available jobs",

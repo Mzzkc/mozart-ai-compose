@@ -37,12 +37,16 @@ class SSEEvent:
         return "\n".join(lines) + "\n"
 
 
+SSE_CLIENT_QUEUE_SIZE = 100
+SSE_HEARTBEAT_RETRY_MS = 30000
+
+
 @dataclass
 class ClientConnection:
     """A connected SSE client."""
     client_id: str
     job_id: str
-    queue: asyncio.Queue[SSEEvent] = field(default_factory=lambda: asyncio.Queue(maxsize=100))
+    queue: asyncio.Queue[SSEEvent] = field(default_factory=lambda: asyncio.Queue(maxsize=SSE_CLIENT_QUEUE_SIZE))
     connected_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -105,7 +109,7 @@ class SSEManager:
                     heartbeat = SSEEvent(
                         event="heartbeat",
                         data=json.dumps({"timestamp": datetime.now(UTC).isoformat()}),
-                        retry=30000
+                        retry=SSE_HEARTBEAT_RETRY_MS
                     )
                     yield heartbeat.format()
                 except asyncio.CancelledError:

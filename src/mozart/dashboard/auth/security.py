@@ -7,9 +7,12 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING
 
 from fastapi import Request
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import Response
@@ -42,7 +45,12 @@ class SecurityConfig:
         default_factory=lambda: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
     )
     cors_allow_headers: list[str] = field(
-        default_factory=lambda: ["*"]
+        default_factory=lambda: [
+            "Accept",
+            "Authorization",
+            "Content-Type",
+            "X-Requested-With",
+        ]
     )
     add_security_headers: bool = True
 
@@ -142,7 +150,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
-def configure_cors(app: Any, config: SecurityConfig | None = None) -> None:
+def configure_cors(app: FastAPI, config: SecurityConfig | None = None) -> None:
     """Configure CORS middleware for application.
 
     Args:
@@ -160,6 +168,10 @@ def configure_cors(app: Any, config: SecurityConfig | None = None) -> None:
     )
 
 
+MAX_JOB_ID_LENGTH = 256
+MAX_FILENAME_LENGTH = 255  # POSIX NAME_MAX
+
+
 def validate_job_id(job_id: str) -> bool:
     """Validate job ID format to prevent injection.
 
@@ -169,7 +181,7 @@ def validate_job_id(job_id: str) -> bool:
     Returns:
         True if valid format
     """
-    if not job_id or len(job_id) > 256:
+    if not job_id or len(job_id) > MAX_JOB_ID_LENGTH:
         return False
 
     # Allow alphanumeric, hyphen, underscore, period
@@ -220,8 +232,8 @@ def sanitize_filename(filename: str) -> str:
     filename = filename.replace("\x00", "")
 
     # Limit length
-    if len(filename) > 255:
-        filename = filename[:255]
+    if len(filename) > MAX_FILENAME_LENGTH:
+        filename = filename[:MAX_FILENAME_LENGTH]
 
     # Ensure not empty
     if not filename:

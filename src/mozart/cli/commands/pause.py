@@ -32,8 +32,8 @@ from mozart.core.config import JobConfig
 from ..helpers import (
     configure_global_logging,
     create_pause_signal,
-    find_job_state,
     find_job_workspace,
+    require_job_state,
     wait_for_pause_ack,
 )
 from ..output import console, output_error
@@ -97,35 +97,15 @@ async def _pause_job(
     """
     configure_global_logging(console)
 
-    # Find workspace
+    # Find job state using shared discovery helper
+    found_state, found_backend = await require_job_state(
+        job_id, workspace, json_output=json_output,
+    )
+
+    # Resolve workspace directory for pause signal file
     found_workspace = find_job_workspace(job_id, workspace)
     if not found_workspace:
-        output_error(
-            f"Job '{job_id}' not found",
-            error_code="E501",
-            hints=[
-                "Use --workspace to specify the job's directory",
-                "Run 'mozart list' to see available jobs",
-            ],
-            json_output=json_output,
-            job_id=job_id,
-        )
-        raise typer.Exit(1)
-
-    # Find job in backends
-    found_state, found_backend = await find_job_state(job_id, found_workspace)
-
-    if found_state is None:
-        output_error(
-            f"Job '{job_id}' not found",
-            error_code="E501",
-            hints=[
-                "Use --workspace to specify the job's directory",
-                "Run 'mozart list' to see available jobs",
-            ],
-            json_output=json_output,
-            job_id=job_id,
-        )
+        # Shouldn't happen since require_job_state succeeded, but guard anyway
         raise typer.Exit(1)
 
     # Check if job is in a pausable state
@@ -177,14 +157,14 @@ async def _pause_job(
         raise typer.Exit(1) from None
 
     # Optionally wait for pause acknowledgment
-    acknowledged = False
+    was_acknowledged = False
     if wait and found_backend:
         if not json_output:
             console.print(
                 f"[dim]Waiting for job to pause (timeout: {timeout}s)...[/dim]"
             )
-        acknowledged = await wait_for_pause_ack(found_backend, job_id, timeout)
-        if not acknowledged:
+        was_acknowledged = await wait_for_pause_ack(found_backend, job_id, timeout)
+        if not was_acknowledged:
             if json_output:
                 result = {
                     "success": False,
@@ -216,14 +196,14 @@ async def _pause_job(
         result = {
             "success": True,
             "job_id": job_id,
-            "status": "running" if not acknowledged else "paused",
+            "status": "running" if not was_acknowledged else "paused",
             "message": "Pause signal sent. Job will pause at next sheet boundary.",
             "signal_file": str(signal_file),
-            "acknowledged": acknowledged,
+            "acknowledged": was_acknowledged,
         }
         console.print(json.dumps(result, indent=2))
     else:
-        if acknowledged:
+        if was_acknowledged:
             console.print(f"[green]Job '{job_id}' paused successfully.[/green]")
         else:
             console.print(f"Pause signal sent to job '[cyan]{job_id}[/cyan]'.")
@@ -334,35 +314,15 @@ async def _modify_job(
             console.print(f"[red]Error [E505]:[/red] Invalid config file: {e}")
         raise typer.Exit(1) from None
 
-    # Find workspace
+    # Find job state using shared discovery helper
+    found_state, found_backend = await require_job_state(
+        job_id, workspace, json_output=json_output,
+    )
+
+    # Resolve workspace directory for pause signal file
     found_workspace = find_job_workspace(job_id, workspace)
     if not found_workspace:
-        output_error(
-            f"Job '{job_id}' not found",
-            error_code="E501",
-            hints=[
-                "Use --workspace to specify the job's directory",
-                "Run 'mozart list' to see available jobs",
-            ],
-            json_output=json_output,
-            job_id=job_id,
-        )
-        raise typer.Exit(1)
-
-    # Find job in backends
-    found_state, found_backend = await find_job_state(job_id, found_workspace)
-
-    if found_state is None:
-        if json_output:
-            result = {
-                "success": False,
-                "error_code": "E501",
-                "job_id": job_id,
-                "message": f"Job '{job_id}' not found in workspace",
-            }
-            console.print(json.dumps(result, indent=2))
-        else:
-            console.print(f"[red]Error [E501]:[/red] Job '{job_id}' not found")
+        # Shouldn't happen since require_job_state succeeded, but guard anyway
         raise typer.Exit(1)
 
     # Handle job based on its current state
@@ -395,8 +355,8 @@ async def _modify_job(
                 console.print(
                     f"[dim]Waiting for job to pause (timeout: {timeout}s)...[/dim]"
                 )
-            acknowledged = await wait_for_pause_ack(found_backend, job_id, timeout)
-            if not acknowledged:
+            was_acknowledged = await wait_for_pause_ack(found_backend, job_id, timeout)
+            if not was_acknowledged:
                 if json_output:
                     result = {
                         "success": False,

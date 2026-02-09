@@ -315,12 +315,19 @@ class ClaudeCliBackend(Backend):
 
         Returns an ExecutionResult indicating timeout failure.
         """
-        process.terminate()
         try:
-            await asyncio.wait_for(process.wait(), timeout=GRACEFUL_TERMINATION_TIMEOUT)
-        except TimeoutError:
-            process.kill()
-            await process.wait()
+            process.terminate()
+        except ProcessLookupError:
+            pass  # Process already exited
+        else:
+            try:
+                await asyncio.wait_for(process.wait(), timeout=GRACEFUL_TERMINATION_TIMEOUT)
+            except TimeoutError:
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+                await process.wait()
 
         duration = time.monotonic() - start_time
 

@@ -191,8 +191,8 @@ class TestRunJobAsync:
                 ["run", str(sample_yaml_config), "--fresh", "--json"],
             )
 
-        # Fresh flag should trigger delete call (result may vary by execution)
-        assert result.exit_code is not None  # Verify command ran
+        # Fresh flag should trigger delete call
+        assert result.exit_code == 0, f"Expected success but got exit_code={result.exit_code}"
         mock_state.delete.assert_called_once_with("test-job")
 
 

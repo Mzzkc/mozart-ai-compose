@@ -410,10 +410,10 @@ class PatternsMixin:
         if self._global_learning_store is None or not pattern_ids:
             return
 
-        # Determine outcome improvement:
-        # - outcome_improved=True if validation passed AND first_attempt
-        # - outcome_improved=False if validation failed (patterns didn't help)
-        outcome_improved = ctx.validation_passed and ctx.first_attempt_success
+        # Determine if the pattern led to execution success:
+        # - True if validation passed AND first_attempt (pattern worked)
+        # - False if validation failed or retries needed (pattern didn't help)
+        pattern_led_to_success = ctx.validation_passed and ctx.first_attempt_success
 
         for pattern_id in pattern_ids:
             try:
@@ -427,7 +427,7 @@ class PatternsMixin:
                 self._global_learning_store.record_pattern_application(
                     pattern_id=pattern_id,
                     execution_id=f"sheet_{ctx.sheet_num}",
-                    outcome_improved=outcome_improved,
+                    pattern_led_to_success=pattern_led_to_success,
                     retry_count_before=0,  # We don't track this per-pattern
                     retry_count_after=0 if ctx.first_attempt_success else 1,
                     application_mode=application_mode,
@@ -437,7 +437,7 @@ class PatternsMixin:
 
                 # v22 Evolution: Update success factors when pattern succeeds
                 # Only capture factors when the pattern led to success
-                if outcome_improved:
+                if pattern_led_to_success:
                     self._global_learning_store.update_success_factors(
                         pattern_id=pattern_id,
                         validation_types=ctx.validation_types,
@@ -459,7 +459,7 @@ class PatternsMixin:
                     "learning.pattern_feedback_recorded",
                     pattern_id=pattern_id,
                     sheet_num=ctx.sheet_num,
-                    outcome_improved=outcome_improved,
+                    pattern_led_to_success=pattern_led_to_success,
                     validation_passed=ctx.validation_passed,
                     first_attempt_success=ctx.first_attempt_success,
                     application_mode=application_mode,

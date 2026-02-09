@@ -6,6 +6,7 @@ on execution decisions, plus LocalJudgmentClient fallback for offline operation.
 Phase 4 of AGI Evolution: Judgment Integration
 """
 
+import types
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -281,7 +282,7 @@ class JudgmentClient:
         self,
         exc_type: type[BaseException] | None,
         exc_val: BaseException | None,
-        exc_tb: Any,
+        exc_tb: types.TracebackType | None,
     ) -> None:
         """Async context manager exit - closes client."""
         await self.close()

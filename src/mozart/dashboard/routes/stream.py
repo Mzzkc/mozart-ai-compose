@@ -184,13 +184,8 @@ async def _job_status_stream(
             await asyncio.sleep(poll_interval)
 
     except asyncio.CancelledError:
-        # Client disconnected
-        disconnect_event = SSEEvent(
-            event="disconnected",
-            data=json.dumps({"reason": "client_disconnected"}),
-            id=f"disconnect-{datetime.now().timestamp()}"
-        )
-        yield disconnect_event.format()
+        # Client disconnected — nothing to yield since the consumer is gone.
+        return
     except Exception as e:
         # Unexpected error — do not leak internal exception details to clients
         _logger.exception("sse_stream_error", error_type=type(e).__name__, error=str(e))
@@ -221,15 +216,15 @@ def _read_tail_lines(log_file: Path, tail_lines: int) -> tuple[list[str], int]:
     return tail, total
 
 
-def _make_log_event(line: str, line_number: int, initial: bool, event_id: str) -> str:
+def _make_log_event(line: str, line_number: int, is_initial_event: bool, event_id: str) -> str:
     """Create a formatted SSE log event."""
     event = SSEEvent(
         event="log",
         data=json.dumps({
-            "line": line.rstrip('\n') if initial else line,
+            "line": line.rstrip('\n') if is_initial_event else line,
             "line_number": line_number,
             "timestamp": datetime.now().isoformat(),
-            "initial": initial,
+            "initial": is_initial_event,
         }),
         id=event_id,
     )
@@ -258,7 +253,7 @@ async def _log_stream(
                 lines, total = _read_tail_lines(log_file, tail_lines)
                 start_num = total - len(lines) + 1
                 for i, line in enumerate(lines):
-                    yield _make_log_event(line, start_num + i, initial=True, event_id=f"log-init-{i}")
+                    yield _make_log_event(line, start_num + i, is_initial_event=True, event_id=f"log-init-{i}")
             except (OSError, PermissionError) as e:
                 error_event = SSEEvent(
                     event="error",
@@ -304,7 +299,7 @@ async def _log_stream(
                     for line in new_lines:
                         if line:  # Skip empty lines
                             line_count += 1
-                            yield _make_log_event(line, line_count, initial=False, event_id=f"log-{line_count}")
+                            yield _make_log_event(line, line_count, is_initial_event=False, event_id=f"log-{line_count}")
 
                     last_size = current_size
 

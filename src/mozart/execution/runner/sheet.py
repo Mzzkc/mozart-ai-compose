@@ -540,14 +540,9 @@ class SheetExecutionMixin:
 
         execution_duration = time.monotonic() - execution_start_time
 
-        # Determine outcome category based on execution path
-        first_attempt_success = (normal_attempts == 0 and completion_attempts == 0)
-        if first_attempt_success:
-            outcome_category = "success_first_try"
-        elif completion_attempts > 0:
-            outcome_category = "success_completion"
-        else:
-            outcome_category = "success_retry"
+        outcome_category, first_attempt_success = self._classify_success_outcome(
+            normal_attempts, completion_attempts,
+        )
 
         # Populate SheetState learning fields
         sheet_state = state.sheets[sheet_num]
@@ -1721,6 +1716,28 @@ class SheetExecutionMixin:
             )
 
         return grounding_ctx
+
+    @staticmethod
+    def _classify_success_outcome(
+        normal_attempts: int,
+        completion_attempts: int,
+    ) -> tuple[str, bool]:
+        """Classify the outcome category for a successfully validated sheet.
+
+        Args:
+            normal_attempts: Number of normal retry attempts used.
+            completion_attempts: Number of completion-mode attempts used.
+
+        Returns:
+            Tuple of (outcome_category, first_attempt_success).
+        """
+        first_attempt_success = normal_attempts == 0 and completion_attempts == 0
+        if first_attempt_success:
+            return "success_first_try", True
+        elif completion_attempts > 0:
+            return "success_completion", False
+        else:
+            return "success_retry", False
 
     def _classify_execution(self, result: ExecutionResult) -> ClassificationResult:
         """Classify execution errors using multi-error root cause analysis.

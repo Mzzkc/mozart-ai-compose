@@ -610,6 +610,7 @@ class GitWorktreeManager:
         try:
             _, stdout, _ = await self._run_git("worktree", "list", "--porcelain", check=False)
         except Exception:
+            _logger.debug("lock_stale_check_failed", path=str(worktree_path), exc_info=True)
             return False
 
         reason = self._find_lock_reason(stdout, str(worktree_path))

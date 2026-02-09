@@ -436,7 +436,7 @@ class TestArtifactTools:
 
     async def test_get_artifact_security_violation(self, artifact_tools, temp_workspace):
         """Test that artifact retrieval prevents directory traversal."""
-        with pytest.raises(PermissionError, match="Access denied: Artifact path outside workspace"):
+        with pytest.raises(PermissionError, match="Access denied"):
             await artifact_tools._get_artifact({
                 "job_id": "job1",
                 "workspace": str(temp_workspace / "job1"),

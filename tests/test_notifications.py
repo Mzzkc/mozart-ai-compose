@@ -603,11 +603,7 @@ class TestNotifierProtocol:
     def test_desktop_notifier_implements_protocol(self):
         """Test DesktopNotifier implements Notifier protocol."""
         notifier = DesktopNotifier()
-        assert isinstance(mock, Notifier) if (mock := notifier) else True
-        # Alternative check for protocol compliance
-        assert hasattr(notifier, "subscribed_events")
-        assert hasattr(notifier, "send")
-        assert hasattr(notifier, "close")
+        assert isinstance(notifier, Notifier)
 
     def test_slack_notifier_implements_protocol(self):
         """Test SlackNotifier implements Notifier protocol."""

@@ -1249,6 +1249,26 @@ class MCPServerConfig(BaseModel):
         default_factory=dict,
         description="Environment variables for the server",
     )
+
+    # Security-sensitive env vars that should never be overridden via config.
+    # These could alter program loading, credential resolution, or library paths.
+    _BLOCKED_ENV_KEYS: frozenset[str] = frozenset({
+        "PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES",
+        "DYLD_LIBRARY_PATH", "PYTHONPATH", "NODE_PATH",
+        "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+        "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+    })
+
+    @model_validator(mode="after")
+    def _validate_env_keys(self) -> "MCPServerConfig":
+        """Reject security-sensitive environment variable overrides."""
+        for key in self.env:
+            if key.upper() in self._BLOCKED_ENV_KEYS:
+                raise ValueError(
+                    f"MCP server env cannot override security-sensitive variable: {key}"
+                )
+        return self
+
     working_dir: str | None = Field(
         default=None,
         description="Working directory for the server",

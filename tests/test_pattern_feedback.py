@@ -110,35 +110,35 @@ class TestPatternFeedbackRecording:
         pass
 
     @pytest.mark.asyncio
-    async def test_outcome_improved_logic_success_first_attempt(self):
-        """Test outcome_improved is True when validation passed AND first attempt."""
+    async def test_pattern_led_to_success_logic_success_first_attempt(self):
+        """Test pattern_led_to_success is True when validation passed AND first attempt."""
         validation_passed = True
         first_attempt_success = True
 
-        # From the code: outcome_improved = validation_passed and first_attempt_success
-        outcome_improved = validation_passed and first_attempt_success
+        # From the code: pattern_led_to_success = validation_passed and first_attempt_success
+        pattern_led_to_success = validation_passed and first_attempt_success
 
-        assert outcome_improved is True
+        assert pattern_led_to_success is True
 
     @pytest.mark.asyncio
-    async def test_outcome_improved_logic_success_with_retry(self):
-        """Test outcome_improved is False when validation passed but not first attempt."""
+    async def test_pattern_led_to_success_logic_success_with_retry(self):
+        """Test pattern_led_to_success is False when validation passed but not first attempt."""
         validation_passed = True
         first_attempt_success = False
 
-        outcome_improved = validation_passed and first_attempt_success
+        pattern_led_to_success = validation_passed and first_attempt_success
 
-        assert outcome_improved is False
+        assert pattern_led_to_success is False
 
     @pytest.mark.asyncio
-    async def test_outcome_improved_logic_failure(self):
-        """Test outcome_improved is False when validation failed."""
+    async def test_pattern_led_to_success_logic_failure(self):
+        """Test pattern_led_to_success is False when validation failed."""
         validation_passed = False
         first_attempt_success = False
 
-        outcome_improved = validation_passed and first_attempt_success
+        pattern_led_to_success = validation_passed and first_attempt_success
 
-        assert outcome_improved is False
+        assert pattern_led_to_success is False
 
 
 class TestPatternFeedbackIntegration:
@@ -160,7 +160,7 @@ class TestPatternFeedbackIntegration:
             mock_global_store.record_pattern_application(
                 pattern_id=pattern_id,
                 execution_id="sheet_1",
-                outcome_improved=True,
+                pattern_led_to_success=True,
                 retry_count_before=0,
                 retry_count_after=0,
             )
@@ -171,13 +171,13 @@ class TestPatternFeedbackIntegration:
         """Test record_pattern_application is called with correct arguments."""
         pattern_id = "test-pattern-id"
         sheet_num = 5
-        outcome_improved = True
+        pattern_led_to_success = True
         first_attempt_success = True
 
         mock_global_store.record_pattern_application(
             pattern_id=pattern_id,
             execution_id=f"sheet_{sheet_num}",
-            outcome_improved=outcome_improved,
+            pattern_led_to_success=pattern_led_to_success,
             retry_count_before=0,
             retry_count_after=0 if first_attempt_success else 1,
         )
@@ -185,7 +185,7 @@ class TestPatternFeedbackIntegration:
         mock_global_store.record_pattern_application.assert_called_once_with(
             pattern_id=pattern_id,
             execution_id="sheet_5",
-            outcome_improved=True,
+            pattern_led_to_success=True,
             retry_count_before=0,
             retry_count_after=0,
         )
@@ -204,7 +204,7 @@ class TestPatternFeedbackIntegration:
                 mock_global_store.record_pattern_application(
                     pattern_id=pattern_id,
                     execution_id="sheet_1",
-                    outcome_improved=True,
+                    pattern_led_to_success=True,
                     retry_count_before=0,
                     retry_count_after=0,
                 )

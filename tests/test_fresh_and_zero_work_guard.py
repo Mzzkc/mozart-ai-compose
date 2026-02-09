@@ -454,7 +454,7 @@ class TestDefenseInDepth:
         Verified by: test_hooks_skipped_when_already_completed (Layer 2 alone)
         and test_fresh_deletes_existing_state (Layer 1 alone).
         """
-        # Verify Layer 2: COMPLETED state -> was_already_completed = True
+        # Verify Layer 2: COMPLETED state -> loaded_as_completed = True
         completed_state = CheckpointState(
             job_id="guard-test",
             job_name="guard-test",
@@ -464,19 +464,19 @@ class TestDefenseInDepth:
         completed_state.last_completed_sheet = 2
 
         # Simulate the guard logic from lifecycle.py:104
-        was_already_completed = completed_state.status == JobStatus.COMPLETED
+        loaded_as_completed = completed_state.status == JobStatus.COMPLETED
 
         # Guard should detect this is a re-run of a completed job
-        assert was_already_completed is True
+        assert loaded_as_completed is True
 
         # Simulate hook firing condition from lifecycle.py:182-185
         has_on_success = True  # Assume hooks are configured
         should_fire_hooks = (
             completed_state.status == JobStatus.COMPLETED
             and has_on_success
-            and not was_already_completed
+            and not loaded_as_completed
         )
-        # Hooks should NOT fire because was_already_completed blocks them
+        # Hooks should NOT fire because loaded_as_completed blocks them
         assert should_fire_hooks is False, (
             "Zero-work guard must prevent hooks from firing on already-completed jobs"
         )
@@ -485,10 +485,10 @@ class TestDefenseInDepth:
         """When --fresh is used, guard should allow hooks (real work done).
 
         With --fresh: state deleted -> _initialize_state creates new state
-          -> was_already_completed = False -> hooks fire after real work
+          -> loaded_as_completed = False -> hooks fire after real work
 
         Without --fresh: old COMPLETED state loaded
-          -> was_already_completed = True -> hooks blocked
+          -> loaded_as_completed = True -> hooks blocked
         """
         # Simulate --fresh behavior: new state starts as PENDING
         fresh_state = CheckpointState(
@@ -497,15 +497,15 @@ class TestDefenseInDepth:
             total_sheets=2,
         )
         # Guard captures initial status (lifecycle.py:104)
-        was_already_completed_fresh = fresh_state.status == JobStatus.COMPLETED
-        assert was_already_completed_fresh is False
+        loaded_as_completed_fresh = fresh_state.status == JobStatus.COMPLETED
+        assert loaded_as_completed_fresh is False
 
         # After job completes its work, status changes to COMPLETED
         fresh_state.status = JobStatus.COMPLETED
         # Hook firing condition (lifecycle.py:182-185)
         should_fire_hooks_fresh = (
             fresh_state.status == JobStatus.COMPLETED
-            and not was_already_completed_fresh
+            and not loaded_as_completed_fresh
         )
         # Hooks SHOULD fire because job did real work (fresh start)
         assert should_fire_hooks_fresh is True, (
@@ -520,13 +520,13 @@ class TestDefenseInDepth:
         )
         old_state.status = JobStatus.COMPLETED
         # Guard captures initial status (lifecycle.py:104)
-        was_already_completed_old = old_state.status == JobStatus.COMPLETED
-        assert was_already_completed_old is True
+        loaded_as_completed_old = old_state.status == JobStatus.COMPLETED
+        assert loaded_as_completed_old is True
 
         # Hook firing condition (lifecycle.py:182-185)
         should_fire_hooks_old = (
             old_state.status == JobStatus.COMPLETED
-            and not was_already_completed_old
+            and not loaded_as_completed_old
         )
         # Hooks should NOT fire because no new work was done
         assert should_fire_hooks_old is False, (

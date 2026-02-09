@@ -176,6 +176,12 @@ class _LockingStateBackend:
             job_id, workspace, artifact_pattern
         )
 
+    async def close(self) -> None:
+        """Delegate close to the inner backend to release connections."""
+        close_fn = getattr(self._inner, "close", None)
+        if close_fn is not None:
+            await close_fn()
+
 
 class ParallelExecutor:
     """Executes sheets in parallel using asyncio.TaskGroup.

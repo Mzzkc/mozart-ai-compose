@@ -381,12 +381,12 @@ class TestRecordPatternFeedback:
         assert mock_global_store.record_pattern_application.call_count == 3
 
     @pytest.mark.asyncio
-    async def test_records_outcome_improved_true_on_success(
+    async def test_records_pattern_led_to_success_true_on_success(
         self,
         runner_with_global_store: JobRunner,
         mock_global_store: MagicMock,
     ) -> None:
-        """Test that outcome_improved=True when validation passed and first attempt."""
+        """Test that pattern_led_to_success=True when validation passed and first attempt."""
         await runner_with_global_store._record_pattern_feedback(
             pattern_ids=["p1"],
             ctx=PatternFeedbackContext(
@@ -397,15 +397,15 @@ class TestRecordPatternFeedback:
         )
 
         call_kwargs = mock_global_store.record_pattern_application.call_args.kwargs
-        assert call_kwargs["outcome_improved"] is True
+        assert call_kwargs["pattern_led_to_success"] is True
 
     @pytest.mark.asyncio
-    async def test_records_outcome_improved_false_on_failure(
+    async def test_records_pattern_led_to_success_false_on_failure(
         self,
         runner_with_global_store: JobRunner,
         mock_global_store: MagicMock,
     ) -> None:
-        """Test that outcome_improved=False when validation failed."""
+        """Test that pattern_led_to_success=False when validation failed."""
         await runner_with_global_store._record_pattern_feedback(
             pattern_ids=["p1"],
             ctx=PatternFeedbackContext(
@@ -416,15 +416,15 @@ class TestRecordPatternFeedback:
         )
 
         call_kwargs = mock_global_store.record_pattern_application.call_args.kwargs
-        assert call_kwargs["outcome_improved"] is False
+        assert call_kwargs["pattern_led_to_success"] is False
 
     @pytest.mark.asyncio
-    async def test_records_outcome_improved_false_on_retry(
+    async def test_records_pattern_led_to_success_false_on_retry(
         self,
         runner_with_global_store: JobRunner,
         mock_global_store: MagicMock,
     ) -> None:
-        """Test that outcome_improved=False when not first attempt."""
+        """Test that pattern_led_to_success=False when not first attempt."""
         await runner_with_global_store._record_pattern_feedback(
             pattern_ids=["p1"],
             ctx=PatternFeedbackContext(
@@ -435,7 +435,7 @@ class TestRecordPatternFeedback:
         )
 
         call_kwargs = mock_global_store.record_pattern_application.call_args.kwargs
-        assert call_kwargs["outcome_improved"] is False
+        assert call_kwargs["pattern_led_to_success"] is False
 
     @pytest.mark.asyncio
     async def test_passes_grounding_confidence(

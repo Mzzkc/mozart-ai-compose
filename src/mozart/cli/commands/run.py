@@ -189,12 +189,12 @@ async def _run_job(
 
     # Delete existing state if --fresh flag is set (clean start)
     if fresh:
-        deleted = await state_backend.delete(config.name)
-        if deleted and not is_quiet() and not json_output:
+        was_deleted = await state_backend.delete(config.name)
+        if was_deleted and not is_quiet() and not json_output:
             console.print(
                 f"[yellow]--fresh: Deleted existing state for '{config.name}'[/yellow]"
             )
-        elif not deleted and is_verbose() and not json_output:
+        elif not was_deleted and is_verbose() and not json_output:
             console.print(
                 f"[dim]--fresh: No existing state found for '{config.name}'[/dim]"
             )
@@ -410,7 +410,7 @@ async def _run_job(
             try:
                 await notification_manager.close()
             except Exception:
-                pass  # Don't mask errors during final cleanup
+                _logger.debug("Notification cleanup failed", exc_info=True)
 
 
 def _show_dry_run(config: JobConfig) -> None:

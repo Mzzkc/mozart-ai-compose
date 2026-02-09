@@ -17,17 +17,20 @@ router = APIRouter(prefix="/api", tags=["Jobs"])
 
 
 def resolve_job_workspace(state: CheckpointState, job_id: str) -> Path:
-    """Resolve workspace path from job state.
+    """Resolve workspace path from job state's worktree path.
+
+    Only works for worktree-isolated jobs. Non-isolated jobs do not store
+    a workspace path in state, so this function will raise 404 for them.
 
     Args:
-        state: Loaded checkpoint state.
+        state: Loaded checkpoint state (must have worktree_path set).
         job_id: Job identifier (for error messages).
 
     Returns:
         Resolved workspace Path.
 
     Raises:
-        HTTPException: 404 if no workspace is accessible.
+        HTTPException: 404 if no worktree_path is set on the state.
     """
     if state.worktree_path:
         return Path(state.worktree_path)
@@ -36,6 +39,30 @@ def resolve_job_workspace(state: CheckpointState, job_id: str) -> Path:
         detail=f"No accessible workspace found for job {job_id}. "
                f"Job may not be using worktree isolation.",
     )
+
+
+async def get_job_or_404(
+    backend: StateBackend, job_id: str
+) -> CheckpointState:
+    """Load job state or raise 404 if not found.
+
+    Consolidates the repeated load→check→raise pattern used
+    across multiple route handlers.
+
+    Args:
+        backend: State backend to load from.
+        job_id: Job identifier.
+
+    Returns:
+        Loaded CheckpointState.
+
+    Raises:
+        HTTPException: 404 if job not found.
+    """
+    state = await backend.load(job_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+    return state
 
 
 # ============================================================================
@@ -218,10 +245,7 @@ async def get_job(
     Raises:
         HTTPException: 404 if job not found
     """
-    state = await backend.load(job_id)
-    if state is None:
-        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
-
+    state = await get_job_or_404(backend, job_id)
     return JobDetail.from_checkpoint(state)
 
 
@@ -244,8 +268,5 @@ async def get_job_status(
     Raises:
         HTTPException: 404 if job not found
     """
-    state = await backend.load(job_id)
-    if state is None:
-        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
-
+    state = await get_job_or_404(backend, job_id)
     return JobStatusResponse.from_checkpoint(state)

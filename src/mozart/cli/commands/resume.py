@@ -21,6 +21,7 @@ execution of paused or failed jobs.
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 import typer
 from rich.panel import Panel
@@ -41,6 +42,9 @@ from ._shared import (
     handle_job_completion,
     setup_all,
 )
+
+_logger = logging.getLogger(__name__)
+
 
 def resume(
     job_id: str = typer.Argument(..., help="Job ID to resume"),
@@ -430,7 +434,7 @@ async def _resume_job(
                     error_message=str(e),
                 )
             except Exception:
-                pass  # Don't mask the original FatalError
+                _logger.debug("Notification failed during error handling", exc_info=True)
 
         raise typer.Exit(1) from None
 

@@ -191,7 +191,8 @@ class PatternAggregator:
         effectiveness and recency.
         """
         # Get all patterns (even low priority ones for recalculation)
-        patterns = self.global_store.get_patterns(min_priority=0.0, limit=1000)
+        max_patterns_for_reweight = 1000
+        patterns = self.global_store.get_patterns(min_priority=0.0, limit=max_patterns_for_reweight)
 
         # Batch-compute new priorities, then update all at once with executemany
         updates: list[tuple[float, str]] = []

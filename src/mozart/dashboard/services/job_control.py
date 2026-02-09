@@ -210,6 +210,15 @@ class JobControlService:
             )
 
         except Exception as e:
+            # Clean up temp config file immediately on failure, since the
+            # fire-and-forget cleanup task may not run if we're raising.
+            if temp_path is not None:
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass  # Best-effort cleanup
+                temp_path = None  # Prevent double-cleanup
+
             # Clean up on failure
             if job_id in self._running_processes:
                 process = self._running_processes.pop(job_id)

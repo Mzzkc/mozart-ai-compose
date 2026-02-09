@@ -422,10 +422,11 @@ class PromptBuilder:
         hints_section = self._format_semantic_hints(semantic_hints)
 
         # Truncate original prompt if very long
+        max_prompt_context_chars = 3000
         original_context = ctx.original_prompt
-        if len(original_context) > 3000:
+        if len(original_context) > max_prompt_context_chars:
             truncation_msg = "\n\n[... original prompt truncated for brevity ...]"
-            original_context = original_context[:3000] + truncation_msg
+            original_context = original_context[:max_prompt_context_chars] + truncation_msg
 
         completion_prompt = f"""## COMPLETION MODE - Sheet {ctx.sheet_num}
 

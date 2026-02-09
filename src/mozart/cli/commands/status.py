@@ -23,9 +23,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypedDict
+
+_logger = logging.getLogger(__name__)
 
 import typer
 from rich.panel import Panel
@@ -252,6 +255,7 @@ async def _list_jobs(
             for job in jobs:
                 all_jobs.append((source, job))
         except Exception:
+            _logger.warning("list_jobs_backend_error", exc_info=True)
             continue
 
     # Remove duplicates (same job_id from different backends)
@@ -582,9 +586,12 @@ def _collect_recent_errors(
                 error_code=sheet.error_category or "E999",
                 error_message=sheet.error_message,
                 attempt_number=sheet.attempt_count,
+                stdout_tail=sheet.stdout_tail,
+                stderr_tail=sheet.stderr_tail,
                 context={
                     "exit_code": sheet.exit_code,
                     "exit_signal": sheet.exit_signal,
+                    "exit_reason": sheet.exit_reason,
                 },
             )
             if sheet.completed_at:

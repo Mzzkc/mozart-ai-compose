@@ -151,7 +151,10 @@ class GlobalLearningStore(
 
 
 # Convenience function for getting the singleton store
+import threading
+
 _global_store: GlobalLearningStore | None = None
+_global_store_lock = threading.Lock()
 
 
 def get_global_store(
@@ -176,10 +179,11 @@ def get_global_store(
     """
     global _global_store
 
-    if _global_store is None or (
-        db_path is not None and _global_store.db_path != db_path
-    ):
-        _global_store = GlobalLearningStore(db_path)
+    with _global_store_lock:
+        if _global_store is None or (
+            db_path is not None and _global_store.db_path != db_path
+        ):
+            _global_store = GlobalLearningStore(db_path)
 
     return _global_store
 

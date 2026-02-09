@@ -221,7 +221,7 @@ class TestConfigResources:
 
         # Should attempt to load from state files in workspace
         # Mock was called for state files found in temp_workspace
-        assert mock_state_backend.load.call_count >= 0
+        assert mock_state_backend.load.call_count >= 1
 
     async def test_get_job_details_no_backend(self, config_resources_basic):
         """Test job details without state backend."""

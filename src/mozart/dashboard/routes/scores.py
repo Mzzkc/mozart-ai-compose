@@ -457,7 +457,7 @@ async def list_available_templates(
             categories.add(template.category)
 
         except Exception:
-            # Log error but continue with other templates
+            _logger.warning("Failed to load template %s", name, exc_info=True)
             continue
 
     return TemplateListResponse(
