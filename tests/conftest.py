@@ -1,7 +1,6 @@
 """Pytest fixtures for Mozart tests."""
 
 import logging
-import tempfile
 from pathlib import Path
 from typing import Generator
 
@@ -68,6 +67,20 @@ class MockStateBackend(StateBackend):
 def mock_state_backend() -> MockStateBackend:
     """In-memory state backend for testing."""
     return MockStateBackend()
+
+
+@pytest.fixture(autouse=True)
+def reset_output_level() -> Generator[None, None, None]:
+    """Reset CLI output level before and after each test.
+
+    Prevents quiet/verbose mode from leaking between tests
+    when typer callbacks set module-level state.
+    """
+    from mozart.cli.helpers import OutputLevel, set_output_level
+
+    set_output_level(OutputLevel.NORMAL)
+    yield
+    set_output_level(OutputLevel.NORMAL)
 
 
 @pytest.fixture(autouse=True)

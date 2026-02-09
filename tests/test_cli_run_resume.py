@@ -264,7 +264,7 @@ class TestFindJobState:
         )
 
         with patch(
-            "mozart.cli.commands.resume.find_job_state",
+            "mozart.cli.commands.resume.require_job_state",
             new_callable=AsyncMock,
             return_value=(state, AsyncMock()),
         ):
@@ -285,7 +285,7 @@ class TestFindJobState:
         )
 
         with patch(
-            "mozart.cli.commands.resume.find_job_state",
+            "mozart.cli.commands.resume.require_job_state",
             new_callable=AsyncMock,
             return_value=(state, AsyncMock()),
         ):
@@ -307,7 +307,7 @@ class TestFindJobState:
         mock_backend = AsyncMock()
 
         with patch(
-            "mozart.cli.commands.resume.find_job_state",
+            "mozart.cli.commands.resume.require_job_state",
             new_callable=AsyncMock,
             return_value=(state, mock_backend),
         ):
