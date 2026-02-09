@@ -223,10 +223,13 @@ class LifecycleMixin:
             # only successes contributed to the learning system.
             try:
                 await self._aggregate_to_global_store(state)
-            except Exception:
-                self._logger.warning(
+            except Exception as agg_err:
+                self._logger.error(
                     "cleanup.learning_aggregation_failed",
                     job_id=state.job_id,
+                    error_type=type(agg_err).__name__,
+                    error=str(agg_err),
+                    completed_sheets=state.last_completed_sheet,
                     exc_info=True,
                 )
 

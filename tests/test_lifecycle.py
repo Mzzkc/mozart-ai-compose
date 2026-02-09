@@ -511,8 +511,8 @@ class TestFinalizeSummary:
         state = _make_state(total_sheets=1)
         mixin._summary = None
 
-        # Should not raise
         mixin._finalize_summary(state)
+        assert mixin._summary is None
 
     def test_validation_pass_rate(self, mixin: _TestableLifecycleMixin):
         """Validation pass/fail counts are tracked correctly."""
