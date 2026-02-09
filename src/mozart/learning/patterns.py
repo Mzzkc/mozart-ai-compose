@@ -728,6 +728,9 @@ class PatternDetector:
     def calculate_success_rate(outcomes: list["SheetOutcome"]) -> float:
         """Calculate overall success rate from outcomes.
 
+        Success is defined as validation_pass_rate == 1.0 (all validations
+        passed). Partial passes (e.g., 0.5) are counted as failures.
+
         Args:
             outcomes: List of sheet outcomes.
 

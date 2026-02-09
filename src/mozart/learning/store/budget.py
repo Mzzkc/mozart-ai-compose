@@ -21,10 +21,11 @@ from typing import TYPE_CHECKING, Any
 
 from mozart.core.logging import get_logger
 
-from .models import EntropyResponseRecord, ExplorationBudgetRecord
+from .models import EntropyResponseRecord, ExplorationBudgetRecord, PatternEntropyMetrics
 
 if TYPE_CHECKING:
     import sqlite3
+    from contextlib import AbstractContextManager
 
 _logger = get_logger("learning.global_store")
 
@@ -47,7 +48,7 @@ class BudgetMixin:
     # Type hints for attributes provided by the composed class
     if TYPE_CHECKING:
 
-        def _get_connection(self) -> sqlite3.Connection: ...
+        def _get_connection(self) -> AbstractContextManager[sqlite3.Connection]: ...
 
     # =========================================================================
     # v23 Evolution: Exploration Budget Maintenance
@@ -791,3 +792,151 @@ class BudgetMixin:
             "quarantine_revisits": row["total_revisits"] or 0,
             "last_response": last.recorded_at.isoformat() if last else None,
         }
+
+    # =========================================================================
+    # Pattern Entropy Monitoring (used by `mozart patterns-entropy` CLI)
+    # =========================================================================
+
+    def calculate_pattern_entropy(self) -> PatternEntropyMetrics:
+        """Calculate current Shannon entropy of the pattern population.
+
+        Queries all patterns with at least one application and computes
+        Shannon entropy over the application-count distribution. This
+        reuses the same algorithm as ``check_entropy_response_needed``
+        but returns a structured result for CLI display and recording.
+
+        Returns:
+            PatternEntropyMetrics with the current entropy snapshot.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT p.id, COUNT(pa.id) as app_count
+                FROM patterns p
+                LEFT JOIN pattern_applications pa ON p.id = pa.pattern_id
+                GROUP BY p.id
+                """
+            )
+            rows = cursor.fetchall()
+
+        # Count totals
+        unique_count = len(rows)
+        effective_rows = [r for r in rows if r["app_count"] > 0]
+        effective_count = len(effective_rows)
+        total_apps = sum(r["app_count"] for r in rows)
+
+        now = datetime.now()
+
+        if total_apps == 0 or effective_count == 0:
+            return PatternEntropyMetrics(
+                calculated_at=now,
+                shannon_entropy=0.0,
+                max_possible_entropy=0.0,
+                diversity_index=0.0,
+                unique_pattern_count=unique_count,
+                effective_pattern_count=0,
+                total_applications=0,
+                dominant_pattern_share=0.0,
+            )
+
+        # Shannon entropy: H = -sum(p_i * log2(p_i))
+        probabilities = [r["app_count"] / total_apps for r in effective_rows]
+        shannon_entropy = -sum(
+            p * math.log2(p) for p in probabilities if p > 0
+        )
+        max_entropy = math.log2(effective_count) if effective_count > 1 else 1.0
+        diversity_index = shannon_entropy / max_entropy if max_entropy > 0 else 0.0
+        dominant_share = max(probabilities)
+
+        return PatternEntropyMetrics(
+            calculated_at=now,
+            shannon_entropy=shannon_entropy,
+            max_possible_entropy=max_entropy,
+            diversity_index=diversity_index,
+            unique_pattern_count=unique_count,
+            effective_pattern_count=effective_count,
+            total_applications=total_apps,
+            dominant_pattern_share=dominant_share,
+        )
+
+    def record_pattern_entropy(self, metrics: PatternEntropyMetrics) -> str:
+        """Persist a pattern entropy snapshot for historical trend analysis.
+
+        Args:
+            metrics: The entropy metrics to record.
+
+        Returns:
+            The record ID of the persisted snapshot.
+        """
+        record_id = str(uuid.uuid4())
+
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO pattern_entropy_history (
+                    id, calculated_at, shannon_entropy, max_possible_entropy,
+                    diversity_index, unique_pattern_count, effective_pattern_count,
+                    total_applications, dominant_pattern_share, threshold_exceeded
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record_id,
+                    metrics.calculated_at.isoformat(),
+                    metrics.shannon_entropy,
+                    metrics.max_possible_entropy,
+                    metrics.diversity_index,
+                    metrics.unique_pattern_count,
+                    metrics.effective_pattern_count,
+                    metrics.total_applications,
+                    metrics.dominant_pattern_share,
+                    1 if metrics.threshold_exceeded else 0,
+                ),
+            )
+
+        _logger.debug(
+            f"Recorded entropy snapshot {record_id[:10]}: "
+            f"H={metrics.shannon_entropy:.3f}, diversity={metrics.diversity_index:.3f}"
+        )
+        return record_id
+
+    def get_pattern_entropy_history(
+        self,
+        limit: int = 50,
+    ) -> list[PatternEntropyMetrics]:
+        """Retrieve historical entropy snapshots for trend analysis.
+
+        Args:
+            limit: Maximum number of records to return.
+
+        Returns:
+            List of PatternEntropyMetrics, most recent first.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT calculated_at, shannon_entropy, max_possible_entropy,
+                       diversity_index, unique_pattern_count, effective_pattern_count,
+                       total_applications, dominant_pattern_share, threshold_exceeded
+                FROM pattern_entropy_history
+                ORDER BY calculated_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+
+            records: list[PatternEntropyMetrics] = []
+            for row in cursor.fetchall():
+                records.append(
+                    PatternEntropyMetrics(
+                        calculated_at=datetime.fromisoformat(row["calculated_at"]),
+                        shannon_entropy=row["shannon_entropy"],
+                        max_possible_entropy=row["max_possible_entropy"],
+                        diversity_index=row["diversity_index"],
+                        unique_pattern_count=row["unique_pattern_count"],
+                        effective_pattern_count=row["effective_pattern_count"],
+                        total_applications=row["total_applications"],
+                        dominant_pattern_share=row["dominant_pattern_share"],
+                        threshold_exceeded=bool(row["threshold_exceeded"]),
+                    )
+                )
+            return records

@@ -47,6 +47,7 @@ from ..helpers import (
 from ..output import console, format_duration
 from ._shared import (
     create_backend,
+    display_run_summary,
     setup_escalation,
     setup_grounding,
     setup_learning,
@@ -331,7 +332,7 @@ async def _run_job(
             # Output summary as JSON
             console.print(json.dumps(summary.to_dict(), indent=2))
         elif state.status == JobStatus.COMPLETED:
-            _display_run_summary(summary)
+            display_run_summary(summary)
 
             # Send job complete notification
             if notification_manager:
@@ -347,7 +348,7 @@ async def _run_job(
                 console.print(
                     f"[yellow]Job ended with status: {state.status.value}[/yellow]"
                 )
-                _display_run_summary(summary)
+                display_run_summary(summary)
 
             # Send job failed notification if not completed
             if notification_manager and state.status == JobStatus.FAILED:
@@ -406,74 +407,6 @@ async def _run_job(
         # Clean up notification resources
         if notification_manager:
             await notification_manager.close()
-
-
-def _display_run_summary(summary: RunSummary) -> None:
-    """Display run summary as a rich panel.
-
-    Args:
-        summary: Run summary with execution statistics.
-    """
-    if is_quiet():
-        return
-
-    # Build status indicator
-    status_color = {
-        JobStatus.COMPLETED: "green",
-        JobStatus.FAILED: "red",
-        JobStatus.PAUSED: "yellow",
-    }.get(summary.final_status, "white")
-
-    status_text = f"[{status_color}]{summary.final_status.value.upper()}[/{status_color}]"
-
-    # Build summary content
-    lines = [
-        f"[bold]{summary.job_name}[/bold]",
-        f"Status: {status_text}",
-        f"Duration: {summary._format_duration(summary.total_duration_seconds)}",
-        "",
-        "[bold]Sheets[/bold]",
-        f"  Completed: [green]{summary.completed_sheets}[/green]/{summary.total_sheets}",
-    ]
-
-    if summary.failed_sheets > 0:
-        lines.append(f"  Failed: [red]{summary.failed_sheets}[/red]")
-    if summary.skipped_sheets > 0:
-        lines.append(f"  Skipped: [yellow]{summary.skipped_sheets}[/yellow]")
-
-    lines.append(f"  Success Rate: {summary.success_rate:.1f}%")
-
-    # Validation stats
-    if summary.validation_pass_count + summary.validation_fail_count > 0:
-        lines.extend([
-            "",
-            "[bold]Validation[/bold]",
-            f"  Pass Rate: {summary.validation_pass_rate:.1f}%",
-        ])
-
-    # Execution stats (show in verbose mode or if notable)
-    if is_verbose() or summary.total_retries > 0 or summary.rate_limit_waits > 0:
-        lines.extend([
-            "",
-            "[bold]Execution[/bold]",
-        ])
-        if summary.first_attempt_successes > 0:
-            lines.append(
-                f"  First Attempt Success: {summary.first_attempt_rate:.0f}% "
-                f"({summary.first_attempt_successes}/{summary.completed_sheets})"
-            )
-        if summary.total_retries > 0:
-            lines.append(f"  Retries Used: {summary.total_retries}")
-        if summary.total_completion_attempts > 0:
-            lines.append(f"  Completion Attempts: {summary.total_completion_attempts}")
-        if summary.rate_limit_waits > 0:
-            lines.append(f"  Rate Limit Waits: [yellow]{summary.rate_limit_waits}[/yellow]")
-
-    console.print(Panel(
-        "\n".join(lines),
-        title="Run Summary",
-        border_style="green" if summary.final_status == JobStatus.COMPLETED else "yellow",
-    ))
 
 
 def _show_dry_run(config: JobConfig) -> None:

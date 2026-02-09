@@ -24,6 +24,7 @@ from .models import EscalationDecisionRecord
 
 if TYPE_CHECKING:
     import sqlite3
+    from contextlib import AbstractContextManager
 
 _logger = get_logger("learning.global_store")
 
@@ -46,7 +47,7 @@ class EscalationMixin:
 
         @staticmethod
         def hash_job(job_name: str, config_hash: str | None = None) -> str: ...
-        def _get_connection(self) -> sqlite3.Connection: ...
+        def _get_connection(self) -> AbstractContextManager[sqlite3.Connection]: ...
 
     def record_escalation_decision(
         self,

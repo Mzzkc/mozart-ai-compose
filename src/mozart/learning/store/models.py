@@ -446,6 +446,43 @@ class EvolutionTrajectoryEntry:
 
 
 @dataclass
+class PatternEntropyMetrics:
+    """Metrics for pattern population Shannon entropy analysis.
+
+    Used by the `patterns-entropy` CLI command to monitor pattern diversity.
+    Shannon entropy measures how evenly patterns are used across the population:
+    high entropy indicates healthy diversity, low entropy signals collapse risk.
+    """
+
+    calculated_at: datetime
+    """When this entropy measurement was calculated."""
+
+    shannon_entropy: float
+    """Shannon entropy in bits: -sum(p * log2(p)) for each pattern probability."""
+
+    max_possible_entropy: float
+    """Maximum possible entropy: log2(unique_pattern_count)."""
+
+    diversity_index: float
+    """Normalized diversity: shannon_entropy / max_possible_entropy (0.0-1.0)."""
+
+    unique_pattern_count: int
+    """Total number of unique patterns in the population."""
+
+    effective_pattern_count: int
+    """Number of patterns with at least one application."""
+
+    total_applications: int
+    """Total number of pattern applications across all patterns."""
+
+    dominant_pattern_share: float
+    """Fraction of applications held by the most-used pattern (0.0-1.0)."""
+
+    threshold_exceeded: bool = False
+    """Whether diversity_index fell below the alert threshold (set by caller)."""
+
+
+@dataclass
 class ExplorationBudgetRecord:
     """A record of exploration budget state over time.
 
@@ -525,6 +562,7 @@ __all__ = [
     "DriftMetrics",
     "EpistemicDriftMetrics",
     "EvolutionTrajectoryEntry",
+    "PatternEntropyMetrics",
     "ExplorationBudgetRecord",
     "EntropyResponseRecord",
 ]

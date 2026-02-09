@@ -16,7 +16,6 @@ from mozart.backends.base import ExecutionResult, ExitReason
 from mozart.backends.claude_cli import ClaudeCliBackend
 from mozart.core.checkpoint import SheetState, SheetStatus
 from mozart.core.errors import (
-    ClassifiedError,
     ErrorCategory,
     ErrorClassifier,
     FATAL_SIGNALS,
@@ -93,19 +92,18 @@ class TestExecutionResultSignalFields:
         )
         assert result.exit_reason == "error"
 
-    def test_exit_reason_types(self) -> None:
+    @pytest.mark.parametrize("reason", ["completed", "timeout", "killed", "error"])
+    def test_exit_reason_types(self, reason: ExitReason) -> None:
         """Test all valid exit reason types."""
-        reasons: list[ExitReason] = ["completed", "timeout", "killed", "error"]
-        for reason in reasons:
-            result = ExecutionResult(
-                success=False,
-                stdout="",
-                stderr="",
-                duration_seconds=1.0,
-                exit_code=None,
-                exit_reason=reason,
-            )
-            assert result.exit_reason == reason
+        result = ExecutionResult(
+            success=False,
+            stdout="",
+            stderr="",
+            duration_seconds=1.0,
+            exit_code=None,
+            exit_reason=reason,
+        )
+        assert result.exit_reason == reason
 
 
 # ============================================================================
@@ -116,11 +114,21 @@ class TestExecutionResultSignalFields:
 class TestClaudeCliBackendSignalNames:
     """Test signal name helper functions."""
 
-    def test_known_signal_names(self) -> None:
+    @pytest.mark.parametrize(
+        ("sig", "expected"),
+        [
+            (signal.SIGTERM, "SIGTERM"),
+            (signal.SIGKILL, "SIGKILL"),
+            (signal.SIGSEGV, "SIGSEGV"),
+            (signal.SIGABRT, "SIGABRT"),
+            (signal.SIGHUP, "SIGHUP"),
+            (signal.SIGINT, "SIGINT"),
+            (signal.SIGPIPE, "SIGPIPE"),
+        ],
+    )
+    def test_known_signal_names(self, sig: int, expected: str) -> None:
         """Test that known signals return correct names."""
-        assert get_signal_name(signal.SIGTERM) == "SIGTERM"
-        assert get_signal_name(signal.SIGKILL) == "SIGKILL"
-        assert get_signal_name(signal.SIGSEGV) == "SIGSEGV"
+        assert get_signal_name(sig) == expected
 
     def test_unknown_signal_name(self) -> None:
         """Test that unknown signals return 'signal N'."""
@@ -281,44 +289,40 @@ class TestErrorClassifierSignalHandling:
         assert result.category == ErrorCategory.TIMEOUT
         assert result.retriable is True
 
-    def test_fatal_signal_sigsegv(self, classifier: ErrorClassifier) -> None:
-        """Test SIGSEGV is classified as FATAL."""
+    @pytest.mark.parametrize(
+        ("sig", "expected_name"),
+        [
+            (signal.SIGSEGV, "SIGSEGV"),
+            (signal.SIGABRT, "SIGABRT"),
+            (signal.SIGBUS, "SIGBUS"),
+        ],
+    )
+    def test_fatal_signals(
+        self, classifier: ErrorClassifier, sig: int, expected_name: str,
+    ) -> None:
+        """Test fatal signals are classified as FATAL and non-retriable."""
         result = classifier.classify(
-            exit_signal=signal.SIGSEGV,
+            exit_signal=sig,
             exit_reason="killed",
         )
         assert result.category == ErrorCategory.FATAL
         assert result.retriable is False
         assert "crashed" in result.message.lower()
-        assert "SIGSEGV" in result.message
+        assert expected_name in result.message
 
-    def test_fatal_signal_sigabrt(self, classifier: ErrorClassifier) -> None:
-        """Test SIGABRT is classified as FATAL."""
+    @pytest.mark.parametrize(
+        "sig",
+        [signal.SIGTERM, signal.SIGHUP, signal.SIGPIPE],
+    )
+    def test_retriable_signals(self, classifier: ErrorClassifier, sig: int) -> None:
+        """Test retriable signals are classified as SIGNAL and retriable."""
         result = classifier.classify(
-            exit_signal=signal.SIGABRT,
-            exit_reason="killed",
-        )
-        assert result.category == ErrorCategory.FATAL
-        assert result.retriable is False
-
-    def test_retriable_signal_sigterm(self, classifier: ErrorClassifier) -> None:
-        """Test SIGTERM is classified as retriable SIGNAL."""
-        result = classifier.classify(
-            exit_signal=signal.SIGTERM,
+            exit_signal=sig,
             exit_reason="killed",
         )
         assert result.category == ErrorCategory.SIGNAL
         assert result.retriable is True
         assert result.suggested_wait_seconds is not None
-
-    def test_retriable_signal_sighup(self, classifier: ErrorClassifier) -> None:
-        """Test SIGHUP is classified as retriable SIGNAL."""
-        result = classifier.classify(
-            exit_signal=signal.SIGHUP,
-            exit_reason="killed",
-        )
-        assert result.category == ErrorCategory.SIGNAL
-        assert result.retriable is True
 
     def test_sigint_not_retriable(self, classifier: ErrorClassifier) -> None:
         """Test SIGINT (user interrupt) is not retriable."""
@@ -330,25 +334,28 @@ class TestErrorClassifierSignalHandling:
         assert result.retriable is False
         assert "interrupted" in result.message.lower()
 
-    def test_sigkill_with_oom_indicator(self, classifier: ErrorClassifier) -> None:
-        """Test SIGKILL with OOM indicator is FATAL."""
-        # Test various OOM indicators
-        oom_messages = [
+    @pytest.mark.parametrize(
+        "oom_message",
+        [
             "oom-killer invoked",
             "Out of memory: Kill process",
             "Cannot allocate memory",
             "memory cgroup limit exceeded",
-        ]
-        for msg in oom_messages:
-            result = classifier.classify(
-                stdout="",
-                stderr=msg,
-                exit_signal=signal.SIGKILL,
-                exit_reason="killed",
-            )
-            assert result.category == ErrorCategory.FATAL, f"Failed for: {msg}"
-            assert result.retriable is False
-            assert "OOM" in result.message
+        ],
+    )
+    def test_sigkill_with_oom_indicator(
+        self, classifier: ErrorClassifier, oom_message: str,
+    ) -> None:
+        """Test SIGKILL with OOM indicator is FATAL."""
+        result = classifier.classify(
+            stdout="",
+            stderr=oom_message,
+            exit_signal=signal.SIGKILL,
+            exit_reason="killed",
+        )
+        assert result.category == ErrorCategory.FATAL
+        assert result.retriable is False
+        assert "OOM" in result.message
 
     def test_sigkill_without_oom(self, classifier: ErrorClassifier) -> None:
         """Test SIGKILL without OOM is retriable SIGNAL."""
@@ -396,38 +403,28 @@ class TestErrorClassifierBackwardsCompatibility:
         """Create default classifier."""
         return ErrorClassifier()
 
-    def test_rate_limit_still_works(self, classifier: ErrorClassifier) -> None:
-        """Test rate limit detection unchanged."""
-        result = classifier.classify(
-            stdout="Error: rate limit exceeded",
-            exit_code=1,
-        )
-        assert result.category == ErrorCategory.RATE_LIMIT
-        assert result.retriable is True
-
-    def test_auth_error_still_works(self, classifier: ErrorClassifier) -> None:
-        """Test auth error detection unchanged."""
-        result = classifier.classify(
-            stderr="401 Unauthorized",
-            exit_code=1,
-        )
-        assert result.category == ErrorCategory.AUTH
-        assert result.retriable is False
-
-    def test_network_error_still_works(self, classifier: ErrorClassifier) -> None:
-        """Test network error detection unchanged."""
-        result = classifier.classify(
-            stderr="connection refused",
-            exit_code=1,
-        )
-        assert result.category == ErrorCategory.NETWORK
-        assert result.retriable is True
-
-    def test_exit_code_124_timeout(self, classifier: ErrorClassifier) -> None:
-        """Test legacy exit code 124 timeout handling."""
-        result = classifier.classify(exit_code=124)
-        assert result.category == ErrorCategory.TIMEOUT
-        assert result.retriable is True
+    @pytest.mark.parametrize(
+        ("output_kwargs", "expected_category", "expected_retriable"),
+        [
+            ({"stdout": "Error: rate limit exceeded", "exit_code": 1}, ErrorCategory.RATE_LIMIT, True),
+            ({"stderr": "401 Unauthorized", "exit_code": 1}, ErrorCategory.AUTH, False),
+            ({"stderr": "connection refused", "exit_code": 1}, ErrorCategory.NETWORK, True),
+            ({"exit_code": 124}, ErrorCategory.TIMEOUT, True),
+            ({"stderr": "ENOENT: no such file or directory", "exit_code": 1}, ErrorCategory.CONFIGURATION, True),
+        ],
+        ids=["rate_limit", "auth", "network", "timeout_124", "enoent"],
+    )
+    def test_pattern_classification_backwards_compat(
+        self,
+        classifier: ErrorClassifier,
+        output_kwargs: dict,
+        expected_category: ErrorCategory,
+        expected_retriable: bool,
+    ) -> None:
+        """Test pattern-based classification is backwards-compatible."""
+        result = classifier.classify(**output_kwargs)
+        assert result.category == expected_category
+        assert result.retriable is expected_retriable
 
 
 # ============================================================================

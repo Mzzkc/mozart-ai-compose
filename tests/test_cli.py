@@ -1993,3 +1993,124 @@ class TestEnhancedStatusCommand:
         assert "recent_errors" in output
         assert "last_activity" in output["timing"]
         assert len(output["recent_errors"]) >= 1
+
+
+# =============================================================================
+# CLI Command Smoke Tests
+# =============================================================================
+
+
+class TestDiagnoseCommandSmoke:
+    """Smoke tests for the diagnose command."""
+
+    def test_diagnose_help(self) -> None:
+        """Test diagnose --help exits cleanly and shows usage."""
+        result = runner.invoke(app, ["diagnose", "--help"])
+        assert result.exit_code == 0
+        assert "diagnose" in result.stdout.lower()
+
+    def test_diagnose_nonexistent_job(self, tmp_path: Path) -> None:
+        """Test diagnose with nonexistent job ID returns error."""
+        workspace = tmp_path / "empty_ws"
+        workspace.mkdir()
+        result = runner.invoke(
+            app, ["diagnose", "no-such-job-xyz", "--workspace", str(workspace)]
+        )
+        assert result.exit_code == 1
+        assert "not found" in result.stdout.lower() or "no-such-job-xyz" in result.stdout
+
+
+class TestPauseCommandSmoke:
+    """Smoke tests for the pause command."""
+
+    def test_pause_help(self) -> None:
+        """Test pause --help exits cleanly and shows usage."""
+        result = runner.invoke(app, ["pause", "--help"])
+        assert result.exit_code == 0
+        assert "pause" in result.stdout.lower()
+
+    def test_pause_nonexistent_workspace(self, tmp_path: Path) -> None:
+        """Test pause with nonexistent workspace returns error."""
+        fake_workspace = tmp_path / "does_not_exist"
+        result = runner.invoke(
+            app, ["pause", "no-such-job", "--workspace", str(fake_workspace)]
+        )
+        assert result.exit_code != 0
+
+
+class TestDashboardCommandSmoke:
+    """Smoke tests for the dashboard command."""
+
+    def test_dashboard_help(self) -> None:
+        """Test dashboard --help exits cleanly and shows usage."""
+        result = runner.invoke(app, ["dashboard", "--help"])
+        assert result.exit_code == 0
+        assert "dashboard" in result.stdout.lower()
+
+
+class TestLearningCommandsSmoke:
+    """Smoke tests for all learning and pattern CLI commands.
+
+    Each test verifies that --help exits cleanly, confirming the command
+    is registered and its option parsing is functional.
+    """
+
+    def test_learning_stats_help(self) -> None:
+        """Test learning-stats --help exits cleanly."""
+        result = runner.invoke(app, ["learning-stats", "--help"])
+        assert result.exit_code == 0
+        assert "learning" in result.stdout.lower() or "stats" in result.stdout.lower()
+
+    def test_learning_insights_help(self) -> None:
+        """Test learning-insights --help exits cleanly."""
+        result = runner.invoke(app, ["learning-insights", "--help"])
+        assert result.exit_code == 0
+        assert "insight" in result.stdout.lower() or "learning" in result.stdout.lower()
+
+    def test_learning_activity_help(self) -> None:
+        """Test learning-activity --help exits cleanly."""
+        result = runner.invoke(app, ["learning-activity", "--help"])
+        assert result.exit_code == 0
+        assert "activity" in result.stdout.lower() or "learning" in result.stdout.lower()
+
+    def test_learning_drift_help(self) -> None:
+        """Test learning-drift --help exits cleanly."""
+        result = runner.invoke(app, ["learning-drift", "--help"])
+        assert result.exit_code == 0
+        assert "drift" in result.stdout.lower() or "learning" in result.stdout.lower()
+
+    def test_learning_epistemic_drift_help(self) -> None:
+        """Test learning-epistemic-drift --help exits cleanly."""
+        result = runner.invoke(app, ["learning-epistemic-drift", "--help"])
+        assert result.exit_code == 0
+        assert "drift" in result.stdout.lower() or "epistemic" in result.stdout.lower()
+
+    def test_patterns_list_help(self) -> None:
+        """Test patterns-list --help exits cleanly."""
+        result = runner.invoke(app, ["patterns-list", "--help"])
+        assert result.exit_code == 0
+        assert "pattern" in result.stdout.lower() or "list" in result.stdout.lower()
+
+    def test_patterns_why_help(self) -> None:
+        """Test patterns-why --help exits cleanly."""
+        result = runner.invoke(app, ["patterns-why", "--help"])
+        assert result.exit_code == 0
+        assert "why" in result.stdout.lower() or "pattern" in result.stdout.lower()
+
+    def test_patterns_entropy_help(self) -> None:
+        """Test patterns-entropy --help exits cleanly."""
+        result = runner.invoke(app, ["patterns-entropy", "--help"])
+        assert result.exit_code == 0
+        assert "entropy" in result.stdout.lower() or "pattern" in result.stdout.lower()
+
+    def test_patterns_budget_help(self) -> None:
+        """Test patterns-budget --help exits cleanly."""
+        result = runner.invoke(app, ["patterns-budget", "--help"])
+        assert result.exit_code == 0
+        assert "budget" in result.stdout.lower() or "pattern" in result.stdout.lower()
+
+    def test_entropy_status_help(self) -> None:
+        """Test entropy-status --help exits cleanly."""
+        result = runner.invoke(app, ["entropy-status", "--help"])
+        assert result.exit_code == 0
+        assert "entropy" in result.stdout.lower() or "status" in result.stdout.lower()

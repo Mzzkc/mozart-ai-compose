@@ -99,28 +99,29 @@ class ConfigResources:
 
         return resources
 
+    # URI dispatch table mapping static URIs to handler methods
+    _URI_HANDLERS: dict[str, str] = {
+        "config://schema": "_get_config_schema",
+        "config://example": "_get_config_example",
+        "config://backend-options": "_get_backend_options",
+        "config://validation-types": "_get_validation_types",
+        "config://learning-options": "_get_learning_options",
+        "mozart://jobs": "_get_jobs_overview",
+        "mozart://templates": "_get_job_templates",
+    }
+
     async def read_resource(self, uri: str) -> dict[str, Any]:
         """Read a configuration resource by URI."""
         try:
-            if uri == "config://schema":
-                return await self._get_config_schema()
-            elif uri == "config://example":
-                return await self._get_config_example()
-            elif uri == "config://backend-options":
-                return await self._get_backend_options()
-            elif uri == "config://validation-types":
-                return await self._get_validation_types()
-            elif uri == "config://learning-options":
-                return await self._get_learning_options()
-            elif uri == "mozart://jobs":
-                return await self._get_jobs_overview()
-            elif uri == "mozart://templates":
-                return await self._get_job_templates()
-            elif uri.startswith("mozart://jobs/"):
+            handler_name = self._URI_HANDLERS.get(uri)
+            if handler_name:
+                return await getattr(self, handler_name)()
+
+            if uri.startswith("mozart://jobs/"):
                 job_id = uri.replace("mozart://jobs/", "")
                 return await self._get_job_details(job_id)
-            else:
-                raise ValueError(f"Unknown resource URI: {uri}")
+
+            raise ValueError(f"Unknown resource URI: {uri}")
 
         except Exception as e:
             logger.exception(f"Error reading resource {uri}")
@@ -497,6 +498,14 @@ notifications:
             ]
         }
 
+    # Mapping from job status value to summary counter key
+    _STATUS_COUNTER_KEYS: dict[str, str] = {
+        "running": "running_jobs",
+        "completed": "completed_jobs",
+        "failed": "failed_jobs",
+        "paused": "paused_jobs",
+    }
+
     async def _get_jobs_overview(self) -> dict[str, Any]:
         """Get overview of all Mozart jobs."""
         if not self.state_backend:
@@ -525,45 +534,18 @@ notifications:
             "last_updated": json.dumps(datetime.now().isoformat())
         }
 
-        # Note: This would require implementing a method to list all jobs
-        # For now, we provide a placeholder structure
         try:
-            # Scan workspace for job state files
             for state_file in self.workspace_root.glob("*.json"):
-                if state_file.stem != "global_learning":  # Skip non-job files
-                    try:
-                        job_id = state_file.stem
-                        state = await self.state_backend.load(job_id)
-                        if state:
-                            jobs_overview["jobs"].append({
-                                "job_id": job_id,
-                                "job_name": state.job_name,
-                                "status": state.status.value,
-                                "started_at": state.started_at.isoformat() if state.started_at else None,
-                                "completed_at": state.completed_at.isoformat() if state.completed_at else None,
-                                "total_sheets": len(state.sheets),
-                                "completed_sheets": len([s for s in state.sheets.values()
-                                                       if s.status.value == "completed"]),
-                                "error_message": getattr(state, 'error_message', None)
-                            })
-
-                            # Update summary
-                            jobs_overview["summary"]["total_jobs"] += 1
-                            status = state.status.value
-                            if status == "running":
-                                jobs_overview["summary"]["running_jobs"] += 1
-                            elif status == "completed":
-                                jobs_overview["summary"]["completed_jobs"] += 1
-                            elif status == "failed":
-                                jobs_overview["summary"]["failed_jobs"] += 1
-                            elif status == "paused":
-                                jobs_overview["summary"]["paused_jobs"] += 1
-
-                    except Exception as e:
-                        # Skip invalid state files
-                        logger.debug(f"Skipping invalid state file {state_file}: {e}")
-                        continue
-
+                if state_file.stem == "global_learning":
+                    continue
+                job_info = await self._load_job_summary(state_file.stem)
+                if job_info is None:
+                    continue
+                jobs_overview["jobs"].append(job_info)
+                jobs_overview["summary"]["total_jobs"] += 1
+                counter_key = self._STATUS_COUNTER_KEYS.get(job_info["status"])
+                if counter_key:
+                    jobs_overview["summary"][counter_key] += 1
         except Exception as e:
             jobs_overview["error"] = f"Error scanning jobs: {str(e)}"
 
@@ -575,6 +557,34 @@ notifications:
                     "text": json.dumps(jobs_overview, indent=2)
                 }
             ]
+        }
+
+    async def _load_job_summary(self, job_id: str) -> dict[str, Any] | None:
+        """Load a single job's summary from state backend.
+
+        Returns None if the job cannot be loaded (invalid file, etc.).
+        Must only be called when self.state_backend is not None.
+        """
+        assert self.state_backend is not None  # guaranteed by caller
+        try:
+            state = await self.state_backend.load(job_id)
+        except Exception as e:
+            logger.debug(f"Skipping invalid state file {job_id}: {e}")
+            return None
+
+        if not state:
+            return None
+
+        return {
+            "job_id": job_id,
+            "job_name": state.job_name,
+            "status": state.status.value,
+            "started_at": state.started_at.isoformat() if state.started_at else None,
+            "completed_at": state.completed_at.isoformat() if state.completed_at else None,
+            "total_sheets": len(state.sheets),
+            "completed_sheets": len([s for s in state.sheets.values()
+                                   if s.status.value == "completed"]),
+            "error_message": getattr(state, 'error_message', None)
         }
 
     async def _get_job_details(self, job_id: str) -> dict[str, Any]:

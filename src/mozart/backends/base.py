@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from mozart.utils.time import utc_now
 
@@ -79,19 +79,6 @@ class ExecutionResult:
 
     output_tokens: int | None = None
     """Output tokens consumed (completion tokens). None if not available from backend."""
-
-    # Recursive Light metadata (Phase 3 Language Bridge)
-    confidence_score: float | None = None
-    """RL confidence score (0.0-1.0) from dual-LLM processing."""
-
-    domain_activations: dict[str, float] | None = None
-    """RL domain activation levels (COMP, SCI, CULT, EXP)."""
-
-    boundary_states: dict[str, dict[str, Any]] | None = None
-    """RL boundary states between domains (permeability, resonance)."""
-
-    quality_conditions: dict[str, float] | None = None
-    """RL quality condition assessments (coherence, relevance, etc.)."""
 
     @property
     def output(self) -> str:

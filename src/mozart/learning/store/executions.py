@@ -19,14 +19,11 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from mozart.core.logging import MozartLogger
 from mozart.learning.outcomes import SheetOutcome
 from mozart.learning.store.models import ExecutionRecord
-
-if TYPE_CHECKING:
-    pass  # Type checking imports can be added here if needed
 
 # Import logger from base module
 from mozart.learning.store.base import _logger

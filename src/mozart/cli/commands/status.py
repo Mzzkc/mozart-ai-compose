@@ -37,18 +37,19 @@ from rich.progress import (
 )
 
 from mozart.core.checkpoint import ErrorRecord, JobStatus, SheetStatus
-from mozart.state import JsonStateBackend, SQLiteStateBackend, StateBackend
+from mozart.state import StateBackend
 
-from ..helpers import ErrorMessages
+from ..helpers import ErrorMessages, get_state_backends
 from ..output import (
     StatusColors,
     console,
-    format_duration,
-    format_timestamp,
-    format_validation_status,
     create_jobs_table,
     create_sheet_details_table,
     create_synthesis_table,
+    format_duration,
+    format_timestamp,
+    format_validation_status,
+    output_error,
 )
 
 if TYPE_CHECKING:
@@ -148,24 +149,11 @@ async def _status_job(
     workspace: Path | None,
 ) -> None:
     """Asynchronously get and display status for a specific job."""
-    # Determine which backends to query
-    backends: list[StateBackend] = []
+    if workspace and not workspace.exists():
+        console.print(f"[red]Workspace not found:[/red] {workspace}")
+        raise typer.Exit(1)
 
-    if workspace:
-        if not workspace.exists():
-            console.print(f"[red]Workspace not found:[/red] {workspace}")
-            raise typer.Exit(1)
-
-        sqlite_path = workspace / ".mozart-state.db"
-        if sqlite_path.exists():
-            backends.append(SQLiteStateBackend(sqlite_path))
-        backends.append(JsonStateBackend(workspace))
-    else:
-        cwd = Path.cwd()
-        backends.append(JsonStateBackend(cwd))
-        sqlite_cwd = cwd / ".mozart-state.db"
-        if sqlite_cwd.exists():
-            backends.append(SQLiteStateBackend(sqlite_cwd))
+    backends = get_state_backends(workspace)
 
     # Search for the job in all backends
     found_job: CheckpointState | None = None
@@ -185,10 +173,9 @@ async def _status_job(
             err_msg = f"{ErrorMessages.JOB_NOT_FOUND}: {job_id}"
             console.print(json.dumps({"error": err_msg}, indent=2))
         else:
-            console.print(f"[red]{ErrorMessages.JOB_NOT_FOUND}:[/red] {job_id}")
-            console.print(
-                "\n[dim]Hint: Use --workspace to specify the directory "
-                "containing the job state.[/dim]"
+            output_error(
+                f"{ErrorMessages.JOB_NOT_FOUND}: {job_id}",
+                hints=["Use --workspace to specify the directory containing the job state"],
             )
         raise typer.Exit(1)
 
@@ -220,23 +207,11 @@ async def _status_job_watch(
     try:
         while True:
             # Find and load job state
-            backends: list[StateBackend] = []
+            if workspace and not workspace.exists():
+                console.print(f"[red]Workspace not found:[/red] {workspace}")
+                raise typer.Exit(1)
 
-            if workspace:
-                if not workspace.exists():
-                    console.print(f"[red]Workspace not found:[/red] {workspace}")
-                    raise typer.Exit(1)
-
-                sqlite_path = workspace / ".mozart-state.db"
-                if sqlite_path.exists():
-                    backends.append(SQLiteStateBackend(sqlite_path))
-                backends.append(JsonStateBackend(workspace))
-            else:
-                cwd = Path.cwd()
-                backends.append(JsonStateBackend(cwd))
-                sqlite_cwd = cwd / ".mozart-state.db"
-                if sqlite_cwd.exists():
-                    backends.append(SQLiteStateBackend(sqlite_cwd))
+            backends = get_state_backends(workspace)
 
             found_job: CheckpointState | None = None
             for backend in backends:
@@ -293,28 +268,14 @@ async def _list_jobs(
     workspace: Path | None,
 ) -> None:
     """Asynchronously list jobs from state backends."""
-    # Determine which backends to query
-    backends: list[tuple[str, StateBackend]] = []
+    if workspace and not workspace.exists():
+        console.print(f"[red]Workspace not found:[/red] {workspace}")
+        raise typer.Exit(1)
 
-    if workspace:
-        if not workspace.exists():
-            console.print(f"[red]Workspace not found:[/red] {workspace}")
-            raise typer.Exit(1)
-
-        sqlite_path = workspace / ".mozart-state.db"
-        if sqlite_path.exists():
-            backends.append((str(workspace), SQLiteStateBackend(sqlite_path)))
-
-        json_backend = JsonStateBackend(workspace)
-        backends.append((str(workspace), json_backend))
-    else:
-        cwd = Path.cwd()
-        json_backend = JsonStateBackend(cwd)
-        backends.append((".", json_backend))
-
-        sqlite_cwd = cwd / ".mozart-state.db"
-        if sqlite_cwd.exists():
-            backends.append((".", SQLiteStateBackend(sqlite_cwd)))
+    source_label = str(workspace) if workspace else "."
+    backends: list[tuple[str, StateBackend]] = [
+        (source_label, b) for b in get_state_backends(workspace)
+    ]
 
 
     # Collect all jobs

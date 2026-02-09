@@ -894,3 +894,389 @@ class TestGroundingDecisionContext:
         assert ctx.recovery_guidance is not None
         assert "Check output format" in ctx.recovery_guidance
         assert "format_check" in ctx.message
+
+
+# ===========================================================================
+# Tests: _execute_sheet_with_recovery — additional paths
+# ===========================================================================
+
+
+class TestCircuitBreakerBlocking:
+    """Tests for circuit breaker blocking execution."""
+
+    @pytest.mark.asyncio
+    async def test_circuit_breaker_blocks_then_allows(self, mixin: _TestableSheetMixin):
+        """Circuit breaker open -> waits -> allows execution -> succeeds."""
+        state = _make_state()
+
+        # Circuit breaker: block on first call, allow on second
+        cb = MagicMock()
+        cb.can_execute = MagicMock(side_effect=[False, True])
+        cb.time_until_retry.return_value = 0.01
+        cb.get_state.return_value = MagicMock(value="open")
+        cb.record_success = MagicMock()
+        mixin._circuit_breaker = cb
+
+        mock_vr = _make_validation_result(all_passed=True)
+        with patch("mozart.execution.runner.sheet.ValidationEngine") as MockVE:
+            ve_instance = MockVE.return_value
+            ve_instance.get_applicable_rules.return_value = []
+            ve_instance.run_validations = AsyncMock(return_value=mock_vr)
+            ve_instance.snapshot_mtime_files = MagicMock()
+
+            await mixin._execute_sheet_with_recovery(state, sheet_num=1)
+
+        assert state.sheets[1].status == SheetStatus.COMPLETED
+        cb.record_success.assert_called_once()
+
+
+class TestCompletionModeFlow:
+    """Tests for completion mode transitions."""
+
+    @pytest.mark.asyncio
+    async def test_partial_pass_enters_completion_then_succeeds(self, mixin: _TestableSheetMixin):
+        """Validations partially pass -> completion mode -> all pass on retry."""
+        state = _make_state()
+
+        # First: validations partially pass (above threshold)
+        partial_vr = _make_validation_result(
+            all_passed=False, pass_pct=75.0, confidence=0.9,
+        )
+        # Second: all pass
+        full_vr = _make_validation_result(all_passed=True)
+
+        with patch("mozart.execution.runner.sheet.ValidationEngine") as MockVE:
+            ve_instance = MockVE.return_value
+            ve_instance.get_applicable_rules.return_value = []
+            ve_instance.run_validations = AsyncMock(side_effect=[partial_vr, full_vr])
+            ve_instance.snapshot_mtime_files = MagicMock()
+
+            await mixin._execute_sheet_with_recovery(state, sheet_num=1)
+
+        assert state.sheets[1].status == SheetStatus.COMPLETED
+
+    @pytest.mark.asyncio
+    async def test_completion_attempts_exhausted_falls_to_retry(self, mixin: _TestableSheetMixin):
+        """Completion attempts exhausted -> falls back to RETRY -> eventually fails."""
+        state = _make_state()
+
+        # All validations partially pass with high confidence (triggers completion)
+        # but never fully pass, exhausting both completion attempts and retries
+        partial_vr = _make_validation_result(
+            all_passed=False, pass_pct=75.0, confidence=0.95,
+        )
+
+        # Backend always succeeds but validations never fully pass
+        mixin.backend.execute = AsyncMock(
+            return_value=_make_execution_result(success=True, exit_code=0)
+        )
+
+        with patch("mozart.execution.runner.sheet.ValidationEngine") as MockVE:
+            ve_instance = MockVE.return_value
+            ve_instance.get_applicable_rules.return_value = []
+            # Return partial results for more iterations than max_retries + max_completion
+            ve_instance.run_validations = AsyncMock(return_value=partial_vr)
+            ve_instance.snapshot_mtime_files = MagicMock()
+
+            with pytest.raises(FatalError, match="exhausted all retry options"):
+                await mixin._execute_sheet_with_recovery(state, sheet_num=1)
+
+        assert state.sheets[1].status == SheetStatus.FAILED
+
+
+class TestEscalationModeFlow:
+    """Tests for escalation mode transitions."""
+
+    @pytest.mark.asyncio
+    async def test_escalation_skip_marks_completed(self, mixin: _TestableSheetMixin):
+        """Escalation with skip action -> sheet completed (with validation_passed=False)."""
+        from mozart.execution.escalation import EscalationResponse
+
+        state = _make_state()
+        mixin.config.learning.escalation_enabled = True
+        handler = AsyncMock()
+        handler.escalate = AsyncMock(
+            return_value=EscalationResponse(action="skip", guidance="acceptable")
+        )
+        mixin.escalation_handler = handler
+
+        # Low confidence triggers escalation
+        low_vr = _make_validation_result(
+            all_passed=False, pass_pct=20.0, confidence=0.1,
+        )
+
+        mixin.backend.execute = AsyncMock(
+            return_value=_make_execution_result(success=True, exit_code=0)
+        )
+
+        with patch("mozart.execution.runner.sheet.ValidationEngine") as MockVE:
+            ve_instance = MockVE.return_value
+            ve_instance.get_applicable_rules.return_value = []
+            ve_instance.run_validations = AsyncMock(return_value=low_vr)
+            ve_instance.snapshot_mtime_files = MagicMock()
+
+            await mixin._execute_sheet_with_recovery(state, sheet_num=1)
+
+        # Sheet completed via skip (not failed)
+        assert state.sheets[1].status == SheetStatus.COMPLETED
+
+    @pytest.mark.asyncio
+    async def test_escalation_abort_raises_fatal(self, mixin: _TestableSheetMixin):
+        """Escalation with abort action -> FatalError raised."""
+        from mozart.execution.escalation import EscalationResponse
+
+        state = _make_state()
+        mixin.config.learning.escalation_enabled = True
+        handler = AsyncMock()
+        handler.escalate = AsyncMock(
+            return_value=EscalationResponse(action="abort", guidance="give up")
+        )
+        mixin.escalation_handler = handler
+
+        low_vr = _make_validation_result(
+            all_passed=False, pass_pct=20.0, confidence=0.1,
+        )
+        mixin.backend.execute = AsyncMock(
+            return_value=_make_execution_result(success=True, exit_code=0)
+        )
+
+        with patch("mozart.execution.runner.sheet.ValidationEngine") as MockVE:
+            ve_instance = MockVE.return_value
+            ve_instance.get_applicable_rules.return_value = []
+            ve_instance.run_validations = AsyncMock(return_value=low_vr)
+            ve_instance.snapshot_mtime_files = MagicMock()
+
+            with pytest.raises(FatalError, match="aborted via escalation"):
+                await mixin._execute_sheet_with_recovery(state, sheet_num=1)
+
+        assert state.sheets[1].status == SheetStatus.FAILED
+
+    @pytest.mark.asyncio
+    async def test_escalation_modify_prompt_retries(self, mixin: _TestableSheetMixin):
+        """Escalation with modify_prompt -> retries with new prompt -> succeeds."""
+        from mozart.execution.escalation import EscalationResponse
+
+        state = _make_state()
+        mixin.config.learning.escalation_enabled = True
+        handler = AsyncMock()
+        handler.escalate = AsyncMock(
+            return_value=EscalationResponse(
+                action="modify_prompt",
+                guidance="be more specific",
+                modified_prompt="Revised prompt with more details",
+            )
+        )
+        mixin.escalation_handler = handler
+
+        low_vr = _make_validation_result(
+            all_passed=False, pass_pct=20.0, confidence=0.1,
+        )
+        pass_vr = _make_validation_result(all_passed=True)
+
+        mixin.backend.execute = AsyncMock(
+            return_value=_make_execution_result(success=True, exit_code=0)
+        )
+
+        with patch("mozart.execution.runner.sheet.ValidationEngine") as MockVE:
+            ve_instance = MockVE.return_value
+            ve_instance.get_applicable_rules.return_value = []
+            ve_instance.run_validations = AsyncMock(side_effect=[low_vr, pass_vr])
+            ve_instance.snapshot_mtime_files = MagicMock()
+
+            await mixin._execute_sheet_with_recovery(state, sheet_num=1)
+
+        assert state.sheets[1].status == SheetStatus.COMPLETED
+
+
+class TestAdaptiveRetryAbort:
+    """Tests for adaptive retry strategy aborting early."""
+
+    @pytest.mark.asyncio
+    async def test_adaptive_strategy_aborts_early(self, mixin: _TestableSheetMixin):
+        """Adaptive retry recommends stopping -> FatalError with abort reason."""
+        from mozart.execution.retry_strategy import RetryPattern, RetryRecommendation
+
+        state = _make_state()
+
+        # Override retry strategy to recommend abort after first attempt
+        abort_rec = RetryRecommendation(
+            should_retry=False,
+            delay_seconds=0,
+            reason="Repeating identical error (deterministic failure)",
+            confidence=0.95,
+            detected_pattern=RetryPattern.REPEATED_ERROR_CODE,
+            strategy_used="pattern_detection",
+        )
+        mixin._retry_strategy.analyze = MagicMock(return_value=abort_rec)
+
+        mixin.backend.execute = AsyncMock(
+            return_value=_make_execution_result(
+                success=False, exit_code=1, stderr="deterministic error"
+            )
+        )
+
+        fail_vr = _make_validation_result(
+            all_passed=False, pass_pct=0.0, confidence=0.5,
+        )
+
+        with patch("mozart.execution.runner.sheet.ValidationEngine") as MockVE:
+            ve_instance = MockVE.return_value
+            ve_instance.get_applicable_rules.return_value = []
+            ve_instance.run_validations = AsyncMock(return_value=fail_vr)
+            ve_instance.snapshot_mtime_files = MagicMock()
+
+            with pytest.raises(FatalError, match="aborted"):
+                await mixin._execute_sheet_with_recovery(state, sheet_num=1)
+
+        assert state.sheets[1].status == SheetStatus.FAILED
+
+
+class TestRateLimitHandling:
+    """Tests for rate limit detection and handling during execution."""
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_on_execution_retries_automatically(self, mixin: _TestableSheetMixin):
+        """Rate limited result -> handle_rate_limit -> automatic retry."""
+        state = _make_state()
+
+        # First result is rate limited, second succeeds
+        rate_limited_result = _make_execution_result(
+            success=False, exit_code=1, stderr="Rate limit exceeded"
+        )
+        rate_limited_result.rate_limited = True
+
+        success_result = _make_execution_result(success=True, exit_code=0)
+        success_result.rate_limited = False
+
+        mixin.backend.execute = AsyncMock(
+            side_effect=[rate_limited_result, success_result]
+        )
+
+        fail_vr = _make_validation_result(
+            all_passed=False, pass_pct=0.0, confidence=0.5,
+        )
+        pass_vr = _make_validation_result(all_passed=True)
+
+        # Mock classify to return rate limit error
+        rate_limit_error = MagicMock()
+        rate_limit_error.is_rate_limit = True
+        rate_limit_error.error_code = MagicMock(value="E101")
+        rate_limit_error.suggested_wait_seconds = 5.0
+        rate_limit_class = MagicMock()
+        rate_limit_class.primary = rate_limit_error
+        mixin._classify_execution = MagicMock(return_value=rate_limit_class)
+
+        with patch("mozart.execution.runner.sheet.ValidationEngine") as MockVE:
+            ve_instance = MockVE.return_value
+            ve_instance.get_applicable_rules.return_value = []
+            ve_instance.run_validations = AsyncMock(side_effect=[fail_vr, pass_vr])
+            ve_instance.snapshot_mtime_files = MagicMock()
+
+            await mixin._execute_sheet_with_recovery(state, sheet_num=1)
+
+        assert state.sheets[1].status == SheetStatus.COMPLETED
+
+
+class TestCrossWorkspaceRateLimit:
+    """Tests for cross-workspace rate limit honoring."""
+
+    @pytest.mark.asyncio
+    async def test_honors_cross_workspace_rate_limit(self, mixin: _TestableSheetMixin):
+        """Cross-workspace rate limit honored -> waits -> then executes."""
+        state = _make_state()
+
+        # Enable cross-workspace coordination
+        mixin.config.circuit_breaker.cross_workspace_coordination = True
+        mixin.config.circuit_breaker.honor_other_jobs_rate_limits = True
+        # Set cli_model so effective_model is not None
+        mixin.config.backend.cli_model = "claude-sonnet-4-5-20250929"
+
+        # Global store says rate limited first call, not limited second
+        store = MagicMock()
+        store.is_rate_limited = MagicMock(
+            side_effect=[(True, 0.01), (False, None)]
+        )
+        mixin._global_learning_store = store
+
+        mock_vr = _make_validation_result(all_passed=True)
+        with patch("mozart.execution.runner.sheet.ValidationEngine") as MockVE:
+            ve_instance = MockVE.return_value
+            ve_instance.get_applicable_rules.return_value = []
+            ve_instance.run_validations = AsyncMock(return_value=mock_vr)
+            ve_instance.snapshot_mtime_files = MagicMock()
+
+            await mixin._execute_sheet_with_recovery(state, sheet_num=1)
+
+        assert state.sheets[1].status == SheetStatus.COMPLETED
+        # Verify the store was checked
+        store.is_rate_limited.assert_called()
+
+
+class TestNonRetriableError:
+    """Tests for non-retriable error handling."""
+
+    @pytest.mark.asyncio
+    async def test_fatal_error_not_retriable(self, mixin: _TestableSheetMixin):
+        """Non-retriable error -> immediate FatalError without retry."""
+        state = _make_state()
+
+        mixin.backend.execute = AsyncMock(
+            return_value=_make_execution_result(
+                success=False, exit_code=127, stderr="Command not found"
+            )
+        )
+
+        fail_vr = _make_validation_result(
+            all_passed=False, pass_pct=0.0, confidence=0.5,
+        )
+
+        # Mock classify to return non-retriable error
+        fatal_error = MagicMock()
+        fatal_error.is_rate_limit = False
+        fatal_error.should_retry = False
+        fatal_error.message = "CLI not found"
+        fatal_error.category = MagicMock(value="cli_error")
+        fatal_error.error_code = MagicMock(value="E501")
+        fatal_error.suggested_wait_seconds = None
+        fatal_class = MagicMock()
+        fatal_class.primary = fatal_error
+        fatal_class.confidence = 1.0
+        fatal_class.secondary = []
+        fatal_class.raw_errors = []
+        fatal_class.classification_method = "exit_code"
+        fatal_class.all_errors = [fatal_error]
+        mixin._classify_execution = MagicMock(return_value=fatal_class)
+
+        with patch("mozart.execution.runner.sheet.ValidationEngine") as MockVE:
+            ve_instance = MockVE.return_value
+            ve_instance.get_applicable_rules.return_value = []
+            ve_instance.run_validations = AsyncMock(return_value=fail_vr)
+            ve_instance.snapshot_mtime_files = MagicMock()
+
+            with pytest.raises(FatalError, match="CLI not found"):
+                await mixin._execute_sheet_with_recovery(state, sheet_num=1)
+
+        assert state.sheets[1].status == SheetStatus.FAILED
+        # Should fail on first attempt, no retries
+        assert mixin.backend.execute.call_count == 1
+
+
+class TestSheetExecutionParametrized:
+    """Parametrized tests for sheet execution decision paths."""
+
+    @pytest.mark.parametrize("confidence,pass_pct,expected_mode", [
+        (0.95, 80.0, SheetExecutionMode.COMPLETION),   # High confidence + high pass
+        (0.55, 80.0, SheetExecutionMode.COMPLETION),   # Medium confidence + high pass
+        (0.55, 40.0, SheetExecutionMode.RETRY),         # Medium confidence + low pass
+    ])
+    def test_decision_mode_selection(
+        self,
+        mixin: _TestableSheetMixin,
+        confidence: float,
+        pass_pct: float,
+        expected_mode: SheetExecutionMode,
+    ):
+        """Parametrized decision mode selection based on confidence and pass rate."""
+        vr = _make_validation_result(confidence=confidence, pass_pct=pass_pct)
+        mode, _, _ = mixin._decide_next_action(vr, normal_attempts=0, completion_attempts=0)
+        assert mode == expected_mode

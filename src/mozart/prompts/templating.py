@@ -537,57 +537,69 @@ Focus on completing the missing items. Do not start over from scratch."""
                 if result.suggested_fix:
                     lines.append(f"     Fix: {result.suggested_fix}")
             else:
-                # Fallback to legacy formatting for backwards compatibility
-                expanded_path = result.expected_value or result.actual_value
-
-                if rule.type == "file_exists":
-                    lines.append(f"  {i}. [MISSING] {desc}")
-                    if expanded_path:
-                        lines.append(f"     Expected file: {expanded_path}")
-                        lines.append("     Action: Create this file with the required content")
-
-                elif rule.type == "file_modified":
-                    lines.append(f"  {i}. [NOT UPDATED] {desc}")
-                    # For file_modified, error_message contains the actual path
-                    actual_path = None
-                    if result.error_message and ":" in result.error_message:
-                        actual_path = result.error_message.split(": ", 1)[-1]
-                    display_path = actual_path or expanded_path or rule.path
-                    if display_path:
-                        lines.append(f"     File needs modification: {display_path}")
-                        lines.append(
-                            "     Action: You MUST append/write new content to this file."
-                        )
-
-                elif rule.type == "content_contains":
-                    lines.append(f"  {i}. [CONTENT MISSING] {desc}")
-                    if rule.pattern:
-                        lines.append(f"     Required text: {rule.pattern}")
-                    if expanded_path:
-                        lines.append(f"     In file: {expanded_path}")
-                    lines.append("     Action: Add the required content to the file")
-
-                elif rule.type == "content_regex":
-                    lines.append(f"  {i}. [PATTERN NOT MATCHED] {desc}")
-                    if rule.pattern:
-                        lines.append(f"     Required pattern: {rule.pattern}")
-                    if expanded_path:
-                        lines.append(f"     In file: {expanded_path}")
-                    lines.append("     Action: Ensure file content matches the pattern")
-
-                elif rule.type == "command_succeeds":
-                    lines.append(f"  {i}. [COMMAND FAILED] {desc}")
-                    if result.error_message:
-                        # Truncate for readability
-                        err_summary = result.error_message[:200]
-                        if len(result.error_message) > 200:
-                            err_summary += "..."
-                        lines.append(f"     Error: {err_summary}")
-                    lines.append("     Action: Fix the command errors")
+                self._format_legacy_validation(lines, i, desc, result, rule)
 
             lines.append("")  # Blank line between items
 
         return "\n".join(lines).rstrip()
+
+    @staticmethod
+    def _format_legacy_validation(
+        lines: list[str],
+        index: int,
+        desc: str,
+        result: "ValidationResult",
+        rule: "ValidationRule",
+    ) -> None:
+        """Format a single validation result using legacy type-based formatting.
+
+        Called when semantic failure info (failure_category/failure_reason) is not
+        available. Formats based on rule.type for backwards compatibility.
+        """
+        expanded_path = result.expected_value or result.actual_value
+
+        if rule.type == "file_exists":
+            lines.append(f"  {index}. [MISSING] {desc}")
+            if expanded_path:
+                lines.append(f"     Expected file: {expanded_path}")
+                lines.append("     Action: Create this file with the required content")
+
+        elif rule.type == "file_modified":
+            lines.append(f"  {index}. [NOT UPDATED] {desc}")
+            actual_path = None
+            if result.error_message and ":" in result.error_message:
+                actual_path = result.error_message.split(": ", 1)[-1]
+            display_path = actual_path or expanded_path or rule.path
+            if display_path:
+                lines.append(f"     File needs modification: {display_path}")
+                lines.append(
+                    "     Action: You MUST append/write new content to this file."
+                )
+
+        elif rule.type == "content_contains":
+            lines.append(f"  {index}. [CONTENT MISSING] {desc}")
+            if rule.pattern:
+                lines.append(f"     Required text: {rule.pattern}")
+            if expanded_path:
+                lines.append(f"     In file: {expanded_path}")
+            lines.append("     Action: Add the required content to the file")
+
+        elif rule.type == "content_regex":
+            lines.append(f"  {index}. [PATTERN NOT MATCHED] {desc}")
+            if rule.pattern:
+                lines.append(f"     Required pattern: {rule.pattern}")
+            if expanded_path:
+                lines.append(f"     In file: {expanded_path}")
+            lines.append("     Action: Ensure file content matches the pattern")
+
+        elif rule.type == "command_succeeds":
+            lines.append(f"  {index}. [COMMAND FAILED] {desc}")
+            if result.error_message:
+                err_summary = result.error_message[:200]
+                if len(result.error_message) > 200:
+                    err_summary += "..."
+                lines.append(f"     Error: {err_summary}")
+            lines.append("     Action: Fix the command errors")
 
 
 def build_sheet_prompt_simple(

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import signal
+from datetime import datetime, timedelta
 
 from mozart.core.logging import get_logger
 
@@ -184,6 +185,10 @@ class ErrorClassifier:
             ]
         ]
 
+        # Cache for combined regex patterns used by _matches_any().
+        # Keyed by id(pattern_list) to avoid recompiling on every call.
+        self._combined_cache: dict[int, re.Pattern[str]] = {}
+
     def parse_reset_time(self, text: str) -> float | None:
         """Parse reset time from message and return seconds until reset.
 
@@ -200,7 +205,6 @@ class ErrorClassifier:
             Seconds until reset, or None if no reset time found.
             Returns minimum of 300 seconds (5 min) to avoid immediate retries.
         """
-        from datetime import datetime, timedelta
 
         for pattern in self.reset_time_patterns:
             match = pattern.search(text)
@@ -372,7 +376,8 @@ class ErrorClassifier:
         Checks patterns in priority order: quota exhaustion, rate limits,
         ENOENT, CLI mode mismatch, auth, MCP, DNS, SSL, network.
 
-        Returns None if no pattern matches.
+        Falls through to _classify_network_pattern() for DNS/SSL/network
+        checks, which returns None if no pattern matches.
         """
         # Quota exhaustion (most specific rate limit variant)
         if self._matches_any(combined, self.quota_exhaustion_patterns):
@@ -785,8 +790,18 @@ class ErrorClassifier:
         )
 
     def _matches_any(self, text: str, patterns: list[re.Pattern[str]]) -> bool:
-        """Check if text matches any of the patterns."""
-        return any(p.search(text) for p in patterns)
+        """Check if text matches any of the patterns.
+
+        Uses a pre-compiled combined regex (via id-based cache) so that each
+        category check is a single .search() call instead of iterating N patterns.
+        """
+        key = id(patterns)
+        combined = self._combined_cache.get(key)
+        if combined is None:
+            alternation = "|".join(f"(?:{p.pattern})" for p in patterns)
+            combined = re.compile(alternation, re.IGNORECASE)
+            self._combined_cache[key] = combined
+        return combined.search(text) is not None
 
     def classify_execution(
         self,

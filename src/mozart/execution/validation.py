@@ -13,6 +13,7 @@ This module provides:
 import asyncio
 import logging
 import re
+import shlex
 import subprocess
 import time
 import warnings
@@ -593,21 +594,10 @@ class ValidationEngine:
                     stage_passed = False
 
             if not stage_passed:
-                # Stage failed - record and skip remaining stages
                 failed_stage = stage_num
-                # Mark remaining rules as skipped
-                for remaining_stage in sorted(stages.keys()):
-                    if remaining_stage > stage_num:
-                        for rule in stages[remaining_stage]:
-                            skipped_result = ValidationResult(
-                                rule=rule,
-                                passed=False,
-                                error_message=f"Skipped: Stage {stage_num} failed",
-                                failure_reason=f"Skipped due to failure in stage {stage_num}",
-                                failure_category="skipped",
-                                confidence=0.0,
-                            )
-                            all_results.append(skipped_result)
+                self._mark_remaining_stages_skipped(
+                    stages, stage_num, all_results
+                )
                 break
 
         return SheetValidationResult(
@@ -615,6 +605,33 @@ class ValidationEngine:
             results=all_results,
             rules_checked=len(applicable_rules),
         ), failed_stage
+
+    @staticmethod
+    def _mark_remaining_stages_skipped(
+        stages: dict[int, list[ValidationRule]],
+        failed_stage: int,
+        results: list[ValidationResult],
+    ) -> None:
+        """Mark all rules in stages after the failed stage as skipped.
+
+        Args:
+            stages: Mapping of stage number to rules in that stage.
+            failed_stage: The stage number that failed.
+            results: List to append skipped ValidationResults to.
+        """
+        for remaining_stage in sorted(stages.keys()):
+            if remaining_stage > failed_stage:
+                for rule in stages[remaining_stage]:
+                    results.append(
+                        ValidationResult(
+                            rule=rule,
+                            passed=False,
+                            error_message=f"Skipped: Stage {failed_stage} failed",
+                            failure_reason=f"Skipped due to failure in stage {failed_stage}",
+                            failure_category="skipped",
+                            confidence=0.0,
+                        )
+                    )
 
     # Validation types that benefit from retry logic (filesystem race conditions)
     _RETRYABLE_VALIDATION_TYPES = frozenset({
@@ -1033,12 +1050,13 @@ class ValidationEngine:
         # matching the same variable expansion used in expand_path().
         # Use str.replace() instead of str.format() to avoid conflicts
         # with shell variable syntax like ${VAR} and ${VAR:-default}.
+        # Values are shell-quoted to prevent injection via context values.
         context = dict(self.sheet_context)
         context["workspace"] = str(self.workspace)
         expanded_command = rule.command
         for key, value in context.items():
             expanded_command = expanded_command.replace(
-                "{" + key + "}", str(value)
+                "{" + key + "}", shlex.quote(str(value))
             )
 
         # Get a display-friendly command summary

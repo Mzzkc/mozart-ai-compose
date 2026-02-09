@@ -728,12 +728,12 @@ class TestRecursiveLightBackendLogging:
         assert request_logs[0]["prompt_length"] == 11
 
     @pytest.mark.asyncio
-    async def test_recursive_light_logs_response_with_confidence(
+    async def test_recursive_light_logs_response(
         self,
         configure_test_logging: None,
         captured_logs: list[dict[str, Any]],
     ) -> None:
-        """Test that responses are logged with confidence scores at INFO level."""
+        """Test that successful responses are logged at INFO level."""
         from mozart.backends.recursive_light import RecursiveLightBackend
 
         backend = RecursiveLightBackend(rl_endpoint="http://test:8080")
@@ -742,8 +742,6 @@ class TestRecursiveLightBackendLogging:
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "response": "test response",
-            "confidence": 0.85,
-            "domains": {"COMP": 0.9, "SCI": 0.7},
         }
 
         mock_client = AsyncMock()
@@ -756,8 +754,7 @@ class TestRecursiveLightBackendLogging:
         response_logs = [log for log in captured_logs if log.get("event") == "http_response"]
         assert len(response_logs) == 1
         assert response_logs[0]["level"] == "info"
-        assert response_logs[0]["confidence_score"] == 0.85
-        assert response_logs[0]["has_domain_activations"] is True
+        assert response_logs[0]["response_length"] == len("test response")
 
     @pytest.mark.asyncio
     async def test_recursive_light_logs_connection_error_at_warning(

@@ -285,8 +285,10 @@ class SelfHealingCoordinator:
             console.print(f"[dim]Risk level: {remedy.risk_level.value}[/dim]")
             console.print(f"[dim]Confidence: {diagnosis.confidence:.0%}[/dim]")
             return Confirm.ask("Apply this fix?", default=False)
-        except (ImportError, KeyboardInterrupt):
+        except ImportError:
             return False
+        except KeyboardInterrupt:
+            raise  # Propagate abort — don't swallow as "decline"
 
     def reset(self) -> None:
         """Reset healing attempt counter.

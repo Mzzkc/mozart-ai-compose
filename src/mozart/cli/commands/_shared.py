@@ -2,7 +2,7 @@
 
 Extracts the common infrastructure setup that both _run_job() and _resume_job()
 need: backend creation, learning stores, notification manager, escalation handler,
-and grounding engine.
+grounding engine, and summary display.
 """
 
 from __future__ import annotations
@@ -10,19 +10,24 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from rich.console import Console
+from rich.panel import Panel
 
+from mozart.core.checkpoint import JobStatus
 from mozart.notifications import NotificationManager
 
 from ..helpers import (
     create_notifiers_from_config,
+    is_quiet,
     is_verbose,
 )
+from ..output import console as default_console
 
 if TYPE_CHECKING:
     from mozart.backends.base import Backend
     from mozart.core.config import JobConfig
     from mozart.execution.escalation import ConsoleEscalationHandler
     from mozart.execution.grounding import GroundingEngine
+    from mozart.execution.runner import RunSummary
     from mozart.learning.global_store import GlobalLearningStore
     from mozart.learning.outcomes import OutcomeStore
 
@@ -49,11 +54,7 @@ def create_backend(
 
     if config.backend.type == "recursive_light":
         rl_config = config.backend.recursive_light
-        backend: Backend = RecursiveLightBackend(
-            rl_endpoint=rl_config.endpoint,
-            user_id=rl_config.user_id,
-            timeout=rl_config.timeout,
-        )
+        backend: Backend = RecursiveLightBackend.from_config(config.backend)
         if not quiet and is_verbose() and console:
             console.print(
                 f"[dim]Using Recursive Light backend at {rl_config.endpoint}[/dim]"
@@ -216,3 +217,69 @@ def setup_grounding(
         )
 
     return engine
+
+
+def display_run_summary(summary: RunSummary) -> None:
+    """Display run summary as a rich panel.
+
+    Shared by both `run` and `resume` commands to avoid duplication.
+
+    Args:
+        summary: Run summary with execution statistics.
+    """
+    if is_quiet():
+        return
+
+    status_color = {
+        JobStatus.COMPLETED: "green",
+        JobStatus.FAILED: "red",
+        JobStatus.PAUSED: "yellow",
+    }.get(summary.final_status, "white")
+
+    status_text = f"[{status_color}]{summary.final_status.value.upper()}[/{status_color}]"
+
+    lines = [
+        f"[bold]{summary.job_name}[/bold]",
+        f"Status: {status_text}",
+        f"Duration: {summary._format_duration(summary.total_duration_seconds)}",
+        "",
+        "[bold]Sheets[/bold]",
+        f"  Completed: [green]{summary.completed_sheets}[/green]/{summary.total_sheets}",
+    ]
+
+    if summary.failed_sheets > 0:
+        lines.append(f"  Failed: [red]{summary.failed_sheets}[/red]")
+    if summary.skipped_sheets > 0:
+        lines.append(f"  Skipped: [yellow]{summary.skipped_sheets}[/yellow]")
+
+    lines.append(f"  Success Rate: {summary.success_rate:.1f}%")
+
+    if summary.validation_pass_count + summary.validation_fail_count > 0:
+        lines.extend([
+            "",
+            "[bold]Validation[/bold]",
+            f"  Pass Rate: {summary.validation_pass_rate:.1f}%",
+        ])
+
+    if is_verbose() or summary.total_retries > 0 or summary.rate_limit_waits > 0:
+        lines.extend([
+            "",
+            "[bold]Execution[/bold]",
+        ])
+        if summary.first_attempt_successes > 0:
+            lines.append(
+                f"  First Attempt Success: {summary.first_attempt_rate:.0f}% "
+                f"({summary.first_attempt_successes}/{summary.completed_sheets})"
+            )
+        if summary.total_retries > 0:
+            lines.append(f"  Retries Used: {summary.total_retries}")
+        if summary.total_completion_attempts > 0:
+            lines.append(f"  Completion Attempts: {summary.total_completion_attempts}")
+        if summary.rate_limit_waits > 0:
+            lines.append(f"  Rate Limit Waits: [yellow]{summary.rate_limit_waits}[/yellow]")
+
+    default_console.print(Panel(
+        "\n".join(lines),
+        title="Run Summary",
+        border_style="green" if summary.final_status == JobStatus.COMPLETED else "yellow",
+    ))

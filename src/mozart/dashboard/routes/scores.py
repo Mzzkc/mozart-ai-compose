@@ -494,7 +494,7 @@ async def get_template(template_name: str) -> TemplateResponse:
 
 
 @router.get("/api/templates/{template_name}/download", tags=["Templates"])
-async def download_template(template_name: str) -> Any:
+async def download_template(template_name: str) -> PlainTextResponse:
     """Download a template as a YAML file.
 
     Args:
@@ -528,7 +528,7 @@ async def download_template(template_name: str) -> Any:
 
 
 @router.post("/api/templates/{template_name}/use", tags=["Templates"])
-async def use_template(template_name: str) -> Any:
+async def use_template(template_name: str) -> RedirectResponse:
     """Use a template by redirecting to editor with template content.
 
     Args:

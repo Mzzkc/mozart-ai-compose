@@ -166,18 +166,14 @@ class RecursiveLightBackend(Backend):
             # Parse response JSON
             data = response.json()
 
-            # Extract RL-specific metadata with graceful fallbacks
+            # Parse response into ExecutionResult
             result = self._parse_rl_response(data, duration, started_at)
 
-            # Log successful response with confidence scores at INFO level
             _logger.info(
                 "http_response",
                 duration_seconds=duration,
                 status_code=response.status_code,
-                confidence_score=result.confidence_score,
                 response_length=len(result.stdout) if result.stdout else 0,
-                has_domain_activations=result.domain_activations is not None,
-                has_boundary_states=result.boundary_states is not None,
             )
 
             return result
@@ -277,8 +273,7 @@ class RecursiveLightBackend(Backend):
     ) -> ExecutionResult:
         """Parse Recursive Light API response into ExecutionResult.
 
-        Extracts response text and RL-specific metadata fields with
-        graceful handling of missing or malformed data.
+        Extracts the response text from the RL API JSON response.
 
         Args:
             data: JSON response from RL API.
@@ -286,31 +281,11 @@ class RecursiveLightBackend(Backend):
             started_at: When execution started.
 
         Returns:
-            ExecutionResult with RL metadata populated.
+            ExecutionResult with response text as stdout.
         """
-        # Extract response text (primary output)
         response_text = data.get("response", "")
         if not isinstance(response_text, str):
             response_text = str(response_text)
-
-        # Extract confidence score (0.0-1.0)
-        confidence = data.get("confidence")
-        if confidence is not None:
-            try:
-                confidence = float(confidence)
-                if not 0.0 <= confidence <= 1.0:
-                    confidence = max(0.0, min(1.0, confidence))
-            except (TypeError, ValueError):
-                confidence = None
-
-        # Extract domain activations
-        domain_activations = self._extract_domain_activations(data)
-
-        # Extract boundary states
-        boundary_states = self._extract_boundary_states(data)
-
-        # Extract quality conditions
-        quality_conditions = self._extract_quality_conditions(data)
 
         return ExecutionResult(
             success=True,
@@ -319,109 +294,7 @@ class RecursiveLightBackend(Backend):
             stderr="",
             duration_seconds=duration,
             started_at=started_at,
-            # RL-specific metadata
-            confidence_score=confidence,
-            domain_activations=domain_activations,
-            boundary_states=boundary_states,
-            quality_conditions=quality_conditions,
         )
-
-    @staticmethod
-    def _find_dict_by_keys(
-        data: dict[str, Any], keys: tuple[str, ...]
-    ) -> dict[str, Any] | None:
-        """Find the first dict value in data matching one of the candidate keys.
-
-        Args:
-            data: JSON response from RL API.
-            keys: Candidate keys to search for, in priority order.
-
-        Returns:
-            The first dict found, or None if no key matched.
-        """
-        for key in keys:
-            value = data.get(key)
-            if isinstance(value, dict):
-                return value
-        return None
-
-    def _extract_domain_activations(
-        self, data: dict[str, Any]
-    ) -> dict[str, float] | None:
-        """Extract domain activation levels from RL response.
-
-        Looks for domain activations in various possible response structures:
-        - data["domains"] = {"COMP": 0.8, "SCI": 0.7, ...}
-        - data["domain_activations"] = {...}
-        - data["activations"] = {...}
-
-        Args:
-            data: JSON response from RL API.
-
-        Returns:
-            Dict mapping domain names to activation levels, or None.
-        """
-        raw = self._find_dict_by_keys(data, ("domains", "domain_activations", "activations"))
-        if raw is None:
-            return None
-        result: dict[str, float] = {}
-        for domain, value in raw.items():
-            try:
-                result[str(domain)] = float(value)
-            except (TypeError, ValueError):
-                continue
-        return result or None
-
-    def _extract_boundary_states(
-        self, data: dict[str, Any]
-    ) -> dict[str, dict[str, Any]] | None:
-        """Extract boundary states from RL response.
-
-        Looks for boundary states in various possible response structures:
-        - data["boundaries"] = {"COMP↔SCI": {"permeability": 0.8, ...}}
-        - data["boundary_states"] = {...}
-
-        Args:
-            data: JSON response from RL API.
-
-        Returns:
-            Dict mapping boundary names to state dicts, or None.
-        """
-        raw = self._find_dict_by_keys(data, ("boundaries", "boundary_states"))
-        if raw is None:
-            return None
-        result: dict[str, dict[str, Any]] = {}
-        for boundary, state in raw.items():
-            if isinstance(state, dict):
-                result[str(boundary)] = dict(state)
-        return result or None
-
-    def _extract_quality_conditions(
-        self, data: dict[str, Any]
-    ) -> dict[str, float] | None:
-        """Extract quality condition assessments from RL response.
-
-        Looks for quality conditions in various possible structures:
-        - data["quality"] = {"coherence": 0.9, "relevance": 0.85, ...}
-        - data["quality_conditions"] = {...}
-        - data["conditions"] = {...}
-
-        Args:
-            data: JSON response from RL API.
-
-        Returns:
-            Dict mapping condition names to values, or None.
-        """
-        raw = self._find_dict_by_keys(data, ("quality", "quality_conditions", "conditions"))
-        if raw is None:
-            return None
-        result: dict[str, float] = {}
-        for condition, value in raw.items():
-            try:
-                result[str(condition)] = float(value)
-            except (TypeError, ValueError):
-                continue
-        return result or None
 
     async def health_check(self) -> bool:
         """Check if Recursive Light server is available and responding.

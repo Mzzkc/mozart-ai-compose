@@ -117,6 +117,8 @@ class SheetExecutionMixin:
     interface from other mixins for type checker compatibility.
     """
 
+    _MAX_EXECUTION_HISTORY = 20
+
     # Type declarations for attributes from JobRunnerBase
     # These are populated at runtime by the base class __init__
     if TYPE_CHECKING:
@@ -319,6 +321,243 @@ class SheetExecutionMixin:
 
         return setup, sheet_context, validation_engine
 
+    async def _handle_validation_success(
+        self,
+        *,
+        state: CheckpointState,
+        sheet_num: int,
+        result: ExecutionResult,
+        validation_result: SheetValidationResult,
+        validation_duration: float,
+        current_prompt: str,
+        normal_attempts: int,
+        completion_attempts: int,
+        execution_start_time: float,
+        execution_history: deque[ExecutionResult],
+        pending_recovery: dict[str, Any] | None,
+    ) -> str | None:
+        """Handle the success path when all validations pass.
+
+        Runs grounding hooks, records pattern feedback, updates learning stores,
+        and marks the sheet as completed.
+
+        Returns:
+            None if sheet is complete (caller should return).
+            "continue" if grounding failed and loop should re-execute.
+            "break" if grounding escalation chose to skip (exit loop).
+        """
+        if not result.success:
+            self._logger.warning(
+                "sheet.exit_code_ignored_validations_passed",
+                sheet_num=sheet_num,
+                exit_code=result.exit_code,
+                exit_reason=result.exit_reason,
+                validation_count=len(validation_result.results),
+            )
+            self.console.print(
+                f"[yellow]Sheet {sheet_num}: CLI exit {result.exit_code} ignored - "
+                f"all {len(validation_result.results)} validations passed[/yellow]"
+            )
+
+        # ===== GROUNDING: External validation hooks (v8 Evolution) =====
+        grounding_ctx = await self._run_grounding_hooks(
+            sheet_num=sheet_num,
+            prompt=current_prompt,
+            output=result.stdout or "",
+            validation_result=validation_result,
+        )
+
+        if not grounding_ctx.passed and self.config.grounding.fail_on_grounding_failure:
+            self._logger.warning(
+                "sheet.grounding_failed",
+                sheet_num=sheet_num,
+                message=grounding_ctx.message,
+                confidence=grounding_ctx.confidence,
+            )
+            self.console.print(
+                f"[yellow]Sheet {sheet_num}: Grounding failed - "
+                f"{grounding_ctx.message}[/yellow]"
+            )
+            grounding_mode, grounding_reason, _ = await self._decide_with_judgment(
+                sheet_num=sheet_num,
+                validation_result=validation_result,
+                execution_history=execution_history,
+                normal_attempts=normal_attempts,
+                completion_attempts=completion_attempts,
+                grounding_context=grounding_ctx,
+            )
+            self.console.print(
+                f"[dim]Sheet {sheet_num}: Grounding decision: {grounding_mode.value} "
+                f"- {grounding_reason}[/dim]"
+            )
+            if grounding_mode == SheetExecutionMode.ESCALATE:
+                grounding_error_history: list[str] = (
+                    [grounding_ctx.message] if grounding_ctx.message else []
+                )
+                try:
+                    response = await self._handle_escalation(
+                        state=state,
+                        sheet_num=sheet_num,
+                        validation_result=validation_result,
+                        current_prompt=current_prompt,
+                        error_history=grounding_error_history,
+                        normal_attempts=normal_attempts,
+                    )
+                    if response.action == "abort":
+                        state.mark_sheet_failed(
+                            sheet_num,
+                            f"Escalation abort: {response.guidance or 'grounding failure'}",
+                            "escalation",
+                        )
+                        grounding_sheet_state = state.sheets[sheet_num]
+                        self._update_escalation_outcome(
+                            grounding_sheet_state, "aborted", sheet_num
+                        )
+                        await self.state_backend.save(state)
+                        raise FatalError(
+                            f"Sheet {sheet_num} aborted via escalation: "
+                            f"{response.guidance or 'grounding failure'}"
+                        )
+                    elif response.action == "skip":
+                        state.mark_sheet_completed(
+                            sheet_num,
+                            validation_passed=False,
+                            validation_details=validation_result.to_dict_list(),
+                        )
+                        grounding_sheet_state = state.sheets[sheet_num]
+                        self._update_escalation_outcome(
+                            grounding_sheet_state, "skipped", sheet_num
+                        )
+                        await self.state_backend.save(state)
+                        return "break"
+                except FatalError:
+                    raise
+            return "continue"
+
+        # Record success in circuit breaker (Task 12)
+        if self._circuit_breaker is not None:
+            self._circuit_breaker.record_success()
+
+        # Evolution #3: Record recovery outcome if we had a pending retry
+        if pending_recovery is not None and self._global_learning_store is not None:
+            try:
+                self._global_learning_store.record_error_recovery(
+                    error_code=pending_recovery["error_code"],
+                    suggested_wait=pending_recovery["suggested_wait"],
+                    actual_wait=pending_recovery["actual_wait"],
+                    recovery_success=True,
+                    model=self.config.backend.model,
+                )
+                self._logger.debug(
+                    "learning.recovery_recorded",
+                    sheet_num=sheet_num,
+                    error_code=pending_recovery["error_code"],
+                    actual_wait=pending_recovery["actual_wait"],
+                    recovery_success=True,
+                )
+            except Exception as e:
+                self._logger.warning(
+                    "learning.recovery_record_failed",
+                    sheet_num=sheet_num,
+                    error=str(e),
+                )
+
+        execution_duration = time.monotonic() - execution_start_time
+
+        # Determine outcome category based on execution path
+        first_attempt_success = (normal_attempts == 0 and completion_attempts == 0)
+        if first_attempt_success:
+            outcome_category = "success_first_try"
+        elif completion_attempts > 0:
+            outcome_category = "success_completion"
+        else:
+            outcome_category = "success_retry"
+
+        # Populate SheetState learning fields
+        sheet_state = state.sheets[sheet_num]
+        sheet_state.first_attempt_success = first_attempt_success
+        sheet_state.outcome_category = outcome_category
+        sheet_state.confidence_score = validation_result.pass_percentage / 100.0
+        sheet_state.applied_pattern_ids = self._applied_pattern_ids.copy()
+        sheet_state.applied_pattern_descriptions = self._current_sheet_patterns.copy()
+        if grounding_ctx.hooks_executed > 0:
+            sheet_state.grounding_passed = grounding_ctx.passed
+            sheet_state.grounding_confidence = grounding_ctx.confidence
+            sheet_state.grounding_guidance = grounding_ctx.recovery_guidance
+
+        # Record pattern feedback to global store (v9/v12/v22 Evolution)
+        prior_status = None
+        if sheet_num > 1 and (sheet_num - 1) in state.sheets:
+            prior_state = state.sheets[sheet_num - 1]
+            prior_status = prior_state.status.value if prior_state.status else None
+
+        validation_types_set = {
+            r.rule.type for r in validation_result.results if r.rule and r.rule.type
+        }
+        validation_types_list: list[str] | None = (
+            sorted(validation_types_set) if validation_types_set else None
+        )
+
+        escalation_pending = bool(
+            sheet_state.outcome_data
+            and sheet_state.outcome_data.get("escalation_record_id")
+        )
+
+        await self._record_pattern_feedback(
+            pattern_ids=self._applied_pattern_ids,
+            ctx=PatternFeedbackContext(
+                validation_passed=True,
+                first_attempt_success=first_attempt_success,
+                sheet_num=sheet_num,
+                grounding_confidence=grounding_ctx.confidence if grounding_ctx.hooks_executed > 0 else None,
+                validation_types=validation_types_list,
+                prior_sheet_status=prior_status,
+                retry_iteration=normal_attempts - 1 if normal_attempts > 0 else 0,
+                escalation_was_pending=escalation_pending,
+            ),
+        )
+
+        state.mark_sheet_completed(
+            sheet_num,
+            validation_passed=True,
+            validation_details=validation_result.to_dict_list(),
+        )
+
+        sheet_state = state.sheets[sheet_num]
+        self._update_escalation_outcome(sheet_state, "success", sheet_num)
+
+        # Record outcome for learning if store is available
+        await self._record_sheet_outcome(
+            sheet_num=sheet_num,
+            job_id=state.job_id,
+            validation_result=validation_result,
+            execution_duration=execution_duration,
+            normal_attempts=normal_attempts,
+            completion_attempts=completion_attempts,
+            first_attempt_success=first_attempt_success,
+            final_status=SheetStatus.COMPLETED,
+        )
+
+        await self.state_backend.save(state)
+        self._logger.info(
+            "sheet.completed",
+            sheet_num=sheet_num,
+            duration_seconds=round(execution_duration, 2),
+            validation_duration_seconds=round(validation_duration, 3),
+            validation_count=len(validation_result.results),
+            validation_pass_rate=100.0,
+            outcome_category=outcome_category,
+            retry_count=normal_attempts - 1 if normal_attempts > 0 else 0,
+            completion_attempts=completion_attempts,
+            first_attempt_success=first_attempt_success,
+            exit_code_was_nonzero=not result.success,
+        )
+        self.console.print(
+            f"[green]Sheet {sheet_num}: All {len(validation_result.results)} "
+            f"validations passed[/green]"
+        )
+        return None
+
     async def _execute_sheet_with_recovery(
         self,
         state: CheckpointState,
@@ -368,8 +607,7 @@ class SheetExecutionMixin:
         # Track execution history for judgment (Phase 4)
         # Capped to prevent unbounded memory growth during long retry loops.
         # Most recent results are most relevant for judgment decisions.
-        _MAX_EXECUTION_HISTORY = 20
-        execution_history: deque[ExecutionResult] = deque(maxlen=_MAX_EXECUTION_HISTORY)
+        execution_history: deque[ExecutionResult] = deque(maxlen=self._MAX_EXECUTION_HISTORY)
 
         # Track error history for adaptive retry (Task 13)
         error_history: list[ErrorRecord] = []
@@ -513,219 +751,28 @@ class SheetExecutionMixin:
             await self.state_backend.save(state)
 
             if validation_result.all_passed:
-                # ===== SUCCESS: All validations passed =====
-                if not result.success:
-                    self._logger.warning(
-                        "sheet.exit_code_ignored_validations_passed",
-                        sheet_num=sheet_num,
-                        exit_code=result.exit_code,
-                        exit_reason=result.exit_reason,
-                        validation_count=len(validation_result.results),
-                    )
-                    self.console.print(
-                        f"[yellow]Sheet {sheet_num}: CLI exit {result.exit_code} ignored - "
-                        f"all {len(validation_result.results)} validations passed[/yellow]"
-                    )
-
-                # ===== GROUNDING: External validation hooks (v8 Evolution) =====
-                grounding_ctx = await self._run_grounding_hooks(
+                # Delegate success handling to extracted method
+                success_action = await self._handle_validation_success(
+                    state=state,
                     sheet_num=sheet_num,
-                    prompt=current_prompt,
-                    output=result.stdout or "",
+                    result=result,
                     validation_result=validation_result,
-                )
-
-                if not grounding_ctx.passed and self.config.grounding.fail_on_grounding_failure:
-                    self._logger.warning(
-                        "sheet.grounding_failed",
-                        sheet_num=sheet_num,
-                        message=grounding_ctx.message,
-                        confidence=grounding_ctx.confidence,
-                    )
-                    self.console.print(
-                        f"[yellow]Sheet {sheet_num}: Grounding failed - "
-                        f"{grounding_ctx.message}[/yellow]"
-                    )
-                    grounding_mode, grounding_reason, _ = await self._decide_with_judgment(
-                        sheet_num=sheet_num,
-                        validation_result=validation_result,
-                        execution_history=execution_history,
-                        normal_attempts=normal_attempts,
-                        completion_attempts=completion_attempts,
-                        grounding_context=grounding_ctx,
-                    )
-                    self.console.print(
-                        f"[dim]Sheet {sheet_num}: Grounding decision: {grounding_mode.value} "
-                        f"- {grounding_reason}[/dim]"
-                    )
-                    if grounding_mode == SheetExecutionMode.ESCALATE:
-                        grounding_error_history: list[str] = (
-                            [grounding_ctx.message] if grounding_ctx.message else []
-                        )
-                        try:
-                            response = await self._handle_escalation(
-                                state=state,
-                                sheet_num=sheet_num,
-                                validation_result=validation_result,
-                                current_prompt=current_prompt,
-                                error_history=grounding_error_history,
-                                normal_attempts=normal_attempts,
-                            )
-                            if response.action == "abort":
-                                state.mark_sheet_failed(
-                                    sheet_num,
-                                    f"Escalation abort: {response.guidance or 'grounding failure'}",
-                                    "escalation",
-                                )
-                                grounding_sheet_state = state.sheets[sheet_num]
-                                self._update_escalation_outcome(
-                                    grounding_sheet_state, "aborted", sheet_num
-                                )
-                                await self.state_backend.save(state)
-                                raise FatalError(
-                                    f"Sheet {sheet_num} aborted via escalation: "
-                                    f"{response.guidance or 'grounding failure'}"
-                                )
-                            elif response.action == "skip":
-                                state.mark_sheet_completed(
-                                    sheet_num,
-                                    validation_passed=False,
-                                    validation_details=validation_result.to_dict_list(),
-                                )
-                                grounding_sheet_state = state.sheets[sheet_num]
-                                self._update_escalation_outcome(
-                                    grounding_sheet_state, "skipped", sheet_num
-                                )
-                                await self.state_backend.save(state)
-                                break
-                        except FatalError:
-                            raise
-                    continue
-
-                # Record success in circuit breaker (Task 12)
-                if self._circuit_breaker is not None:
-                    self._circuit_breaker.record_success()
-
-                # Evolution #3: Record recovery outcome if we had a pending retry
-                if pending_recovery is not None and self._global_learning_store is not None:
-                    try:
-                        self._global_learning_store.record_error_recovery(
-                            error_code=pending_recovery["error_code"],
-                            suggested_wait=pending_recovery["suggested_wait"],
-                            actual_wait=pending_recovery["actual_wait"],
-                            recovery_success=True,
-                            model=self.config.backend.model,
-                        )
-                        self._logger.debug(
-                            "learning.recovery_recorded",
-                            sheet_num=sheet_num,
-                            error_code=pending_recovery["error_code"],
-                            actual_wait=pending_recovery["actual_wait"],
-                            recovery_success=True,
-                        )
-                    except Exception as e:
-                        self._logger.warning(
-                            "learning.recovery_record_failed",
-                            sheet_num=sheet_num,
-                            error=str(e),
-                        )
-                    pending_recovery = None
-
-                execution_duration = time.monotonic() - execution_start_time
-
-                # Determine outcome category based on execution path
-                first_attempt_success = (normal_attempts == 0 and completion_attempts == 0)
-                if first_attempt_success:
-                    outcome_category = "success_first_try"
-                elif completion_attempts > 0:
-                    outcome_category = "success_completion"
-                else:
-                    outcome_category = "success_retry"
-
-                # Populate SheetState learning fields
-                sheet_state = state.sheets[sheet_num]
-                sheet_state.first_attempt_success = first_attempt_success
-                sheet_state.outcome_category = outcome_category
-                sheet_state.confidence_score = validation_result.pass_percentage / 100.0
-                sheet_state.applied_pattern_ids = self._applied_pattern_ids.copy()
-                sheet_state.applied_pattern_descriptions = self._current_sheet_patterns.copy()
-                if grounding_ctx.hooks_executed > 0:
-                    sheet_state.grounding_passed = grounding_ctx.passed
-                    sheet_state.grounding_confidence = grounding_ctx.confidence
-                    sheet_state.grounding_guidance = grounding_ctx.recovery_guidance
-
-                # Record pattern feedback to global store (v9/v12/v22 Evolution)
-                prior_status = None
-                if sheet_num > 1 and (sheet_num - 1) in state.sheets:
-                    prior_state = state.sheets[sheet_num - 1]
-                    prior_status = prior_state.status.value if prior_state.status else None
-
-                validation_types_set = {
-                    r.rule.type for r in validation_result.results if r.rule and r.rule.type
-                }
-                validation_types_list: list[str] | None = (
-                    sorted(validation_types_set) if validation_types_set else None
-                )
-
-                escalation_pending = bool(
-                    sheet_state.outcome_data
-                    and sheet_state.outcome_data.get("escalation_record_id")
-                )
-
-                await self._record_pattern_feedback(
-                    pattern_ids=self._applied_pattern_ids,
-                    ctx=PatternFeedbackContext(
-                        validation_passed=True,
-                        first_attempt_success=first_attempt_success,
-                        sheet_num=sheet_num,
-                        grounding_confidence=grounding_ctx.confidence if grounding_ctx.hooks_executed > 0 else None,
-                        validation_types=validation_types_list,
-                        prior_sheet_status=prior_status,
-                        retry_iteration=normal_attempts - 1 if normal_attempts > 0 else 0,
-                        escalation_was_pending=escalation_pending,
-                    ),
-                )
-
-                state.mark_sheet_completed(
-                    sheet_num,
-                    validation_passed=True,
-                    validation_details=validation_result.to_dict_list(),
-                )
-
-                sheet_state = state.sheets[sheet_num]
-                self._update_escalation_outcome(sheet_state, "success", sheet_num)
-
-                # Record outcome for learning if store is available
-                await self._record_sheet_outcome(
-                    sheet_num=sheet_num,
-                    job_id=state.job_id,
-                    validation_result=validation_result,
-                    execution_duration=execution_duration,
+                    validation_duration=validation_duration,
+                    current_prompt=current_prompt,
                     normal_attempts=normal_attempts,
                     completion_attempts=completion_attempts,
-                    first_attempt_success=first_attempt_success,
-                    final_status=SheetStatus.COMPLETED,
+                    execution_start_time=execution_start_time,
+                    execution_history=execution_history,
+                    pending_recovery=pending_recovery,
                 )
-
-                await self.state_backend.save(state)
-                self._logger.info(
-                    "sheet.completed",
-                    sheet_num=sheet_num,
-                    duration_seconds=round(execution_duration, 2),
-                    validation_duration_seconds=round(validation_duration, 3),
-                    validation_count=len(validation_result.results),
-                    validation_pass_rate=100.0,
-                    outcome_category=outcome_category,
-                    retry_count=normal_attempts - 1 if normal_attempts > 0 else 0,
-                    completion_attempts=completion_attempts,
-                    first_attempt_success=first_attempt_success,
-                    exit_code_was_nonzero=not result.success,
-                )
-                self.console.print(
-                    f"[green]Sheet {sheet_num}: All {len(validation_result.results)} "
-                    f"validations passed[/green]"
-                )
-                return
+                if success_action is None:
+                    return  # Sheet completed
+                elif success_action == "break":
+                    break  # Grounding skip — exit loop
+                else:
+                    # "continue" — grounding failed, re-execute
+                    pending_recovery = None
+                    continue
 
             # ===== VALIDATIONS INCOMPLETE =====
             passed_count = len(validation_result.get_passed_results())

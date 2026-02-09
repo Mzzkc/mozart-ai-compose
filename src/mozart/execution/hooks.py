@@ -325,6 +325,7 @@ class HookExecutor:
                 exit_code = process.returncode
             except asyncio.TimeoutError:
                 process.kill()
+                await process.wait()
                 return HookResult(
                     hook_type="run_job",
                     description=hook.description,
@@ -394,6 +395,7 @@ class HookExecutor:
                 exit_code = process.returncode
             except asyncio.TimeoutError:
                 process.kill()
+                await process.wait()
                 return HookResult(
                     hook_type="run_command",
                     description=hook.description,
@@ -459,6 +461,7 @@ class HookExecutor:
                 exit_code = process.returncode
             except asyncio.TimeoutError:
                 process.kill()
+                await process.wait()
                 return HookResult(
                     hook_type="run_script",
                     description=hook.description,

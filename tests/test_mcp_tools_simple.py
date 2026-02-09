@@ -302,5 +302,182 @@ sheet:
         assert "Failed to pause job: Service error" in result["content"][0]["text"]
 
 
+# ===========================================================================
+# Tests: MCP Tool Schema Validation (TEST-06)
+# ===========================================================================
+
+
+class TestMCPToolSchemaValidation:
+    """Parametrized tests validating JSON Schema structure of all MCP tools."""
+
+    @pytest.fixture
+    def temp_workspace(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            yield Path(temp_dir)
+
+    @pytest.fixture
+    def mock_state_backend(self) -> Mock:
+        backend = Mock(spec=JsonStateBackend)
+        backend.load = AsyncMock()
+        backend.save = AsyncMock()
+        return backend
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("tool_class_name,expected_count", [
+        ("JobTools", 3),
+        ("ControlTools", 3),
+        ("ArtifactTools", 5),
+        ("ScoreTools", 2),
+    ])
+    async def test_tool_count_per_class(
+        self, mock_state_backend, temp_workspace, tool_class_name, expected_count
+    ):
+        """Each tool class exposes the expected number of tools."""
+        from mozart.mcp import tools as mcp_tools
+
+        cls = getattr(mcp_tools, tool_class_name)
+        if tool_class_name in ("JobTools", "ControlTools"):
+            instance = cls(mock_state_backend, temp_workspace)
+        else:
+            instance = cls(temp_workspace)
+
+        tool_list = await instance.list_tools()
+        assert len(tool_list) == expected_count, (
+            f"{tool_class_name} has {len(tool_list)} tools, expected {expected_count}"
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("tool_class_name", [
+        "JobTools", "ControlTools", "ArtifactTools", "ScoreTools",
+    ])
+    async def test_all_tools_have_valid_schema(
+        self, mock_state_backend, temp_workspace, tool_class_name
+    ):
+        """Every tool must have name, description, and valid inputSchema."""
+        from mozart.mcp import tools as mcp_tools
+
+        cls = getattr(mcp_tools, tool_class_name)
+        if tool_class_name in ("JobTools", "ControlTools"):
+            instance = cls(mock_state_backend, temp_workspace)
+        else:
+            instance = cls(temp_workspace)
+
+        for tool in await instance.list_tools():
+            assert "name" in tool, f"Tool missing 'name': {tool}"
+            assert isinstance(tool["name"], str), f"Tool name not a string: {tool}"
+            assert len(tool["name"]) > 0, "Tool name is empty"
+
+            assert "description" in tool, f"Tool {tool['name']} missing 'description'"
+            assert isinstance(tool["description"], str)
+
+            assert "inputSchema" in tool, f"Tool {tool['name']} missing 'inputSchema'"
+            schema = tool["inputSchema"]
+            assert schema.get("type") == "object", (
+                f"Tool {tool['name']} schema type must be 'object'"
+            )
+            assert "properties" in schema, (
+                f"Tool {tool['name']} schema missing 'properties'"
+            )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("tool_class_name", [
+        "JobTools", "ControlTools", "ArtifactTools", "ScoreTools",
+    ])
+    async def test_required_params_exist_in_properties(
+        self, mock_state_backend, temp_workspace, tool_class_name
+    ):
+        """All 'required' params must be defined in 'properties'."""
+        from mozart.mcp import tools as mcp_tools
+
+        cls = getattr(mcp_tools, tool_class_name)
+        if tool_class_name in ("JobTools", "ControlTools"):
+            instance = cls(mock_state_backend, temp_workspace)
+        else:
+            instance = cls(temp_workspace)
+
+        for tool in await instance.list_tools():
+            schema = tool["inputSchema"]
+            required = schema.get("required", [])
+            properties = schema.get("properties", {})
+            for param in required:
+                assert param in properties, (
+                    f"Tool {tool['name']}: required param '{param}' "
+                    f"not in properties {list(properties.keys())}"
+                )
+
+
+class TestScoreToolsBasic:
+    """Tests for ScoreTools MCP implementation."""
+
+    @pytest.fixture
+    def temp_workspace(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            yield Path(temp_dir)
+
+    @pytest.fixture
+    def score_tools(self, temp_workspace):
+        from mozart.mcp.tools import ScoreTools
+        return ScoreTools(temp_workspace)
+
+    @pytest.mark.asyncio
+    async def test_validate_score_success(self, score_tools, temp_workspace):
+        """validate_score returns stub text for valid workspace."""
+        result = await score_tools.call_tool("validate_score", {
+            "workspace": str(temp_workspace),
+        })
+        assert "isError" not in result or result.get("isError") is False
+        assert "STUB IMPLEMENTATION" in result["content"][0]["text"]
+
+    @pytest.mark.asyncio
+    async def test_validate_score_missing_workspace(self, score_tools):
+        """validate_score returns error for nonexistent workspace."""
+        result = await score_tools.call_tool("validate_score", {
+            "workspace": "/nonexistent/path/xyz",
+        })
+        assert result["isError"] is True
+
+    @pytest.mark.asyncio
+    async def test_generate_score_success(self, score_tools, temp_workspace):
+        """generate_score returns stub text for valid workspace."""
+        result = await score_tools.call_tool("generate_score", {
+            "workspace": str(temp_workspace),
+        })
+        assert "isError" not in result or result.get("isError") is False
+        text = result["content"][0]["text"]
+        assert "STUB IMPLEMENTATION" in text
+        assert "score" in text.lower()
+
+    @pytest.mark.asyncio
+    async def test_generate_score_with_options(self, score_tools, temp_workspace):
+        """generate_score handles optional parameters."""
+        result = await score_tools.call_tool("generate_score", {
+            "workspace": str(temp_workspace),
+            "since_commit": "abc123",
+            "detailed": True,
+        })
+        text = result["content"][0]["text"]
+        assert "abc123" in text
+        assert "True" in text
+
+    @pytest.mark.asyncio
+    async def test_validate_score_security_traversal(self, score_tools, temp_workspace):
+        """validate_score blocks path traversal."""
+        result = await score_tools.call_tool("validate_score", {
+            "workspace": str(temp_workspace / ".." / ".." / "etc"),
+        })
+        assert result["isError"] is True
+
+    @pytest.mark.asyncio
+    async def test_unknown_tool(self, score_tools):
+        """Unknown tool name returns error."""
+        result = await score_tools.call_tool("nonexistent_tool", {})
+        assert result["isError"] is True
+
+    @pytest.mark.asyncio
+    async def test_shutdown(self, score_tools):
+        """shutdown completes without error."""
+        await score_tools.shutdown()
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

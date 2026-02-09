@@ -344,5 +344,5 @@ class ProcessManager:
 
         try:
             await process.wait()
-        except Exception:
-            pass
+        except (ProcessLookupError, OSError):
+            pass  # Process already reaped or PID invalid

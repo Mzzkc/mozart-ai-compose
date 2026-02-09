@@ -28,16 +28,17 @@ import typer
 
 from mozart.core.checkpoint import CheckpointState, JobStatus
 from mozart.core.config import JobConfig
-from mozart.state import JsonStateBackend, SQLiteStateBackend, StateBackend
+from mozart.state import StateBackend
 
 from ..helpers import (
     _logger,
     configure_global_logging,
     create_pause_signal,
     find_job_workspace,
+    get_state_backends,
     wait_for_pause_ack,
 )
-from ..output import console
+from ..output import console, output_error
 
 
 def pause(
@@ -101,32 +102,20 @@ async def _pause_job(
     # Find workspace
     found_workspace = find_job_workspace(job_id, workspace)
     if not found_workspace:
-        if json_output:
-            result = {
-                "success": False,
-                "error_code": "E501",
-                "job_id": job_id,
-                "message": f"Job '{job_id}' not found in workspace",
-                "hints": [
-                    "Use --workspace to specify the job's directory",
-                    "Run 'mozart list' to see available jobs",
-                ],
-            }
-            console.print(json.dumps(result, indent=2))
-        else:
-            console.print(f"[red]Error [E501]:[/red] Job '{job_id}' not found")
-            console.print()
-            console.print("[dim]Hints:[/dim]")
-            console.print("  - Use --workspace to specify the job's directory")
-            console.print("  - Run 'mozart list' to see available jobs")
+        output_error(
+            f"Job '{job_id}' not found",
+            error_code="E501",
+            hints=[
+                "Use --workspace to specify the job's directory",
+                "Run 'mozart list' to see available jobs",
+            ],
+            json_output=json_output,
+            job_id=job_id,
+        )
         raise typer.Exit(1)
 
     # Setup state backends
-    backends: list[StateBackend] = []
-    sqlite_path = found_workspace / ".mozart-state.db"
-    if sqlite_path.exists():
-        backends.append(SQLiteStateBackend(sqlite_path))
-    backends.append(JsonStateBackend(found_workspace))
+    backends = get_state_backends(found_workspace)
 
     # Find job in backends
     found_state: CheckpointState | None = None
@@ -144,24 +133,16 @@ async def _pause_job(
             continue
 
     if found_state is None:
-        if json_output:
-            result = {
-                "success": False,
-                "error_code": "E501",
-                "job_id": job_id,
-                "message": f"Job '{job_id}' not found in workspace",
-                "hints": [
-                    "Use --workspace to specify the job's directory",
-                    "Run 'mozart list' to see available jobs",
-                ],
-            }
-            console.print(json.dumps(result, indent=2))
-        else:
-            console.print(f"[red]Error [E501]:[/red] Job '{job_id}' not found")
-            console.print()
-            console.print("[dim]Hints:[/dim]")
-            console.print("  - Use --workspace to specify the job's directory")
-            console.print("  - Run 'mozart list' to see available jobs")
+        output_error(
+            f"Job '{job_id}' not found",
+            error_code="E501",
+            hints=[
+                "Use --workspace to specify the job's directory",
+                "Run 'mozart list' to see available jobs",
+            ],
+            json_output=json_output,
+            job_id=job_id,
+        )
         raise typer.Exit(1)
 
     # Check if job is in a pausable state
@@ -203,19 +184,13 @@ async def _pause_job(
     try:
         signal_file = create_pause_signal(found_workspace, job_id)
     except (PermissionError, OSError) as e:
-        if json_output:
-            result = {
-                "success": False,
-                "error_code": "E503",
-                "job_id": job_id,
-                "message": f"Cannot create pause signal: {e}",
-                "hints": ["Check workspace write permissions"],
-            }
-            console.print(json.dumps(result, indent=2))
-        else:
-            console.print(f"[red]Error [E503]:[/red] Cannot create pause signal: {e}")
-            console.print()
-            console.print("[dim]Hint: Check workspace write permissions[/dim]")
+        output_error(
+            f"Cannot create pause signal: {e}",
+            error_code="E503",
+            hints=["Check workspace write permissions"],
+            json_output=json_output,
+            job_id=job_id,
+        )
         raise typer.Exit(1) from None
 
     # Optionally wait for pause acknowledgment
@@ -379,32 +354,20 @@ async def _modify_job(
     # Find workspace
     found_workspace = find_job_workspace(job_id, workspace)
     if not found_workspace:
-        if json_output:
-            result = {
-                "success": False,
-                "error_code": "E501",
-                "job_id": job_id,
-                "message": f"Job '{job_id}' not found in workspace",
-                "hints": [
-                    "Use --workspace to specify the job's directory",
-                    "Run 'mozart list' to see available jobs",
-                ],
-            }
-            console.print(json.dumps(result, indent=2))
-        else:
-            console.print(f"[red]Error [E501]:[/red] Job '{job_id}' not found")
-            console.print()
-            console.print("[dim]Hints:[/dim]")
-            console.print("  - Use --workspace to specify the job's directory")
-            console.print("  - Run 'mozart list' to see available jobs")
+        output_error(
+            f"Job '{job_id}' not found",
+            error_code="E501",
+            hints=[
+                "Use --workspace to specify the job's directory",
+                "Run 'mozart list' to see available jobs",
+            ],
+            json_output=json_output,
+            job_id=job_id,
+        )
         raise typer.Exit(1)
 
     # Setup state backends
-    backends: list[StateBackend] = []
-    sqlite_path = found_workspace / ".mozart-state.db"
-    if sqlite_path.exists():
-        backends.append(SQLiteStateBackend(sqlite_path))
-    backends.append(JsonStateBackend(found_workspace))
+    backends = get_state_backends(found_workspace)
 
     # Find job in backends
     found_state: CheckpointState | None = None

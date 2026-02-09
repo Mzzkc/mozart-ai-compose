@@ -192,7 +192,11 @@ class JobRunnerBase:
         self._exploration_pattern_ids: list[str] = []
         self._exploitation_pattern_ids: list[str] = []
 
-        # Lock for parallel state mutations (FIX-04: race condition guard)
+        # Lock for parallel state mutations — used by ParallelExecutor
+        # (execution/parallel.py) to wrap state_backend in _LockingStateBackend,
+        # serializing concurrent state saves across parallel sheet execution.
+        # In sequential mode, asyncio's single-threaded event loop makes this
+        # unnecessary, but parallel mode runs multiple sheets concurrently.
         self._state_lock: asyncio.Lock = asyncio.Lock()
 
         # Graceful shutdown state

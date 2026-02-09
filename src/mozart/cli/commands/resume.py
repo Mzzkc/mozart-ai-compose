@@ -22,8 +22,6 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import TYPE_CHECKING
-
 import typer
 from rich.panel import Panel
 from rich.progress import (
@@ -37,27 +35,24 @@ from rich.progress import (
 
 from mozart.core.checkpoint import CheckpointState, JobStatus
 from mozart.core.config import JobConfig
-from mozart.state import JsonStateBackend, SQLiteStateBackend, StateBackend
+from mozart.state import StateBackend
 
 from ..helpers import (
     ErrorMessages,
     _logger,
     configure_global_logging,
+    get_state_backends,
     is_quiet,
-    is_verbose,
 )
 from ..output import console, format_duration
 from ._shared import (
     create_backend,
+    display_run_summary,
     setup_escalation,
     setup_grounding,
     setup_learning,
     setup_notifications,
 )
-
-if TYPE_CHECKING:
-    from mozart.execution.runner import RunSummary
-
 
 def resume(
     job_id: str = typer.Argument(..., help="Job ID to resume"),
@@ -150,22 +145,11 @@ async def _find_job_state(
     Raises:
         typer.Exit: If job not found or not in resumable state.
     """
-    backends: list[StateBackend] = []
+    if workspace and not workspace.exists():
+        console.print(f"[red]Workspace not found:[/red] {workspace}")
+        raise typer.Exit(1)
 
-    if workspace:
-        if not workspace.exists():
-            console.print(f"[red]Workspace not found:[/red] {workspace}")
-            raise typer.Exit(1)
-        sqlite_path = workspace / ".mozart-state.db"
-        if sqlite_path.exists():
-            backends.append(SQLiteStateBackend(sqlite_path))
-        backends.append(JsonStateBackend(workspace))
-    else:
-        cwd = Path.cwd()
-        backends.append(JsonStateBackend(cwd))
-        sqlite_cwd = cwd / ".mozart-state.db"
-        if sqlite_cwd.exists():
-            backends.append(SQLiteStateBackend(sqlite_cwd))
+    backends = get_state_backends(workspace)
 
     found_state: CheckpointState | None = None
     found_backend: StateBackend | None = None
@@ -466,7 +450,7 @@ async def _resume_job(
         progress.stop()
 
         if state.status == JobStatus.COMPLETED:
-            _display_run_summary(summary)
+            display_run_summary(summary)
 
             # Send job complete notification
             if notification_manager:
@@ -482,7 +466,7 @@ async def _resume_job(
                 console.print(
                     f"[yellow]Job ended with status: {state.status.value}[/yellow]"
                 )
-                _display_run_summary(summary)
+                display_run_summary(summary)
 
             # Send job failed notification if not completed
             if notification_manager and state.status == JobStatus.FAILED:
@@ -520,74 +504,6 @@ async def _resume_job(
 
         if notification_manager:
             await notification_manager.close()
-
-
-def _display_run_summary(summary: RunSummary) -> None:
-    """Display run summary as a rich panel.
-
-    Args:
-        summary: Run summary with execution statistics.
-    """
-    if is_quiet():
-        return
-
-    # Build status indicator
-    status_color = {
-        JobStatus.COMPLETED: "green",
-        JobStatus.FAILED: "red",
-        JobStatus.PAUSED: "yellow",
-    }.get(summary.final_status, "white")
-
-    status_text = f"[{status_color}]{summary.final_status.value.upper()}[/{status_color}]"
-
-    # Build summary content
-    lines = [
-        f"[bold]{summary.job_name}[/bold]",
-        f"Status: {status_text}",
-        f"Duration: {summary._format_duration(summary.total_duration_seconds)}",
-        "",
-        "[bold]Sheets[/bold]",
-        f"  Completed: [green]{summary.completed_sheets}[/green]/{summary.total_sheets}",
-    ]
-
-    if summary.failed_sheets > 0:
-        lines.append(f"  Failed: [red]{summary.failed_sheets}[/red]")
-    if summary.skipped_sheets > 0:
-        lines.append(f"  Skipped: [yellow]{summary.skipped_sheets}[/yellow]")
-
-    lines.append(f"  Success Rate: {summary.success_rate:.1f}%")
-
-    # Validation stats
-    if summary.validation_pass_count + summary.validation_fail_count > 0:
-        lines.extend([
-            "",
-            "[bold]Validation[/bold]",
-            f"  Pass Rate: {summary.validation_pass_rate:.1f}%",
-        ])
-
-    # Execution stats (show in verbose mode or if notable)
-    if is_verbose() or summary.total_retries > 0 or summary.rate_limit_waits > 0:
-        lines.extend([
-            "",
-            "[bold]Execution[/bold]",
-        ])
-        if summary.first_attempt_successes > 0:
-            lines.append(
-                f"  First Attempt Success: {summary.first_attempt_rate:.0f}% "
-                f"({summary.first_attempt_successes}/{summary.completed_sheets})"
-            )
-        if summary.total_retries > 0:
-            lines.append(f"  Retries Used: {summary.total_retries}")
-        if summary.total_completion_attempts > 0:
-            lines.append(f"  Completion Attempts: {summary.total_completion_attempts}")
-        if summary.rate_limit_waits > 0:
-            lines.append(f"  Rate Limit Waits: [yellow]{summary.rate_limit_waits}[/yellow]")
-
-    console.print(Panel(
-        "\n".join(lines),
-        title="Run Summary",
-        border_style="green" if summary.final_status == JobStatus.COMPLETED else "yellow",
-    ))
 
 
 # =============================================================================

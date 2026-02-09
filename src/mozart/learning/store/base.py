@@ -518,6 +518,27 @@ class GlobalLearningStoreBase:
             "ON entropy_responses(recorded_at)"
         )
 
+        # Pattern entropy history table (v23: Pattern Entropy Monitoring)
+        # Records snapshots of pattern population entropy for trend analysis
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pattern_entropy_history (
+                id TEXT PRIMARY KEY,
+                calculated_at TIMESTAMP NOT NULL,
+                shannon_entropy REAL NOT NULL,
+                max_possible_entropy REAL NOT NULL,
+                diversity_index REAL NOT NULL,
+                unique_pattern_count INTEGER NOT NULL,
+                effective_pattern_count INTEGER NOT NULL,
+                total_applications INTEGER NOT NULL,
+                dominant_pattern_share REAL NOT NULL,
+                threshold_exceeded INTEGER DEFAULT 0
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_entropy_history_calculated "
+            "ON pattern_entropy_history(calculated_at DESC)"
+        )
+
         # Update schema version
         conn.execute("DELETE FROM schema_version")
         conn.execute(

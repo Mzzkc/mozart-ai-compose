@@ -66,7 +66,7 @@ def patterns_entropy(
     store = get_global_store()
 
     if history:
-        history_records = store.get_pattern_entropy_history(limit=limit)  # type: ignore[attr-defined]
+        history_records = store.get_pattern_entropy_history(limit=limit)
 
         if json_output:
             hist_output: list[dict[str, Any]] = []
@@ -125,11 +125,11 @@ def patterns_entropy(
         console.print(f"\n[dim]Showing {len(history_records)} record(s)[/dim]")
         return
 
-    metrics = store.calculate_pattern_entropy()  # type: ignore[attr-defined]
+    metrics = store.calculate_pattern_entropy()
     metrics.threshold_exceeded = metrics.diversity_index < alert_threshold
 
     if record:
-        record_id = store.record_pattern_entropy(metrics)  # type: ignore[attr-defined]
+        record_id = store.record_pattern_entropy(metrics)
         console.print(f"[green]Recorded entropy snapshot: {record_id[:10]}[/green]\n")
 
     if json_output:

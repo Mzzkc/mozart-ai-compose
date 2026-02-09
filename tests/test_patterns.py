@@ -188,8 +188,8 @@ class TestPatternDetector:
     def test_success_rate_calculation(self, multiple_outcomes: list[SheetOutcome]) -> None:
         """Test success rate calculation."""
         success_rate = PatternDetector.calculate_success_rate(multiple_outcomes)
-        # 5 successful (1 original + 4 first_attempt) out of 10 total
-        assert 0.0 <= success_rate <= 1.0
+        # 6 successful (1 original + 1 retry_success + 4 first_attempt) out of 10 total
+        assert success_rate == pytest.approx(0.6)
 
     def test_detect_success_patterns(self, multiple_outcomes: list[SheetOutcome]) -> None:
         """Test detection of first-attempt success patterns."""

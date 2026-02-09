@@ -91,8 +91,15 @@ class JobControlService:
         if not config_path and not config_content:
             raise ValueError("Must provide either config_path or config_content")
 
-        if config_path and not config_path.exists():
-            raise FileNotFoundError(f"Config file not found: {config_path}")
+        if config_path:
+            resolved = config_path.resolve()
+            # Validate suffix to prevent arbitrary file execution
+            if resolved.suffix not in ('.yaml', '.yml'):
+                raise ValueError(
+                    f"Config path must be a YAML file (.yaml/.yml): {config_path}"
+                )
+            if not resolved.exists():
+                raise FileNotFoundError(f"Config file not found: {config_path}")
 
         # Generate unique job ID
         job_id = str(uuid.uuid4())[:8]  # Short ID for readability
@@ -199,8 +206,12 @@ class JobControlService:
                 try:
                     process.terminate()
                     await asyncio.wait_for(process.wait(), timeout=5.0)
-                except (TimeoutError, ProcessLookupError):
-                    pass  # Process already dead or won't die
+                except (TimeoutError, ProcessLookupError) as cleanup_err:
+                    logger.warning(
+                        "job_cleanup_failed",
+                        job_id=job_id,
+                        error=str(cleanup_err),
+                    )
 
             logger.error(
                 "job_start_failed",

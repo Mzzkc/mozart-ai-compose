@@ -119,6 +119,12 @@ class LifecycleMixin:
             component="runner",
         )
 
+        # Clear any stale pause signal from a previous run.
+        # Pause files can be orphaned if a process crashed or was killed
+        # without going through normal cleanup. We clear on startup so
+        # the new run doesn't immediately pause on a stale signal.
+        self._clear_pause_signal(state)
+
         # Install signal handlers for graceful shutdown
         self._install_signal_handlers()
 
@@ -157,9 +163,6 @@ class LifecycleMixin:
             # Finalize summary
             self._finalize_summary(state)
 
-            # Aggregate outcomes to global learning store (Movement IV-B integration)
-            await self._aggregate_to_global_store(state)
-
             # Log job completion with summary
             self._logger.info(
                 "job.completed",
@@ -197,15 +200,72 @@ class LifecycleMixin:
 
             return state, self._summary
         finally:
-            # Clean up worktree isolation if configured (v2 evolution: Worktree Isolation)
-            await self._cleanup_isolation(state)
+            # Each cleanup step is independently protected so that a failure
+            # in one (e.g. isolation cleanup) doesn't prevent subsequent steps
+            # (e.g. backend.close()) from running.
+
+            # Ensure summary is finalized even on failure/shutdown paths.
+            # _finalize_summary is idempotent (overwrites, not accumulates),
+            # so calling it again if it was already called in the try block
+            # or failure handlers is safe.
+            try:
+                self._finalize_summary(state)
+            except Exception:
+                self._logger.warning(
+                    "cleanup.finalize_summary_failed",
+                    job_id=state.job_id,
+                    exc_info=True,
+                )
+
+            # Aggregate outcomes to global learning store (Movement IV-B).
+            # Placed in finally so learning data is captured from both
+            # successful and failed jobs — fixing survivorship bias where
+            # only successes contributed to the learning system.
+            try:
+                await self._aggregate_to_global_store(state)
+            except Exception:
+                self._logger.warning(
+                    "cleanup.learning_aggregation_failed",
+                    job_id=state.job_id,
+                    exc_info=True,
+                )
+
+            # Clean up worktree isolation if configured (v2 evolution)
+            try:
+                await self._cleanup_isolation(state)
+            except Exception:
+                self._logger.warning(
+                    "cleanup.isolation_failed",
+                    job_id=state.job_id,
+                    exc_info=True,
+                )
 
             # Restore original working directory if it was overridden
             if worktree_path:
                 self.backend.working_directory = original_working_directory
 
             # Close backend to release resources (connections, subprocesses, etc.)
-            await self.backend.close()
+            try:
+                await self.backend.close()
+            except Exception:
+                self._logger.warning(
+                    "cleanup.backend_close_failed",
+                    job_id=state.job_id,
+                    exc_info=True,
+                )
+
+            # Clean up any leftover pause signal file for this job.
+            # Pause files are normally cleared when a pause is handled,
+            # but can be orphaned if the job completes or fails before
+            # the pause is processed (or if the process crashed).
+            try:
+                self._clear_pause_signal(state)
+            except Exception:
+                self._logger.warning(
+                    "cleanup.pause_signal_failed",
+                    job_id=state.job_id,
+                    exc_info=True,
+                )
 
             # Remove signal handlers
             self._remove_signal_handlers()
@@ -287,6 +347,18 @@ class LifecycleMixin:
         # Calculate total duration
         self._summary.total_duration_seconds = time.monotonic() - self._run_start_time
         self._summary.final_status = state.status
+
+        # Reset counters before aggregating so this method is idempotent.
+        # It may be called multiple times: once in the try block (success path)
+        # or failure handlers, and once in the finally block (guaranteed path).
+        self._summary.completed_sheets = 0
+        self._summary.failed_sheets = 0
+        self._summary.skipped_sheets = 0
+        self._summary.first_attempt_successes = 0
+        self._summary.total_completion_attempts = 0
+        self._summary.total_retries = 0
+        self._summary.validation_pass_count = 0
+        self._summary.validation_fail_count = 0
 
         # Aggregate sheet statistics
         for sheet_state in state.sheets.values():

@@ -32,6 +32,17 @@ Modularization Note:
 """
 
 # Re-export all models for convenient access
+from pathlib import Path
+
+# Re-export the base class and default path
+from mozart.learning.store.base import (
+    DEFAULT_GLOBAL_STORE_PATH,
+    GlobalLearningStoreBase,
+)
+from mozart.learning.store.budget import BudgetMixin
+from mozart.learning.store.drift import DriftMixin
+from mozart.learning.store.escalation import EscalationMixin
+from mozart.learning.store.executions import ExecutionMixin
 from mozart.learning.store.models import (
     DriftMetrics,
     EntropyResponseRecord,
@@ -42,28 +53,16 @@ from mozart.learning.store.models import (
     ExecutionRecord,
     ExplorationBudgetRecord,
     PatternDiscoveryEvent,
+    PatternEntropyMetrics,
     PatternRecord,
     QuarantineStatus,
     RateLimitEvent,
     SuccessFactors,
 )
 
-# Re-export the base class and default path
-from mozart.learning.store.base import (
-    DEFAULT_GLOBAL_STORE_PATH,
-    GlobalLearningStoreBase,
-)
-
 # Import all mixins
 from mozart.learning.store.patterns import PatternMixin
-from mozart.learning.store.executions import ExecutionMixin
 from mozart.learning.store.rate_limits import RateLimitMixin
-from mozart.learning.store.drift import DriftMixin
-from mozart.learning.store.escalation import EscalationMixin
-from mozart.learning.store.budget import BudgetMixin
-
-
-from pathlib import Path
 
 
 class GlobalLearningStore(
@@ -215,6 +214,7 @@ __all__ = [
     "SuccessFactors",
     "EvolutionTrajectoryEntry",
     # Models - Budget management
+    "PatternEntropyMetrics",
     "ExplorationBudgetRecord",
     "EntropyResponseRecord",
 ]

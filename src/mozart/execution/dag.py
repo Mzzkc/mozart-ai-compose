@@ -10,6 +10,7 @@ dependencies in Mozart jobs. It enables:
 The DAG is a foundation for parallel sheet execution (Evolution 2 of v17).
 """
 
+import heapq
 from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum, IntEnum
@@ -245,25 +246,20 @@ class DependencyDAG:
         in_degree = dict(self.in_degree)
         result: list[int] = []
 
-        # Start with sheets that have no dependencies
-        ready = sorted(sheet for sheet, degree in in_degree.items() if degree == 0)
+        # Start with sheets that have no dependencies (min-heap for O(log n) ordering)
+        ready: list[int] = sorted(sheet for sheet, degree in in_degree.items() if degree == 0)
+        heapq.heapify(ready)
 
         while ready:
-            # Process the lowest-numbered ready sheet (for deterministic order)
-            sheet = ready.pop(0)
+            # Process the lowest-numbered ready sheet (deterministic via min-heap)
+            sheet = heapq.heappop(ready)
             result.append(sheet)
 
             # Reduce in-degree of dependent sheets
             for dependent in self.edges.get(sheet, []):
                 in_degree[dependent] -= 1
                 if in_degree[dependent] == 0:
-                    # Insert in sorted position for deterministic order
-                    insert_pos = 0
-                    for i, s in enumerate(ready):
-                        if dependent < s:
-                            break
-                        insert_pos = i + 1
-                    ready.insert(insert_pos, dependent)
+                    heapq.heappush(ready, dependent)
 
         return result
 

@@ -493,8 +493,12 @@ class GitWorktreeManager:
                     check=False,
                 )
                 branch_name = stdout
-            except Exception:
-                pass  # Continue with removal anyway
+            except Exception as e:
+                _logger.warning(
+                    "worktree.branch_lookup_failed",
+                    worktree_path=str(worktree_path),
+                    error=str(e),
+                )
 
         # Unlock first (ignore errors - may already be unlocked)
         await self.unlock_worktree(worktree_path)

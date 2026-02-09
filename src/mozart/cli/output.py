@@ -26,7 +26,7 @@ This module centralizes all Rich-based formatting utilities for the CLI:
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 from rich.console import Console
 from rich.panel import Panel
@@ -46,6 +46,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from mozart.core.checkpoint import CheckpointState
+    from mozart.execution.retry_strategy import ErrorRecord
+    from mozart.execution.runner.models import RunSummary
 
 # =============================================================================
 # Shared console instance
@@ -447,7 +449,7 @@ def create_header_panel(
 
 
 def create_run_summary_panel(
-    summary: Any,  # RunSummary type, avoiding circular import
+    summary: RunSummary,
     job_status: JobStatus,
 ) -> Panel:
     """Create a run summary panel.
@@ -541,7 +543,64 @@ def create_server_panel(
 # =============================================================================
 
 
-def format_error_details(error: Any) -> str:
+def output_error(
+    message: str,
+    *,
+    error_code: str | None = None,
+    hints: list[str] | None = None,
+    severity: Literal["error", "warning"] = "error",
+    json_output: bool = False,
+    console_instance: Console | None = None,
+    **json_extras: str | int | float | bool | None,
+) -> None:
+    """Output a formatted error/warning with optional hints and JSON alternative.
+
+    Consolidates the common CLI error output pattern:
+    - Rich mode: colored error prefix, blank line, dim hints
+    - JSON mode: structured dict with error_code, message, hints
+
+    Args:
+        message: The error message to display.
+        error_code: Optional error code (e.g., "E501").
+        hints: Optional list of hint strings for the user.
+        severity: "error" (red) or "warning" (yellow).
+        json_output: If True, output as JSON instead of Rich markup.
+        console_instance: Console to print to. Defaults to module console.
+        **json_extras: Extra key-value pairs included in JSON output only.
+    """
+    out = console_instance or console
+    color = "red" if severity == "error" else "yellow"
+    label = "Error" if severity == "error" else "Warning"
+
+    if json_output:
+        result: dict[str, str | int | float | bool | list[str] | None] = {
+            "success": False,
+            "message": message,
+        }
+        if error_code:
+            result["error_code"] = error_code
+        if hints:
+            result["hints"] = hints
+        result.update(json_extras)  # type: ignore[arg-type]
+        import json as _json
+
+        out.print(_json.dumps(result, indent=2))
+        return
+
+    if error_code:
+        prefix = f"[{color}]{label} [{error_code}]:[/{color}] "
+    else:
+        prefix = f"[{color}]{label}:[/{color}] "
+    out.print(f"{prefix}{message}")
+
+    if hints:
+        out.print()
+        out.print("[dim]Hints:[/dim]")
+        for hint in hints:
+            out.print(f"  - {hint}")
+
+
+def format_error_details(error: ErrorRecord) -> str:
     """Format detailed error information for display.
 
     Args:
@@ -680,6 +739,7 @@ __all__ = [
     "format_bytes",
     "format_timestamp",
     "format_validation_status",
+    "output_error",
     "format_error_details",
     "format_job_status_line",
     "infer_error_type",

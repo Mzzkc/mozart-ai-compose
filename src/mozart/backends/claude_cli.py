@@ -264,6 +264,196 @@ class ClaudeCliBackend(Backend):
 
         return cmd
 
+    def _prepare_log_files(self) -> None:
+        """Clear/create output log files for this execution.
+
+        Truncates existing log files or creates new ones so that each
+        execution starts with fresh output. Failures are silently ignored
+        to avoid blocking execution when logging setup fails.
+        """
+        for log_path in (self._stdout_log_path, self._stderr_log_path):
+            if log_path:
+                try:
+                    log_path.parent.mkdir(parents=True, exist_ok=True)
+                    log_path.write_bytes(b"")  # Truncate/create
+                except OSError:
+                    pass  # Don't fail execution if logging setup fails
+
+    def _write_output_logs(
+        self, stdout_bytes: bytes, stderr_bytes: bytes,
+    ) -> None:
+        """Write collected output to log files (non-streaming mode).
+
+        In non-streaming mode, output is collected in memory and written
+        to log files after the process completes.
+        """
+        if self._stdout_log_path:
+            try:
+                with open(self._stdout_log_path, "wb") as f:
+                    f.write(stdout_bytes)
+            except OSError:
+                pass  # Don't fail execution if logging fails
+        if self._stderr_log_path:
+            try:
+                with open(self._stderr_log_path, "wb") as f:
+                    f.write(stderr_bytes)
+            except OSError:
+                pass  # Don't fail execution if logging fails
+
+    async def _handle_execution_timeout(
+        self,
+        process: asyncio.subprocess.Process,
+        start_time: float,
+        bytes_received: int,
+        lines_received: int,
+    ) -> ExecutionResult:
+        """Handle process timeout: graceful termination then force kill.
+
+        First sends SIGTERM for graceful shutdown. If the process doesn't
+        exit within GRACEFUL_TERMINATION_TIMEOUT, escalates to SIGKILL.
+
+        Returns an ExecutionResult indicating timeout failure.
+        """
+        process.terminate()
+        try:
+            await asyncio.wait_for(process.wait(), timeout=GRACEFUL_TERMINATION_TIMEOUT)
+        except TimeoutError:
+            process.kill()
+            await process.wait()
+
+        duration = time.monotonic() - start_time
+
+        _logger.error(
+            "execution_timeout",
+            duration_seconds=duration,
+            timeout_seconds=self.timeout_seconds,
+            bytes_received=bytes_received,
+            lines_received=lines_received,
+        )
+
+        if self.progress_callback:
+            self.progress_callback({
+                "bytes_received": bytes_received,
+                "lines_received": lines_received,
+                "elapsed_seconds": duration,
+                "phase": "timeout",
+            })
+
+        return ExecutionResult(
+            success=False,
+            exit_code=None,
+            exit_signal=signal.SIGKILL,
+            exit_reason="timeout",
+            stdout="",
+            stderr=f"Command timed out after {self.timeout_seconds}s",
+            duration_seconds=duration,
+            error_type="timeout",
+            error_message=f"Timed out after {self.timeout_seconds}s",
+        )
+
+    def _parse_returncode(
+        self, returncode: int | None, stderr: str,
+    ) -> tuple[int | None, int | None, ExitReason, str]:
+        """Parse process returncode into exit metadata.
+
+        Returns:
+            Tuple of (exit_code, exit_signal, exit_reason, updated_stderr).
+            stderr may have signal info appended for debugging.
+        """
+        if returncode is None:
+            return None, None, "error", stderr
+        elif returncode < 0:
+            exit_signal = -returncode
+            signal_name = get_signal_name(exit_signal)
+            updated_stderr = f"{stderr}\n[Process killed by {signal_name}]".strip()
+            return None, exit_signal, "killed", updated_stderr
+        else:
+            return returncode, None, "completed", stderr
+
+    def _build_completed_result(
+        self,
+        stdout: str,
+        stderr: str,
+        exit_code: int | None,
+        exit_signal: int | None,
+        exit_reason: ExitReason,
+        duration: float,
+    ) -> ExecutionResult:
+        """Build ExecutionResult for a completed (non-timeout) execution.
+
+        Checks for rate limiting, determines success, logs appropriately,
+        and returns the final result.
+        """
+        rate_limited = self._detect_rate_limit(stdout, stderr)
+        success = exit_code == 0
+
+        if rate_limited:
+            _logger.warning(
+                "rate_limit_detected",
+                duration_seconds=duration,
+                exit_code=exit_code,
+                exit_signal=exit_signal,
+                stdout_bytes=len(stdout),
+                stderr_bytes=len(stderr),
+            )
+        elif success:
+            _logger.info(
+                "execution_completed",
+                duration_seconds=duration,
+                exit_code=exit_code,
+                stdout_bytes=len(stdout),
+                stderr_bytes=len(stderr),
+            )
+        else:
+            stdout_tail = stdout[-500:] if len(stdout) > 500 else stdout
+            stderr_tail = stderr[-500:] if len(stderr) > 500 else stderr
+            _logger.error(
+                "execution_failed",
+                duration_seconds=duration,
+                exit_code=exit_code,
+                exit_signal=exit_signal,
+                exit_reason=exit_reason,
+                stdout_tail=stdout_tail,
+                stderr_tail=stderr_tail,
+            )
+
+        return ExecutionResult(
+            success=success,
+            exit_code=exit_code,
+            exit_signal=exit_signal,
+            exit_reason=exit_reason,
+            stdout=stdout,
+            stderr=stderr,
+            duration_seconds=duration,
+            rate_limited=rate_limited,
+            error_type="rate_limit" if rate_limited else None,
+        )
+
+    async def _kill_orphaned_process(
+        self, process: asyncio.subprocess.Process, error: Exception,
+    ) -> None:
+        """Kill an orphaned subprocess to prevent resource leaks.
+
+        Called when an exception occurs after the process started but
+        before it completed. Kills the entire process group (including
+        MCP server children) then the main process.
+        """
+        _logger.warning(
+            "killing_orphaned_process",
+            pid=process.pid,
+            reason="exception_during_execution",
+            error=str(error),
+        )
+        try:
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+        except (OSError, ProcessLookupError):
+            pass
+        try:
+            process.kill()
+            await process.wait()
+        except ProcessLookupError:
+            pass
+
     async def _execute_impl(self, prompt: str) -> ExecutionResult:
         """Execute a prompt via claude CLI (internal implementation).
 
@@ -281,8 +471,6 @@ class ClaudeCliBackend(Backend):
         cmd = self._build_command(prompt)
         start_time = time.monotonic()
 
-        # Log command details at DEBUG level
-        # Note: prompt is NOT logged as it may be large and contain sensitive data
         _logger.debug(
             "executing_command",
             command=cmd[0],
@@ -314,39 +502,24 @@ class ClaudeCliBackend(Backend):
                 })
                 last_progress_time = now
 
-        # Track process for cleanup on exception
         process: asyncio.subprocess.Process | None = None
-
-        # Clear/create output log files for this execution (real-time visibility)
-        for log_path in (self._stdout_log_path, self._stderr_log_path):
-            if log_path:
-                try:
-                    log_path.parent.mkdir(parents=True, exist_ok=True)
-                    log_path.write_bytes(b"")  # Truncate/create
-                except OSError:
-                    pass  # Don't fail execution if logging setup fails
+        self._prepare_log_files()
 
         try:
-            # create_subprocess_exec is shell-injection safe
-            # Arguments are passed as list, not interpolated into shell string
-            # Note: stdin=DEVNULL prevents Claude from inheriting stdin and potentially
-            # blocking on interactive prompts when running in background/detached mode.
-            #
-            # start_new_session=True creates a new process group, allowing us to kill
-            # Claude and all its children (MCP servers) with a single signal. This is
-            # needed to work around Claude Code Issue #1935 where MCP servers aren't
-            # properly cleaned up on exit.
+            # create_subprocess_exec is shell-injection safe.
+            # stdin=DEVNULL prevents blocking on interactive prompts.
+            # start_new_session=True creates a new process group for clean cleanup
+            # (workaround for Claude Code Issue #1935: MCP servers not cleaned up).
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self.working_directory,
-                env=os.environ.copy(),  # Explicit env passthrough for MCP plugins
-                start_new_session=True,  # Create new process group for clean cleanup
+                env=os.environ.copy(),
+                start_new_session=True,
             )
 
-            # Notify starting phase
             if self.progress_callback:
                 self.progress_callback({
                     "bytes_received": 0,
@@ -356,86 +529,29 @@ class ClaudeCliBackend(Backend):
                 })
 
             try:
-                # Use streaming read if progress callback is set for real-time updates
                 if self.progress_callback:
                     stdout_bytes, stderr_bytes = await self._stream_with_progress(
-                        process,
-                        start_time,
-                        _notify_progress,
+                        process, start_time, _notify_progress,
                     )
                 else:
-                    # Simple communicate() when no progress tracking needed
                     stdout_bytes, stderr_bytes = await asyncio.wait_for(
                         process.communicate(),
                         timeout=self.timeout_seconds,
                     )
+                    self._write_output_logs(stdout_bytes, stderr_bytes)
 
-                    # Write full output to separate log files (non-streaming mode)
-                    if self._stdout_log_path:
-                        try:
-                            with open(self._stdout_log_path, "wb") as f:
-                                f.write(stdout_bytes)
-                        except OSError:
-                            pass  # Don't fail execution if logging fails
-                    if self._stderr_log_path:
-                        try:
-                            with open(self._stderr_log_path, "wb") as f:
-                                f.write(stderr_bytes)
-                        except OSError:
-                            pass  # Don't fail execution if logging fails
-
-                # Update final byte/line counts for progress tracking
                 bytes_received = len(stdout_bytes) + len(stderr_bytes)
                 lines_received = stdout_bytes.count(b"\n") + stderr_bytes.count(b"\n")
 
             except TimeoutError:
-                # First try graceful termination
-                process.terminate()
-                try:
-                    await asyncio.wait_for(process.wait(), timeout=GRACEFUL_TERMINATION_TIMEOUT)
-                except TimeoutError:
-                    # Force kill if still running
-                    process.kill()
-                    await process.wait()
-
-                duration = time.monotonic() - start_time
-
-                # Log timeout as ERROR
-                _logger.error(
-                    "execution_timeout",
-                    duration_seconds=duration,
-                    timeout_seconds=self.timeout_seconds,
-                    bytes_received=bytes_received,
-                    lines_received=lines_received,
-                )
-
-                # Final progress update on timeout
-                if self.progress_callback:
-                    self.progress_callback({
-                        "bytes_received": bytes_received,
-                        "lines_received": lines_received,
-                        "elapsed_seconds": duration,
-                        "phase": "timeout",
-                    })
-
-                return ExecutionResult(
-                    success=False,
-                    exit_code=None,  # No exit code when killed by signal
-                    exit_signal=signal.SIGKILL,
-                    exit_reason="timeout",
-                    stdout="",
-                    stderr=f"Command timed out after {self.timeout_seconds}s",
-                    duration_seconds=duration,
-                    error_type="timeout",
-                    error_message=f"Timed out after {self.timeout_seconds}s",
+                return await self._handle_execution_timeout(
+                    process, start_time, bytes_received, lines_received,
                 )
 
             duration = time.monotonic() - start_time
             stdout = stdout_bytes.decode("utf-8", errors="replace")
             stderr = stderr_bytes.decode("utf-8", errors="replace")
-            returncode = process.returncode
 
-            # Final progress update
             if self.progress_callback:
                 self.progress_callback({
                     "bytes_received": bytes_received,
@@ -444,78 +560,12 @@ class ClaudeCliBackend(Backend):
                     "phase": "completed",
                 })
 
-            # Parse returncode: negative means killed by signal
-            exit_code: int | None
-            exit_signal: int | None
-            exit_reason: ExitReason
+            exit_code, exit_signal, exit_reason, stderr = self._parse_returncode(
+                process.returncode, stderr,
+            )
 
-            if returncode is None:
-                # Should not happen after communicate(), but handle gracefully
-                exit_code = None
-                exit_signal = None
-                exit_reason = "error"
-            elif returncode < 0:
-                # Killed by signal: returncode = -signal_number
-                exit_code = None
-                exit_signal = -returncode
-                exit_reason = "killed"
-                # Append signal info to stderr for debugging
-                signal_name = get_signal_name(exit_signal)
-                stderr = f"{stderr}\n[Process killed by {signal_name}]".strip()
-            else:
-                # Normal exit
-                exit_code = returncode
-                exit_signal = None
-                exit_reason = "completed"
-
-            # Check for rate limiting in output
-            rate_limited = self._detect_rate_limit(stdout, stderr)
-
-            # Determine success: only if exit_code is 0
-            success = exit_code == 0
-
-            # Log execution result at appropriate level
-            if rate_limited:
-                _logger.warning(
-                    "rate_limit_detected",
-                    duration_seconds=duration,
-                    exit_code=exit_code,
-                    exit_signal=exit_signal,
-                    stdout_bytes=len(stdout),
-                    stderr_bytes=len(stderr),
-                )
-            elif success:
-                _logger.info(
-                    "execution_completed",
-                    duration_seconds=duration,
-                    exit_code=exit_code,
-                    stdout_bytes=len(stdout),
-                    stderr_bytes=len(stderr),
-                )
-            else:
-                # Failed execution - include output tails for debugging
-                stdout_tail = stdout[-500:] if len(stdout) > 500 else stdout
-                stderr_tail = stderr[-500:] if len(stderr) > 500 else stderr
-                _logger.error(
-                    "execution_failed",
-                    duration_seconds=duration,
-                    exit_code=exit_code,
-                    exit_signal=exit_signal,
-                    exit_reason=exit_reason,
-                    stdout_tail=stdout_tail,
-                    stderr_tail=stderr_tail,
-                )
-
-            return ExecutionResult(
-                success=success,
-                exit_code=exit_code,
-                exit_signal=exit_signal,
-                exit_reason=exit_reason,
-                stdout=stdout,
-                stderr=stderr,
-                duration_seconds=duration,
-                rate_limited=rate_limited,
-                error_type="rate_limit" if rate_limited else None,
+            return self._build_completed_result(
+                stdout, stderr, exit_code, exit_signal, exit_reason, duration,
             )
 
         except FileNotFoundError:
@@ -539,26 +589,8 @@ class ClaudeCliBackend(Backend):
         except Exception as e:
             duration = time.monotonic() - start_time
 
-            # CRITICAL: Kill orphaned process to prevent leaks
-            # If exception occurs after process started but before completion,
-            # the process would otherwise be left running indefinitely
             if process is not None and process.returncode is None:
-                _logger.warning(
-                    "killing_orphaned_process",
-                    pid=process.pid,
-                    reason="exception_during_execution",
-                    error=str(e),
-                )
-                try:
-                    # Kill entire process group (includes MCP servers)
-                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-                except (OSError, ProcessLookupError):
-                    pass
-                try:
-                    process.kill()
-                    await process.wait()
-                except ProcessLookupError:
-                    pass
+                await self._kill_orphaned_process(process, e)
 
             _logger.exception(
                 "execution_exception",
