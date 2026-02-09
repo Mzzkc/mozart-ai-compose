@@ -24,7 +24,13 @@ from typing import Any
 
 from mozart.core.logging import MozartLogger
 
-from .models import DriftMetrics, EpistemicDriftMetrics, EvolutionTrajectoryEntry, PatternRecord
+from .models import (
+    DriftMetrics,
+    EpistemicDriftMetrics,
+    EvolutionEntryInput,
+    EvolutionTrajectoryEntry,
+    PatternRecord,
+)
 
 # Import logger from base module for consistency across all mixins
 from .base import _logger
@@ -720,22 +726,27 @@ class DriftMixin:
 
     def record_evolution_entry(
         self,
-        cycle: int,
-        evolutions_completed: int,
-        evolutions_deferred: int,
-        issue_classes: list[str],
-        cv_avg: float,
-        implementation_loc: int,
-        test_loc: int,
-        loc_accuracy: float,
+        cycle: int | None = None,
+        evolutions_completed: int | None = None,
+        evolutions_deferred: int | None = None,
+        issue_classes: list[str] | None = None,
+        cv_avg: float | None = None,
+        implementation_loc: int | None = None,
+        test_loc: int | None = None,
+        loc_accuracy: float | None = None,
         research_candidates_resolved: int = 0,
         research_candidates_created: int = 0,
         notes: str = "",
+        *,
+        entry: EvolutionEntryInput | None = None,
     ) -> str:
         """Record an evolution cycle entry to the trajectory.
 
         v16 Evolution: Evolution Trajectory Tracking - enables Mozart to track
         its own evolution history for recursive self-improvement analysis.
+
+        Accepts either individual keyword args (backward compatible) or
+        a bundled EvolutionEntryInput dataclass via the ``entry`` kwarg.
 
         Args:
             cycle: Evolution cycle number (e.g., 16 for v16).
@@ -749,6 +760,7 @@ class DriftMixin:
             research_candidates_resolved: Number of research candidates resolved.
             research_candidates_created: Number of new research candidates created.
             notes: Optional notes about this evolution cycle.
+            entry: Bundled input parameters (overrides individual args if provided).
 
         Returns:
             The ID of the created trajectory entry.
@@ -757,6 +769,27 @@ class DriftMixin:
             sqlite3.IntegrityError: If an entry for this cycle already exists.
         """
         import uuid
+
+        if entry is not None:
+            cycle = entry.cycle
+            evolutions_completed = entry.evolutions_completed
+            evolutions_deferred = entry.evolutions_deferred
+            issue_classes = entry.issue_classes
+            cv_avg = entry.cv_avg
+            implementation_loc = entry.implementation_loc
+            test_loc = entry.test_loc
+            loc_accuracy = entry.loc_accuracy
+            research_candidates_resolved = entry.research_candidates_resolved
+            research_candidates_created = entry.research_candidates_created
+            notes = entry.notes
+
+        # Validate required fields
+        if cycle is None or evolutions_completed is None or evolutions_deferred is None:
+            raise TypeError("cycle, evolutions_completed, evolutions_deferred are required")
+        if issue_classes is None or cv_avg is None:
+            raise TypeError("issue_classes, cv_avg are required")
+        if implementation_loc is None or test_loc is None or loc_accuracy is None:
+            raise TypeError("implementation_loc, test_loc, loc_accuracy are required")
 
         entry_id = str(uuid.uuid4())
         now = datetime.now()

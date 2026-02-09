@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -42,18 +43,16 @@ from ..helpers import (
 )
 from ..output import console, format_duration
 from ._shared import (
-    create_backend,
     create_progress_bar,
     handle_job_completion,
-    setup_escalation,
-    setup_grounding,
-    setup_learning,
-    setup_notifications,
+    setup_all,
 )
 
 if TYPE_CHECKING:
     from mozart.core.config import JobConfig
     from mozart.execution.runner import RunSummary
+
+_logger = logging.getLogger(__name__)
 
 
 def run(
@@ -74,6 +73,13 @@ def run(
         "--start-sheet",
         "-s",
         help="Override starting sheet number",
+    ),
+    workspace: Path | None = typer.Option(
+        None,
+        "--workspace",
+        "-w",
+        help="Override workspace directory. Creates the directory if it doesn't exist. "
+        "Takes precedence over the workspace defined in the YAML config.",
     ),
     json_output: bool = typer.Option(
         False,
@@ -119,6 +125,10 @@ def run(
             console.print(f"[red]Error loading config:[/red] {e}")
         raise typer.Exit(1) from None
 
+    # Override workspace from CLI if provided
+    if workspace is not None:
+        config.workspace = Path(workspace).resolve()
+
     # In quiet mode, skip the config panel
     if not is_quiet() and not json_output:
         console.print(Panel(
@@ -148,6 +158,7 @@ def run(
                 "dry_run": True,
                 "job_name": config.name,
                 "total_sheets": config.sheet.total_sheets,
+                "workspace": str(config.workspace),
             }, indent=2))
         return
 
@@ -188,12 +199,27 @@ async def _run_job(
                 f"[dim]--fresh: No existing state found for '{config.name}'[/dim]"
             )
 
+        # Archive workspace files if configured
+        if config.workspace_lifecycle.archive_on_fresh:
+            from mozart.workspace.lifecycle import WorkspaceArchiver
+
+            archiver = WorkspaceArchiver(config.workspace, config.workspace_lifecycle)
+            archive_path = archiver.archive()
+            if archive_path and not is_quiet() and not json_output:
+                console.print(
+                    f"[yellow]--fresh: Archived workspace to {archive_path.name}[/yellow]"
+                )
+
     quiet = json_output
-    backend = create_backend(config, quiet=quiet, console=console)
-    outcome_store, global_learning_store = setup_learning(config, quiet=quiet, console=console)
-    notification_manager = setup_notifications(config, quiet=quiet, console=console)
-    escalation_handler = setup_escalation(config, enabled=escalation, quiet=quiet, console=console)
-    grounding_engine = setup_grounding(config, quiet=quiet, console=console)
+    components = setup_all(
+        config, escalation=escalation, quiet=quiet, console=console,
+    )
+    backend = components.backend
+    outcome_store = components.outcome_store
+    global_learning_store = components.global_learning_store
+    notification_manager = components.notification_manager
+    escalation_handler = components.escalation_handler
+    grounding_engine = components.grounding_engine
 
     # Execution progress state for CLI display (Task 4)
     execution_status: dict[str, Any] = {
@@ -356,13 +382,21 @@ async def _run_job(
         else:
             console.print(f"[red]Fatal error: {e}[/red]")
 
-        # Send failure notification
+        # Send failure notification (must not mask the original error)
         if notification_manager:
-            await notification_manager.notify_job_failed(
-                job_id=job_id,
-                job_name=config.name,
-                error_message=str(e),
-            )
+            try:
+                await notification_manager.notify_job_failed(
+                    job_id=job_id,
+                    job_name=config.name,
+                    error_message=str(e),
+                )
+            except Exception as notify_err:
+                _logger.error(
+                    "notification_failed_during_error_handling",
+                    job_id=job_id,
+                    notification_error=str(notify_err),
+                    original_error=str(e),
+                )
 
         raise typer.Exit(1) from None
 
@@ -373,7 +407,10 @@ async def _run_job(
 
         # Clean up notification resources
         if notification_manager:
-            await notification_manager.close()
+            try:
+                await notification_manager.close()
+            except Exception:
+                pass  # Don't mask errors during final cleanup
 
 
 def _show_dry_run(config: JobConfig) -> None:

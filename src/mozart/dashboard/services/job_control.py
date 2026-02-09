@@ -98,6 +98,14 @@ class JobControlService:
                 raise ValueError(
                     f"Config path must be a YAML file (.yaml/.yml): {config_path}"
                 )
+            # Path traversal check — reject paths containing ".." components
+            # to prevent directory traversal attacks (e.g., "../../../etc/shadow.yaml").
+            # We check the original path's parts, not the resolved path, to catch
+            # deliberate traversal attempts even when the resolved target exists.
+            if ".." in config_path.parts:
+                raise ValueError(
+                    f"Config path must not contain '..' traversal: {config_path}"
+                )
             if not resolved.exists():
                 raise FileNotFoundError(f"Config file not found: {config_path}")
 

@@ -411,6 +411,8 @@ class ErrorCode(str, Enum):
             ErrorCode.CONFIG_INVALID,
             ErrorCode.CONFIG_MISSING_FIELD,
             ErrorCode.CONFIG_PARSE_ERROR,
+            ErrorCode.CONFIG_MCP_ERROR,
+            ErrorCode.CONFIG_CLI_MODE_ERROR,
             ErrorCode.STATE_CORRUPTION,
             ErrorCode.STATE_VERSION_MISMATCH,
         }
@@ -526,6 +528,16 @@ class ErrorCode(str, Enum):
                 delay_seconds=0.0,
                 is_retriable=False,
                 reason="Config parse error - requires user fix",
+            ),
+            ErrorCode.CONFIG_MCP_ERROR: RetryBehavior(
+                delay_seconds=0.0,
+                is_retriable=False,
+                reason="MCP config error - requires user fix",
+            ),
+            ErrorCode.CONFIG_CLI_MODE_ERROR: RetryBehavior(
+                delay_seconds=0.0,
+                is_retriable=False,
+                reason="CLI mode config error - requires user fix",
             ),
             # E4xx: State errors
             ErrorCode.STATE_CORRUPTION: RetryBehavior(

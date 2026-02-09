@@ -136,7 +136,14 @@ class WebhookNotifier:
             if "${" in value:
                 matches = _ENV_VAR_PATTERN.findall(value)
                 for var_name in matches:
-                    env_value = os.environ.get(var_name, "")
+                    env_value = os.environ.get(var_name)
+                    if env_value is None:
+                        _logger.warning(
+                            "webhook_env_var_missing",
+                            header=key,
+                            var_name=var_name,
+                        )
+                        env_value = ""
                     value = value.replace(f"${{{var_name}}}", env_value)
             expanded[key] = value
         return expanded

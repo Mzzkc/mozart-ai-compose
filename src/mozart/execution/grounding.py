@@ -14,6 +14,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from mozart.core.checkpoint import ValidationDetailDict
+from mozart.core.constants import FILE_HASH_CHUNK_SIZE
 
 
 class GroundingPhase(str, Enum):
@@ -190,7 +191,7 @@ class FileChecksumGroundingHook:
                 hashlib.md5() if self._algorithm == "md5" else hashlib.sha256()
             )
             with open(path, "rb") as f:
-                for chunk in iter(lambda: f.read(8192), b""):
+                for chunk in iter(lambda: f.read(FILE_HASH_CHUNK_SIZE), b""):
                     hasher.update(chunk)
 
             actual_hash = hasher.hexdigest()

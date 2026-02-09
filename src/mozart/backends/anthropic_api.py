@@ -16,7 +16,7 @@ import anthropic
 
 from mozart.backends.base import Backend, ExecutionResult
 from mozart.core.config import BackendConfig
-from mozart.core.errors import ErrorCategory, ErrorClassifier
+from mozart.core.errors import ErrorClassifier
 from mozart.core.logging import get_logger
 
 # Module-level logger for Anthropic API backend
@@ -91,11 +91,13 @@ class AnthropicApiBackend(Backend):
             )
         return self._client
 
-    async def execute(self, prompt: str) -> ExecutionResult:
+    async def execute(self, prompt: str, *, timeout_seconds: float | None = None) -> ExecutionResult:
         """Execute a prompt via the Anthropic API.
 
         Args:
             prompt: The prompt to send to Claude
+            timeout_seconds: Per-call timeout override (not currently used by API backend,
+                which uses its own HTTP timeout).
 
         Returns:
             ExecutionResult with API response and metadata
@@ -264,9 +266,9 @@ class AnthropicApiBackend(Backend):
 
         except anthropic.APIStatusError as e:
             duration = time.monotonic() - start_time
-            # Check if this is a rate limit error by status code or message
-            rate_limited = self._detect_rate_limit(stderr=str(e))
             status_code = e.status_code if hasattr(e, "status_code") else 500
+            # Check if this is a rate limit error by status code or message
+            rate_limited = self._detect_rate_limit(stderr=str(e), exit_code=status_code)
 
             if rate_limited:
                 _logger.warning(
@@ -336,29 +338,6 @@ class AnthropicApiBackend(Backend):
                 model=self.model,
             )
 
-    def _detect_rate_limit(self, stdout: str = "", stderr: str = "") -> bool:
-        """Check output for rate limit indicators.
-
-        Uses the shared ErrorClassifier to ensure consistent detection
-        with the runner's error classification.
-
-        Note: This interface matches ClaudeCliBackend._detect_rate_limit
-        for consistency across backends.
-
-        Args:
-            stdout: Standard output text (often empty for API errors).
-            stderr: Standard error text or error message.
-
-        Returns:
-            True if rate limiting was detected.
-        """
-        classified = self._error_classifier.classify(
-            stdout=stdout,
-            stderr=stderr,
-            exit_code=1,
-        )
-        return classified.category == ErrorCategory.RATE_LIMIT
-
     async def health_check(self) -> bool:
         """Check if the API is available and authenticated.
 
@@ -377,7 +356,8 @@ class AnthropicApiBackend(Backend):
             )
             # Check we got a response
             return len(response.content) > 0
-        except Exception:
+        except Exception as e:
+            _logger.warning("health_check_failed", error_type=type(e).__name__, error=str(e))
             return False
 
     async def close(self) -> None:

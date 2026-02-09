@@ -581,8 +581,9 @@ class TestUpdateEscalationOutcome:
 
     def test_no_global_store_is_noop(self, mixin: _TestableSheetMixin):
         sheet_state = MagicMock()
-        # Should not raise
+        assert mixin._global_learning_store is None
         mixin._update_escalation_outcome(sheet_state, "success", 1)
+        assert mixin._global_learning_store is None
 
     def test_no_escalation_record_id_is_noop(self, mixin: _TestableSheetMixin):
         mixin._global_learning_store = MagicMock()
@@ -1467,3 +1468,44 @@ class TestHandleExecutionFailure:
             model=mixin.config.backend.model,
         )
         assert result.action == "continue"
+
+
+# ---------------------------------------------------------------------------
+# Per-Sheet Timeout Override Tests
+# ---------------------------------------------------------------------------
+
+class TestPerSheetTimeoutOverride:
+    """Test that per-sheet timeout overrides are resolved and passed to backend."""
+
+    def test_timeout_overrides_resolved_from_config(self, tmp_path: Path) -> None:
+        """Test that timeout_overrides dict is accessible on config."""
+        config = _make_config(tmp_path, overrides={
+            "backend": {
+                "type": "claude_cli",
+                "skip_permissions": True,
+                "timeout_seconds": 2400.0,
+                "timeout_overrides": {7: 28800.0, 1: 60.0},
+            },
+        })
+        assert config.backend.timeout_overrides == {7: 28800.0, 1: 60.0}
+        assert config.backend.timeout_seconds == 2400.0
+
+    def test_timeout_override_lookup_for_sheet(self, tmp_path: Path) -> None:
+        """Test per-sheet lookup returns correct value or None."""
+        config = _make_config(tmp_path, overrides={
+            "backend": {
+                "type": "claude_cli",
+                "skip_permissions": True,
+                "timeout_overrides": {3: 120.0},
+            },
+        })
+        overrides = config.backend.timeout_overrides
+        assert overrides.get(3) == 120.0
+        assert overrides.get(1) is None
+        assert overrides.get(99) is None
+
+    def test_empty_overrides_returns_none_for_all(self, tmp_path: Path) -> None:
+        """Test that empty overrides dict yields None for any sheet."""
+        config = _make_config(tmp_path)
+        assert config.backend.timeout_overrides == {}
+        assert config.backend.timeout_overrides.get(1) is None

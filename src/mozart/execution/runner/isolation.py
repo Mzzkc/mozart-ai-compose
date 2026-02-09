@@ -313,18 +313,3 @@ class IsolationMixin:
                 return worktree_path
 
         return self.config.backend.working_directory or self.config.workspace
-
-    def _is_isolation_active(self, state: CheckpointState) -> bool:
-        """Check if worktree isolation is currently active.
-
-        Args:
-            state: Job checkpoint state.
-
-        Returns:
-            True if a valid worktree is being used.
-        """
-        if not state.worktree_path:
-            return False
-
-        worktree_path = Path(state.worktree_path)
-        return worktree_path.exists()

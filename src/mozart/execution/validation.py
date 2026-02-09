@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 from mozart.core.checkpoint import ValidationDetailDict
 from mozart.core.config import ValidationRule
+from mozart.core.constants import VALIDATION_COMMAND_TIMEOUT_SECONDS, VALIDATION_OUTPUT_TRUNCATE_CHARS
 from mozart.utils.time import utc_now
 
 _logger = logging.getLogger("mozart.execution.validation")
@@ -323,12 +324,12 @@ class FileModificationTracker:
             True if file's mtime is newer than snapshot, or if file
             was created after snapshot (didn't exist before).
         """
-        path_str = str(path.resolve())
-        if not path.exists():
-            return False  # File doesn't exist, can't be modified
-
-        current_mtime = path.stat().st_mtime
-        original_mtime = self._mtimes.get(path_str, 0.0)
+        resolved = path.resolve()
+        try:
+            current_mtime = resolved.stat().st_mtime
+        except (OSError, ValueError):
+            return False  # File doesn't exist or path is invalid
+        original_mtime = self._mtimes.get(str(resolved), 0.0)
         return current_mtime > original_mtime
 
     def get_original_mtime(self, path: Path) -> float | None:
@@ -505,8 +506,10 @@ class ValidationEngine:
     ) -> list[ValidationRule]:
         """Get rules that apply to the current sheet context.
 
-        Public wrapper around _filter_applicable_rules for use by PromptBuilder
-        to inject validation requirements into prompts.
+        This public wrapper exists so that ``PromptBuilder`` can query which
+        rules apply *before* execution (to inject validation requirements
+        into prompts), while ``_filter_applicable_rules`` remains a private
+        implementation detail of the validation engine.
 
         Args:
             rules: List of all validation rules.
@@ -1001,23 +1004,35 @@ class ValidationEngine:
         - mypy: `mypy src/`
         - ruff: `ruff check src/`
 
-        Security Note (shell=True usage):
-            This method executes shell commands with shell=True, which enables
-            shell features like pipes, redirects, and variable expansion but
-            also carries inherent shell injection risks.
+        Security Note:
+            Commands are executed via ``["/bin/sh", "-c", command]`` (explicit
+            shell invocation, not ``shell=True``). This enables shell features
+            like pipes and redirects while being deterministic about which
+            shell is used.
 
             **Trust Model:**
             Commands come from job configuration files (YAML), which are
-            treated as trusted code - they are authored by the job creator who
-            has full control over the execution environment, similar to how
-            Makefiles or CI/CD scripts are trusted.
+            treated as trusted code — authored by the job creator who has
+            full control over the execution environment. This is equivalent
+            to a Makefile or CI pipeline definition: the config author IS
+            the execution authority.
+
+            **CI/CD and Multi-User Warning:**
+            In CI/CD environments or shared repositories, validation commands
+            run with the orchestrator's privileges. Treat job YAML files with
+            the same security scrutiny as ``Makefile``, ``.github/workflows/``,
+            or ``Jenkinsfile`` — they are executable code. Code review for
+            command_succeeds rules should verify that commands don't:
+            - Exfiltrate secrets (``curl`` with env vars)
+            - Modify system state outside the workspace
+            - Escalate privileges (``sudo``, ``chmod 777``)
 
             **Mitigations in place:**
             1. Config files are authored locally, not from untrusted input
             2. Working directory is constrained to the job workspace
             3. Commands have a 5-minute timeout to prevent resource exhaustion
-            4. No template expansion occurs on the command itself (commands
-               are executed exactly as written in config)
+            4. Context values are shell-quoted via ``shlex.quote()``
+            5. Commands with high-risk patterns are logged at warning level
 
             **When NOT to use command_succeeds:**
             - Never interpolate untrusted data into commands
@@ -1053,6 +1068,12 @@ class ValidationEngine:
         # Use str.replace() instead of str.format() to avoid conflicts
         # with shell variable syntax like ${VAR} and ${VAR:-default}.
         # Values are shell-quoted to prevent injection via context values.
+        #
+        # Trust model: Mozart {placeholder} values are shell-quoted (safe).
+        # Shell ${VAR} syntax is intentionally preserved and expanded by
+        # /bin/sh — the config file author is the trust boundary for shell
+        # variable usage. This is by design: validation commands may
+        # legitimately reference environment variables like ${PATH}.
         context = dict(self.sheet_context)
         context["workspace"] = str(self.workspace)
         expanded_command = rule.command
@@ -1068,6 +1089,23 @@ class ValidationEngine:
             else expanded_command
         )
 
+        # Mitigation: log warning for commands with high-risk patterns.
+        # This doesn't block execution (the config author is the trust boundary)
+        # but creates an audit trail for security review.
+        _HIGH_RISK_PATTERNS = (
+            "sudo ", "chmod 777", "rm -rf /", "curl ", "wget ",
+            "eval ", "> /etc/", "| sh", "| bash",
+        )
+        cmd_lower = expanded_command.lower()
+        for pattern in _HIGH_RISK_PATTERNS:
+            if pattern in cmd_lower:
+                _logger.warning(
+                    "Validation command contains high-risk pattern '%s': %s",
+                    pattern.strip(),
+                    display_command,
+                )
+                break
+
         try:
             # Use explicit ["/bin/sh", "-c", command] instead of shell=True
             # to prevent argument injection. shell=True passes to the system
@@ -1077,15 +1115,15 @@ class ValidationEngine:
                 cwd=str(cwd),
                 capture_output=True,
                 text=True,
-                timeout=300,  # 5 minute timeout
+                timeout=VALIDATION_COMMAND_TIMEOUT_SECONDS,
             )
 
             success = result.returncode == 0
 
             # Build output summary (truncate if very long)
             output = result.stdout + result.stderr
-            if len(output) > 500:
-                output_summary = output[:500] + f"\n... ({len(output)} chars total)"
+            if len(output) > VALIDATION_OUTPUT_TRUNCATE_CHARS:
+                output_summary = output[:VALIDATION_OUTPUT_TRUNCATE_CHARS] + f"\n... ({len(output)} chars total)"
             else:
                 output_summary = output
 
@@ -1124,8 +1162,8 @@ class ValidationEngine:
                 rule=rule,
                 passed=False,
                 expected_value="exit_code=0",
-                error_message="Command timed out after 300 seconds",
-                failure_reason=f"Command '{display_command}' timed out after 300 seconds",
+                error_message=f"Command timed out after {VALIDATION_COMMAND_TIMEOUT_SECONDS} seconds",
+                failure_reason=f"Command '{display_command}' timed out after {VALIDATION_COMMAND_TIMEOUT_SECONDS} seconds",
                 failure_category="error",
                 suggested_fix="Increase timeout or optimize the command",
             )
@@ -1624,19 +1662,45 @@ class SemanticConsistencyChecker:
                 sheet_a = sheets_sorted[i]
                 sheet_b = sheets_sorted[i + 1]
                 self._compare_sheets(
-                    sheet_a, sheet_variables.get(sheet_a, {}),
-                    sheet_b, sheet_variables.get(sheet_b, {}),
+                    sheet_a, sheet_variables[sheet_a],
+                    sheet_b, sheet_variables[sheet_b],
                     result,
                 )
         else:
-            # Compare all pairs
-            for i, sheet_a in enumerate(sheets_sorted):
-                for sheet_b in sheets_sorted[i + 1:]:
-                    self._compare_sheets(
-                        sheet_a, sheet_variables.get(sheet_a, {}),
-                        sheet_b, sheet_variables.get(sheet_b, {}),
-                        result,
-                    )
+            # Hash-group approach: for each key, group sheets by value.
+            # Only cross-group pairs (different values) are inconsistencies.
+            # This is O(n*k + g^2*m) where k = keys, g = groups, m = group sizes,
+            # which is much faster than O(n^2*k) pairwise when most sheets agree.
+            from collections import defaultdict
+
+            for key in all_keys:
+                # Group sheets by their (lowered) value for this key
+                value_groups: dict[str, list[int]] = defaultdict(list)
+                for sheet_num in sheets_sorted:
+                    var = sheet_variables[sheet_num].get(key)
+                    if var is not None:
+                        value_groups[var.value.lower()].append(sheet_num)
+
+                # If all sheets have the same value (or only one has the key), skip
+                if len(value_groups) <= 1:
+                    continue
+
+                # Report all cross-group pairs as inconsistencies
+                group_list = list(value_groups.values())
+                for gi in range(len(group_list)):
+                    for gj in range(gi + 1, len(group_list)):
+                        for sheet_a in group_list[gi]:
+                            for sheet_b in group_list[gj]:
+                                var_a = sheet_variables[sheet_a][key]
+                                var_b = sheet_variables[sheet_b][key]
+                                result.inconsistencies.append(SemanticInconsistency(
+                                    key=key,
+                                    sheet_a=sheet_a,
+                                    value_a=var_a.value,
+                                    sheet_b=sheet_b,
+                                    value_b=var_b.value,
+                                    severity="error" if self.strict_mode else "warning",
+                                ))
 
         return result
 

@@ -347,11 +347,13 @@ class GlobalLearningStoreBase:
         # Pattern applications table (for effectiveness tracking)
         # Note: execution_id is a string identifier (e.g. "sheet_1"), not a FK to executions
         # The runner passes simple sheet identifiers for pattern tracking purposes
+        # pattern_id is NOT a FK because patterns may be referenced from cross-database
+        # contexts (e.g., global learning store vs. job-local store)
         # v12: Added grounding_confidence column for grounding-weighted effectiveness
         conn.execute("""
             CREATE TABLE IF NOT EXISTS pattern_applications (
                 id TEXT PRIMARY KEY,
-                pattern_id TEXT REFERENCES patterns(id),
+                pattern_id TEXT,
                 execution_id TEXT,
                 applied_at TIMESTAMP,
                 outcome_improved BOOLEAN,

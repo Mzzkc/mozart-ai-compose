@@ -123,20 +123,21 @@ def run_extended_validation(
         content: Raw YAML content for line number extraction
         filename: Virtual filename
         workspace_path: Optional workspace path for relative path validation.
-            Validated against path traversal attacks: rejects paths containing
-            ".." sequences or pointing to sensitive system directories
-            (/etc, /proc, /sys, /dev). Invalid paths are silently replaced
-            with None to fall back to cwd.
+            Validated with allow-list: must resolve to a path under cwd or
+            user home directory. Invalid paths are silently replaced with
+            None to fall back to cwd.
 
     Returns:
         List of validation issues
     """
-    # Validate workspace_path to prevent path traversal attacks
+    # Validate workspace_path to prevent path traversal attacks using allow-list
     if workspace_path is not None:
         ws = Path(workspace_path).resolve()
-        # Reject paths containing traversal sequences or pointing to sensitive locations
-        if ".." in workspace_path or str(ws).startswith(("/etc", "/proc", "/sys", "/dev")):
-            _logger.warning("Rejected suspicious workspace_path: %s", workspace_path)
+        cwd = Path.cwd().resolve()
+        home = Path.home().resolve()
+        # Allow only paths under cwd or user home directory
+        if not (ws.is_relative_to(cwd) or ws.is_relative_to(home)):
+            _logger.warning("Rejected workspace_path outside allowed roots: %s", workspace_path)
             workspace_path = None
 
     # Create a virtual config path for the validator

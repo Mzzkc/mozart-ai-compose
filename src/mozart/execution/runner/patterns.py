@@ -30,6 +30,7 @@ Architecture:
 from __future__ import annotations
 
 import random
+import sqlite3
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -285,7 +286,7 @@ class PatternsMixin:
 
             return descriptions, pattern_ids
 
-        except Exception as e:
+        except (sqlite3.Error, KeyError, ValueError, OSError) as e:
             # Pattern query failure shouldn't block execution
             self._logger.warning(
                 "patterns.query_global_failed",
@@ -369,7 +370,7 @@ class PatternsMixin:
                 "recommended_adjustments": recommendations,
             }
 
-        except Exception as e:
+        except (sqlite3.Error, KeyError, ValueError, OSError) as e:
             self._logger.warning(
                 "risk_assessment.failed",
                 job_id=job_id,
@@ -464,7 +465,7 @@ class PatternsMixin:
                     application_mode=application_mode,
                     grounding_confidence=ctx.grounding_confidence,
                 )
-            except Exception as e:
+            except (sqlite3.Error, KeyError, ValueError, OSError) as e:
                 # Pattern feedback recording should not block execution
                 self._logger.warning(
                     "learning.pattern_feedback_failed",

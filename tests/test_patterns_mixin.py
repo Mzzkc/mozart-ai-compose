@@ -11,6 +11,7 @@ enables cross-workspace learning (v22 Metacognitive Pattern Reflection).
 
 from __future__ import annotations
 
+import sqlite3
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -256,7 +257,7 @@ class TestQueryRelevantPatterns:
         mock_global_store: MagicMock,
     ) -> None:
         """Test that errors from global store are handled gracefully."""
-        mock_global_store.get_patterns.side_effect = Exception("Database error")
+        mock_global_store.get_patterns.side_effect = sqlite3.OperationalError("Database error")
 
         # Should not raise, should return empty
         descriptions, pattern_ids = runner_with_global_store._query_relevant_patterns(
@@ -535,7 +536,7 @@ class TestRecordPatternFeedback:
         mock_global_store: MagicMock,
     ) -> None:
         """Test that errors don't block execution."""
-        mock_global_store.record_pattern_application.side_effect = Exception("DB error")
+        mock_global_store.record_pattern_application.side_effect = sqlite3.OperationalError("DB error")
 
         # Should not raise
         await runner_with_global_store._record_pattern_feedback(
@@ -679,7 +680,7 @@ class TestAssessFailureRisk:
         mock_global_store: MagicMock,
     ) -> None:
         """Test that errors return unknown risk."""
-        mock_global_store.get_execution_stats.side_effect = Exception("DB error")
+        mock_global_store.get_execution_stats.side_effect = sqlite3.OperationalError("DB error")
 
         assessment = runner_with_global_store._assess_failure_risk(
             job_id="test", sheet_num=1

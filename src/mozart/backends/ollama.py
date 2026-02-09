@@ -16,11 +16,11 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator
+from typing import TYPE_CHECKING, Any, AsyncIterator, TypedDict
 
 import httpx
 
-from mozart.backends.base import Backend, ExecutionResult
+from mozart.backends.base import Backend, ExecutionResult, HttpxClientMixin
 from mozart.core.logging import get_logger
 from mozart.utils.time import utc_now
 
@@ -30,6 +30,66 @@ if TYPE_CHECKING:
 
 # Module-level logger
 _logger = get_logger("backend.ollama")
+
+
+# ---------------------------------------------------------------------------
+# Ollama API TypedDicts — typed contracts for request/response shapes
+# ---------------------------------------------------------------------------
+
+
+class OllamaFunctionDef(TypedDict):
+    """Function definition within an Ollama tool."""
+
+    name: str
+    description: str
+    parameters: dict[str, Any]
+
+
+class OllamaToolDef(TypedDict):
+    """Ollama tool definition (OpenAI-style function calling format)."""
+
+    type: str  # Always "function"
+    function: OllamaFunctionDef
+
+
+class OllamaRawFunction(TypedDict, total=False):
+    """Raw function payload inside a tool call from Ollama response."""
+
+    name: str
+    arguments: dict[str, Any] | str
+
+
+class OllamaRawToolCall(TypedDict, total=False):
+    """Raw tool call object from Ollama chat response."""
+
+    id: str
+    function: OllamaRawFunction
+
+
+class OllamaChatResponse(TypedDict, total=False):
+    """Top-level Ollama /api/chat response shape."""
+
+    message: dict[str, Any]  # Contains role, content, tool_calls
+    done: bool
+    prompt_eval_count: int
+    eval_count: int
+
+
+class OllamaChatOptions(TypedDict, total=False):
+    """Options sub-object for Ollama chat requests."""
+
+    num_ctx: int
+
+
+class OllamaChatRequest(TypedDict, total=False):
+    """Request payload for Ollama /api/chat endpoint."""
+
+    model: str
+    messages: list[dict[str, Any]]
+    tools: list[OllamaToolDef]
+    stream: bool
+    options: OllamaChatOptions
+    keep_alive: str
 
 
 @dataclass
@@ -69,7 +129,7 @@ class OllamaMessage:
         return msg
 
 
-class OllamaBackend(Backend):
+class OllamaBackend(HttpxClientMixin, Backend):
     """Backend for Ollama model execution with tool translation.
 
     Implements the Backend protocol for local Ollama models. Supports:
@@ -116,17 +176,8 @@ class OllamaBackend(Backend):
         self.mcp_proxy = mcp_proxy
         self._working_directory: Path | None = None
 
-        # HTTP client with connection pooling
-        self._client: httpx.AsyncClient | None = None
-
-    async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client with connection pooling."""
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                base_url=self.base_url,
-                timeout=httpx.Timeout(self.timeout, connect=10.0),
-            )
-        return self._client
+        # HTTP client lifecycle via shared mixin
+        self._init_httpx_mixin(self.base_url, self.timeout, connect_timeout=10.0)
 
     @classmethod
     def from_config(cls, config: BackendConfig) -> "OllamaBackend":
@@ -153,7 +204,7 @@ class OllamaBackend(Backend):
         """Human-readable backend name."""
         return f"ollama:{self.model}"
 
-    async def execute(self, prompt: str) -> ExecutionResult:
+    async def execute(self, prompt: str, *, timeout_seconds: float | None = None) -> ExecutionResult:
         """Execute a prompt and return the result.
 
         Runs the agentic loop if tools are available via MCPProxyService,
@@ -161,6 +212,7 @@ class OllamaBackend(Backend):
 
         Args:
             prompt: The prompt to send to Ollama
+            timeout_seconds: Per-call timeout override (not currently used by Ollama backend).
 
         Returns:
             ExecutionResult with output and metadata
@@ -180,7 +232,7 @@ class OllamaBackend(Backend):
             messages = [OllamaMessage(role="user", content=prompt)]
 
             # Get tools if MCP proxy is available
-            tools: list[dict[str, Any]] = []
+            tools: list[OllamaToolDef] = []
             if self.mcp_proxy:
                 try:
                     mcp_tools = await self.mcp_proxy.list_tools()
@@ -296,7 +348,7 @@ class OllamaBackend(Backend):
     async def _agentic_loop(
         self,
         messages: list[OllamaMessage],
-        tools: list[dict[str, Any]],
+        tools: list[OllamaToolDef],
     ) -> ExecutionResult:
         """Run multi-turn agentic loop with tool calling.
 
@@ -462,7 +514,7 @@ class OllamaBackend(Backend):
             return f"[Tool Error]\n{text}"
         return text
 
-    def _translate_tools_to_ollama(self, mcp_tools: list["MCPTool"]) -> list[dict[str, Any]]:
+    def _translate_tools_to_ollama(self, mcp_tools: list[MCPTool]) -> list[OllamaToolDef]:
         """Translate MCP tool schemas to Ollama function format.
 
         Ollama uses OpenAI-style function calling format:
@@ -481,9 +533,9 @@ class OllamaBackend(Backend):
         Returns:
             List of Ollama-compatible tool definitions
         """
-        ollama_tools = []
+        ollama_tools: list[OllamaToolDef] = []
         for tool in mcp_tools:
-            ollama_tool = {
+            ollama_tool: OllamaToolDef = {
                 "type": "function",
                 "function": {
                     "name": tool.name,
@@ -494,7 +546,7 @@ class OllamaBackend(Backend):
             ollama_tools.append(ollama_tool)
         return ollama_tools
 
-    def _parse_tool_calls(self, raw_calls: list[dict[str, Any]]) -> list[ToolCall]:
+    def _parse_tool_calls(self, raw_calls: list[OllamaRawToolCall]) -> list[ToolCall]:
         """Parse tool calls from Ollama response.
 
         Handles both standard format and edge cases like missing IDs.
@@ -535,31 +587,36 @@ class OllamaBackend(Backend):
     def _extract_json_from_text(self, text: str) -> dict[str, Any]:
         """Attempt to extract JSON from text that may have markdown formatting.
 
+        Tries code-block extraction first, then raw JSON object detection.
+        Logs a warning on parse failures for diagnostics.
+
         Args:
-            text: Text that may contain JSON
+            text: Text that may contain JSON.
 
         Returns:
-            Extracted JSON dict or empty dict
+            Extracted JSON dict, or empty dict if no valid JSON found.
         """
         # Try to extract from code blocks
         code_block = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
         if code_block:
             try:
                 return json.loads(code_block.group(1))
-            except json.JSONDecodeError:
-                pass
+            except json.JSONDecodeError as e:
+                _logger.debug("json_code_block_parse_failed", error=str(e))
 
         # Try to find JSON object directly
         json_match = re.search(r"\{[\s\S]*\}", text)
         if json_match:
             try:
                 return json.loads(json_match.group(0))
-            except json.JSONDecodeError:
-                pass
+            except json.JSONDecodeError as e:
+                _logger.debug("json_direct_parse_failed", error=str(e))
 
+        if text.strip():
+            _logger.warning("json_extraction_failed", text_length=len(text))
         return {}
 
-    def _estimate_tokens(self, response: dict[str, Any]) -> tuple[int, int]:
+    def _estimate_tokens(self, response: OllamaChatResponse) -> tuple[int, int]:
         """Estimate token usage from Ollama response.
 
         Ollama provides eval_count and prompt_eval_count in some responses.
@@ -626,12 +683,10 @@ class OllamaBackend(Backend):
 
     async def close(self) -> None:
         """Close HTTP client and release resources."""
-        if self._client and not self._client.is_closed:
-            await self._client.aclose()
-            self._client = None
+        await self._close_httpx_client()
 
     async def _stream_response(
-        self, endpoint: str, payload: dict[str, Any]
+        self, endpoint: str, payload: OllamaChatRequest,
     ) -> AsyncIterator[StreamChunk]:
         """Stream response from Ollama API.
 
@@ -649,16 +704,22 @@ class OllamaBackend(Backend):
 
         async with client.stream("POST", endpoint, json=payload) as response:
             response.raise_for_status()
-            async for line in response.aiter_lines():
-                if not line:
-                    continue
-                try:
-                    data = json.loads(line)
-                    msg = data.get("message", {})
-                    yield StreamChunk(
-                        content=msg.get("content", ""),
-                        done=data.get("done", False),
-                        tool_calls=self._parse_tool_calls(msg.get("tool_calls", [])),
-                    )
-                except json.JSONDecodeError:
-                    continue
+            try:
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    try:
+                        data = json.loads(line)
+                        msg = data.get("message", {})
+                        yield StreamChunk(
+                            content=msg.get("content", ""),
+                            done=data.get("done", False),
+                            tool_calls=self._parse_tool_calls(msg.get("tool_calls", [])),
+                        )
+                    except json.JSONDecodeError:
+                        continue
+            finally:
+                # Ensure response body is fully consumed so the connection
+                # can be returned to the pool, even if the caller abandons
+                # the iterator mid-stream
+                await response.aclose()

@@ -234,7 +234,7 @@ class TestAnthropicApiBackendRateLimitDetection:
         return AnthropicApiBackend()
 
     def test_detect_rate_limit_patterns(self, backend: AnthropicApiBackend) -> None:
-        """Test various rate limit patterns are detected."""
+        """Test various rate limit patterns are detected with non-zero exit code."""
         patterns = [
             "rate limit exceeded",
             "Rate-Limit: exceeded",
@@ -246,7 +246,7 @@ class TestAnthropicApiBackendRateLimitDetection:
             "try again later",
         ]
         for pattern in patterns:
-            assert backend._detect_rate_limit(pattern) is True, f"Failed for: {pattern}"
+            assert backend._detect_rate_limit(pattern, exit_code=1) is True, f"Failed for: {pattern}"
 
     def test_no_rate_limit_detected(self, backend: AnthropicApiBackend) -> None:
         """Test that normal messages don't trigger rate limit detection."""
@@ -257,7 +257,42 @@ class TestAnthropicApiBackendRateLimitDetection:
             "Connection failed",
         ]
         for message in normal_messages:
-            assert backend._detect_rate_limit(message) is False, f"Failed for: {message}"
+            assert backend._detect_rate_limit(message, exit_code=1) is False, f"Failed for: {message}"
+
+    def test_exit_code_zero_never_rate_limited(self, backend: AnthropicApiBackend) -> None:
+        """Successful execution (exit_code=0) should never be classified as rate-limited."""
+        assert backend._detect_rate_limit("capacity exceeded", "", exit_code=0) is False
+        assert backend._detect_rate_limit("rate limit exceeded", "", exit_code=0) is False
+        assert backend._detect_rate_limit("429 error", "", exit_code=0) is False
+
+    def test_exit_code_one_with_rate_limit_text(self, backend: AnthropicApiBackend) -> None:
+        """Failed execution with rate limit text should still be detected."""
+        assert backend._detect_rate_limit("rate limit exceeded", "", exit_code=1) is True
+
+    def test_exit_code_none_not_rate_limited(self, backend: AnthropicApiBackend) -> None:
+        """When exit_code is None (e.g. signal kill), don't falsely classify as rate-limited."""
+        assert backend._detect_rate_limit("rate limit exceeded", "", exit_code=None) is False
+
+    def test_exit_code_none_all_patterns_not_rate_limited(self, backend: AnthropicApiBackend) -> None:
+        """All rate limit patterns must return False when exit_code is None (signal/timeout)."""
+        patterns = [
+            "rate limit exceeded",
+            "usage limit reached",
+            "quota exceeded",
+            "too many requests",
+            "error 429",
+            "capacity exceeded",
+            "try again later",
+        ]
+        for pattern in patterns:
+            assert backend._detect_rate_limit(pattern, "", exit_code=None) is False, (
+                f"Pattern '{pattern}' should not trigger rate limit with exit_code=None"
+            )
+
+    def test_exit_code_none_stderr_not_rate_limited(self, backend: AnthropicApiBackend) -> None:
+        """Rate limit text in stderr should also not trigger when exit_code is None."""
+        assert backend._detect_rate_limit("", "rate limit exceeded", exit_code=None) is False
+        assert backend._detect_rate_limit("", "429 Too Many Requests", exit_code=None) is False
 
 
 class TestAnthropicApiBackendHealthCheck:
@@ -363,6 +398,62 @@ class TestClaudeCliBackendInit:
         assert backend.timeout_seconds == 120.0
 
 
+class TestClaudeCliBackendTimeoutOverride:
+    """Test ClaudeCliBackend per-call timeout override."""
+
+    @pytest.fixture
+    def backend(self) -> ClaudeCliBackend:
+        """Create backend for testing."""
+        return ClaudeCliBackend(timeout_seconds=1800.0)
+
+    @pytest.mark.asyncio
+    async def test_execute_passes_timeout_to_impl(self, backend: ClaudeCliBackend) -> None:
+        """Test that execute() forwards timeout_seconds to _execute_impl."""
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.stdout = "ok"
+        mock_result.stderr = ""
+
+        with patch.object(backend, "_execute_impl", new_callable=AsyncMock, return_value=mock_result) as mock_impl:
+            await backend.execute("test prompt", timeout_seconds=60.0)
+            mock_impl.assert_called_once_with("test prompt", timeout_seconds=60.0)
+
+    @pytest.mark.asyncio
+    async def test_execute_default_timeout_passes_none(self, backend: ClaudeCliBackend) -> None:
+        """Test that execute() without timeout override passes None."""
+        mock_result = MagicMock()
+        mock_result.success = True
+
+        with patch.object(backend, "_execute_impl", new_callable=AsyncMock, return_value=mock_result) as mock_impl:
+            await backend.execute("test prompt")
+            mock_impl.assert_called_once_with("test prompt", timeout_seconds=None)
+
+    @pytest.mark.asyncio
+    async def test_execute_impl_uses_override_timeout(self, backend: ClaudeCliBackend) -> None:
+        """Test that _execute_impl uses override when provided."""
+        # Mock subprocess to avoid real CLI calls
+        mock_process = AsyncMock()
+        mock_process.pid = 12345
+        mock_process.communicate = AsyncMock(return_value=(b"output", b""))
+        mock_process.returncode = 0
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+            with patch.object(backend, "_build_command", return_value=["claude", "-p", "test"]):
+                with patch.object(backend, "_prepare_log_files"):
+                    with patch.object(backend, "_write_output_logs"):
+                        # The key assertion: wait_for should use 60.0, not 1800.0
+                        with patch("asyncio.wait_for", new_callable=AsyncMock) as mock_wait:
+                            mock_wait.return_value = (b"output", b"")
+                            try:
+                                await backend._execute_impl("test", timeout_seconds=60.0)
+                            except Exception:
+                                pass  # We only care about wait_for args
+                            # Check that wait_for was called with timeout=60.0
+                            if mock_wait.called:
+                                _, kwargs = mock_wait.call_args
+                                assert kwargs.get("timeout") == 60.0
+
+
 class TestClaudeCliBackendRateLimitDetection:
     """Test ClaudeCliBackend rate limit detection."""
 
@@ -372,7 +463,7 @@ class TestClaudeCliBackendRateLimitDetection:
         return ClaudeCliBackend()
 
     def test_detect_rate_limit_patterns(self, backend: ClaudeCliBackend) -> None:
-        """Test various rate limit patterns are detected."""
+        """Test various rate limit patterns are detected with non-zero exit code."""
         patterns = [
             "rate limit exceeded",
             "usage limit reached",
@@ -384,7 +475,7 @@ class TestClaudeCliBackendRateLimitDetection:
         ]
         for pattern in patterns:
             assert (
-                backend._detect_rate_limit(pattern, "") is True
+                backend._detect_rate_limit(pattern, "", exit_code=1) is True
             ), f"Failed for: {pattern}"
 
     def test_no_rate_limit_detected(self, backend: ClaudeCliBackend) -> None:
@@ -398,6 +489,41 @@ class TestClaudeCliBackendRateLimitDetection:
             assert (
                 backend._detect_rate_limit(message, "") is False
             ), f"Failed for: {message}"
+
+    def test_exit_code_zero_never_rate_limited(self, backend: ClaudeCliBackend) -> None:
+        """Successful execution (exit_code=0) should never be classified as rate-limited."""
+        assert backend._detect_rate_limit("capacity exceeded", "", exit_code=0) is False
+        assert backend._detect_rate_limit("rate limit exceeded", "", exit_code=0) is False
+        assert backend._detect_rate_limit("429 error", "", exit_code=0) is False
+
+    def test_exit_code_one_with_rate_limit_text(self, backend: ClaudeCliBackend) -> None:
+        """Failed execution with rate limit text should still be detected."""
+        assert backend._detect_rate_limit("rate limit exceeded", "", exit_code=1) is True
+
+    def test_exit_code_none_not_rate_limited(self, backend: ClaudeCliBackend) -> None:
+        """When exit_code is None (e.g. signal kill), don't falsely classify as rate-limited."""
+        assert backend._detect_rate_limit("rate limit exceeded", "", exit_code=None) is False
+
+    def test_exit_code_none_all_patterns_not_rate_limited(self, backend: ClaudeCliBackend) -> None:
+        """All rate limit patterns must return False when exit_code is None (signal/timeout)."""
+        patterns = [
+            "rate limit exceeded",
+            "usage limit reached",
+            "quota exceeded",
+            "too many requests",
+            "429",
+            "capacity exceeded",
+            "try again later",
+        ]
+        for pattern in patterns:
+            assert backend._detect_rate_limit(pattern, "", exit_code=None) is False, (
+                f"Pattern '{pattern}' should not trigger rate limit with exit_code=None"
+            )
+
+    def test_exit_code_none_stderr_not_rate_limited(self, backend: ClaudeCliBackend) -> None:
+        """Rate limit text in stderr should also not trigger when exit_code is None."""
+        assert backend._detect_rate_limit("", "rate limit exceeded", exit_code=None) is False
+        assert backend._detect_rate_limit("", "429 Too Many Requests", exit_code=None) is False
 
 
 class TestClaudeCliBackendOperatorImperative:

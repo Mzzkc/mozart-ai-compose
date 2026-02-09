@@ -23,10 +23,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 import typer
 from rich.panel import Panel
@@ -39,7 +38,7 @@ from rich.progress import (
 from mozart.core.checkpoint import ErrorRecord, JobStatus, SheetStatus
 from mozart.state import StateBackend
 
-from ..helpers import ErrorMessages, get_state_backends
+from ..helpers import ErrorMessages, find_job_state, get_state_backends, require_job_state
 from ..output import (
     StatusColors,
     console,
@@ -49,13 +48,21 @@ from ..output import (
     format_duration,
     format_timestamp,
     format_validation_status,
-    output_error,
 )
 
 if TYPE_CHECKING:
     from mozart.core.checkpoint import CheckpointState
 
-_logger = logging.getLogger(__name__)
+# Default circuit breaker failure threshold from CircuitBreakerConfig
+_DEFAULT_CB_THRESHOLD: int = 5  # Must match CircuitBreakerConfig.failure_threshold default
+
+
+class CircuitBreakerInference(TypedDict):
+    """Inferred circuit breaker state from job failure patterns."""
+
+    state: Literal["open", "closed"]
+    consecutive_failures: int
+    reason: str
 
 # =============================================================================
 # CLI Commands
@@ -149,35 +156,7 @@ async def _status_job(
     workspace: Path | None,
 ) -> None:
     """Asynchronously get and display status for a specific job."""
-    if workspace and not workspace.exists():
-        console.print(f"[red]Workspace not found:[/red] {workspace}")
-        raise typer.Exit(1)
-
-    backends = get_state_backends(workspace)
-
-    # Search for the job in all backends
-    found_job: CheckpointState | None = None
-
-    for backend in backends:
-        try:
-            job = await backend.load(job_id)
-            if job:
-                found_job = job
-                break
-        except Exception as e:
-            _logger.debug("Error querying backend for %s: %s", job_id, e)
-            continue
-
-    if not found_job:
-        if json_output:
-            err_msg = f"{ErrorMessages.JOB_NOT_FOUND}: {job_id}"
-            console.print(json.dumps({"error": err_msg}, indent=2))
-        else:
-            output_error(
-                f"{ErrorMessages.JOB_NOT_FOUND}: {job_id}",
-                hints=["Use --workspace to specify the directory containing the job state"],
-            )
-        raise typer.Exit(1)
+    found_job, _ = await require_job_state(job_id, workspace, json_output=json_output)
 
     # Output as JSON if requested
     if json_output:
@@ -207,21 +186,7 @@ async def _status_job_watch(
     try:
         while True:
             # Find and load job state
-            if workspace and not workspace.exists():
-                console.print(f"[red]Workspace not found:[/red] {workspace}")
-                raise typer.Exit(1)
-
-            backends = get_state_backends(workspace)
-
-            found_job: CheckpointState | None = None
-            for backend in backends:
-                try:
-                    job = await backend.load(job_id)
-                    if job:
-                        found_job = job
-                        break
-                except Exception:
-                    continue
+            found_job, _ = await find_job_state(job_id, workspace)
 
             # Clear screen and show status
             console.clear()
@@ -409,35 +374,109 @@ def _output_status_json(job: CheckpointState) -> None:
     console.print(json.dumps(output, indent=2))
 
 
+def _render_sheet_details(job: CheckpointState) -> None:
+    """Render the sheet details table for rich status output."""
+    if not job.sheets:
+        return
+
+    console.print("\n[bold]Sheet Details[/bold]")
+    sheet_table = create_sheet_details_table()
+
+    for sheet_num in sorted(job.sheets.keys()):
+        sheet = job.sheets[sheet_num]
+        sheet_color = StatusColors.get_sheet_color(sheet.status)
+        val_str = format_validation_status(sheet.validation_passed)
+
+        error_str = ""
+        if sheet.error_message:
+            error_str = sheet.error_message[:50]
+            if len(sheet.error_message) > 50:
+                error_str += "..."
+
+        sheet_table.add_row(
+            str(sheet_num),
+            f"[{sheet_color}]{sheet.status.value}[/{sheet_color}]",
+            str(sheet.attempt_count),
+            val_str,
+            error_str,
+        )
+
+    console.print(sheet_table)
+
+
+def _render_recent_errors(job: CheckpointState) -> None:
+    """Render the recent errors section for rich status output."""
+    recent_errors = _collect_recent_errors(job, limit=3)
+    if not recent_errors:
+        return
+
+    console.print("\n[bold red]Recent Errors[/bold red]")
+    for sheet_num, error in recent_errors:
+        type_style = StatusColors.get_error_color(error.error_type)
+
+        message = error.error_message or ""
+        if len(message) > 60:
+            message = message[:57] + "..."
+
+        console.print(
+            f"  [{type_style}]\u2022[/{type_style}] Sheet {sheet_num}: "
+            f"[{type_style}]{error.error_code}[/{type_style}] - {message}"
+        )
+
+    console.print(
+        f"\n[dim]  Use 'mozart errors {job.job_id}' for complete error history[/dim]"
+    )
+
+
+def _render_synthesis_results(job: CheckpointState) -> None:
+    """Render the synthesis results table for rich status output."""
+    if not job.synthesis_results:
+        return
+
+    console.print("\n[bold]Synthesis Results[/bold]")
+    synth_table = create_synthesis_table()
+
+    for batch_id, result in job.synthesis_results.items():
+        sheets = result.get("sheets", [])
+        sheets_str = ", ".join(str(s) for s in sheets[:4])
+        if len(sheets) > 4:
+            sheets_str += f" (+{len(sheets) - 4})"
+
+        strategy = result.get("strategy", "merge")
+        synth_status = result.get("status", "pending")
+        synth_status_color = StatusColors.SYNTHESIS_STATUS.get(synth_status, "white")
+
+        synth_table.add_row(
+            batch_id[:12],
+            sheets_str,
+            strategy,
+            f"[{synth_status_color}]{synth_status}[/{synth_status_color}]",
+        )
+
+    console.print(synth_table)
+
+
 def _output_status_rich(job: CheckpointState) -> None:
     """Output job status with rich formatting."""
-    # Status color mapping
     status_color = StatusColors.get_job_color(job.status)
 
-    # Build header content
     header_lines = [
         f"[bold]{job.job_name}[/bold]",
         f"ID: [cyan]{job.job_id}[/cyan]",
         f"Status: [{status_color}]{job.status.value.upper()}[/{status_color}]",
     ]
 
-    # Calculate duration
     if job.started_at:
         if job.completed_at:
             duration = job.completed_at - job.started_at
-            duration_str = format_duration(duration.total_seconds())
-            header_lines.append(f"Duration: {duration_str}")
+            header_lines.append(f"Duration: {format_duration(duration.total_seconds())}")
         elif job.status == JobStatus.RUNNING and job.updated_at:
             elapsed = datetime.now(UTC) - job.started_at
-            elapsed_str = format_duration(elapsed.total_seconds())
-            header_lines.append(f"Running for: {elapsed_str}")
+            header_lines.append(f"Running for: {format_duration(elapsed.total_seconds())}")
 
     console.print(Panel("\n".join(header_lines), title="Job Status"))
 
-    # Progress bar - use last_completed_sheet for consistency with JSON output
-    completed = job.last_completed_sheet
-    total = job.total_sheets
-
+    # Progress bar
     console.print("\n[bold]Progress[/bold]")
     with Progress(
         TextColumn("[progress.description]{task.description}"),
@@ -447,10 +486,10 @@ def _output_status_rich(job: CheckpointState) -> None:
         console=console,
         transient=False,
     ) as progress:
-        progress.add_task("Sheets", total=total, completed=completed)
+        progress.add_task("Sheets", total=job.total_sheets, completed=job.last_completed_sheet)
         progress.refresh()
 
-    # Parallel execution info (v17 evolution)
+    # Parallel execution info
     if job.parallel_enabled:
         console.print("\n[bold]Parallel Execution[/bold]")
         console.print("  Mode: [cyan]Enabled[/cyan]")
@@ -460,62 +499,11 @@ def _output_status_rich(job: CheckpointState) -> None:
             in_progress_str = ", ".join(str(s) for s in job.sheets_in_progress)
             console.print(f"  Currently running: [blue]{in_progress_str}[/blue]")
 
-    # Synthesis results (v18 evolution: Result Synthesizer Pattern)
-    if job.synthesis_results:
-        console.print("\n[bold]Synthesis Results[/bold]")
-        synth_table = create_synthesis_table()
+    _render_synthesis_results(job)
+    _render_sheet_details(job)
 
-        for batch_id, result in job.synthesis_results.items():
-            sheets = result.get("sheets", [])
-            sheets_str = ", ".join(str(s) for s in sheets[:4])
-            if len(sheets) > 4:
-                sheets_str += f" (+{len(sheets) - 4})"
-
-            strategy = result.get("strategy", "merge")
-            synth_status = result.get("status", "pending")
-            synth_status_color = StatusColors.SYNTHESIS_STATUS.get(synth_status, "white")
-
-            synth_table.add_row(
-                batch_id[:12],
-                sheets_str,
-                strategy,
-                f"[{synth_status_color}]{synth_status}[/{synth_status_color}]",
-            )
-
-        console.print(synth_table)
-
-    # Sheet details table
-    if job.sheets:
-        console.print("\n[bold]Sheet Details[/bold]")
-        sheet_table = create_sheet_details_table()
-
-        for sheet_num in sorted(job.sheets.keys()):
-            sheet = job.sheets[sheet_num]
-            sheet_color = StatusColors.get_sheet_color(sheet.status)
-
-            # Format validation status
-            val_str = format_validation_status(sheet.validation_passed)
-
-            # Truncate error message for table
-            error_str = ""
-            if sheet.error_message:
-                error_str = sheet.error_message[:50]
-                if len(sheet.error_message) > 50:
-                    error_str += "..."
-
-            sheet_table.add_row(
-                str(sheet_num),
-                f"[{sheet_color}]{sheet.status.value}[/{sheet_color}]",
-                str(sheet.attempt_count),
-                val_str,
-                error_str,
-            )
-
-        console.print(sheet_table)
-
-    # Show error/info message
+    # Error/info message
     if job.error_message:
-        # Distinguish between actual errors and informational recovery messages
         if "Recovered from stale" in job.error_message or "ready to resume" in job.error_message:
             console.print(f"\n[bold cyan]Note:[/bold cyan] {job.error_message}")
         else:
@@ -541,28 +529,7 @@ def _output_status_rich(job: CheckpointState) -> None:
         if quota_waits > 0:
             console.print(f"  Quota exhaustion waits: {quota_waits}")
 
-    # Recent errors section - show last 3 errors from any sheet
-    recent_errors = _collect_recent_errors(job, limit=3)
-    if recent_errors:
-        console.print("\n[bold red]Recent Errors[/bold red]")
-        for sheet_num, error in recent_errors:
-            # Format with color based on error type
-            type_style = StatusColors.get_error_color(error.error_type)
-
-            # Truncate message
-            message = error.error_message or ""
-            if len(message) > 60:
-                message = message[:57] + "..."
-
-            console.print(
-                f"  [{type_style}]\u2022[/{type_style}] Sheet {sheet_num}: "
-                f"[{type_style}]{error.error_code}[/{type_style}] - {message}"
-            )
-
-        # Hint for more details
-        console.print(
-            f"\n[dim]  Use 'mozart errors {job.job_id}' for complete error history[/dim]"
-        )
+    _render_recent_errors(job)
 
     # Last activity timestamp
     last_activity = _get_last_activity_time(job)
@@ -678,7 +645,7 @@ def _infer_error_type(
     return "permanent"
 
 
-def _infer_circuit_breaker_state(job: CheckpointState) -> dict[str, Any] | None:
+def _infer_circuit_breaker_state(job: CheckpointState) -> CircuitBreakerInference | None:
     """Infer likely circuit breaker state from job state.
 
     The actual CircuitBreaker is a runtime object and not persisted.
@@ -691,7 +658,7 @@ def _infer_circuit_breaker_state(job: CheckpointState) -> dict[str, Any] | None:
         job: CheckpointState to analyze.
 
     Returns:
-        Dict with inferred state info, or None if no relevant data.
+        CircuitBreakerInference with inferred state, or None if no relevant data.
     """
     if not job.sheets:
         return None
@@ -710,23 +677,19 @@ def _infer_circuit_breaker_state(job: CheckpointState) -> dict[str, Any] | None:
     if consecutive_failures == 0:
         return None  # No failures, circuit likely closed, nothing special to show
 
-    # Default threshold is 5 (from CircuitBreaker)
-    threshold = 5
+    threshold = _DEFAULT_CB_THRESHOLD
 
     if consecutive_failures >= threshold:
-        return {
-            "state": "open",
-            "consecutive_failures": consecutive_failures,
-            "reason": f"\u2265{threshold} consecutive failures detected",
-        }
-    elif consecutive_failures > 0:
-        return {
-            "state": "closed",
-            "consecutive_failures": consecutive_failures,
-            "reason": f"Under threshold ({consecutive_failures}/{threshold})",
-        }
-
-    return None
+        return CircuitBreakerInference(
+            state="open",
+            consecutive_failures=consecutive_failures,
+            reason=f"\u2265{threshold} consecutive failures detected",
+        )
+    return CircuitBreakerInference(
+        state="closed",
+        consecutive_failures=consecutive_failures,
+        reason=f"Under threshold ({consecutive_failures}/{threshold})",
+    )
 
 
 # =============================================================================

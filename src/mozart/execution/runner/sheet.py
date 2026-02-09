@@ -324,6 +324,74 @@ class SheetExecutionMixin:
 
         return setup, sheet_context, validation_engine
 
+    async def _check_execution_guards(self, sheet_num: int) -> bool:
+        """Check circuit breaker and cross-workspace rate limits before execution.
+
+        Returns True if the caller should ``continue`` the retry loop
+        (a guard tripped and we waited/will wait), False if execution
+        should proceed normally.
+        """
+        # Circuit breaker check
+        if (
+            self._circuit_breaker is not None
+            and not self._circuit_breaker.can_execute()
+        ):
+            wait_time = self._circuit_breaker.time_until_retry()
+            cb_state = self._circuit_breaker.get_state()
+            self._logger.warning(
+                "circuit_breaker.blocked",
+                sheet_num=sheet_num,
+                state=cb_state.value,
+                wait_seconds=wait_time,
+            )
+            self.console.print(
+                f"[yellow]Sheet {sheet_num}: Circuit breaker OPEN - "
+                f"waiting {wait_time:.0f}s for recovery[/yellow]"
+            )
+            if wait_time and wait_time > 0:
+                await self._interruptible_sleep(wait_time)
+            return True
+
+        # Cross-workspace rate limit check
+        cross_ws_enabled = (
+            self.config.circuit_breaker.cross_workspace_coordination
+            and self.config.circuit_breaker.honor_other_jobs_rate_limits
+        )
+        if cross_ws_enabled and self._global_learning_store is not None:
+            try:
+                if self.config.backend.type == "claude_cli":
+                    effective_model = self.config.backend.cli_model
+                else:
+                    effective_model = self.config.backend.model
+
+                is_limited = False
+                wait_seconds = None
+                if effective_model is not None:
+                    is_limited, wait_seconds = (
+                        self._global_learning_store.is_rate_limited(
+                            model=effective_model,
+                        )
+                    )
+                if is_limited and wait_seconds and wait_seconds > 0:
+                    self._logger.info(
+                        "rate_limit.cross_workspace_honored",
+                        sheet_num=sheet_num,
+                        wait_seconds=round(wait_seconds, 0),
+                    )
+                    self.console.print(
+                        f"[yellow]Sheet {sheet_num}: Honoring cross-workspace rate limit - "
+                        f"waiting {wait_seconds:.0f}s[/yellow]"
+                    )
+                    await self._interruptible_sleep(wait_seconds)
+            except Exception as e:  # Non-critical: cross-workspace check
+                self._logger.warning(
+                    "rate_limit.cross_workspace_check_failed",
+                    sheet_num=sheet_num,
+                    error=str(e),
+                )
+
+        return False
+
     async def _handle_validation_success(
         self,
         ctx: ValidationSuccessContext,
@@ -529,6 +597,7 @@ class SheetExecutionMixin:
             sheet_num,
             validation_passed=True,
             validation_details=validation_result.to_dict_list(),
+            execution_duration_seconds=execution_duration,
         )
 
         sheet_state = state.sheets[sheet_num]
@@ -916,64 +985,9 @@ class SheetExecutionMixin:
             # Snapshot mtimes before execution (for file_modified checks)
             validation_engine.snapshot_mtime_files(self.config.validations)
 
-            # Check circuit breaker before execution (Task 12)
-            if (
-                self._circuit_breaker is not None
-                and not self._circuit_breaker.can_execute()
-            ):
-                wait_time = self._circuit_breaker.time_until_retry()
-                cb_state = self._circuit_breaker.get_state()
-                self._logger.warning(
-                    "circuit_breaker.blocked",
-                    sheet_num=sheet_num,
-                    state=cb_state.value,
-                    wait_seconds=wait_time,
-                )
-                self.console.print(
-                    f"[yellow]Sheet {sheet_num}: Circuit breaker OPEN - "
-                    f"waiting {wait_time:.0f}s for recovery[/yellow]"
-                )
-                if wait_time and wait_time > 0:
-                    await self._interruptible_sleep(wait_time)
+            # Check pre-execution guards (circuit breaker + rate limits)
+            if await self._check_execution_guards(sheet_num):
                 continue
-
-            # Evolution #8: Check cross-workspace rate limits before execution
-            cross_ws_enabled = (
-                self.config.circuit_breaker.cross_workspace_coordination
-                and self.config.circuit_breaker.honor_other_jobs_rate_limits
-            )
-            if cross_ws_enabled and self._global_learning_store is not None:
-                try:
-                    if self.config.backend.type == "claude_cli":
-                        effective_model = self.config.backend.cli_model
-                    else:
-                        effective_model = self.config.backend.model
-
-                    is_limited = False
-                    wait_seconds = None
-                    if effective_model is not None:
-                        is_limited, wait_seconds = (
-                            self._global_learning_store.is_rate_limited(
-                                model=effective_model,
-                            )
-                        )
-                    if is_limited and wait_seconds and wait_seconds > 0:
-                        self._logger.info(
-                            "rate_limit.cross_workspace_honored",
-                            sheet_num=sheet_num,
-                            wait_seconds=round(wait_seconds, 0),
-                        )
-                        self.console.print(
-                            f"[yellow]Sheet {sheet_num}: Honoring cross-workspace rate limit - "
-                            f"waiting {wait_seconds:.0f}s[/yellow]"
-                        )
-                        await self._interruptible_sleep(wait_seconds)
-                except Exception as e:  # Non-critical: cross-workspace check
-                    self._logger.warning(
-                        "rate_limit.cross_workspace_check_failed",
-                        sheet_num=sheet_num,
-                        error=str(e),
-                    )
 
             # Execute
             # Set per-sheet output log base path for real-time visibility

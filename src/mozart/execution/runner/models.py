@@ -5,6 +5,8 @@ and its mixin components. These are extracted to enable clean imports
 and avoid circular dependencies during modularization.
 """
 
+from __future__ import annotations
+
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
@@ -13,7 +15,13 @@ from typing import TYPE_CHECKING, Any
 from rich.console import Console
 
 if TYPE_CHECKING:
+    from collections import deque
+
+    from mozart.backends.base import ExecutionResult
+    from mozart.core.checkpoint import CheckpointState
     from mozart.execution.grounding import GroundingEngine, GroundingResult
+    from mozart.execution.retry_strategy import ErrorRecord
+    from mozart.execution.validation import SheetValidationResult
     from mozart.learning.global_store import GlobalLearningStore
 
 from mozart.core.checkpoint import JobStatus
@@ -266,16 +274,16 @@ class ValidationSuccessContext:
     matching the SheetExecutionSetup pattern used for the setup phase.
     """
 
-    state: Any
-    """Current checkpoint state (CheckpointState)."""
+    state: CheckpointState
+    """Current checkpoint state."""
 
     sheet_num: int
     """Sheet number being executed."""
 
-    result: Any
+    result: ExecutionResult
     """ExecutionResult from the backend."""
 
-    validation_result: Any
+    validation_result: SheetValidationResult
     """SheetValidationResult with all validation details."""
 
     validation_duration: float
@@ -293,7 +301,7 @@ class ValidationSuccessContext:
     execution_start_time: float
     """Monotonic timestamp when execution started."""
 
-    execution_history: Any
+    execution_history: deque[ExecutionResult]
     """Deque of ExecutionResults from this sheet's attempts."""
 
     pending_recovery: dict[str, Any] | None
@@ -308,16 +316,16 @@ class ExecutionFailureContext:
     and decide between healing, adaptive abort, or normal retry.
     """
 
-    state: Any
-    """Current checkpoint state (CheckpointState)."""
+    state: CheckpointState
+    """Current checkpoint state."""
 
     sheet_num: int
     """Sheet number being executed."""
 
-    result: Any
+    result: ExecutionResult
     """ExecutionResult from the backend."""
 
-    validation_result: Any
+    validation_result: SheetValidationResult
     """SheetValidationResult with validation details."""
 
     passed_count: int
@@ -326,7 +334,7 @@ class ExecutionFailureContext:
     failed_count: int
     """Number of validations that failed."""
 
-    error_history: list[Any]
+    error_history: list[ErrorRecord]
     """List of ErrorRecord for adaptive retry analysis."""
 
     normal_attempts: int
@@ -344,7 +352,7 @@ class ExecutionFailureContext:
     pending_recovery: dict[str, Any] | None
     """Pending recovery context from previous retry."""
 
-    grounding_ctx: Any
+    grounding_ctx: GroundingDecisionContext
     """GroundingDecisionContext for pattern feedback."""
 
 

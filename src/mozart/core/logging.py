@@ -436,7 +436,7 @@ def with_context(ctx: ExecutionContext) -> Iterator[ExecutionContext]:
         _current_context.reset(token)
 
 
-def _sanitize_value(key: str, value: Any) -> Any:
+def _sanitize_value(key: str, value: str | int | float | bool | None) -> str | int | float | bool | None:
     """Sanitize potentially sensitive values.
 
     Args:

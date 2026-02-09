@@ -94,6 +94,14 @@ def create_app(
     # Store on app.state so tests can access without globals
     app.state.backend = _state_backend
 
+    # Authentication middleware — applied before CORS so unauthenticated
+    # requests are rejected early. Default mode is localhost_only, which
+    # allows local development without API keys while protecting remote access.
+    from mozart.dashboard.auth import AuthConfig, AuthMiddleware
+
+    auth_config = AuthConfig.from_env()
+    app.add_middleware(AuthMiddleware, config=auth_config)
+
     # CORS middleware
     if cors_origins:
         allowed_origins = cors_origins
@@ -111,8 +119,8 @@ def create_app(
         CORSMiddleware,
         allow_origins=allowed_origins,
         allow_credentials=allow_credentials,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "Authorization", "X-Mozart-API-Key"],
     )
 
     # Configure template and static file paths

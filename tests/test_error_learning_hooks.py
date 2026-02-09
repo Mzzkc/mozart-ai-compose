@@ -213,8 +213,9 @@ class TestErrorLearningHooksNoStore:
     def test_on_error_recovered_no_store(self, sample_context):
         """Test on_error_recovered is no-op without store."""
         hooks = ErrorLearningHooks(global_store=None)
-        # Should not raise
         hooks.on_error_recovered(sample_context, success=True)
+        assert hooks._store is None
+        assert hooks.enabled is False
 
     def test_on_auth_failure_no_store(self, sample_context):
         """Test on_auth_failure returns default without store."""
@@ -587,13 +588,13 @@ class TestRecordErrorRecoveryFunction:
 
     def test_record_without_store_is_noop(self, sample_error):
         """Test recording without store is no-op."""
-        # Should not raise
-        record_error_recovery(
+        result = record_error_recovery(
             global_store=None,
             error=sample_error,
             actual_wait=45.0,
             success=True,
         )
+        assert result is None
 
     def test_record_handles_missing_suggested_wait(self):
         """Test recording handles error without suggested_wait."""

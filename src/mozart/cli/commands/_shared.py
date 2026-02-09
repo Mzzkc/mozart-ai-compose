@@ -7,6 +7,7 @@ grounding engine, and summary display.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from rich.console import Console
@@ -224,6 +225,54 @@ def setup_grounding(
         )
 
     return engine
+
+
+@dataclass
+class SetupComponents:
+    """All infrastructure components needed by both run and resume commands."""
+
+    backend: Backend
+    outcome_store: OutcomeStore | None
+    global_learning_store: GlobalLearningStore | None
+    notification_manager: NotificationManager | None
+    escalation_handler: ConsoleEscalationHandler | None
+    grounding_engine: GroundingEngine | None
+
+
+def setup_all(
+    config: JobConfig,
+    *,
+    escalation: bool = False,
+    quiet: bool = False,
+    console: Console | None = None,
+) -> SetupComponents:
+    """Setup all infrastructure components for job execution.
+
+    Consolidates the 5-function setup sequence used by both run and resume
+    commands into a single call, preventing drift between the two paths.
+
+    Args:
+        config: Job configuration.
+        escalation: Whether escalation is explicitly enabled via CLI flag.
+        quiet: If True, suppress verbose logging.
+        console: Console for verbose output.
+
+    Returns:
+        SetupComponents with all configured infrastructure.
+    """
+    backend = create_backend(config, quiet=quiet, console=console)
+    outcome_store, global_learning_store = setup_learning(config, quiet=quiet, console=console)
+    notification_manager = setup_notifications(config, quiet=quiet, console=console)
+    escalation_handler = setup_escalation(config, enabled=escalation, quiet=quiet, console=console)
+    grounding_engine = setup_grounding(config, quiet=quiet, console=console)
+    return SetupComponents(
+        backend=backend,
+        outcome_store=outcome_store,
+        global_learning_store=global_learning_store,
+        notification_manager=notification_manager,
+        escalation_handler=escalation_handler,
+        grounding_engine=grounding_engine,
+    )
 
 
 def display_run_summary(summary: RunSummary) -> None:

@@ -43,10 +43,9 @@ from mozart.core.checkpoint import (
 from mozart.core.logging import find_log_files, get_default_log_path
 
 from ..helpers import (
-    ErrorMessages,
     configure_global_logging,
-    find_job_state,
     is_quiet,
+    require_job_state,
 )
 from ..output import (
     StatusColors,
@@ -422,18 +421,7 @@ async def _errors_job(
     configure_global_logging(console)
 
     # Find job state
-    found_job, _ = await find_job_state(job_id, workspace)
-    if found_job is None:
-        if json_output:
-            err_msg = f"{ErrorMessages.JOB_NOT_FOUND}: {job_id}"
-            console.print(json_module.dumps({"error": err_msg}, indent=2))
-        else:
-            console.print(f"[red]{ErrorMessages.JOB_NOT_FOUND}:[/red] {job_id}")
-            console.print(
-                "\n[dim]Hint: Use --workspace to specify the directory "
-                "containing the job state.[/dim]"
-            )
-        raise typer.Exit(1)
+    found_job, _ = await require_job_state(job_id, workspace, json_output=json_output)
 
     # Collect all errors from sheet states
     all_errors: list[tuple[int, ErrorRecord]] = []
@@ -624,14 +612,7 @@ async def _diagnose_job(
     configure_global_logging(console)
 
     # Find job state
-    found_job, _ = await find_job_state(job_id, workspace)
-    if found_job is None:
-        if json_output:
-            err_msg = f"{ErrorMessages.JOB_NOT_FOUND}: {job_id}"
-            console.print(json_module.dumps({"error": err_msg}, indent=2))
-        else:
-            console.print(f"[red]{ErrorMessages.JOB_NOT_FOUND}:[/red] {job_id}")
-        raise typer.Exit(1)
+    found_job, _ = await require_job_state(job_id, workspace, json_output=json_output)
 
     # Build diagnostic report
     report: dict[str, Any] = _build_diagnostic_report(found_job)

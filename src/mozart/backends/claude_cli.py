@@ -24,7 +24,8 @@ from typing import Any
 
 from mozart.backends.base import Backend, ExecutionResult, ExitReason
 from mozart.core.config import BackendConfig
-from mozart.core.errors import ErrorCategory, ErrorClassifier
+from mozart.core.constants import STREAM_CHUNK_SIZE, TRUNCATE_STDOUT_TAIL_CHARS
+from mozart.core.errors import ErrorClassifier
 from mozart.core.errors.signals import get_signal_name
 from mozart.core.logging import get_logger
 
@@ -384,7 +385,7 @@ class ClaudeCliBackend(Backend):
         Checks for rate limiting, determines success, logs appropriately,
         and returns the final result.
         """
-        rate_limited = self._detect_rate_limit(stdout, stderr)
+        rate_limited = self._detect_rate_limit(stdout, stderr, exit_code)
         success = exit_code == 0
 
         if rate_limited:
@@ -405,8 +406,8 @@ class ClaudeCliBackend(Backend):
                 stderr_bytes=len(stderr),
             )
         else:
-            stdout_tail = stdout[-500:] if len(stdout) > 500 else stdout
-            stderr_tail = stderr[-500:] if len(stderr) > 500 else stderr
+            stdout_tail = stdout[-TRUNCATE_STDOUT_TAIL_CHARS:] if len(stdout) > TRUNCATE_STDOUT_TAIL_CHARS else stdout
+            stderr_tail = stderr[-TRUNCATE_STDOUT_TAIL_CHARS:] if len(stderr) > TRUNCATE_STDOUT_TAIL_CHARS else stderr
             _logger.error(
                 "execution_failed",
                 duration_seconds=duration,
@@ -454,7 +455,9 @@ class ClaudeCliBackend(Backend):
         except ProcessLookupError:
             pass
 
-    async def _execute_impl(self, prompt: str) -> ExecutionResult:
+    async def _execute_impl(
+        self, prompt: str, *, timeout_seconds: float | None = None,
+    ) -> ExecutionResult:
         """Execute a prompt via claude CLI (internal implementation).
 
         Uses create_subprocess_exec (safe, no shell) to invoke claude.
@@ -467,7 +470,12 @@ class ClaudeCliBackend(Backend):
         Progress tracking:
         - If progress_callback is set, streams output and calls callback periodically
         - Callback receives dict with bytes_received, lines_received, elapsed_seconds
+
+        Args:
+            prompt: The prompt to send to Claude.
+            timeout_seconds: Per-call timeout override. Uses self.timeout_seconds if None.
         """
+        effective_timeout = timeout_seconds if timeout_seconds is not None else self.timeout_seconds
         cmd = self._build_command(prompt)
         start_time = time.monotonic()
 
@@ -478,7 +486,7 @@ class ClaudeCliBackend(Backend):
             skip_permissions=self.skip_permissions,
             output_format=self.output_format,
             working_directory=str(self.working_directory) if self.working_directory else None,
-            timeout_seconds=self.timeout_seconds,
+            timeout_seconds=effective_timeout,
             prompt_length=len(prompt),
         )
 
@@ -532,11 +540,12 @@ class ClaudeCliBackend(Backend):
                 if self.progress_callback:
                     stdout_bytes, stderr_bytes = await self._stream_with_progress(
                         process, start_time, _notify_progress,
+                        effective_timeout=effective_timeout,
                     )
                 else:
                     stdout_bytes, stderr_bytes = await asyncio.wait_for(
                         process.communicate(),
-                        timeout=self.timeout_seconds,
+                        timeout=effective_timeout,
                     )
                     self._write_output_logs(stdout_bytes, stderr_bytes)
 
@@ -609,11 +618,124 @@ class ClaudeCliBackend(Backend):
                 error_message=str(e),
             )
 
+    async def _read_stream_with_logging(
+        self,
+        stream: asyncio.StreamReader | None,
+        chunks: list[bytes],
+        is_stdout: bool,
+        counters: list[int | float],
+        start_time: float,
+        timeout: float,
+        notify_progress: Callable[[str], None],
+    ) -> None:
+        """Read from a subprocess stream, log to file, and track progress.
+
+        Args:
+            stream: The async stream to read from (may be None).
+            chunks: Mutable list to accumulate read chunks into.
+            is_stdout: True for stdout, False for stderr (selects log file).
+            counters: Mutable [total_bytes, total_lines, last_update] accumulator
+                shared across concurrent stream readers.
+            start_time: Execution start time for timeout calculation.
+            timeout: Overall execution timeout in seconds.
+            notify_progress: Callback to notify progress updates.
+        """
+        if stream is None:
+            return
+
+        log_path = self._stdout_log_path if is_stdout else self._stderr_log_path
+        log_file = None
+        if log_path:
+            try:
+                log_file = open(log_path, "ab")  # noqa: SIM115
+            except OSError:
+                pass
+
+        try:
+            while True:
+                try:
+                    chunk = await asyncio.wait_for(
+                        stream.read(STREAM_CHUNK_SIZE),
+                        timeout=STREAM_READ_TIMEOUT,
+                    )
+                except TimeoutError as read_timeout:
+                    elapsed = time.monotonic() - start_time
+                    if elapsed > timeout:
+                        raise TimeoutError(
+                            f"Execution timeout exceeded "
+                            f"({elapsed:.0f}s > {timeout}s limit)"
+                        ) from read_timeout
+                    continue
+
+                if not chunk:
+                    break
+
+                chunks.append(chunk)
+
+                if log_file is not None:
+                    try:
+                        log_file.write(chunk)
+                        log_file.flush()
+                    except OSError:
+                        pass
+
+                counters[0] += len(chunk)
+                counters[1] += chunk.count(b"\n")
+
+                now = time.monotonic()
+                if now - counters[2] >= self.progress_interval_seconds:
+                    notify_progress("executing")
+                    counters[2] = now
+        finally:
+            if log_file is not None:
+                log_file.close()
+
+    async def _await_process_exit(
+        self,
+        process: asyncio.subprocess.Process,
+    ) -> None:
+        """Wait for process exit, killing the process group if it hangs.
+
+        KNOWN BUG WORKAROUND (Claude Code Issue #1935):
+        Claude Code does NOT properly terminate MCP server child processes when
+        exiting. MCP servers are spawned as child processes and Claude waits for
+        them to exit — but they never do because they're long-running servers.
+
+        Fix: After streams close, wait briefly for Claude to exit. If it doesn't,
+        kill the entire process group (Claude + all children including MCP servers).
+
+        Detection: When #1935 is fixed, process.wait() will succeed within
+        PROCESS_EXIT_TIMEOUT consistently. Monitor the "process_exit_timeout" log
+        event — when it drops to zero, this workaround can be removed.
+        """
+        try:
+            await asyncio.wait_for(process.wait(), timeout=PROCESS_EXIT_TIMEOUT)
+        except TimeoutError:
+            pid = process.pid
+            _logger.warning(
+                "process_exit_timeout",
+                message="Claude did not exit after streams closed (likely MCP server bug)",
+                pid=pid,
+                timeout_seconds=PROCESS_EXIT_TIMEOUT,
+            )
+            try:
+                os.killpg(os.getpgid(pid), signal.SIGTERM)
+                await asyncio.sleep(0.5)
+            except (OSError, ProcessLookupError):
+                pass
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+            await process.wait()
+
     async def _stream_with_progress(
         self,
         process: asyncio.subprocess.Process,
         start_time: float,
         notify_progress: Callable[[str], None],
+        *,
+        effective_timeout: float | None = None,
     ) -> tuple[bytes, bytes]:
         """Stream output from process while tracking progress.
 
@@ -624,159 +746,62 @@ class ClaudeCliBackend(Backend):
             process: The running subprocess.
             start_time: When execution started (for elapsed time calculation).
             notify_progress: Callback to notify progress updates.
+            effective_timeout: Timeout to use. Falls back to self.timeout_seconds.
 
         Returns:
             Tuple of (stdout_bytes, stderr_bytes) collected from streams.
 
         Raises:
-            TimeoutError: If execution exceeds timeout_seconds.
+            TimeoutError: If execution exceeds timeout.
         """
+        timeout = effective_timeout if effective_timeout is not None else self.timeout_seconds
         stdout_chunks: list[bytes] = []
         stderr_chunks: list[bytes] = []
-        total_bytes = 0
-        total_lines = 0
-        last_update = start_time
+        # Mutable accumulator shared by concurrent stream readers:
+        # [total_bytes, total_lines, last_update_time]
+        counters: list[int | float] = [0, 0, start_time]
 
-        async def read_stream(
-            stream: asyncio.StreamReader | None,
-            chunks: list[bytes],
-            is_stdout: bool,
-        ) -> None:
-            """Read from a stream and accumulate chunks."""
-            nonlocal total_bytes, total_lines, last_update
-
-            if stream is None:
-                return
-
-            while True:
-                try:
-                    # Read in chunks for responsive progress updates
-                    chunk = await asyncio.wait_for(
-                        stream.read(4096),  # 4KB chunks
-                        timeout=STREAM_READ_TIMEOUT,  # Check timeout every second
-                    )
-                except TimeoutError as read_timeout:
-                    # 1-second read timeout - check overall timeout
-                    elapsed = time.monotonic() - start_time
-                    if elapsed > self.timeout_seconds:
-                        raise TimeoutError(
-                            f"Execution timeout exceeded "
-                            f"({elapsed:.0f}s > {self.timeout_seconds}s limit)"
-                        ) from read_timeout
-                    # Otherwise just continue reading
-                    continue
-
-                if not chunk:
-                    break  # EOF
-
-                chunks.append(chunk)
-
-                # Write chunk to appropriate log file (real-time visibility)
-                log_path = self._stdout_log_path if is_stdout else self._stderr_log_path
-                if log_path:
-                    try:
-                        with open(log_path, "ab") as f:
-                            f.write(chunk)
-                            f.flush()  # Ensure immediate visibility for tail -f
-                    except OSError:
-                        pass  # Don't fail execution if logging fails
-
-                chunk_bytes = len(chunk)
-                chunk_lines = chunk.count(b"\n")
-
-                total_bytes += chunk_bytes
-                total_lines += chunk_lines
-
-                # Check if we should notify progress
-                now = time.monotonic()
-                if now - last_update >= self.progress_interval_seconds:
-                    notify_progress("executing")
-                    last_update = now
-
-        # Read both streams concurrently
         try:
             await asyncio.wait_for(
                 asyncio.gather(
-                    read_stream(process.stdout, stdout_chunks, True),
-                    read_stream(process.stderr, stderr_chunks, False),
+                    self._read_stream_with_logging(
+                        process.stdout, stdout_chunks, True,
+                        counters, start_time, timeout, notify_progress,
+                    ),
+                    self._read_stream_with_logging(
+                        process.stderr, stderr_chunks, False,
+                        counters, start_time, timeout, notify_progress,
+                    ),
                 ),
-                timeout=self.timeout_seconds,
+                timeout=timeout,
             )
         except TimeoutError:
-            raise  # Re-raise for caller to handle
-
-        # Wait for process to complete with defensive cleanup.
-        #
-        # KNOWN BUG WORKAROUND (Claude Code Issue #1935):
-        # Claude Code does NOT properly terminate MCP server child processes when
-        # exiting. MCP servers (pyright, typescript-language-server, rust-analyzer, etc.)
-        # are spawned as child processes and Claude waits for them to exit - but they
-        # never do because they're long-running servers. This causes Claude to hang
-        # forever, which causes Mozart to hang forever.
-        #
-        # Fix: After streams close, wait briefly for Claude to exit. If it doesn't,
-        # kill the entire process group (Claude + all children including MCP servers).
-        #
-        # Detection: When #1935 is fixed, the process.wait() below will succeed within
-        # PROCESS_EXIT_TIMEOUT consistently. Monitor the "process_exit_timeout" log event
-        # frequency — when it drops to zero, this workaround can be removed.
-        try:
-            await asyncio.wait_for(process.wait(), timeout=PROCESS_EXIT_TIMEOUT)
-        except TimeoutError:
-            # Claude didn't exit - likely waiting on MCP server children
+            raise
+        except asyncio.CancelledError:
             pid = process.pid
             _logger.warning(
-                "process_exit_timeout",
-                message="Claude did not exit after streams closed (likely MCP server bug)",
+                "process_cancelled",
+                message="Cancellation received, killing process group",
                 pid=pid,
-                timeout_seconds=PROCESS_EXIT_TIMEOUT,
             )
-
-            # Kill the entire process group to clean up MCP server children
-            # This is more reliable than trying to enumerate and kill children
             try:
-                # First try SIGTERM to the process group
                 os.killpg(os.getpgid(pid), signal.SIGTERM)
                 await asyncio.sleep(0.5)
             except (OSError, ProcessLookupError):
-                pass  # Process group may not exist or already dead
-
-            # Force kill the main process if still running
+                pass
             try:
                 process.kill()
             except ProcessLookupError:
-                pass  # Already dead
-            await process.wait()
+                pass
+            raise
+
+        await self._await_process_exit(process)
 
         return b"".join(stdout_chunks), b"".join(stderr_chunks)
 
-    async def execute(self, prompt: str) -> ExecutionResult:
+    async def execute(self, prompt: str, *, timeout_seconds: float | None = None) -> ExecutionResult:
         """Execute a prompt (Backend protocol implementation)."""
-        return await self._execute_impl(prompt)
-
-    def _detect_rate_limit(self, stdout: str = "", stderr: str = "") -> bool:
-        """Check output for rate limit indicators.
-
-        Uses the shared ErrorClassifier to ensure consistent detection
-        with the runner's error classification.
-
-        Note: This interface matches AnthropicBackend._detect_rate_limit
-        for consistency across backends.
-
-        Args:
-            stdout: Standard output text from CLI execution.
-            stderr: Standard error text from CLI execution.
-
-        Returns:
-            True if rate limiting was detected.
-        """
-        # Use ErrorClassifier for unified rate limit detection
-        classified = self._error_classifier.classify(
-            stdout=stdout,
-            stderr=stderr,
-            exit_code=1,  # Assume failure for classification
-        )
-        return classified.category == ErrorCategory.RATE_LIMIT
+        return await self._execute_impl(prompt, timeout_seconds=timeout_seconds)
 
     async def health_check(self) -> bool:
         """Check if claude CLI is available and responsive."""

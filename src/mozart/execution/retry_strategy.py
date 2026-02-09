@@ -29,6 +29,8 @@ Example usage:
 
 from __future__ import annotations
 
+import math
+import random
 import threading
 import time
 from dataclasses import dataclass, field
@@ -449,6 +451,59 @@ class RetryStrategyConfig:
             raise ValueError("repeated_error_strategy_change_threshold must be >= 1")
 
 
+class LearnedDelayCircuitBreaker:
+    """Protects learned delays from bad outcomes via a 3-strike rule.
+
+    Tracks consecutive failures per error code when using learned delays.
+    After 3+ consecutive failures, the breaker "opens" and the system
+    reverts to static delays for that error code.
+
+    State is intentionally ephemeral (not persisted) — a fresh
+    AdaptiveRetryStrategy gets a clean breaker so it can re-evaluate.
+    """
+
+    FAILURE_THRESHOLD = 3
+
+    def __init__(self) -> None:
+        self._failures: dict[ErrorCode, int] = {}
+        self._enabled: dict[ErrorCode, bool] = {}
+
+    def is_enabled(self, error_code: ErrorCode) -> bool:
+        """Check if learned delays are enabled for this error code."""
+        return self._enabled.get(error_code, True)
+
+    def record_outcome(self, error_code: ErrorCode, succeeded: bool) -> None:
+        """Record a retry outcome; trip breaker after consecutive failures."""
+        if not self.is_enabled(error_code):
+            return
+
+        if succeeded:
+            self._failures[error_code] = 0
+            return
+
+        failures = self._failures.get(error_code, 0) + 1
+        self._failures[error_code] = failures
+
+        if failures > self.FAILURE_THRESHOLD:
+            self._enabled[error_code] = False
+            _logger.warning(
+                "circuit_breaker.triggered",
+                error_code=error_code.value,
+                consecutive_failures=failures,
+                message="Reverting to static delay for this error code",
+            )
+
+    def reset(self, error_code: ErrorCode) -> None:
+        """Reset breaker for an error code, re-enabling learned delays."""
+        self._enabled[error_code] = True
+        self._failures[error_code] = 0
+        _logger.info(
+            "circuit_breaker.reset",
+            error_code=error_code.value,
+            message="Circuit breaker reset, learned delays re-enabled",
+        )
+
+
 class AdaptiveRetryStrategy:
     """Intelligent retry strategy that analyzes error patterns.
 
@@ -535,13 +590,13 @@ class AdaptiveRetryStrategy:
         self._delay_history = delay_history
         self._global_store = global_learning_store
 
-        # Circuit breaker state: track consecutive failures when using learned delays.
-        # If > 3 failures with learned delay, revert to static for that error code.
-        #
-        # NOTE: This state is intentionally ephemeral (not persisted). See class
-        # docstring "Circuit Breaker State Design" section for rationale.
-        self._learned_delay_failures: dict[ErrorCode, int] = {}
-        self._use_learned_delay: dict[ErrorCode, bool] = {}
+        # Circuit breaker: protects against bad learned delays.
+        # See class docstring "Circuit Breaker State Design" for rationale.
+        self._circuit_breaker = LearnedDelayCircuitBreaker()
+
+        # Backward-compatible aliases for any direct access in tests
+        self._learned_delay_failures = self._circuit_breaker._failures
+        self._use_learned_delay = self._circuit_breaker._enabled
 
     def analyze(
         self,
@@ -963,6 +1018,71 @@ class AdaptiveRetryStrategy:
             strategy_used="cascading_retry",
         )
 
+    def _try_inmemory_delay(
+        self,
+        error_code: ErrorCode,
+        static_delay: float,
+    ) -> tuple[float, str] | None:
+        """Try to get a blended delay from in-memory history.
+
+        Returns (delay, strategy) if sufficient samples exist, None otherwise.
+        """
+        if self._delay_history is None:
+            return None
+
+        learned_delay = self._delay_history.get_average_successful_delay(error_code)
+        if learned_delay is None:
+            return None  # No successful samples yet (bootstrap phase)
+
+        sample_count = self._delay_history.get_sample_count(error_code)
+        weight = min(sample_count / 10.0, 1.0)
+        blended = weight * learned_delay + (1 - weight) * static_delay
+        blended = max(self.config.base_delay, min(blended, self.config.max_delay))
+        return blended, "learned_blend"
+
+    def _try_global_delay(
+        self,
+        error_code: ErrorCode,
+        static_delay: float,
+    ) -> tuple[float, str] | None:
+        """Try to get a learned delay from the global cross-workspace store.
+
+        Returns (delay, strategy) if the global store has meaningful data, None otherwise.
+        """
+        if self._global_store is None:
+            return None
+
+        try:
+            global_delay, confidence, strategy = (
+                self._global_store.get_learned_wait_time_with_fallback(
+                    error_code=error_code.value,
+                    static_delay=static_delay,
+                    min_samples=3,
+                    min_confidence=0.7,
+                )
+            )
+            if strategy == "static_fallback":
+                return None
+            global_delay = max(
+                self.config.base_delay,
+                min(global_delay, self.config.max_delay),
+            )
+            _logger.debug(
+                "retry_strategy.global_learned_delay",
+                error_code=error_code.value,
+                delay=round(global_delay, 2),
+                confidence=round(confidence, 3),
+                strategy=strategy,
+            )
+            return global_delay, strategy
+        except Exception as e:
+            _logger.warning(
+                "retry_strategy.global_store_error",
+                error_code=error_code.value,
+                error=str(e),
+            )
+            return None
+
     def blend_historical_delay(
         self,
         error_code: ErrorCode,
@@ -970,19 +1090,11 @@ class AdaptiveRetryStrategy:
     ) -> tuple[float, str]:
         """Blend learned delay with static delay for an error code.
 
-        Uses historical delay outcomes to compute an optimal learned delay,
-        then blends it with the static (ErrorCode-based) delay based on
-        sample size. Respects circuit breaker state.
-
-        Evolution #3: Learned Wait Time Injection - now also queries the
-        global learning store for cross-workspace learned delays when
-        in-memory history is insufficient. This enables new jobs to benefit
-        from delays learned by previous jobs across all workspaces.
-
         Priority order:
-        1. In-memory delay history (if sufficient samples)
-        2. Global learning store (cross-workspace learned delays)
-        3. Static delay (fallback)
+        1. Circuit breaker override → static
+        2. In-memory delay history (job-specific learning)
+        3. Global learning store (cross-workspace learned delays)
+        4. Static delay (fallback)
 
         Args:
             error_code: The error code to get delay for.
@@ -990,74 +1102,22 @@ class AdaptiveRetryStrategy:
 
         Returns:
             Tuple of (blended_delay, strategy_name).
-            - If no history or circuit breaker triggered: (static_delay, "static")
-            - If history available: (blended_delay, "learned_blend")
-            - If global store has data: (delay, "global_learned" or "global_learned_blend")
         """
-        # Circuit breaker check: if we've reverted to static for this code, use static
-        if not self._use_learned_delay.get(error_code, True):
+        if not self._circuit_breaker.is_enabled(error_code):
             return static_delay, "static_circuit_breaker"
 
-        # First, try in-memory delay history (highest priority - job-specific learning)
+        result = self._try_inmemory_delay(error_code, static_delay)
+        if result is not None:
+            return result
+
+        result = self._try_global_delay(error_code, static_delay)
+        if result is not None:
+            return result
+
+        # Fallback: distinguish bootstrap phase from no-history
         if self._delay_history is not None:
-            learned_delay = self._delay_history.get_average_successful_delay(error_code)
-            if learned_delay is not None:
-                # Calculate blend weight based on sample count
-                sample_count = self._delay_history.get_sample_count(error_code)
-                weight = min(sample_count / 10.0, 1.0)
-
-                # Blend: weight * learned + (1 - weight) * static
-                blended = weight * learned_delay + (1 - weight) * static_delay
-                # Clamp to valid range to prevent corrupted/extreme learned values
-                blended = max(self.config.base_delay, min(blended, self.config.max_delay))
-                return blended, "learned_blend"
-            else:
-                # History exists but no successful samples yet -> bootstrap phase
-                # Fall through to check global store, but if global store also
-                # has no data, return "static_bootstrap" instead of "static"
-                pass
-
-        # Second, try global learning store (Evolution #3: cross-workspace learning)
-        if self._global_store is not None:
-            try:
-                global_delay, confidence, strategy = (
-                    self._global_store.get_learned_wait_time_with_fallback(
-                        error_code=error_code.value,
-                        static_delay=static_delay,
-                        min_samples=3,
-                        min_confidence=0.7,
-                    )
-                )
-                # Only use global store result if it's not just a static fallback
-                if strategy != "static_fallback":
-                    # Clamp to valid range to prevent corrupted/extreme learned values
-                    global_delay = max(
-                        self.config.base_delay,
-                        min(global_delay, self.config.max_delay),
-                    )
-                    _logger.debug(
-                        "retry_strategy.global_learned_delay",
-                        error_code=error_code.value,
-                        delay=round(global_delay, 2),
-                        confidence=round(confidence, 3),
-                        strategy=strategy,
-                    )
-                    return global_delay, strategy
-            except Exception as e:
-                # Global store query failure shouldn't block retry
-                _logger.warning(
-                    "retry_strategy.global_store_error",
-                    error_code=error_code.value,
-                    error=str(e),
-                )
-
-        # Fallback: distinguish between "no history at all" vs "history but no samples"
-        if self._delay_history is not None:
-            # History exists but no successful samples -> bootstrap phase
             return static_delay, "static_bootstrap"
-        else:
-            # No history at all -> static
-            return static_delay, "static"
+        return static_delay, "static"
 
     def record_delay_outcome(
         self,
@@ -1087,25 +1147,7 @@ class AdaptiveRetryStrategy:
         self._delay_history.record(outcome)
 
         # Update circuit breaker state
-        if self._use_learned_delay.get(error_code, True):
-            # We were using learned delay
-            if succeeded:
-                # Success: reset failure count
-                self._learned_delay_failures[error_code] = 0
-            else:
-                # Failure: increment and check threshold
-                failures = self._learned_delay_failures.get(error_code, 0) + 1
-                self._learned_delay_failures[error_code] = failures
-
-                if failures > 3:
-                    # Circuit breaker triggers: revert to static
-                    self._use_learned_delay[error_code] = False
-                    _logger.warning(
-                        "circuit_breaker.triggered",
-                        error_code=error_code.value,
-                        consecutive_failures=failures,
-                        message="Reverting to static delay for this error code",
-                    )
+        self._circuit_breaker.record_outcome(error_code, succeeded)
 
     def reset_circuit_breaker(self, error_code: ErrorCode) -> None:
         """Reset circuit breaker for an error code, re-enabling learned delays.
@@ -1128,13 +1170,7 @@ class AdaptiveRetryStrategy:
             # After manual fix, give learned delays another chance
             strategy.reset_circuit_breaker(ErrorCode.E101)
         """
-        self._use_learned_delay[error_code] = True
-        self._learned_delay_failures[error_code] = 0
-        _logger.info(
-            "circuit_breaker.reset",
-            error_code=error_code.value,
-            message="Circuit breaker reset, learned delays re-enabled",
-        )
+        self._circuit_breaker.reset(error_code)
 
     def _recommend_standard_retry(
         self,
@@ -1260,7 +1296,6 @@ class AdaptiveRetryStrategy:
         if max_retries is None:
             # Without max_retries, use a decay based on attempt count
             # Confidence starts high and decreases logarithmically
-            import math
             confidence = 0.95 / (1 + math.log1p(attempt_count - 1) * 0.3)
         else:
             # With max_retries, scale linearly
@@ -1281,8 +1316,6 @@ class AdaptiveRetryStrategy:
         Returns:
             Delay with jitter applied.
         """
-        import random
-
         # Add 0-jitter_factor of the delay as random jitter
         jitter = delay * self.config.jitter_factor * random.random()
         return delay + jitter
@@ -1294,6 +1327,7 @@ __all__ = [
     "DelayHistory",
     "DelayOutcome",
     "ErrorRecord",
+    "LearnedDelayCircuitBreaker",
     "RetryBehavior",
     "RetryPattern",
     "RetryRecommendation",

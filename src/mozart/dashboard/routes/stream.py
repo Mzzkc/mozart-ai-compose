@@ -12,9 +12,13 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
 from mozart.core.checkpoint import JobStatus
+from mozart.core.logging import get_logger
 from mozart.dashboard.app import get_state_backend
+from mozart.dashboard.routes import resolve_job_workspace
 from mozart.dashboard.services.sse_manager import SSEEvent, SSEManager
 from mozart.state.base import StateBackend
+
+_logger = get_logger("dashboard.stream")
 
 router = APIRouter(prefix="/api/jobs", tags=["Streaming"])
 
@@ -72,16 +76,7 @@ async def _get_job_log_file(job_id: str, backend: StateBackend) -> Path:
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
 
     # Determine workspace path for log file location
-    if state.worktree_path:
-        workspace = Path(state.worktree_path)
-    else:
-        # For non-isolated jobs, we'd need to derive workspace from config
-        # This is a limitation of the current CheckpointState design
-        raise HTTPException(
-            status_code=404,
-            detail=f"Cannot access logs for job {job_id}. "
-                   f"Job may not be using worktree isolation."
-        )
+    workspace = resolve_job_workspace(state, job_id)
 
     # Standard Mozart log file location
     log_file = workspace / "mozart.log"
@@ -197,16 +192,48 @@ async def _job_status_stream(
         )
         yield disconnect_event.format()
     except Exception as e:
-        # Unexpected error
+        # Unexpected error — do not leak internal exception details to clients
+        _logger.exception("sse_stream_error", error_type=type(e).__name__, error=str(e))
         error_event = SSEEvent(
             event="error",
             data=json.dumps({
-                "error": f"Stream error: {e}",
-                "error_type": type(e).__name__
+                "error": "Internal stream error",
+                "error_type": "StreamError"
             }),
             id=f"error-{datetime.now().timestamp()}"
         )
         yield error_event.format()
+
+
+def _read_tail_lines(log_file: Path, tail_lines: int) -> tuple[list[str], int]:
+    """Read the last N lines from a log file.
+
+    Returns:
+        Tuple of (tail lines, total line count in file).
+    """
+    with open(log_file, encoding='utf-8', errors='replace') as f:
+        all_lines = f.readlines()
+
+    total = len(all_lines)
+    if tail_lines <= 0:
+        return [], total
+    tail = all_lines[-tail_lines:] if total > tail_lines else all_lines
+    return tail, total
+
+
+def _make_log_event(line: str, line_number: int, initial: bool, event_id: str) -> str:
+    """Create a formatted SSE log event."""
+    event = SSEEvent(
+        event="log",
+        data=json.dumps({
+            "line": line.rstrip('\n') if initial else line,
+            "line_number": line_number,
+            "timestamp": datetime.now().isoformat(),
+            "initial": initial,
+        }),
+        id=event_id,
+    )
+    return event.format()
 
 
 async def _log_stream(
@@ -228,52 +255,33 @@ async def _log_stream(
         # Send initial tail of log file
         if log_file.exists():
             try:
-                lines = []
-                with open(log_file, encoding='utf-8', errors='replace') as f:
-                    # Get last N lines
-                    all_lines = f.readlines()
-                    lines = all_lines[-tail_lines:] if len(all_lines) > tail_lines else all_lines
-
+                lines, total = _read_tail_lines(log_file, tail_lines)
+                start_num = total - len(lines) + 1
                 for i, line in enumerate(lines):
-                    event = SSEEvent(
-                        event="log",
-                        data=json.dumps({
-                            "line": line.rstrip('\n'),
-                            "line_number": len(all_lines) - len(lines) + i + 1,
-                            "timestamp": datetime.now().isoformat(),
-                            "initial": True
-                        }),
-                        id=f"log-init-{i}"
-                    )
-                    yield event.format()
-
+                    yield _make_log_event(line, start_num + i, initial=True, event_id=f"log-init-{i}")
             except (OSError, PermissionError) as e:
                 error_event = SSEEvent(
                     event="error",
                     data=json.dumps({"error": f"Cannot read log file: {e}"}),
-                    id=f"error-{datetime.now().timestamp()}"
+                    id=f"error-{datetime.now().timestamp()}",
                 )
                 yield error_event.format()
                 return
 
         if not follow:
-            # Send completion event for static log download
             complete_event = SSEEvent(
                 event="log_complete",
                 data=json.dumps({"message": "Log file streamed completely"}),
-                id=f"complete-{datetime.now().timestamp()}"
+                id=f"complete-{datetime.now().timestamp()}",
             )
             yield complete_event.format()
             return
 
         # Follow mode - watch for new log lines
         last_size = log_file.stat().st_size if log_file.exists() else 0
-        # Initialize line_count based on initial tail
         line_count = 0
         if log_file.exists():
-            with open(log_file, encoding='utf-8', errors='replace') as f:
-                all_lines_for_count = f.readlines()
-                line_count = len(all_lines_for_count)
+            _, line_count = _read_tail_lines(log_file, tail_lines=0)
 
         while True:
             try:
@@ -296,17 +304,7 @@ async def _log_stream(
                     for line in new_lines:
                         if line:  # Skip empty lines
                             line_count += 1
-                            event = SSEEvent(
-                                event="log",
-                                data=json.dumps({
-                                    "line": line,
-                                    "line_number": line_count,
-                                    "timestamp": datetime.now().isoformat(),
-                                    "initial": False
-                                }),
-                                id=f"log-{line_count}"
-                            )
-                            yield event.format()
+                            yield _make_log_event(line, line_count, initial=False, event_id=f"log-{line_count}")
 
                     last_size = current_size
 
@@ -315,11 +313,12 @@ async def _log_stream(
             except asyncio.CancelledError:
                 break
             except Exception as e:
+                _logger.exception("log_stream_error", error_type=type(e).__name__, error=str(e))
                 error_event = SSEEvent(
                     event="error",
                     data=json.dumps({
-                        "error": f"Log streaming error: {e}",
-                        "error_type": type(e).__name__
+                        "error": "Internal log streaming error",
+                        "error_type": "StreamError"
                     }),
                     id=f"error-{datetime.now().timestamp()}"
                 )

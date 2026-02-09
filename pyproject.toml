@@ -49,6 +49,7 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.1.0",
+    "pytest-timeout>=2.3.0",
     "ruff>=0.2.0",
     "mypy>=1.8.0",
 ]
@@ -85,3 +86,25 @@ warn_unused_ignores = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+timeout = 30  # Safety net: kill any test that runs >30s (prevents orphaned processes)
+addopts = "--cov=mozart --cov-report=term-missing:skip-covered --cov-report=json:coverage.json --no-cov-on-fail"
+
+[tool.coverage.run]
+source = ["src/mozart"]
+omit = [
+    "src/mozart/dashboard/static/*",
+    "src/mozart/dashboard/templates/*",
+    "src/mozart/scores/templates/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.",
+    "@overload",
+    "\\.\\.\\.",
+]
+show_missing = true
+skip_covered = true
+fail_under = 0

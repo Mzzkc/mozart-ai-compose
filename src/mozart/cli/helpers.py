@@ -403,6 +403,55 @@ async def find_job_state(
     return None, None
 
 
+async def require_job_state(
+    job_id: str,
+    workspace: Path | None,
+    *,
+    json_output: bool = False,
+) -> tuple[CheckpointState, StateBackend]:
+    """Find job state or exit with a formatted error.
+
+    Combines the repeated workspace-check → find-state → error-on-missing
+    pattern used across CLI commands (status, resume, pause, diagnose, errors).
+
+    Args:
+        job_id: Job ID to find.
+        workspace: Optional workspace directory to search.
+        json_output: If True, format error as JSON; otherwise use Rich markup.
+
+    Returns:
+        Tuple of (CheckpointState, StateBackend).
+
+    Raises:
+        typer.Exit(1): If workspace doesn't exist or job not found.
+    """
+    from .output import output_error
+
+    if workspace and not workspace.exists():
+        output_error(
+            f"{ErrorMessages.WORKSPACE_NOT_FOUND}: {workspace}",
+            hints=["Check the workspace path exists"],
+            json_output=json_output,
+        )
+        raise typer.Exit(1)
+
+    found_state, found_backend = await find_job_state(job_id, workspace)
+
+    if found_state is None or found_backend is None:
+        output_error(
+            f"{ErrorMessages.JOB_NOT_FOUND}: {job_id}",
+            hints=[
+                "Use --workspace to specify the directory containing the job state",
+                "Run 'mozart list' to see available jobs",
+            ],
+            json_output=json_output,
+            job_id=job_id,
+        )
+        raise typer.Exit(1)
+
+    return found_state, found_backend
+
+
 def get_state_backends(workspace: Path | None) -> list[StateBackend]:
     """Get list of state backends to search.
 
@@ -559,6 +608,7 @@ __all__ = [
     # State discovery
     "find_job_workspace",
     "find_job_state",
+    "require_job_state",
     "get_state_backends",
     # Pause signals
     "create_pause_signal",

@@ -95,6 +95,10 @@ class SQLiteStateBackend(StateBackend):
             await self._migrate_v2(db)
             _logger.info("schema_migrated", from_version=1, to_version=2)
 
+        if current_version < 3:
+            await self._migrate_v3(db)
+            _logger.info("schema_migrated", from_version=2, to_version=3)
+
     async def _migrate_v1(self, db: aiosqlite.Connection) -> None:
         """Initial schema migration (version 1)."""
         await db.execute("""
@@ -215,6 +219,36 @@ class SQLiteStateBackend(StateBackend):
 
         await db.commit()
 
+    async def _migrate_v3(self, db: aiosqlite.Connection) -> None:
+        """Schema migration v3: Add execution_duration_seconds, exit_signal, exit_reason to sheets.
+
+        These columns exist in the Pydantic SheetState model but were missing from
+        the SQLite schema, causing ~40% data loss compared to the JSON backend.
+        Idempotent: checks column existence before ALTER.
+        """
+        cursor = await db.execute("PRAGMA table_info(sheets)")
+        columns = {row[1] for row in await cursor.fetchall()}
+
+        if "execution_duration_seconds" not in columns:
+            await db.execute(
+                "ALTER TABLE sheets ADD COLUMN execution_duration_seconds REAL"
+            )
+        if "exit_signal" not in columns:
+            await db.execute(
+                "ALTER TABLE sheets ADD COLUMN exit_signal INTEGER"
+            )
+        if "exit_reason" not in columns:
+            await db.execute(
+                "ALTER TABLE sheets ADD COLUMN exit_reason TEXT"
+            )
+
+        await db.execute(
+            "INSERT OR IGNORE INTO schema_version (version, applied_at) VALUES (?, ?)",
+            (3, utc_now().isoformat()),
+        )
+
+        await db.commit()
+
     def _datetime_to_str(self, dt: datetime | None) -> str | None:
         """Convert datetime to ISO format string."""
         return dt.isoformat() if dt else None
@@ -300,6 +334,15 @@ class SQLiteStateBackend(StateBackend):
                     similar_outcomes_count=row["similar_outcomes_count"],
                     first_attempt_success=bool(row["first_attempt_success"]),
                     outcome_category=row["outcome_category"],
+                    execution_duration_seconds=row["execution_duration_seconds"]
+                    if "execution_duration_seconds" in row.keys()
+                    else None,
+                    exit_signal=row["exit_signal"]
+                    if "exit_signal" in row.keys()
+                    else None,
+                    exit_reason=row["exit_reason"]
+                    if "exit_reason" in row.keys()
+                    else None,
                 )
                 sheets[sheet.sheet_num] = sheet
 
@@ -423,8 +466,9 @@ class SQLiteStateBackend(StateBackend):
                         failed_validations, last_pass_percentage, execution_mode,
                         outcome_data, confidence_score, learned_patterns,
                         similar_outcomes_count, first_attempt_success,
-                        outcome_category, started_at, completed_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        outcome_category, started_at, completed_at,
+                        execution_duration_seconds, exit_signal, exit_reason
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(job_id, sheet_num) DO UPDATE SET
                         status = excluded.status,
                         attempt_count = excluded.attempt_count,
@@ -445,7 +489,10 @@ class SQLiteStateBackend(StateBackend):
                         first_attempt_success = excluded.first_attempt_success,
                         outcome_category = excluded.outcome_category,
                         started_at = excluded.started_at,
-                        completed_at = excluded.completed_at
+                        completed_at = excluded.completed_at,
+                        execution_duration_seconds = excluded.execution_duration_seconds,
+                        exit_signal = excluded.exit_signal,
+                        exit_reason = excluded.exit_reason
                 """,
                     (
                         state.job_id,
@@ -472,6 +519,9 @@ class SQLiteStateBackend(StateBackend):
                         sheet.outcome_category,
                         self._datetime_to_str(sheet.started_at),
                         self._datetime_to_str(sheet.completed_at),
+                        sheet.execution_duration_seconds,
+                        sheet.exit_signal,
+                        sheet.exit_reason,
                     ),
                 )
 

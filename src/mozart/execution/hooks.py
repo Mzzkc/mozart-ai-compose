@@ -18,6 +18,7 @@ shell features aren't needed.
 
 import asyncio
 import os
+import re
 import shlex
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -93,13 +94,30 @@ class HookExecutor:
         # Track results
         self.hook_results: list[HookResult] = []
 
+    _KNOWN_VARS = frozenset({"workspace", "job_id", "sheet_count"})
+
     def _expand_template(self, template: str) -> str:
-        """Expand template variables in hook paths/commands."""
-        return (
+        """Expand template variables in hook paths/commands.
+
+        Known variables: {workspace}, {job_id}, {sheet_count}.
+        Warns on unrecognized {var} patterns that remain after expansion.
+        """
+        result = (
             template.replace("{workspace}", str(self.workspace))
             .replace("{job_id}", self.config.name)
             .replace("{sheet_count}", str(self.config.sheet.total_sheets))
         )
+        # Warn about unrecognized template variables
+        for match in re.finditer(r"\{(\w+)\}", result):
+            var_name = match.group(1)
+            if var_name not in self._KNOWN_VARS:
+                _logger.warning(
+                    "unknown_template_variable",
+                    variable=var_name,
+                    template=template,
+                    known_vars=sorted(self._KNOWN_VARS),
+                )
+        return result
 
     async def execute_hooks(self) -> list[HookResult]:
         """Execute all configured on_success hooks.
@@ -280,11 +298,12 @@ class HookExecutor:
         # Use parent process cwd (not workspace) so relative job_path finds the config
         # This allows on_success hooks to reference sibling config files correctly
         try:
-            # For detached mode, use setsid to create independent process group
+            # For detached mode, create independent session group.
+            # start_new_session=True calls os.setsid() in the child, which is
+            # sufficient — the external `setsid` binary would double-detach
+            # redundantly and adds a dependency on the setsid binary.
             if hook.detached:
-                # Spawn detached - don't capture output, don't wait
                 process = await asyncio.create_subprocess_exec(
-                    "setsid",
                     *cmd,
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.DEVNULL,

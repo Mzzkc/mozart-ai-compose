@@ -15,6 +15,7 @@ previously untested after the D3 modularization.
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -522,7 +523,7 @@ class TestCrossWorkspaceRateLimitCheck:
         mock_global_store: MagicMock,
     ) -> None:
         """Test that errors from global store are handled gracefully."""
-        mock_global_store.is_rate_limited.side_effect = Exception("Database error")
+        mock_global_store.is_rate_limited.side_effect = sqlite3.OperationalError("Database error")
 
         state = CheckpointState(
             job_id="test-job",
@@ -738,7 +739,7 @@ class TestBroadcastPolling:
         mock_global_store: MagicMock,
     ) -> None:
         """Test that polling errors don't block execution."""
-        mock_global_store.check_recent_pattern_discoveries.side_effect = Exception("DB error")
+        mock_global_store.check_recent_pattern_discoveries.side_effect = sqlite3.OperationalError("DB error")
 
         # Should not raise
         await runner_with_global_store._poll_broadcast_discoveries(
@@ -797,7 +798,7 @@ class TestErrorRecoveryRecording:
         mock_global_store: MagicMock,
     ) -> None:
         """Test that recording errors don't block execution."""
-        mock_global_store.record_error_recovery.side_effect = Exception("DB error")
+        mock_global_store.record_error_recovery.side_effect = sqlite3.OperationalError("DB error")
 
         # Should not raise
         await runner_with_global_store._record_error_recovery(

@@ -18,6 +18,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from mozart.core.checkpoint import SheetStatus
 from mozart.core.logging import get_logger
 from mozart.execution.dag import DependencyDAG
 
@@ -129,7 +130,8 @@ class _LockingStateBackend:
     interleaving state mutations and corrupting checkpoint data.
 
     Both save() and load() are locked to prevent TOCTOU races where a
-    concurrent sheet reads partially-written state.
+    concurrent sheet reads partially-written state. All other StateBackend
+    methods are explicitly delegated for type safety.
     """
 
     def __init__(self, inner: "StateBackend", lock: asyncio.Lock) -> None:
@@ -144,8 +146,35 @@ class _LockingStateBackend:
         async with self._lock:
             return await self._inner.load(job_id)
 
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._inner, name)
+    async def delete(self, job_id: str) -> bool:
+        return await self._inner.delete(job_id)
+
+    async def list_jobs(self) -> list["CheckpointState"]:
+        return await self._inner.list_jobs()
+
+    async def get_next_sheet(self, job_id: str) -> int | None:
+        async with self._lock:
+            return await self._inner.get_next_sheet(job_id)
+
+    async def mark_sheet_status(
+        self,
+        job_id: str,
+        sheet_num: int,
+        status: SheetStatus,
+        error_message: str | None = None,
+    ) -> None:
+        async with self._lock:
+            await self._inner.mark_sheet_status(job_id, sheet_num, status, error_message)
+
+    async def infer_state_from_artifacts(
+        self,
+        job_id: str,
+        workspace: str,
+        artifact_pattern: str,
+    ) -> int | None:
+        return await self._inner.infer_state_from_artifacts(
+            job_id, workspace, artifact_pattern
+        )
 
 
 class ParallelExecutor:
@@ -178,7 +207,7 @@ class ParallelExecutor:
         """Initialize parallel executor.
 
         Args:
-            runner: Any object satisfying ParallelExecutorHost protocol.
+            runner: The JobRunner that executes individual sheets.
             config: Parallel execution configuration.
         """
         self.runner = runner
@@ -246,15 +275,8 @@ class ParallelExecutor:
                     )
                     tasks[sheet_num] = task
 
-            # All tasks completed (TaskGroup waits for all)
-            # Check results
-            for sheet_num, task in tasks.items():
-                exc = task.exception()
-                if exc is not None:
-                    result.failed.append(sheet_num)
-                    result.error_details[sheet_num] = str(exc)
-                else:
-                    result.completed.append(sheet_num)
+            # All tasks completed successfully (TaskGroup raises ExceptionGroup on failure)
+            result.completed.extend(tasks.keys())
 
         except* Exception as eg:
             # TaskGroup raises ExceptionGroup on failure
@@ -363,14 +385,12 @@ class ParallelExecutor:
             next_sheet = state.get_next_sheet()
             return [next_sheet] if next_sheet is not None else []
 
-        # Get completed sheets
-        from mozart.core.checkpoint import SheetStatus
-
-        completed: set[int] = set()
-        for sheet_num in range(1, state.total_sheets + 1):
-            sheet_state = state.sheets.get(sheet_num)
-            if sheet_state and sheet_state.status == SheetStatus.COMPLETED:
-                completed.add(sheet_num)
+        # Get completed sheets by iterating stored state directly
+        completed: set[int] = {
+            num
+            for num, s in state.sheets.items()
+            if s.status == SheetStatus.COMPLETED
+        }
 
         # Get ready sheets from DAG
         ready = self.dag.get_ready_sheets(completed)

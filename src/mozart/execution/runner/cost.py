@@ -228,37 +228,3 @@ class CostMixin:
                 )
 
         return False, None
-
-    # ─────────────────────────────────────────────────────────────────────
-    # Cost Estimation Utilities
-    # ─────────────────────────────────────────────────────────────────────
-
-    def _estimate_prompt_tokens(self, prompt: str) -> int:
-        """Estimate token count for a prompt string.
-
-        Uses a simple character-based heuristic: ~4 characters per token.
-        This is a rough approximation suitable for cost estimation.
-
-        Args:
-            prompt: The prompt text to estimate.
-
-        Returns:
-            Estimated token count (minimum 1).
-        """
-        return max(len(prompt) // 4, 1)
-
-    def _format_cost(self, cost: float) -> str:
-        """Format a cost value for display.
-
-        Args:
-            cost: Cost in dollars.
-
-        Returns:
-            Formatted string like "$0.0042" or "$1.23".
-        """
-        if cost < 0.01:
-            return f"${cost:.4f}"
-        elif cost < 1.0:
-            return f"${cost:.3f}"
-        else:
-            return f"${cost:.2f}"

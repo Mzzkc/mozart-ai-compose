@@ -328,3 +328,369 @@ class TestConcertLimits:
         assert results[0].success is False
         assert results[0].error_message is not None
         assert "depth limit" in results[0].error_message.lower()
+
+
+class TestHookErrorPaths:
+    """Tests for hook error paths: timeout, abort-on-failure, detached spawning, exceptions."""
+
+    @pytest.mark.asyncio
+    async def test_abort_on_failure_stops_remaining_hooks(self) -> None:
+        """When on_failure='abort', remaining hooks should not execute."""
+        config = JobConfig.model_validate({
+            "name": "abort-test",
+            "description": "Test",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 1, "total_items": 1},
+            "prompt": {"template": "Test"},
+            "on_success": [
+                {
+                    "type": "run_command",
+                    "command": "exit 1",
+                    "description": "Failing hook",
+                    "on_failure": "abort",
+                },
+                {
+                    "type": "run_command",
+                    "command": "echo 'should not run'",
+                    "description": "Should be skipped",
+                },
+            ],
+        })
+
+        executor = HookExecutor(config=config, workspace=Path("/tmp"))
+        results = await executor.execute_hooks()
+
+        # Only the first hook should have run
+        assert len(results) == 1
+        assert results[0].success is False
+        assert results[0].exit_code == 1
+
+    @pytest.mark.asyncio
+    async def test_continue_on_failure_runs_remaining_hooks(self) -> None:
+        """When on_failure='continue' (default), remaining hooks should execute."""
+        config = JobConfig.model_validate({
+            "name": "continue-test",
+            "description": "Test",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 1, "total_items": 1},
+            "prompt": {"template": "Test"},
+            "on_success": [
+                {
+                    "type": "run_command",
+                    "command": "exit 1",
+                    "description": "Failing hook",
+                    "on_failure": "continue",
+                },
+                {
+                    "type": "run_command",
+                    "command": "echo 'still runs'",
+                    "description": "Should still run",
+                },
+            ],
+        })
+
+        executor = HookExecutor(config=config, workspace=Path("/tmp"))
+        results = await executor.execute_hooks()
+
+        assert len(results) == 2
+        assert results[0].success is False
+        assert results[1].success is True
+
+    @pytest.mark.asyncio
+    async def test_concert_abort_on_hook_failure(self) -> None:
+        """abort_concert_on_hook_failure should stop remaining hooks."""
+        config = JobConfig.model_validate({
+            "name": "concert-abort-test",
+            "description": "Test",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 1, "total_items": 1},
+            "prompt": {"template": "Test"},
+            "concert": {
+                "enabled": True,
+                "abort_concert_on_hook_failure": True,
+            },
+            "on_success": [
+                {
+                    "type": "run_command",
+                    "command": "exit 1",
+                    "description": "Failing hook",
+                },
+                {
+                    "type": "run_command",
+                    "command": "echo 'should not run'",
+                    "description": "Should be skipped",
+                },
+            ],
+        })
+
+        executor = HookExecutor(config=config, workspace=Path("/tmp"))
+        results = await executor.execute_hooks()
+
+        # Only the first hook should have run due to concert abort
+        assert len(results) == 1
+        assert results[0].success is False
+
+    @pytest.mark.asyncio
+    async def test_command_timeout_returns_failure(self) -> None:
+        """Hook exceeding timeout should return failure with timeout message.
+
+        Uses a subprocess that creates its own process group so kill() works
+        properly (shell subprocesses don't propagate SIGKILL to children).
+        """
+        config = JobConfig.model_validate({
+            "name": "timeout-test",
+            "description": "Test",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 1, "total_items": 1},
+            "prompt": {"template": "Test"},
+            "on_success": [
+                {
+                    "type": "run_command",
+                    # Use exec to replace the shell process so kill() reaches it
+                    "command": "exec sleep 60",
+                    "description": "Slow hook",
+                    "timeout_seconds": 0.5,
+                },
+            ],
+        })
+
+        executor = HookExecutor(config=config, workspace=Path("/tmp"))
+        results = await executor.execute_hooks()
+
+        assert len(results) == 1
+        assert results[0].success is False
+        assert results[0].error_message is not None
+        assert "timeout" in results[0].error_message.lower()
+
+    @pytest.mark.asyncio
+    async def test_script_timeout_returns_failure(self) -> None:
+        """run_script hook exceeding timeout should return failure.
+
+        run_script uses subprocess_exec (no shell), so kill() targets
+        the process directly.
+        """
+        import sys
+
+        config = JobConfig.model_validate({
+            "name": "script-timeout-test",
+            "description": "Test",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 1, "total_items": 1},
+            "prompt": {"template": "Test"},
+            "on_success": [
+                {
+                    "type": "run_script",
+                    # Use python -c for a direct process (no shell children)
+                    "command": f"{sys.executable} -c 'import time; time.sleep(60)'",
+                    "description": "Slow script",
+                    "timeout_seconds": 0.5,
+                },
+            ],
+        })
+
+        executor = HookExecutor(config=config, workspace=Path("/tmp"))
+        results = await executor.execute_hooks()
+
+        assert len(results) == 1
+        assert results[0].success is False
+        assert results[0].error_message is not None
+        assert "timeout" in results[0].error_message.lower()
+
+    @pytest.mark.asyncio
+    async def test_run_command_missing_command(self) -> None:
+        """run_command with no command should fail gracefully."""
+        config = JobConfig.model_validate({
+            "name": "no-cmd-test",
+            "description": "Test",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 1, "total_items": 1},
+            "prompt": {"template": "Test"},
+        })
+        hook = PostSuccessHookConfig(
+            type="run_command",
+            description="Missing command",
+        )
+        config.on_success = [hook]
+
+        executor = HookExecutor(config=config, workspace=Path("/tmp"))
+        results = await executor.execute_hooks()
+
+        assert len(results) == 1
+        assert results[0].success is False
+        assert "command is required" in results[0].error_message.lower()
+
+    @pytest.mark.asyncio
+    async def test_run_script_missing_command(self) -> None:
+        """run_script with no command should fail gracefully."""
+        config = JobConfig.model_validate({
+            "name": "no-script-test",
+            "description": "Test",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 1, "total_items": 1},
+            "prompt": {"template": "Test"},
+        })
+        hook = PostSuccessHookConfig(
+            type="run_script",
+            description="Missing script",
+        )
+        config.on_success = [hook]
+
+        executor = HookExecutor(config=config, workspace=Path("/tmp"))
+        results = await executor.execute_hooks()
+
+        assert len(results) == 1
+        assert results[0].success is False
+        assert "command is required" in results[0].error_message.lower()
+
+    @pytest.mark.asyncio
+    async def test_run_job_no_job_path(self) -> None:
+        """run_job with no job_path should fail gracefully."""
+        config = JobConfig.model_validate({
+            "name": "no-path-test",
+            "description": "Test",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 1, "total_items": 1},
+            "prompt": {"template": "Test"},
+        })
+        hook = PostSuccessHookConfig(
+            type="run_job",
+            description="Missing path",
+        )
+        config.on_success = [hook]
+
+        executor = HookExecutor(config=config, workspace=Path("/tmp"))
+        results = await executor.execute_hooks()
+
+        assert len(results) == 1
+        assert results[0].success is False
+        assert "job_path is required" in results[0].error_message.lower()
+
+    @pytest.mark.asyncio
+    async def test_hook_exception_captured_as_failure(self) -> None:
+        """Exceptions during hook execution should be captured, not raised."""
+        config = JobConfig.model_validate({
+            "name": "exception-test",
+            "description": "Test",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 1, "total_items": 1},
+            "prompt": {"template": "Test"},
+            "on_success": [
+                {
+                    "type": "run_script",
+                    "command": "",  # Will cause shlex.split to succeed but empty args
+                    "description": "Exception hook",
+                },
+            ],
+        })
+
+        executor = HookExecutor(config=config, workspace=Path("/tmp"))
+        results = await executor.execute_hooks()
+
+        # Should produce a result (possibly failure), not raise
+        assert len(results) == 1
+        assert results[0].success is False
+
+    @pytest.mark.asyncio
+    async def test_exception_with_abort_stops_remaining(self) -> None:
+        """Exception in hook with on_failure='abort' should stop remaining hooks."""
+        config = JobConfig.model_validate({
+            "name": "exc-abort-test",
+            "description": "Test",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 1, "total_items": 1},
+            "prompt": {"template": "Test"},
+            "on_success": [
+                {
+                    "type": "run_script",
+                    "command": "/nonexistent/binary/xyzabc123",
+                    "description": "Will throw FileNotFoundError",
+                    "on_failure": "abort",
+                },
+                {
+                    "type": "run_command",
+                    "command": "echo 'should not run'",
+                    "description": "Should be skipped",
+                },
+            ],
+        })
+
+        executor = HookExecutor(config=config, workspace=Path("/tmp"))
+        results = await executor.execute_hooks()
+
+        # First hook fails with exception, abort prevents second hook
+        assert len(results) == 1
+        assert results[0].success is False
+
+    @pytest.mark.asyncio
+    async def test_chain_depth_below_limit_proceeds(self, tmp_path: Path) -> None:
+        """run_job should proceed past the depth check when below limit.
+
+        Rather than actually spawning mozart (which may not be in PATH or may
+        take too long), we test that the depth check logic is correct by
+        directly calling _execute_run_job and verifying the error is NOT
+        about depth limit.
+        """
+        job_config = tmp_path / "next-job.yaml"
+        job_config.write_text("name: next-job\nbackend:\n  type: claude_cli\n")
+
+        config = JobConfig.model_validate({
+            "name": "depth-ok-test",
+            "description": "Test",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 1, "total_items": 1},
+            "prompt": {"template": "Test"},
+            "concert": {
+                "enabled": True,
+                "max_chain_depth": 5,
+                "cooldown_between_jobs_seconds": 0,
+            },
+        })
+
+        hook = PostSuccessHookConfig(
+            type="run_job",
+            job_path=job_config,
+            description="Chained job",
+            timeout_seconds=2.0,  # Short timeout to avoid hanging
+        )
+
+        concert_ctx = ConcertContext(
+            concert_id="test",
+            chain_depth=1,  # Below limit of 5
+        )
+
+        executor = HookExecutor(
+            config=config,
+            workspace=Path("/tmp"),
+            concert_context=concert_ctx,
+        )
+
+        result = await executor._execute_run_job(hook)
+
+        # Should NOT fail due to depth limit (may fail for other reasons
+        # like mozart not being in PATH, but NOT depth limit)
+        if not result.success and result.error_message:
+            assert "depth limit" not in result.error_message.lower()
+
+    @pytest.mark.asyncio
+    async def test_hook_duration_tracked(self) -> None:
+        """Hook execution should track duration_seconds."""
+        config = JobConfig.model_validate({
+            "name": "duration-test",
+            "description": "Test",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 1, "total_items": 1},
+            "prompt": {"template": "Test"},
+            "on_success": [
+                {
+                    "type": "run_command",
+                    "command": "echo done",
+                    "description": "Quick hook",
+                },
+            ],
+        })
+
+        executor = HookExecutor(config=config, workspace=Path("/tmp"))
+        results = await executor.execute_hooks()
+
+        assert len(results) == 1
+        assert results[0].duration_seconds >= 0.0

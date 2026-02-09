@@ -15,6 +15,7 @@ from mozart.execution.runner import (
     JobRunner,
     RunSummary,
 )
+from mozart.execution.runner.models import RunnerContext
 from mozart.execution.preflight import PreflightResult, PromptMetrics
 from mozart.core.config import ValidationRule
 from mozart.execution.validation import SheetValidationResult, ValidationResult
@@ -269,7 +270,7 @@ class TestProgressTracking:
             config=sample_config,
             backend=mock_backend,
             state_backend=mock_state_backend,
-            progress_callback=track_progress,
+            context=RunnerContext(progress_callback=track_progress),
         )
 
         # Mock the sheet execution to just mark sheets complete
@@ -312,7 +313,7 @@ class TestProgressTracking:
             config=sample_config,
             backend=mock_backend,
             state_backend=mock_state_backend,
-            progress_callback=track_eta,
+            context=RunnerContext(progress_callback=track_eta),
         )
 
         # Simulate sheet times
@@ -346,7 +347,6 @@ class TestProgressTracking:
             config=sample_config,
             backend=mock_backend,
             state_backend=mock_state_backend,
-            progress_callback=None,
         )
 
         # Create a state
@@ -359,6 +359,95 @@ class TestProgressTracking:
 
         # Should not raise
         runner._update_progress(state)
+
+
+class TestProgressCallbackErrorPaths:
+    """Tests for progress callback behavior during error/retry/validation failures.
+
+    B2-11: Current tests only cover the happy path where all sheets succeed.
+    These tests verify progress reporting during failure scenarios.
+    """
+
+    @pytest.mark.asyncio
+    async def test_progress_callback_on_validation_failure(
+        self,
+        sample_config: JobConfig,
+        mock_backend: MagicMock,
+        mock_state_backend: MagicMock,
+    ) -> None:
+        """Progress callback should still fire when a sheet fails validation."""
+        progress_updates: list[tuple[int, int, float | None]] = []
+
+        def track_progress(completed: int, total: int, eta: float | None) -> None:
+            progress_updates.append((completed, total, eta))
+
+        runner = JobRunner(
+            config=sample_config,
+            backend=mock_backend,
+            state_backend=mock_state_backend,
+            context=RunnerContext(progress_callback=track_progress),
+        )
+
+        with patch.object(runner, "_execute_sheet_with_recovery") as mock_exec:
+            call_count = 0
+
+            async def validation_fail_then_succeed(
+                state: CheckpointState, sheet_num: int
+            ) -> None:
+                nonlocal call_count
+                call_count += 1
+                state.mark_sheet_started(sheet_num)
+                if sheet_num == 2:
+                    # Simulate validation failure — mark with validation_passed=False
+                    state.mark_sheet_failed(
+                        sheet_num, error_message="Validation failed"
+                    )
+                    raise FatalError("Sheet 2 validation failed")
+                state.mark_sheet_completed(sheet_num, validation_passed=True)
+
+            mock_exec.side_effect = validation_fail_then_succeed
+
+            # Run should stop when FatalError is raised at sheet 2
+            with pytest.raises(FatalError):
+                await runner.run()
+
+        # Sheet 1 should have triggered a progress update
+        assert len(progress_updates) >= 1
+        assert progress_updates[0][0] == 1  # 1 sheet completed
+
+    @pytest.mark.asyncio
+    async def test_progress_callback_not_called_without_callback(
+        self,
+        sample_config: JobConfig,
+        mock_backend: MagicMock,
+        mock_state_backend: MagicMock,
+    ) -> None:
+        """No progress callback set should not raise errors during failures."""
+        runner = JobRunner(
+            config=sample_config,
+            backend=mock_backend,
+            state_backend=mock_state_backend,
+            # No progress callback
+        )
+
+        with patch.object(runner, "_execute_sheet_with_recovery") as mock_exec:
+            async def fail_on_sheet_2(
+                state: CheckpointState, sheet_num: int
+            ) -> None:
+                state.mark_sheet_started(sheet_num)
+                if sheet_num == 2:
+                    state.mark_sheet_failed(
+                        sheet_num, error_message="Error"
+                    )
+                    raise FatalError("Sheet 2 failed")
+                state.mark_sheet_completed(sheet_num, validation_passed=True)
+
+            mock_exec.side_effect = fail_on_sheet_2
+
+            with pytest.raises(FatalError):
+                await runner.run()
+
+        # Should not raise — just verifying no callback doesn't break error paths
 
 
 class TestGracefulShutdownErrorException:
@@ -921,7 +1010,7 @@ class TestRunnerLoggingIntegration:
         # Configure backend to fail then succeed
         call_count = 0
 
-        async def fail_then_succeed(prompt: str) -> ExecutionResult:
+        async def fail_then_succeed(prompt: str, **kwargs: object) -> ExecutionResult:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -1024,7 +1113,7 @@ class TestRunnerLoggingIntegration:
 
         call_count = 0
 
-        async def rate_limit_then_succeed(prompt: str) -> ExecutionResult:
+        async def rate_limit_then_succeed(prompt: str, **kwargs: object) -> ExecutionResult:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -1370,7 +1459,7 @@ class TestLoggingLevelFiltering:
 
         call_count = 0
 
-        async def rate_limit_then_succeed(prompt: str) -> ExecutionResult:
+        async def rate_limit_then_succeed(prompt: str, **kwargs: object) -> ExecutionResult:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -1490,7 +1579,7 @@ class TestActiveBroadcastPolling:
             config=sample_config,
             backend=mock_backend,
             state_backend=mock_state_backend,
-            global_learning_store=mock_store,
+            context=RunnerContext(global_learning_store=mock_store),
         )
 
         await runner._poll_broadcast_discoveries("test-job-123", sheet_num=1)
@@ -1516,7 +1605,7 @@ class TestActiveBroadcastPolling:
             config=sample_config,
             backend=mock_backend,
             state_backend=mock_state_backend,
-            global_learning_store=mock_store,
+            context=RunnerContext(global_learning_store=mock_store),
         )
 
         # Should not raise, should not log anything for empty results
@@ -1569,7 +1658,7 @@ class TestActiveBroadcastPolling:
             config=sample_config,
             backend=mock_backend,
             state_backend=mock_state_backend,
-            global_learning_store=mock_store,
+            context=RunnerContext(global_learning_store=mock_store),
         )
 
         await runner._poll_broadcast_discoveries("test-job-123", sheet_num=2)
@@ -1594,7 +1683,7 @@ class TestActiveBroadcastPolling:
             config=sample_config,
             backend=mock_backend,
             state_backend=mock_state_backend,
-            global_learning_store=mock_store,
+            context=RunnerContext(global_learning_store=mock_store),
         )
 
         await runner._poll_broadcast_discoveries("my-unique-job-id", sheet_num=1)
@@ -1620,7 +1709,7 @@ class TestActiveBroadcastPolling:
             config=sample_config,
             backend=mock_backend,
             state_backend=mock_state_backend,
-            global_learning_store=mock_store,
+            context=RunnerContext(global_learning_store=mock_store),
         )
 
         # Should not raise - polling failure shouldn't block retry
@@ -1638,7 +1727,6 @@ class TestActiveBroadcastPolling:
             config=sample_config,
             backend=mock_backend,
             state_backend=mock_state_backend,
-            global_learning_store=None,  # No store configured
         )
 
         # Should not raise
@@ -1656,8 +1744,6 @@ class TestCostTracking:
     Tests the cost tracking methods:
     - _track_cost(): Token usage and cost calculation
     - _check_cost_limits(): Per-sheet and per-job cost limits
-    - _estimate_prompt_tokens(): Token estimation
-    - _format_cost(): Cost formatting
     """
 
     @pytest.fixture
@@ -1912,24 +1998,3 @@ class TestCostTracking:
         assert exceeded is False  # Passes because disabled
         assert reason is None
 
-    def test_estimate_prompt_tokens(
-        self,
-        cost_runner: JobRunner,
-    ) -> None:
-        """Test prompt token estimation."""
-        # 400 chars => 100 tokens
-        assert cost_runner._estimate_prompt_tokens("x" * 400) == 100
-        # 3 chars => minimum 1 token
-        assert cost_runner._estimate_prompt_tokens("abc") == 1
-        # Empty string => minimum 1 token
-        assert cost_runner._estimate_prompt_tokens("") == 1
-
-    def test_format_cost(
-        self,
-        cost_runner: JobRunner,
-    ) -> None:
-        """Test cost formatting."""
-        assert cost_runner._format_cost(0.0042) == "$0.0042"  # < 0.01
-        assert cost_runner._format_cost(0.123) == "$0.123"  # < 1.0
-        assert cost_runner._format_cost(1.23) == "$1.23"  # >= 1.0
-        assert cost_runner._format_cost(12.34) == "$12.34"

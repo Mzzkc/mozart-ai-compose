@@ -873,3 +873,97 @@ prompt:
 
         # Duration should be > 0
         assert result.duration_seconds > 0
+
+
+class TestLockingStateBackend:
+    """Tests for _LockingStateBackend concurrent access.
+
+    B2-13: Verifies that mark_sheet_status calls are serialized under the lock,
+    preventing interleaved state writes during parallel execution.
+    """
+
+    @pytest.mark.asyncio
+    async def test_concurrent_mark_sheet_status_serialized(self) -> None:
+        """Concurrent mark_sheet_status calls should not interleave."""
+        from mozart.execution.parallel import _LockingStateBackend
+
+        call_order: list[tuple[str, int]] = []
+
+        inner = AsyncMock()
+
+        async def tracked_mark_sheet_status(
+            job_id: str,
+            sheet_num: int,
+            status: SheetStatus,
+            error_message: str | None = None,
+        ) -> None:
+            call_order.append(("enter", sheet_num))
+            # Simulate I/O delay — if not locked, calls would interleave
+            await asyncio.sleep(0.01)
+            call_order.append(("exit", sheet_num))
+
+        inner.mark_sheet_status = AsyncMock(side_effect=tracked_mark_sheet_status)
+
+        lock = asyncio.Lock()
+        locking_backend = _LockingStateBackend(inner, lock)
+
+        # Launch concurrent calls
+        await asyncio.gather(
+            locking_backend.mark_sheet_status("job", 1, SheetStatus.COMPLETED),
+            locking_backend.mark_sheet_status("job", 2, SheetStatus.COMPLETED),
+            locking_backend.mark_sheet_status("job", 3, SheetStatus.COMPLETED),
+        )
+
+        # Verify calls were serialized: each enter/exit pair should be adjacent
+        # (no interleaving of enter-1, enter-2, exit-1, exit-2)
+        for i in range(0, len(call_order), 2):
+            enter_event = call_order[i]
+            exit_event = call_order[i + 1]
+            assert enter_event[0] == "enter"
+            assert exit_event[0] == "exit"
+            assert enter_event[1] == exit_event[1], (
+                f"Events interleaved: {call_order}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_concurrent_save_and_load_serialized(self) -> None:
+        """Concurrent save() and load() should not interleave (TOCTOU prevention)."""
+        from mozart.execution.parallel import _LockingStateBackend
+
+        held_lock = False
+        overlap_detected = False
+
+        inner = AsyncMock()
+
+        async def slow_save(state: "CheckpointState") -> None:
+            nonlocal held_lock, overlap_detected
+            if held_lock:
+                overlap_detected = True
+            held_lock = True
+            await asyncio.sleep(0.01)
+            held_lock = False
+
+        async def slow_load(job_id: str = "") -> "CheckpointState | None":
+            nonlocal held_lock, overlap_detected
+            if held_lock:
+                overlap_detected = True
+            held_lock = True
+            await asyncio.sleep(0.01)
+            held_lock = False
+            return None
+
+        inner.save = AsyncMock(side_effect=slow_save)
+        inner.load = AsyncMock(side_effect=slow_load)
+
+        lock = asyncio.Lock()
+        locking_backend = _LockingStateBackend(inner, lock)
+
+        mock_state = MagicMock(spec=CheckpointState)
+
+        await asyncio.gather(
+            locking_backend.save(mock_state),
+            locking_backend.load("job"),
+            locking_backend.save(mock_state),
+        )
+
+        assert not overlap_detected, "Lock should prevent concurrent access"

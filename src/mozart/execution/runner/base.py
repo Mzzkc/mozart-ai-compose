@@ -83,6 +83,29 @@ class JobRunnerBase:
     - RecoveryMixin: error recovery and self-healing
     - CostMixin: token/cost tracking
     - IsolationMixin: worktree isolation
+
+    Dependency Model:
+        Three required dependencies (config, backend, state_backend) are
+        positional parameters that must always be provided. All optional
+        dependencies are grouped into ``RunnerContext``, passed as the
+        keyword-only ``context`` parameter.
+
+        When ``context=None`` (the default), the runner initializes all
+        optional components to safe defaults: no learning, no callbacks,
+        no self-healing, and a default Rich Console. This allows minimal
+        construction for testing and simple use cases::
+
+            runner = JobRunner(config, backend, state_backend)
+
+        For production use with learning, progress reporting, and healing::
+
+            ctx = RunnerContext(
+                outcome_store=...,
+                global_learning_store=...,
+                progress_callback=...,
+                self_healing_enabled=True,
+            )
+            runner = JobRunner(config, backend, state_backend, context=ctx)
     """
 
     def __init__(
@@ -90,14 +113,6 @@ class JobRunnerBase:
         config: JobConfig,
         backend: Backend,
         state_backend: StateBackend,
-        console: Console | None = None,
-        outcome_store: OutcomeStore | None = None,
-        escalation_handler: ConsoleEscalationHandler | None = None,
-        judgment_client: JudgmentClient | None = None,
-        progress_callback: Callable[[int, int, float | None], None] | None = None,
-        execution_progress_callback: Callable[[dict[str, Any]], None] | None = None,
-        global_learning_store: "GlobalLearningStore | None" = None,
-        grounding_engine: "GroundingEngine | None" = None,
         *,
         context: RunnerContext | None = None,
     ) -> None:
@@ -107,42 +122,40 @@ class JobRunnerBase:
             config: Job configuration.
             backend: Claude execution backend.
             state_backend: State persistence backend.
-            console: Rich console for output (optional, prefer context.console).
-            outcome_store: Optional outcome store for learning (prefer context).
-            escalation_handler: Optional escalation handler (prefer context).
-            judgment_client: Optional judgment client (prefer context).
-            progress_callback: Optional progress callback (prefer context).
-            execution_progress_callback: Optional execution progress callback (prefer context).
-            global_learning_store: Optional global learning store (prefer context).
-            grounding_engine: Optional grounding engine (prefer context).
             context: Optional RunnerContext grouping all optional dependencies.
-                When provided, context values take precedence over individual params.
 
-        Note:
-            The individual optional parameters are preserved for backwards
-            compatibility. New code should prefer using the context parameter:
+        Usage:
+            # Minimal setup
+            runner = JobRunner(config, backend, state_backend)
 
-                context = RunnerContext(
-                    outcome_store=outcome_store,
-                    global_learning_store=get_global_store(),
-                )
-                runner = JobRunner(config, backend, state_backend, context=context)
+            # With learning and progress
+            context = RunnerContext(
+                outcome_store=outcome_store,
+                global_learning_store=get_global_store(),
+                progress_callback=my_callback,
+            )
+            runner = JobRunner(config, backend, state_backend, context=context)
         """
-        # Merge context with individual params (context takes precedence)
-        # Also extract self-healing config from context
+        # Extract optional dependencies from context
+        console: Console | None = None
+        outcome_store: OutcomeStore | None = None
+        escalation_handler: ConsoleEscalationHandler | None = None
+        judgment_client: JudgmentClient | None = None
+        progress_callback: Callable[[int, int, float | None], None] | None = None
+        execution_progress_callback: Callable[[dict[str, Any]], None] | None = None
+        global_learning_store: GlobalLearningStore | None = None
+        grounding_engine: GroundingEngine | None = None
         self_healing_enabled = False
         self_healing_auto_confirm = False
         if context is not None:
-            console = context.console or console
-            outcome_store = context.outcome_store or outcome_store
-            escalation_handler = context.escalation_handler or escalation_handler
-            judgment_client = context.judgment_client or judgment_client
-            progress_callback = context.progress_callback or progress_callback
-            execution_progress_callback = (
-                context.execution_progress_callback or execution_progress_callback
-            )
-            global_learning_store = context.global_learning_store or global_learning_store
-            grounding_engine = context.grounding_engine or grounding_engine
+            console = context.console
+            outcome_store = context.outcome_store
+            escalation_handler = context.escalation_handler
+            judgment_client = context.judgment_client
+            progress_callback = context.progress_callback
+            execution_progress_callback = context.execution_progress_callback
+            global_learning_store = context.global_learning_store
+            grounding_engine = context.grounding_engine
             self_healing_enabled = context.self_healing_enabled
             self_healing_auto_confirm = context.self_healing_auto_confirm
 

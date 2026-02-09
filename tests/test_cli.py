@@ -313,8 +313,8 @@ class TestStatusCommand:
 
         # Parse the output as JSON to verify error format
         output_data = json.loads(result.stdout)
-        assert "error" in output_data
-        assert "missing-job" in output_data["error"]
+        assert output_data["success"] is False
+        assert "missing-job" in output_data["message"]
 
     def test_status_shows_sheet_details(self, tmp_path: Path) -> None:
         """Test status command shows sheet details table."""

@@ -10,6 +10,11 @@ import re
 import signal
 from datetime import datetime, timedelta
 
+from mozart.core.constants import (
+    DEFAULT_QUOTA_WAIT_SECONDS,
+    DEFAULT_RATE_LIMIT_WAIT_SECONDS,
+    RESET_TIME_MINIMUM_WAIT_SECONDS,
+)
 from mozart.core.logging import get_logger
 
 from .codes import ErrorCategory, ErrorCode, ExitReason
@@ -19,6 +24,117 @@ from .signals import FATAL_SIGNALS, RETRIABLE_SIGNALS, get_signal_name
 
 # Module-level logger for error classification
 _logger = get_logger("errors")
+
+
+# =============================================================================
+# Default pattern strings for ErrorClassifier.
+# Extracted to module scope so the constructor focuses on initialization logic
+# and the patterns are easily reviewable/testable as data.
+# =============================================================================
+
+_DEFAULT_RATE_LIMIT_PATTERNS: list[str] = [
+    r"rate.?limit",
+    r"usage.?limit",
+    r"quota",
+    r"too many requests",
+    r"429",
+    r"capacity",
+    r"try again later",
+    r"overloaded",
+    r"hit.{0,10}limit",       # "You've hit your limit"
+    r"limit.{0,10}resets?",   # "limit · resets 9pm"
+    r"daily.{0,10}limit",     # "daily limit reached"
+]
+
+_DEFAULT_AUTH_PATTERNS: list[str] = [
+    r"unauthorized",
+    r"authentication",
+    r"invalid.?api.?key",
+    r"permission.?denied",
+    r"access.?denied",
+    r"401",
+    r"403",
+]
+
+_DEFAULT_NETWORK_PATTERNS: list[str] = [
+    r"connection.?refused",
+    r"connection.?reset",
+    r"connection.?timeout",
+    r"network.?unreachable",
+    r"ECONNREFUSED",
+    r"ETIMEDOUT",
+]
+
+_DEFAULT_DNS_PATTERNS: list[str] = [
+    r"dns.?resolution",
+    r"name.?resolution",
+    r"getaddrinfo",
+    r"could not resolve",
+    r"ENOTFOUND",
+]
+
+_DEFAULT_SSL_PATTERNS: list[str] = [
+    r"ssl.?error",
+    r"tls.?error",
+    r"certificate",
+    r"SSL_ERROR",
+    r"handshake.?failed",
+]
+
+_DEFAULT_CAPACITY_PATTERNS: list[str] = [
+    r"capacity",
+    r"try again later",
+    r"overloaded",
+    r"service.?unavailable",
+]
+
+_DEFAULT_QUOTA_EXHAUSTION_PATTERNS: list[str] = [
+    r"token.{0,10}exhausted",
+    r"token.{0,10}budget.{0,10}(used|exhausted|depleted)",
+    r"usage.{0,10}(will\s+)?reset.{0,10}(at|in)",
+    r"resets?.{0,10}\d+\s*[ap]m",
+    r"resets?.{0,10}in\s+\d+\s*(hour|minute|min|hr)",
+    r"daily.{0,10}(token|usage).{0,10}limit",
+    r"hourly.{0,10}(token|usage).{0,10}limit",
+    r"(used|consumed).{0,10}all.{0,10}(token|credit)",
+    r"no.{0,10}(token|credit).{0,10}(left|remaining)",
+    r"token.{0,10}allowance.{0,10}(used|exhausted)",
+    r"recharge.{0,10}(at|in)",
+]
+
+_DEFAULT_RESET_TIME_PATTERNS: list[str] = [
+    r"resets?\s+(?:at\s+)?(\d{1,2})\s*([ap]m)",
+    r"resets?\s+(?:at\s+)?(\d{1,2}):(\d{2})",
+    r"resets?\s+in\s+(\d+)\s*(hour|hr|minute|min)s?",
+    r"reset.{0,20}(\d{1,2})\s*([ap]m)",
+]
+
+_DEFAULT_MCP_PATTERNS: list[str] = [
+    r"MCP server error",
+    r"mcp-config-invalid",
+    r"Missing environment variables:",
+    r"Plugin MCP server",
+    r"MCP server .+ invalid",
+]
+
+_DEFAULT_CLI_MODE_PATTERNS: list[str] = [
+    r"only prompt commands are supported in streaming mode",
+    r"streaming mode.*not supported",
+    r"output format.*not compatible",
+]
+
+_DEFAULT_ENOENT_PATTERNS: list[str] = [
+    r"ENOENT",
+    r"spawn .+ ENOENT",
+    r"no such file or directory",
+    r"command not found",
+    r"not found in PATH",
+]
+
+
+def _compile_patterns(strings: list[str]) -> list[re.Pattern[str]]:
+    """Compile a list of regex strings into case-insensitive Pattern objects."""
+    return [re.compile(p, re.IGNORECASE) for p in strings]
 
 
 # =============================================================================
@@ -46,148 +162,34 @@ class ErrorClassifier:
             auth_patterns: Regex patterns indicating auth failures
             network_patterns: Regex patterns indicating network issues
         """
-        self.rate_limit_patterns = [
-            re.compile(p, re.IGNORECASE)
-            for p in (rate_limit_patterns or [
-                r"rate.?limit",
-                r"usage.?limit",
-                r"quota",
-                r"too many requests",
-                r"429",
-                r"capacity",
-                r"try again later",
-                r"overloaded",
-                r"hit.{0,10}limit",  # "You've hit your limit"
-                r"limit.{0,10}resets?",  # "limit · resets 9pm"
-                r"daily.{0,10}limit",  # "daily limit reached"
-            ])
-        ]
+        self.rate_limit_patterns = _compile_patterns(rate_limit_patterns or _DEFAULT_RATE_LIMIT_PATTERNS)
+        self.auth_patterns = _compile_patterns(auth_patterns or _DEFAULT_AUTH_PATTERNS)
+        self.network_patterns = _compile_patterns(network_patterns or _DEFAULT_NETWORK_PATTERNS)
+        self.dns_patterns = _compile_patterns(_DEFAULT_DNS_PATTERNS)
+        self.ssl_patterns = _compile_patterns(_DEFAULT_SSL_PATTERNS)
+        self.capacity_patterns = _compile_patterns(_DEFAULT_CAPACITY_PATTERNS)
+        self.quota_exhaustion_patterns = _compile_patterns(_DEFAULT_QUOTA_EXHAUSTION_PATTERNS)
+        self.reset_time_patterns = _compile_patterns(_DEFAULT_RESET_TIME_PATTERNS)
+        self.mcp_patterns = _compile_patterns(_DEFAULT_MCP_PATTERNS)
+        self.cli_mode_patterns = _compile_patterns(_DEFAULT_CLI_MODE_PATTERNS)
+        self.enoent_patterns = _compile_patterns(_DEFAULT_ENOENT_PATTERNS)
 
-        self.auth_patterns = [
-            re.compile(p, re.IGNORECASE)
-            for p in (auth_patterns or [
-                r"unauthorized",
-                r"authentication",
-                r"invalid.?api.?key",
-                r"permission.?denied",
-                r"access.?denied",
-                r"401",
-                r"403",
-            ])
-        ]
-
-        self.network_patterns = [
-            re.compile(p, re.IGNORECASE)
-            for p in (network_patterns or [
-                r"connection.?refused",
-                r"connection.?reset",
-                r"connection.?timeout",
-                r"network.?unreachable",
-                r"ECONNREFUSED",
-                r"ETIMEDOUT",
-            ])
-        ]
-
-        # More specific network sub-patterns for error code differentiation
-        self.dns_patterns = [
-            re.compile(p, re.IGNORECASE)
-            for p in [
-                r"dns.?resolution",
-                r"name.?resolution",
-                r"getaddrinfo",
-                r"could not resolve",
-                r"ENOTFOUND",
-            ]
-        ]
-
-        self.ssl_patterns = [
-            re.compile(p, re.IGNORECASE)
-            for p in [
-                r"ssl.?error",
-                r"tls.?error",
-                r"certificate",
-                r"SSL_ERROR",
-                r"handshake.?failed",
-            ]
-        ]
-
-        # Capacity patterns (subset of rate limit for specific code)
-        self.capacity_patterns = [
-            re.compile(p, re.IGNORECASE)
-            for p in [
-                r"capacity",
-                r"try again later",
-                r"overloaded",
-                r"service.?unavailable",
-            ]
-        ]
-
-        # Token quota exhaustion patterns (Claude Max token budgets)
-        # These indicate daily/hourly token quotas are exhausted with a reset time
-        self.quota_exhaustion_patterns = [
-            re.compile(p, re.IGNORECASE)
-            for p in [
-                r"token.{0,10}exhausted",  # "tokens exhausted"
-                r"token.{0,10}budget.{0,10}(used|exhausted|depleted)",
-                r"usage.{0,10}(will\s+)?reset.{0,10}(at|in)",  # "usage will reset at 9pm"
-                r"resets?.{0,10}\d+\s*[ap]m",  # "resets 9pm" or "reset at 9 pm"
-                r"resets?.{0,10}in\s+\d+\s*(hour|minute|min|hr)",  # "resets in 3 hours"
-                r"daily.{0,10}(token|usage).{0,10}limit",
-                r"hourly.{0,10}(token|usage).{0,10}limit",
-                r"(used|consumed).{0,10}all.{0,10}(token|credit)",
-                r"no.{0,10}(token|credit).{0,10}(left|remaining)",
-                r"token.{0,10}allowance.{0,10}(used|exhausted)",
-                r"recharge.{0,10}(at|in)",  # "recharge at midnight"
-            ]
-        ]
-
-        # Regex to extract reset time from messages
-        # Captures patterns like "9pm", "9 pm", "21:00", "in 3 hours"
-        self.reset_time_patterns = [
-            re.compile(r"resets?\s+(?:at\s+)?(\d{1,2})\s*([ap]m)", re.IGNORECASE),  # "resets at 9pm"
-            re.compile(r"resets?\s+(?:at\s+)?(\d{1,2}):(\d{2})", re.IGNORECASE),  # "resets at 21:00"
-            re.compile(r"resets?\s+in\s+(\d+)\s*(hour|hr|minute|min)s?", re.IGNORECASE),  # "resets in 3 hours"
-            re.compile(r"reset.{0,20}(\d{1,2})\s*([ap]m)", re.IGNORECASE),  # "reset ... 9pm"
-        ]
-
-        # MCP/Plugin configuration errors (non-retriable)
-        self.mcp_patterns = [
-            re.compile(p, re.IGNORECASE)
-            for p in [
-                r"MCP server error",
-                r"mcp-config-invalid",
-                r"Missing environment variables:",
-                r"Plugin MCP server",
-                r"MCP server .+ invalid",
-            ]
-        ]
-
-        # CLI mode mismatch errors (non-retriable configuration issue)
-        self.cli_mode_patterns = [
-            re.compile(p, re.IGNORECASE)
-            for p in [
-                r"only prompt commands are supported in streaming mode",
-                r"streaming mode.*not supported",
-                r"output format.*not compatible",
-            ]
-        ]
-
-        # Missing binary/file errors (ENOENT) - check BEFORE streaming mode
-        # These are often the REAL cause when CLI reports misleading errors
-        self.enoent_patterns = [
-            re.compile(p, re.IGNORECASE)
-            for p in [
-                r"ENOENT",
-                r"spawn .+ ENOENT",
-                r"no such file or directory",
-                r"command not found",
-                r"not found in PATH",
-            ]
-        ]
-
-        # Cache for combined regex patterns used by _matches_any().
-        # Keyed by id(pattern_list) to avoid recompiling on every call.
+        # Pre-computed combined regex patterns for _matches_any().
+        # Each pattern list is merged into a single alternation regex so that
+        # matching is a single .search() call per category.
         self._combined_cache: dict[int, re.Pattern[str]] = {}
+        for attr_name in (
+            "rate_limit_patterns", "auth_patterns", "network_patterns",
+            "dns_patterns", "ssl_patterns", "capacity_patterns",
+            "quota_exhaustion_patterns", "mcp_patterns",
+            "cli_mode_patterns", "enoent_patterns",
+        ):
+            patterns = getattr(self, attr_name)
+            if patterns:
+                alternation = "|".join(f"(?:{p.pattern})" for p in patterns)
+                self._combined_cache[id(patterns)] = re.compile(
+                    alternation, re.IGNORECASE
+                )
 
     def parse_reset_time(self, text: str) -> float | None:
         """Parse reset time from message and return seconds until reset.
@@ -203,7 +205,7 @@ class ErrorClassifier:
 
         Returns:
             Seconds until reset, or None if no reset time found.
-            Returns minimum of 300 seconds (5 min) to avoid immediate retries.
+            Returns minimum of RESET_TIME_MINIMUM_WAIT_SECONDS to avoid immediate retries.
         """
 
         for pattern in self.reset_time_patterns:
@@ -221,7 +223,7 @@ class ErrorClassifier:
                     seconds = amount * 3600
                 else:  # minute, min
                     seconds = amount * 60
-                return max(seconds, 300.0)  # At least 5 minutes
+                return max(seconds, RESET_TIME_MINIMUM_WAIT_SECONDS)  # At least 5 minutes
 
             # Pattern: "resets at X:XX" (24-hour time)
             if len(groups) == 2 and groups[1] and groups[1].isdigit():
@@ -232,7 +234,7 @@ class ErrorClassifier:
                 if reset_time <= now:
                     reset_time += timedelta(days=1)  # Next day
                 seconds = (reset_time - now).total_seconds()
-                return max(seconds, 300.0)
+                return max(seconds, RESET_TIME_MINIMUM_WAIT_SECONDS)
 
             # Pattern: "resets at Xpm/Xam"
             if len(groups) == 2 and groups[1] and groups[1].lower() in ("am", "pm"):
@@ -247,7 +249,7 @@ class ErrorClassifier:
                 if reset_time <= now:
                     reset_time += timedelta(days=1)  # Next day
                 seconds = (reset_time - now).total_seconds()
-                return max(seconds, 300.0)
+                return max(seconds, RESET_TIME_MINIMUM_WAIT_SECONDS)
 
         # No pattern matched, return default wait
         return None
@@ -383,7 +385,7 @@ class ErrorClassifier:
         if self._matches_any(combined, self.quota_exhaustion_patterns):
             wait_seconds = self.parse_reset_time(combined)
             if wait_seconds is None:
-                wait_seconds = 3600.0
+                wait_seconds = DEFAULT_QUOTA_WAIT_SECONDS
             result = ClassifiedError(
                 category=ErrorCategory.RATE_LIMIT,
                 message="Token quota exhausted - waiting until reset",
@@ -422,7 +424,7 @@ class ErrorClassifier:
                 exit_signal=None,
                 exit_reason=exit_reason,
                 retriable=True,
-                suggested_wait_seconds=3600.0,
+                suggested_wait_seconds=DEFAULT_RATE_LIMIT_WAIT_SECONDS,
             )
             _logger.warning(
                 "error_classified",
@@ -435,97 +437,47 @@ class ErrorClassifier:
             )
             return result
 
-        # ENOENT (missing binary/file) - often the real cause behind misleading errors
-        if self._matches_any(combined, self.enoent_patterns):
-            result = ClassifiedError(
-                category=ErrorCategory.CONFIGURATION,
-                message="Missing file or binary (ENOENT) - CLI dependency may be missing or being updated",
-                error_code=ErrorCode.BACKEND_NOT_FOUND,
-                original_error=exception,
-                exit_code=exit_code,
-                exit_signal=None,
-                exit_reason=exit_reason,
-                retriable=True,
-                suggested_wait_seconds=30,
-            )
-            _logger.error(
-                "error_classified",
-                category=result.category.value,
-                error_code=result.error_code.value,
-                exit_code=exit_code,
-                retriable=result.retriable,
-                message=result.message,
-                hint="A required file or binary is missing. Check Claude CLI installation.",
-            )
-            return result
+        # Data-driven pattern checks (priority order: ENOENT, CLI mode, auth, MCP)
+        # Each entry: (patterns, category, message, error_code, retriable, wait_seconds)
+        _PATTERN_CHECKS: list[tuple[
+            list[re.Pattern[str]], ErrorCategory, str, ErrorCode, bool, float | None
+        ]] = [
+            (self.enoent_patterns, ErrorCategory.CONFIGURATION,
+             "Missing file or binary (ENOENT) - CLI dependency may be missing or being updated",
+             ErrorCode.BACKEND_NOT_FOUND, True, 30.0),
+            (self.cli_mode_patterns, ErrorCategory.CONFIGURATION,
+             "CLI mode mismatch - streaming mode incompatible with operation",
+             ErrorCode.CONFIG_CLI_MODE_ERROR, False, None),
+            (self.auth_patterns, ErrorCategory.AUTH,
+             "Authentication or authorization failure",
+             ErrorCode.BACKEND_AUTH, False, None),
+            (self.mcp_patterns, ErrorCategory.CONFIGURATION,
+             "MCP server configuration error - check environment variables",
+             ErrorCode.CONFIG_MCP_ERROR, False, None),
+        ]
 
-        # CLI mode mismatch (must be before auth check)
-        if self._matches_any(combined, self.cli_mode_patterns):
-            result = ClassifiedError(
-                category=ErrorCategory.CONFIGURATION,
-                message="CLI mode mismatch - streaming mode incompatible with operation",
-                error_code=ErrorCode.CONFIG_CLI_MODE_ERROR,
-                original_error=exception,
-                exit_code=exit_code,
-                exit_signal=None,
-                exit_reason=exit_reason,
-                retriable=False,
-            )
-            _logger.error(
-                "error_classified",
-                category=result.category.value,
-                error_code=result.error_code.value,
-                exit_code=exit_code,
-                retriable=result.retriable,
-                message=result.message,
-                hint="Mozart now defaults to JSON output format. This error should not recur.",
-            )
-            return result
-
-        # Auth failures (fatal)
-        if self._matches_any(combined, self.auth_patterns):
-            result = ClassifiedError(
-                category=ErrorCategory.AUTH,
-                message="Authentication or authorization failure",
-                error_code=ErrorCode.BACKEND_AUTH,
-                original_error=exception,
-                exit_code=exit_code,
-                exit_signal=None,
-                exit_reason=exit_reason,
-                retriable=False,
-            )
-            _logger.warning(
-                "error_classified",
-                category=result.category.value,
-                error_code=result.error_code.value,
-                exit_code=exit_code,
-                retriable=result.retriable,
-                message=result.message,
-            )
-            return result
-
-        # MCP/Plugin configuration errors (non-retriable)
-        if self._matches_any(combined, self.mcp_patterns):
-            result = ClassifiedError(
-                category=ErrorCategory.CONFIGURATION,
-                message="MCP server configuration error - check environment variables",
-                error_code=ErrorCode.CONFIG_MCP_ERROR,
-                original_error=exception,
-                exit_code=exit_code,
-                exit_signal=None,
-                exit_reason=exit_reason,
-                retriable=False,
-            )
-            _logger.error(
-                "error_classified",
-                category=result.category.value,
-                error_code=result.error_code.value,
-                exit_code=exit_code,
-                retriable=result.retriable,
-                message=result.message,
-                hint="MCP plugins may need environment variables. Check your shell environment or disable the plugin.",
-            )
-            return result
+        for patterns, category, message, error_code, retriable, wait_secs in _PATTERN_CHECKS:
+            if self._matches_any(combined, patterns):
+                result = ClassifiedError(
+                    category=category,
+                    message=message,
+                    error_code=error_code,
+                    original_error=exception,
+                    exit_code=exit_code,
+                    exit_signal=None,
+                    exit_reason=exit_reason,
+                    retriable=retriable,
+                    suggested_wait_seconds=wait_secs,
+                )
+                _logger.warning(
+                    "error_classified",
+                    category=result.category.value,
+                    error_code=result.error_code.value,
+                    exit_code=exit_code,
+                    retriable=result.retriable,
+                    message=result.message,
+                )
+                return result
 
         # Network issues: DNS, SSL, generic (checked in specificity order)
         return self._classify_network_pattern(combined, exit_code, exit_reason, exception)
@@ -792,16 +744,17 @@ class ErrorClassifier:
     def _matches_any(self, text: str, patterns: list[re.Pattern[str]]) -> bool:
         """Check if text matches any of the patterns.
 
-        Uses a pre-compiled combined regex (via id-based cache) so that each
-        category check is a single .search() call instead of iterating N patterns.
+        Uses pre-compiled combined regex patterns (built in __init__) so that
+        each category check is a single .search() call instead of iterating N
+        patterns.
         """
         key = id(patterns)
-        combined = self._combined_cache.get(key)
-        if combined is None:
+        combined_pattern = self._combined_cache.get(key)
+        if combined_pattern is None:
             alternation = "|".join(f"(?:{p.pattern})" for p in patterns)
-            combined = re.compile(alternation, re.IGNORECASE)
-            self._combined_cache[key] = combined
-        return combined.search(text) is not None
+            combined_pattern = re.compile(alternation, re.IGNORECASE)
+            self._combined_cache[key] = combined_pattern
+        return combined_pattern.search(text) is not None
 
     def classify_execution(
         self,

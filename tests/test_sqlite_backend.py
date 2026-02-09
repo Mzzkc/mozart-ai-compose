@@ -507,7 +507,7 @@ class TestSchemaMigration:
             )
             row = await cursor.fetchone()
             assert row is not None
-            assert row[0] == 2  # Updated to v2 for config_path column
+            assert row[0] == 3  # Updated to v3 for execution_duration_seconds, exit_signal, exit_reason
 
     async def test_migration_is_idempotent(
         self, sqlite_backend: SQLiteStateBackend

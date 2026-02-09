@@ -14,6 +14,8 @@ Example:
 """
 
 import asyncio
+import os
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -281,6 +283,12 @@ class GitWorktreeManager:
             source_ref=source_ref,
         )
 
+        # Sanitize job_id to prevent path traversal
+        if ".." in job_id or "/" in job_id or "\\" in job_id or "\0" in job_id:
+            raise WorktreeCreationError(
+                f"Invalid job_id '{job_id}': must not contain path separators or '..'"
+            )
+
         # Verify prerequisites
         if not self.is_git_repository():
             error_msg = f"Not a git repository: {self._repo_path}"
@@ -330,7 +338,7 @@ class GitWorktreeManager:
         if lock:
             lock_result = await self.lock_worktree(
                 worktree_path,
-                reason=f"Mozart job {job_id} in progress",
+                reason=f"Mozart job {job_id} in progress (pid={os.getpid()})",
             )
             locked = lock_result.success
 
@@ -382,6 +390,12 @@ class GitWorktreeManager:
             branch_prefix=branch_prefix,
         )
 
+        # Sanitize job_id to prevent path traversal
+        if ".." in job_id or "/" in job_id or "\\" in job_id or "\0" in job_id:
+            raise WorktreeCreationError(
+                f"Invalid job_id '{job_id}': must not contain path separators or '..'"
+            )
+
         # Verify prerequisites
         if not self.is_git_repository():
             error_msg = f"Not a git repository: {self._repo_path}"
@@ -428,7 +442,7 @@ class GitWorktreeManager:
         if lock:
             lock_result = await self.lock_worktree(
                 worktree_path,
-                reason=f"Mozart job {job_id} in progress",
+                reason=f"Mozart job {job_id} in progress (pid={os.getpid()})",
             )
             locked = lock_result.success
 
@@ -567,11 +581,79 @@ class GitWorktreeManager:
             _logger.info("worktree_locked", path=str(worktree_path))
             return WorktreeResult(success=True, worktree=None, error=None)
         except WorktreeError as e:
-            # May already be locked
             if "already locked" in str(e).lower():
+                # Check if the existing lock is stale (owner process dead)
+                if await self._is_lock_stale(worktree_path):
+                    _logger.warning(
+                        "worktree_stale_lock_detected",
+                        path=str(worktree_path),
+                        message="Lock owner process is dead, force-unlocking",
+                    )
+                    await self.unlock_worktree(worktree_path)
+                    # Retry the lock
+                    try:
+                        await self._run_git(*cmd_args)
+                        _logger.info("worktree_locked_after_stale_cleanup", path=str(worktree_path))
+                        return WorktreeResult(success=True, worktree=None, error=None)
+                    except WorktreeError as retry_err:
+                        raise WorktreeLockError(str(retry_err)) from retry_err
                 _logger.debug("worktree_already_locked", path=str(worktree_path))
                 return WorktreeResult(success=True, worktree=None, error=None)
             raise WorktreeLockError(str(e)) from e
+
+    async def _is_lock_stale(self, worktree_path: Path) -> bool:
+        """Check if a worktree lock is stale by inspecting the lock reason for a PID.
+
+        If the lock reason contains a pid=NNNN pattern and that process is no
+        longer running, the lock is considered stale.
+        """
+        try:
+            _, stdout, _ = await self._run_git("worktree", "list", "--porcelain", check=False)
+        except Exception:
+            return False
+
+        reason = self._find_lock_reason(stdout, str(worktree_path))
+        if reason is None:
+            return False
+
+        return self._is_pid_dead(reason)
+
+    @staticmethod
+    def _find_lock_reason(porcelain_output: str, worktree_str: str) -> str | None:
+        """Extract lock reason for a specific worktree from porcelain output.
+
+        Returns the lock reason string, or None if the worktree is not locked.
+        """
+        in_target = False
+        for line in porcelain_output.splitlines():
+            if line.startswith("worktree ") and line[9:] == worktree_str:
+                in_target = True
+            elif line.startswith("worktree "):
+                in_target = False
+            elif in_target and line.startswith("locked"):
+                return line[7:] if len(line) > 7 else ""
+        return None
+
+    @staticmethod
+    def _is_pid_dead(lock_reason: str) -> bool:
+        """Check if the PID in a lock reason refers to a dead process.
+
+        Returns True if the lock reason contains a pid=NNNN pattern and
+        that process is no longer running. Returns False if the process
+        is alive, or if no PID is found in the reason.
+        """
+        pid_match = re.search(r"pid=(\d+)", lock_reason)
+        if not pid_match:
+            return False
+
+        pid = int(pid_match.group(1))
+        try:
+            os.kill(pid, 0)  # Signal 0: check if process exists
+            return False  # Process alive, lock is valid
+        except ProcessLookupError:
+            return True  # Process dead, lock is stale
+        except PermissionError:
+            return False  # Process exists but owned by another user
 
     async def unlock_worktree(
         self,

@@ -4,6 +4,7 @@ All routes are prefixed with /api for clear API namespace separation.
 """
 
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -13,6 +14,28 @@ from mozart.dashboard.app import get_state_backend
 from mozart.state.base import StateBackend
 
 router = APIRouter(prefix="/api", tags=["Jobs"])
+
+
+def resolve_job_workspace(state: CheckpointState, job_id: str) -> Path:
+    """Resolve workspace path from job state.
+
+    Args:
+        state: Loaded checkpoint state.
+        job_id: Job identifier (for error messages).
+
+    Returns:
+        Resolved workspace Path.
+
+    Raises:
+        HTTPException: 404 if no workspace is accessible.
+    """
+    if state.worktree_path:
+        return Path(state.worktree_path)
+    raise HTTPException(
+        status_code=404,
+        detail=f"No accessible workspace found for job {job_id}. "
+               f"Job may not be using worktree isolation.",
+    )
 
 
 # ============================================================================

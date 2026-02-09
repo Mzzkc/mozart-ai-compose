@@ -17,6 +17,10 @@ description: "Expert reviews + issue discovery + batched fixes + commits, self-c
 
 workspace: "./.quality-workspace"
 
+workspace_lifecycle:
+  archive_on_fresh: true
+  max_archives: 10
+
 backend:
   type: claude_cli
   skip_permissions: true
@@ -32,7 +36,7 @@ cross_sheet:
 
 sheet:
   size: 1
-  total_items: 14  # Reviews(1-5) + Batch1(6-7) + Batch2(8-9) + Batch3(10-11) + Verify(12) + Commit(13) + Issues(14)
+  total_items: 15  # Reviews(1-5) + Batch1(6-7) + Batch2(8-9) + Batch3(10-11) + Verify(12) + Commit(13) + MergeResolve(14) + Issues(15)
 
 retry:
   max_retries: 2
@@ -60,8 +64,36 @@ prompt:
     echo "=== QUALITY ITERATION $ITER ==="
     ```
 
+    **Step 0.5: Survey open GitHub issues**
+    ```bash
+    # Pull open bugs and quality items — these are known problems to cross-reference
+    gh issue list --state open --label "bug" --json number,title,body --limit 20 2>/dev/null || echo "gh not available"
+    gh issue list --state open --label "mozart-quality" --json number,title,body --limit 10 2>/dev/null || true
+    ```
+
+    Save a summary of open issues to {{ workspace }}/00-known-issues.md:
+    ```markdown
+    # Known Open Issues (Iteration N)
+
+    | # | Title | Labels | Relevant Modules |
+    |---|-------|--------|------------------|
+    ```
+
+    For each open issue, note which source files or modules it relates to.
+    Use this as **context for your architecture review** — if an open issue
+    points to a specific module, pay extra attention to that area. If your
+    analysis rediscovers a known issue, reference its GitHub issue number
+    rather than reporting it as new.
+
+    If `gh` is not available, skip this step and note "No GitHub access" in
+    your output file. This step is informational — the review continues either way.
+
     You are the **Architecture Analyst**. Your job is to find structural issues
     that cause bugs, maintenance burden, and incomplete implementations.
+
+    **Use the open issues list as a lens:** modules mentioned in open bugs
+    deserve deeper scrutiny. If you find a structural problem that explains
+    a known bug, call out the connection explicitly.
 
     **1. Module Cohesion & Correctness**
     - Do modules have single responsibilities?
@@ -106,6 +138,10 @@ prompt:
     Format:
     ```markdown
     # Architecture Review (Iteration N)
+
+    ## Open Issues Cross-Reference
+    | GitHub # | Title | Modules Affected | Findings This Review |
+    |----------|-------|------------------|---------------------|
 
     ## Correctness Issues
     | Location | Issue | Severity | Fix |
@@ -330,6 +366,11 @@ prompt:
     {{ previous_outputs[2][:600] if 2 in previous_outputs else "" }}
     {{ previous_outputs[3][:600] if 3 in previous_outputs else "" }}
     {% endif %}
+
+    **Known issues context:** Read {{ workspace }}/00-known-issues.md (from sheet 1).
+    If an issue you discover matches a known GitHub issue, reference its number
+    instead of treating it as a new finding. Focus discovery effort on areas NOT
+    already tracked.
 
     Find **30 specific, actionable issues** across 10 categories (3 per category).
     Focus on issues the expert reviews may have missed.
@@ -753,29 +794,141 @@ prompt:
     git status --short | grep -E "\.py$" | head -20
     ```
 
-    **Step 2: Stage and commit if there are changes**
+    **Step 2: Build commit message from actual results**
 
+    Read the batch result files to extract what was actually fixed:
+    - {{ workspace }}/06-batch1-fixes.md — "## Fixed" table
+    - {{ workspace }}/07-batch1-completion.md — "## Completed" table
+    - {{ workspace }}/08-batch2-fixes.md — "## Fixed" table
+    - {{ workspace }}/09-batch2-completion.md — "## Completed" table
+    - {{ workspace }}/10-batch3-fixes.md — "## Fixed" table
+    - {{ workspace }}/11-batch3-completion.md — "## Completed" table
+    - {{ workspace }}/12-summary.md — overall stats
+
+    Write a commit message file to {{ workspace }}/13-commit-message.txt with
+    EXACTLY this structure:
+
+    ```
+    refactor: Quality iteration N - YYYY-MM-DD
+
+    Fixed M issues across N files:
+    - [ID]: [one-line description of what was fixed] ([file])
+    - [ID]: [one-line description] ([file])
+    ...
+    (list EVERY fixed issue — do not truncate or summarize)
+
+    Stats: M fixed, N deferred | Tests: [pass count] passed
+    GitHub issues referenced: #X, #Y (if any known issues were addressed)
+
+    Co-Authored-By: Mozart AI Compose <noreply@mozart.ai>
+    ```
+
+    Rules for the commit message:
+    - The subject line (first line) must be under 72 characters
+    - List every fixed issue by ID — this is the audit trail
+    - Each line item should be a concrete change, not a category label
+    - If a fix addresses a known GitHub issue, include "Refs #N" on that line
+    - Do NOT paste raw markdown tables — convert to a flat list
+    - Do NOT include deferred/skipped items — only what was fixed
+
+    **Step 3: Selective staging**
+
+    Do NOT use `git add -A` — that absorbs unrelated changes from concurrent
+    jobs or manual work. Instead, stage ONLY the files this iteration touched.
+
+    Extract the list of modified files from batch result tables (the "File"
+    column in each "## Fixed" and "## Completed" section). Then stage only
+    those files:
     ```bash
-    # Stage all Python file changes
-    git add -A -- '*.py'
+    # Stage only files this quality iteration actually modified.
+    # Build list from batch results — example:
+    #   git add src/mozart/core/config.py src/mozart/backends/claude_cli.py ...
+    #
+    # If you modified test files, include them too.
+    # Do NOT stage workspace files, yaml scores, or unrelated changes.
+    git add [list each file explicitly]
 
-    # Check what's staged
+    # Verify: only our changes are staged
     git diff --cached --stat
+    git diff --cached --stat | wc -l  # Should match expected file count
+    ```
 
-    # Get iteration number
+    If `git diff --cached --stat` shows files you did NOT modify, unstage them:
+    ```bash
+    git restore --staged path/to/unrelated/file.py
+    ```
+
+    If nothing is staged (all changes were already committed by another job),
+    skip the commit and note "No changes to commit — likely absorbed by
+    concurrent job" in your output file. Do NOT create an empty commit.
+
+    **Step 4: Sync with remote before committing**
+    ```bash
+    # Check if remote has new commits we don't have
+    git fetch origin main 2>/dev/null
+
+    BEHIND=$(git rev-list HEAD..origin/main --count 2>/dev/null || echo "0")
+    echo "Commits behind remote: $BEHIND"
+    ```
+
+    If behind, rebase our staged changes on top:
+    ```bash
+    # Stash staged changes, rebase, re-apply
+    git stash
+    git pull --rebase origin main
+    git stash pop
+    ```
+
+    If the stash pop causes **merge conflicts**:
+    1. Check which files conflict: `git diff --name-only --diff-filter=U`
+    2. For each conflicted file, try to resolve:
+       - If the conflict is in code you modified — keep both changes
+       - If the conflict is in code you did NOT modify — accept theirs
+       (`git checkout --theirs <file>`)
+    3. After resolving simple conflicts: `git add <resolved files>`
+
+    If conflicts remain that you cannot resolve inline (e.g., both sides
+    modified the same function in incompatible ways), do NOT abort. Instead:
+
+    1. Save the full conflict context for sheet 14 to resolve:
+       ```bash
+       # Capture every conflicted file's state
+       CONFLICTED=$(git diff --name-only --diff-filter=U)
+       echo "$CONFLICTED"
+       ```
+    2. For each conflicted file, write to `{{ workspace }}/13-merge-conflicts.md`:
+       - The file path
+       - What OUR quality fix was trying to do (from batch result files)
+       - The full conflict markers (`<<<<<<<` ... `>>>>>>>`) verbatim
+       - The remote's intent (from `git log --oneline origin/main -3 -- <file>`)
+    3. Abort to a clean state:
+       ```bash
+       git checkout -- .       # Discard conflict markers
+       git stash drop          # Drop our changes (context saved above)
+       ```
+       Now git is clean at remote HEAD. Sheet 14 will re-apply intelligently.
+    4. Skip steps 5-7 below. Set status to "conflicts_pending" in output.
+
+    **Step 5: Commit** (skip if conflicts_pending)
+    ```bash
     ITER=$(cat {{ workspace }}/.iteration)
-
-    # Create commit
-    git commit -m "refactor: Quality iteration $ITER - $(date +%Y-%m-%d)
-
-    $(head -40 {{ workspace }}/12-summary.md)
-
-    Co-Authored-By: Mozart AI Compose <noreply@mozart.ai>"
-
+    git commit -F {{ workspace }}/13-commit-message.txt
     echo "Commit created for iteration $ITER"
     ```
 
-    **Step 3: Verify commit**
+    **Step 6: Push** (skip if conflicts_pending)
+    ```bash
+    git push
+    echo "Pushed to remote"
+    ```
+
+    If push fails due to new remote commits (race condition), pull and retry:
+    ```bash
+    git pull --rebase origin main && git push
+    ```
+    Do NOT force-push.
+
+    **Step 7: Verify** (skip if conflicts_pending)
     ```bash
     git log --oneline -1
     git show --stat HEAD | tail -20
@@ -786,20 +939,165 @@ prompt:
     ```markdown
     # Commit Results (Iteration N)
 
-    ## Changes Committed
-    [git diff --stat output]
+    ## Status
+    [committed | conflicts_pending]
 
-    ## Commit
-    [git log output]
+    ## Commit Message
+    [full commit message as written, or "N/A — deferred to sheet 14"]
+
+    ## Files Staged (selective)
+    [list of files explicitly staged]
+
+    ## Sync Status
+    - Commits behind remote before sync: N
+    - Rebase needed: yes/no
+    - Merge conflicts: none / resolved inline / deferred to sheet 14
+
+    ## Changes Committed
+    [git diff --stat output, or "N/A — conflicts pending"]
+
+    ## Commit Hash
+    [git log --oneline -1 output, or "N/A"]
+
+    ## Push Status
+    - Pushed: yes/no/deferred
+    - Retries needed: N
 
     ## Next Steps
-    - If issues remain: Next iteration will run automatically
-    - If clean: Quality target achieved
+    - If conflicts_pending: Sheet 14 will resolve and commit
+    - If committed: Quality iteration complete
     ```
 
     {% elif sheet_num == 14 %}
     ╔══════════════════════════════════════════════════════════════════════════════╗
-    ║  SHEET 14: FILE GITHUB ISSUES FOR DEFERRED ITEMS                             ║
+    ║  SHEET 14: MERGE CONFLICT RESOLUTION                                         ║
+    ║  "Complexity is not a reason to abort — it's a reason to think harder"       ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Step 1: Check if conflict resolution is needed**
+
+    Read {{ workspace }}/13-commit.md and check the Status field.
+    - If status is "committed" → sheet 13 succeeded, no conflicts.
+      Write "No conflicts to resolve — sheet 13 committed successfully"
+      to your output file and stop.
+    - If status is "conflicts_pending" → proceed to step 2.
+
+    Also verify the conflict context file exists:
+    ```bash
+    if [ -f "{{ workspace }}/13-merge-conflicts.md" ]; then
+      echo "Conflict context found"
+      wc -l "{{ workspace }}/13-merge-conflicts.md"
+    else
+      echo "No conflict file — nothing to resolve"
+    fi
+    ```
+
+    **Step 2: Understand the conflicts**
+
+    Read {{ workspace }}/13-merge-conflicts.md carefully. For each
+    conflicted file, understand:
+    - What our quality fix was changing and why
+    - What the remote changed and why
+    - Whether both changes can coexist
+
+    Also read the relevant batch result files for full context on our
+    changes:
+    - {{ workspace }}/06-batch1-fixes.md
+    - {{ workspace }}/08-batch2-fixes.md
+    - {{ workspace }}/10-batch3-fixes.md
+
+    **Step 3: Re-apply our changes on top of current remote**
+
+    The working tree is clean at remote HEAD (sheet 13 cleaned up).
+    For each conflicted file:
+
+    1. Read the current version of the file
+    2. Understand what our quality fix intended to change
+    3. Apply the change manually — adapt it to the current code state
+       rather than blindly replaying the old diff
+    4. If the remote's changes made our fix unnecessary (e.g., they
+       already fixed the same issue), skip it and note why
+
+    After applying each file's changes:
+    ```bash
+    python -c "import ast; ast.parse(open('<file>').read())" 2>&1 || echo "SYNTAX ERROR in <file>"
+    ```
+    Fix any syntax errors immediately before moving to the next file.
+
+    **Step 4: Verify the resolution**
+    ```bash
+    # Run tests to ensure our re-applied changes don't break anything
+    pytest -x -q --tb=short 2>&1 | tail -20
+    ```
+
+    If tests fail:
+    - Identify which of our re-applied changes caused the failure
+    - If a specific fix conflicts with remote's changes, REVERT that one
+      fix and note it as "incompatible with remote changes — deferred"
+    - Re-run tests after each revert until they pass
+    - Do NOT revert all changes — save as many fixes as possible
+
+    **Step 5: Stage, commit, and push**
+    ```bash
+    # Stage only the files we re-applied changes to
+    git add [list each resolved file]
+
+    # Verify staging
+    git diff --cached --stat
+
+    # Commit using the message from sheet 13
+    git commit -F {{ workspace }}/13-commit-message.txt
+
+    # Push
+    git push
+    ```
+
+    If push fails (race condition):
+    ```bash
+    git pull --rebase origin main && git push
+    ```
+
+    **Step 6: Verify**
+    ```bash
+    git log --oneline -1
+    git show --stat HEAD | tail -20
+    ```
+
+    **Output to:** {{ workspace }}/14-merge-resolution.md
+
+    ```markdown
+    # Merge Conflict Resolution (Iteration N)
+
+    ## Resolution Needed
+    [yes / no — sheet 13 already committed]
+
+    ## Conflicts Resolved
+    | File | Our Intent | Remote's Change | Resolution | Tests Pass |
+    |------|-----------|-----------------|------------|------------|
+
+    ## Fixes Deferred (incompatible with remote)
+    | File | Our Fix | Why Incompatible | Deferred To |
+    |------|---------|------------------|-------------|
+    (or "None — all fixes re-applied successfully")
+
+    ## Test Results
+    [pytest output summary]
+
+    ## Commit
+    - Hash: [git log --oneline -1]
+    - Files changed: N
+    - Pushed: yes/no
+
+    ## Stats
+    - Conflicts received from sheet 13: N files
+    - Successfully re-applied: N
+    - Deferred (incompatible): N
+    - Resolution rate: N%
+    ```
+
+    {% elif sheet_num == 15 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 15: FILE GITHUB ISSUES FOR DEFERRED ITEMS                             ║
     ║  "What we can't do today, we document for tomorrow"                          ║
     ╚══════════════════════════════════════════════════════════════════════════════╝
 
@@ -855,7 +1153,7 @@ prompt:
 
     Do NOT create individual issues per item — one summary issue per iteration.
 
-    **Output to:** {{ workspace }}/14-issues-filed.md
+    **Output to:** {{ workspace }}/15-issues-filed.md
 
     Format:
     ```markdown
@@ -1045,17 +1343,23 @@ validations:
     description: "Commit report must exist"
     condition: "sheet_num == 13"
 
-  # Verify commit was created
+  # Verify commit was created (by sheet 13 or sheet 14 conflict resolver)
   - type: command_succeeds
-    command: "git log --oneline -1 --since='10 minutes ago' 2>/dev/null | grep -qE '.' && echo 'passed' || echo 'no recent commit'"
-    description: "Recent commit should exist"
-    condition: "sheet_num == 13"
+    command: "git log --oneline -1 --since='30 minutes ago' 2>/dev/null | grep -qE '.' && echo 'passed' || echo 'no recent commit'"
+    description: "Recent commit should exist after commit/merge-resolve"
+    condition: "sheet_num == 14"
 
-  # Sheet 14: GitHub Issues for Deferred Items
+  # Sheet 14: Merge Conflict Resolution
   - type: file_exists
-    path: "{workspace}/14-issues-filed.md"
-    description: "Issue filing report must exist"
+    path: "{workspace}/14-merge-resolution.md"
+    description: "Merge resolution report must exist"
     condition: "sheet_num >= 14"
+
+  # Sheet 15: GitHub Issues for Deferred Items
+  - type: file_exists
+    path: "{workspace}/15-issues-filed.md"
+    description: "Issue filing report must exist"
+    condition: "sheet_num >= 15"
 
 # Self-chain for continuous improvement
 on_success:

@@ -46,7 +46,7 @@ class IsolationConfig(BaseModel):
 
     worktree_base: Path | None = Field(
         default=None,
-        description="Directory for worktrees. Default: <workspace>/.worktrees",
+        description="Directory for worktrees. None means resolved dynamically to <repo>/.worktrees at runtime.",
     )
 
     branch_prefix: str = Field(
@@ -94,6 +94,64 @@ class IsolationConfig(BaseModel):
     def get_branch_name(self, job_id: str) -> str:
         """Generate branch name for a job."""
         return f"{self.branch_prefix}/{job_id}"
+
+
+class WorkspaceLifecycleConfig(BaseModel):
+    """Configuration for workspace lifecycle management.
+
+    Controls how workspace files are handled across job iterations,
+    particularly for self-chaining jobs that reuse the same workspace.
+
+    When archive_on_fresh is True and --fresh is used, Mozart moves
+    non-essential workspace files to a numbered archive subdirectory
+    before clearing state. This prevents stale file_exists and
+    command_succeeds validations from passing on previous iteration's
+    artifacts.
+
+    Example YAML:
+        workspace_lifecycle:
+          archive_on_fresh: true
+          archive_dir: archive
+          max_archives: 10
+          preserve_patterns:
+            - ".iteration"
+            - ".mozart-*"
+            - ".coverage"
+            - "archive/**"
+            - ".worktrees/**"
+    """
+
+    archive_on_fresh: bool = Field(
+        default=False,
+        description="Archive workspace files when --fresh flag is used. "
+        "Moves non-preserved files to a numbered archive subdirectory.",
+    )
+    archive_dir: str = Field(
+        default="archive",
+        description="Subdirectory within workspace for archive storage.",
+    )
+    archive_naming: Literal["iteration", "timestamp"] = Field(
+        default="iteration",
+        description="Naming scheme for archive directories. "
+        "'iteration' reads .iteration file, 'timestamp' uses current time.",
+    )
+    max_archives: int = Field(
+        default=0,
+        ge=0,
+        description="Maximum archive directories to keep. 0 = unlimited. "
+        "When exceeded, oldest archives are deleted.",
+    )
+    preserve_patterns: list[str] = Field(
+        default=[
+            ".iteration",
+            ".mozart-*",
+            ".coverage",
+            "archive/**",
+            ".worktrees/**",
+        ],
+        description="Glob patterns for files/directories to preserve (not archive). "
+        "Matched against paths relative to workspace root.",
+    )
 
 
 class RetryConfig(BaseModel):
@@ -1635,6 +1693,11 @@ class JobConfig(BaseModel):
     grounding: GroundingConfig = Field(default_factory=GroundingConfig)
     ai_review: AIReviewConfig = Field(default_factory=AIReviewConfig)
     logging: LogConfig = Field(default_factory=LogConfig)
+    workspace_lifecycle: WorkspaceLifecycleConfig = Field(
+        default_factory=WorkspaceLifecycleConfig,
+        description="Workspace lifecycle management. "
+        "Controls archival of workspace files on --fresh runs.",
+    )
     isolation: IsolationConfig = Field(
         default_factory=IsolationConfig,
         description="Execution isolation configuration. "

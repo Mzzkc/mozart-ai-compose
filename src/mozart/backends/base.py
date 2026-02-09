@@ -1,11 +1,17 @@
 """Abstract base for Claude execution backends."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
+if TYPE_CHECKING:
+    import httpx
+
+from mozart.core.errors import ErrorCategory, ErrorClassifier
 from mozart.utils.time import utc_now
 
 # Type alias for exit reasons - provides exhaustive pattern matching
@@ -99,11 +105,13 @@ class Backend(ABC):
     """
 
     @abstractmethod
-    async def execute(self, prompt: str) -> ExecutionResult:
+    async def execute(self, prompt: str, *, timeout_seconds: float | None = None) -> ExecutionResult:
         """Execute a prompt and return the result.
 
         Args:
             prompt: The prompt to send to Claude
+            timeout_seconds: Per-call timeout override. If provided, overrides
+                the backend's default timeout for this single execution.
 
         Returns:
             ExecutionResult with output and metadata
@@ -136,6 +144,15 @@ class Backend(ABC):
         for child processes. API-based backends store it but don't use it directly.
 
         Returns None if no working directory is set, meaning the process CWD is used.
+
+        Thread/Concurrency Safety:
+            This property is NOT safe to mutate while executions are in-flight.
+            The worktree isolation layer sets it *before* any sheet execution
+            starts, and restores it in the finally block *after* all sheets
+            complete. During parallel execution, all concurrent sheets share
+            the same working directory (the worktree path), so the value is
+            read-only while sheets are running. Never change this property
+            from a concurrent task mid-execution.
         """
         return self._working_directory
 
@@ -144,6 +161,7 @@ class Backend(ABC):
         """Set working directory for backend execution.
 
         Called by worktree isolation to override the working directory at runtime.
+        Must only be called when no executions are in-flight (see property docstring).
         """
         self._working_directory = value
 
@@ -170,6 +188,33 @@ class Backend(ABC):
         """Async context manager exit — ensures close() is called."""
         await self.close()
 
+    def _detect_rate_limit(self, stdout: str = "", stderr: str = "", exit_code: int | None = None) -> bool:
+        """Check output for rate limit indicators.
+
+        Uses the shared ErrorClassifier to ensure consistent detection
+        across all backends.
+
+        Args:
+            stdout: Standard output text.
+            stderr: Standard error text.
+            exit_code: Process exit code. If None or 0, returns False.
+
+        Returns:
+            True if rate limiting was detected.
+        """
+        if exit_code is None or exit_code == 0:
+            return False
+
+        if not hasattr(self, "_error_classifier"):
+            self._error_classifier = ErrorClassifier()
+
+        classified = self._error_classifier.classify(
+            stdout=stdout,
+            stderr=stderr,
+            exit_code=exit_code,
+        )
+        return classified.category == ErrorCategory.RATE_LIMIT
+
     def set_output_log_path(self, _path: Path | None) -> None:
         """Set base path for real-time output logging.
 
@@ -187,3 +232,51 @@ class Backend(ABC):
             _path: Base path for log files (without extension), or None to disable.
         """
         pass
+
+
+class HttpxClientMixin:
+    """Shared lazy httpx.AsyncClient lifecycle for HTTP-based backends.
+
+    Provides `_get_client()` for lazy initialization with connection pooling
+    and `_close_httpx_client()` for cleanup. Both Ollama and RecursiveLight
+    backends use this same pattern.
+    """
+
+    _client: httpx.AsyncClient | None
+    _httpx_base_url: str
+    _httpx_timeout: httpx.Timeout
+    _httpx_headers: dict[str, str]
+
+    def _init_httpx_mixin(
+        self,
+        base_url: str,
+        timeout: float,
+        *,
+        connect_timeout: float = 10.0,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        """Initialize mixin state. Call from subclass __init__."""
+        import httpx as _httpx
+
+        self._client = None
+        self._httpx_base_url = base_url
+        self._httpx_timeout = _httpx.Timeout(timeout, connect=connect_timeout)
+        self._httpx_headers = headers or {}
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create HTTP client with connection pooling."""
+        import httpx as _httpx
+
+        if self._client is None or self._client.is_closed:
+            self._client = _httpx.AsyncClient(
+                base_url=self._httpx_base_url,
+                timeout=self._httpx_timeout,
+                headers=self._httpx_headers if self._httpx_headers else None,
+            )
+        return self._client
+
+    async def _close_httpx_client(self) -> None:
+        """Close the HTTP client if open."""
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None

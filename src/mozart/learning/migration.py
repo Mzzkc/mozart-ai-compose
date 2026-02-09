@@ -18,11 +18,32 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
-from mozart.core.checkpoint import SheetStatus
+from mozart.core.checkpoint import SheetStatus, ValidationDetailDict
 from mozart.core.logging import get_logger
 from mozart.learning.outcomes import SheetOutcome
+
+
+class _OutcomeDict(TypedDict, total=False):
+    """Structure of outcome entries in .mozart-outcomes.json.
+
+    All fields are optional (total=False) because legacy files may have
+    incomplete data or use different key names.
+    """
+
+    sheet_id: str
+    id: str  # Legacy alias for sheet_id
+    job_id: str
+    final_status: str
+    status: str  # Legacy alias for final_status
+    validation_results: list[ValidationDetailDict]
+    validation_pass_rate: float
+    execution_duration: float
+    retry_count: int
+    completion_mode_used: bool
+    first_attempt_success: bool
+    timestamp: str
 
 if TYPE_CHECKING:
     from mozart.learning.aggregator import PatternAggregator
@@ -278,7 +299,7 @@ class OutcomeMigrator:
 
         return imported_count
 
-    def _parse_outcome(self, data: dict[str, Any]) -> SheetOutcome | None:
+    def _parse_outcome(self, data: _OutcomeDict) -> SheetOutcome | None:
         """Parse an outcome from JSON data.
 
         Args:

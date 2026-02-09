@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from mozart.dashboard.app import get_state_backend
+from mozart.dashboard.routes import resolve_job_workspace
 from mozart.state.base import StateBackend
 
 router = APIRouter(prefix="/api/jobs", tags=["Artifacts"])
@@ -68,11 +69,22 @@ def _get_file_info(file_path: Path, workspace_root: Path) -> FileInfo:
 
 
 def _is_safe_path(requested_path: str, workspace_root: Path) -> bool:
-    """Check if requested path is safe (no directory traversal)."""
+    """Check if requested path is safe (no directory traversal or symlink escape).
+
+    Defense-in-depth: rejects symlinks to prevent TOCTOU races where a symlink
+    could be swapped to point outside workspace between check and access.
+    """
     try:
         full_path = (workspace_root / requested_path).resolve()
         workspace_resolved = workspace_root.resolve()
-        return full_path.is_relative_to(workspace_resolved)
+        if not full_path.is_relative_to(workspace_resolved):
+            return False
+        # Reject symlinks to prevent TOCTOU: a symlink could be retargeted
+        # between this check and the actual file read
+        unresolved = workspace_root / requested_path
+        if unresolved.is_symlink():
+            return False
+        return True
     except (ValueError, OSError):
         return False
 
@@ -110,19 +122,7 @@ async def list_artifacts(
     if state is None:
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
 
-    # Determine workspace path - prefer worktree for isolated jobs
-    if state.worktree_path:
-        workspace = Path(state.worktree_path)
-    else:
-        # For non-isolated jobs, workspace needs to be derived from job config
-        # Since CheckpointState doesn't store workspace directly, we need to use a fallback
-        # In a real implementation, we'd store the workspace path in CheckpointState
-        # or derive it from the stored config file path
-        raise HTTPException(
-            status_code=404,
-            detail=f"No accessible workspace found for job {job_id}. "
-                   f"Job may not be using worktree isolation."
-        )
+    workspace = resolve_job_workspace(state, job_id)
 
     if not workspace.exists():
         raise HTTPException(
@@ -221,19 +221,7 @@ async def get_artifact(
     if state is None:
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
 
-    # Determine workspace path - prefer worktree for isolated jobs
-    if state.worktree_path:
-        workspace = Path(state.worktree_path)
-    else:
-        # For non-isolated jobs, workspace needs to be derived from job config
-        # Since CheckpointState doesn't store workspace directly, we need to use a fallback
-        # In a real implementation, we'd store the workspace path in CheckpointState
-        # or derive it from the stored config file path
-        raise HTTPException(
-            status_code=404,
-            detail=f"No accessible workspace found for job {job_id}. "
-                   f"Job may not be using worktree isolation."
-        )
+    workspace = resolve_job_workspace(state, job_id)
 
     if not workspace.exists() or not workspace.is_dir():
         raise HTTPException(

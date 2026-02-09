@@ -17,7 +17,7 @@ import httpx
 if TYPE_CHECKING:
     from mozart.core.config import BackendConfig
 
-from mozart.backends.base import Backend, ExecutionResult
+from mozart.backends.base import Backend, ExecutionResult, HttpxClientMixin
 from mozart.core.logging import get_logger
 from mozart.utils.time import utc_now
 
@@ -25,7 +25,7 @@ from mozart.utils.time import utc_now
 _logger = get_logger("backend.recursive_light")
 
 
-class RecursiveLightBackend(Backend):
+class RecursiveLightBackend(HttpxClientMixin, Backend):
     """Execute prompts via Recursive Light HTTP API.
 
     Uses httpx.AsyncClient to communicate with the Recursive Light
@@ -61,7 +61,16 @@ class RecursiveLightBackend(Backend):
         self.user_id = user_id or str(uuid.uuid4())
         self.timeout = timeout
         self._working_directory: Path | None = None
-        self._client: httpx.AsyncClient | None = None
+
+        # HTTP client lifecycle via shared mixin
+        self._init_httpx_mixin(
+            self.rl_endpoint,
+            self.timeout,
+            headers={
+                "Content-Type": "application/json",
+                "X-Mozart-User-ID": self.user_id,
+            },
+        )
 
     @classmethod
     def from_config(cls, config: "BackendConfig") -> "RecursiveLightBackend":
@@ -86,26 +95,7 @@ class RecursiveLightBackend(Backend):
         """Human-readable backend name."""
         return "recursive-light"
 
-    async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create the HTTP client.
-
-        Lazy initialization to avoid creating client before event loop.
-
-        Returns:
-            Configured httpx.AsyncClient instance.
-        """
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                base_url=self.rl_endpoint,
-                timeout=httpx.Timeout(self.timeout),
-                headers={
-                    "Content-Type": "application/json",
-                    "X-Mozart-User-ID": self.user_id,
-                },
-            )
-        return self._client
-
-    async def execute(self, prompt: str) -> ExecutionResult:
+    async def execute(self, prompt: str, *, timeout_seconds: float | None = None) -> ExecutionResult:
         """Execute a prompt through Recursive Light API.
 
         Sends the prompt to RL's /api/process endpoint and parses
@@ -114,6 +104,8 @@ class RecursiveLightBackend(Backend):
 
         Args:
             prompt: The prompt to send to Recursive Light.
+            timeout_seconds: Per-call timeout override (not currently used by RL backend,
+                which uses its own HTTP timeout).
 
         Returns:
             ExecutionResult with output text and RL metadata populated.
@@ -321,7 +313,8 @@ class RecursiveLightBackend(Backend):
 
         except (httpx.ConnectError, httpx.TimeoutException):
             return False
-        except Exception:
+        except Exception as e:
+            _logger.warning("health_check_failed", error=f"{type(e).__name__}: {e}")
             return False
 
     async def close(self) -> None:
@@ -329,8 +322,6 @@ class RecursiveLightBackend(Backend):
 
         Should be called when done using the backend to clean up resources.
         """
-        if self._client is not None and not self._client.is_closed:
-            await self._client.aclose()
-            self._client = None
+        await self._close_httpx_client()
 
 

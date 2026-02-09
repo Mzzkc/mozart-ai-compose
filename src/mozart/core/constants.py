@@ -59,3 +59,36 @@ SSE_QUEUE_TIMEOUT_SECONDS = 30.0
 
 LOG_STREAM_MAX_TAIL_LINES = 1000
 """Maximum lines returned by log streaming endpoint."""
+
+# =============================================================================
+# Stream / I/O Chunk Sizes (bytes)
+# =============================================================================
+
+STREAM_CHUNK_SIZE = 4096
+"""Default chunk size for stream reads (4 KB)."""
+
+FILE_HASH_CHUNK_SIZE = 8192
+"""Chunk size for file hashing operations (8 KB)."""
+
+# =============================================================================
+# Validation Command Defaults
+# =============================================================================
+
+VALIDATION_COMMAND_TIMEOUT_SECONDS = 300
+"""Timeout for user-defined validation commands (5 minutes)."""
+
+VALIDATION_OUTPUT_TRUNCATE_CHARS = 500
+"""Maximum characters for validation command output summaries."""
+
+# =============================================================================
+# Error Classifier Defaults
+# =============================================================================
+
+RESET_TIME_MINIMUM_WAIT_SECONDS = 300.0
+"""Minimum wait time for reset-based rate limit delays (5 minutes)."""
+
+DEFAULT_QUOTA_WAIT_SECONDS = 3600.0
+"""Default wait time when quota exhaustion is detected but no reset time parsed."""
+
+DEFAULT_RATE_LIMIT_WAIT_SECONDS = 3600.0
+"""Default wait time for generic rate limit detections."""

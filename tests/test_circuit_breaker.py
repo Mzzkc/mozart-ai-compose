@@ -420,12 +420,14 @@ class TestCircuitBreakerLogging:
 
     def test_state_change_logged_at_info(self):
         """Test that state changes are logged at INFO level."""
-        # This is a basic test to ensure logging doesn't crash
         cb = CircuitBreaker(failure_threshold=1, name="test-logger")
-        cb.record_failure()  # CLOSED -> OPEN
-        cb.force_close()  # OPEN -> CLOSED
+        assert cb.get_state() == CircuitState.CLOSED
 
-        # If we got here without exception, logging works
+        cb.record_failure()  # CLOSED -> OPEN
+        assert cb.get_state() == CircuitState.OPEN
+
+        cb.force_close()  # OPEN -> CLOSED
+        assert cb.get_state() == CircuitState.CLOSED
 
 
 class TestCircuitBreakerEdgeCases:

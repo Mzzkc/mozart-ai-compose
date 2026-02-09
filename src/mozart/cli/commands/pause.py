@@ -26,16 +26,14 @@ from pathlib import Path
 
 import typer
 
-from mozart.core.checkpoint import CheckpointState, JobStatus
+from mozart.core.checkpoint import JobStatus
 from mozart.core.config import JobConfig
-from mozart.state import StateBackend
 
 from ..helpers import (
-    _logger,
     configure_global_logging,
     create_pause_signal,
+    find_job_state,
     find_job_workspace,
-    get_state_backends,
     wait_for_pause_ack,
 )
 from ..output import console, output_error
@@ -114,23 +112,8 @@ async def _pause_job(
         )
         raise typer.Exit(1)
 
-    # Setup state backends
-    backends = get_state_backends(found_workspace)
-
     # Find job in backends
-    found_state: CheckpointState | None = None
-    found_backend: StateBackend | None = None
-
-    for state_bknd in backends:
-        try:
-            state = await state_bknd.load(job_id)
-            if state:
-                found_state = state
-                found_backend = state_bknd
-                break
-        except Exception as e:
-            _logger.debug(f"Error querying backend for {job_id}: {e}")
-            continue
+    found_state, found_backend = await find_job_state(job_id, found_workspace)
 
     if found_state is None:
         output_error(
@@ -366,23 +349,8 @@ async def _modify_job(
         )
         raise typer.Exit(1)
 
-    # Setup state backends
-    backends = get_state_backends(found_workspace)
-
     # Find job in backends
-    found_state: CheckpointState | None = None
-    found_backend: StateBackend | None = None
-
-    for state_bknd in backends:
-        try:
-            state = await state_bknd.load(job_id)
-            if state:
-                found_state = state
-                found_backend = state_bknd
-                break
-        except Exception as e:
-            _logger.debug(f"Error querying backend for {job_id}: {e}")
-            continue
+    found_state, found_backend = await find_job_state(job_id, found_workspace)
 
     if found_state is None:
         if json_output:

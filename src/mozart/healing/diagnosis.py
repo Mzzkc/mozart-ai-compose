@@ -5,11 +5,12 @@ Diagnosis objects, sorted by confidence. Each diagnosis identifies
 what went wrong, why, and how to fix it.
 """
 
-import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-_logger = logging.getLogger(__name__)
+from mozart.core.logging import get_logger
+
+_logger = get_logger("healing.diagnosis")
 
 if TYPE_CHECKING:
     from mozart.healing.context import ErrorContext
@@ -95,6 +96,11 @@ class DiagnosisEngine:
         Queries all registered remedies and collects their diagnoses.
         Results are sorted by confidence (highest first).
 
+        If a remedy's ``diagnose()`` raises an exception, a zero-confidence
+        sentinel Diagnosis is appended with ``remedy_name`` set to the failing
+        remedy's class name and ``issue`` describing the failure. This ensures
+        callers can detect partial diagnosis results without a return-type change.
+
         Args:
             context: Error context with diagnostic information.
 
@@ -109,13 +115,24 @@ class DiagnosisEngine:
                 diagnosis = remedy.diagnose(context)
                 if diagnosis is not None:
                     diagnoses.append(diagnosis)
-            except Exception:
+            except Exception as e:
+                remedy_name = type(remedy).__name__
                 # Individual remedy failures shouldn't block diagnosis
                 _logger.warning(
-                    "Remedy %s failed during diagnosis",
-                    type(remedy).__name__,
-                    exc_info=True,
+                    "remedy_diagnosis_failed",
+                    remedy=remedy_name,
+                    error=str(e),
                 )
+                # Record the failure so callers know diagnosis is partial
+                diagnoses.append(Diagnosis(
+                    error_code=context.error_code,
+                    issue=f"Remedy {remedy_name} failed during diagnosis: {e}",
+                    explanation="This remedy could not be evaluated due to an internal error.",
+                    suggestion="Check logs for details; the remedy may need a bug fix.",
+                    confidence=0.0,
+                    remedy_name=None,
+                    context={"failed_remedy": remedy_name, "error": str(e)},
+                ))
 
         # Sort by confidence, highest first
         diagnoses.sort(key=lambda d: d.confidence, reverse=True)

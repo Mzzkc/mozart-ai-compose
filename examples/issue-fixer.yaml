@@ -19,12 +19,16 @@ description: "Investigate and fix one GitHub issue per run, generating subordina
 
 workspace: "./.bugfix-workspace"
 
+workspace_lifecycle:
+  archive_on_fresh: true
+  max_archives: 20
+
 backend:
   type: claude_cli
   skip_permissions: true
-  # 8-hour ceiling: quick sheets finish in minutes, monitoring sheet may need hours.
-  # Per-sheet timeouts would be better (see GitHub enhancement request).
-  timeout_seconds: 28800
+  timeout_seconds: 2400  # 40 min default for most sheets (investigation, review, commit)
+  timeout_overrides:
+    7: 28800  # 8 hr for monitoring sheet (watches spawned Mozart jobs to completion)
 
 cross_sheet:
   auto_capture_stdout: true
@@ -51,16 +55,11 @@ prompt:
     ║  "Fix the most important thing first"                                        ║
     ╚══════════════════════════════════════════════════════════════════════════════╝
 
-    **Step 0: Archive previous iteration outputs (if any)**
+    **Step 0: Track iteration**
+    (Previous iteration outputs are archived automatically by Mozart's
+    workspace_lifecycle.archive_on_fresh feature when --fresh is used.)
     ```bash
     mkdir -p {{ workspace }}
-    if [ -f {{ workspace }}/01-selected-bug.md ]; then
-      ARCHIVE="{{ workspace }}/archive/$(date +%Y%m%d-%H%M%S)"
-      mkdir -p "$ARCHIVE"
-      mv {{ workspace }}/0[1-8]-*.md "$ARCHIVE/" 2>/dev/null || true
-      mv {{ workspace }}/04-generated-score.yaml "$ARCHIVE/" 2>/dev/null || true
-      echo "Archived previous outputs to $ARCHIVE"
-    fi
 
     # Track iteration
     if [ -f {{ workspace }}/.iteration ]; then
@@ -756,6 +755,17 @@ prompt:
 
     echo "Committed fix for issue $ISSUE_NUM"
     ```
+
+    **Step 3b: Push to remote**
+    The commit must be on the remote before closing the issue, so GitHub can
+    link the `Fixes #N` keyword to the commit and auto-close the issue.
+    ```bash
+    git push
+    echo "Pushed fix for issue $ISSUE_NUM to remote"
+    ```
+
+    If the push fails (e.g. due to diverged branches), try `git pull --rebase`
+    followed by `git push`. Do NOT force-push.
 
     **Step 4: Close the GitHub issue**
     ```bash

@@ -156,18 +156,38 @@ class JsonStateBackend(StateBackend):
         return False
 
     async def list_jobs(self) -> list[CheckpointState]:
-        """List all jobs with state files."""
-        states = []
+        """List all jobs with state files.
+
+        Optimized: reads raw JSON and sorts by updated_at before doing full
+        Pydantic validation, avoiding expensive model_validate on every file
+        just to determine sort order.
+        """
+        # Phase 1: Read raw JSON and extract sort key (no Pydantic overhead)
+        raw_entries: list[tuple[str, dict]] = []  # (updated_at_str, data)
         for state_file in self.state_dir.glob("*.json"):
             if state_file.suffix == ".json" and not state_file.name.endswith(".tmp"):
                 try:
                     with open(state_file) as f:
                         data = json.load(f)
-                    states.append(CheckpointState.model_validate(data))
-                except (json.JSONDecodeError, ValueError) as exc:
+                    # Extract updated_at for sorting without full validation
+                    updated_at = data.get("updated_at", "")
+                    raw_entries.append((updated_at, data))
+                except (json.JSONDecodeError, OSError) as exc:
                     _logger.warning("corrupt_state_file", path=str(state_file), error=str(exc))
                     continue
-        return sorted(states, key=lambda s: s.updated_at, reverse=True)
+
+        # Phase 2: Sort by raw updated_at string (ISO format sorts lexicographically)
+        raw_entries.sort(key=lambda e: e[0], reverse=True)
+
+        # Phase 3: Validate sorted entries
+        states: list[CheckpointState] = []
+        for _, data in raw_entries:
+            try:
+                states.append(CheckpointState.model_validate(data))
+            except ValueError as exc:
+                _logger.warning("invalid_state_data", error=str(exc))
+                continue
+        return states
 
     async def get_next_sheet(self, job_id: str) -> int | None:
         """Get next sheet from state."""

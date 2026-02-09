@@ -219,6 +219,22 @@ class DetectedPattern:
             return f"{self.description}{trust_indicator}"
 
 
+@dataclass
+class _SemanticCounts:
+    """Aggregated counts for semantic pattern detection.
+
+    Internal data structure used by PatternDetector to separate the
+    aggregation phase from the pattern creation phase in
+    _detect_semantic_patterns().
+    """
+
+    category_counts: dict[str, int]
+    category_evidence: dict[str, list[str]]
+    reason_counts: dict[str, int]
+    reason_evidence: dict[str, list[str]]
+    fix_counts: dict[str, int]
+
+
 class PatternDetector:
     """Detects patterns from historical sheet outcomes.
 
@@ -303,9 +319,9 @@ class PatternDetector:
 
         for outcome in self.outcomes:
             if outcome.validation_pass_rate < 1.0:
-                for vr in outcome.validation_results:
-                    if not vr.get("passed", True):
-                        vtype = vr.get("rule_type", "unknown")
+                for val_result in outcome.validation_results:
+                    if not val_result.get("passed", True):
+                        vtype = val_result.get("rule_type", "unknown")
                         failure_counts[vtype] = failure_counts.get(vtype, 0) + 1
                         if vtype not in failure_evidence:
                             failure_evidence[vtype] = []
@@ -444,10 +460,10 @@ class PatternDetector:
         low_confidence_validations: list[dict[str, Any]] = []
 
         for outcome in self.outcomes:
-            for vr in outcome.validation_results:
-                confidence = vr.get("confidence", 1.0)
+            for val_result in outcome.validation_results:
+                confidence = val_result.get("confidence", 1.0)
                 if confidence < 0.7:
-                    low_confidence_validations.append(vr)
+                    low_confidence_validations.append(val_result)
 
         if len(low_confidence_validations) >= 2:
             patterns.append(
@@ -508,8 +524,8 @@ class PatternDetector:
                                 )
 
             # Also check validation_results for error_code fields
-            for vr in outcome.validation_results:
-                error_code = vr.get("error_code")
+            for val_result in outcome.validation_results:
+                error_code = val_result.get("error_code")
                 if error_code:
                     error_counts[error_code] = error_counts.get(error_code, 0) + 1
                     if error_code not in error_evidence:
@@ -563,87 +579,144 @@ class PatternDetector:
         Returns:
             List of semantic failure patterns.
         """
-        patterns: list[DetectedPattern] = []
+        counts = self._aggregate_semantic_counts()
+        return self._build_semantic_patterns(counts)
 
-        # Aggregate failure categories across all outcomes
+    def _aggregate_semantic_counts(self) -> _SemanticCounts:
+        """Aggregate semantic failure data from all outcomes.
+
+        Collects failure categories, normalized failure reasons, and fix
+        suggestions from both pre-aggregated outcome fields and raw
+        validation_results (backward compatibility).
+
+        Returns:
+            _SemanticCounts with aggregated data ready for pattern creation.
+        """
         category_counts: dict[str, int] = {}
         category_evidence: dict[str, list[str]] = {}
-
-        # Aggregate semantic patterns (failure_reason keywords)
         reason_counts: dict[str, int] = {}
         reason_evidence: dict[str, list[str]] = {}
-
-        # Aggregate fix suggestions
         fix_counts: dict[str, int] = {}
 
         for outcome in self.outcomes:
-            # Use the pre-aggregated fields if available
-            if outcome.failure_category_counts:
-                for cat, count in outcome.failure_category_counts.items():
-                    category_counts[cat] = category_counts.get(cat, 0) + count
-                    if cat not in category_evidence:
-                        category_evidence[cat] = []
-                    category_evidence[cat].append(outcome.sheet_id)
+            # Pre-aggregated fields from SheetOutcome
+            self._collect_pre_aggregated(
+                outcome, category_counts, category_evidence,
+                reason_counts, reason_evidence, fix_counts,
+            )
+            # Raw validation_results (backward compatibility)
+            self._collect_from_validation_results(
+                outcome, category_counts, category_evidence,
+                reason_counts, reason_evidence, fix_counts,
+            )
 
-            if outcome.semantic_patterns:
-                for pattern in outcome.semantic_patterns:
-                    reason_counts[pattern] = reason_counts.get(pattern, 0) + 1
-                    if pattern not in reason_evidence:
-                        reason_evidence[pattern] = []
-                    reason_evidence[pattern].append(outcome.sheet_id)
+        return _SemanticCounts(
+            category_counts=category_counts,
+            category_evidence=category_evidence,
+            reason_counts=reason_counts,
+            reason_evidence=reason_evidence,
+            fix_counts=fix_counts,
+        )
 
-            if outcome.fix_suggestions:
-                for fix in outcome.fix_suggestions:
-                    fix_counts[fix] = fix_counts.get(fix, 0) + 1
+    def _collect_pre_aggregated(
+        self,
+        outcome: "SheetOutcome",
+        category_counts: dict[str, int],
+        category_evidence: dict[str, list[str]],
+        reason_counts: dict[str, int],
+        reason_evidence: dict[str, list[str]],
+        fix_counts: dict[str, int],
+    ) -> None:
+        """Collect counts from pre-aggregated SheetOutcome fields."""
+        if outcome.failure_category_counts:
+            for category, count in outcome.failure_category_counts.items():
+                category_counts[category] = category_counts.get(category, 0) + count
+                if category not in category_evidence:
+                    category_evidence[category] = []
+                category_evidence[category].append(outcome.sheet_id)
 
-            # Also analyze raw validation_results for backward compatibility
-            for vr in outcome.validation_results:
-                if vr.get("passed", True):
-                    continue
+        if outcome.semantic_patterns:
+            for pattern in outcome.semantic_patterns:
+                reason_counts[pattern] = reason_counts.get(pattern, 0) + 1
+                if pattern not in reason_evidence:
+                    reason_evidence[pattern] = []
+                reason_evidence[pattern].append(outcome.sheet_id)
 
-                # Extract failure_category
-                cat_value = vr.get("failure_category")
-                if cat_value and isinstance(cat_value, str):
-                    category_counts[cat_value] = category_counts.get(cat_value, 0) + 1
-                    if cat_value not in category_evidence:
-                        category_evidence[cat_value] = []
-                    if outcome.sheet_id not in category_evidence[cat_value]:
-                        category_evidence[cat_value].append(outcome.sheet_id)
+        if outcome.fix_suggestions:
+            for fix in outcome.fix_suggestions:
+                fix_counts[fix] = fix_counts.get(fix, 0) + 1
 
-                # Extract normalized keywords from failure_reason
-                reason = vr.get("failure_reason")
-                if reason:
-                    # Simple keyword extraction: lowercase, common phrases
-                    normalized = self._normalize_failure_reason(reason)
-                    if normalized:
-                        reason_counts[normalized] = reason_counts.get(normalized, 0) + 1
-                        if normalized not in reason_evidence:
-                            reason_evidence[normalized] = []
-                        if outcome.sheet_id not in reason_evidence[normalized]:
-                            reason_evidence[normalized].append(outcome.sheet_id)
+    def _collect_from_validation_results(
+        self,
+        outcome: "SheetOutcome",
+        category_counts: dict[str, int],
+        category_evidence: dict[str, list[str]],
+        reason_counts: dict[str, int],
+        reason_evidence: dict[str, list[str]],
+        fix_counts: dict[str, int],
+    ) -> None:
+        """Collect counts from raw validation_results for backward compatibility."""
+        for val_result in outcome.validation_results:
+            if val_result.get("passed", True):
+                continue
 
-                # Track fix suggestions
-                fix_value = vr.get("suggested_fix")
-                if fix_value and isinstance(fix_value, str):
-                    fix_counts[fix_value] = fix_counts.get(fix_value, 0) + 1
+            # Extract failure_category
+            cat_value = val_result.get("failure_category")
+            if cat_value and isinstance(cat_value, str):
+                category_counts[cat_value] = category_counts.get(cat_value, 0) + 1
+                if cat_value not in category_evidence:
+                    category_evidence[cat_value] = []
+                if outcome.sheet_id not in category_evidence[cat_value]:
+                    category_evidence[cat_value].append(outcome.sheet_id)
 
-        # Create patterns for recurring failure categories (seen >= 2 times)
-        for cat, count in category_counts.items():
+            # Extract normalized keywords from failure_reason
+            reason = val_result.get("failure_reason")
+            if reason:
+                normalized = self._normalize_failure_reason(reason)
+                if normalized:
+                    reason_counts[normalized] = reason_counts.get(normalized, 0) + 1
+                    if normalized not in reason_evidence:
+                        reason_evidence[normalized] = []
+                    if outcome.sheet_id not in reason_evidence[normalized]:
+                        reason_evidence[normalized].append(outcome.sheet_id)
+
+            # Track fix suggestions
+            fix_value = val_result.get("suggested_fix")
+            if fix_value and isinstance(fix_value, str):
+                fix_counts[fix_value] = fix_counts.get(fix_value, 0) + 1
+
+    @staticmethod
+    def _build_semantic_patterns(counts: _SemanticCounts) -> list[DetectedPattern]:
+        """Build DetectedPattern objects from aggregated semantic counts.
+
+        Creates patterns for categories (>= 2 occurrences), failure reasons
+        (>= 2), and fix suggestions (>= 3).
+
+        Args:
+            counts: Aggregated semantic counts from _aggregate_semantic_counts().
+
+        Returns:
+            List of semantic failure patterns.
+        """
+        patterns: list[DetectedPattern] = []
+
+        # Recurring failure categories (seen >= 2 times)
+        for category, count in counts.category_counts.items():
             if count >= 2:
                 patterns.append(
                     DetectedPattern(
                         pattern_type=PatternType.SEMANTIC_FAILURE,
-                        description=f"'{cat}' failures are common ({count}x)",
+                        description=f"'{category}' failures are common ({count}x)",
                         frequency=count,
                         success_rate=0.0,
-                        context_tags=[f"failure_category:{cat}"],
-                        evidence=category_evidence.get(cat, [])[:5],
+                        context_tags=[f"failure_category:{category}"],
+                        evidence=counts.category_evidence.get(category, [])[:5],
                         confidence=min(0.85, 0.5 + (count * 0.1)),
                     )
                 )
 
-        # Create patterns for recurring failure reasons (seen >= 2 times)
-        for reason, count in reason_counts.items():
+        # Recurring failure reasons (seen >= 2 times)
+        for reason, count in counts.reason_counts.items():
             if count >= 2 and reason:
                 patterns.append(
                     DetectedPattern(
@@ -652,13 +725,13 @@ class PatternDetector:
                         frequency=count,
                         success_rate=0.0,
                         context_tags=[f"failure_reason:{reason}"],
-                        evidence=reason_evidence.get(reason, [])[:5],
+                        evidence=counts.reason_evidence.get(reason, [])[:5],
                         confidence=min(0.80, 0.45 + (count * 0.1)),
                     )
                 )
 
-        # Create pattern for effective fix suggestions (seen >= 3 times)
-        for fix, count in fix_counts.items():
+        # Effective fix suggestions (seen >= 3 times)
+        for fix, count in counts.fix_counts.items():
             if count >= 3:
                 patterns.append(
                     DetectedPattern(

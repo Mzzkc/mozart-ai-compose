@@ -598,6 +598,9 @@ class TestValidationRunner:
         runner = ValidationRunner(create_default_checks())
         issues = runner.validate(config, config_path, yaml_content)
 
+        # Verify we got issues to test sorting with
+        assert len(issues) > 0, "Expected validation issues for sorting test"
+
         # Errors should come before warnings
         seen_warning = False
         for issue in issues:

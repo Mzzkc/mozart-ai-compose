@@ -26,6 +26,7 @@ Architecture:
 
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -203,6 +204,12 @@ class LifecycleMixin:
             # Each cleanup step is independently protected so that a failure
             # in one (e.g. isolation cleanup) doesn't prevent subsequent steps
             # (e.g. backend.close()) from running.
+            #
+            # Exception handling is narrowed to expected error categories:
+            # - OSError: disk/file/network I/O failures
+            # - ValueError/RuntimeError: invalid state during cleanup
+            # Programming errors (AttributeError, TypeError, NameError) are
+            # NOT caught — they indicate bugs that should propagate.
 
             # Ensure summary is finalized even on failure/shutdown paths.
             # _finalize_summary is idempotent (overwrites, not accumulates),
@@ -210,7 +217,7 @@ class LifecycleMixin:
             # or failure handlers is safe.
             try:
                 self._finalize_summary(state)
-            except Exception:
+            except (OSError, ValueError, RuntimeError):
                 self._logger.warning(
                     "cleanup.finalize_summary_failed",
                     job_id=state.job_id,
@@ -223,7 +230,7 @@ class LifecycleMixin:
             # only successes contributed to the learning system.
             try:
                 await self._aggregate_to_global_store(state)
-            except Exception as agg_err:
+            except (OSError, ValueError, RuntimeError) as agg_err:
                 self._logger.error(
                     "cleanup.learning_aggregation_failed",
                     job_id=state.job_id,
@@ -233,10 +240,18 @@ class LifecycleMixin:
                     exc_info=True,
                 )
 
+            # If detached hooks were spawned, wait briefly before cleanup
+            # to allow child processes to initialize and load their own state.
+            # Without this, parent worktree cleanup can race with child startup.
+            if self.config.on_success and any(
+                h.detached for h in self.config.on_success
+            ):
+                await asyncio.sleep(0.5)
+
             # Clean up worktree isolation if configured (v2 evolution)
             try:
                 await self._cleanup_isolation(state)
-            except Exception:
+            except (OSError, RuntimeError):
                 self._logger.warning(
                     "cleanup.isolation_failed",
                     job_id=state.job_id,
@@ -250,7 +265,7 @@ class LifecycleMixin:
             # Close backend to release resources (connections, subprocesses, etc.)
             try:
                 await self.backend.close()
-            except Exception:
+            except (OSError, RuntimeError):
                 self._logger.warning(
                     "cleanup.backend_close_failed",
                     job_id=state.job_id,
@@ -263,7 +278,7 @@ class LifecycleMixin:
             # the pause is processed (or if the process crashed).
             try:
                 self._clear_pause_signal(state)
-            except Exception:
+            except OSError:
                 self._logger.warning(
                     "cleanup.pause_signal_failed",
                     job_id=state.job_id,

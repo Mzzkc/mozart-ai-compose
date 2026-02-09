@@ -191,6 +191,28 @@ class TestBackendConfig:
         config = BackendConfig()
         assert config.timeout_seconds == 1800.0
 
+    def test_timeout_overrides_default_empty(self):
+        """Test timeout_overrides defaults to empty dict."""
+        config = BackendConfig()
+        assert config.timeout_overrides == {}
+
+    def test_timeout_overrides_per_sheet(self):
+        """Test per-sheet timeout overrides."""
+        config = BackendConfig(timeout_overrides={1: 60.0, 7: 28800.0})
+        assert config.timeout_overrides == {1: 60.0, 7: 28800.0}
+        assert config.timeout_overrides.get(1) == 60.0
+        assert config.timeout_overrides.get(7) == 28800.0
+        assert config.timeout_overrides.get(2) is None
+
+    def test_timeout_overrides_does_not_affect_global(self):
+        """Test that per-sheet overrides don't change the global timeout."""
+        config = BackendConfig(
+            timeout_seconds=2400.0,
+            timeout_overrides={7: 28800.0},
+        )
+        assert config.timeout_seconds == 2400.0
+        assert config.timeout_overrides[7] == 28800.0
+
     def test_cli_extra_args_default_empty(self):
         """Test cli_extra_args defaults to empty list."""
         config = BackendConfig()

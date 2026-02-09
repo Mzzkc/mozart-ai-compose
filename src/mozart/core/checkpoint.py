@@ -600,8 +600,16 @@ class CheckpointState(BaseModel):
         sheet_num: int,
         validation_passed: bool = True,
         validation_details: list[ValidationDetailDict] | None = None,
+        execution_duration_seconds: float | None = None,
     ) -> None:
-        """Mark a sheet as completed."""
+        """Mark a sheet as completed.
+
+        Args:
+            sheet_num: Sheet number that completed.
+            validation_passed: Whether validation checks passed.
+            validation_details: Detailed validation results.
+            execution_duration_seconds: How long the sheet execution took.
+        """
         self.updated_at = utc_now()
 
         sheet = self.sheets[sheet_num]
@@ -610,6 +618,8 @@ class CheckpointState(BaseModel):
         sheet.exit_code = 0
         sheet.validation_passed = validation_passed
         sheet.validation_details = validation_details
+        if execution_duration_seconds is not None:
+            sheet.execution_duration_seconds = execution_duration_seconds
 
         self.last_completed_sheet = sheet_num
         self.current_sheet = None

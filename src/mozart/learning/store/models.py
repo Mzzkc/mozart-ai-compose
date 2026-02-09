@@ -397,6 +397,49 @@ class EpistemicDriftMetrics:
 
 
 @dataclass
+class EvolutionEntryInput:
+    """Input parameters for recording an evolution trajectory entry.
+
+    Bundles the 11 parameters of record_evolution_entry() into a single
+    object for cleaner API usage. The method still accepts individual kwargs
+    for backward compatibility.
+    """
+
+    cycle: int
+    """Evolution cycle number (e.g., 16 for v16)."""
+
+    evolutions_completed: int
+    """Number of evolutions completed in this cycle."""
+
+    evolutions_deferred: int
+    """Number of evolutions deferred in this cycle."""
+
+    issue_classes: list[str]
+    """Issue classes addressed (e.g., ['infrastructure_activation'])."""
+
+    cv_avg: float
+    """Average Consciousness Volume of selected evolutions."""
+
+    implementation_loc: int
+    """Total implementation LOC for this cycle."""
+
+    test_loc: int
+    """Total test LOC for this cycle."""
+
+    loc_accuracy: float
+    """LOC estimation accuracy (actual/estimated as ratio)."""
+
+    research_candidates_resolved: int = 0
+    """Number of research candidates resolved."""
+
+    research_candidates_created: int = 0
+    """Number of new research candidates created."""
+
+    notes: str = ""
+    """Optional notes about this evolution cycle."""
+
+
+@dataclass
 class EvolutionTrajectoryEntry:
     """A record of a single evolution cycle in Mozart's self-improvement trajectory.
 

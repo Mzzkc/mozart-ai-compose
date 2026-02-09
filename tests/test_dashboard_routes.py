@@ -60,11 +60,15 @@ class TestJobModels:
         """Test that providing only config_content passes validation."""
         request = StartJobRequest(config_content="content here")
         request.validate_config_source()  # Should not raise
+        assert request.config_content == "content here"
+        assert request.config_path is None
 
     def test_job_start_request_validation_path_only(self):
         """Test that providing only config_path passes validation."""
         request = StartJobRequest(config_path="path/here.yaml")
         request.validate_config_source()  # Should not raise
+        assert request.config_path == "path/here.yaml"
+        assert request.config_content is None
 
     def test_job_action_response_from_action_result(self):
         """Test creating JobActionResponse from JobActionResult."""

@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import sqlite3
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -194,15 +195,13 @@ class RecoveryMixin:
     ) -> None:
         """Handle rate limit or quota exhaustion by waiting and health checking.
 
-        This method implements the complete rate limit handling flow:
-        1. Determine wait duration (dynamic from API or configured default)
-        2. Record to global store for cross-workspace coordination
-        3. Wait with periodic polling for pattern discoveries
-        4. Health check before resuming
-
-        Evolution #8: Cross-Workspace Circuit Breaker - Records rate limit
-        events to the global learning store so other parallel jobs can avoid
-        hitting the same rate limit.
+        This method orchestrates the complete rate limit handling flow:
+        1. Determine wait duration and update state counters
+        2. Enforce max-wait limits and log/display the event
+        3. Record to global store for cross-workspace coordination
+        4. Poll for pattern broadcasts during the wait
+        5. Wait for the calculated duration
+        6. Health check before resuming
 
         Args:
             state: Current job state.
@@ -214,41 +213,84 @@ class RecoveryMixin:
 
         Raises:
             FatalError: If max waits exceeded or health check fails.
-
-        Note:
-            Quota exhaustion (E104) has no max waits - we always wait until
-            the reset time provided by the API. Regular rate limits (E101)
-            are bounded by config.rate_limit.max_waits.
         """
-        # Distinguish quota exhaustion from regular rate limit
-        is_quota_exhaustion = error_code == "E104"
+        is_quota = error_code == "E104"
+        wait_seconds = self._resolve_wait_duration(suggested_wait_seconds)
 
-        # Determine wait duration
+        # Update counters and persist
+        await self._increment_wait_counter(state, is_quota)
+
+        # Log, display, and enforce max-wait limit (may raise FatalError)
+        self._log_rate_limit_event(state, is_quota, wait_seconds)
+
+        # Cross-workspace coordination
+        await self._record_rate_limit_to_global_store(
+            state=state, error_code=error_code, wait_seconds=wait_seconds,
+        )
+
+        # Poll for pattern discoveries during the wait window
+        await self._poll_broadcast_discoveries(
+            job_id=state.job_id,
+            sheet_num=state.last_completed_sheet + 1 if state.last_completed_sheet else 1,
+        )
+
+        # Wait and health-check
+        await asyncio.sleep(wait_seconds)
+        await self._health_check_after_wait(state, is_quota)
+
+    def _resolve_wait_duration(self, suggested_wait_seconds: float | None) -> float:
+        """Determine how long to wait for a rate limit.
+
+        Uses the API-suggested wait time when available, otherwise falls
+        back to config.rate_limit.wait_minutes.
+
+        Args:
+            suggested_wait_seconds: Dynamic wait from API response, or None.
+
+        Returns:
+            Wait duration in seconds.
+        """
         if suggested_wait_seconds is not None and suggested_wait_seconds > 0:
-            # Use dynamic wait time (from parsed reset time in API response)
-            wait_seconds = suggested_wait_seconds
-            wait_minutes = wait_seconds / 60
-        else:
-            # Use configured wait time
-            wait_minutes = self.config.rate_limit.wait_minutes
-            wait_seconds = wait_minutes * 60
+            return suggested_wait_seconds
+        return self.config.rate_limit.wait_minutes * 60
 
-        # Track separately for quota exhaustion vs rate limits
-        if is_quota_exhaustion:
+    async def _increment_wait_counter(
+        self, state: CheckpointState, is_quota: bool,
+    ) -> None:
+        """Increment the appropriate wait counter and persist state.
+
+        Quota exhaustion and regular rate limits are tracked separately
+        because they have different max-wait policies.
+
+        Args:
+            state: Current job state.
+            is_quota: True for quota exhaustion (E104), False for rate limit (E101).
+        """
+        if is_quota:
             state.quota_waits += 1
         else:
             state.rate_limit_waits += 1
         await self.state_backend.save(state)
 
-        # Record to global store for cross-workspace coordination
-        await self._record_rate_limit_to_global_store(
-            state=state,
-            error_code=error_code,
-            wait_seconds=wait_seconds,
-        )
+    def _log_rate_limit_event(
+        self, state: CheckpointState, is_quota: bool, wait_seconds: float,
+    ) -> None:
+        """Log and display rate limit event, enforcing max-wait limits.
 
-        # Log detection and display wait message
-        if is_quota_exhaustion:
+        Quota exhaustion has no max waits (always wait until reset).
+        Regular rate limits are bounded by config.rate_limit.max_waits.
+
+        Args:
+            state: Current job state.
+            is_quota: True for quota exhaustion (E104).
+            wait_seconds: Duration of the wait.
+
+        Raises:
+            FatalError: If regular rate limit max waits exceeded.
+        """
+        wait_minutes = wait_seconds / 60
+
+        if is_quota:
             self._logger.warning(
                 "quota_exhausted.detected",
                 job_id=state.job_id,
@@ -256,7 +298,6 @@ class RecoveryMixin:
                 wait_minutes=wait_minutes,
                 wait_seconds=wait_seconds,
             )
-            # Quota exhaustion has no max waits - always wait until reset
             self.console.print(
                 f"[yellow]Token quota exhausted. Waiting {wait_minutes:.1f} minutes until reset... "
                 f"(quota wait #{state.quota_waits})[/yellow]"
@@ -269,7 +310,6 @@ class RecoveryMixin:
                 max_waits=self.config.rate_limit.max_waits,
                 wait_minutes=wait_minutes,
             )
-            # Check max waits only for regular rate limits
             if state.rate_limit_waits >= self.config.rate_limit.max_waits:
                 self._logger.error(
                     "rate_limit.exhausted",
@@ -285,30 +325,29 @@ class RecoveryMixin:
                 f"(wait {state.rate_limit_waits}/{self.config.rate_limit.max_waits})[/yellow]"
             )
 
-        # v16 Evolution: Active Broadcast Polling during rate limit waits
-        # Rate limit waits are typically longer, so this is a good time to
-        # check for pattern discoveries from other concurrent jobs.
-        await self._poll_broadcast_discoveries(
-            job_id=state.job_id,
-            sheet_num=state.last_completed_sheet + 1 if state.last_completed_sheet else 1,
-        )
+    async def _health_check_after_wait(
+        self, state: CheckpointState, is_quota: bool,
+    ) -> None:
+        """Run health check after rate limit wait and log resumption.
 
-        # Wait for the specified duration
-        await asyncio.sleep(wait_seconds)
+        Args:
+            state: Current job state.
+            is_quota: True for quota exhaustion (E104).
 
-        # Health check before resuming to ensure backend is ready
+        Raises:
+            FatalError: If health check fails after the wait.
+        """
+        event_type = "quota_exhausted" if is_quota else "rate_limit"
         self.console.print("[blue]Running health check...[/blue]")
+
         if not await self.backend.health_check():
-            event_type = "quota_exhausted" if is_quota_exhaustion else "rate_limit"
             self._logger.error(
                 f"{event_type}.health_check_failed",
                 job_id=state.job_id,
             )
             raise FatalError(f"Backend health check failed after {event_type} wait")
 
-        # Log successful resumption
-        wait_count = state.quota_waits if is_quota_exhaustion else state.rate_limit_waits
-        event_type = "quota_exhausted" if is_quota_exhaustion else "rate_limit"
+        wait_count = state.quota_waits if is_quota else state.rate_limit_waits
         self._logger.info(
             f"{event_type}.resumed",
             job_id=state.job_id,
@@ -368,7 +407,7 @@ class RecoveryMixin:
                 error_code=error_code,
                 duration_seconds=wait_seconds,
             )
-        except Exception as e:
+        except (sqlite3.Error, OSError) as e:
             # Global store failure shouldn't block rate limit handling
             self._logger.warning(
                 "rate_limit.cross_workspace_record_failed",
@@ -542,7 +581,7 @@ class RecoveryMixin:
                         context_tags=discovery.context_tags,
                     )
 
-        except Exception as e:
+        except (sqlite3.Error, OSError, ValueError) as e:
             # Polling failure should not block retry - log and continue
             self._logger.warning(
                 "broadcast.polling_failed",
@@ -588,7 +627,7 @@ class RecoveryMixin:
                 actual_wait=actual_wait,
                 recovery_success=recovery_success,
             )
-        except Exception as e:
+        except (sqlite3.Error, OSError) as e:
             # Recovery recording failure shouldn't block execution
             self._logger.warning(
                 "learning.recovery_record_failed",
@@ -641,7 +680,7 @@ class RecoveryMixin:
                     wait_seconds=wait_time,
                 )
             return is_limited, wait_time
-        except Exception as e:
+        except (sqlite3.Error, OSError) as e:
             self._logger.warning(
                 "rate_limit.cross_workspace_check_failed",
                 job_id=state.job_id,

@@ -510,25 +510,43 @@ notifications:
             "error_message": getattr(state, 'error_message', None)
         }
 
+    @staticmethod
+    def _mcp_json_content(uri: str, data: dict[str, Any]) -> dict[str, Any]:
+        """Wrap data in MCP content response format."""
+        return {
+            "contents": [
+                {
+                    "uri": uri,
+                    "mimeType": "application/json",
+                    "text": json.dumps(data, indent=2),
+                }
+            ]
+        }
+
+    @staticmethod
+    def _count_sheets_by_status(sheets: dict[Any, Any]) -> dict[str, int]:
+        """Count sheets by their status value."""
+        counts: dict[str, int] = {}
+        for sheet in sheets.values():
+            status = sheet.status.value
+            counts[status] = counts.get(status, 0) + 1
+        return counts
+
     async def _get_job_details(self, job_id: str) -> dict[str, Any]:
         """Get detailed information about a specific job."""
+        uri = f"mozart://jobs/{job_id}"
+
         if not self.state_backend:
-            return {
-                "contents": [
-                    {
-                        "uri": f"mozart://jobs/{job_id}",
-                        "mimeType": "application/json",
-                        "text": json.dumps({
-                            "error": "Job details require state backend initialization"
-                        }, indent=2)
-                    }
-                ]
-            }
+            return self._mcp_json_content(uri, {
+                "error": "Job details require state backend initialization"
+            })
 
         try:
             state = await self.state_backend.load(job_id)
             if not state:
                 raise FileNotFoundError(f"Job not found: {job_id}")
+
+            status_counts = self._count_sheets_by_status(state.sheets)
 
             job_details: dict[str, Any] = {
                 "job_id": job_id,
@@ -545,18 +563,13 @@ notifications:
                     "backend_type": getattr(state, 'backend_type', 'unknown'),
                 },
                 "progress": {
-                    "completed_sheets": len([s for s in state.sheets.values()
-                                           if s.status.value == "completed"]),
-                    "failed_sheets": len([s for s in state.sheets.values()
-                                        if s.status.value == "failed"]),
-                    "running_sheets": len([s for s in state.sheets.values()
-                                         if s.status.value == "running"]),
-                    "pending_sheets": len([s for s in state.sheets.values()
-                                         if s.status.value == "pending"]),
-                }
+                    "completed_sheets": status_counts.get("completed", 0),
+                    "failed_sheets": status_counts.get("failed", 0),
+                    "running_sheets": status_counts.get("running", 0),
+                    "pending_sheets": status_counts.get("pending", 0),
+                },
             }
 
-            # Add sheet details
             for sheet_num, sheet in state.sheets.items():
                 job_details["sheets"][str(sheet_num)] = {
                     "sheet_num": sheet.sheet_num,
@@ -566,32 +579,16 @@ notifications:
                     "attempt_count": sheet.attempt_count,
                     "error_message": sheet.error_message,
                     "validation_passed": getattr(sheet, 'validation_passed', None),
-                    "output_size": len(sheet.stdout_tail) if sheet.stdout_tail else 0
+                    "output_size": len(sheet.stdout_tail) if sheet.stdout_tail else 0,
                 }
 
-            return {
-                "contents": [
-                    {
-                        "uri": f"mozart://jobs/{job_id}",
-                        "mimeType": "application/json",
-                        "text": json.dumps(job_details, indent=2)
-                    }
-                ]
-            }
+            return self._mcp_json_content(uri, job_details)
 
         except Exception as e:
-            return {
-                "contents": [
-                    {
-                        "uri": f"mozart://jobs/{job_id}",
-                        "mimeType": "application/json",
-                        "text": json.dumps({
-                            "error": f"Error loading job details: {str(e)}",
-                            "job_id": job_id
-                        }, indent=2)
-                    }
-                ]
-            }
+            return self._mcp_json_content(uri, {
+                "error": f"Error loading job details: {str(e)}",
+                "job_id": job_id,
+            })
 
     async def _get_job_templates(self) -> dict[str, Any]:
         """Get collection of Mozart job configuration templates."""

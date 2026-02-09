@@ -508,17 +508,17 @@ class TestMatchesAny:
         assert classifier._matches_any("everything is fine", classifier.rate_limit_patterns) is False
 
     def test_matches_any_caches_combined_pattern(self, classifier: ErrorClassifier) -> None:
-        """Test that _matches_any caches the combined regex by pattern list id."""
+        """Test that _matches_any uses pre-computed combined regex patterns."""
         key = id(classifier.rate_limit_patterns)
-        # Cache should be empty initially
-        assert key not in classifier._combined_cache
-
-        # First call populates cache
-        classifier._matches_any("rate limit", classifier.rate_limit_patterns)
+        # Cache is pre-populated in __init__() for all known pattern lists
         assert key in classifier._combined_cache
         cached = classifier._combined_cache[key]
 
-        # Second call uses same cached pattern
+        # Calls reuse the same cached pattern object
+        classifier._matches_any("rate limit", classifier.rate_limit_patterns)
+        assert classifier._combined_cache[key] is cached
+
+        # Second call still uses same cached pattern
         classifier._matches_any("quota", classifier.rate_limit_patterns)
         assert classifier._combined_cache[key] is cached
 

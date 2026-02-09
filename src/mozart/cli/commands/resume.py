@@ -31,21 +31,15 @@ from mozart.core.config import JobConfig
 from mozart.state import StateBackend
 
 from ..helpers import (
-    ErrorMessages,
-    _logger,
     configure_global_logging,
-    get_state_backends,
     is_quiet,
+    require_job_state,
 )
 from ..output import console, format_duration
 from ._shared import (
-    create_backend,
     create_progress_bar,
     handle_job_completion,
-    setup_escalation,
-    setup_grounding,
-    setup_learning,
-    setup_notifications,
+    setup_all,
 )
 
 def resume(
@@ -125,8 +119,8 @@ async def _find_job_state(
 ) -> tuple[CheckpointState, StateBackend]:
     """Find and validate job state from available backends.
 
-    Searches SQLite and JSON backends (in priority order) for the job state,
-    then validates the job is in a resumable status.
+    Uses require_job_state for the find+error pattern, then validates
+    that the job is in a resumable status.
 
     Args:
         job_id: Job ID to find.
@@ -139,33 +133,7 @@ async def _find_job_state(
     Raises:
         typer.Exit: If job not found or not in resumable state.
     """
-    if workspace and not workspace.exists():
-        console.print(f"[red]Workspace not found:[/red] {workspace}")
-        raise typer.Exit(1)
-
-    backends = get_state_backends(workspace)
-
-    found_state: CheckpointState | None = None
-    found_backend: StateBackend | None = None
-
-    for state_bknd in backends:
-        try:
-            state = await state_bknd.load(job_id)
-            if state:
-                found_state = state
-                found_backend = state_bknd
-                break
-        except Exception as e:
-            _logger.debug(f"Error querying backend for {job_id}: {e}")
-            continue
-
-    if found_state is None or found_backend is None:
-        console.print(f"[red]{ErrorMessages.JOB_NOT_FOUND}:[/red] {job_id}")
-        console.print(
-            "\n[dim]Hint: Use --workspace to specify the directory "
-            "containing the job state.[/dim]"
-        )
-        raise typer.Exit(1)
+    found_state, found_backend = await require_job_state(job_id, workspace)
 
     # Check if job is in a resumable state
     resumable_statuses = {JobStatus.PAUSED, JobStatus.FAILED, JobStatus.RUNNING}
@@ -355,11 +323,15 @@ async def _resume_job(
     await found_backend.save(found_state)
 
     # Phase 3: Setup backends and features for execution (shared with run.py)
-    backend = create_backend(config, console=console)
-    outcome_store, global_learning_store = setup_learning(config, console=console)
-    notification_manager = setup_notifications(config, console=console)
-    escalation_handler = setup_escalation(config, enabled=escalation, console=console)
-    grounding_engine = setup_grounding(config, console=console)
+    components = setup_all(
+        config, escalation=escalation, console=console,
+    )
+    backend = components.backend
+    outcome_store = components.outcome_store
+    global_learning_store = components.global_learning_store
+    notification_manager = components.notification_manager
+    escalation_handler = components.escalation_handler
+    grounding_engine = components.grounding_engine
 
     # Create progress bar for sheet tracking
     progress = create_progress_bar(console=console)
@@ -449,13 +421,16 @@ async def _resume_job(
         progress.stop()
         console.print(f"[red]Fatal error: {e}[/red]")
 
-        # Send failure notification
+        # Send failure notification (must not mask the original error)
         if notification_manager:
-            await notification_manager.notify_job_failed(
-                job_id=job_id,
-                job_name=config.name,
-                error_message=str(e),
-            )
+            try:
+                await notification_manager.notify_job_failed(
+                    job_id=job_id,
+                    job_name=config.name,
+                    error_message=str(e),
+                )
+            except Exception:
+                pass  # Don't mask the original FatalError
 
         raise typer.Exit(1) from None
 
@@ -465,7 +440,10 @@ async def _resume_job(
             progress.stop()
 
         if notification_manager:
-            await notification_manager.close()
+            try:
+                await notification_manager.close()
+            except Exception:
+                pass  # Don't mask errors during final cleanup
 
 
 # =============================================================================
