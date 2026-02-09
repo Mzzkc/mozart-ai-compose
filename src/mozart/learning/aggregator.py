@@ -11,8 +11,6 @@ merge them with existing patterns in the global store.
 
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
-
 from mozart.core.logging import get_logger
 from mozart.learning.global_store import GlobalLearningStore, PatternRecord
 from mozart.learning.outcomes import SheetOutcome
@@ -24,9 +22,6 @@ from mozart.learning.patterns import (
     PatternType,
 )
 from mozart.learning.weighter import PatternWeighter
-
-if TYPE_CHECKING:
-    pass
 
 # Module-level logger for pattern aggregation
 _logger = get_logger("learning.aggregator")

@@ -105,7 +105,7 @@ _create_pause_signal = create_pause_signal
 _wait_for_pause_ack = wait_for_pause_ack
 
 # Re-export helpers module for direct access to internal state (conftest.py needs this)
-from . import helpers
+from . import helpers as helpers
 
 # =============================================================================
 # Typer app definition

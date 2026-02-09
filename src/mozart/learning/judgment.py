@@ -7,7 +7,7 @@ Phase 4 of AGI Evolution: Judgment Integration
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Literal
 
 import httpx
 
@@ -43,8 +43,6 @@ class JudgmentQuery:
     confidence: float
     """Current aggregate confidence score (0.0-1.0)."""
 
-    similar_outcomes: list[dict[str, Any]] = field(default_factory=list)
-    """Similar past outcomes retrieved from OutcomeStore. Deprecated: always empty."""
 
 
 @dataclass
@@ -82,25 +80,6 @@ class JudgmentResponse:
     patterns_learned: list[str] = field(default_factory=list)
     """New patterns identified by RL from this execution."""
 
-
-@runtime_checkable
-class JudgmentProvider(Protocol):
-    """Protocol for judgment providers.
-
-    Implementations can be Recursive Light (HTTP API), local heuristics,
-    or any other judgment mechanism.
-    """
-
-    async def get_judgment(self, query: JudgmentQuery) -> JudgmentResponse:
-        """Get execution judgment for a sheet.
-
-        Args:
-            query: Full context about the sheet execution state.
-
-        Returns:
-            JudgmentResponse with recommended action and reasoning.
-        """
-        ...
 
 
 class JudgmentClient:
@@ -176,7 +155,6 @@ class JudgmentClient:
                 "error_patterns": query.error_patterns,
                 "retry_count": query.retry_count,
                 "confidence": query.confidence,
-                "similar_outcomes": query.similar_outcomes,
             }
 
             # POST to RL judgment endpoint

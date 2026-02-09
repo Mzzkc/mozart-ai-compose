@@ -11,6 +11,7 @@ This module provides:
 """
 
 import asyncio
+import logging
 import re
 import subprocess
 import time
@@ -23,6 +24,8 @@ from typing import TYPE_CHECKING, Any
 from mozart.core.checkpoint import ValidationDetailDict
 from mozart.core.config import ValidationRule
 from mozart.utils.time import utc_now
+
+_logger = logging.getLogger("mozart.execution.validation")
 
 if TYPE_CHECKING:
     from mozart.core.checkpoint import CheckpointState
@@ -363,12 +366,29 @@ class ValidationEngine:
 
         Returns:
             Expanded Path object.
+
+        Raises:
+            ValueError: If expanded path resolves outside the workspace directory.
         """
         # Build context, ensuring workspace is set correctly
         context = dict(self.sheet_context)
         context["workspace"] = str(self.workspace)
 
         expanded = path_template.format(**context)
+        resolved = Path(expanded).resolve()
+
+        if not resolved.is_relative_to(self.workspace):
+            _logger.warning(
+                "path_traversal_blocked",
+                template=path_template,
+                resolved=str(resolved),
+                workspace=str(self.workspace),
+            )
+            raise ValueError(
+                f"Path '{expanded}' resolves to '{resolved}' which is outside "
+                f"workspace '{self.workspace}'"
+            )
+
         return Path(expanded)
 
     def snapshot_mtime_files(self, rules: list[ValidationRule]) -> None:

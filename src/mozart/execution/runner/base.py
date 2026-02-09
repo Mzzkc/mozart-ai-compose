@@ -51,7 +51,7 @@ from mozart.execution.dag import (
     InvalidDependencyError,
     build_dag_from_config,
 )
-from mozart.execution.escalation import CheckpointHandler, EscalationHandler
+from mozart.execution.escalation import ConsoleCheckpointHandler, ConsoleEscalationHandler
 from mozart.execution.preflight import PreflightChecker
 from mozart.execution.retry_strategy import AdaptiveRetryStrategy, RetryStrategyConfig
 from mozart.learning.judgment import JudgmentClient
@@ -92,7 +92,7 @@ class JobRunnerBase:
         state_backend: StateBackend,
         console: Console | None = None,
         outcome_store: OutcomeStore | None = None,
-        escalation_handler: EscalationHandler | None = None,
+        escalation_handler: ConsoleEscalationHandler | None = None,
         judgment_client: JudgmentClient | None = None,
         progress_callback: Callable[[int, int, float | None], None] | None = None,
         execution_progress_callback: Callable[[dict[str, Any]], None] | None = None,
@@ -155,7 +155,7 @@ class JobRunnerBase:
         # Learning components
         self.outcome_store = outcome_store
         self.escalation_handler = escalation_handler
-        self.checkpoint_handler: CheckpointHandler | None = None  # v21 Evolution
+        self.checkpoint_handler: ConsoleCheckpointHandler | None = None  # v21 Evolution
         self.judgment_client = judgment_client
 
         # Progress callbacks

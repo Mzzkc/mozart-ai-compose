@@ -73,7 +73,6 @@ class RecursiveLightBackend(Backend):
         Returns:
             Configured RecursiveLightBackend instance.
         """
-        from mozart.core.config import BackendConfig  # noqa: F811
 
         rl_config = config.recursive_light
         return cls(

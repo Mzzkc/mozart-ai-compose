@@ -86,6 +86,7 @@ class GlobalLearningStoreBase:
         """
         self.db_path = db_path or DEFAULT_GLOBAL_STORE_PATH
         self._logger = _logger
+        self._batch_conn: sqlite3.Connection | None = None
         self._ensure_db_exists()
         self._migrate_if_needed()
 
@@ -100,12 +101,11 @@ class GlobalLearningStoreBase:
     def _get_connection(self) -> Generator[sqlite3.Connection, None, None]:
         """Get a database connection with proper configuration.
 
+        If called inside a ``batch_connection()`` context, reuses the cached
+        connection (no commit/close per call — the batch handles that).
+        Otherwise creates a fresh connection per call.
+
         Uses WAL mode for better concurrent access and enables foreign keys.
-        The connection is configured with:
-        - WAL journal mode for concurrent reads/writes
-        - Foreign keys enabled for referential integrity
-        - 30 second busy timeout for lock contention
-        - Row factory for dict-like access
 
         Yields:
             A configured sqlite3.Connection instance.
@@ -113,6 +113,11 @@ class GlobalLearningStoreBase:
         Raises:
             sqlite3.Error: If connection or configuration fails.
         """
+        # Reuse batch connection if available
+        if self._batch_conn is not None:
+            yield self._batch_conn
+            return
+
         conn = sqlite3.connect(str(self.db_path), timeout=30.0)
         try:
             conn.execute("PRAGMA journal_mode=WAL")
@@ -123,13 +128,48 @@ class GlobalLearningStoreBase:
             conn.commit()
         except Exception as e:
             conn.rollback()
-            # Log context before re-raising to aid debugging
-            # The exception chain is preserved for full stack trace
             _logger.debug(
                 f"Database operation failed on {self.db_path}: {type(e).__name__}: {e}"
             )
             raise
         finally:
+            conn.close()
+
+    @contextmanager
+    def batch_connection(self) -> Generator[sqlite3.Connection, None, None]:
+        """Reuse a single connection across multiple operations.
+
+        While this context manager is active, all ``_get_connection()`` calls
+        will reuse the same connection, avoiding repeated open/close overhead.
+        The connection is committed once on successful exit or rolled back on error.
+
+        Example::
+
+            with store.batch_connection():
+                patterns = store.get_patterns(min_priority=0.5)
+                for p in patterns:
+                    store.update_trust_score(p.pattern_id, ...)
+
+        Yields:
+            The shared sqlite3.Connection instance.
+        """
+        conn = sqlite3.connect(str(self.db_path), timeout=30.0)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA busy_timeout=30000")
+        conn.row_factory = sqlite3.Row
+        self._batch_conn = conn
+        try:
+            yield conn
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            _logger.debug(
+                f"Batch operation failed on {self.db_path}: {type(e).__name__}: {e}"
+            )
+            raise
+        finally:
+            self._batch_conn = None
             conn.close()
 
     def close(self) -> None:

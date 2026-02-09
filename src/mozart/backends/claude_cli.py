@@ -684,6 +684,10 @@ class ClaudeCliBackend(Backend):
         #
         # Fix: After streams close, wait briefly for Claude to exit. If it doesn't,
         # kill the entire process group (Claude + all children including MCP servers).
+        #
+        # Detection: When #1935 is fixed, the process.wait() below will succeed within
+        # PROCESS_EXIT_TIMEOUT consistently. Monitor the "process_exit_timeout" log event
+        # frequency — when it drops to zero, this workaround can be removed.
         try:
             await asyncio.wait_for(process.wait(), timeout=PROCESS_EXIT_TIMEOUT)
         except TimeoutError:

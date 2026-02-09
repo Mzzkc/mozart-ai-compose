@@ -159,7 +159,6 @@ class DiagnosisEngine:
 
     def _get_remedy_category(self, remedy_name: str) -> "RemedyCategory | None":
         """Get the category of a remedy by name."""
-        from mozart.healing.remedies.base import RemedyCategory
 
         remedy = self.registry.get_by_name(remedy_name)
         return remedy.category if remedy else None

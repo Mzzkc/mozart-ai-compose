@@ -611,3 +611,118 @@ class TestEdgeCases:
         # Verify all jobs saved correctly
         jobs = await sqlite_backend.list_jobs()
         assert len(jobs) == 10
+
+
+class TestCascadeDelete:
+    """Test that ON DELETE CASCADE actually works with foreign keys enabled."""
+
+    async def test_delete_cascades_sheets(
+        self, sqlite_backend: SQLiteStateBackend, sample_state: CheckpointState
+    ) -> None:
+        """Deleting a job must remove its sheet rows from the sheets table."""
+        import aiosqlite
+
+        # Create job with sheets
+        sample_state.mark_sheet_started(1)
+        sample_state.mark_sheet_completed(1)
+        sample_state.mark_sheet_started(2)
+        await sqlite_backend.save(sample_state)
+
+        # Verify sheets exist in the database
+        async with aiosqlite.connect(sqlite_backend.db_path) as db:
+            await db.execute("PRAGMA foreign_keys=ON")
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM sheets WHERE job_id = ?",
+                (sample_state.job_id,),
+            )
+            row = await cursor.fetchone()
+            assert row[0] == 2, "Expected 2 sheet rows before delete"
+
+        # Delete the job
+        result = await sqlite_backend.delete(sample_state.job_id)
+        assert result is True
+
+        # Verify sheet rows were cascaded away
+        async with aiosqlite.connect(sqlite_backend.db_path) as db:
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM sheets WHERE job_id = ?",
+                (sample_state.job_id,),
+            )
+            row = await cursor.fetchone()
+            assert row[0] == 0, "Sheet rows should be removed by CASCADE delete"
+
+    async def test_delete_cascades_execution_history(
+        self, sqlite_backend: SQLiteStateBackend, sample_state: CheckpointState
+    ) -> None:
+        """Deleting a job must remove its execution_history rows."""
+        import aiosqlite
+
+        await sqlite_backend.save(sample_state)
+
+        # Record some execution history
+        for i in range(1, 4):
+            await sqlite_backend.record_execution(
+                job_id=sample_state.job_id,
+                sheet_num=1,
+                attempt_num=i,
+                exit_code=1 if i < 3 else 0,
+            )
+
+        # Verify execution history exists
+        async with aiosqlite.connect(sqlite_backend.db_path) as db:
+            await db.execute("PRAGMA foreign_keys=ON")
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM execution_history WHERE job_id = ?",
+                (sample_state.job_id,),
+            )
+            row = await cursor.fetchone()
+            assert row[0] == 3, "Expected 3 execution history rows before delete"
+
+        # Delete the job
+        await sqlite_backend.delete(sample_state.job_id)
+
+        # Verify execution history was cascaded away
+        async with aiosqlite.connect(sqlite_backend.db_path) as db:
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM execution_history WHERE job_id = ?",
+                (sample_state.job_id,),
+            )
+            row = await cursor.fetchone()
+            assert row[0] == 0, "Execution history should be removed by CASCADE delete"
+
+    async def test_fresh_run_no_stale_sheets(
+        self, sqlite_backend: SQLiteStateBackend
+    ) -> None:
+        """After delete + re-create with same job ID, no stale sheet data loads."""
+        job_id = "fresh-run-test"
+
+        # First run: create job, add sheets, complete some work
+        state1 = CheckpointState(
+            job_id=job_id,
+            job_name="First Run",
+            total_sheets=5,
+        )
+        state1.mark_sheet_started(1)
+        state1.mark_sheet_completed(1)
+        state1.mark_sheet_started(2)
+        state1.mark_sheet_completed(2)
+        state1.mark_sheet_started(3)
+        await sqlite_backend.save(state1)
+
+        # Simulate --fresh: delete the job
+        await sqlite_backend.delete(job_id)
+
+        # Second run: re-create with same job ID
+        state2 = CheckpointState(
+            job_id=job_id,
+            job_name="Fresh Run",
+            total_sheets=5,
+        )
+        await sqlite_backend.save(state2)
+
+        # Load and verify no stale sheets from the first run
+        loaded = await sqlite_backend.load(job_id)
+        assert loaded is not None
+        assert loaded.job_name == "Fresh Run"
+        assert len(loaded.sheets) == 0, "No stale sheets should survive delete + recreate"
+        assert loaded.last_completed_sheet == 0

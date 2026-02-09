@@ -41,6 +41,8 @@ from __future__ import annotations
 import asyncio
 import random
 import time
+from collections import deque
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -56,7 +58,7 @@ if TYPE_CHECKING:
     from mozart.core.errors import ErrorClassifier
     from mozart.core.logging import MozartLogger
     from mozart.execution.circuit_breaker import CircuitBreaker
-    from mozart.execution.escalation import CheckpointHandler, EscalationHandler
+    from mozart.execution.escalation import ConsoleCheckpointHandler, ConsoleEscalationHandler
     from mozart.execution.grounding import GroundingEngine
     from mozart.execution.preflight import PreflightChecker
     from mozart.execution.retry_strategy import AdaptiveRetryStrategy
@@ -97,7 +99,14 @@ from .models import (
     GracefulShutdownError,
     GroundingDecisionContext,
     SheetExecutionMode,
+    SheetExecutionSetup,
 )
+
+
+class _SheetSkipped(Exception):
+    """Internal signal that a sheet was skipped during setup (e.g. via checkpoint)."""
+
+    pass
 
 
 class SheetExecutionMixin:
@@ -116,8 +125,8 @@ class SheetExecutionMixin:
         state_backend: StateBackend
         console: Console
         outcome_store: OutcomeStore | None
-        escalation_handler: EscalationHandler | None
-        checkpoint_handler: CheckpointHandler | None
+        escalation_handler: ConsoleEscalationHandler | None
+        checkpoint_handler: ConsoleCheckpointHandler | None
         judgment_client: JudgmentClient | None
         preflight_checker: PreflightChecker
         prompt_builder: PromptBuilder
@@ -186,56 +195,32 @@ class SheetExecutionMixin:
             state: CheckpointState,
         ) -> tuple[bool, str | None]: ...
 
-    async def _execute_sheet_with_recovery(
+    async def _prepare_sheet_execution(
         self,
         state: CheckpointState,
         sheet_num: int,
-    ) -> None:
-        """Execute a single sheet with full retry/completion logic.
+    ) -> tuple[SheetExecutionSetup, SheetContext, ValidationEngine]:
+        """Prepare all state needed before the sheet execution loop.
 
-        Flow:
-        1. Execute sheet normally
-        2. Run validations
-        3. If all pass -> complete
-        4. If majority pass -> enter completion mode
-        5. If minority pass -> full retry
+        Handles: context construction, pattern gathering, prompt building,
+        preflight checks, and initial checkpoint handling.
 
         Args:
             state: Current job state.
             sheet_num: Sheet number to execute.
 
-        Raises:
-            FatalError: If all retries exhausted or fatal error encountered.
-        """
-        # Track execution timing for learning
-        execution_start_time = time.monotonic()
+        Returns:
+            Tuple of (setup, sheet_context, validation_engine).
 
+        Raises:
+            FatalError: If preflight checks fail or user aborts via checkpoint.
+        """
         # Build sheet context (with cross-sheet data if configured)
         sheet_context = self._build_sheet_context(sheet_num, state)
         validation_engine = ValidationEngine(
             self.config.workspace,
             sheet_context.to_dict(),
         )
-
-        # Track attempts
-        normal_attempts = 0
-        completion_attempts = 0
-        healing_attempts = 0
-        max_healing_cycles = 2  # Cap healing to prevent unlimited retry loops
-        max_retries = self.config.retry.max_retries
-        max_completion = self.config.retry.max_completion_attempts
-
-        # Track execution history for judgment (Phase 4)
-        # Capped to prevent unbounded memory growth during long retry loops.
-        # Most recent results are most relevant for judgment decisions.
-        _MAX_EXECUTION_HISTORY = 20
-        execution_history: list[ExecutionResult] = []
-
-        # Track error history for adaptive retry (Task 13)
-        error_history: list[ErrorRecord] = []
-
-        # Evolution #3: Track pending recovery outcome for global learning store
-        pending_recovery: dict[str, Any] | None = None
 
         # Query learned patterns before building prompt (Learning Activation)
         relevant_patterns = await self._gather_learned_patterns(state, sheet_num)
@@ -312,13 +297,85 @@ class SheetExecutionMixin:
                     sheet_num=sheet_num,
                     guidance=checkpoint_result.guidance,
                 )
-                return
+                # Signal caller to return early
+                raise _SheetSkipped()
             elif checkpoint_result.action == "modify_prompt" and checkpoint_result.modified_prompt:
                 current_prompt = checkpoint_result.modified_prompt
                 self._logger.info(
                     "sheet.prompt_modified_via_checkpoint",
                     sheet_num=sheet_num,
                 )
+
+        setup = SheetExecutionSetup(
+            original_prompt=original_prompt,
+            current_prompt=current_prompt,
+            current_mode=current_mode,
+            max_retries=self.config.retry.max_retries,
+            max_completion=self.config.retry.max_completion_attempts,
+            relevant_patterns=relevant_patterns,
+            preflight_warnings=len(preflight_result.warnings),
+            preflight_token_estimate=preflight_result.prompt_metrics.estimated_tokens,
+        )
+
+        return setup, sheet_context, validation_engine
+
+    async def _execute_sheet_with_recovery(
+        self,
+        state: CheckpointState,
+        sheet_num: int,
+    ) -> None:
+        """Execute a single sheet with full retry/completion logic.
+
+        Flow:
+        1. Execute sheet normally
+        2. Run validations
+        3. If all pass -> complete
+        4. If majority pass -> enter completion mode
+        5. If minority pass -> full retry
+
+        Args:
+            state: Current job state.
+            sheet_num: Sheet number to execute.
+
+        Raises:
+            FatalError: If all retries exhausted or fatal error encountered.
+        """
+        # Track execution timing for learning
+        execution_start_time = time.monotonic()
+
+        # Phase 1: Prepare all setup state
+        try:
+            setup, sheet_context, validation_engine = await self._prepare_sheet_execution(
+                state, sheet_num
+            )
+        except _SheetSkipped:
+            return
+
+        # Unpack setup into local variables for the execution loop
+        original_prompt = setup.original_prompt
+        current_prompt = setup.current_prompt
+        current_mode = setup.current_mode
+        max_retries = setup.max_retries
+        max_completion = setup.max_completion
+        relevant_patterns = setup.relevant_patterns
+
+        # Track attempts
+        normal_attempts = 0
+        completion_attempts = 0
+        healing_attempts = 0
+        max_healing_cycles = 2  # Cap healing to prevent unlimited retry loops
+
+        # Track execution history for judgment (Phase 4)
+        # Capped to prevent unbounded memory growth during long retry loops.
+        # Most recent results are most relevant for judgment decisions.
+        _MAX_EXECUTION_HISTORY = 20
+        execution_history: deque[ExecutionResult] = deque(maxlen=_MAX_EXECUTION_HISTORY)
+
+        # Track error history for adaptive retry (Task 13)
+        error_history: list[ErrorRecord] = []
+
+        # Evolution #3: Track pending recovery outcome for global learning store
+        pending_recovery: dict[str, Any] | None = None
 
         while True:
             # Mark sheet started
@@ -443,8 +500,6 @@ class SheetExecutionMixin:
 
             # Track execution result for judgment (Phase 4)
             execution_history.append(result)
-            if len(execution_history) > _MAX_EXECUTION_HISTORY:
-                execution_history = execution_history[-_MAX_EXECUTION_HISTORY:]
 
             # ===== VALIDATION-FIRST APPROACH =====
             validation_start = time.monotonic()
@@ -1864,10 +1919,10 @@ class SheetExecutionMixin:
             return False
 
         try:
-            from mozart.learning.global_store import get_global_store
+            if self._global_learning_store is None:
+                return False
 
-            store = get_global_store()
-            high_trust_patterns = store.get_patterns_for_auto_apply(
+            high_trust_patterns = self._global_learning_store.get_patterns_for_auto_apply(
                 trust_threshold=trust_threshold,
             )
 
@@ -1892,7 +1947,7 @@ class SheetExecutionMixin:
         self,
         sheet_num: int,
         validation_result: "SheetValidationResult",
-        execution_history: list[ExecutionResult],
+        execution_history: Sequence[ExecutionResult],
         normal_attempts: int,
         completion_attempts: int,
         grounding_context: GroundingDecisionContext | None = None,
@@ -1954,7 +2009,7 @@ class SheetExecutionMixin:
         self,
         sheet_num: int,
         validation_result: "SheetValidationResult",
-        execution_history: list[ExecutionResult],
+        execution_history: Sequence[ExecutionResult],
         normal_attempts: int,
     ) -> "JudgmentQuery":
         """Build a JudgmentQuery from current execution state.

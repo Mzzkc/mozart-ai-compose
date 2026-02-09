@@ -138,8 +138,8 @@ class JobControlService:
                     await asyncio.sleep(5)  # Give subprocess time to read config
                     try:
                         os.unlink(path)
-                    except OSError:
-                        pass
+                    except OSError as exc:
+                        logger.warning("temp_config_cleanup_failed", path=path, error=str(exc))
 
                 asyncio.create_task(_cleanup_temp(temp_path))
 

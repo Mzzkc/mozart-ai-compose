@@ -281,25 +281,132 @@ class TestToolCallParsing:
 
 
 class TestJsonExtraction:
-    """Tests for extracting JSON from text."""
+    """Tests for the JSON extraction fallback chain.
+
+    _extract_json_from_text implements a 3-tier fallback:
+    1. Extract from markdown code block (```json ... ```)
+    2. Extract inline JSON object ({ ... })
+    3. Return empty dict
+
+    These tests cover each tier individually, the fallback transitions,
+    and the integration path through _parse_tool_calls.
+    """
 
     def test_extract_json_from_code_block(self, ollama_backend):
-        """Test extracting JSON from markdown code block."""
+        """Tier 1: JSON inside markdown code block is extracted."""
         text = '```json\n{"path": "/tmp/test"}\n```'
         result = ollama_backend._extract_json_from_text(text)
         assert result == {"path": "/tmp/test"}
 
+    def test_extract_json_from_code_block_no_language_tag(self, ollama_backend):
+        """Tier 1: Code block without json language tag still works."""
+        text = '```\n{"key": "value"}\n```'
+        result = ollama_backend._extract_json_from_text(text)
+        assert result == {"key": "value"}
+
     def test_extract_json_from_inline(self, ollama_backend):
-        """Test extracting inline JSON object."""
+        """Tier 2: Inline JSON object is extracted when no code block."""
         text = 'Here is the result: {"key": "value"}'
         result = ollama_backend._extract_json_from_text(text)
         assert result == {"key": "value"}
 
     def test_extract_json_returns_empty_on_failure(self, ollama_backend):
-        """Test that invalid JSON returns empty dict."""
+        """Tier 3: No JSON at all returns empty dict."""
         text = "This is not JSON at all"
         result = ollama_backend._extract_json_from_text(text)
         assert result == {}
+
+    def test_code_block_with_invalid_json_falls_to_inline(self, ollama_backend):
+        """Tier 1 fails (invalid JSON in code block) → falls through to tier 2."""
+        # Code block has invalid JSON, but inline JSON exists after it
+        text = '```json\nnot valid json\n```\nAlso here: {"fallback": true}'
+        result = ollama_backend._extract_json_from_text(text)
+        assert result == {"fallback": True}
+
+    def test_code_block_and_inline_both_invalid_returns_empty(self, ollama_backend):
+        """Both tier 1 and tier 2 fail → returns empty dict (tier 3)."""
+        text = '```json\n{invalid\n```\nAlso {broken json'
+        result = ollama_backend._extract_json_from_text(text)
+        assert result == {}
+
+    def test_nested_json_object(self, ollama_backend):
+        """Tier 2: Nested JSON objects are parsed correctly."""
+        text = 'Result: {"outer": {"inner": [1, 2, 3]}}'
+        result = ollama_backend._extract_json_from_text(text)
+        assert result == {"outer": {"inner": [1, 2, 3]}}
+
+    def test_code_block_takes_priority_over_inline(self, ollama_backend):
+        """Tier 1 (code block) takes priority even when inline JSON exists."""
+        text = '{"inline": true}\n```json\n{"block": true}\n```'
+        result = ollama_backend._extract_json_from_text(text)
+        assert result == {"block": True}
+
+    def test_multiline_code_block(self, ollama_backend):
+        """Tier 1: Multi-line JSON in code block is extracted."""
+        text = '```json\n{\n  "key1": "val1",\n  "key2": 42\n}\n```'
+        result = ollama_backend._extract_json_from_text(text)
+        assert result == {"key1": "val1", "key2": 42}
+
+    def test_empty_string_returns_empty(self, ollama_backend):
+        """Empty string returns empty dict."""
+        result = ollama_backend._extract_json_from_text("")
+        assert result == {}
+
+    # --- Integration: _parse_tool_calls triggers extraction fallback ---
+
+    def test_parse_tool_calls_string_args_invalid_json_triggers_extraction(
+        self, ollama_backend
+    ):
+        """_parse_tool_calls falls back to _extract_json_from_text for non-JSON strings."""
+        raw_calls = [
+            {
+                "function": {
+                    "name": "write_file",
+                    # String arguments that aren't valid JSON but contain embedded JSON
+                    "arguments": 'Here is the args: {"path": "/tmp/out", "content": "hi"}',
+                },
+            }
+        ]
+        parsed = ollama_backend._parse_tool_calls(raw_calls)
+
+        assert len(parsed) == 1
+        assert parsed[0].name == "write_file"
+        assert parsed[0].arguments == {"path": "/tmp/out", "content": "hi"}
+
+    def test_parse_tool_calls_string_args_code_block_triggers_extraction(
+        self, ollama_backend
+    ):
+        """_parse_tool_calls handles code-block-wrapped JSON string arguments."""
+        raw_calls = [
+            {
+                "function": {
+                    "name": "read_file",
+                    "arguments": '```json\n{"path": "/etc/hosts"}\n```',
+                },
+            }
+        ]
+        parsed = ollama_backend._parse_tool_calls(raw_calls)
+
+        assert len(parsed) == 1
+        assert parsed[0].arguments == {"path": "/etc/hosts"}
+
+    def test_parse_tool_calls_completely_invalid_string_args_yields_empty(
+        self, ollama_backend
+    ):
+        """_parse_tool_calls with totally invalid string args gets empty dict."""
+        raw_calls = [
+            {
+                "function": {
+                    "name": "some_tool",
+                    "arguments": "just random text with no json whatsoever",
+                },
+            }
+        ]
+        parsed = ollama_backend._parse_tool_calls(raw_calls)
+
+        assert len(parsed) == 1
+        assert parsed[0].name == "some_tool"
+        assert parsed[0].arguments == {}
 
 
 # =============================================================================

@@ -563,59 +563,6 @@ class TestCheckpointStateSynthesis:
         assert "batch_1" in state.synthesis_results
         assert state.synthesis_results["batch_1"]["status"] == "done"
 
-    def test_get_synthesis(self):
-        """get_synthesis retrieves result correctly."""
-        state = CheckpointState(
-            job_id="test-job",
-            job_name="Test Job",
-            total_sheets=5,
-        )
-
-        result_data = {"batch_id": "batch_2", "status": "ready"}
-        state.synthesis_results["batch_2"] = result_data
-
-        retrieved = state.get_synthesis("batch_2")
-        assert retrieved is not None
-        assert retrieved["status"] == "ready"
-
-        missing = state.get_synthesis("nonexistent")
-        assert missing is None
-
-    def test_clear_synthesis_specific(self):
-        """clear_synthesis removes specific batch."""
-        state = CheckpointState(
-            job_id="test-job",
-            job_name="Test Job",
-            total_sheets=5,
-        )
-
-        state.synthesis_results = {
-            "batch_1": {"status": "done"},
-            "batch_2": {"status": "done"},
-        }
-
-        state.clear_synthesis("batch_1")
-
-        assert "batch_1" not in state.synthesis_results
-        assert "batch_2" in state.synthesis_results
-
-    def test_clear_synthesis_all(self):
-        """clear_synthesis removes all batches."""
-        state = CheckpointState(
-            job_id="test-job",
-            job_name="Test Job",
-            total_sheets=5,
-        )
-
-        state.synthesis_results = {
-            "batch_1": {"status": "done"},
-            "batch_2": {"status": "done"},
-        }
-
-        state.clear_synthesis()
-
-        assert len(state.synthesis_results) == 0
-
 
 # =============================================================================
 # ParallelBatchResult Synthesis Fields Tests

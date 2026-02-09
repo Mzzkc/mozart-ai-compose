@@ -15,7 +15,7 @@ import json
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any
 
 from mozart.core.logging import get_logger
 
@@ -140,14 +140,6 @@ class AIReviewResult:
         }
 
 
-class DiffProvider(Protocol):
-    """Protocol for getting git diffs."""
-
-    def get_diff(self, workspace: Path) -> str:
-        """Get git diff for the workspace."""
-        ...
-
-
 class GitDiffProvider:
     """Gets diffs using git commands."""
 
@@ -220,7 +212,7 @@ class AIReviewer:
         self,
         backend: "Backend",
         config: "AIReviewConfig",
-        diff_provider: DiffProvider | None = None,
+        diff_provider: GitDiffProvider | None = None,
     ) -> None:
         """Initialize reviewer.
 

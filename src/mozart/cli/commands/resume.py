@@ -37,18 +37,23 @@ from rich.progress import (
 
 from mozart.core.checkpoint import CheckpointState, JobStatus
 from mozart.core.config import JobConfig
-from mozart.notifications import NotificationManager
 from mozart.state import JsonStateBackend, SQLiteStateBackend, StateBackend
 
 from ..helpers import (
     ErrorMessages,
     _logger,
     configure_global_logging,
-    create_notifiers_from_config,
     is_quiet,
     is_verbose,
 )
 from ..output import console, format_duration
+from ._shared import (
+    create_backend,
+    setup_escalation,
+    setup_grounding,
+    setup_learning,
+    setup_notifications,
+)
 
 if TYPE_CHECKING:
     from mozart.execution.runner import RunSummary
@@ -327,12 +332,7 @@ async def _resume_job(
         self_healing: Enable automatic diagnosis and remediation.
         auto_confirm: Auto-confirm suggested fixes.
     """
-    from mozart.backends.anthropic_api import AnthropicApiBackend
-    from mozart.backends.base import Backend
-    from mozart.backends.claude_cli import ClaudeCliBackend
-    from mozart.backends.recursive_light import RecursiveLightBackend
     from mozart.execution.runner import FatalError, GracefulShutdownError, JobRunner
-    from mozart.learning.outcomes import JsonOutcomeStore
 
     configure_global_logging(console)
 
@@ -376,54 +376,12 @@ async def _resume_job(
     found_state.error_message = None  # Clear previous error
     await found_backend.save(found_state)
 
-    # Phase 3: Setup backends and features for execution
-    backend: Backend
-    if config.backend.type == "recursive_light":
-        rl_config = config.backend.recursive_light
-        backend = RecursiveLightBackend(
-            rl_endpoint=rl_config.endpoint,
-            user_id=rl_config.user_id,
-            timeout=rl_config.timeout,
-        )
-        console.print(
-            f"[dim]Using Recursive Light backend at {rl_config.endpoint}[/dim]"
-        )
-    elif config.backend.type == "anthropic_api":
-        backend = AnthropicApiBackend.from_config(config.backend)
-        console.print(
-            f"[dim]Using Anthropic API backend with model {config.backend.model}[/dim]"
-        )
-    else:
-        backend = ClaudeCliBackend.from_config(config.backend)
-
-    # Setup outcome store for learning if enabled
-    outcome_store = None
-    if config.learning.enabled:
-        outcome_store_path = config.get_outcome_store_path()
-        if config.learning.outcome_store_type == "json":
-            outcome_store = JsonOutcomeStore(outcome_store_path)
-        console.print(
-            f"[dim]Learning enabled: outcomes will be stored at {outcome_store_path}[/dim]"
-        )
-
-    # Setup global learning store for cross-workspace learning
-    global_learning_store = None
-    if config.learning.enabled:
-        from mozart.learning.global_store import get_global_store
-        global_learning_store = get_global_store()
-        console.print(
-            "[dim]Global learning enabled: cross-workspace patterns active[/dim]"
-        )
-
-    # Setup notification manager from config
-    notification_manager: NotificationManager | None = None
-    if config.notifications:
-        notifiers = create_notifiers_from_config(config.notifications)
-        if notifiers:
-            notification_manager = NotificationManager(notifiers)
-            console.print(
-                f"[dim]Notifications enabled: {len(notifiers)} channel(s) configured[/dim]"
-            )
+    # Phase 3: Setup backends and features for execution (shared with run.py)
+    backend = create_backend(config, console=console)
+    outcome_store, global_learning_store = setup_learning(config, console=console)
+    notification_manager = setup_notifications(config, console=console)
+    escalation_handler = setup_escalation(config, enabled=escalation, console=console)
+    grounding_engine = setup_grounding(config, console=console)
 
     # Create progress bar for sheet tracking
     progress = Progress(
@@ -454,47 +412,6 @@ async def _resume_job(
                 completed=completed,
                 total=total,
                 eta=eta_str,
-            )
-
-    # Setup escalation handler if enabled
-    escalation_handler = None
-    if escalation:
-        from mozart.execution.escalation import ConsoleEscalationHandler
-
-        # Enable escalation in config - required for runner to use the handler
-        config.learning.escalation_enabled = True
-
-        escalation_handler = ConsoleEscalationHandler(
-            confidence_threshold=config.learning.min_confidence_threshold,
-            auto_retry_on_first_failure=True,
-        )
-        if is_verbose():
-            console.print(
-                "[dim]Escalation enabled: low-confidence sheets will prompt for decisions[/dim]"
-            )
-
-    # Setup grounding engine if enabled (v8 Evolution: External Grounding Hooks)
-    # v9 Evolution: Wire up hook registration from config
-    grounding_engine = None
-    if config.grounding.enabled:
-        from mozart.execution.grounding import GroundingEngine, create_hook_from_config
-
-        grounding_engine = GroundingEngine(hooks=[], config=config.grounding)
-
-        # Register hooks from configuration (v9: Integration-only completion)
-        for hook_config in config.grounding.hooks:
-            try:
-                hook = create_hook_from_config(hook_config)
-                grounding_engine.add_hook(hook)
-                if is_verbose():
-                    console.print(f"[dim]  Registered hook: {hook.name}[/dim]")
-            except ValueError as e:
-                console.print(f"[yellow]Warning: Failed to create hook: {e}[/yellow]")
-
-        if is_verbose():
-            hook_count = grounding_engine.get_hook_count()
-            console.print(
-                f"[dim]Grounding enabled: {hook_count} hook(s) registered[/dim]"
             )
 
     # Create runner context with all optional components

@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import aiosqlite
 
@@ -18,9 +20,6 @@ from mozart.core.checkpoint import CheckpointState, JobStatus, SheetState, Sheet
 from mozart.core.logging import get_logger
 from mozart.state.base import StateBackend
 from mozart.utils.time import utc_now
-
-if TYPE_CHECKING:
-    pass
 
 # Module-level logger for state operations
 _logger = get_logger("state.sqlite")
@@ -51,6 +50,13 @@ class SQLiteStateBackend(StateBackend):
         self._initialized = False
         self._init_lock = asyncio.Lock()
 
+    @asynccontextmanager
+    async def _connect(self) -> AsyncIterator[aiosqlite.Connection]:
+        """Get a database connection with foreign keys enabled."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("PRAGMA foreign_keys=ON")
+            yield db
+
     async def _ensure_initialized(self) -> None:
         """Ensure database is initialized with schema."""
         if self._initialized:
@@ -61,7 +67,7 @@ class SQLiteStateBackend(StateBackend):
             if self._initialized:
                 return
 
-            async with aiosqlite.connect(self.db_path) as db:
+            async with self._connect() as db:
                 await self._run_migrations(db)
                 self._initialized = True
 
@@ -234,7 +240,8 @@ class SQLiteStateBackend(StateBackend):
             return None
         try:
             return json.loads(s)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as exc:
+            _logger.debug("json_parse_failed", raw_length=len(s) if s else 0, error=str(exc))
             return None
 
     async def load(self, job_id: str) -> CheckpointState | None:
@@ -246,7 +253,7 @@ class SQLiteStateBackend(StateBackend):
         """
         await self._ensure_initialized()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
 
             # Load job record
@@ -355,7 +362,7 @@ class SQLiteStateBackend(StateBackend):
 
         state.updated_at = utc_now()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             # Upsert job record
             await db.execute(
                 """
@@ -483,7 +490,7 @@ class SQLiteStateBackend(StateBackend):
         """Delete state for a job."""
         await self._ensure_initialized()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             # Check if job exists
             cursor = await db.execute(
                 "SELECT id FROM jobs WHERE id = ?", (job_id,)
@@ -500,7 +507,7 @@ class SQLiteStateBackend(StateBackend):
         """List all jobs with state."""
         await self._ensure_initialized()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(
                 "SELECT id FROM jobs ORDER BY updated_at DESC"
             )
@@ -571,7 +578,7 @@ class SQLiteStateBackend(StateBackend):
         """
         await self._ensure_initialized()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(
                 """
                 INSERT INTO execution_history (
@@ -611,7 +618,7 @@ class SQLiteStateBackend(StateBackend):
         """
         await self._ensure_initialized()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
 
             if sheet_num is not None:
@@ -653,7 +660,7 @@ class SQLiteStateBackend(StateBackend):
         """
         await self._ensure_initialized()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             # Get job data
             cursor = await db.execute(
                 "SELECT total_sheets, last_completed_sheet, total_retry_count "
@@ -713,7 +720,7 @@ class SQLiteStateBackend(StateBackend):
         """
         await self._ensure_initialized()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
 
             conditions = []

@@ -35,7 +35,7 @@ from mozart.learning.patterns import (
     OutputPatternExtractor,
     PatternType,
 )
-from mozart.learning.weighter import PatternWeighter, WeightingConfig
+from mozart.learning.weighter import PatternWeighter
 
 
 # =============================================================================
@@ -367,11 +367,10 @@ class TestPatternWeighter:
 
     def test_custom_config(self) -> None:
         """Test weighter with custom configuration."""
-        config = WeightingConfig(
+        weighter = PatternWeighter(
             decay_rate_per_month=0.2,  # 20% decay
             effectiveness_threshold=0.4,
         )
-        weighter = PatternWeighter(config)
 
         now = datetime.now()
         last_confirmed = now - timedelta(days=30)

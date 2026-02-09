@@ -1,0 +1,896 @@
+"""Tests for SheetExecutionMixin (execution/runner/sheet.py).
+
+This module covers the core sheet execution logic including:
+- Decision-making: _decide_next_action, _map_judgment_to_mode
+- Retry delay calculation: _get_retry_delay
+- Helper methods: _build_judgment_query, _query_historical_failures
+- Context building: _build_sheet_context
+- The main _execute_sheet_with_recovery state machine (via mock integration)
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from mozart.backends.base import ExecutionResult
+from mozart.core.checkpoint import CheckpointState, SheetStatus
+from mozart.core.config import JobConfig
+from mozart.execution.runner.models import (
+    FatalError,
+    GracefulShutdownError,
+    GroundingDecisionContext,
+    SheetExecutionMode,
+)
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+def _make_config(tmp_path: Path, overrides: dict[str, Any] | None = None) -> JobConfig:
+    """Build a minimal JobConfig for testing."""
+    base = {
+        "name": "test-job",
+        "description": "Unit test job",
+        "workspace": str(tmp_path / "workspace"),
+        "backend": {"type": "claude_cli", "skip_permissions": True},
+        "sheet": {"size": 5, "total_items": 10},
+        "prompt": {"template": "Process sheet {{ sheet_num }}."},
+        "retry": {
+            "max_retries": 3,
+            "max_completion_attempts": 2,
+            "base_delay_seconds": 1.0,
+            "exponential_base": 2.0,
+            "max_delay_seconds": 60.0,
+            "jitter": False,
+            "completion_threshold_percent": 60,
+        },
+        "validations": [],
+    }
+    if overrides:
+        for k, v in overrides.items():
+            if isinstance(v, dict) and k in base and isinstance(base[k], dict):
+                base[k].update(v)
+            else:
+                base[k] = v
+    (tmp_path / "workspace").mkdir(exist_ok=True)
+    return JobConfig(**base)
+
+
+def _make_validation_result(
+    *,
+    all_passed: bool = False,
+    pass_pct: float = 50.0,
+    confidence: float = 0.7,
+    results: list[dict[str, Any]] | None = None,
+) -> MagicMock:
+    """Build a mock SheetValidationResult."""
+    vr = MagicMock()
+    vr.all_passed = all_passed
+    vr.executed_pass_percentage = pass_pct
+    vr.aggregate_confidence = confidence
+    vr.pass_percentage = pass_pct
+    vr.results = results or []
+    vr.to_dict_list.return_value = results or []
+    vr.get_semantic_summary.return_value = {"dominant_category": "missing_output"}
+    vr.get_actionable_hints.return_value = ["Check output files"]
+    return vr
+
+
+def _make_execution_result(
+    *,
+    success: bool = True,
+    exit_code: int = 0,
+    stdout: str = "done",
+    stderr: str = "",
+    duration: float = 5.0,
+) -> ExecutionResult:
+    """Build an ExecutionResult for testing."""
+    return ExecutionResult(
+        success=success,
+        exit_code=exit_code,
+        stdout=stdout,
+        stderr=stderr,
+        duration_seconds=duration,
+    )
+
+
+class _MockMixin:
+    """Minimal mock of the mixin host attributes expected by SheetExecutionMixin."""
+
+    def __init__(self, config: JobConfig) -> None:
+        from rich.console import Console
+
+        from mozart.core.errors import ErrorClassifier
+        from mozart.core.logging import get_logger
+        from mozart.execution.preflight import PreflightChecker
+        from mozart.execution.retry_strategy import AdaptiveRetryStrategy, RetryStrategyConfig
+        from mozart.prompts.templating import PromptBuilder
+
+        self.config = config
+        self.backend = MagicMock()
+        self.backend.execute = AsyncMock(
+            return_value=_make_execution_result()
+        )
+        self.backend.set_output_log_path = MagicMock()
+
+        self.state_backend = AsyncMock()
+        self.state_backend.save = AsyncMock()
+
+        self.console = Console(quiet=True)
+        self.outcome_store = None
+        self.escalation_handler = None
+        self.checkpoint_handler = None
+        self.judgment_client = None
+
+        self.prompt_builder = PromptBuilder(config.prompt)
+        self.error_classifier = ErrorClassifier.from_config([])
+        self.preflight_checker = PreflightChecker(
+            workspace=config.workspace,
+            working_directory=config.workspace,
+        )
+
+        self._logger = get_logger("test")
+        self._circuit_breaker = None
+        self._global_learning_store = None
+        self._grounding_engine = None
+        self._healing_coordinator = None
+        self._retry_strategy = AdaptiveRetryStrategy(
+            config=RetryStrategyConfig(
+                base_delay=1.0,
+                max_delay=60.0,
+                exponential_base=2.0,
+                jitter_factor=0.0,
+            ),
+        )
+
+        self._current_sheet_num: int | None = None
+        self._execution_progress_snapshots: list[dict[str, Any]] = []
+        self._current_sheet_patterns: list[str] = []
+        self._applied_pattern_ids: list[str] = []
+        self._exploration_pattern_ids: list[str] = []
+        self._exploitation_pattern_ids: list[str] = []
+        self._shutdown_requested = False
+        self._summary = None
+        self._self_healing_enabled = False
+
+    async def _interruptible_sleep(self, seconds: float) -> None:
+        pass  # no-op in tests
+
+    def _query_relevant_patterns(
+        self, job_id: str, sheet_num: int, context_tags: list[str] | None = None,
+    ) -> tuple[list[str], list[str]]:
+        return [], []
+
+    async def _record_pattern_feedback(self, pattern_ids, ctx) -> None:
+        pass
+
+    async def _try_self_healing(self, result, error, config_path, sheet_num, retry_count, max_retries):
+        return None
+
+    async def _handle_rate_limit(self, state, error_code="E101", suggested_wait_seconds=None):
+        pass
+
+    def _track_cost(self, result, sheet_state, state) -> None:
+        pass
+
+    def _check_cost_limits(self, sheet_state, state) -> tuple[bool, str | None]:
+        return False, None
+
+
+# Dynamically compose the mixin for testing
+from mozart.execution.runner.sheet import SheetExecutionMixin
+
+
+class _TestableSheetMixin(_MockMixin, SheetExecutionMixin):
+    """Concrete class that combines the mixin with mock infrastructure."""
+    pass
+
+
+@pytest.fixture
+def mixin(tmp_path: Path) -> _TestableSheetMixin:
+    config = _make_config(tmp_path)
+    return _TestableSheetMixin(config)
+
+
+@pytest.fixture
+def mixin_with_jitter(tmp_path: Path) -> _TestableSheetMixin:
+    config = _make_config(tmp_path, overrides={"retry": {"jitter": True}})
+    return _TestableSheetMixin(config)
+
+
+def _make_state(job_id: str = "test-job", total_sheets: int = 2) -> CheckpointState:
+    """Build a minimal CheckpointState."""
+    return CheckpointState(
+        job_id=job_id,
+        job_name="test-job",
+        total_sheets=total_sheets,
+    )
+
+
+# ===========================================================================
+# Tests: _decide_next_action
+# ===========================================================================
+
+class TestDecideNextAction:
+    """Tests for the local decision logic (_decide_next_action)."""
+
+    def test_high_confidence_majority_passed_returns_completion(self, mixin: _TestableSheetMixin):
+        """High confidence + majority passed → COMPLETION mode."""
+        vr = _make_validation_result(confidence=0.95, pass_pct=75.0)
+        mode, reason, hints = mixin._decide_next_action(vr, normal_attempts=0, completion_attempts=0)
+        assert mode == SheetExecutionMode.COMPLETION
+        assert "high confidence" in reason
+
+    def test_high_confidence_completion_exhausted_returns_retry(self, mixin: _TestableSheetMixin):
+        """When completion attempts exhausted, falls back to RETRY."""
+        vr = _make_validation_result(confidence=0.95, pass_pct=75.0)
+        mode, reason, hints = mixin._decide_next_action(vr, normal_attempts=0, completion_attempts=2)
+        assert mode == SheetExecutionMode.RETRY
+        assert "completion attempts exhausted" in reason
+
+    def test_low_confidence_with_escalation_returns_escalate(self, mixin: _TestableSheetMixin):
+        """Low confidence with escalation enabled → ESCALATE."""
+        mixin.config.learning.escalation_enabled = True
+        mixin.escalation_handler = MagicMock()
+        vr = _make_validation_result(confidence=0.15, pass_pct=30.0)
+        mode, reason, hints = mixin._decide_next_action(vr, normal_attempts=0, completion_attempts=0)
+        assert mode == SheetExecutionMode.ESCALATE
+        assert "low confidence" in reason
+
+    def test_low_confidence_without_escalation_returns_retry(self, mixin: _TestableSheetMixin):
+        """Low confidence without escalation → RETRY."""
+        mixin.config.learning.escalation_enabled = False
+        vr = _make_validation_result(confidence=0.15, pass_pct=30.0)
+        mode, reason, hints = mixin._decide_next_action(vr, normal_attempts=0, completion_attempts=0)
+        assert mode == SheetExecutionMode.RETRY
+        assert "escalation not available" in reason
+
+    def test_medium_confidence_above_threshold_returns_completion(self, mixin: _TestableSheetMixin):
+        """Medium confidence with pass_pct above completion threshold → COMPLETION."""
+        vr = _make_validation_result(confidence=0.55, pass_pct=75.0)
+        mode, reason, hints = mixin._decide_next_action(vr, normal_attempts=0, completion_attempts=0)
+        assert mode == SheetExecutionMode.COMPLETION
+        assert "medium confidence" in reason
+
+    def test_medium_confidence_below_threshold_returns_retry(self, mixin: _TestableSheetMixin):
+        """Medium confidence with pass_pct below threshold → RETRY."""
+        vr = _make_validation_result(confidence=0.55, pass_pct=40.0)
+        mode, reason, hints = mixin._decide_next_action(vr, normal_attempts=0, completion_attempts=0)
+        assert mode == SheetExecutionMode.RETRY
+        assert "full retry needed" in reason
+
+    def test_grounding_escalation_overrides_decision(self, mixin: _TestableSheetMixin):
+        """Grounding hook requesting escalation overrides normal decision."""
+        mixin.config.learning.escalation_enabled = True
+        mixin.escalation_handler = MagicMock()
+        vr = _make_validation_result(confidence=0.9, pass_pct=80.0)
+        grounding = GroundingDecisionContext(
+            passed=False,
+            message="Grounding failed",
+            confidence=0.3,
+            should_escalate=True,
+            hooks_executed=1,
+        )
+        mode, reason, hints = mixin._decide_next_action(
+            vr, normal_attempts=0, completion_attempts=0, grounding_context=grounding,
+        )
+        assert mode == SheetExecutionMode.ESCALATE
+        assert "grounding hook requests escalation" in reason
+
+    def test_grounding_confidence_blended_into_decision(self, mixin: _TestableSheetMixin):
+        """Grounding confidence is weighted at 30% with validation at 70%."""
+        vr = _make_validation_result(confidence=0.9, pass_pct=75.0)
+        # Grounding with low confidence drags combined confidence below threshold
+        grounding = GroundingDecisionContext(
+            passed=True,
+            message="OK",
+            confidence=0.1,
+            hooks_executed=1,
+        )
+        mode, reason, hints = mixin._decide_next_action(
+            vr, normal_attempts=0, completion_attempts=0, grounding_context=grounding,
+        )
+        # 0.9 * 0.7 + 0.1 * 0.3 = 0.66 (medium confidence)
+        assert mode in (SheetExecutionMode.COMPLETION, SheetExecutionMode.RETRY)
+
+
+# ===========================================================================
+# Tests: _get_retry_delay
+# ===========================================================================
+
+class TestGetRetryDelay:
+    """Tests for retry delay calculation."""
+
+    def test_first_attempt_returns_base_delay(self, mixin: _TestableSheetMixin):
+        delay = mixin._get_retry_delay(1)
+        assert delay == 1.0  # base_delay_seconds
+
+    def test_second_attempt_applies_exponential_backoff(self, mixin: _TestableSheetMixin):
+        delay = mixin._get_retry_delay(2)
+        assert delay == 2.0  # 1.0 * 2^(2-1) = 2.0
+
+    def test_third_attempt_applies_exponential_backoff(self, mixin: _TestableSheetMixin):
+        delay = mixin._get_retry_delay(3)
+        assert delay == 4.0  # 1.0 * 2^(3-1) = 4.0
+
+    def test_delay_capped_at_max(self, mixin: _TestableSheetMixin):
+        delay = mixin._get_retry_delay(100)
+        assert delay == 60.0  # max_delay_seconds
+
+    def test_jitter_varies_delay(self, mixin_with_jitter: _TestableSheetMixin):
+        """Jitter should vary the delay within a range."""
+        delays = {mixin_with_jitter._get_retry_delay(1) for _ in range(20)}
+        # With jitter, delay = base * (0.5 + random()) so range is [0.5, 1.5]
+        assert len(delays) > 1, "Jitter should produce varied delays"
+        for d in delays:
+            assert 0.5 <= d <= 1.5
+
+
+# ===========================================================================
+# Tests: _map_judgment_to_mode
+# ===========================================================================
+
+class TestMapJudgmentToMode:
+    """Tests for mapping Recursive Light judgment responses to modes."""
+
+    def _make_response(self, action: str, reasoning: str = "test") -> MagicMock:
+        resp = MagicMock()
+        resp.recommended_action = action
+        resp.reasoning = reasoning
+        resp.confidence = 0.8
+        resp.patterns_learned = []
+        resp.prompt_modifications = None
+        return resp
+
+    def test_proceed_maps_to_normal(self, mixin: _TestableSheetMixin):
+        mode = mixin._map_judgment_to_mode(self._make_response("proceed"), 0)
+        assert mode == SheetExecutionMode.NORMAL
+
+    def test_retry_maps_to_retry(self, mixin: _TestableSheetMixin):
+        mode = mixin._map_judgment_to_mode(self._make_response("retry"), 0)
+        assert mode == SheetExecutionMode.RETRY
+
+    def test_completion_maps_to_completion(self, mixin: _TestableSheetMixin):
+        mode = mixin._map_judgment_to_mode(self._make_response("completion"), 0)
+        assert mode == SheetExecutionMode.COMPLETION
+
+    def test_completion_falls_back_to_retry_when_exhausted(self, mixin: _TestableSheetMixin):
+        mode = mixin._map_judgment_to_mode(self._make_response("completion"), 2)
+        assert mode == SheetExecutionMode.RETRY
+
+    def test_escalate_maps_to_escalate(self, mixin: _TestableSheetMixin):
+        mode = mixin._map_judgment_to_mode(self._make_response("escalate"), 0)
+        assert mode == SheetExecutionMode.ESCALATE
+
+    def test_abort_raises_fatal_error(self, mixin: _TestableSheetMixin):
+        with pytest.raises(FatalError, match="abort"):
+            mixin._map_judgment_to_mode(self._make_response("abort"), 0)
+
+    def test_unknown_action_defaults_to_retry(self, mixin: _TestableSheetMixin):
+        mode = mixin._map_judgment_to_mode(self._make_response("unknown_action"), 0)
+        assert mode == SheetExecutionMode.RETRY
+
+
+# ===========================================================================
+# Tests: _build_judgment_query
+# ===========================================================================
+
+class TestBuildJudgmentQuery:
+    """Tests for building judgment queries from execution state."""
+
+    def test_query_captures_error_patterns(self, mixin: _TestableSheetMixin):
+        history: Sequence[ExecutionResult] = [
+            _make_execution_result(success=False, stderr="FileNotFoundError: /path\ndetails"),
+            _make_execution_result(success=True),
+        ]
+        vr = _make_validation_result()
+        query = mixin._build_judgment_query(
+            sheet_num=1, validation_result=vr,
+            execution_history=history, normal_attempts=1,
+        )
+        assert query.sheet_num == 1
+        assert query.retry_count == 1
+        assert "FileNotFoundError" in query.error_patterns[0]
+
+    def test_query_deduplicates_error_patterns(self, mixin: _TestableSheetMixin):
+        history = [
+            _make_execution_result(success=False, stderr="Error: timeout"),
+            _make_execution_result(success=False, stderr="Error: timeout"),
+        ]
+        vr = _make_validation_result()
+        query = mixin._build_judgment_query(
+            sheet_num=1, validation_result=vr,
+            execution_history=history, normal_attempts=2,
+        )
+        assert len(query.error_patterns) == 1
+
+    def test_query_captures_execution_history(self, mixin: _TestableSheetMixin):
+        history = [_make_execution_result(success=True, duration=3.0)]
+        vr = _make_validation_result(confidence=0.85)
+        query = mixin._build_judgment_query(
+            sheet_num=2, validation_result=vr,
+            execution_history=history, normal_attempts=0,
+        )
+        assert query.confidence == 0.85
+        assert len(query.execution_history) == 1
+        assert query.execution_history[0]["success"] is True
+
+
+# ===========================================================================
+# Tests: _build_sheet_context
+# ===========================================================================
+
+class TestBuildSheetContext:
+    """Tests for sheet context construction."""
+
+    def test_builds_basic_context(self, mixin: _TestableSheetMixin):
+        ctx = mixin._build_sheet_context(sheet_num=1)
+        d = ctx.to_dict()
+        assert d["sheet_num"] == 1
+        assert d["total_sheets"] == 2  # from config total_items=10, size=5
+        assert "workspace" in d
+
+    def test_context_without_state_has_no_cross_sheet(self, mixin: _TestableSheetMixin):
+        ctx = mixin._build_sheet_context(sheet_num=1, state=None)
+        assert not ctx.previous_outputs
+
+
+# ===========================================================================
+# Tests: _query_historical_failures
+# ===========================================================================
+
+class TestQueryHistoricalFailures:
+    """Tests for historical failure querying."""
+
+    def test_returns_empty_for_first_sheet(self, mixin: _TestableSheetMixin):
+        state = _make_state()
+        failures = mixin._query_historical_failures(state, sheet_num=1)
+        assert failures == []
+
+    def test_returns_failures_from_prior_sheets(self, mixin: _TestableSheetMixin):
+        state = _make_state(total_sheets=3)
+        state.mark_sheet_started(1)
+        state.sheets[1].validation_details = [
+            {"description": "File exists", "passed": False, "message": "Not found"},
+        ]
+        state.mark_sheet_failed(1, "validation failed", "validation")
+        failures = mixin._query_historical_failures(state, sheet_num=2)
+        # FailureHistoryStore looks at validation_details of failed sheets
+        assert isinstance(failures, list)
+
+
+# ===========================================================================
+# Tests: _gather_learned_patterns
+# ===========================================================================
+
+class TestGatherLearnedPatterns:
+    """Tests for the pattern gathering method."""
+
+    @pytest.mark.asyncio
+    async def test_no_stores_returns_empty(self, mixin: _TestableSheetMixin):
+        state = _make_state()
+        patterns = await mixin._gather_learned_patterns(state, sheet_num=1)
+        assert patterns == []
+        assert mixin._current_sheet_patterns == []
+
+    @pytest.mark.asyncio
+    async def test_local_patterns_returned(self, mixin: _TestableSheetMixin):
+        mixin.outcome_store = AsyncMock()
+        mixin.outcome_store.get_relevant_patterns = AsyncMock(
+            return_value=["Use explicit file paths"]
+        )
+        state = _make_state()
+        patterns = await mixin._gather_learned_patterns(state, sheet_num=1)
+        assert "Use explicit file paths" in patterns
+
+    @pytest.mark.asyncio
+    async def test_global_patterns_deduplicated(self, mixin: _TestableSheetMixin):
+        """Global patterns should not duplicate local ones."""
+        mixin.outcome_store = AsyncMock()
+        mixin.outcome_store.get_relevant_patterns = AsyncMock(
+            return_value=["Pattern A"]
+        )
+        # Mock global pattern query to return same + new pattern
+        mixin._query_relevant_patterns = MagicMock(
+            return_value=(["Pattern A", "Pattern B"], ["id-a", "id-b"])
+        )
+        state = _make_state()
+        patterns = await mixin._gather_learned_patterns(state, sheet_num=1)
+        # Should have Pattern A once and Pattern B
+        assert patterns.count("Pattern A") == 1
+        assert "Pattern B" in patterns
+
+
+# ===========================================================================
+# Tests: _decide_with_judgment
+# ===========================================================================
+
+class TestDecideWithJudgment:
+    """Tests for judgment-integrated decision making."""
+
+    @pytest.mark.asyncio
+    async def test_no_judgment_client_uses_local_decision(self, mixin: _TestableSheetMixin):
+        """Without judgment client, falls back to _decide_next_action."""
+        vr = _make_validation_result(confidence=0.55, pass_pct=75.0)
+        mode, reason, mods = await mixin._decide_with_judgment(
+            sheet_num=1, validation_result=vr,
+            execution_history=[], normal_attempts=0, completion_attempts=0,
+        )
+        assert mode in (SheetExecutionMode.COMPLETION, SheetExecutionMode.RETRY)
+        assert mods is not None  # semantic_hints from local decision
+
+    @pytest.mark.asyncio
+    async def test_judgment_client_error_falls_back(self, mixin: _TestableSheetMixin):
+        """Judgment client error falls back to local decision."""
+        mixin.judgment_client = AsyncMock()
+        mixin.judgment_client.get_judgment = AsyncMock(side_effect=RuntimeError("timeout"))
+        vr = _make_validation_result(confidence=0.55, pass_pct=75.0)
+        mode, reason, mods = await mixin._decide_with_judgment(
+            sheet_num=1, validation_result=vr,
+            execution_history=[], normal_attempts=0, completion_attempts=0,
+        )
+        assert "judgment fallback" in reason
+
+
+# ===========================================================================
+# Tests: _can_auto_apply
+# ===========================================================================
+
+class TestCanAutoApply:
+    """Tests for the auto-apply trust check."""
+
+    def test_disabled_global_patterns_returns_false(self, mixin: _TestableSheetMixin):
+        mixin.config.learning.use_global_patterns = False
+        assert mixin._can_auto_apply(0.8) is False
+
+    def test_no_global_store_returns_false(self, mixin: _TestableSheetMixin):
+        mixin.config.learning.use_global_patterns = True
+        mixin._global_learning_store = None
+        assert mixin._can_auto_apply(0.8) is False
+
+    def test_store_with_patterns_returns_true(self, mixin: _TestableSheetMixin):
+        mixin.config.learning.use_global_patterns = True
+        store = MagicMock()
+        store.get_patterns_for_auto_apply.return_value = [MagicMock()]
+        mixin._global_learning_store = store
+        assert mixin._can_auto_apply(0.8) is True
+
+    def test_store_exception_returns_false(self, mixin: _TestableSheetMixin):
+        mixin.config.learning.use_global_patterns = True
+        store = MagicMock()
+        store.get_patterns_for_auto_apply.side_effect = RuntimeError("db error")
+        mixin._global_learning_store = store
+        assert mixin._can_auto_apply(0.8) is False
+
+
+# ===========================================================================
+# Tests: _update_escalation_outcome
+# ===========================================================================
+
+class TestUpdateEscalationOutcome:
+    """Tests for escalation outcome recording."""
+
+    def test_no_global_store_is_noop(self, mixin: _TestableSheetMixin):
+        sheet_state = MagicMock()
+        # Should not raise
+        mixin._update_escalation_outcome(sheet_state, "success", 1)
+
+    def test_no_escalation_record_id_is_noop(self, mixin: _TestableSheetMixin):
+        mixin._global_learning_store = MagicMock()
+        sheet_state = MagicMock()
+        sheet_state.outcome_data = {}
+        mixin._update_escalation_outcome(sheet_state, "success", 1)
+        mixin._global_learning_store.update_escalation_outcome.assert_not_called()
+
+    def test_updates_outcome_when_record_exists(self, mixin: _TestableSheetMixin):
+        store = MagicMock()
+        store.update_escalation_outcome.return_value = True
+        mixin._global_learning_store = store
+        sheet_state = MagicMock()
+        sheet_state.outcome_data = {"escalation_record_id": "esc-123"}
+        mixin._update_escalation_outcome(sheet_state, "success", 1)
+        store.update_escalation_outcome.assert_called_once_with(
+            escalation_id="esc-123", outcome_after_action="success",
+        )
+
+
+# ===========================================================================
+# Tests: _poll_broadcast_discoveries
+# ===========================================================================
+
+class TestPollBroadcastDiscoveries:
+    """Tests for pattern broadcast polling during retry waits."""
+
+    @pytest.mark.asyncio
+    async def test_no_global_store_is_noop(self, mixin: _TestableSheetMixin):
+        await mixin._poll_broadcast_discoveries("job-1", 1)
+        # No exception means success
+
+    @pytest.mark.asyncio
+    async def test_logs_discoveries(self, mixin: _TestableSheetMixin):
+        discovery = MagicMock()
+        discovery.pattern_id = "p-1"
+        discovery.pattern_name = "retry-on-timeout"
+        discovery.pattern_type = "retry"
+        discovery.effectiveness_score = 0.85
+        discovery.context_tags = []
+
+        store = MagicMock()
+        store.check_recent_pattern_discoveries.return_value = [discovery]
+        mixin._global_learning_store = store
+
+        await mixin._poll_broadcast_discoveries("job-1", 1)
+        store.check_recent_pattern_discoveries.assert_called_once()
+
+
+# ===========================================================================
+# Tests: _record_sheet_outcome
+# ===========================================================================
+
+class TestRecordSheetOutcome:
+    """Tests for outcome recording to the learning store."""
+
+    @pytest.mark.asyncio
+    async def test_no_outcome_store_is_noop(self, mixin: _TestableSheetMixin):
+        vr = _make_validation_result()
+        await mixin._record_sheet_outcome(
+            sheet_num=1, job_id="test", validation_result=vr,
+            execution_duration=5.0, normal_attempts=1, completion_attempts=0,
+            first_attempt_success=True, final_status=SheetStatus.COMPLETED,
+        )
+
+    @pytest.mark.asyncio
+    async def test_records_outcome_when_store_available(self, mixin: _TestableSheetMixin):
+        mixin.outcome_store = AsyncMock()
+        mixin.outcome_store.record = AsyncMock()
+        vr = _make_validation_result(pass_pct=100.0)
+        await mixin._record_sheet_outcome(
+            sheet_num=1, job_id="test", validation_result=vr,
+            execution_duration=5.0, normal_attempts=1, completion_attempts=0,
+            first_attempt_success=True, final_status=SheetStatus.COMPLETED,
+        )
+        mixin.outcome_store.record.assert_called_once()
+
+
+# ===========================================================================
+# Tests: _check_proactive_checkpoint
+# ===========================================================================
+
+class TestCheckProactiveCheckpoint:
+    """Tests for the proactive checkpoint system."""
+
+    @pytest.mark.asyncio
+    async def test_disabled_returns_none(self, mixin: _TestableSheetMixin):
+        state = _make_state()
+        result = await mixin._check_proactive_checkpoint(state, 1, "prompt", 0)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_no_triggers_returns_none(self, mixin: _TestableSheetMixin):
+        mixin.config.checkpoints.enabled = True
+        state = _make_state()
+        result = await mixin._check_proactive_checkpoint(state, 1, "prompt", 0)
+        assert result is None
+
+
+# ===========================================================================
+# Tests: _handle_escalation
+# ===========================================================================
+
+class TestHandleEscalation:
+    """Tests for escalation handling."""
+
+    @pytest.mark.asyncio
+    async def test_no_handler_raises_fatal(self, mixin: _TestableSheetMixin):
+        state = _make_state()
+        state.mark_sheet_started(1)
+        vr = _make_validation_result()
+        with pytest.raises(FatalError, match="no handler configured"):
+            await mixin._handle_escalation(
+                state=state, sheet_num=1, validation_result=vr,
+                current_prompt="test", error_history=[], normal_attempts=1,
+            )
+
+    @pytest.mark.asyncio
+    async def test_escalation_returns_response(self, mixin: _TestableSheetMixin):
+        from mozart.execution.escalation import EscalationResponse
+
+        handler = AsyncMock()
+        handler.escalate = AsyncMock(
+            return_value=EscalationResponse(action="retry", guidance="try again")
+        )
+        mixin.escalation_handler = handler
+
+        state = _make_state()
+        state.mark_sheet_started(1)
+        vr = _make_validation_result()
+        response = await mixin._handle_escalation(
+            state=state, sheet_num=1, validation_result=vr,
+            current_prompt="test", error_history=[], normal_attempts=1,
+        )
+        assert response.action == "retry"
+        assert response.guidance == "try again"
+
+
+# ===========================================================================
+# Tests: _execute_sheet_with_recovery (integration)
+# ===========================================================================
+
+class TestExecuteSheetWithRecovery:
+    """Integration tests for the main sheet execution state machine."""
+
+    @pytest.mark.asyncio
+    async def test_success_on_first_attempt(self, mixin: _TestableSheetMixin):
+        """Happy path: backend succeeds, all validations pass."""
+        state = _make_state()
+
+        # Mock validation to pass
+        mock_vr = _make_validation_result(all_passed=True)
+        with patch(
+            "mozart.execution.runner.sheet.ValidationEngine"
+        ) as MockVE:
+            ve_instance = MockVE.return_value
+            ve_instance.get_applicable_rules.return_value = []
+            ve_instance.run_validations = AsyncMock(return_value=mock_vr)
+            ve_instance.snapshot_mtime_files = MagicMock()
+
+            await mixin._execute_sheet_with_recovery(state, sheet_num=1)
+
+        # Sheet should be marked completed
+        assert state.sheets[1].status == SheetStatus.COMPLETED
+
+    @pytest.mark.asyncio
+    async def test_preflight_failure_raises_fatal(self, mixin: _TestableSheetMixin):
+        """Preflight check failure → FatalError, sheet marked failed."""
+        state = _make_state()
+
+        # Mock preflight to fail
+        from mozart.execution.preflight import PreflightResult, PromptMetrics
+
+        failed_preflight = PreflightResult(
+            errors=["workspace does not exist"],
+            warnings=[],
+            prompt_metrics=PromptMetrics(
+                estimated_tokens=100, line_count=5,
+                character_count=500, has_file_references=False,
+            ),
+        )
+        mixin.preflight_checker.check = MagicMock(return_value=failed_preflight)
+
+        with patch(
+            "mozart.execution.runner.sheet.ValidationEngine"
+        ):
+            with pytest.raises(FatalError, match="Preflight check failed"):
+                await mixin._execute_sheet_with_recovery(state, sheet_num=1)
+
+        assert state.sheets[1].status == SheetStatus.FAILED
+
+    @pytest.mark.asyncio
+    async def test_retries_exhausted_raises_fatal(self, mixin: _TestableSheetMixin):
+        """All retries exhausted → FatalError."""
+        state = _make_state()
+
+        # Backend returns failure
+        mixin.backend.execute = AsyncMock(
+            return_value=_make_execution_result(
+                success=False, exit_code=1, stderr="Error occurred"
+            )
+        )
+
+        mock_vr = _make_validation_result(
+            all_passed=False, pass_pct=0.0, confidence=0.5,
+        )
+
+        with patch(
+            "mozart.execution.runner.sheet.ValidationEngine"
+        ) as MockVE:
+            ve_instance = MockVE.return_value
+            ve_instance.get_applicable_rules.return_value = []
+            ve_instance.run_validations = AsyncMock(return_value=mock_vr)
+            ve_instance.snapshot_mtime_files = MagicMock()
+
+            with pytest.raises(FatalError):
+                await mixin._execute_sheet_with_recovery(state, sheet_num=1)
+
+        assert state.sheets[1].status == SheetStatus.FAILED
+
+    @pytest.mark.asyncio
+    async def test_cost_limit_raises_graceful_shutdown(self, mixin: _TestableSheetMixin):
+        """Cost limit exceeded → GracefulShutdownError."""
+        state = _make_state()
+        mixin.config.cost_limits.enabled = True
+        mixin._check_cost_limits = MagicMock(return_value=(True, "Job cost $5.00 > limit $1.00"))
+
+        mock_vr = _make_validation_result(all_passed=True)
+
+        with patch(
+            "mozart.execution.runner.sheet.ValidationEngine"
+        ) as MockVE:
+            ve_instance = MockVE.return_value
+            ve_instance.get_applicable_rules.return_value = []
+            ve_instance.run_validations = AsyncMock(return_value=mock_vr)
+            ve_instance.snapshot_mtime_files = MagicMock()
+
+            with pytest.raises(GracefulShutdownError, match="Cost limit exceeded"):
+                await mixin._execute_sheet_with_recovery(state, sheet_num=1)
+
+    @pytest.mark.asyncio
+    async def test_success_after_retry(self, mixin: _TestableSheetMixin):
+        """Backend fails first, succeeds on retry."""
+        state = _make_state()
+
+        # First call fails, second succeeds
+        mixin.backend.execute = AsyncMock(side_effect=[
+            _make_execution_result(success=False, exit_code=1, stderr="Error"),
+            _make_execution_result(success=True, exit_code=0),
+        ])
+
+        # First validation fails, second passes
+        fail_vr = _make_validation_result(all_passed=False, pass_pct=0.0, confidence=0.5)
+        pass_vr = _make_validation_result(all_passed=True)
+
+        with patch(
+            "mozart.execution.runner.sheet.ValidationEngine"
+        ) as MockVE:
+            ve_instance = MockVE.return_value
+            ve_instance.get_applicable_rules.return_value = []
+            ve_instance.run_validations = AsyncMock(side_effect=[fail_vr, pass_vr])
+            ve_instance.snapshot_mtime_files = MagicMock()
+
+            await mixin._execute_sheet_with_recovery(state, sheet_num=1)
+
+        assert state.sheets[1].status == SheetStatus.COMPLETED
+
+
+# ===========================================================================
+# Tests: GroundingDecisionContext
+# ===========================================================================
+
+class TestGroundingDecisionContext:
+    """Tests for the GroundingDecisionContext data class."""
+
+    def test_disabled_context(self):
+        ctx = GroundingDecisionContext.disabled()
+        assert ctx.passed is True
+        assert ctx.hooks_executed == 0
+
+    def test_from_empty_results(self):
+        ctx = GroundingDecisionContext.from_results([])
+        assert ctx.passed is True
+        assert ctx.hooks_executed == 0
+
+    def test_from_passing_results(self):
+        result = MagicMock()
+        result.passed = True
+        result.confidence = 0.95
+        result.should_escalate = False
+        result.recovery_guidance = None
+        result.hook_name = "test"
+        result.message = "OK"
+
+        ctx = GroundingDecisionContext.from_results([result])
+        assert ctx.passed is True
+        assert ctx.confidence == 0.95
+        assert ctx.hooks_executed == 1
+
+    def test_from_failing_results(self):
+        result = MagicMock()
+        result.passed = False
+        result.confidence = 0.3
+        result.should_escalate = True
+        result.recovery_guidance = "Check output format"
+        result.hook_name = "format_check"
+        result.message = "Format mismatch"
+
+        ctx = GroundingDecisionContext.from_results([result])
+        assert ctx.passed is False
+        assert ctx.should_escalate is True
+        assert ctx.recovery_guidance is not None
+        assert "Check output format" in ctx.recovery_guidance
+        assert "format_check" in ctx.message

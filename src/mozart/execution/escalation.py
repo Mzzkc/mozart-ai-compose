@@ -11,11 +11,10 @@ reactive escalation system.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Literal
 
 from mozart.core.checkpoint import SheetState, ValidationDetailDict
 from mozart.execution.validation import SheetValidationResult
-
 
 # =============================================================================
 # v21 Evolution: Proactive Checkpoint System
@@ -101,47 +100,6 @@ class CheckpointResponse:
     guidance: str | None = None
     """Optional guidance or reasoning for the decision."""
 
-
-@runtime_checkable
-class CheckpointHandler(Protocol):
-    """Protocol for proactive checkpoint handlers.
-
-    Implementations can be console-based (human), API-based (AI judgment),
-    or any other decision-making mechanism.
-
-    v21 Evolution: Proactive Checkpoint System - enables pre-execution checkpoints.
-    """
-
-    async def should_checkpoint(
-        self,
-        sheet_num: int,
-        prompt: str,
-        retry_count: int,
-        triggers: list[CheckpointTrigger],
-    ) -> CheckpointTrigger | None:
-        """Determine if a checkpoint is needed before sheet execution.
-
-        Args:
-            sheet_num: Sheet number about to execute.
-            prompt: The prompt to be used.
-            retry_count: Number of retry attempts already made.
-            triggers: List of configured checkpoint triggers.
-
-        Returns:
-            The matching CheckpointTrigger if checkpoint needed, None otherwise.
-        """
-        ...
-
-    async def checkpoint(self, context: CheckpointContext) -> CheckpointResponse:
-        """Handle checkpoint and return the decision.
-
-        Args:
-            context: Full context about the checkpoint trigger.
-
-        Returns:
-            CheckpointResponse with the action to take.
-        """
-        ...
 
 
 # =============================================================================
@@ -241,44 +199,6 @@ class EscalationResponse:
     """Amount to boost confidence threshold for next attempt (0.0-1.0).
     Allows temporary threshold adjustment based on escalation feedback.
     """
-
-
-@runtime_checkable
-class EscalationHandler(Protocol):
-    """Protocol for escalation handlers.
-
-    Implementations can be console-based (human), API-based (AI judgment),
-    or any other decision-making mechanism.
-    """
-
-    async def should_escalate(
-        self,
-        sheet_state: SheetState,
-        validation_result: SheetValidationResult,
-        confidence: float,
-    ) -> bool:
-        """Determine if escalation is needed for this sheet.
-
-        Args:
-            sheet_state: Current state of the sheet.
-            validation_result: Results from validation engine.
-            confidence: Aggregate confidence score.
-
-        Returns:
-            True if escalation should be triggered, False to proceed normally.
-        """
-        ...
-
-    async def escalate(self, context: EscalationContext) -> EscalationResponse:
-        """Handle escalation and return the decision.
-
-        Args:
-            context: Full context about the escalation trigger.
-
-        Returns:
-            EscalationResponse with the action to take.
-        """
-        ...
 
 
 class ConsoleEscalationHandler:

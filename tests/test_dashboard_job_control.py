@@ -12,49 +12,8 @@ from mozart.dashboard.services.job_control import (
     JobStartResult,
     ProcessHealth,
 )
-from mozart.state.base import StateBackend
 
-
-class MockStateBackend(StateBackend):
-    """Mock state backend for testing."""
-
-    def __init__(self):
-        self.states: dict[str, CheckpointState] = {}
-
-    async def load(self, job_id: str) -> CheckpointState | None:
-        return self.states.get(job_id)
-
-    async def save(self, state: CheckpointState) -> None:
-        self.states[state.job_id] = state
-
-    async def delete(self, job_id: str) -> bool:
-        if job_id in self.states:
-            del self.states[job_id]
-            return True
-        return False
-
-    async def list_jobs(self) -> list[CheckpointState]:
-        return list(self.states.values())
-
-    async def get_next_sheet(self, job_id: str) -> int | None:
-        state = await self.load(job_id)
-        return state.get_next_sheet() if state else None
-
-    async def mark_sheet_status(
-        self,
-        job_id: str,
-        sheet_num: int,
-        status,
-        error_message: str | None = None,
-    ) -> None:
-        # Not needed for these tests
-        pass
-
-
-@pytest.fixture
-def mock_state_backend():
-    """Fixture for mock state backend."""
-    return MockStateBackend()
+from tests.conftest import MockStateBackend
 
 
 @pytest.fixture

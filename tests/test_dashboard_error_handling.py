@@ -7,61 +7,8 @@ from fastapi.testclient import TestClient
 
 from mozart.core.checkpoint import CheckpointState, JobStatus
 from mozart.dashboard.app import create_app
-from mozart.state.base import StateBackend
 
-
-class MockStateBackend(StateBackend):
-    """Mock state backend with error simulation capabilities."""
-
-    def __init__(self):
-        self.states: dict[str, CheckpointState] = {}
-        self.should_fail_load = False
-        self.should_fail_save = False
-        self.should_fail_delete = False
-
-    async def load(self, job_id: str) -> CheckpointState | None:
-        if self.should_fail_load:
-            raise RuntimeError("Database connection failed")
-        return self.states.get(job_id)
-
-    async def save(self, state: CheckpointState) -> None:
-        if self.should_fail_save:
-            raise RuntimeError("Database write failed")
-        self.states[state.job_id] = state
-
-    async def delete(self, job_id: str) -> bool:
-        if self.should_fail_delete:
-            raise RuntimeError("Database delete failed")
-        if job_id in self.states:
-            del self.states[job_id]
-            return True
-        return False
-
-    async def list_jobs(self) -> list[CheckpointState]:
-        return list(self.states.values())
-
-    async def get_next_sheet(self, job_id: str) -> int | None:
-        state = await self.load(job_id)
-        return state.get_next_sheet() if state else None
-
-    async def mark_sheet_status(
-        self,
-        job_id: str,
-        sheet_num: int,
-        status,
-        error_message: str | None = None,
-    ) -> None:
-        state = await self.load(job_id)
-        if state and sheet_num in state.sheets:
-            state.sheets[sheet_num].status = status
-            if error_message:
-                state.sheets[sheet_num].error_message = error_message
-
-
-@pytest.fixture
-def mock_state_backend():
-    """Mock state backend for testing."""
-    return MockStateBackend()
+from tests.conftest import MockStateBackend
 
 
 @pytest.fixture

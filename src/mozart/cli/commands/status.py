@@ -316,7 +316,6 @@ async def _list_jobs(
         if sqlite_cwd.exists():
             backends.append((".", SQLiteStateBackend(sqlite_cwd)))
 
-    from mozart.core.checkpoint import CheckpointState
 
     # Collect all jobs
     all_jobs: list[tuple[str, CheckpointState]] = []

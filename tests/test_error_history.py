@@ -14,6 +14,8 @@ from mozart.core.checkpoint import (
     ErrorRecord,
 )
 
+from tests.helpers import record_error_on_sheet
+
 
 class TestErrorRecordModel:
     """Tests for the ErrorRecord model."""
@@ -199,169 +201,6 @@ class TestSheetStateErrorHistory:
         assert all(isinstance(r, ErrorRecord) for r in state.error_history)
 
 
-class TestRecordErrorMethod:
-    """Tests for SheetState.record_error() method."""
-
-    def test_record_error_basic(self):
-        """Test recording a basic error."""
-        state = SheetState(sheet_num=1)
-
-        state.record_error(
-            error_type="transient",
-            error_code="E001",
-            error_message="Connection failed",
-            attempt=1,
-        )
-
-        assert len(state.error_history) == 1
-        record = state.error_history[0]
-        assert record.error_type == "transient"
-        assert record.error_code == "E001"
-        assert record.error_message == "Connection failed"
-        assert record.attempt_number == 1
-
-    def test_record_error_with_output(self):
-        """Test recording error with stdout/stderr tails."""
-        state = SheetState(sheet_num=1)
-
-        state.record_error(
-            error_type="permanent",
-            error_code="E500",
-            error_message="Process crashed",
-            attempt=2,
-            stdout_tail="last stdout",
-            stderr_tail="last stderr",
-        )
-
-        record = state.error_history[0]
-        assert record.stdout_tail == "last stdout"
-        assert record.stderr_tail == "last stderr"
-
-    def test_record_error_with_stack_trace(self):
-        """Test recording error with stack trace."""
-        state = SheetState(sheet_num=1)
-        stack = "Traceback (most recent call last):\n  File 'test.py', line 1\nError"
-
-        state.record_error(
-            error_type="permanent",
-            error_code="E999",
-            error_message="Exception caught",
-            attempt=1,
-            stack_trace=stack,
-        )
-
-        record = state.error_history[0]
-        assert record.stack_trace == stack
-
-    def test_record_error_with_context(self):
-        """Test recording error with additional context via kwargs."""
-        state = SheetState(sheet_num=1)
-
-        state.record_error(
-            error_type="transient",
-            error_code="E001",
-            error_message="Failed",
-            attempt=1,
-            exit_code=1,
-            signal=15,
-            category="network",
-            custom_field="custom_value",
-        )
-
-        record = state.error_history[0]
-        assert record.context["exit_code"] == 1
-        assert record.context["signal"] == 15
-        assert record.context["category"] == "network"
-        assert record.context["custom_field"] == "custom_value"
-
-    def test_record_error_multiple(self):
-        """Test recording multiple errors."""
-        state = SheetState(sheet_num=1)
-
-        state.record_error(
-            error_type="transient",
-            error_code="E001",
-            error_message="First error",
-            attempt=1,
-        )
-        state.record_error(
-            error_type="rate_limit",
-            error_code="E429",
-            error_message="Second error",
-            attempt=2,
-        )
-        state.record_error(
-            error_type="permanent",
-            error_code="E500",
-            error_message="Third error",
-            attempt=3,
-        )
-
-        assert len(state.error_history) == 3
-        assert state.error_history[0].error_message == "First error"
-        assert state.error_history[1].error_message == "Second error"
-        assert state.error_history[2].error_message == "Third error"
-
-    def test_record_error_trims_to_max_history(self):
-        """Test that error history is trimmed to MAX_ERROR_HISTORY."""
-        state = SheetState(sheet_num=1)
-
-        # Record more than MAX_ERROR_HISTORY errors
-        for i in range(MAX_ERROR_HISTORY + 5):
-            state.record_error(
-                error_type="transient",
-                error_code=f"E{i:03d}",
-                error_message=f"Error {i}",
-                attempt=i + 1,
-            )
-
-        # Should be trimmed to MAX_ERROR_HISTORY
-        assert len(state.error_history) == MAX_ERROR_HISTORY
-
-    def test_record_error_keeps_most_recent(self):
-        """Test that trimming keeps the most recent errors."""
-        state = SheetState(sheet_num=1)
-
-        # Record more than MAX_ERROR_HISTORY errors
-        total_errors = MAX_ERROR_HISTORY + 5
-        for i in range(total_errors):
-            state.record_error(
-                error_type="transient",
-                error_code=f"E{i:03d}",
-                error_message=f"Error {i}",
-                attempt=i + 1,
-            )
-
-        # First errors should be gone, last ones should remain
-        # Oldest remaining should be error #5 (0-indexed)
-        assert state.error_history[0].error_message == "Error 5"
-        # Most recent should be the last one
-        assert state.error_history[-1].error_message == f"Error {total_errors - 1}"
-
-    def test_record_error_preserves_timestamp_order(self):
-        """Test that errors are stored in chronological order."""
-        state = SheetState(sheet_num=1)
-
-        state.record_error(
-            error_type="transient",
-            error_code="E001",
-            error_message="First",
-            attempt=1,
-        )
-        state.record_error(
-            error_type="transient",
-            error_code="E002",
-            error_message="Second",
-            attempt=2,
-        )
-
-        # First recorded should be at index 0
-        assert state.error_history[0].attempt_number == 1
-        assert state.error_history[1].attempt_number == 2
-        # Timestamps should be in order
-        assert state.error_history[0].timestamp <= state.error_history[1].timestamp
-
-
 class TestErrorHistoryMaxConstant:
     """Tests for MAX_ERROR_HISTORY constant."""
 
@@ -376,7 +215,8 @@ class TestErrorHistorySerialization:
     def test_error_history_serialization(self):
         """Test that error_history survives JSON serialization."""
         state = SheetState(sheet_num=1)
-        state.record_error(
+        record_error_on_sheet(
+            state,
             error_type="transient",
             error_code="E001",
             error_message="Test error",
@@ -399,7 +239,8 @@ class TestErrorHistorySerialization:
         """Test serialization with multiple error records."""
         state = SheetState(sheet_num=1)
         for i in range(5):
-            state.record_error(
+            record_error_on_sheet(
+                state,
                 error_type="transient" if i % 2 == 0 else "permanent",
                 error_code=f"E{i:03d}",
                 error_message=f"Error {i}",
@@ -440,7 +281,8 @@ class TestErrorHistoryIntegration:
         state.capture_output("stdout content", "stderr content")
 
         # Record error referencing captured output
-        state.record_error(
+        record_error_on_sheet(
+            state,
             error_type="permanent",
             error_code="E001",
             error_message="Execution failed",
@@ -463,7 +305,8 @@ class TestErrorHistoryIntegration:
             confidence_score=0.75,
         )
 
-        state.record_error(
+        record_error_on_sheet(
+            state,
             error_type="transient",
             error_code="E001",
             error_message="New error",
@@ -523,7 +366,8 @@ class TestErrorRecordEdgeCases:
         }
 
         state = SheetState(sheet_num=1)
-        state.record_error(
+        record_error_on_sheet(
+            state,
             error_type="transient",
             error_code="E001",
             error_message="Error",
@@ -538,7 +382,8 @@ class TestErrorRecordEdgeCases:
     def test_context_with_none_values(self):
         """Test that context can contain None values."""
         state = SheetState(sheet_num=1)
-        state.record_error(
+        record_error_on_sheet(
+            state,
             error_type="transient",
             error_code="E001",
             error_message="Error",

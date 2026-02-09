@@ -31,7 +31,6 @@ from mozart.learning.global_store import (
 )
 from mozart.learning.judgment import (
     JudgmentClient,
-    JudgmentProvider,
     JudgmentQuery,
     JudgmentResponse,
     LocalJudgmentClient,
@@ -52,7 +51,6 @@ from mozart.learning.patterns import (
 )
 from mozart.learning.weighter import (
     PatternWeighter,
-    WeightingConfig,
     calculate_priority,
 )
 
@@ -80,7 +78,6 @@ __all__ = [
     "aggregate_job_outcomes",
     # Weighting
     "PatternWeighter",
-    "WeightingConfig",
     "calculate_priority",
     # Error Learning Hooks
     "ErrorLearningConfig",
@@ -95,7 +92,6 @@ __all__ = [
     # Judgment
     "JudgmentQuery",
     "JudgmentResponse",
-    "JudgmentProvider",
     "JudgmentClient",
     "LocalJudgmentClient",
 ]

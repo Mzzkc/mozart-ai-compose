@@ -25,6 +25,7 @@ from typing import Any
 import pytest
 import structlog
 
+from tests.helpers import record_error_on_sheet
 from mozart.backends.base import ExecutionResult
 from mozart.core.checkpoint import (
     MAX_ERROR_HISTORY,
@@ -120,7 +121,7 @@ class TestErrorHistoryIntegration:
         """Test that errors are added to history."""
         sheet = SheetState(sheet_num=1)
 
-        sheet.record_error(
+        record_error_on_sheet(sheet,
             error_type="transient",
             error_code="E001",
             error_message="Connection timeout",
@@ -138,7 +139,7 @@ class TestErrorHistoryIntegration:
 
         # Add more errors than the maximum
         for i in range(MAX_ERROR_HISTORY + 5):
-            sheet.record_error(
+            record_error_on_sheet(sheet,
                 error_type="transient",
                 error_code=f"E00{i}",
                 error_message=f"Error {i}",
@@ -153,7 +154,7 @@ class TestErrorHistoryIntegration:
         """Test that error context is properly stored."""
         sheet = SheetState(sheet_num=1)
 
-        sheet.record_error(
+        record_error_on_sheet(sheet,
             error_type="rate_limit",
             error_code="E101",
             error_message="Rate limit exceeded",
@@ -560,7 +561,7 @@ class TestEndToEndObservability:
             exit_code=1,
         )
 
-        sheet.record_error(
+        record_error_on_sheet(sheet,
             error_type="transient" if error.retriable else "permanent",
             error_code=error.error_code.value,
             error_message=error.message,
@@ -604,7 +605,7 @@ class TestEndToEndObservability:
 
             # Simulate failure
             error = classifier.classify(stderr="connection error", exit_code=1)
-            sheet.record_error(
+            record_error_on_sheet(sheet,
                 error_type="transient",
                 error_code=error.error_code.value,
                 error_message=error.message,
@@ -703,7 +704,7 @@ class TestDiagnosticsReporting:
             "line_count": 50,
         }
         sheet.preflight_warnings = ["Large prompt detected"]
-        sheet.record_error(
+        record_error_on_sheet(sheet,
             error_type="transient",
             error_code="E001",
             error_message="Timeout error",
@@ -730,7 +731,7 @@ class TestDiagnosticsReporting:
         # Add multiple errors
         # Note: context is passed as **kwargs in record_error, not as a named field
         for i in range(3):
-            sheet.record_error(
+            record_error_on_sheet(sheet,
                 error_type="transient",
                 error_code=f"E00{i}",
                 error_message=f"Error {i}",

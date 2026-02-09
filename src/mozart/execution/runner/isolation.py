@@ -43,10 +43,6 @@ Fallback Behavior:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    pass
 
 from mozart.backends.base import Backend
 from mozart.core.checkpoint import CheckpointState, JobStatus

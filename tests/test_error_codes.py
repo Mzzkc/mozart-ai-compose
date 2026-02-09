@@ -12,6 +12,7 @@ import signal
 
 import pytest
 
+from tests.helpers import record_error_on_sheet
 from mozart.core.errors import (
     ClassifiedError,
     ErrorCategory,
@@ -516,7 +517,8 @@ class TestErrorCodeIntegration:
         from mozart.core.checkpoint import SheetState
 
         state = SheetState(sheet_num=1)
-        state.record_error(
+        record_error_on_sheet(
+            state,
             error_type="transient",
             error_code=ErrorCode.EXECUTION_TIMEOUT.value,
             error_message="Command timed out",

@@ -11,47 +11,23 @@ patterns are most relevant for application in future executions.
 """
 
 import math
-from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol
 
+# Default weighting constants (Movement III design)
+DEFAULT_DECAY_RATE_PER_MONTH: float = 0.1
+"""Fraction of priority lost per month (10%)."""
 
-@dataclass
-class WeightingConfig:
-    """Configuration for pattern weighting calculation.
+DEFAULT_EFFECTIVENESS_THRESHOLD: float = 0.3
+"""Below this effectiveness score, patterns are deprecated."""
 
-    Attributes:
-        decay_rate_per_month: Fraction of priority lost per month (default 0.1 = 10%).
-        effectiveness_threshold: Below this, patterns are deprecated (default 0.3).
-        epistemic_threshold: Variance threshold for learnable patterns (default 0.4).
-        min_applications_for_effectiveness: Minimum applications before using
-            actual effectiveness rate (default 3).
-        frequency_normalization_base: Log base for frequency factor (default 100).
-    """
+DEFAULT_EPISTEMIC_THRESHOLD: float = 0.4
+"""Variance threshold for classifying uncertainty as epistemic vs aleatoric."""
 
-    decay_rate_per_month: float = 0.1
-    effectiveness_threshold: float = 0.3
-    epistemic_threshold: float = 0.4
-    min_applications_for_effectiveness: int = 3
-    frequency_normalization_base: int = 100
+DEFAULT_MIN_APPLICATIONS: int = 3
+"""Minimum applications before using actual effectiveness rate."""
 
-
-class WeightablePattern(Protocol):
-    """Protocol for patterns that can be weighted.
-
-    Any pattern class that has these attributes can be weighted.
-    """
-
-    @property
-    def occurrence_count(self) -> int: ...
-    @property
-    def led_to_success_count(self) -> int: ...
-    @property
-    def led_to_failure_count(self) -> int: ...
-    @property
-    def last_confirmed(self) -> datetime: ...
-    @property
-    def variance(self) -> float: ...
+DEFAULT_FREQUENCY_BASE: int = 100
+"""Log base for frequency normalization factor."""
 
 
 class PatternWeighter:
@@ -75,13 +51,29 @@ class PatternWeighter:
         - variance = std_dev(pattern_application_outcomes)
     """
 
-    def __init__(self, config: WeightingConfig | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        decay_rate_per_month: float = DEFAULT_DECAY_RATE_PER_MONTH,
+        effectiveness_threshold: float = DEFAULT_EFFECTIVENESS_THRESHOLD,
+        epistemic_threshold: float = DEFAULT_EPISTEMIC_THRESHOLD,
+        min_applications_for_effectiveness: int = DEFAULT_MIN_APPLICATIONS,
+        frequency_normalization_base: int = DEFAULT_FREQUENCY_BASE,
+    ) -> None:
         """Initialize the pattern weighter.
 
         Args:
-            config: Weighting configuration. Uses defaults if None.
+            decay_rate_per_month: Fraction of priority lost per month.
+            effectiveness_threshold: Below this, patterns are deprecated.
+            epistemic_threshold: Variance threshold for learnable patterns.
+            min_applications_for_effectiveness: Min applications before using actual rate.
+            frequency_normalization_base: Log base for frequency factor.
         """
-        self.config = config or WeightingConfig()
+        self.decay_rate_per_month = decay_rate_per_month
+        self.effectiveness_threshold = effectiveness_threshold
+        self.epistemic_threshold = epistemic_threshold
+        self.min_applications_for_effectiveness = min_applications_for_effectiveness
+        self.frequency_normalization_base = frequency_normalization_base
 
     def calculate_priority(
         self,
@@ -148,7 +140,7 @@ class PatternWeighter:
             Effectiveness score from 0.0 to 1.0.
         """
         total = success_count + failure_count
-        if total < self.config.min_applications_for_effectiveness:
+        if total < self.min_applications_for_effectiveness:
             # Not enough data, return neutral prior
             return 0.5
 
@@ -183,7 +175,7 @@ class PatternWeighter:
         months = delta.days / 30.0
 
         # Exponential decay
-        decay_base = 1.0 - self.config.decay_rate_per_month
+        decay_base = 1.0 - self.decay_rate_per_month
         recency: float = decay_base ** months
 
         return float(max(0.0, min(1.0, recency)))
@@ -208,7 +200,7 @@ class PatternWeighter:
         if occurrence_count <= 0:
             return 0.0
 
-        base = self.config.frequency_normalization_base
+        base = self.frequency_normalization_base
         log_count = math.log(occurrence_count + 1)
         log_base = math.log(base)
 
@@ -233,7 +225,7 @@ class PatternWeighter:
             True if pattern should be deprecated.
         """
         total = led_to_success_count + led_to_failure_count
-        if total < self.config.min_applications_for_effectiveness:
+        if total < self.min_applications_for_effectiveness:
             # Not enough data to deprecate
             return False
 
@@ -242,7 +234,7 @@ class PatternWeighter:
             led_to_failure_count,
         )
 
-        return effectiveness < self.config.effectiveness_threshold
+        return effectiveness < self.effectiveness_threshold
 
     def classify_uncertainty(self, variance: float) -> str:
         """Classify the uncertainty type of a pattern.
@@ -259,7 +251,7 @@ class PatternWeighter:
         Returns:
             'epistemic' or 'aleatoric'
         """
-        if variance < self.config.epistemic_threshold:
+        if variance < self.epistemic_threshold:
             return "epistemic"
         return "aleatoric"
 
@@ -283,39 +275,12 @@ class PatternWeighter:
 
         return variance
 
-    def update_pattern_priority(
-        self,
-        pattern: WeightablePattern,
-        now: datetime | None = None,
-    ) -> float:
-        """Calculate updated priority for a pattern object.
-
-        Convenience method that extracts fields from a pattern object.
-
-        Args:
-            pattern: A pattern implementing WeightablePattern protocol.
-            now: Current time for recency calculation.
-
-        Returns:
-            Updated priority score.
-        """
-        return self.calculate_priority(
-            occurrence_count=pattern.occurrence_count,
-            led_to_success_count=pattern.led_to_success_count,
-            led_to_failure_count=pattern.led_to_failure_count,
-            last_confirmed=pattern.last_confirmed,
-            variance=pattern.variance,
-            now=now,
-        )
-
-
 def calculate_priority(
     occurrence_count: int,
     led_to_success_count: int,
     led_to_failure_count: int,
     last_confirmed: datetime,
     variance: float = 0.0,
-    config: WeightingConfig | None = None,
 ) -> float:
     """Convenience function to calculate priority without creating a weighter.
 
@@ -325,12 +290,11 @@ def calculate_priority(
         led_to_failure_count: Times pattern led to failure when applied.
         last_confirmed: When this pattern was last confirmed effective.
         variance: Standard deviation of pattern application outcomes.
-        config: Optional weighting configuration.
 
     Returns:
         Priority score from 0.0 to 1.0.
     """
-    weighter = PatternWeighter(config)
+    weighter = PatternWeighter()
     return weighter.calculate_priority(
         occurrence_count=occurrence_count,
         led_to_success_count=led_to_success_count,

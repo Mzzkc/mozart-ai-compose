@@ -5,7 +5,6 @@ approach in the original bash script.
 """
 
 import json
-from datetime import datetime
 from pathlib import Path
 
 from mozart.core.checkpoint import CheckpointState, SheetStatus
@@ -165,7 +164,8 @@ class JsonStateBackend(StateBackend):
                     with open(state_file) as f:
                         data = json.load(f)
                     states.append(CheckpointState.model_validate(data))
-                except (json.JSONDecodeError, ValueError):
+                except (json.JSONDecodeError, ValueError) as exc:
+                    _logger.warning("corrupt_state_file", path=str(state_file), error=str(exc))
                     continue
         return sorted(states, key=lambda s: s.updated_at, reverse=True)
 

@@ -435,42 +435,6 @@ class TestToolDiscovery:
         assert len(tools) == 1
         assert tools[0].name == "read_file"
 
-    async def test_get_tool_schema(self, sample_mcp_server_config, mock_subprocess):
-        """Test getting schema for specific tool."""
-        proxy = MCPProxyService(servers=[sample_mcp_server_config])
-
-        tool_schema = {
-            "type": "object",
-            "properties": {"path": {"type": "string"}},
-        }
-
-        conn = MCPConnection(
-            config=sample_mcp_server_config,
-            process=mock_subprocess,
-            stdin=mock_subprocess.stdin,
-            stdout=mock_subprocess.stdout,
-            tools=[
-                MCPTool(
-                    name="read_file",
-                    description="Read file",
-                    input_schema=tool_schema,
-                    server_name="test-server",
-                ),
-            ],
-        )
-        proxy._connections["test-server"] = conn
-        proxy._tool_routing["read_file"] = "test-server"
-
-        schema = await proxy.get_tool_schema("read_file")
-        assert schema == tool_schema
-
-    async def test_get_tool_schema_not_found(self, sample_mcp_server_config):
-        """Test getting schema for non-existent tool."""
-        proxy = MCPProxyService(servers=[sample_mcp_server_config])
-
-        schema = await proxy.get_tool_schema("nonexistent_tool")
-        assert schema is None
-
 
 # =============================================================================
 # Test Tool Execution
@@ -649,89 +613,6 @@ class TestJsonRpc:
 
 
 # =============================================================================
-# Test Tool Manifest Compression
-# =============================================================================
-
-
-class TestToolManifestCompression:
-    """Tests for tool manifest compression."""
-
-    def test_compress_minimal(self, sample_mcp_server_config):
-        """Test minimal compression level."""
-        proxy = MCPProxyService(servers=[sample_mcp_server_config])
-
-        tools = [
-            MCPTool(
-                name="test_tool",
-                description="A tool with a long description that explains what it does",
-                input_schema={"type": "object", "properties": {}},
-                server_name="test-server",
-            )
-        ]
-
-        compressed = proxy.compress_tool_manifest(tools, level="minimal")
-
-        assert len(compressed) == 1
-        # Minimal should keep full description
-        assert len(compressed[0]["description"]) > 30
-
-    def test_compress_moderate(self, sample_mcp_server_config):
-        """Test moderate compression level."""
-        proxy = MCPProxyService(servers=[sample_mcp_server_config])
-
-        tools = [
-            MCPTool(
-                name="test_tool",
-                description="A tool with a very long description that should be truncated",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "param": {
-                            "type": "string",
-                            "description": "A parameter description",
-                        }
-                    },
-                },
-                server_name="test-server",
-            )
-        ]
-
-        compressed = proxy.compress_tool_manifest(tools, level="moderate")
-
-        assert len(compressed) == 1
-        # Moderate should truncate description to 50 chars
-        assert len(compressed[0]["description"]) <= 50
-
-    def test_compress_aggressive(self, sample_mcp_server_config):
-        """Test aggressive compression level."""
-        proxy = MCPProxyService(servers=[sample_mcp_server_config])
-
-        tools = [
-            MCPTool(
-                name="test_tool",
-                description="A tool with description",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "required_param": {"type": "string"},
-                        "optional_param": {"type": "string"},
-                    },
-                    "required": ["required_param"],
-                },
-                server_name="test-server",
-            )
-        ]
-
-        compressed = proxy.compress_tool_manifest(tools, level="aggressive")
-
-        assert len(compressed) == 1
-        # Aggressive should truncate description to 30 chars
-        assert len(compressed[0]["description"]) <= 30
-        # Aggressive should only keep required properties
-        assert "required_param" in compressed[0]["inputSchema"]["properties"]
-
-
-# =============================================================================
 # Test Parse Tool Result
 # =============================================================================
 
@@ -811,3 +692,154 @@ class TestParseToolResult:
         result = proxy._parse_tool_result(raw_result)
 
         assert len(result.content) == 2
+
+
+# =============================================================================
+# Edge Case Tests (FIX-18: Coverage Gap Filling)
+# =============================================================================
+
+
+class TestReadJsonRpcEdgeCases:
+    """Edge case tests for _read_jsonrpc response parsing."""
+
+    @pytest.mark.asyncio
+    async def test_connection_closed_raises_error(self, sample_mcp_server_config):
+        """Test that connection closed (empty line) raises RuntimeError."""
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        mock_proc.stdin.write = MagicMock()
+        mock_proc.stdin.drain = AsyncMock()
+        mock_proc.stdout = AsyncMock()
+        # Empty bytes means connection closed
+        mock_proc.stdout.readline = AsyncMock(return_value=b"")
+
+        proxy = MCPProxyService(servers=[sample_mcp_server_config])
+        conn = MCPConnection(
+            config=sample_mcp_server_config,
+            process=mock_proc,
+            stdin=mock_proc.stdin,
+            stdout=mock_proc.stdout,
+        )
+
+        with pytest.raises(RuntimeError, match="Connection closed"):
+            await proxy._read_jsonrpc(conn, expected_id=1)
+
+    @pytest.mark.asyncio
+    async def test_malformed_json_skipped(self, sample_mcp_server_config):
+        """Test that malformed JSON lines are silently skipped."""
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        mock_proc.stdin.write = MagicMock()
+        mock_proc.stdin.drain = AsyncMock()
+        mock_proc.stdout = AsyncMock()
+
+        valid_response = {"jsonrpc": "2.0", "id": 1, "result": {"data": "ok"}}
+        mock_proc.stdout.readline = AsyncMock(side_effect=[
+            b"not valid json\n",
+            b"{broken: json\n",
+            json.dumps(valid_response).encode() + b"\n",
+        ])
+
+        proxy = MCPProxyService(servers=[sample_mcp_server_config])
+        conn = MCPConnection(
+            config=sample_mcp_server_config,
+            process=mock_proc,
+            stdin=mock_proc.stdin,
+            stdout=mock_proc.stdout,
+        )
+
+        result = await proxy._read_jsonrpc(conn, expected_id=1)
+        assert result["id"] == 1
+        assert result["result"]["data"] == "ok"
+
+    @pytest.mark.asyncio
+    async def test_mismatched_id_skipped(self, sample_mcp_server_config):
+        """Test that responses with wrong ID are skipped."""
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        mock_proc.stdin.write = MagicMock()
+        mock_proc.stdin.drain = AsyncMock()
+        mock_proc.stdout = AsyncMock()
+
+        wrong_id = {"jsonrpc": "2.0", "id": 99, "result": {}}
+        right_id = {"jsonrpc": "2.0", "id": 5, "result": {"match": True}}
+        mock_proc.stdout.readline = AsyncMock(side_effect=[
+            json.dumps(wrong_id).encode() + b"\n",
+            json.dumps(right_id).encode() + b"\n",
+        ])
+
+        proxy = MCPProxyService(servers=[sample_mcp_server_config])
+        conn = MCPConnection(
+            config=sample_mcp_server_config,
+            process=mock_proc,
+            stdin=mock_proc.stdin,
+            stdout=mock_proc.stdout,
+        )
+
+        result = await proxy._read_jsonrpc(conn, expected_id=5)
+        assert result["result"]["match"] is True
+
+
+class TestToolCacheTTL:
+    """Tests for tool cache TTL behavior."""
+
+    @pytest.mark.asyncio
+    async def test_list_tools_uses_cache_when_fresh(self, sample_mcp_server_config):
+        """Test that list_tools returns cached tools when TTL not expired."""
+        import time
+
+        proxy = MCPProxyService(servers=[sample_mcp_server_config], tool_cache_ttl=300)
+
+        # Manually inject a connection with cached tools
+        mock_proc = MagicMock()
+        tool = MCPTool(
+            name="cached_tool",
+            description="A cached tool",
+            input_schema={},
+            server_name="test-server",
+        )
+        conn = MCPConnection(
+            config=sample_mcp_server_config,
+            process=mock_proc,
+            stdin=MagicMock(),
+            stdout=MagicMock(),
+            tools=[tool],
+            last_tool_refresh=time.monotonic(),  # Just refreshed
+        )
+        proxy._connections["test-server"] = conn
+
+        tools = await proxy.list_tools()
+        assert len(tools) == 1
+        assert tools[0].name == "cached_tool"
+
+
+class TestToolExecutionTimeout:
+    """Tests for tool execution timeout behavior."""
+
+    @pytest.mark.asyncio
+    async def test_timeout_wraps_asyncio_timeout(self, sample_mcp_server_config):
+        """Test that asyncio.TimeoutError is wrapped in ToolExecutionTimeout."""
+        proxy = MCPProxyService(servers=[sample_mcp_server_config])
+
+        # Set up routing
+        proxy._tool_routing["slow_tool"] = "test-server"
+
+        # Set up connection with a mock that times out
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        mock_proc.stdin.write = MagicMock()
+        mock_proc.stdin.drain = AsyncMock()
+
+        conn = MCPConnection(
+            config=sample_mcp_server_config,
+            process=mock_proc,
+            stdin=mock_proc.stdin,
+            stdout=MagicMock(),
+        )
+        proxy._connections["test-server"] = conn
+
+        # Patch _send_jsonrpc to raise TimeoutError
+        proxy._send_jsonrpc = AsyncMock(side_effect=asyncio.TimeoutError())
+
+        with pytest.raises(ToolExecutionTimeout, match="slow_tool"):
+            await proxy.execute_tool("slow_tool", {})

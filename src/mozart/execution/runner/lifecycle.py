@@ -34,12 +34,11 @@ if TYPE_CHECKING:
     from mozart.execution.parallel import ParallelBatchResult
 
 from mozart.core.checkpoint import CheckpointState, JobStatus, SheetStatus
-from mozart.core.config import IsolationMode
 from mozart.core.logging import ExecutionContext
 from mozart.execution.hooks import HookExecutor
 from mozart.utils.time import utc_now
 
-from .models import FatalError, GracefulShutdownError, RunSummary
+from .models import FatalError, RunSummary
 
 
 class LifecycleMixin:
@@ -416,7 +415,6 @@ class LifecycleMixin:
             Next sheet number to execute, or None if all complete or blocked.
             When blocked by failed dependencies, logs a warning with details.
         """
-        from mozart.execution.dag import DAGNextResult, DAGReadyStatus
 
         # If no DAG configured, use default sequential behavior
         if self._dependency_dag is None:

@@ -18,6 +18,8 @@ import logging
 from .codes import ErrorCategory, ErrorCode, ExitReason
 from .models import ClassifiedError, ErrorInfo, ParsedCliError
 
+_logger = logging.getLogger("mozart.errors.parsers")
+
 
 logger = logging.getLogger(__name__)
 
@@ -229,8 +231,8 @@ def _extract_json_errors_from_text(text: str) -> list[ParsedCliError]:
                 if errors:
                     return errors
 
-        except (json.JSONDecodeError, TypeError, KeyError):
-            pass
+        except (json.JSONDecodeError, TypeError, KeyError) as exc:
+            _logger.debug("Failed to parse JSON error block at offset %d: %s", json_start, exc)
 
         # Move past this JSON object to find next potential one
         idx = json_end if json_end > json_start else json_start + 1

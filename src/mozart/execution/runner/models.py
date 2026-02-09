@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from mozart.learning.global_store import GlobalLearningStore
 
 from mozart.core.checkpoint import JobStatus
-from mozart.execution.escalation import CheckpointHandler, EscalationHandler
+from mozart.execution.escalation import ConsoleCheckpointHandler, ConsoleEscalationHandler
 from mozart.execution.hooks import HookResult
 from mozart.learning.judgment import JudgmentClient
 from mozart.learning.outcomes import OutcomeStore
@@ -225,6 +225,39 @@ class SheetExecutionMode(str, Enum):
     """Escalation mode - low confidence requires external decision."""
 
 
+@dataclass
+class SheetExecutionSetup:
+    """Encapsulates the setup phase results for _execute_sheet_with_recovery.
+
+    Groups all initialization state needed before the main execution loop begins.
+    This enables cleaner separation between setup and execution phases.
+    """
+
+    original_prompt: str
+    """The base prompt built from template, patterns, and validation rules."""
+
+    current_prompt: str
+    """Active prompt (may be modified by checkpoint system before loop)."""
+
+    current_mode: SheetExecutionMode
+    """Initial execution mode (normally NORMAL)."""
+
+    max_retries: int
+    """Maximum retry attempts from config."""
+
+    max_completion: int
+    """Maximum completion-mode attempts from config."""
+
+    relevant_patterns: list[str] = field(default_factory=list)
+    """Learned patterns injected into the prompt."""
+
+    preflight_warnings: int = 0
+    """Number of preflight warnings (non-fatal)."""
+
+    preflight_token_estimate: int = 0
+    """Estimated token count from preflight metrics."""
+
+
 class FatalError(Exception):
     """Non-recoverable error that should stop the job."""
 
@@ -265,10 +298,10 @@ class RunnerContext:
     outcome_store: OutcomeStore | None = None
     """Store for recording sheet outcomes (Phase 1 learning)."""
 
-    escalation_handler: EscalationHandler | None = None
+    escalation_handler: ConsoleEscalationHandler | None = None
     """Handler for low-confidence decisions (Phase 2 escalation)."""
 
-    checkpoint_handler: CheckpointHandler | None = None
+    checkpoint_handler: ConsoleCheckpointHandler | None = None
     """Handler for proactive pre-execution checkpoints (v21 Evolution)."""
 
     judgment_client: JudgmentClient | None = None
@@ -309,4 +342,5 @@ __all__ = [
     "RunSummary",
     "RunnerContext",
     "SheetExecutionMode",
+    "SheetExecutionSetup",
 ]

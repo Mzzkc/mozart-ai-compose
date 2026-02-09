@@ -561,21 +561,208 @@ prompt:
 
 
 class TestExecuteSheetsParallel:
-    """Tests for the execute_sheets_parallel convenience function."""
+    """Behavioral tests for the execute_sheets_parallel entry point.
 
-    def test_function_exists(self) -> None:
-        """The execute_sheets_parallel function exists and is importable."""
-        # This function is the main entry point for parallel execution.
-        # Full integration testing requires a real backend setup.
-        # For now, verify it's importable and has correct signature.
-        import inspect
+    These tests verify the iterative batch execution loop, fail-fast
+    behavior, and state backend locking/restoration that happens during
+    parallel execution.
+    """
 
-        sig = inspect.signature(execute_sheets_parallel)
-        params = list(sig.parameters.keys())
+    @pytest.fixture
+    def parallel_runner(self):
+        """Create a mock runner with state_backend and _state_lock."""
+        runner = MagicMock()
+        runner._execute_sheet_with_recovery = AsyncMock()
+        runner._state_lock = asyncio.Lock()
+        runner.state_backend = MagicMock()
+        runner.state_backend.save = AsyncMock()
+        runner.state_backend.load = AsyncMock(return_value=None)
+        return runner
 
-        assert "runner" in params
-        assert "state" in params
-        assert "config" in params
+    @pytest.mark.asyncio
+    async def test_all_sheets_complete_returns_true(self, parallel_runner) -> None:
+        """execute_sheets_parallel returns True when all sheets complete."""
+        dag = DependencyDAG.from_dependencies(
+            total_sheets=3,
+            dependencies={2: [1], 3: [2]},
+        )
+        parallel_runner.dependency_dag = dag
+
+        # Build state that tracks completion as sheets run
+        state = MagicMock(spec=CheckpointState)
+        state.total_sheets = 3
+        state.sheets = {}
+
+        # Simulate sheet completion: each call marks the sheet as done
+        async def mock_execute(st, sheet_num):
+            st.sheets[sheet_num] = MagicMock(status=SheetStatus.COMPLETED)
+
+        parallel_runner._execute_sheet_with_recovery = AsyncMock(
+            side_effect=mock_execute
+        )
+
+        config = ParallelExecutionConfig(enabled=True, max_concurrent=3, fail_fast=True)
+        result = await execute_sheets_parallel(parallel_runner, state, config)
+
+        assert result is True
+        # All 3 sheets should have been executed
+        assert parallel_runner._execute_sheet_with_recovery.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_fail_fast_stops_on_failure(self, parallel_runner) -> None:
+        """execute_sheets_parallel returns False immediately on fail_fast failure."""
+        # All sheets independent (can all run in first batch)
+        dag = DependencyDAG.from_dependencies(total_sheets=3, dependencies=None)
+        parallel_runner.dependency_dag = dag
+
+        state = MagicMock(spec=CheckpointState)
+        state.total_sheets = 3
+        state.sheets = {}
+
+        # Make sheet 2 fail
+        async def mock_execute(st, sheet_num):
+            if sheet_num == 2:
+                raise RuntimeError("Sheet 2 boom")
+            st.sheets[sheet_num] = MagicMock(status=SheetStatus.COMPLETED)
+
+        parallel_runner._execute_sheet_with_recovery = AsyncMock(
+            side_effect=mock_execute
+        )
+
+        config = ParallelExecutionConfig(enabled=True, max_concurrent=3, fail_fast=True)
+        result = await execute_sheets_parallel(parallel_runner, state, config)
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_fail_fast_disabled_continues_through_partial_failure(
+        self, parallel_runner
+    ) -> None:
+        """Without fail_fast, a batch failure doesn't abort the overall loop.
+
+        Note: execute_sheets_parallel has a known limitation where persistent
+        failures without fail_fast can loop indefinitely (the failed sheet keeps
+        being returned as "ready"). This test verifies the non-fail-fast behavior
+        using a scenario where failure is transient — sheet 2 fails on first
+        attempt but succeeds on second, allowing the loop to complete.
+        """
+        # Independent sheets: 1, 2 (can run in parallel)
+        dag = DependencyDAG.from_dependencies(
+            total_sheets=2,
+            dependencies=None,
+        )
+        parallel_runner.dependency_dag = dag
+
+        state = MagicMock(spec=CheckpointState)
+        state.total_sheets = 2
+        state.sheets = {}
+
+        call_count = {"sheet_2": 0}
+
+        # Sheet 2 fails first time, succeeds second time (transient failure)
+        async def mock_execute(st, sheet_num):
+            if sheet_num == 2:
+                call_count["sheet_2"] += 1
+                if call_count["sheet_2"] == 1:
+                    raise RuntimeError("Transient failure")
+            st.sheets[sheet_num] = MagicMock(status=SheetStatus.COMPLETED)
+
+        parallel_runner._execute_sheet_with_recovery = AsyncMock(
+            side_effect=mock_execute
+        )
+
+        config = ParallelExecutionConfig(
+            enabled=True, max_concurrent=3, fail_fast=False
+        )
+        result = await execute_sheets_parallel(parallel_runner, state, config)
+
+        assert result is True
+        # Sheet 1 ran once successfully, sheet 2 ran twice (fail then success)
+        assert parallel_runner._execute_sheet_with_recovery.call_count == 3
+        assert call_count["sheet_2"] == 2
+
+    @pytest.mark.asyncio
+    async def test_state_backend_restored_after_execution(
+        self, parallel_runner
+    ) -> None:
+        """State backend is restored to original after batch execution."""
+        original_backend = parallel_runner.state_backend
+        dag = DependencyDAG.from_dependencies(total_sheets=1, dependencies=None)
+        parallel_runner.dependency_dag = dag
+
+        state = MagicMock(spec=CheckpointState)
+        state.total_sheets = 1
+        state.sheets = {}
+
+        async def mock_execute(st, sheet_num):
+            # During execution, state_backend should be a _LockingStateBackend
+            st.sheets[sheet_num] = MagicMock(status=SheetStatus.COMPLETED)
+
+        parallel_runner._execute_sheet_with_recovery = AsyncMock(
+            side_effect=mock_execute
+        )
+
+        config = ParallelExecutionConfig(enabled=True, max_concurrent=3, fail_fast=True)
+        await execute_sheets_parallel(parallel_runner, state, config)
+
+        # After execution, original backend should be restored
+        assert parallel_runner.state_backend is original_backend
+
+    @pytest.mark.asyncio
+    async def test_diamond_dag_executes_in_correct_order(
+        self, parallel_runner
+    ) -> None:
+        """Diamond DAG (1 -> 2,3 -> 4) executes sheets in dependency order."""
+        dag = DependencyDAG.from_dependencies(
+            total_sheets=4,
+            dependencies={2: [1], 3: [1], 4: [2, 3]},
+        )
+        parallel_runner.dependency_dag = dag
+
+        state = MagicMock(spec=CheckpointState)
+        state.total_sheets = 4
+        state.sheets = {}
+
+        execution_order: list[int] = []
+
+        async def mock_execute(st, sheet_num):
+            execution_order.append(sheet_num)
+            st.sheets[sheet_num] = MagicMock(status=SheetStatus.COMPLETED)
+
+        parallel_runner._execute_sheet_with_recovery = AsyncMock(
+            side_effect=mock_execute
+        )
+
+        config = ParallelExecutionConfig(enabled=True, max_concurrent=3, fail_fast=True)
+        result = await execute_sheets_parallel(parallel_runner, state, config)
+
+        assert result is True
+        # Sheet 1 must run before 2 and 3; 4 must run after 2 and 3
+        assert execution_order.index(1) < execution_order.index(2)
+        assert execution_order.index(1) < execution_order.index(3)
+        assert execution_order.index(2) < execution_order.index(4)
+        assert execution_order.index(3) < execution_order.index(4)
+        assert len(execution_order) == 4
+
+    @pytest.mark.asyncio
+    async def test_empty_state_returns_immediately(self, parallel_runner) -> None:
+        """No sheets to run returns True immediately."""
+        dag = DependencyDAG.from_dependencies(total_sheets=2, dependencies=None)
+        parallel_runner.dependency_dag = dag
+
+        # All sheets already completed
+        state = MagicMock(spec=CheckpointState)
+        state.total_sheets = 2
+        state.sheets = {
+            1: MagicMock(status=SheetStatus.COMPLETED),
+            2: MagicMock(status=SheetStatus.COMPLETED),
+        }
+
+        config = ParallelExecutionConfig(enabled=True, max_concurrent=3, fail_fast=True)
+        result = await execute_sheets_parallel(parallel_runner, state, config)
+
+        assert result is True
+        parallel_runner._execute_sheet_with_recovery.assert_not_called()
 
 
 # =============================================================================

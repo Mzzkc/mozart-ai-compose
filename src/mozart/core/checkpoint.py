@@ -15,9 +15,6 @@ from mozart.utils.time import utc_now
 # Module-level logger for checkpoint operations
 _logger = get_logger("checkpoint")
 
-# Alias for backward compatibility with existing code using _utc_now
-_utc_now = utc_now
-
 # Constants for output capture
 MAX_OUTPUT_CAPTURE_BYTES: int = 10240  # 10KB - last N bytes of stdout/stderr to capture
 
@@ -399,63 +396,6 @@ class SheetState(BaseModel):
 
         self.output_truncated = stdout_truncated or stderr_truncated
 
-    def record_error(
-        self,
-        error_type: ErrorType,
-        error_code: str,
-        error_message: str,
-        attempt: int,
-        *,
-        stdout_tail: str | None = None,
-        stderr_tail: str | None = None,
-        stack_trace: str | None = None,
-        **context: Any,
-    ) -> None:
-        """Record an error with context, trimming to max history.
-
-        Creates an ErrorRecord and appends it to error_history. If the history
-        exceeds MAX_ERROR_HISTORY, the oldest records are removed.
-
-        Logs the error at WARNING level for observability.
-
-        Args:
-            error_type: Classification of the error (transient, rate_limit, permanent).
-            error_code: Error code for categorization (e.g., E001, E002).
-            error_message: Human-readable error description.
-            attempt: Which attempt this error occurred on (1-based).
-            stdout_tail: Optional tail of stdout when error occurred.
-            stderr_tail: Optional tail of stderr when error occurred.
-            stack_trace: Optional stack trace if exception was caught.
-            **context: Additional context to store (exit_code, signal, etc.).
-        """
-        record = CheckpointErrorRecord(
-            error_type=error_type,
-            error_code=error_code,
-            error_message=error_message,
-            attempt_number=attempt,
-            context=context,
-            stdout_tail=stdout_tail,
-            stderr_tail=stderr_tail,
-            stack_trace=stack_trace,
-        )
-
-        self.error_history.append(record)
-
-        # Trim to max history (keep most recent)
-        if len(self.error_history) > MAX_ERROR_HISTORY:
-            self.error_history = self.error_history[-MAX_ERROR_HISTORY:]
-
-        # Log at WARNING level for observability
-        _logger.warning(
-            "error_recorded",
-            sheet_num=self.sheet_num,
-            error_type=error_type,
-            error_code=error_code,
-            attempt=attempt,
-            history_size=len(self.error_history),
-            error_message=error_message[:100] if error_message else None,
-            **{k: v for k, v in context.items() if k not in ("stdout_tail", "stderr_tail")},
-        )
 
 
 class CheckpointState(BaseModel):
@@ -590,17 +530,6 @@ class CheckpointState(BaseModel):
         description="Synthesis results keyed by batch_id (v18: Result Synthesizer)",
     )
 
-    def get_synthesis(self, batch_id: str) -> SynthesisResultDict | None:
-        """Get synthesis result by batch ID.
-
-        Args:
-            batch_id: The batch identifier.
-
-        Returns:
-            Synthesis result dict or None if not found.
-        """
-        return self.synthesis_results.get(batch_id)
-
     def add_synthesis(self, batch_id: str, result: SynthesisResultDict) -> None:
         """Add or update a synthesis result.
 
@@ -617,18 +546,6 @@ class CheckpointState(BaseModel):
             batch_id=batch_id,
             status=result.get("status"),
         )
-
-    def clear_synthesis(self, batch_id: str | None = None) -> None:
-        """Clear synthesis results.
-
-        Args:
-            batch_id: Specific batch to clear. If None, clears all.
-        """
-        if batch_id is None:
-            self.synthesis_results.clear()
-        elif batch_id in self.synthesis_results:
-            del self.synthesis_results[batch_id]
-        self.updated_at = utc_now()
 
     def get_next_sheet(self) -> int | None:
         """Determine the next sheet to process.
