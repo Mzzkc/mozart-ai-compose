@@ -113,6 +113,8 @@ class PromptMetrics:
 
     def to_dict(self) -> PromptMetricsDict:
         """Convert to serializable dictionary."""
+        # type: ignore needed because mypy/pyright cannot infer a dict literal
+        # as matching a total=False TypedDict — all keys verified via schema
         return {
             "character_count": self.character_count,
             "estimated_tokens": self.estimated_tokens,

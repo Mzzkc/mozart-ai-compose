@@ -23,6 +23,46 @@ _logger = get_logger("learning.global_store")
 # Default location following XDG conventions
 DEFAULT_GLOBAL_STORE_PATH = Path.home() / ".mozart" / "global-learning.db"
 
+# Type alias for SQLite query parameters — matches sqlite3.execute() signature.
+# SQLite accepts str, int, float, bytes, and None as bind parameters.
+SQLParam = str | int | float | bytes | None
+
+
+class WhereBuilder:
+    """Accumulates SQL WHERE clauses and their bound parameters.
+
+    Provides a consistent pattern for building dynamic SQL queries across
+    learning store mixins. Clauses are joined with AND.
+
+    Usage::
+
+        wb = WhereBuilder()
+        wb.add("status = ?", status)
+        wb.add("score >= ?", min_score)
+        where_sql, params = wb.build()
+        conn.execute(f"SELECT * FROM t WHERE {where_sql}", params)
+    """
+
+    __slots__ = ("_clauses", "_params")
+
+    def __init__(self) -> None:
+        self._clauses: list[str] = []
+        self._params: list[SQLParam] = []
+
+    def add(self, clause: str, *params: SQLParam) -> None:
+        """Append a WHERE clause with its bound parameters."""
+        self._clauses.append(clause)
+        self._params.extend(params)
+
+    def build(self) -> tuple[str, tuple[SQLParam, ...]]:
+        """Return the combined WHERE fragment and parameter tuple.
+
+        Returns ``("1=1", ())`` when no clauses have been added.
+        """
+        if not self._clauses:
+            return "1=1", ()
+        return " AND ".join(self._clauses), tuple(self._params)
+
 
 class GlobalLearningStoreBase:
     """SQLite-based global learning store base class.
@@ -648,5 +688,7 @@ class GlobalLearningStoreBase:
 __all__ = [
     "GlobalLearningStoreBase",
     "DEFAULT_GLOBAL_STORE_PATH",
+    "SQLParam",
+    "WhereBuilder",
     "_logger",
 ]

@@ -3,6 +3,7 @@
 Provides the web server for job monitoring and control.
 """
 
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -16,7 +17,8 @@ from fastapi.templating import Jinja2Templates
 from mozart.state.base import StateBackend
 from mozart.state.json_backend import JsonStateBackend
 
-# Module-level references for dependency injection
+# Module-level references kept for backwards compatibility with
+# dependency_overrides in tests; create_app() also stores these on app.state.
 _state_backend: StateBackend | None = None
 _templates: Jinja2Templates | None = None
 
@@ -49,11 +51,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     Manages startup/shutdown for async resources.
     """
-    # Startup: nothing async to initialize for JSON backend
-    # (SQLite backend could init connection pool here)
     yield
-    # Shutdown: cleanup if needed
-    pass
 
 
 def create_app(
@@ -75,7 +73,7 @@ def create_app(
     Returns:
         Configured FastAPI application
     """
-    global _state_backend
+    global _state_backend, _templates
 
     # Configure state backend
     if state_backend is not None:
@@ -83,7 +81,6 @@ def create_app(
     elif state_dir is not None:
         _state_backend = JsonStateBackend(Path(state_dir))
     else:
-        # Default to current directory/.mozart-state for development
         _state_backend = JsonStateBackend(Path.cwd() / ".mozart-state")
 
     # Create app
@@ -94,26 +91,26 @@ def create_app(
         lifespan=lifespan,
     )
 
+    # Store on app.state so tests can access without globals
+    app.state.backend = _state_backend
+
     # CORS middleware
-    # Default to localhost origins for security; use MOZART_DEV=1 for permissive mode
-    import os
     if cors_origins:
         allowed_origins = cors_origins
     elif os.environ.get("MOZART_DEV") == "1":
-        # Development mode: allow all origins
         allowed_origins = ["*"]
     else:
-        # Production default: restrict to localhost
         allowed_origins = [
             "http://localhost:3000",
             "http://localhost:8000",
             "http://127.0.0.1:3000",
             "http://127.0.0.1:8000",
         ]
+    allow_credentials = "*" not in allowed_origins
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins,
-        allow_credentials=True,
+        allow_credentials=allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -127,8 +124,8 @@ def create_app(
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     # Configure Jinja2 templates
-    global _templates
     _templates = Jinja2Templates(directory=str(templates_dir))
+    app.state.templates = _templates
 
     # Register routes
     from mozart.dashboard.routes import router as base_router
@@ -148,10 +145,7 @@ def create_app(
     # Health check endpoint (at root level)
     @app.get("/health", tags=["System"])
     async def health_check() -> dict[str, Any]:
-        """Health check endpoint.
-
-        Returns basic service health status.
-        """
+        """Health check endpoint."""
         return {
             "status": "healthy",
             "version": version,

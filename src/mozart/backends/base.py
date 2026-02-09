@@ -72,7 +72,12 @@ class ExecutionResult:
     """Model used for execution."""
 
     tokens_used: int | None = None
-    """Total tokens consumed (API backend only). Deprecated: use input_tokens + output_tokens."""
+    """Total tokens consumed (API backend only).
+
+    .. deprecated::
+        Use ``input_tokens + output_tokens`` instead. This field will be
+        removed in a future version. Equivalent: ``tokens_used == (input_tokens or 0) + (output_tokens or 0)``.
+    """
 
     input_tokens: int | None = None
     """Input tokens consumed (prompt tokens). None if not available from backend."""

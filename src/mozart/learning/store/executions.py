@@ -23,10 +23,8 @@ from typing import Any
 
 from mozart.core.logging import MozartLogger
 from mozart.learning.outcomes import SheetOutcome
+from mozart.learning.store.base import WhereBuilder, _logger
 from mozart.learning.store.models import ExecutionRecord
-
-# Import logger from base module
-from mozart.learning.store.base import _logger
 
 
 class ExecutionMixin:
@@ -289,26 +287,19 @@ class ExecutionMixin:
             List of ExecutionRecord objects matching the criteria.
         """
         with self._get_connection() as conn:
-            # Build query dynamically based on provided filters
-            conditions: list[str] = []
-            params: list[str | int] = []
-
+            wb = WhereBuilder()
             if job_hash is not None:
-                conditions.append("job_hash = ?")
-                params.append(job_hash)
+                wb.add("job_hash = ?", job_hash)
             if workspace_hash is not None:
-                conditions.append("workspace_hash = ?")
-                params.append(workspace_hash)
+                wb.add("workspace_hash = ?", workspace_hash)
             if sheet_num is not None:
-                conditions.append("sheet_num = ?")
-                params.append(sheet_num)
+                wb.add("sheet_num = ?", sheet_num)
 
-            where_clause = " AND ".join(conditions) if conditions else "1=1"
-
+            where_sql, params = wb.build()
             cursor = conn.execute(
                 f"""
                 SELECT * FROM executions
-                WHERE {where_clause}
+                WHERE {where_sql}
                 ORDER BY completed_at DESC
                 LIMIT ?
                 """,

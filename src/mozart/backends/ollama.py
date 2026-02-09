@@ -315,8 +315,7 @@ class OllamaBackend(Backend):
         all_outputs: list[str] = []
         iteration = 0
 
-        while iteration < self.max_tool_iterations:
-            iteration += 1
+        for iteration in range(1, self.max_tool_iterations + 1):
             _logger.debug(
                 "agentic_loop_iteration",
                 iteration=iteration,
@@ -389,9 +388,8 @@ class OllamaBackend(Backend):
                     tool_name=tc.name,
                     result_length=len(result_text),
                 )
-
         else:
-            # Max iterations reached
+            # Loop completed without break — max iterations exhausted
             _logger.warning(
                 "agentic_loop_max_iterations",
                 max_iterations=self.max_tool_iterations,

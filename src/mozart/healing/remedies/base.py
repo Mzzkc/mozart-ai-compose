@@ -4,10 +4,13 @@ Defines the Remedy protocol and supporting types that all
 concrete remedy implementations must follow.
 """
 
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from mozart.healing.context import ErrorContext
@@ -229,7 +232,8 @@ class BaseRemedy:
                         path.rmdir()
                     else:
                         all_removed = False
-            except OSError:
+            except OSError as exc:
+                logger.warning("Rollback failed for path %s: %s", path, exc)
                 all_removed = False
 
         return all_removed

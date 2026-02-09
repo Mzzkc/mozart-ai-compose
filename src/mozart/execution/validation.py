@@ -61,6 +61,8 @@ class ValidationResult:
 
     def to_dict(self) -> ValidationDetailDict:
         """Convert to serializable dictionary."""
+        # type: ignore needed because mypy/pyright cannot infer a dict literal
+        # as matching a total=False TypedDict — all keys verified via schema
         return {
             "rule_type": self.rule.type,
             "description": self.rule.description,

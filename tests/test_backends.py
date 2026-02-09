@@ -463,6 +463,51 @@ class TestClaudeCliBackendOperatorImperative:
         assert "My original prompt" in prompt_arg
 
 
+class TestClaudeCliBackendHealthCheck:
+    """Test ClaudeCliBackend.health_check()."""
+
+    @pytest.mark.asyncio
+    async def test_health_check_no_claude_path(self) -> None:
+        """health_check returns False when claude CLI path is not found."""
+        backend = ClaudeCliBackend()
+        backend._claude_path = None
+        assert await backend.health_check() is False
+
+    @pytest.mark.asyncio
+    async def test_health_check_success(self) -> None:
+        """health_check returns True when CLI responds with 'ready'."""
+        from mozart.backends.base import ExecutionResult
+
+        backend = ClaudeCliBackend()
+        backend._claude_path = "/usr/bin/claude"
+        mock_result = ExecutionResult(
+            success=True, stdout="ready", stderr="", duration_seconds=0.5
+        )
+        backend._execute_impl = AsyncMock(return_value=mock_result)
+        assert await backend.health_check() is True
+
+    @pytest.mark.asyncio
+    async def test_health_check_failure_not_ready(self) -> None:
+        """health_check returns False when CLI responds without 'ready'."""
+        from mozart.backends.base import ExecutionResult
+
+        backend = ClaudeCliBackend()
+        backend._claude_path = "/usr/bin/claude"
+        mock_result = ExecutionResult(
+            success=True, stdout="something else", stderr="", duration_seconds=0.5
+        )
+        backend._execute_impl = AsyncMock(return_value=mock_result)
+        assert await backend.health_check() is False
+
+    @pytest.mark.asyncio
+    async def test_health_check_exception(self) -> None:
+        """health_check returns False when _execute_impl raises."""
+        backend = ClaudeCliBackend()
+        backend._claude_path = "/usr/bin/claude"
+        backend._execute_impl = AsyncMock(side_effect=RuntimeError("connection failed"))
+        assert await backend.health_check() is False
+
+
 # ============================================================================
 # Backend Logging Tests
 # ============================================================================

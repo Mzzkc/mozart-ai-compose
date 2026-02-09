@@ -12,17 +12,15 @@ Extracted from global_store.py as part of the modularization effort.
 
 from __future__ import annotations
 
+import sqlite3
 import uuid
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
 
-from mozart.core.logging import get_logger
+from mozart.core.logging import MozartLogger, get_logger
 
 from .models import RateLimitEvent
-
-if TYPE_CHECKING:
-    import sqlite3
-    from contextlib import AbstractContextManager
 
 _logger = get_logger("learning.global_store")
 
@@ -39,11 +37,10 @@ class RateLimitMixin:
         - hash_job(job_id: str) -> str (static method)
     """
 
-    # Type hints for attributes provided by the composed class
-    if TYPE_CHECKING:
-        @staticmethod
-        def hash_job(job_name: str, config_hash: str | None = None) -> str: ...
-        def _get_connection(self) -> AbstractContextManager[sqlite3.Connection]: ...
+    # Annotations for attributes provided by the composed class (GlobalLearningStoreBase)
+    _logger: MozartLogger
+    _get_connection: Callable[[], AbstractContextManager[sqlite3.Connection]]
+    hash_job: staticmethod  # GlobalLearningStoreBase.hash_job(job_name, config_hash)
 
     def record_rate_limit_event(
         self,

@@ -24,14 +24,7 @@ import asyncio
 from pathlib import Path
 import typer
 from rich.panel import Panel
-from rich.progress import (
-    BarColumn,
-    Progress,
-    SpinnerColumn,
-    TaskID,
-    TextColumn,
-    TimeElapsedColumn,
-)
+from rich.progress import TaskID
 
 from mozart.core.checkpoint import CheckpointState, JobStatus
 from mozart.core.config import JobConfig
@@ -47,7 +40,8 @@ from ..helpers import (
 from ..output import console, format_duration
 from ._shared import (
     create_backend,
-    display_run_summary,
+    create_progress_bar,
+    handle_job_completion,
     setup_escalation,
     setup_grounding,
     setup_learning,
@@ -368,20 +362,7 @@ async def _resume_job(
     grounding_engine = setup_grounding(config, console=console)
 
     # Create progress bar for sheet tracking
-    progress = Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(bar_width=30),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        TextColumn("\u2022"),
-        TextColumn("{task.completed}/{task.total} sheets"),
-        TextColumn("\u2022"),
-        TimeElapsedColumn(),
-        TextColumn("\u2022"),
-        TextColumn("ETA: {task.fields[eta]}"),
-        console=console,
-        transient=False,
-    )
+    progress = create_progress_bar(console=console)
 
     # Progress callback to update the progress bar
     progress_task_id: TaskID | None = None
@@ -449,33 +430,14 @@ async def _resume_job(
         # Stop progress and show final state
         progress.stop()
 
-        if state.status == JobStatus.COMPLETED:
-            display_run_summary(summary)
-
-            # Send job complete notification
-            if notification_manager:
-                await notification_manager.notify_job_complete(
-                    job_id=job_id,
-                    job_name=config.name,
-                    success_count=summary.completed_sheets,
-                    failure_count=summary.failed_sheets,
-                    duration_seconds=summary.total_duration_seconds,
-                )
-        else:
-            if not is_quiet():
-                console.print(
-                    f"[yellow]Job ended with status: {state.status.value}[/yellow]"
-                )
-                display_run_summary(summary)
-
-            # Send job failed notification if not completed
-            if notification_manager and state.status == JobStatus.FAILED:
-                await notification_manager.notify_job_failed(
-                    job_id=job_id,
-                    job_name=config.name,
-                    error_message=f"Job failed with status: {state.status.value}",
-                    sheet_num=state.current_sheet,
-                )
+        await handle_job_completion(
+            state=state,
+            summary=summary,
+            notification_manager=notification_manager,
+            job_id=job_id,
+            job_name=config.name,
+            console=console,
+        )
 
     except GracefulShutdownError:
         # Graceful shutdown already saved state and printed resume hint

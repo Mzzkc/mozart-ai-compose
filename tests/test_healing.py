@@ -1079,3 +1079,203 @@ class TestCoordinatorEdgeCases:
 
         assert not report.any_remedies_applied
         assert not report.should_retry
+
+
+# =============================================================================
+# Real Code Path Tests — exercise actual remedy logic without mocks (FIX-06)
+# =============================================================================
+
+
+class TestRemedyRealCodePaths:
+    """Tests that exercise real remedy execution paths on actual file systems.
+
+    These tests verify that the entire diagnose→apply→rollback pipeline works
+    end-to-end without mock interference, using tmp_path for isolation.
+    """
+
+    def test_workspace_remedy_full_pipeline(self, tmp_path):
+        """Test complete workspace remedy: diagnose → apply → verify → rollback → verify."""
+        workspace = tmp_path / "new-workspace"
+        config = MagicMock()
+        config.workspace = workspace
+
+        ctx = ErrorContext(
+            error_code="E601",
+            error_message=f"Workspace directory does not exist: {workspace}",
+            error_category="preflight",
+            workspace=workspace,
+            config=config,
+        )
+
+        remedy = CreateMissingWorkspaceRemedy()
+
+        # Diagnose
+        diagnosis = remedy.diagnose(ctx)
+        assert diagnosis is not None
+        assert diagnosis.confidence == 0.95
+
+        # Preview
+        preview_text = remedy.preview(ctx)
+        assert str(workspace) in preview_text
+
+        # Apply
+        result = remedy.apply(ctx)
+        assert result.success
+        assert workspace.exists()
+        assert workspace.is_dir()
+        assert len(result.created_paths) == 1
+        assert result.rollback_command is not None
+
+        # Rollback
+        rolled_back = remedy.rollback(result)
+        assert rolled_back
+        assert not workspace.exists()
+
+    def test_parent_dirs_remedy_deep_tree(self, tmp_path):
+        """Test creating a deeply nested directory tree and rolling back."""
+        deep_path = tmp_path / "level1" / "level2" / "level3" / "level4"
+        config = MagicMock()
+
+        ctx = ErrorContext(
+            error_code="E601",
+            error_message=f"directory '{deep_path}' does not exist",
+            error_category="preflight",
+            config=config,
+            workspace=tmp_path,
+        )
+
+        remedy = CreateMissingParentDirsRemedy()
+        diagnosis = remedy.diagnose(ctx)
+        assert diagnosis is not None
+        assert len(diagnosis.context["paths_to_create"]) >= 3
+
+        result = remedy.apply(ctx)
+        assert result.success
+        assert deep_path.exists()
+
+        # Rollback should remove the empty tree
+        rolled_back = remedy.rollback(result)
+        assert rolled_back
+
+    def test_workspace_apply_with_no_workspace_in_context(self, mock_config):
+        """Test workspace remedy when context has no workspace path."""
+        ctx = ErrorContext(
+            error_code="E601",
+            error_message="Workspace missing",
+            error_category="preflight",
+            workspace=None,
+            config=mock_config,
+        )
+        remedy = CreateMissingWorkspaceRemedy()
+        result = remedy.apply(ctx)
+        assert not result.success
+        assert "No workspace path" in result.message
+
+    def test_rollback_with_nonempty_directory(self, tmp_path):
+        """Test that rollback does NOT remove a non-empty directory."""
+        workspace = tmp_path / "has-files"
+        workspace.mkdir()
+        (workspace / "file.txt").write_text("content")
+
+        result = RemedyResult(
+            success=True,
+            message="test",
+            action_taken="test",
+            created_paths=[workspace],
+        )
+
+        remedy = CreateMissingWorkspaceRemedy()
+        rolled_back = remedy.rollback(result)
+        assert not rolled_back  # Should fail since dir is non-empty
+        assert workspace.exists()  # Directory should still be there
+
+    def test_rollback_with_empty_created_paths(self):
+        """Test rollback when no paths were created."""
+        result = RemedyResult(
+            success=True,
+            message="test",
+            action_taken="test",
+            created_paths=[],
+        )
+        remedy = CreateMissingWorkspaceRemedy()
+        assert not remedy.rollback(result)  # Returns False when nothing to roll back
+
+    @pytest.mark.asyncio
+    async def test_coordinator_applies_and_reports_correctly(self, tmp_path):
+        """Test full coordinator flow with real remedies on real filesystem."""
+        workspace = tmp_path / "coord-test"
+        config = MagicMock()
+        config.workspace = workspace
+        config.backend.working_directory = None
+
+        ctx = ErrorContext(
+            error_code="E601",
+            error_message=f"Workspace directory does not exist: {workspace}",
+            error_category="preflight",
+            workspace=workspace,
+            config=config,
+        )
+
+        registry = create_default_registry()
+        coordinator = SelfHealingCoordinator(registry)
+        report = await coordinator.heal(ctx)
+
+        assert report.any_remedies_applied
+        assert report.should_retry
+        assert workspace.exists()
+        assert len(report.diagnoses) >= 1
+        assert len(report.actions_taken) >= 1
+        # Verify the report format is complete
+        formatted = report.format()
+        assert "SELF-HEALING REPORT" in formatted
+        assert "E601" in formatted
+
+    @pytest.mark.asyncio
+    async def test_coordinator_suggested_remedies_applied_with_auto_confirm(self):
+        """Test that SUGGESTED remedies are applied when auto_confirm=True."""
+        config = MagicMock()
+        ctx = ErrorContext(
+            error_code="E304",
+            error_message="'shee_num' is undefined",
+            error_category="template",
+            config=config,
+        )
+
+        registry = create_default_registry()
+        coordinator = SelfHealingCoordinator(registry, auto_confirm=True)
+        report = await coordinator.heal(ctx)
+
+        # Jinja remedy is SUGGESTED + auto_confirm=True → should be applied
+        assert report.any_remedies_applied
+        taken_names = [name for name, _ in report.actions_taken]
+        assert "suggest_jinja_fix" in taken_names
+
+    def test_generate_diagnostic_all_remedies(self, mock_config):
+        """Test that all remedies produce meaningful diagnostic output."""
+        remedies = [
+            (CreateMissingWorkspaceRemedy(), ErrorContext(
+                error_code="E601", error_message="workspace does not exist: /tmp/ws",
+                error_category="preflight", config=mock_config, workspace=Path("/tmp/ws"),
+            )),
+            (CreateMissingParentDirsRemedy(), ErrorContext(
+                error_code="E601", error_message="directory '/tmp/foo' does not exist",
+                error_category="preflight", config=mock_config,
+            )),
+            (SuggestJinjaFixRemedy(), ErrorContext(
+                error_code="E304", error_message="'sheet_nuum' is undefined",
+                error_category="template", config=mock_config,
+            )),
+            (DiagnoseAuthErrorRemedy(), ErrorContext(
+                error_code="E101", error_message="Rate limit exceeded",
+                error_category="rate_limit", config=mock_config,
+            )),
+            (DiagnoseMissingCLIRemedy(), ErrorContext(
+                error_code="E901", error_message="claude command not found",
+                error_category="execution", config=mock_config,
+            )),
+        ]
+
+        for remedy, ctx in remedies:
+            diagnostic = remedy.generate_diagnostic(ctx)
+            assert isinstance(diagnostic, str)
+            assert len(diagnostic) > 20, f"{remedy.name} diagnostic too short: {diagnostic}"

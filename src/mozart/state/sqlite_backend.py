@@ -241,7 +241,7 @@ class SQLiteStateBackend(StateBackend):
         try:
             return json.loads(s)
         except json.JSONDecodeError as exc:
-            _logger.debug("json_parse_failed", raw_length=len(s) if s else 0, error=str(exc))
+            _logger.warning("json_parse_failed", raw_length=len(s) if s else 0, error=str(exc))
             return None
 
     async def load(self, job_id: str) -> CheckpointState | None:

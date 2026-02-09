@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from mozart.core.config import JobConfig
 from mozart.state.base import StateBackend
 
 logger = logging.getLogger(__name__)
@@ -136,90 +137,12 @@ class ConfigResources:
             }
 
     async def _get_config_schema(self) -> dict[str, Any]:
-        """Generate JSON schema for Mozart configuration."""
-        # This would ideally be generated from the Pydantic models
-        # For now, we provide a simplified schema
-        schema = {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "title": "Mozart Job Configuration",
-            "type": "object",
-            "required": ["job_id", "sheets", "backend"],
-            "properties": {
-                "job_id": {
-                    "type": "string",
-                    "description": "Unique identifier for the job"
-                },
-                "description": {
-                    "type": "string",
-                    "description": "Human-readable description of the job"
-                },
-                "sheets": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "required": ["name", "prompt"],
-                        "properties": {
-                            "name": {
-                                "type": "string",
-                                "description": "Sheet name"
-                            },
-                            "prompt": {
-                                "type": "string",
-                                "description": "Prompt template for the sheet"
-                            },
-                            "timeout_seconds": {
-                                "type": "integer",
-                                "default": 300,
-                                "description": "Timeout for sheet execution"
-                            },
-                            "max_retries": {
-                                "type": "integer",
-                                "default": 3,
-                                "description": "Maximum retry attempts"
-                            },
-                            "dependencies": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "description": "Sheet dependencies (other sheet names)"
-                            },
-                            "validation": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "required": ["type"],
-                                    "properties": {
-                                        "type": {
-                                            "type": "string",
-                                            "enum": ["file_exists", "regex_match", "json_schema", "custom", "llm_judge"]
-                                        },
-                                        "description": {
-                                            "type": "string",
-                                            "description": "Human-readable validation description"
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                "backend": {
-                    "type": "object",
-                    "required": ["backend_type"],
-                    "properties": {
-                        "backend_type": {
-                            "type": "string",
-                            "enum": ["claude_cli", "anthropic_api"],
-                            "description": "Backend implementation to use"
-                        },
-                        "disable_mcp": {
-                            "type": "boolean",
-                            "default": True,
-                            "description": "Disable MCP servers for faster execution"
-                        }
-                    }
-                }
-            }
-        }
+        """Generate JSON schema for Mozart configuration from Pydantic models.
+
+        Uses JobConfig.model_json_schema() to generate a schema that stays
+        in sync with the actual Pydantic models, avoiding manual drift.
+        """
+        schema = JobConfig.model_json_schema()
 
         return {
             "contents": [

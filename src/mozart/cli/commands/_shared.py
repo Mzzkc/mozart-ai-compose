@@ -11,8 +11,15 @@ from typing import TYPE_CHECKING
 
 from rich.console import Console
 from rich.panel import Panel
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
 
-from mozart.core.checkpoint import JobStatus
+from mozart.core.checkpoint import CheckpointState, JobStatus
 from mozart.notifications import NotificationManager
 
 from ..helpers import (
@@ -283,3 +290,93 @@ def display_run_summary(summary: RunSummary) -> None:
         title="Run Summary",
         border_style="green" if summary.final_status == JobStatus.COMPLETED else "yellow",
     ))
+
+
+def create_progress_bar(
+    *,
+    console: Console | None = None,
+    include_exec_status: bool = False,
+) -> Progress:
+    """Create a Rich progress bar for sheet tracking.
+
+    Shared by both `run` and `resume` commands. The `run` command includes
+    an additional execution status field for real-time backend progress.
+
+    Args:
+        console: Rich console for output. Uses default if None.
+        include_exec_status: If True, adds an exec_status field (run only).
+
+    Returns:
+        Configured Progress instance.
+    """
+    columns = [
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(bar_width=30),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TextColumn("\u2022"),
+        TextColumn("{task.completed}/{task.total} sheets"),
+        TextColumn("\u2022"),
+        TimeElapsedColumn(),
+        TextColumn("\u2022"),
+        TextColumn("ETA: {task.fields[eta]}"),
+    ]
+    if include_exec_status:
+        columns.extend([
+            TextColumn("\u2022"),
+            TextColumn("[dim]{task.fields[exec_status]}[/dim]"),
+        ])
+    return Progress(
+        *columns,
+        console=console or default_console,
+        transient=False,
+    )
+
+
+async def handle_job_completion(
+    *,
+    state: CheckpointState,
+    summary: "RunSummary",
+    notification_manager: NotificationManager | None,
+    job_id: str,
+    job_name: str,
+    console: Console | None = None,
+) -> None:
+    """Handle post-execution status display and notifications.
+
+    Shared by both `run` and `resume` commands. Displays the run summary
+    and sends completion/failure notifications.
+
+    Args:
+        state: Final job checkpoint state.
+        summary: Run summary with execution statistics.
+        notification_manager: Optional notification manager for alerts.
+        job_id: Job identifier for notifications.
+        job_name: Job name for notifications.
+        console: Console for output. Uses default if None.
+    """
+    _console = console or default_console
+
+    if state.status == JobStatus.COMPLETED:
+        display_run_summary(summary)
+        if notification_manager:
+            await notification_manager.notify_job_complete(
+                job_id=job_id,
+                job_name=job_name,
+                success_count=summary.completed_sheets,
+                failure_count=summary.failed_sheets,
+                duration_seconds=summary.total_duration_seconds,
+            )
+    else:
+        if not is_quiet():
+            _console.print(
+                f"[yellow]Job ended with status: {state.status.value}[/yellow]"
+            )
+            display_run_summary(summary)
+        if notification_manager and state.status == JobStatus.FAILED:
+            await notification_manager.notify_job_failed(
+                job_id=job_id,
+                job_name=job_name,
+                error_message=f"Job failed with status: {state.status.value}",
+                sheet_num=state.current_sheet,
+            )

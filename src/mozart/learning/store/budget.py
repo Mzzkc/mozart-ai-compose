@@ -15,17 +15,16 @@ from __future__ import annotations
 
 import json
 import math
+import sqlite3
 import uuid
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from mozart.core.logging import get_logger
+from mozart.core.logging import MozartLogger, get_logger
 
 from .models import EntropyResponseRecord, ExplorationBudgetRecord, PatternEntropyMetrics
-
-if TYPE_CHECKING:
-    import sqlite3
-    from contextlib import AbstractContextManager
 
 _logger = get_logger("learning.global_store")
 
@@ -45,10 +44,9 @@ class BudgetMixin:
         - _get_connection() -> context manager yielding sqlite3.Connection
     """
 
-    # Type hints for attributes provided by the composed class
-    if TYPE_CHECKING:
-
-        def _get_connection(self) -> AbstractContextManager[sqlite3.Connection]: ...
+    # Annotations for attributes provided by the composed class (GlobalLearningStoreBase)
+    _logger: MozartLogger
+    _get_connection: Callable[[], AbstractContextManager[sqlite3.Connection]]
 
     # =========================================================================
     # v23 Evolution: Exploration Budget Maintenance

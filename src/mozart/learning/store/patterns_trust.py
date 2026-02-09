@@ -15,7 +15,7 @@ from contextlib import AbstractContextManager
 from datetime import datetime
 
 from mozart.core.logging import MozartLogger
-from mozart.learning.store.base import _logger
+from mozart.learning.store.base import SQLParam, _logger
 from mozart.learning.store.models import PatternRecord, QuarantineStatus
 
 
@@ -187,7 +187,7 @@ class PatternTrustMixin:
                 WHERE trust_score >= ?
                 AND quarantine_status != 'retired'
             """
-            params: list[str | int | float] = [trust_threshold]
+            params: list[SQLParam] = [trust_threshold]
 
             if require_validated:
                 query += " AND quarantine_status = 'validated'"

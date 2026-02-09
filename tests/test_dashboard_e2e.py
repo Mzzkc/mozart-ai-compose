@@ -187,7 +187,7 @@ class TestJobLifecycleE2E:
             with patch("tempfile.mkstemp") as mock_mkstemp:
                 mock_mkstemp.return_value = (3, "/tmp/test.yaml")
                 with patch("builtins.open", create=True):
-                    with patch("os.close"):
+                    with patch("os.close"), patch("os.fchmod"):
                         mock_subprocess.return_value = mock_process
 
                         response = client.post("/api/jobs", json={

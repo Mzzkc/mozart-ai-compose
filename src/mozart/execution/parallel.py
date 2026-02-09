@@ -279,9 +279,11 @@ class ParallelExecutor:
                     result.completed.append(sheet_num)
 
             # Log any ungrouped exceptions that couldn't be mapped to tasks
-            mapped_errors = {str(t.exception()) for t in tasks.values() if t.done() and t.exception() is not None}
+            # Use object identity (id) instead of str() to avoid collisions
+            # when different exceptions have identical string representations
+            mapped_error_ids = {id(t.exception()) for t in tasks.values() if t.done() and t.exception() is not None}
             for exc in eg.exceptions:
-                if str(exc) not in mapped_errors:
+                if id(exc) not in mapped_error_ids:
                     self._logger.error(
                         "parallel.unmapped_exception",
                         error_type=type(exc).__name__,

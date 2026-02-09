@@ -110,6 +110,9 @@ class SynthesisResult:
 
     def to_dict(self) -> SynthesisResultDict:
         """Serialize to dictionary for persistence."""
+        # type: ignore needed because mypy/pyright cannot infer a dict literal
+        # as matching a total=False TypedDict — all keys are correct and tested
+        # via from_dict() round-trip in test_synthesizer.py
         return {
             "batch_id": self.batch_id,
             "sheets": self.sheets,

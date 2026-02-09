@@ -14,17 +14,16 @@ Extracted from global_store.py as part of the modularization effort.
 
 from __future__ import annotations
 
+import sqlite3
 import uuid
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from datetime import datetime
-from typing import TYPE_CHECKING
 
-from mozart.core.logging import get_logger
+from mozart.core.logging import MozartLogger, get_logger
 
+from .base import WhereBuilder
 from .models import EscalationDecisionRecord
-
-if TYPE_CHECKING:
-    import sqlite3
-    from contextlib import AbstractContextManager
 
 _logger = get_logger("learning.global_store")
 
@@ -42,12 +41,10 @@ class EscalationMixin:
         - hash_job(job_id: str) -> str (static method)
     """
 
-    # Type hints for attributes provided by the composed class
-    if TYPE_CHECKING:
-
-        @staticmethod
-        def hash_job(job_name: str, config_hash: str | None = None) -> str: ...
-        def _get_connection(self) -> AbstractContextManager[sqlite3.Connection]: ...
+    # Annotations for attributes provided by the composed class (GlobalLearningStoreBase)
+    _logger: MozartLogger
+    _get_connection: Callable[[], AbstractContextManager[sqlite3.Connection]]
+    hash_job: staticmethod  # GlobalLearningStoreBase.hash_job(job_name, config_hash)
 
     def record_escalation_decision(
         self,
@@ -139,30 +136,21 @@ class EscalationMixin:
             List of EscalationDecisionRecord objects.
         """
         with self._get_connection() as conn:
-            where_clauses: list[str] = []
-            query_params: list[str | int] = []
-
+            wb = WhereBuilder()
             if job_id is not None:
-                job_hash = self.hash_job(job_id)
-                where_clauses.append("job_hash = ?")
-                query_params.append(job_hash)
-
+                wb.add("job_hash = ?", self.hash_job(job_id))
             if action is not None:
-                where_clauses.append("action = ?")
-                query_params.append(action)
+                wb.add("action = ?", action)
 
-            # Safety: where_clauses contains only hardcoded column comparisons,
-            # all user values go through query_params as placeholders
-            where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
-
+            where_sql, params = wb.build()
             cursor = conn.execute(
                 f"""
                 SELECT * FROM escalation_decisions
-                WHERE {where_clause}
+                WHERE {where_sql}
                 ORDER BY recorded_at DESC
                 LIMIT ?
                 """,
-                (*query_params, limit),
+                (*params, limit),
             )
 
             records = []

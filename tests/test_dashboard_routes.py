@@ -1,4 +1,5 @@
 """Tests for dashboard API routes."""
+import asyncio
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -344,6 +345,138 @@ class TestJobRoutes:
 
         assert response.status_code == 409
         assert "Cannot delete running job" in response.json()["detail"]
+
+
+class TestCoreReadRoutes:
+    """Tests for core read-only API endpoints (list, detail, status, health)."""
+
+    def test_health_check(self, client):
+        """Test /health returns service status."""
+        response = client.get("/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "healthy"
+        assert data["service"] == "mozart-dashboard"
+        assert "version" in data
+
+    def test_list_jobs_empty(self, client):
+        """Test listing jobs when none exist."""
+        response = client.get("/api/jobs")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["jobs"] == []
+        assert data["total"] == 0
+
+    def test_list_jobs_with_data(self, client, app):
+        """Test listing jobs returns stored jobs."""
+        backend = app.state.backend
+        state = CheckpointState(
+            job_id="list-test-job",
+            job_name="List Test",
+            status=JobStatus.COMPLETED,
+            total_sheets=3,
+        )
+        asyncio.run(backend.save(state))
+
+        response = client.get("/api/jobs")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] >= 1
+        job_ids = [j["job_id"] for j in data["jobs"]]
+        assert "list-test-job" in job_ids
+
+    @pytest.mark.parametrize("filter_status", [
+        JobStatus.COMPLETED,
+        JobStatus.RUNNING,
+        JobStatus.FAILED,
+    ])
+    def test_list_jobs_status_filter(self, client, app, filter_status):
+        """Test filtering jobs by status."""
+        backend = app.state.backend
+        for s, name in [
+            (JobStatus.COMPLETED, "done"),
+            (JobStatus.RUNNING, "active"),
+            (JobStatus.FAILED, "broken"),
+        ]:
+            state = CheckpointState(
+                job_id=f"filter-{name}",
+                job_name=name,
+                status=s,
+                total_sheets=1,
+            )
+            asyncio.run(backend.save(state))
+
+        response = client.get(f"/api/jobs?status={filter_status.value}")
+        assert response.status_code == 200
+        data = response.json()
+        for job in data["jobs"]:
+            assert job["status"] == filter_status.value
+
+    def test_get_job_detail(self, client, app):
+        """Test getting detailed job info."""
+        backend = app.state.backend
+        state = CheckpointState(
+            job_id="detail-test",
+            job_name="Detail Test",
+            status=JobStatus.RUNNING,
+            total_sheets=5,
+            last_completed_sheet=2,
+            current_sheet=3,
+        )
+        asyncio.run(backend.save(state))
+
+        response = client.get("/api/jobs/detail-test")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["job_id"] == "detail-test"
+        assert data["job_name"] == "Detail Test"
+        assert data["status"] == "running"
+        assert data["total_sheets"] == 5
+        assert data["last_completed_sheet"] == 2
+        assert data["current_sheet"] == 3
+
+    def test_get_job_not_found(self, client):
+        """Test getting nonexistent job returns 404."""
+        response = client.get("/api/jobs/nonexistent-job")
+        assert response.status_code == 404
+
+    def test_get_job_status(self, client, app):
+        """Test getting job status."""
+        from mozart.core.checkpoint import SheetState, SheetStatus
+
+        backend = app.state.backend
+        state = CheckpointState(
+            job_id="status-test",
+            job_name="Status Test",
+            status=JobStatus.RUNNING,
+            total_sheets=10,
+            last_completed_sheet=5,
+            current_sheet=6,
+        )
+        # get_progress() counts sheets with COMPLETED status
+        for i in range(1, 6):
+            state.sheets[i] = SheetState(sheet_num=i, status=SheetStatus.COMPLETED)
+        asyncio.run(backend.save(state))
+
+        response = client.get("/api/jobs/status-test/status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["job_id"] == "status-test"
+        assert data["status"] == "running"
+        assert data["total_sheets"] == 10
+        assert data["completed_sheets"] == 5
+        assert data["current_sheet"] == 6
+        assert data["progress_percent"] == 50.0
+
+    def test_get_job_status_not_found(self, client):
+        """Test getting status of nonexistent job returns 404."""
+        response = client.get("/api/jobs/ghost/status")
+        assert response.status_code == 404
+
+    def test_app_state_has_backend(self, app):
+        """Test that create_app stores backend on app.state."""
+        assert hasattr(app.state, "backend")
+        assert app.state.backend is not None
 
 
 class TestArtifactRoutes:

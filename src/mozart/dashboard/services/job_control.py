@@ -114,12 +114,14 @@ class JobControlService:
                 # This ensures proper YAML parsing through the CLI
                 import tempfile
                 temp_fd, temp_path = tempfile.mkstemp(suffix='.yaml', text=True)
+                os.fchmod(temp_fd, 0o600)
                 try:
                     with open(temp_fd, 'w') as f:
                         f.write(config_content)
                     cmd_args.append(temp_path)
-                finally:
-                    os.close(temp_fd)  # Close the file descriptor
+                except BaseException:
+                    os.close(temp_fd)
+                    raise
             else:
                 cmd_args.append(str(config_path))
 

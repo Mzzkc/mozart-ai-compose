@@ -258,6 +258,121 @@ class SheetExecutionSetup:
     """Estimated token count from preflight metrics."""
 
 
+@dataclass
+class ValidationSuccessContext:
+    """Context passed to _handle_validation_success after all validations pass.
+
+    Groups the 11 keyword parameters into a single context object,
+    matching the SheetExecutionSetup pattern used for the setup phase.
+    """
+
+    state: Any
+    """Current checkpoint state (CheckpointState)."""
+
+    sheet_num: int
+    """Sheet number being executed."""
+
+    result: Any
+    """ExecutionResult from the backend."""
+
+    validation_result: Any
+    """SheetValidationResult with all validation details."""
+
+    validation_duration: float
+    """Time spent running validations (seconds)."""
+
+    current_prompt: str
+    """The prompt that was executed."""
+
+    normal_attempts: int
+    """Number of normal retry attempts used."""
+
+    completion_attempts: int
+    """Number of completion-mode attempts used."""
+
+    execution_start_time: float
+    """Monotonic timestamp when execution started."""
+
+    execution_history: Any
+    """Deque of ExecutionResults from this sheet's attempts."""
+
+    pending_recovery: dict[str, Any] | None
+    """Pending self-healing recovery context, if any."""
+
+
+@dataclass
+class ExecutionFailureContext:
+    """Context passed to _handle_execution_failure for non-success error handling.
+
+    Groups the parameters needed to classify errors, manage retries,
+    and decide between healing, adaptive abort, or normal retry.
+    """
+
+    state: Any
+    """Current checkpoint state (CheckpointState)."""
+
+    sheet_num: int
+    """Sheet number being executed."""
+
+    result: Any
+    """ExecutionResult from the backend."""
+
+    validation_result: Any
+    """SheetValidationResult with validation details."""
+
+    passed_count: int
+    """Number of validations that passed."""
+
+    failed_count: int
+    """Number of validations that failed."""
+
+    error_history: list[Any]
+    """List of ErrorRecord for adaptive retry analysis."""
+
+    normal_attempts: int
+    """Current normal retry attempt count."""
+
+    max_retries: int
+    """Maximum retry attempts from config."""
+
+    healing_attempts: int
+    """Current healing cycle count."""
+
+    max_healing_cycles: int
+    """Maximum healing cycles allowed."""
+
+    pending_recovery: dict[str, Any] | None
+    """Pending recovery context from previous retry."""
+
+    grounding_ctx: Any
+    """GroundingDecisionContext for pattern feedback."""
+
+
+@dataclass
+class FailureHandlingResult:
+    """Result from _handle_execution_failure indicating what the caller should do.
+
+    Uses action field for flow control:
+    - "continue": Continue the while loop (retry)
+    - "fatal": Raise FatalError with the given message
+    """
+
+    action: str
+    """Either 'continue' or 'fatal'."""
+
+    normal_attempts: int
+    """Updated normal attempt counter."""
+
+    healing_attempts: int
+    """Updated healing attempt counter."""
+
+    pending_recovery: dict[str, Any] | None
+    """Updated pending recovery context."""
+
+    fatal_message: str = ""
+    """Error message if action is 'fatal'."""
+
+
 class FatalError(Exception):
     """Non-recoverable error that should stop the job."""
 
@@ -336,6 +451,8 @@ class RunnerContext:
 # This allows other runner modules to import from models.py instead
 # of managing multiple import sources
 __all__ = [
+    "ExecutionFailureContext",
+    "FailureHandlingResult",
     "FatalError",
     "GracefulShutdownError",
     "GroundingDecisionContext",
@@ -343,4 +460,5 @@ __all__ = [
     "RunnerContext",
     "SheetExecutionMode",
     "SheetExecutionSetup",
+    "ValidationSuccessContext",
 ]

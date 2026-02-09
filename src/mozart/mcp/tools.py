@@ -413,6 +413,163 @@ class ControlTools:
         pass
 
 
+# Artifact tool schemas — extracted from ArtifactTools.list_tools() for readability.
+# Each constant defines the MCP tool specification (name, description, inputSchema).
+_ARTIFACT_LIST_SCHEMA: dict[str, Any] = {
+    "name": "mozart_artifact_list",
+    "description": "List files in a Mozart workspace",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "workspace": {
+                "type": "string",
+                "description": "Workspace directory to browse",
+            },
+            "path": {
+                "type": "string",
+                "description": "Subdirectory path within workspace",
+                "default": ".",
+            },
+            "include_hidden": {
+                "type": "boolean",
+                "description": "Include hidden files and directories",
+                "default": False,
+            },
+        },
+        "required": ["workspace"],
+    },
+}
+
+_ARTIFACT_READ_SCHEMA: dict[str, Any] = {
+    "name": "mozart_artifact_read",
+    "description": "Read content of a file in the workspace",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "workspace": {
+                "type": "string",
+                "description": "Workspace directory",
+            },
+            "file_path": {
+                "type": "string",
+                "description": "Path to the file within workspace",
+            },
+            "max_size": {
+                "type": "integer",
+                "description": "Maximum file size to read in bytes",
+                "default": 50000,
+                "maximum": 100000,
+            },
+            "encoding": {
+                "type": "string",
+                "description": "Text encoding to use",
+                "default": "utf-8",
+            },
+        },
+        "required": ["workspace", "file_path"],
+    },
+}
+
+_ARTIFACT_GET_LOGS_SCHEMA: dict[str, Any] = {
+    "name": "mozart_artifact_get_logs",
+    "description": "Get logs from a Mozart job execution",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "job_id": {
+                "type": "string",
+                "description": "Mozart job ID",
+            },
+            "workspace": {
+                "type": "string",
+                "description": "Workspace directory (optional, will auto-detect if not provided)",
+            },
+            "lines": {
+                "type": "integer",
+                "description": "Number of recent lines to return",
+                "default": 100,
+                "minimum": 1,
+                "maximum": 10000,
+            },
+            "level": {
+                "type": "string",
+                "description": "Log level filter",
+                "enum": ["debug", "info", "warning", "error", "all"],
+                "default": "all",
+            },
+        },
+        "required": ["job_id"],
+    },
+}
+
+_ARTIFACT_LIST_ARTIFACTS_SCHEMA: dict[str, Any] = {
+    "name": "mozart_artifact_list_artifacts",
+    "description": "List all artifacts created by a Mozart job",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "job_id": {
+                "type": "string",
+                "description": "Mozart job ID",
+            },
+            "workspace": {
+                "type": "string",
+                "description": "Workspace directory (optional, will auto-detect if not provided)",
+            },
+            "sheet_filter": {
+                "type": "integer",
+                "description": "Filter artifacts by sheet number",
+                "minimum": 1,
+            },
+            "artifact_type": {
+                "type": "string",
+                "description": "Filter by artifact type",
+                "enum": ["output", "error", "log", "state", "all"],
+                "default": "all",
+            },
+        },
+        "required": ["job_id"],
+    },
+}
+
+_ARTIFACT_GET_ARTIFACT_SCHEMA: dict[str, Any] = {
+    "name": "mozart_artifact_get_artifact",
+    "description": "Get a specific artifact from a Mozart job",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "job_id": {
+                "type": "string",
+                "description": "Mozart job ID",
+            },
+            "artifact_path": {
+                "type": "string",
+                "description": "Relative path to the artifact within the job workspace",
+            },
+            "workspace": {
+                "type": "string",
+                "description": "Workspace directory (optional, will auto-detect if not provided)",
+            },
+            "max_size": {
+                "type": "integer",
+                "description": "Maximum artifact size to read in bytes",
+                "default": 100000,
+                "maximum": 1000000,
+            },
+        },
+        "required": ["job_id", "artifact_path"],
+    },
+}
+
+_ARTIFACT_TOOL_SCHEMAS: list[dict[str, Any]] = [
+    _ARTIFACT_LIST_SCHEMA,
+    _ARTIFACT_READ_SCHEMA,
+    _ARTIFACT_GET_LOGS_SCHEMA,
+    _ARTIFACT_LIST_ARTIFACTS_SCHEMA,
+    _ARTIFACT_GET_ARTIFACT_SCHEMA,
+]
+
+
 class ArtifactTools:
     """Mozart artifact and workspace management tools.
 
@@ -420,176 +577,42 @@ class ArtifactTools:
     File system access is restricted to designated workspace directories.
     """
 
+    _LOG_LEVEL_PATTERNS: dict[str, re.Pattern[str]] = {
+        "debug": re.compile(r"DEBUG|debug", re.IGNORECASE),
+        "info": re.compile(r"INFO|info", re.IGNORECASE),
+        "warning": re.compile(r"WARNING|warning|WARN|warn", re.IGNORECASE),
+        "error": re.compile(r"ERROR|error|FAIL|fail", re.IGNORECASE),
+    }
+
     def __init__(self, workspace_root: Path):
         self.workspace_root = workspace_root
 
     async def list_tools(self) -> list[dict[str, Any]]:
         """List all artifact management tools."""
-        return [
-            {
-                "name": "mozart_artifact_list",
-                "description": "List files in a Mozart workspace",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "workspace": {
-                            "type": "string",
-                            "description": "Workspace directory to browse"
-                        },
-                        "path": {
-                            "type": "string",
-                            "description": "Subdirectory path within workspace",
-                            "default": "."
-                        },
-                        "include_hidden": {
-                            "type": "boolean",
-                            "description": "Include hidden files and directories",
-                            "default": False
-                        }
-                    },
-                    "required": ["workspace"]
-                }
-            },
-            {
-                "name": "mozart_artifact_read",
-                "description": "Read content of a file in the workspace",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "workspace": {
-                            "type": "string",
-                            "description": "Workspace directory"
-                        },
-                        "file_path": {
-                            "type": "string",
-                            "description": "Path to the file within workspace"
-                        },
-                        "max_size": {
-                            "type": "integer",
-                            "description": "Maximum file size to read in bytes",
-                            "default": 50000,
-                            "maximum": 100000
-                        },
-                        "encoding": {
-                            "type": "string",
-                            "description": "Text encoding to use",
-                            "default": "utf-8"
-                        }
-                    },
-                    "required": ["workspace", "file_path"]
-                }
-            },
-            {
-                "name": "mozart_artifact_get_logs",
-                "description": "Get logs from a Mozart job execution",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "job_id": {
-                            "type": "string",
-                            "description": "Mozart job ID"
-                        },
-                        "workspace": {
-                            "type": "string",
-                            "description": "Workspace directory (optional, will auto-detect if not provided)"
-                        },
-                        "lines": {
-                            "type": "integer",
-                            "description": "Number of recent lines to return",
-                            "default": 100,
-                            "minimum": 1,
-                            "maximum": 10000
-                        },
-                        "level": {
-                            "type": "string",
-                            "description": "Log level filter",
-                            "enum": ["debug", "info", "warning", "error", "all"],
-                            "default": "all"
-                        }
-                    },
-                    "required": ["job_id"]
-                }
-            },
-            {
-                "name": "mozart_artifact_list_artifacts",
-                "description": "List all artifacts created by a Mozart job",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "job_id": {
-                            "type": "string",
-                            "description": "Mozart job ID"
-                        },
-                        "workspace": {
-                            "type": "string",
-                            "description": "Workspace directory (optional, will auto-detect if not provided)"
-                        },
-                        "sheet_filter": {
-                            "type": "integer",
-                            "description": "Filter artifacts by sheet number",
-                            "minimum": 1
-                        },
-                        "artifact_type": {
-                            "type": "string",
-                            "description": "Filter by artifact type",
-                            "enum": ["output", "error", "log", "state", "all"],
-                            "default": "all"
-                        }
-                    },
-                    "required": ["job_id"]
-                }
-            },
-            {
-                "name": "mozart_artifact_get_artifact",
-                "description": "Get a specific artifact from a Mozart job",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "job_id": {
-                            "type": "string",
-                            "description": "Mozart job ID"
-                        },
-                        "artifact_path": {
-                            "type": "string",
-                            "description": "Relative path to the artifact within the job workspace"
-                        },
-                        "workspace": {
-                            "type": "string",
-                            "description": "Workspace directory (optional, will auto-detect if not provided)"
-                        },
-                        "max_size": {
-                            "type": "integer",
-                            "description": "Maximum artifact size to read in bytes",
-                            "default": 100000,
-                            "maximum": 1000000
-                        }
-                    },
-                    "required": ["job_id", "artifact_path"]
-                }
-            }
-        ]
+        return list(_ARTIFACT_TOOL_SCHEMAS)
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Execute an artifact management tool."""
-        try:
-            if name == "mozart_artifact_list":
-                return await self._list_files(arguments)
-            elif name == "mozart_artifact_read":
-                return await self._read_file(arguments)
-            elif name == "mozart_artifact_get_logs":
-                return await self._get_logs(arguments)
-            elif name == "mozart_artifact_list_artifacts":
-                return await self._list_artifacts(arguments)
-            elif name == "mozart_artifact_get_artifact":
-                return await self._get_artifact(arguments)
-            else:
-                raise ValueError(f"Unknown artifact tool: {name}")
-
-        except Exception as e:
-            logger.exception(f"Error executing artifact tool {name}")
+        dispatch = {
+            "mozart_artifact_list": self._list_files,
+            "mozart_artifact_read": self._read_file,
+            "mozart_artifact_get_logs": self._get_logs,
+            "mozart_artifact_list_artifacts": self._list_artifacts,
+            "mozart_artifact_get_artifact": self._get_artifact,
+        }
+        handler = dispatch.get(name)
+        if handler is None:
             return {
-                "content": [{"type": "text", "text": f"Error: {str(e)}"}],
-                "isError": True
+                "content": [{"type": "text", "text": f"Error: Unknown artifact tool: {name}"}],
+                "isError": True,
+            }
+        try:
+            return await handler(arguments)
+        except Exception as e:
+            logger.exception("Error executing artifact tool %s", name)
+            return {
+                "content": [{"type": "text", "text": f"Error: {e}"}],
+                "isError": True,
             }
 
     async def _list_files(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -632,22 +655,10 @@ class ArtifactTools:
                 total_files += 1
                 size = item.stat().st_size
                 total_size += size
-                # Format size in human-readable format
-                if size < 1024:
-                    size_str = f"{size}B"
-                elif size < 1024 * 1024:
-                    size_str = f"{size/1024:.1f}KB"
-                else:
-                    size_str = f"{size/(1024*1024):.1f}MB"
+                size_str = self._format_size(size)
                 entries.append(f"📄 {item.name} ({size_str})")
 
-        # Format total size
-        if total_size < 1024:
-            total_size_str = f"{total_size}B"
-        elif total_size < 1024 * 1024:
-            total_size_str = f"{total_size/1024:.1f}KB"
-        else:
-            total_size_str = f"{total_size/(1024*1024):.1f}MB"
+        total_size_str = self._format_size(total_size)
 
         result = f"Contents of {target_dir}:\n"
         result += f"Summary: {total_files} files, {total_dirs} directories, {total_size_str}\n\n"
@@ -708,13 +719,7 @@ class ArtifactTools:
 
         content = await asyncio.to_thread(_sync_read_file)
 
-        # Format file size in human-readable format
-        if file_size < 1024:
-            size_str = f"{file_size}B"
-        elif file_size < 1024 * 1024:
-            size_str = f"{file_size/1024:.1f}KB"
-        else:
-            size_str = f"{file_size/(1024*1024):.1f}MB"
+        size_str = self._format_size(file_size)
 
         result = f"📄 File: {target_file.name}\n"
         result += f"Size: {size_str}\n"
@@ -771,18 +776,13 @@ class ArtifactTools:
             "=" * 60 + "\n\n",
         ]
 
-        # Pre-compile level filter pattern once outside the loop
-        level_regex = None
+        # Use pre-compiled level filter pattern
+        level_regex: re.Pattern[str] | None = None
         if level != "all":
-            level_patterns = {
-                "debug": r"DEBUG|debug",
-                "info": r"INFO|info",
-                "warning": r"WARNING|warning|WARN|warn",
-                "error": r"ERROR|error|FAIL|fail"
-            }
-            pattern_str = level_patterns.get(level.lower(), level)
-            if pattern_str:
-                level_regex = re.compile(pattern_str, re.IGNORECASE)
+            level_regex = self._LOG_LEVEL_PATTERNS.get(level.lower())
+            if level_regex is None:
+                # Custom level string — compile on demand
+                level_regex = re.compile(re.escape(level), re.IGNORECASE)
 
         for log_type, log_file in log_files:
             try:
@@ -835,15 +835,6 @@ class ArtifactTools:
         if not workspace_path.exists():
             raise FileNotFoundError(f"Workspace not found: {workspace_path}")
 
-        # Load job state to understand the structure (for future enhancement)
-        # Note: job_state could be used to filter artifacts by sheet execution status
-        # but for now we scan all files in workspace
-        try:
-            state_backend = JsonStateBackend(workspace_path.parent)
-            _ = await state_backend.load(job_id)  # Available for future filtering
-        except Exception:
-            pass  # Continue without state information
-
         result = f"🎯 Artifacts for Mozart Job: {job_id}\n"
         result += f"Workspace: {workspace_path}\n"
         if sheet_filter:
@@ -862,36 +853,26 @@ class ArtifactTools:
 
         # Scan workspace for files
         for item in workspace_path.rglob("*"):
-            if item.is_file():
-                rel_path = item.relative_to(workspace_path)
-                size = item.stat().st_size
-                modified = datetime.fromtimestamp(item.stat().st_mtime)
+            if not item.is_file():
+                continue
 
-                # Categorize the artifact
-                category = "other"
-                if item.suffix == ".log":
-                    category = "log"
-                elif item.suffix == ".json" and ("state" in item.name or "checkpoint" in item.name):
-                    category = "state"
-                elif "error" in item.name.lower() or "stderr" in item.name.lower():
-                    category = "error"
-                elif "output" in item.name.lower() or "stdout" in item.name.lower():
-                    category = "output"
+            rel_path = item.relative_to(workspace_path)
 
-                artifact_info = {
-                    "path": str(rel_path),
-                    "size": size,
-                    "modified": modified,
-                    "category": category
-                }
+            # Apply sheet filter early to skip non-matching files
+            if sheet_filter:
+                escaped = re.escape(str(sheet_filter))
+                pattern = rf"sheet[_-]?{escaped}|{escaped}[_-]sheet"
+                if not re.search(pattern, str(rel_path), re.IGNORECASE):
+                    continue
 
-                # Apply sheet filter if provided
-                if sheet_filter:
-                    # Look for sheet numbers in filename/path
-                    if not re.search(rf"sheet[_-]?{sheet_filter}|{sheet_filter}[_-]sheet", str(rel_path), re.IGNORECASE):
-                        continue
-
-                artifacts[category].append(artifact_info)
+            stat = item.stat()
+            category = self._categorize_artifact(item)
+            artifacts[category].append({
+                "path": str(rel_path),
+                "size": stat.st_size,
+                "modified": datetime.fromtimestamp(stat.st_mtime),
+                "category": category,
+            })
 
         # Format results by category
         if artifact_type == "all":
@@ -994,6 +975,20 @@ class ArtifactTools:
         return {
             "content": [{"type": "text", "text": result}]
         }
+
+    @staticmethod
+    def _categorize_artifact(item: Path) -> str:
+        """Categorize an artifact file by its name and extension."""
+        if item.suffix == ".log":
+            return "log"
+        if item.suffix == ".json" and ("state" in item.name or "checkpoint" in item.name):
+            return "state"
+        name_lower = item.name.lower()
+        if "error" in name_lower or "stderr" in name_lower:
+            return "error"
+        if "output" in name_lower or "stdout" in name_lower:
+            return "output"
+        return "other"
 
     def _find_job_workspace(self, job_id: str) -> str:
         """Find workspace directory for a job ID."""

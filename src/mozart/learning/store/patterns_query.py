@@ -18,6 +18,7 @@ from datetime import datetime
 from typing import Any
 
 from mozart.core.logging import MozartLogger
+from mozart.learning.store.base import WhereBuilder
 from mozart.learning.store.models import (
     PatternDiscoveryEvent,
     PatternRecord,
@@ -67,52 +68,46 @@ class PatternQueryMixin:
             List of PatternRecord objects sorted by priority.
         """
         with self._get_connection() as conn:
-            # Build query dynamically based on filters
-            where_clauses = ["priority_score >= ?"]
-            params: list[str | int | float] = [min_priority]
+            wb = WhereBuilder()
+            wb.add("priority_score >= ?", min_priority)
 
             if pattern_type:
-                where_clauses.append("pattern_type = ?")
-                params.append(pattern_type)
+                wb.add("pattern_type = ?", pattern_type)
 
             # v19: Quarantine status filtering
             if quarantine_status is not None:
-                where_clauses.append("quarantine_status = ?")
-                params.append(quarantine_status.value)
+                wb.add("quarantine_status = ?", quarantine_status.value)
             elif exclude_quarantined:
-                where_clauses.append("quarantine_status != ?")
-                params.append(QuarantineStatus.QUARANTINED.value)
+                wb.add("quarantine_status != ?", QuarantineStatus.QUARANTINED.value)
 
             # v19: Trust score filtering
             if min_trust is not None:
-                where_clauses.append("trust_score >= ?")
-                params.append(min_trust)
+                wb.add("trust_score >= ?", min_trust)
             if max_trust is not None:
-                where_clauses.append("trust_score <= ?")
-                params.append(max_trust)
+                wb.add("trust_score <= ?", max_trust)
 
             # Context tag filtering: match if ANY pattern tag matches ANY query tag
             # Uses json_each() to iterate over the JSON array stored in context_tags
-            # Safe from SQL injection: placeholders only contain "?" characters,
-            # actual tag values are bound via params.extend()
             if context_tags is not None and len(context_tags) > 0:
                 tag_placeholders = ", ".join("?" for _ in context_tags)
-                where_clauses.append(
+                wb.add(
                     f"""EXISTS (
                         SELECT 1 FROM json_each(context_tags)
                         WHERE json_each.value IN ({tag_placeholders})
-                    )"""
+                    )""",
+                    *context_tags,
                 )
-                params.extend(context_tags)
 
-            params.append(limit)
-            query = f"""
+            where_sql, params = wb.build()
+            cursor = conn.execute(
+                f"""
                 SELECT * FROM patterns
-                WHERE {" AND ".join(where_clauses)}
+                WHERE {where_sql}
                 ORDER BY priority_score DESC
                 LIMIT ?
-            """
-            cursor = conn.execute(query, tuple(params))
+                """,
+                (*params, limit),
+            )
 
             records = []
             for row in cursor.fetchall():

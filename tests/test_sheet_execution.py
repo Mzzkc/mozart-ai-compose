@@ -20,7 +20,10 @@ import pytest
 from mozart.backends.base import ExecutionResult
 from mozart.core.checkpoint import CheckpointState, SheetStatus
 from mozart.core.config import JobConfig
+from mozart.core.errors import ClassificationResult, ClassifiedError, ErrorCategory, ErrorCode
 from mozart.execution.runner.models import (
+    ExecutionFailureContext,
+    FailureHandlingResult,
     FatalError,
     GracefulShutdownError,
     GroundingDecisionContext,
@@ -1280,3 +1283,187 @@ class TestSheetExecutionParametrized:
         vr = _make_validation_result(confidence=confidence, pass_pct=pass_pct)
         mode, _, _ = mixin._decide_next_action(vr, normal_attempts=0, completion_attempts=0)
         assert mode == expected_mode
+
+
+# ===========================================================================
+# Tests: _handle_execution_failure (extracted method)
+# ===========================================================================
+
+
+def _make_failure_ctx(
+    mixin: _TestableSheetMixin,
+    state: CheckpointState,
+    *,
+    success: bool = False,
+    exit_code: int = 1,
+    normal_attempts: int = 0,
+    max_retries: int = 3,
+    healing_attempts: int = 0,
+    max_healing_cycles: int = 2,
+    pending_recovery: dict[str, Any] | None = None,
+) -> ExecutionFailureContext:
+    """Build an ExecutionFailureContext for testing _handle_execution_failure."""
+    result = _make_execution_result(success=success, exit_code=exit_code, stdout="error output")
+    vr = _make_validation_result(all_passed=False, pass_pct=0.0)
+    vr.get_passed_results.return_value = []
+    vr.get_failed_results.return_value = []
+    grounding_ctx = GroundingDecisionContext(
+        passed=True, message="No hooks", hooks_executed=0,
+    )
+    return ExecutionFailureContext(
+        state=state,
+        sheet_num=1,
+        result=result,
+        validation_result=vr,
+        passed_count=0,
+        failed_count=0,
+        error_history=[],
+        normal_attempts=normal_attempts,
+        max_retries=max_retries,
+        healing_attempts=healing_attempts,
+        max_healing_cycles=max_healing_cycles,
+        pending_recovery=pending_recovery,
+        grounding_ctx=grounding_ctx,
+    )
+
+
+def _make_classification(
+    *,
+    category: ErrorCategory = ErrorCategory.TRANSIENT,
+    error_code: ErrorCode = ErrorCode.EXECUTION_TIMEOUT,
+    message: str = "Timeout",
+    retriable: bool = True,
+    exit_code: int = 1,
+    suggested_wait: float | None = None,
+) -> ClassificationResult:
+    """Build a real ClassificationResult for testing."""
+    error = ClassifiedError(
+        category=category,
+        message=message,
+        error_code=error_code,
+        retriable=retriable,
+        exit_code=exit_code,
+        suggested_wait_seconds=suggested_wait,
+    )
+    return ClassificationResult(primary=error, confidence=0.9)
+
+
+class TestHandleExecutionFailure:
+    """Tests for the extracted _handle_execution_failure method."""
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_returns_continue(self, mixin: _TestableSheetMixin):
+        """Rate-limited errors should return continue action without consuming retries."""
+        state = _make_state()
+        state.mark_sheet_started(1)
+        ctx = _make_failure_ctx(mixin, state, normal_attempts=0)
+
+        classification = _make_classification(
+            category=ErrorCategory.RATE_LIMIT,
+            error_code=ErrorCode.RATE_LIMIT_API,
+            message="Rate limited",
+            suggested_wait=5.0,
+        )
+        with patch.object(mixin, '_classify_execution', return_value=classification):
+            result = await mixin._handle_execution_failure(ctx)
+
+        assert result.action == "continue"
+        assert result.normal_attempts == 0  # Not incremented for rate limits
+
+    @pytest.mark.asyncio
+    async def test_non_retryable_returns_fatal(self, mixin: _TestableSheetMixin):
+        """Non-retryable errors should return fatal action."""
+        state = _make_state()
+        state.mark_sheet_started(1)
+        ctx = _make_failure_ctx(mixin, state, normal_attempts=0)
+
+        classification = _make_classification(
+            category=ErrorCategory.CONFIGURATION,
+            error_code=ErrorCode.CONFIG_INVALID,
+            message="Authentication failed",
+            retriable=False,
+        )
+        with patch.object(mixin, '_classify_execution', return_value=classification):
+            result = await mixin._handle_execution_failure(ctx)
+
+        assert result.action == "fatal"
+        assert "Authentication failed" in result.fatal_message
+
+    @pytest.mark.asyncio
+    async def test_retryable_under_limit_returns_continue(self, mixin: _TestableSheetMixin):
+        """Retryable error under max retries should return continue with incremented attempts."""
+        state = _make_state()
+        state.mark_sheet_started(1)
+        ctx = _make_failure_ctx(mixin, state, normal_attempts=0, max_retries=3)
+
+        classification = _make_classification(
+            category=ErrorCategory.TRANSIENT,
+            error_code=ErrorCode.EXECUTION_TIMEOUT,
+            message="Timeout",
+            retriable=True,
+            suggested_wait=10.0,
+        )
+        with (
+            patch.object(mixin, '_classify_execution', return_value=classification),
+            patch('asyncio.sleep', new_callable=AsyncMock),
+        ):
+            result = await mixin._handle_execution_failure(ctx)
+
+        assert result.action == "continue"
+        assert result.normal_attempts == 1  # Incremented from 0
+
+    @pytest.mark.asyncio
+    async def test_retries_exhausted_returns_fatal(self, mixin: _TestableSheetMixin):
+        """When max retries reached and no healing, should return fatal."""
+        state = _make_state()
+        state.mark_sheet_started(1)
+        ctx = _make_failure_ctx(mixin, state, normal_attempts=2, max_retries=3)
+
+        classification = _make_classification(
+            category=ErrorCategory.TRANSIENT,
+            error_code=ErrorCode.EXECUTION_TIMEOUT,
+            message="Timeout",
+            retriable=True,
+        )
+        with patch.object(mixin, '_classify_execution', return_value=classification):
+            result = await mixin._handle_execution_failure(ctx)
+
+        assert result.action == "fatal"
+        assert "failed after 3 retries" in result.fatal_message
+
+    @pytest.mark.asyncio
+    async def test_pending_recovery_recorded_on_failure(self, mixin: _TestableSheetMixin):
+        """When pending_recovery exists, it should be recorded and cleared."""
+        state = _make_state()
+        state.mark_sheet_started(1)
+
+        mock_store = MagicMock()
+        mixin._global_learning_store = mock_store
+
+        pending = {
+            "error_code": "E301",
+            "suggested_wait": 5.0,
+            "actual_wait": 10.0,
+        }
+        ctx = _make_failure_ctx(mixin, state, normal_attempts=0, max_retries=3, pending_recovery=pending)
+
+        classification = _make_classification(
+            category=ErrorCategory.TRANSIENT,
+            error_code=ErrorCode.EXECUTION_TIMEOUT,
+            message="Timeout",
+            retriable=True,
+        )
+        with (
+            patch.object(mixin, '_classify_execution', return_value=classification),
+            patch('asyncio.sleep', new_callable=AsyncMock),
+        ):
+            result = await mixin._handle_execution_failure(ctx)
+
+        mock_store.record_error_recovery.assert_called_once_with(
+            error_code="E301",
+            suggested_wait=5.0,
+            actual_wait=10.0,
+            recovery_success=False,
+            model=mixin.config.backend.model,
+        )
+        assert result.action == "continue"

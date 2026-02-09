@@ -33,6 +33,7 @@ class PatternCrudMixin:
 
     _logger: MozartLogger
     _get_connection: Callable[[], AbstractContextManager[sqlite3.Connection]]
+    batch_connection: Callable[[], AbstractContextManager[sqlite3.Connection]]
 
     def record_pattern(
         self,
@@ -404,20 +405,24 @@ class PatternCrudMixin:
     def recalculate_all_pattern_priorities(self) -> int:
         """Recalculate priorities for all patterns.
 
+        Uses batch_connection() to reuse a single SQLite connection across
+        all pattern updates, avoiding N+1 connection overhead.
+
         Returns:
             Number of patterns updated.
         """
-        with self._get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT id FROM patterns"
-            )
-            pattern_ids = [row["id"] for row in cursor.fetchall()]
+        with self.batch_connection():
+            with self._get_connection() as conn:
+                cursor = conn.execute(
+                    "SELECT id FROM patterns"
+                )
+                pattern_ids = [row["id"] for row in cursor.fetchall()]
 
-        updated = 0
-        for pattern_id in pattern_ids:
-            result = self.update_pattern_effectiveness(pattern_id)
-            if result is not None:
-                updated += 1
+            updated = 0
+            for pattern_id in pattern_ids:
+                result = self.update_pattern_effectiveness(pattern_id)
+                if result is not None:
+                    updated += 1
 
         _logger.info(f"Recalculated priorities for {updated} patterns")
         return updated

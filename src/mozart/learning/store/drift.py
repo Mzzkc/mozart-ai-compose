@@ -16,17 +16,18 @@ from __future__ import annotations
 
 import json
 import math
+import sqlite3
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
+
+from mozart.core.logging import MozartLogger
 
 from .models import DriftMetrics, EpistemicDriftMetrics, EvolutionTrajectoryEntry, PatternRecord
 
 # Import logger from base module for consistency across all mixins
 from .base import _logger
-
-if TYPE_CHECKING:
-    import sqlite3
-    from contextlib import AbstractContextManager
 
 
 class DriftMixin:
@@ -42,9 +43,9 @@ class DriftMixin:
         - _get_connection() -> context manager yielding sqlite3.Connection
     """
 
-    # Type hints for attributes provided by the composed class
-    if TYPE_CHECKING:
-        def _get_connection(self) -> AbstractContextManager[sqlite3.Connection]: ...
+    # Annotations for attributes provided by the composed class (GlobalLearningStoreBase)
+    _logger: MozartLogger
+    _get_connection: Callable[[], AbstractContextManager[sqlite3.Connection]]
 
     # =========================================================================
     # v12 Evolution: Goal Drift Detection - Effectiveness Drift

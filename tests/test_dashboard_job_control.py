@@ -95,7 +95,7 @@ class TestJobControlService:
             with patch("tempfile.mkstemp") as mock_mkstemp:
                 mock_mkstemp.return_value = (3, "/tmp/test.yaml")
                 with patch("builtins.open", create=True) as mock_open:
-                    with patch("os.close") as mock_close:
+                    with patch("os.close"), patch("os.fchmod") as mock_fchmod:
                         mock_subprocess.return_value = mock_process
 
                         result = await job_control_service.start_job(
@@ -111,10 +111,10 @@ class TestJobControlService:
                         assert result.pid == 12346
                         assert result.workspace == Path("./custom-workspace")
 
-                        # Verify temp file was created and written to
+                        # Verify temp file was created with restrictive permissions
                         mock_mkstemp.assert_called_once_with(suffix='.yaml', text=True)
+                        mock_fchmod.assert_called_once_with(3, 0o600)
                         mock_open.assert_called_once_with(3, 'w')
-                        mock_close.assert_called_once_with(3)
 
                         # Verify subprocess was called with correct arguments
                         mock_subprocess.assert_called_once()

@@ -319,20 +319,22 @@ class TestRetryStrategyConfig:
         assert config.base_delay == 5.0
         assert config.max_delay == 600.0
 
-    def test_invalid_base_delay(self) -> None:
+    @pytest.mark.parametrize("base_delay", [0, -1, -0.5])
+    def test_invalid_base_delay(self, base_delay: float) -> None:
         """Test that non-positive base_delay raises error."""
         with pytest.raises(ValueError, match="base_delay must be positive"):
-            RetryStrategyConfig(base_delay=0)
+            RetryStrategyConfig(base_delay=base_delay)
 
     def test_invalid_max_delay(self) -> None:
         """Test that max_delay < base_delay raises error."""
         with pytest.raises(ValueError, match="max_delay must be >= base_delay"):
             RetryStrategyConfig(base_delay=100.0, max_delay=50.0)
 
-    def test_invalid_exponential_base(self) -> None:
+    @pytest.mark.parametrize("exp_base", [1.0, 0.5, 0.0, -1.0])
+    def test_invalid_exponential_base(self, exp_base: float) -> None:
         """Test that exponential_base <= 1 raises error."""
         with pytest.raises(ValueError, match="exponential_base must be > 1"):
-            RetryStrategyConfig(exponential_base=1.0)
+            RetryStrategyConfig(exponential_base=exp_base)
 
 
 # ============================================================================
@@ -871,20 +873,18 @@ class TestRetryBehavior:
         assert behavior.is_retriable is False
         assert "memory" in behavior.reason.lower() or "recur" in behavior.reason.lower()
 
-    def test_config_errors_not_retriable(self) -> None:
+    @pytest.mark.parametrize("code", [
+        ErrorCode.CONFIG_INVALID,
+        ErrorCode.CONFIG_MISSING_FIELD,
+        ErrorCode.CONFIG_PATH_NOT_FOUND,
+        ErrorCode.CONFIG_PARSE_ERROR,
+    ])
+    def test_config_errors_not_retriable(self, code: ErrorCode) -> None:
         """Test that configuration errors are not retriable."""
-        config_codes = [
-            ErrorCode.CONFIG_INVALID,
-            ErrorCode.CONFIG_MISSING_FIELD,
-            ErrorCode.CONFIG_PATH_NOT_FOUND,
-            ErrorCode.CONFIG_PARSE_ERROR,
-        ]
-
-        for code in config_codes:
-            behavior = code.get_retry_behavior()
-            assert behavior.is_retriable is False, f"{code} should not be retriable"
-            assert behavior.delay_seconds == 0.0, f"{code} should have 0 delay"
-            assert "user" in behavior.reason.lower() or "fix" in behavior.reason.lower()
+        behavior = code.get_retry_behavior()
+        assert behavior.is_retriable is False, f"{code} should not be retriable"
+        assert behavior.delay_seconds == 0.0, f"{code} should have 0 delay"
+        assert "user" in behavior.reason.lower() or "fix" in behavior.reason.lower()
 
     def test_backend_auth_not_retriable(self) -> None:
         """Test that auth failures are not retriable."""
@@ -893,34 +893,30 @@ class TestRetryBehavior:
         assert behavior.is_retriable is False
         assert "auth" in behavior.reason.lower() or "credential" in behavior.reason.lower()
 
-    def test_network_errors_retriable_with_moderate_delay(self) -> None:
+    @pytest.mark.parametrize("code", [
+        ErrorCode.NETWORK_CONNECTION_FAILED,
+        ErrorCode.NETWORK_DNS_ERROR,
+        ErrorCode.NETWORK_SSL_ERROR,
+        ErrorCode.NETWORK_TIMEOUT,
+    ])
+    def test_network_errors_retriable_with_moderate_delay(self, code: ErrorCode) -> None:
         """Test that network errors are retriable with moderate delay."""
-        network_codes = [
-            ErrorCode.NETWORK_CONNECTION_FAILED,
-            ErrorCode.NETWORK_DNS_ERROR,
-            ErrorCode.NETWORK_SSL_ERROR,
-            ErrorCode.NETWORK_TIMEOUT,
-        ]
+        behavior = code.get_retry_behavior()
+        assert behavior.is_retriable is True, f"{code} should be retriable"
+        assert 30.0 <= behavior.delay_seconds <= 60.0, \
+            f"{code} should have 30-60s delay, got {behavior.delay_seconds}"
 
-        for code in network_codes:
-            behavior = code.get_retry_behavior()
-            assert behavior.is_retriable is True, f"{code} should be retriable"
-            assert 30.0 <= behavior.delay_seconds <= 60.0, \
-                f"{code} should have 30-60s delay, got {behavior.delay_seconds}"
-
-    def test_validation_errors_retriable_with_short_delay(self) -> None:
+    @pytest.mark.parametrize("code", [
+        ErrorCode.VALIDATION_FILE_MISSING,
+        ErrorCode.VALIDATION_CONTENT_MISMATCH,
+        ErrorCode.VALIDATION_GENERIC,
+    ])
+    def test_validation_errors_retriable_with_short_delay(self, code: ErrorCode) -> None:
         """Test that validation errors are retriable with short delay."""
-        validation_codes = [
-            ErrorCode.VALIDATION_FILE_MISSING,
-            ErrorCode.VALIDATION_CONTENT_MISMATCH,
-            ErrorCode.VALIDATION_GENERIC,
-        ]
-
-        for code in validation_codes:
-            behavior = code.get_retry_behavior()
-            assert behavior.is_retriable is True, f"{code} should be retriable"
-            assert behavior.delay_seconds <= 10.0, \
-                f"{code} should have short delay, got {behavior.delay_seconds}"
+        behavior = code.get_retry_behavior()
+        assert behavior.is_retriable is True, f"{code} should be retriable"
+        assert behavior.delay_seconds <= 10.0, \
+            f"{code} should have short delay, got {behavior.delay_seconds}"
 
     def test_all_error_codes_have_behavior(self) -> None:
         """Test that all ErrorCodes return a valid RetryBehavior."""
@@ -1441,3 +1437,267 @@ class TestDelayLearning:
         # Circuit breaker should NOT be tripped
         assert strategy._learned_delay_failures.get(ErrorCode.NETWORK_TIMEOUT, 0) == 3
         assert strategy._use_learned_delay.get(ErrorCode.NETWORK_TIMEOUT, True) is True
+
+
+class TestBlendHistoricalDelayGlobalFallthrough:
+    """Tests for blend_historical_delay() global store priority fallthrough (B2-07).
+
+    Verifies the 3-level priority chain:
+    1. In-memory delay history (highest priority)
+    2. Global learning store (cross-workspace)
+    3. Static delay (fallback)
+    """
+
+    def test_global_store_used_when_no_local_history(self) -> None:
+        """Test that global store is queried when in-memory history has no samples."""
+        from unittest.mock import MagicMock
+
+        mock_store = MagicMock()
+        mock_store.get_learned_wait_time_with_fallback.return_value = (
+            25.0, 0.85, "global_learned"
+        )
+
+        history = DelayHistory()
+        strategy = AdaptiveRetryStrategy(
+            config=RetryStrategyConfig(jitter_factor=0.0),
+            delay_history=history,
+            global_learning_store=mock_store,
+        )
+
+        delay, strategy_name = strategy.blend_historical_delay(
+            ErrorCode.NETWORK_TIMEOUT,
+            static_delay=60.0,
+        )
+
+        assert delay == 25.0
+        assert strategy_name == "global_learned"
+        mock_store.get_learned_wait_time_with_fallback.assert_called_once()
+
+    def test_local_history_takes_priority_over_global(self) -> None:
+        """Test that in-memory history wins over global store."""
+        from unittest.mock import MagicMock
+
+        mock_store = MagicMock()
+        mock_store.get_learned_wait_time_with_fallback.return_value = (
+            25.0, 0.85, "global_learned"
+        )
+
+        history = DelayHistory()
+        strategy = AdaptiveRetryStrategy(
+            config=RetryStrategyConfig(jitter_factor=0.0),
+            delay_history=history,
+            global_learning_store=mock_store,
+        )
+
+        # Add local history — should take priority
+        for _ in range(10):
+            history.record(
+                DelayOutcome(
+                    error_code=ErrorCode.NETWORK_TIMEOUT,
+                    delay_seconds=15.0,
+                    succeeded_after=True,
+                )
+            )
+
+        delay, strategy_name = strategy.blend_historical_delay(
+            ErrorCode.NETWORK_TIMEOUT,
+            static_delay=60.0,
+        )
+
+        assert delay == 15.0
+        assert strategy_name == "learned_blend"
+        # Global store should NOT have been called
+        mock_store.get_learned_wait_time_with_fallback.assert_not_called()
+
+    def test_global_store_static_fallback_ignored(self) -> None:
+        """Test that global store's 'static_fallback' result is ignored."""
+        from unittest.mock import MagicMock
+
+        mock_store = MagicMock()
+        mock_store.get_learned_wait_time_with_fallback.return_value = (
+            60.0, 0.0, "static_fallback"
+        )
+
+        history = DelayHistory()
+        strategy = AdaptiveRetryStrategy(
+            config=RetryStrategyConfig(jitter_factor=0.0),
+            delay_history=history,
+            global_learning_store=mock_store,
+        )
+
+        delay, strategy_name = strategy.blend_historical_delay(
+            ErrorCode.NETWORK_TIMEOUT,
+            static_delay=60.0,
+        )
+
+        # Should fall through to static_bootstrap since history exists but no samples
+        assert delay == 60.0
+        assert strategy_name == "static_bootstrap"
+
+    def test_global_store_error_falls_through_gracefully(self) -> None:
+        """Test that global store query failure doesn't block retry."""
+        from unittest.mock import MagicMock
+
+        mock_store = MagicMock()
+        mock_store.get_learned_wait_time_with_fallback.side_effect = RuntimeError("DB error")
+
+        history = DelayHistory()
+        strategy = AdaptiveRetryStrategy(
+            config=RetryStrategyConfig(jitter_factor=0.0),
+            delay_history=history,
+            global_learning_store=mock_store,
+        )
+
+        delay, strategy_name = strategy.blend_historical_delay(
+            ErrorCode.NETWORK_TIMEOUT,
+            static_delay=60.0,
+        )
+
+        assert delay == 60.0
+        assert strategy_name == "static_bootstrap"
+
+    def test_global_delay_clamped_to_config_range(self) -> None:
+        """Test that global store delay is clamped to [base_delay, max_delay]."""
+        from unittest.mock import MagicMock
+
+        mock_store = MagicMock()
+        # Return a delay far exceeding max_delay
+        mock_store.get_learned_wait_time_with_fallback.return_value = (
+            9999.0, 0.9, "global_learned"
+        )
+
+        history = DelayHistory()
+        strategy = AdaptiveRetryStrategy(
+            config=RetryStrategyConfig(
+                jitter_factor=0.0,
+                max_delay=300.0,
+            ),
+            delay_history=history,
+            global_learning_store=mock_store,
+        )
+
+        delay, strategy_name = strategy.blend_historical_delay(
+            ErrorCode.NETWORK_TIMEOUT,
+            static_delay=60.0,
+        )
+
+        assert delay == 300.0  # Clamped to max_delay
+        assert strategy_name == "global_learned"
+
+
+class TestDelayHistoryPruning:
+    """Tests for DelayHistory pruning logic (B2-08).
+
+    The pruning triggers when history exceeds max_history * 10, keeping
+    the most recent max_history entries per error code, then re-sorting
+    by timestamp for chronological order.
+    """
+
+    def test_no_pruning_below_threshold(self) -> None:
+        """Test that pruning doesn't happen when under threshold."""
+        history = DelayHistory(max_history=10)
+
+        # Add 50 entries (under threshold of 10 * 10 = 100)
+        for i in range(50):
+            history.record(
+                DelayOutcome(
+                    error_code=ErrorCode.NETWORK_TIMEOUT,
+                    delay_seconds=float(i),
+                    succeeded_after=True,
+                )
+            )
+
+        # All 50 should be present
+        outcomes = history.query_for_error_code(ErrorCode.NETWORK_TIMEOUT)
+        assert len(outcomes) == 50
+
+    def test_pruning_triggers_at_threshold(self) -> None:
+        """Test that pruning triggers when threshold is exceeded."""
+        history = DelayHistory(max_history=5)
+
+        # Add 51 entries (just above threshold of 5 * 10 = 50)
+        for i in range(51):
+            history.record(
+                DelayOutcome(
+                    error_code=ErrorCode.NETWORK_TIMEOUT,
+                    delay_seconds=float(i),
+                    succeeded_after=True,
+                )
+            )
+
+        # Should be pruned to max_history (5) per error code
+        outcomes = history.query_for_error_code(ErrorCode.NETWORK_TIMEOUT)
+        assert len(outcomes) == 5
+
+        # Should keep the most recent entries (highest delays)
+        delays = [o.delay_seconds for o in outcomes]
+        assert delays == [46.0, 47.0, 48.0, 49.0, 50.0]
+
+    def test_pruning_preserves_per_error_code_entries(self) -> None:
+        """Test that pruning keeps max_history entries per error code.
+
+        Pruning triggers when len > max_history * 10, keeping the last
+        max_history entries per error code. After pruning, entries added
+        before the next prune cycle are retained.
+        """
+        history = DelayHistory(max_history=3)
+
+        # Add 20 NETWORK_TIMEOUT entries, then 11 RATE_LIMIT_API entries
+        # to trigger pruning at entry 31 (> 30)
+        for i in range(20):
+            history.record(
+                DelayOutcome(
+                    error_code=ErrorCode.NETWORK_TIMEOUT,
+                    delay_seconds=float(i),
+                    succeeded_after=True,
+                )
+            )
+        for i in range(11):
+            history.record(
+                DelayOutcome(
+                    error_code=ErrorCode.RATE_LIMIT_API,
+                    delay_seconds=float(100 + i),
+                    succeeded_after=True,
+                )
+            )
+
+        # After prune at 31: NETWORK_TIMEOUT=3, RATE_LIMIT_API=3 (total=6)
+        timeout_outcomes = history.query_for_error_code(ErrorCode.NETWORK_TIMEOUT)
+        rate_limit_outcomes = history.query_for_error_code(ErrorCode.RATE_LIMIT_API)
+
+        assert len(timeout_outcomes) == 3
+        assert len(rate_limit_outcomes) == 3
+
+    def test_pruning_maintains_chronological_order(self) -> None:
+        """Test that pruning restores chronological order in internal history.
+
+        After pruning, the internal _history list should be sorted by
+        timestamp regardless of error codes being interleaved.
+        """
+        history = DelayHistory(max_history=2)
+
+        # Add interleaved entries — 22 entries total > 20 (2 * 10)
+        # Prune triggers at the 21st entry, keeping last 2 per code.
+        # The 22nd entry is added after pruning without another prune.
+        for i in range(11):
+            history.record(
+                DelayOutcome(
+                    error_code=ErrorCode.NETWORK_TIMEOUT,
+                    delay_seconds=float(i),
+                    succeeded_after=True,
+                )
+            )
+            history.record(
+                DelayOutcome(
+                    error_code=ErrorCode.RATE_LIMIT_API,
+                    delay_seconds=float(100 + i),
+                    succeeded_after=True,
+                )
+            )
+
+        # After pruning, internal history should be in chronological order
+        timestamps = [o.timestamp for o in history._history]
+        assert timestamps == sorted(timestamps)
+
+        # Total entries should be far fewer than original 22
+        assert len(history._history) < 22

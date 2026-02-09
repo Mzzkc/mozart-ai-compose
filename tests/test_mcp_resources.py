@@ -113,7 +113,7 @@ class TestConfigResources:
         assert "mozart://templates" in resource_uris
 
     async def test_get_config_schema(self, config_resources_basic):
-        """Test retrieving configuration schema."""
+        """Test retrieving configuration schema generated from Pydantic models."""
         result = await config_resources_basic._get_config_schema()
 
         assert "contents" in result
@@ -121,17 +121,16 @@ class TestConfigResources:
         assert content["uri"] == "config://schema"
         assert content["mimeType"] == "application/json"
 
-        # Parse the schema JSON
+        # Parse the schema JSON — generated from JobConfig.model_json_schema()
         schema = json.loads(content["text"])
-        assert schema["title"] == "Mozart Job Configuration"
-        assert "job_id" in schema["required"]
-        assert "sheets" in schema["required"]
-        assert "backend" in schema["required"]
+        assert schema["title"] == "JobConfig"
+        assert "name" in schema["required"]
+        assert "sheet" in schema["required"]
 
-        # Check that sheets schema is defined
-        assert "sheets" in schema["properties"]
-        sheets_schema = schema["properties"]["sheets"]
-        assert sheets_schema["type"] == "array"
+        # Check that key configuration sections are defined
+        assert "backend" in schema["properties"]
+        assert "sheet" in schema["properties"]
+        assert "retry" in schema["properties"]
 
     async def test_get_config_example(self, config_resources_basic):
         """Test retrieving configuration example."""
