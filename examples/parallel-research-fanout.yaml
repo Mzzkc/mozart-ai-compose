@@ -1,0 +1,196 @@
+# Example: Fan-Out Parallel Research
+# Demonstrates Mozart's fan-out feature for parameterized stage instantiation.
+#
+# Compare with parallel-research.yaml which manually defines 3 parallel sheets.
+# This example achieves the same result with fan_out, eliminating duplication.
+#
+# Execution Flow (3 stages, 5 concrete sheets):
+#
+#   Stage 1: Setup (sheet 1)
+#        |
+#        +--------+--------+
+#        v        v        v
+#   Stage 2: Search x3 (sheets 2, 3, 4)   <-- fan_out: 3
+#        |        |        |
+#        +--------+--------+
+#                 v
+#   Stage 3: Synthesis (sheet 5)           <-- fan-in: waits for ALL
+#
+# Each instance of stage 2 receives unique variables:
+#   - {{ instance }} = 1, 2, or 3
+#   - {{ fan_count }} = 3
+#   - {{ stage }} = 2 (same logical stage)
+#
+# Usage:
+#   mozart validate examples/parallel-research-fanout.yaml
+#   mozart run examples/parallel-research-fanout.yaml
+#   mozart status fanout-research -w ./fanout-workspace
+
+name: "fanout-research"
+description: "Multi-source research using fan-out for parallel search"
+
+workspace: "./fanout-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  timeout_seconds: 1800
+  disable_mcp: true
+  allowed_tools:
+    - Read
+    - Write
+    - Glob
+    - Grep
+    - WebSearch
+    - WebFetch
+
+sheet:
+  size: 1
+  total_items: 3       # 3 logical stages (expands to 5 concrete sheets)
+
+  # Fan-out: stage 2 runs 3 parallel instances
+  fan_out:
+    2: 3
+
+  # Stage-level dependencies (expanded automatically)
+  #   Stage 2 depends on 1  =>  sheets 2,3,4 each depend on sheet 1
+  #   Stage 3 depends on 2  =>  sheet 5 depends on sheets 2,3,4 (fan-in)
+  dependencies:
+    2: [1]
+    3: [2]
+
+parallel:
+  enabled: true
+  max_concurrent: 3
+
+retry:
+  max_retries: 2
+  base_delay_seconds: 30
+
+prompt:
+  variables:
+    research_topic: "AI code generation tools and their impact on software development productivity"
+    search_domains:
+      1: "Academic (Google Scholar, arXiv, ACM DL)"
+      2: "Industry (tech blogs, developer surveys)"
+      3: "Patents (USPTO, Google Patents)"
+
+  template: |
+    You are conducting multi-source research on: {{ research_topic }}
+    Stage {{ stage }} of {{ total_stages }} (sheet {{ sheet_num }} of {{ total_sheets }}).
+    Workspace: {{ workspace }}
+
+    {% if stage == 1 %}
+    =========================================================================
+    STAGE 1: Research Setup (Foundation)
+    =========================================================================
+
+    Establish the research framework and search strategy.
+
+    TASKS:
+    1. Define key search terms and Boolean operators
+    2. Identify target sources for each of 3 parallel searches:
+       - Academic: Google Scholar, arXiv, ACM DL, IEEE
+       - Industry: Tech blogs, company reports, Stack Overflow surveys
+       - Patents: USPTO, Google Patents
+    3. Create quality criteria checklist
+
+    OUTPUT: Write to {{ workspace }}/01-research-setup.md
+    End with: RESEARCH_SETUP_COMPLETE
+
+    {% elif stage == 2 %}
+    =========================================================================
+    STAGE 2: Search Domain {{ instance }} of {{ fan_count }}
+    Domain: {{ search_domains[instance] }}
+    =========================================================================
+
+    NOTE: This runs in PARALLEL with {{ fan_count - 1 }} other search instances.
+
+    Read: {{ workspace }}/01-research-setup.md (for search terms)
+
+    TASKS:
+    1. Search the {{ search_domains[instance] }} domain
+    2. Extract key findings from top 10 relevant sources
+    3. Note methodologies and metrics used
+    4. Identify gaps specific to this domain
+
+    OUTPUT: Write to {{ workspace }}/02-search-{{ instance }}.md
+
+    Format each finding as:
+    ```
+    SOURCE: [citation/url]
+    TYPE: [category]
+    FINDING: [key finding]
+    RELEVANCE: [high/medium/low]
+    ```
+
+    End with: SEARCH_{{ instance }}_COMPLETE
+
+    {% elif stage == 3 %}
+    =========================================================================
+    STAGE 3: Cross-Source Synthesis
+    =========================================================================
+
+    Synthesize findings from ALL {{ fan_count }} parallel searches.
+
+    Read ALL search outputs:
+    {% for i in range(1, 4) %}
+    - {{ workspace }}/02-search-{{ i }}.md
+    {% endfor %}
+
+    TASKS:
+    1. Identify CONVERGENT findings (appear in multiple domains)
+    2. Identify DIVERGENT findings (domains disagree)
+    3. Note gaps (topics covered by one domain but not others)
+    4. Assess overall evidence strength
+
+    CONVERGENCE SCORING:
+    - HIGH: Supported by all 3 domains
+    - MEDIUM: Supported by 2 of 3 domains
+    - LOW: Single domain only
+
+    OUTPUT: Write to {{ workspace }}/03-synthesis.md
+    End with: SYNTHESIS_COMPLETE
+
+    {% endif %}
+
+# Validations use stage-aware conditions
+validations:
+  # Stage 1: Setup
+  - type: file_exists
+    path: "{workspace}/01-research-setup.md"
+    condition: "stage == 1"
+    description: "Research setup document created"
+  - type: content_contains
+    path: "{workspace}/01-research-setup.md"
+    pattern: "RESEARCH_SETUP_COMPLETE"
+    condition: "stage == 1"
+    description: "Setup marked complete"
+
+  # Stage 2: Each search instance (condition matches all 3 instances)
+  - type: file_exists
+    path: "{workspace}/02-search-{instance}.md"
+    condition: "stage == 2"
+    description: "Search output created for this instance"
+  - type: content_regex
+    path: "{workspace}/02-search-{instance}.md"
+    pattern: "SEARCH_\\d+_COMPLETE"
+    condition: "stage == 2"
+    description: "Search marked complete"
+
+  # Stage 3: Synthesis
+  - type: file_exists
+    path: "{workspace}/03-synthesis.md"
+    condition: "stage == 3"
+    description: "Synthesis document created"
+  - type: content_contains
+    path: "{workspace}/03-synthesis.md"
+    pattern: "SYNTHESIS_COMPLETE"
+    condition: "stage == 3"
+    description: "Synthesis complete"
+
+notifications:
+  - type: desktop
+    on_events:
+      - job_complete
+      - job_failed

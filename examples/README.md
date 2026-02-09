@@ -16,6 +16,7 @@ This directory contains example Mozart configurations for various use cases. Moz
 | [self-improvement.yaml](self-improvement.yaml) | Incremental codebase improvement with quality gates (pytest, mypy, ruff) | Medium |
 | [sheet-review.yaml](sheet-review.yaml) | Multi-agent coordinated code review with expert agents | High |
 | [worktree-isolation.yaml](worktree-isolation.yaml) | Parallel-safe execution using git worktrees | Medium |
+| [parallel-research-fanout.yaml](parallel-research-fanout.yaml) | Fan-out: parameterized parallel stages without sheet duplication | Medium |
 | [observability-demo.yaml](observability-demo.yaml) | Demonstrating logging, error tracking, and diagnostics | Medium |
 
 ## Beyond Coding
@@ -136,12 +137,33 @@ For jobs that take hours (literature reviews, book authoring), run detached:
 
 ```bash
 # Detached execution (survives session changes)
-nohup mozart run examples/nonfiction-book.yaml > book-workspace/mozart.log 2>&1 &
+setsid mozart run examples/nonfiction-book.yaml > book-workspace/mozart.log 2>&1 &
 
 # Monitor progress
-tail -f book-workspace/mozart.log
-mozart status nonfiction-book --workspace ./book-workspace
+mozart status nonfiction-book -w ./book-workspace --watch
 ```
+
+### Pausing and Modifying Jobs
+
+Jobs can be paused gracefully and resumed with updated configuration:
+
+```bash
+# Pause a running job
+mozart pause nonfiction-book -w ./book-workspace
+
+# Modify the config and resume in one step
+mozart modify nonfiction-book -c examples/nonfiction-book-v2.yaml -r -w ./book-workspace
+
+# Or use the two-step workflow for inspection
+mozart pause my-job -w ./workspace
+# Inspect state, make config changes...
+mozart resume my-job -w ./workspace --reload-config -c updated.yaml
+```
+
+**When to use pause/modify:**
+- Mid-job configuration tweaks (change model, adjust prompts)
+- Resource constraints (pause overnight, resume in morning)
+- Error recovery (pause, fix config issue, resume with fixed config)
 
 ---
 

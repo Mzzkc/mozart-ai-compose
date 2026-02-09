@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 
 class IsolationMode(str, Enum):
@@ -1313,6 +1313,11 @@ class BackendConfig(BaseModel):
         gt=0,
         description="Maximum time allowed per prompt execution (seconds). Default: 30 minutes.",
     )
+    timeout_overrides: dict[int, float] = Field(
+        default_factory=dict,
+        description="Per-sheet timeout overrides. Map of sheet_num -> timeout in seconds. "
+        "Sheets not listed use the global timeout_seconds.",
+    )
     cli_extra_args: list[str] = Field(
         default_factory=list,
         description="Escape hatch for CLI flags not yet exposed as named options. "
@@ -1350,6 +1355,12 @@ class SheetConfig(BaseModel):
 
     In Mozart's musical theme, a composition is divided into sheets,
     each containing a portion of the work to be performed.
+
+    Fan-out support: When ``fan_out`` is specified, stages are expanded into
+    concrete sheets at parse time. For example, ``total_items=7, fan_out={2: 3}``
+    produces 9 concrete sheets (stage 2 instantiated 3 times). After expansion,
+    ``total_items`` and ``dependencies`` reflect expanded values, and ``fan_out``
+    is cleared to ``{}`` to prevent re-expansion on resume.
     """
 
     size: int = Field(ge=1, description="Number of items per sheet")
@@ -1366,10 +1377,81 @@ class SheetConfig(BaseModel):
         ),
     )
 
+    # Fan-out: parameterized stage instantiation
+    fan_out: dict[int, int] = Field(
+        default_factory=dict,
+        description=(
+            "Fan-out declarations. Map of stage_num -> instance count. "
+            "Stages not listed default to 1 instance. "
+            "Example: {2: 3, 4: 3} creates 3 parallel instances of stages 2 and 4. "
+            "Requires size=1 and start_item=1. Cleared after expansion."
+        ),
+    )
+
+    fan_out_stage_map: dict[int, dict[str, int]] | None = Field(
+        default=None,
+        description=(
+            "Per-sheet fan-out metadata, populated by expansion. "
+            "Map of sheet_num -> {stage, instance, fan_count}. "
+            "Survives serialization for resume support."
+        ),
+    )
+
     @property
     def total_sheets(self) -> int:
         """Calculate total number of sheets."""
         return (self.total_items - self.start_item + 1 + self.size - 1) // self.size
+
+    @property
+    def total_stages(self) -> int:
+        """Return the original stage count.
+
+        After fan-out expansion, total_items reflects expanded sheet count.
+        total_stages preserves the original logical stage count from fan_out_stage_map.
+        When no fan-out was used, total_stages == total_sheets (identity).
+        """
+        if self.fan_out_stage_map:
+            return max(
+                meta["stage"] for meta in self.fan_out_stage_map.values()
+            )
+        return self.total_sheets
+
+    def get_fan_out_metadata(self, sheet_num: int) -> "FanOutMetadata":
+        """Get fan-out metadata for a specific sheet.
+
+        Args:
+            sheet_num: Concrete sheet number (1-indexed).
+
+        Returns:
+            FanOutMetadata with stage, instance, and fan_count.
+            When no fan-out is configured, returns identity metadata
+            (stage=sheet_num, instance=1, fan_count=1).
+        """
+        from mozart.execution.fan_out import FanOutMetadata
+
+        if self.fan_out_stage_map and sheet_num in self.fan_out_stage_map:
+            meta = self.fan_out_stage_map[sheet_num]
+            return FanOutMetadata(
+                stage=meta["stage"],
+                instance=meta["instance"],
+                fan_count=meta["fan_count"],
+            )
+        return FanOutMetadata(stage=sheet_num, instance=1, fan_count=1)
+
+    @field_validator("fan_out")
+    @classmethod
+    def validate_fan_out(cls, v: dict[int, int]) -> dict[int, int]:
+        """Validate fan_out field values."""
+        for stage, count in v.items():
+            if not isinstance(stage, int) or stage < 1:
+                raise ValueError(
+                    f"Fan-out stage must be positive integer, got {stage}"
+                )
+            if not isinstance(count, int) or count < 1:
+                raise ValueError(
+                    f"Fan-out count for stage {stage} must be >= 1, got {count}"
+                )
+        return v
 
     @field_validator("dependencies")
     @classmethod
@@ -1396,6 +1478,59 @@ class SheetConfig(BaseModel):
                     raise ValueError(f"Sheet {sheet_num} cannot depend on itself")
         return v
 
+    @model_validator(mode="after")
+    def expand_fan_out_config(self) -> "SheetConfig":
+        """Expand fan_out declarations into concrete sheet assignments.
+
+        This runs after field validators. When fan_out is non-empty:
+        1. Validates constraints (size=1, start_item=1)
+        2. Calls expand_fan_out() to compute concrete sheet assignments
+        3. Overwrites total_items and dependencies with expanded values
+        4. Stores metadata in fan_out_stage_map for resume support
+        5. Clears fan_out={} to prevent re-expansion on resume
+        """
+        if not self.fan_out:
+            return self
+
+        # Enforce constraints for fan-out
+        if self.size != 1:
+            raise ValueError(
+                f"fan_out requires size=1, got size={self.size}. "
+                "Each stage must map to exactly one sheet for fan-out to work."
+            )
+        if self.start_item != 1:
+            raise ValueError(
+                f"fan_out requires start_item=1, got start_item={self.start_item}. "
+                "Fan-out stages are 1-indexed from the beginning."
+            )
+
+        from mozart.execution.fan_out import expand_fan_out
+
+        expansion = expand_fan_out(
+            total_stages=self.total_items,
+            fan_out=self.fan_out,
+            stage_dependencies=self.dependencies,
+        )
+
+        # Overwrite with expanded values
+        self.total_items = expansion.total_sheets
+        self.dependencies = expansion.expanded_dependencies
+
+        # Store serializable metadata for resume
+        self.fan_out_stage_map = {
+            sheet_num: {
+                "stage": meta.stage,
+                "instance": meta.instance,
+                "fan_count": meta.fan_count,
+            }
+            for sheet_num, meta in expansion.sheet_metadata.items()
+        }
+
+        # Clear fan_out to prevent re-expansion on resume
+        self.fan_out = {}
+
+        return self
+
 
 class PromptConfig(BaseModel):
     """Configuration for prompt templating."""
@@ -1421,11 +1556,14 @@ class PromptConfig(BaseModel):
         description="Thinking methodology to inject into prompt",
     )
 
-    @field_validator("template", "template_file")
-    @classmethod
-    def at_least_one_template(cls, v: str | Path | None, info: ValidationInfo) -> str | Path | None:
-        """Ensure at least one template source is provided (validated at model level)."""
-        return v
+    @model_validator(mode="after")
+    def at_least_one_template(self) -> "PromptConfig":
+        """Warn when no template source is provided (falls back to default prompt)."""
+        if self.template is not None and self.template_file is not None:
+            raise ValueError(
+                "PromptConfig accepts 'template' or 'template_file', not both"
+            )
+        return self
 
 
 class ParallelConfig(BaseModel):
@@ -1472,7 +1610,9 @@ class ParallelConfig(BaseModel):
         default=True,
         description="Partition cost budget across parallel branches. "
         "When True, each parallel sheet gets (remaining_budget / max_concurrent). "
-        "When False, each sheet has access to full remaining budget.",
+        "When False, each sheet has access to full remaining budget. "
+        "NOTE: Not yet implemented — this field is accepted but not enforced. "
+        "Cost checks currently use global total regardless of this setting.",
     )
 
 

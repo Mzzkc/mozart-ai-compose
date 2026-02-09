@@ -21,7 +21,8 @@ class SheetContext:
     """Context for building a sheet prompt.
 
     Includes both sheet-level metadata and optional cross-sheet context
-    from previous sheet executions.
+    from previous sheet executions. Fan-out metadata (stage, instance,
+    fan_count, total_stages) is populated when fan_out is configured.
     """
 
     sheet_num: int
@@ -29,6 +30,15 @@ class SheetContext:
     start_item: int
     end_item: int
     workspace: Path
+    # Fan-out metadata (populated by runner when fan_out is configured)
+    stage: int = 0
+    """Logical stage number (1-indexed). 0 = not set, falls back to sheet_num."""
+    instance: int = 1
+    """Instance within fan-out group (1-indexed). Default 1."""
+    fan_count: int = 1
+    """Total instances in this stage's fan-out group. Default 1."""
+    total_stages: int = 0
+    """Original stage count before expansion. 0 = not set, falls back to total_sheets."""
     # Cross-sheet context (populated by runner when CrossSheetConfig is enabled)
     previous_outputs: dict[int, str] = field(default_factory=dict)
     """Stdout outputs from previous sheets. Keys are sheet numbers (1-indexed)."""
@@ -43,6 +53,10 @@ class SheetContext:
             "start_item": self.start_item,
             "end_item": self.end_item,
             "workspace": str(self.workspace),
+            "stage": self.stage if self.stage > 0 else self.sheet_num,
+            "instance": self.instance,
+            "fan_count": self.fan_count,
+            "total_stages": self.total_stages if self.total_stages > 0 else self.total_sheets,
             "previous_outputs": self.previous_outputs,
             "previous_files": self.previous_files,
         }

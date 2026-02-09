@@ -259,6 +259,10 @@ Available in prompts:
 | `workspace` | `./workspace` | Workspace path |
 | `stakes` | `"Be careful!"` | Custom stakes text |
 | `thinking_method` | `"Think step by step"` | Thinking guidance |
+| `stage` | `2` | Logical stage number (with fan-out) |
+| `instance` | `1` | Instance within fan-out group |
+| `fan_count` | `3` | Total instances in stage |
+| `total_stages` | `7` | Original stage count |
 
 ## Monitoring with Dashboard
 

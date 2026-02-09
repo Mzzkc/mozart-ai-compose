@@ -981,10 +981,15 @@ class SheetExecutionMixin:
             output_log_base = self.config.workspace / "logs" / f"sheet-{sheet_num:02d}"
             self.backend.set_output_log_path(output_log_base)
 
+            # Resolve per-sheet timeout override (if configured)
+            sheet_timeout = self.config.backend.timeout_overrides.get(sheet_num)
+
             self.console.print(
                 f"[blue]Sheet {sheet_num}: {current_mode.value} execution[/blue]"
             )
-            result = await self.backend.execute(current_prompt)
+            result = await self.backend.execute(
+                current_prompt, timeout_seconds=sheet_timeout,
+            )
 
             # Store execution progress snapshots in sheet state (Task 4)
             if self._execution_progress_snapshots:
@@ -1424,6 +1429,13 @@ class SheetExecutionMixin:
             start_item=self.config.sheet.start_item,
             workspace=self.config.workspace,
         )
+
+        # Populate fan-out metadata for template variables
+        fan_meta = self.config.sheet.get_fan_out_metadata(sheet_num)
+        context.stage = fan_meta.stage
+        context.instance = fan_meta.instance
+        context.fan_count = fan_meta.fan_count
+        context.total_stages = self.config.sheet.total_stages
 
         # Populate cross-sheet context if configured
         if self.config.cross_sheet and state:

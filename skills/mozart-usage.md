@@ -28,6 +28,8 @@
 | `mozart run config.yaml` | Execute job |
 | `mozart status job-id -w ./ws` | Check progress |
 | `mozart resume job-id -w ./ws` | Continue from checkpoint |
+| `mozart pause job-id -w ./ws` | Pause running job |
+| `mozart modify job-id -c new.yaml` | Modify config and resume |
 | `mozart diagnose job-id -w ./ws` | Full diagnostic report |
 | `mozart errors job-id -V` | List errors with details |
 | `mozart validate config.yaml` | Validate config syntax |
@@ -39,8 +41,6 @@
 | `mozart pattern-quarantine <id>` | Quarantine a suspicious pattern |
 | `mozart pattern-validate <id>` | Validate a quarantined pattern |
 | `mozart recalculate-trust` | Recalculate all pattern trust scores |
-| `mozart patterns-budget` | View exploration budget status (v23) |
-| `mozart entropy-status` | View entropy response status (v23) |
 
 ### Global Options
 
@@ -107,6 +107,67 @@ mozart status job-id -j              # JSON output
 | `--json` | `-j` | JSON output |
 | `--watch` | `-W` | Continuous monitoring |
 | `--interval` | `-i` | Watch refresh seconds (default: 5) |
+
+### `mozart pause`
+
+Pause a running job gracefully. Creates a pause signal that the job detects at the next sheet boundary.
+
+```bash
+mozart pause job-id -w ./ws         # Pause running job
+mozart pause job-id --wait          # Wait for acknowledgment
+mozart pause job-id --wait -t 30    # Wait with 30s timeout
+mozart pause job-id -j              # JSON output
+```
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--workspace` | `-w` | Workspace directory |
+| `--wait` | | Wait for pause acknowledgment |
+| `--timeout` | `-t` | Wait timeout seconds (default: 60) |
+| `--json` | `-j` | JSON output |
+
+**How it works:**
+1. Creates a `.mozart-pause-{job_id}` signal file in the workspace
+2. Running job checks for this file between sheets
+3. Job saves state and transitions to PAUSED status
+4. Signal file is removed after acknowledgment
+
+**Use cases:**
+- Gracefully stop a job to inspect intermediate results
+- Prepare for config modifications
+- Free up resources temporarily
+
+### `mozart modify`
+
+Modify a job's configuration and optionally resume execution. Combines pause + config validation in one command.
+
+```bash
+mozart modify job-id -c updated.yaml              # Modify config only
+mozart modify job-id -c new.yaml -r               # Modify and resume
+mozart modify job-id -c updated.yaml -r -w ./ws   # With workspace
+mozart modify job-id -c updated.yaml -r --wait    # Wait for pause before resume
+```
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--config` | `-c` | New configuration file (required) |
+| `--workspace` | `-w` | Workspace directory |
+| `--resume` | `-r` | Immediately resume with new config after pausing |
+| `--wait` | | Wait for job to pause before resuming (when --resume) |
+| `--timeout` | `-t` | Timeout in seconds for pause acknowledgment (default: 60) |
+| `--json` | `-j` | JSON output |
+
+**How it works:**
+1. Validates the new config file
+2. If job is running, sends pause signal
+3. Optionally waits for pause acknowledgment
+4. If `--resume`, starts resume with new config
+
+**Use cases:**
+- Change prompts mid-job based on early results
+- Adjust timeouts or retry settings
+- Fix configuration errors without losing progress
+- Swap models or backend settings
 
 ### `mozart resume`
 
@@ -194,190 +255,6 @@ mozart dashboard -r                  # Auto-reload (dev mode)
 | `--workspace` | `-w` | Workspace directory |
 | `--reload` | `-r` | Auto-reload for development |
 
-### `mozart patterns` (v19)
-
-View and manage global learning patterns with quarantine and trust filtering.
-
-```bash
-mozart patterns                      # List global patterns
-mozart patterns --quarantined        # Show quarantined patterns only
-mozart patterns --high-trust         # Patterns with trust >= 0.7
-mozart patterns --low-trust          # Patterns with trust <= 0.3
-mozart patterns -p 0.5               # Min priority threshold
-mozart patterns -j                   # JSON output
-```
-
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--global/--local` | `-g/-l` | Global or workspace patterns |
-| `--min-priority` | `-p` | Minimum priority score (0.0-1.0) |
-| `--limit` | `-n` | Max patterns to display (default: 20) |
-| `--json` | `-j` | JSON output for scripting |
-| `--quarantined` | `-q` | Only quarantined patterns |
-| `--high-trust` | | Trust >= 0.7 only |
-| `--low-trust` | | Trust <= 0.3 only |
-
-### `mozart pattern-show` (v19)
-
-Show detailed pattern information including provenance and trust.
-
-```bash
-mozart pattern-show abc123           # Show pattern by ID prefix
-mozart pattern-show abc123 -j        # JSON output
-```
-
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--json` | `-j` | JSON output |
-
-### `mozart pattern-quarantine` (v19)
-
-Quarantine a pattern to exclude it from automatic application.
-
-```bash
-mozart pattern-quarantine abc123                      # Quarantine by ID
-mozart pattern-quarantine abc123 -r "Causes errors"   # With reason
-```
-
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--reason` | `-r` | Reason for quarantine |
-
-### `mozart pattern-validate` (v19)
-
-Validate a quarantined pattern, restoring it to active status.
-
-```bash
-mozart pattern-validate abc123       # Validate by ID prefix
-```
-
-### `mozart recalculate-trust` (v19)
-
-Recalculate trust scores for all patterns based on effectiveness.
-
-```bash
-mozart recalculate-trust             # Recalculate all trust scores
-```
-
----
-
-## Dashboard (Production)
-
-The Mozart Dashboard provides a full web UI for orchestrating jobs, monitoring status,
-and designing score configurations. Architecture: HTMX + Alpine.js + FastAPI.
-
-### Starting the Dashboard
-
-```bash
-# Basic start (localhost only)
-mozart dashboard --port 8080
-
-# With workspace directory
-mozart dashboard --workspace ./my-workspace --port 8080
-
-# For external connections
-mozart dashboard --host 0.0.0.0 --port 8080
-
-# Development mode with auto-reload
-mozart dashboard --reload
-```
-
-### Dashboard Features
-
-| Feature | Description |
-|---------|-------------|
-| Job List | View all jobs with real-time status updates |
-| Job Detail | Deep dive into sheets, validations, logs |
-| Job Control | Start, pause, resume, cancel jobs with graceful SIGTERM handling |
-| Log Streaming | Real-time SSE-powered log viewer with filtering |
-| Artifact Browser | Browse workspace files with syntax highlighting |
-| Score Editor | CodeMirror 6 YAML editor with validation |
-| Template Browser | One-click score templates |
-| AI Generation | Natural language to score YAML |
-| Dark Mode | System-aware theme switching |
-
-### API Endpoints
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET | `/api/jobs` | List jobs with filtering |
-| GET | `/api/jobs/{job_id}` | Full job details |
-| POST | `/api/jobs` | Start new job |
-| POST | `/api/jobs/{job_id}/pause` | Pause running job (graceful SIGTERM) |
-| POST | `/api/jobs/{job_id}/resume` | Resume paused job |
-| POST | `/api/jobs/{job_id}/cancel` | Cancel job (force termination) |
-| GET | `/api/jobs/{job_id}/stream` | SSE status stream |
-| GET | `/api/jobs/{job_id}/logs` | SSE log streaming |
-| GET | `/api/jobs/{job_id}/artifacts` | List workspace files |
-| POST | `/api/scores/validate` | Validate score YAML |
-| POST | `/api/scores/generate` | AI-generate score |
-
-### Job Control Operations
-
-The dashboard provides full job lifecycle management with proper signal handling:
-
-**Pause Operations:**
-- Sends SIGTERM to running job processes
-- Gracefully waits for current sheet completion
-- Updates job state to PAUSED in real-time
-- Handles zombie process cleanup
-
-**Resume Operations:**
-- Detects and resumes paused jobs
-- Uses background execution for session independence
-- Maintains full state continuity
-- Supports workspace isolation
-
-**Cancel Operations:**
-- Force terminates job processes
-- Cleans up any remaining state
-- Updates UI immediately via SSE streams
-
-### MCP Server
-
-Mozart includes an MCP server for IDE integration:
-
-```bash
-# Start MCP server (stdio mode for Claude Desktop)
-mozart mcp
-
-# Configure in Claude Desktop:
-# Add to ~/.config/Claude/claude_desktop_config.json:
-{
-  "mcpServers": {
-    "mozart": {
-      "command": "mozart",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-**Available MCP Tools:**
-
-| Tool | Description |
-|------|-------------|
-| `list_jobs` | List all Mozart jobs |
-| `get_job` | Get job details |
-| `start_job` | Start a new job |
-| `pause_job` | Pause running job |
-| `resume_job` | Resume paused job |
-| `cancel_job` | Cancel job |
-| `get_logs` | Get job logs |
-| `list_artifacts` | List workspace files |
-| `get_artifact` | Get file contents |
-| `validate_score` | Validate score YAML |
-| `generate_score` | AI-generate score |
-
-**Available MCP Resources:**
-
-| URI | Description |
-|-----|-------------|
-| `mozart://jobs` | All jobs collection |
-| `mozart://jobs/{job_id}` | Single job state |
-| `mozart://jobs/{job_id}/logs` | Job execution logs |
-| `mozart://templates` | Score template list |
-
 ### `mozart diagnose`
 
 ```bash
@@ -392,139 +269,53 @@ mozart diagnose job-id -j            # JSON output
 
 ---
 
-## Mental Models
+## Pause/Modify Workflow
 
-### 1. Sheet Model
+### Common Patterns
 
-```
-Job: 100 items, sheet_size=10 → 10 sheets
-├── Sheet 1: items 1-10    → own prompt, validations, retry budget
-├── Sheet 2: items 11-20
-└── ...
-```
-
-### 2. Validation-First Model
-
-**Exit code ≠ Success**. Only validation pass = success.
-
-```
-Execution → Run validations → All pass? → SUCCESS
-                           → Any fail? → Retry or FAIL
+**Pause and inspect:**
+```bash
+mozart pause my-job -w ./workspace
+# Inspect intermediate results...
+cat workspace/sheet-3-output.md
+# Resume when ready
+mozart resume my-job -w ./workspace
 ```
 
-### 3. Retry Hierarchy
-
-```
-1. Completion Mode (>50% validations pass)
-   └── Send completion prompt, preserve partial work
-
-2. Full Retry (<50% pass or completion exhausted)
-   └── Re-execute entire sheet with backoff
-
-3. Rate Limit Wait (separate from retries)
-   └── PAUSED state, auto-resume after wait
+**Modify config on the fly:**
+```bash
+# Running job needs different timeout
+mozart modify my-job -c updated.yaml -r -w ./workspace
 ```
 
-### 4. State Machine
-
-```
-Sheet: PENDING → RUNNING → COMPLETED | FAILED | RATE_LIMITED
-Job:   PENDING → RUNNING → COMPLETED | FAILED | PAUSED
-```
-
----
-
-## Parallel Sheet Execution (v17)
-
-Mozart supports executing independent sheets in parallel using a dependency DAG.
-
-### Configuration
-
-```yaml
-sheet:
-  size: 1
-  total_items: 6
-  start_item: 1
-
-  # Define which sheets depend on which
-  dependencies:
-    # Sheets 2, 3, 4 all depend only on sheet 1 → run in PARALLEL
-    2: [1]
-    3: [1]    # PARALLEL with 2
-    4: [1]    # PARALLEL with 2 and 3
-
-    # Sheet 5 depends on ALL parallel sheets → waits for all
-    5: [2, 3, 4]
-
-    # Sheet 6 is sequential after 5
-    6: [5]
+**Two-step modify for inspection:**
+```bash
+mozart pause my-job -w ./workspace
+# Review state, make config changes...
+mozart resume my-job --reload-config -c fixed.yaml -w ./workspace
 ```
 
-### Execution Flow
+**Graceful overnight pause:**
+```bash
+# End of day - pause all jobs
+for job in $(mozart list -s running -w ./workspace --json | jq -r '.[].job_id'); do
+  mozart pause "$job" -w ./workspace
+done
 
-```
-Sheet 1 (setup)
-     │
-     ├──────────┬──────────┐
-     ▼          ▼          ▼
-Sheet 2    Sheet 3    Sheet 4   ← Run in PARALLEL
-     │          │          │
-     └──────────┴──────────┘
-              │
-              ▼
-         Sheet 5 (synthesis)    ← Waits for ALL parallel sheets
-              │
-              ▼
-         Sheet 6 (report)
+# Morning - resume
+for job in $(mozart list -s paused -w ./workspace --json | jq -r '.[].job_id'); do
+  mozart resume "$job" -w ./workspace
+done
 ```
 
-### Key Points
+### When to Use Pause vs Modify
 
-| Aspect | Behavior |
-|--------|----------|
-| **Speed** | N parallel sheets ≈ time of slowest, not sum |
-| **Isolation** | Each sheet runs in separate Claude session |
-| **Synthesis** | Dependent sheets receive merged outputs |
-| **Conflict Detection** | v20 detects conflicting key-value pairs |
-
-### Use Cases
-
-- **Multi-source research**: Academic + industry + patent searches in parallel
-- **Multi-reviewer analysis**: Security + architecture + quality reviews
-- **Test parallelization**: Unit + integration + e2e tests simultaneously
-- **Data collection**: Multiple API sources queried concurrently
-
-### Example
-
-See `examples/parallel-research.yaml` for a complete working example.
-
-### Result Synthesis (v18)
-
-When parallel sheets complete, the `ResultSynthesizer` merges their outputs:
-
-```yaml
-# In synthesis sheet prompt:
-Read ALL parallel outputs:
-- {{ workspace }}/02-academic-findings.md
-- {{ workspace }}/03-industry-findings.md
-- {{ workspace }}/04-patent-findings.md
-
-Apply convergence scoring:
-- HIGH: Finding in 3+ sources
-- MEDIUM: Finding in 2 sources
-- LOW: Single source only
-```
-
-### Conflict Detection (v20)
-
-Cross-Sheet Semantic Validation detects when parallel sheets produce conflicting data:
-
-```
-Sheet 2: STATUS: complete
-Sheet 3: STATUS: failed       ← CONFLICT DETECTED
-```
-
-Mozart will warn before synthesis merges conflicting values.
+| Scenario | Use |
+|----------|-----|
+| Just want to stop temporarily | `pause` |
+| Need to change config and continue | `modify -r` |
+| Want to inspect before resuming | `pause`, then `resume --reload-config` |
+| Config error causing failures | `modify -c fixed.yaml -r` |
 
 ---
 
@@ -585,11 +376,11 @@ Error codes are organized by category (first digit after E):
 
 | Code | Retry? | Meaning |
 |------|--------|---------|
-| E501 | Yes | Connection failed |
-| E502 | No | Auth/authorization failed |
-| E503 | Yes | Invalid response |
-| E504 | Yes | Backend timeout |
-| E505 | No | Backend not found (ENOENT) |
+| E501 | Yes | Connection failed / Job not found |
+| E502 | No | Auth/authorization failed / Job not in valid state |
+| E503 | Yes | Invalid response / Cannot create signal |
+| E504 | Yes | Backend timeout / Pause not acknowledged |
+| E505 | No | Backend not found (ENOENT) / Invalid config |
 
 ### E6xx: Preflight Errors
 
@@ -610,15 +401,6 @@ Error codes are organized by category (first digit after E):
 | E904 | Yes | Network timeout |
 | E999 | Yes | Unknown error |
 
-### Quick Category Reference
-
-```
-E0xx Execution    E4xx State
-E1xx Rate Limit   E5xx Backend
-E2xx Validation   E6xx Preflight
-E3xx Config       E9xx Network
-```
-
 ---
 
 ## Configuration
@@ -636,6 +418,57 @@ prompt:
     Process items {{ start_item }} to {{ end_item }}.
 ```
 
+### Fan-Out: Parameterized Stage Instantiation
+
+Fan-out lets one stage definition instantiate N parallel copies, each receiving unique `{{ stage }}`, `{{ instance }}`, and `{{ fan_count }}` variables. This avoids duplicating nearly-identical sheets for parallel work.
+
+```yaml
+sheet:
+  size: 1                    # Required: must be 1 for fan-out
+  total_items: 7             # 7 logical stages
+  fan_out:
+    2: 3                     # Stage 2 → 3 parallel instances
+    4: 3                     # Stage 4 → 3 parallel instances
+    5: 3                     # Stage 5 → 3 parallel instances
+  dependencies:
+    2: [1]                   # Investigate depends on survey
+    3: [2]                   # Adversarial waits for ALL investigations (fan-in)
+    4: [3]                   # Execute depends on adversarial
+    5: [4]                   # Review.i depends on execute.i (instance-matched)
+    6: [5]                   # Finalize waits for ALL reviews (fan-in)
+    7: [6]                   # Commit depends on finalize
+
+parallel:
+  enabled: true
+  max_concurrent: 3
+
+prompt:
+  template: |
+    {% if stage == 1 %}
+    Pick 3 issues to fix...
+    {% elif stage == 2 %}
+    You are investigator {{ instance }} of {{ fan_count }}.
+    Investigate issue {{ instance }}...
+    {% elif stage == 3 %}
+    Review all {{ fan_count }} investigations...
+    {% endif %}
+```
+
+**Expansion:** 7 stages → 13 concrete sheets (1 + 3 + 1 + 3 + 3 + 1 + 1).
+
+**Dependency patterns:**
+
+| Pattern | When | Rule |
+|---------|------|------|
+| Fan-out (1→N) | Single stage → fanned stage | Each instance depends on the single source |
+| Fan-in (N→1) | Fanned stage → single stage | Target depends on ALL instances |
+| Instance-matched (N→N) | Same fan count | Instance i depends on instance i |
+| Cross-fan (N→M) | Different fan counts, both >1 | All-to-all (conservative) |
+
+**Constraints:** `fan_out` requires `size: 1` and `start_item: 1`.
+
+**Resume safety:** After expansion, `fan_out` is cleared and `fan_out_stage_map` stores per-sheet metadata. Resuming a paused job re-parses the expanded config without re-expanding.
+
 ### Full Config Reference
 
 ```yaml
@@ -647,6 +480,9 @@ sheet:
   size: 10
   total_items: 100
   start_item: 1
+  # Fan-out (optional): stage → instance count
+  # fan_out: { 2: 3, 4: 3 }
+  # dependencies: { 2: [1], 3: [2] }
 
 prompt:
   template: |                    # OR template_file: ./prompt.j2
@@ -673,22 +509,6 @@ backend:
   timeout_seconds: 1800
   cli_extra_args: ["--flag"]    # Escape hatch for new flags
 
-  # API options (type: anthropic_api)
-  model: claude-sonnet-4-20250514
-  api_key_env: ANTHROPIC_API_KEY
-  max_tokens: 8192
-  temperature: 0.7
-
-  # Recursive Light options (type: recursive_light)
-  recursive_light:
-    endpoint: "http://localhost:8080"
-    user_id: "mozart-instance-1"
-    timeout: 30.0
-
-# === STATE ===
-state_backend: sqlite           # json | sqlite
-state_path: ./workspace/.mozart-state.db
-
 # === TIMING ===
 pause_between_sheets_seconds: 10
 
@@ -699,59 +519,12 @@ retry:
   max_delay_seconds: 3600
   exponential_base: 2.0
   jitter: true
-  max_completion_attempts: 3
-  completion_delay_seconds: 5.0
-  completion_threshold_percent: 50
 
 # === RATE LIMIT ===
 rate_limit:
   wait_minutes: 60
   max_waits: 24
   detection_patterns: ["rate.?limit", "429"]
-
-# === CIRCUIT BREAKER ===
-circuit_breaker:
-  enabled: true
-  failure_threshold: 5
-  recovery_timeout_seconds: 300
-
-# === COST LIMITS ===
-cost_limits:
-  enabled: false
-  max_cost_per_sheet: 5.00
-  max_cost_per_job: 100.00
-  cost_per_1k_input_tokens: 0.003   # Sonnet default
-  cost_per_1k_output_tokens: 0.015  # Sonnet default
-  warn_at_percent: 80.0
-  # Note: For Opus, use 0.015 input, 0.075 output
-
-# === LOGGING ===
-logging:
-  level: INFO                   # DEBUG | INFO | WARNING | ERROR
-  format: console               # json | console | both
-  file_path: ./workspace/logs/mozart.log
-  max_file_size_mb: 50
-  backup_count: 5
-  include_timestamps: true
-  include_context: true
-
-# === AI REVIEW ===
-ai_review:
-  enabled: false
-  min_score: 60                 # Below this triggers action
-  target_score: 80              # Above this is high quality
-  on_low_score: warn            # retry | warn | fail
-  max_retry_for_review: 2
-  review_prompt_template: null  # Custom review prompt
-
-# === LEARNING ===
-learning:
-  enabled: true
-  outcome_store_type: json      # json | sqlite
-  outcome_store_path: null      # Default: workspace/.mozart-outcomes.json
-  min_confidence_threshold: 0.3
-  high_confidence_threshold: 0.7
-  escalation_enabled: false
 
 # === VALIDATIONS ===
 validations:
@@ -760,199 +533,40 @@ validations:
     description: "Output created"
     stage: 1
 
-  - type: file_modified
-    path: "{workspace}/output.md"
-    description: "File was updated"
-    stage: 1
-
   - type: content_contains
     path: "{workspace}/output.md"
     pattern: "COMPLETE"
-    stage: 2
-
-  - type: content_regex
-    path: "{workspace}/output.md"
-    pattern: "Score:\\s*\\d+"
     stage: 2
 
   - type: command_succeeds
     command: "cargo test"
     working_directory: "./code"
     stage: 3
-    condition: "sheet_num >= 2"
 
 # === NOTIFICATIONS ===
 notifications:
-  - type: desktop               # desktop | slack | webhook | email
+  - type: desktop
     on_events:
-      - job_complete
-      - job_failed
-    config: {}
-
-  - type: slack
-    on_events:
-      - job_start
       - job_complete
       - job_failed
       - job_paused
-    config:
-      webhook_url: "https://hooks.slack.com/..."
-      channel: "#mozart-jobs"
-
-  - type: webhook
-    on_events:
-      - sheet_complete
-      - sheet_failed
-    config:
-      url: "https://api.example.com/webhook"
-      headers:
-        Authorization: "Bearer ${WEBHOOK_TOKEN}"
-
-# === POST-SUCCESS HOOKS ===
-on_success:
-  - type: run_job
-    job_path: "{workspace}/next.yaml"
-    job_workspace: "{workspace}/next"
-    inherit_learning: true
-    description: "Chain to next phase"
-    on_failure: continue        # continue | abort
-    timeout_seconds: 300
-
-  - type: run_command
-    command: "curl -X POST https://api/notify"
-    working_directory: "./workspace"
-    description: "Notify external system"
-    on_failure: continue
-    timeout_seconds: 60
-
-  - type: run_script
-    command: "./deploy.sh {job_id} {sheet_count}"
-    working_directory: "./scripts"
-    description: "Run deployment script"
-    on_failure: abort
-    timeout_seconds: 600
-
-# === CONCERT (job chaining) ===
-concert:
-  enabled: false
-  max_chain_depth: 5
-  cooldown_between_jobs_seconds: 30
-  inherit_workspace: true
-  concert_log_path: ./workspace/concert.log
-  abort_concert_on_hook_failure: false
-```
-
-### Prompt Section Purposes
-
-The `prompt:` block has distinct sections, each with a specific purpose:
-
-| Section | Purpose | Contains |
-|---------|---------|----------|
-| `template` | **Main instructions** - what to do per sheet | Jinja conditionals, phase-specific tasks, output requirements |
-| `template_file` | Alternative to inline template | Path to external .j2 file |
-| `variables` | **Reusable content blocks** | Preamble, directives, context - referenced via `{{ var_name }}` |
-| `stakes` | **Consequences and weight** - why this matters | Motivational framing, real-world impact, what's at stake |
-| `thinking_method` | Reasoning approach | Chain-of-thought instructions (optional) |
-
-**Example structure:**
-
-```yaml
-prompt:
-  variables:
-    # Context and background (the "what")
-    preamble: |
-      You are orchestrating a systematic literature review following PRISMA 2020.
-      This is sheet {{ sheet_num }} of {{ total_sheets }}.
-
-    # Instructions and rules (the "how")
-    directives: |
-      REQUIREMENTS:
-      - Do NOT fabricate citations
-      - Every claim must cite source with page number
-      - Use exact search terms, no paraphrasing
-      - Document exclusion reasons for every excluded study
-
-  template: |
-    {{ preamble }}
-
-    {% if sheet_num == 1 %}
-    ## Phase 1: Search Protocol
-    [Phase-specific instructions here]
-    {% elif sheet_num == 2 %}
-    ## Phase 2: Execute Search
-    [Phase-specific instructions here]
-    {% endif %}
-
-    {{ directives }}
-
-    {{ stakes }}
-
-  # Consequences and weight (the "why it matters")
-  stakes: |
-    This review may inform clinical guidelines affecting patient care.
-    Methodological shortcuts here propagate through the entire evidence base.
-    Rigor now prevents harm later. Excellence here saves lives.
+    config: {}
 ```
 
 ### Built-in Template Variables
 
 | Variable | Example | Description |
 |----------|---------|-------------|
-| `{{ sheet_num }}` | `5` | Current sheet number |
-| `{{ total_sheets }}` | `10` | Total sheets in job |
+| `{{ sheet_num }}` | `5` | Current sheet number (concrete, after expansion) |
+| `{{ total_sheets }}` | `13` | Total sheets in job (after fan-out expansion) |
 | `{{ start_item }}` | `41` | First item in this sheet |
 | `{{ end_item }}` | `50` | Last item in this sheet |
 | `{{ workspace }}` | `./workspace` | Workspace directory path |
 | `{{ job_name }}` | `my-job` | Job identifier |
-
-Custom variables are defined in `prompt.variables` and accessed the same way.
-
----
-
-## Validation Types
-
-| Type | Purpose | Key Fields |
-|------|---------|------------|
-| `file_exists` | File was created | `path` |
-| `file_modified` | File mtime changed | `path` |
-| `content_contains` | Has literal string | `path`, `pattern` |
-| `content_regex` | Matches regex | `path`, `pattern` |
-| `command_succeeds` | Exit code 0 | `command`, `working_directory` |
-
-### Staged Validation
-
-```yaml
-# Stage 1 runs first; if any fail, higher stages skip
-- type: file_exists
-  stage: 1              # Basic existence
-- type: content_contains
-  stage: 2              # Content checks
-- type: command_succeeds
-  stage: 3              # Build/test
-```
-
-### Conditional Validation
-
-```yaml
-- type: file_exists
-  condition: "sheet_num == 1"    # Only sheet 1
-- type: command_succeeds
-  condition: "sheet_num >= 2"    # Sheets 2+
-```
-
----
-
-## Notification Events
-
-| Event | When |
-|-------|------|
-| `job_start` | Job begins execution |
-| `sheet_start` | Sheet begins execution |
-| `sheet_complete` | Sheet passes all validations |
-| `sheet_failed` | Sheet exhausts retries |
-| `job_complete` | All sheets complete |
-| `job_failed` | Job cannot continue |
-| `job_paused` | Job paused (rate limit, etc.) |
+| `{{ stage }}` | `2` | Logical stage number (equals `sheet_num` without fan-out) |
+| `{{ instance }}` | `1` | Instance within fan-out group (1-indexed, default 1) |
+| `{{ fan_count }}` | `3` | Total instances in this stage's fan-out (default 1) |
+| `{{ total_stages }}` | `7` | Original stage count before expansion |
 
 ---
 
@@ -974,10 +588,10 @@ mozart resume job-id -w ./ws
 mozart errors job-id -V
 
 # 2a. If work complete but validation wrong → fix config
-mozart resume job-id -c fixed-config.yaml
+mozart modify job-id -c fixed-config.yaml -r -w ./ws
 
 # 2b. If work incomplete → just resume (Mozart retries)
-mozart resume job-id
+mozart resume job-id -w ./ws
 ```
 
 ### State Corruption Recovery
@@ -999,10 +613,7 @@ mozart run job.yaml --start-sheet N
 | `mozart run job.yaml &` | Dies on session end | `setsid mozart --log-file ws/mozart.log run job.yaml &` |
 | Check `exit_code` for success | Validations may have failed | Check `validation_details` |
 | Debug manually first | Mozart tools provide context | `status` → `diagnose` → `errors` |
-| `pattern: ".*"` | Matches everything | Specific regex patterns |
-| Omit `description` | Hard to debug | Always describe validations |
-| `source .venv/bin/activate && ...` in validations | `source` is bash-only, fails on `/bin/sh` | Use `python` directly (venv is on PATH) |
-| Edit YAML then `resume` | Config is **cached** in state file | Use `--reload-config` flag |
+| Edit YAML then `resume` | Config is **cached** in state file | Use `--reload-config` or `modify -r` |
 
 ---
 
@@ -1020,7 +631,13 @@ mozart run job.yaml --start-sheet N
 
 ### How to Fix
 
-**Option 1: Use `--reload-config` (Recommended)**
+**Option 1: Use `mozart modify -r` (Recommended for running jobs)**
+```bash
+# Pause, update config, and resume in one command
+mozart modify job-id -c fixed.yaml -r -w ./ws
+```
+
+**Option 2: Use `--reload-config` (For already paused jobs)**
 ```bash
 # Reload from the original YAML file
 mozart resume job-id -w ./ws --reload-config
@@ -1029,159 +646,11 @@ mozart resume job-id -w ./ws --reload-config
 mozart resume job-id -w ./ws --reload-config --config fixed.yaml
 ```
 
-This updates the cached `config_snapshot` in the state file with the current YAML contents, then continues execution.
-
-**Option 2: Update config_snapshot manually**
-```python
-import json, yaml
-with open('job.yaml') as f:
-    yaml_config = yaml.safe_load(f)
-with open('workspace/job.json') as f:
-    state = json.load(f)
-state['config_snapshot']['validations'] = yaml_config['validations']
-with open('workspace/job.json', 'w') as f:
-    json.dump(state, f, indent=2)
-```
-
 **Option 3: Delete state and restart**
 ```bash
 rm workspace/job.json
 mozart run job.yaml
 ```
-
-**Option 4: Start fresh on specific sheet**
-```bash
-mozart run job.yaml --start-sheet 5
-```
-
----
-
-## Jinja Template Pitfalls
-
-Mozart uses Jinja2 for template rendering. These are common mistakes that cause template parsing failures:
-
-### Problem: Literal `{{` in Template Content
-
-If your template contains literal `{{` (e.g., in code examples or documentation), Jinja tries to parse it as a variable.
-
-**Error:**
-```
-TemplateSyntaxError: unexpected char '`' at position X
-```
-
-**Wrong:**
-```yaml
-prompt:
-  template: |
-    | Example | Description |
-    | `{{ foo }}` | Shows a variable |  # FAILS - Jinja tries to parse this
-```
-
-**Fix - Use Jinja escaping:**
-```yaml
-prompt:
-  template: |
-    | Example | Description |
-    | `{{ '{{' }} foo {{ '}}' }}` | Shows a variable |  # Outputs: {{ foo }}
-```
-
-**Alternative - Use raw blocks for large sections:**
-```yaml
-prompt:
-  template: |
-    {% raw %}
-    Here's a Jinja example: {{ variable }}
-    And another: {% for item in items %}
-    {% endraw %}
-```
-
-### Problem: Unclosed Tags
-
-**Wrong:**
-```yaml
-prompt:
-  template: |
-    {% if sheet_num == 1 %}
-    Do something
-    # Missing {% endif %}
-```
-
-**Fix:** Always close your control structures:
-- `{% if %}` needs `{% endif %}`
-- `{% for %}` needs `{% endfor %}`
-- `{% block %}` needs `{% endblock %}`
-
-### Problem: Undefined Variables
-
-**Error:**
-```
-UndefinedError: 'unknown_var' is undefined
-```
-
-**Available Variables:**
-| Variable | Example Value |
-|----------|---------------|
-| `sheet_num` | `5` |
-| `total_sheets` | `10` |
-| `start_item` | `41` |
-| `end_item` | `50` |
-| `workspace` | `./workspace` |
-| `job_name` | `my-job` |
-
-Custom variables must be defined in `prompt.variables`.
-
-### Problem: Whitespace Control
-
-Jinja adds whitespace from control structures. Use `-` to strip whitespace:
-
-**Messy output:**
-```yaml
-template: |
-  {% for i in range(3) %}
-  Item {{ i }}
-  {% endfor %}
-```
-
-**Clean output:**
-```yaml
-template: |
-  {%- for i in range(3) %}
-  Item {{ i }}
-  {%- endfor %}
-```
-
-### Problem: YAML Multiline + Jinja
-
-When using `|` for multiline YAML, watch indentation:
-
-**Wrong:**
-```yaml
-prompt:
-  template: |
-{% if condition %}  # No indentation - breaks YAML
-content
-{% endif %}
-```
-
-**Correct:**
-```yaml
-prompt:
-  template: |
-    {% if condition %}
-    content
-    {% endif %}
-```
-
-### Quick Reference: Escaping Jinja Syntax
-
-| To Output | Write |
-|-----------|-------|
-| `{{` | `{{ '{{' }}` |
-| `}}` | `{{ '}}' }}` |
-| `{%` | `{{ '{%' }}` |
-| `%}` | `{{ '%}' }}` |
-| `{#` | `{{ '{#' }}` |
-| `#}` | `{{ '#}' }}` |
 
 ---
 
@@ -1194,25 +663,12 @@ setsid mozart --log-file workspace/mozart.log run job.yaml &
 mozart status job-id --watch -w ./workspace
 ```
 
-### Worktree Isolation (Recommended)
-
-**Standard practice for all code-modifying jobs:**
+### Disable MCP for Speed
 
 ```yaml
-# Add to any job that modifies code
-isolation:
-  enabled: true
-  mode: worktree
-  cleanup_on_success: true
-  cleanup_on_failure: false  # Keep for debugging
-  lock_during_execution: true
-  fallback_on_error: true
+backend:
+  disable_mcp: true   # ~2x faster execution
 ```
-
-Benefits:
-- Run multiple jobs in parallel without conflicts
-- Clean commit validation per job
-- ~24ms overhead (negligible)
 
 ### Read-Only Execution
 
@@ -1225,614 +681,35 @@ backend:
     - LS
 ```
 
-### Disable MCP for Speed
-
-```yaml
-backend:
-  disable_mcp: true   # ~2x faster execution
-```
-
-### Multi-Agent per Sheet
-
-```yaml
-prompt:
-  template: |
-    LAUNCH 3 AGENTS IN PARALLEL:
-    1. Security → {workspace}/sheet{sheet_num}-security.md
-    2. Architecture → {workspace}/sheet{sheet_num}-arch.md
-    3. Quality → {workspace}/sheet{sheet_num}-quality.md
-
-validations:
-  - type: file_exists
-    path: "{workspace}/sheet{sheet_num}-security.md"
-  - type: file_exists
-    path: "{workspace}/sheet{sheet_num}-arch.md"
-  - type: file_exists
-    path: "{workspace}/sheet{sheet_num}-quality.md"
-```
-
-### Progressive Build Pipeline
-
-```yaml
-validations:
-  - { type: command_succeeds, command: "cargo fmt --check", stage: 1 }
-  - { type: command_succeeds, command: "cargo build", stage: 2 }
-  - { type: command_succeeds, command: "cargo test", stage: 3 }
-  - { type: command_succeeds, command: "cargo clippy -- -D warnings", stage: 4 }
-```
-
-### Job Chaining (Concert)
-
-```yaml
-on_success:
-  - type: run_job
-    job_path: "{workspace}/next-phase.yaml"
-
-concert:
-  enabled: true
-  max_chain_depth: 10
-```
-
-### AI Code Review
-
-```yaml
-ai_review:
-  enabled: true
-  min_score: 60
-  target_score: 80
-  on_low_score: retry
-  max_retry_for_review: 2
-```
-
-### Cost Tracking
-
-```yaml
-cost_limits:
-  enabled: true
-  max_cost_per_job: 50.00
-  warn_at_percent: 80.0
-```
-
----
-
-## Mozart Beyond Coding
-
-Mozart is a **general-purpose cognitive orchestration system**, not just a coding tool. Any task with:
-1. Multiple phases that build on each other
-2. Clear validation criteria
-3. Value from orchestrated execution
-
-...can be orchestrated by Mozart.
-
-### Available Domain Examples
-
-These examples demonstrate proper prompt structure with stakes (consequences) separate from directives (instructions):
-
-| Example | Category | Sheets | Validations | Use Case |
-|---------|----------|--------|-------------|----------|
-| `parallel-research.yaml` | Research | 6 | 14 | **Parallel execution demo** - multi-source research with DAG dependencies |
-| `systematic-literature-review.yaml` | Research | 8 | 17 | PRISMA-compliant academic reviews with dual-reviewer simulation |
-| `training-data-curation.yaml` | Data | 7 | 24 | ML dataset curation with inter-annotator agreement metrics |
-| `nonfiction-book.yaml` | Writing | 8 | 31 | Long-form book authoring with Snowflake Method structure |
-| `strategic-plan.yaml` | Planning | 8 | 39 | Business strategy with PESTEL → Porter → SWOT synthesis |
-
-**Study these examples for:**
-- **Parallel execution**: `parallel-research.yaml` - sheet dependencies, parallel batches, synthesis
-- Proper stakes usage (consequences, not instructions)
-- Directives embedded in template ("Output Requirements", "MUST include")
-- Domain-specific validation patterns
-- Anti-slop measures in practice
-
-### Core Cross-Domain Patterns
-
-These patterns from Mozart's evolution apply to ANY domain:
-
-| Pattern | Description | Example Application |
-|---------|-------------|---------------------|
-| **Discovery → Synthesis → Execution** | Earlier phases inform later phases | Research → Analysis → Writing |
-| **Multi-Perspective Review** | TDF-aligned expert analysis | Legal (contract, compliance, IP experts) |
-| **Convergence Scoring** | Issues flagged by multiple perspectives = priority | Investment due diligence |
-| **Tiered Remediation** | Quick wins → Structural → Major changes | Document editing pipeline |
-| **CV Thresholds** | Proceed when confidence ≥ 0.65 | Decision gates in any domain |
-| **Staged Validation** | Stage 1 (exists) → Stage 2 (content) → Stage 3 (quality) | Any multi-phase workflow |
-| **Concert (Job Chaining)** | Multi-job sequences via `on_success` | Book chapters, course modules |
-
-### Domain-Specific Validation Strategies
-
-**Research/Academic:**
-```yaml
-validations:
-  - type: content_regex
-    path: "{workspace}/search-protocol.md"
-    pattern: "databases?:\\s*\\d+"  # At least 1 database listed
-    description: "Search protocol includes databases"
-
-  - type: content_regex
-    path: "{workspace}/screening.md"
-    pattern: "kappa.*[0-9]\\.[0-9]+"  # Inter-rater agreement
-    description: "Dual-reviewer kappa score documented"
-```
-
-**Data Curation:**
-```yaml
-validations:
-  - type: command_succeeds
-    command: "python -c \"import json; d=json.load(open('schema.json')); assert 'fields' in d\""
-    description: "Schema file is valid JSON with fields"
-
-  - type: content_regex
-    path: "{workspace}/annotation-report.md"
-    pattern: "IAA.*0\\.[789]"  # High agreement (≥0.7)
-    description: "Inter-annotator agreement is acceptable"
-```
-
-**Writing/Authoring:**
-```yaml
-validations:
-  - type: content_regex
-    path: "{workspace}/chapter-{sheet_num}.md"
-    pattern: "^.{15000,}"  # Minimum word count proxy
-    description: "Chapter meets minimum length"
-
-  - type: content_contains
-    path: "{workspace}/entity-bible.md"
-    pattern: "CONSISTENCY_CHECK: PASS"
-    description: "Entity consistency validated"
-```
-
-**Strategic Planning:**
-```yaml
-validations:
-  - type: content_regex
-    path: "{workspace}/pestel.md"
-    pattern: "(Political|Economic|Social|Technological|Environmental|Legal).*:"
-    description: "All 6 PESTEL factors addressed"
-
-  - type: content_regex
-    path: "{workspace}/goals.md"
-    pattern: "SMART.*Specific.*Measurable"
-    description: "Goals follow SMART format"
-```
-
-### Anti-Slop Principles
-
-Mozart examples follow these principles to ensure **genuine quality**, not AI slop:
-
-| Principle | Implementation |
-|-----------|----------------|
-| **Quantitative Thresholds** | kappa ≥0.80, word counts, coverage percentages |
-| **Dual-Perspective Simulation** | Reviewer A/B agreement metrics, not single-pass |
-| **Evidence Linkage** | Every claim must cite source - no fabrication |
-| **Framework Coverage** | All 6 PESTEL factors, all 5 Porter forces - comprehensive |
-| **Explicit Anti-Slop Prompts** | "Do not fabricate", "no padding", "cite sources" |
-| **Intermediate Artifacts** | Human-reviewable files at each phase |
-| **Progressive Synthesis** | Each phase builds on previous outputs |
-
-### Stakes vs Directives
-
-**Stakes** and **directives** serve different purposes:
-
-| Type | Purpose | Examples |
-|------|---------|----------|
-| **Stakes** | Consequences and weight - why this matters | "This research will inform policy affecting millions" |
-| **Directives** | Instructions - what to do/not do | "Do not fabricate citations" |
-
-**Stakes give the work meaning and weight.** They answer "why does this matter?" and provide motivational framing:
-
-```yaml
-stakes: |
-  This literature review will be cited by researchers worldwide.
-  Methodological rigor here prevents years of wasted research downstream.
-
-  Quality work → advances the field, saves research hours, builds your reputation.
-  Sloppy work → propagates errors, wastes resources, erodes trust in AI assistance.
-```
-
-**Directives go in the template itself** (or a `directives` variable):
-
-```yaml
-prompt:
-  variables:
-    directives: |
-      QUALITY REQUIREMENTS:
-      - Do NOT fabricate citations, statistics, or quotes
-      - Every claim must cite a specific source
-      - No filler phrases ("It is important to note...", "In conclusion...")
-      - Options must be genuinely distinct, not variations of the same idea
-      - If you don't know something, say so explicitly
-      - Prefer depth over breadth - fewer points, fully developed
-
-      VALIDATION WILL CHECK:
-      - Minimum content thresholds (word counts, section counts)
-      - Required patterns (citations, frameworks, structure)
-      - Consistency across documents
-
-    stakes: |
-      The fate of this project depends on this sheet completing successfully.
-      This is the foundation that all subsequent work builds upon.
-      Excellence here compounds; mediocrity here cascades.
-
-  template: |
-    {{ directives }}
-
-    [... sheet-specific instructions ...]
-
-    {{ stakes }}
-```
-
-### Stakes Examples by Domain
-
-| Domain | Stakes Example |
-|--------|----------------|
-| **Research** | "This review will be read by policymakers. Rigor prevents harmful policy. Slop wastes taxpayer money." |
-| **Data Curation** | "Models trained on this data will make decisions affecting real people. Garbage in, garbage out. Lives depend on data quality." |
-| **Book Writing** | "Readers invest hours of their finite lives reading this. Honor that investment. Padding steals their time." |
-| **Strategic Planning** | "Executives will bet the company on these recommendations. Wrong analysis = layoffs, failed products, careers ended." |
-| **Code** | "This code will run in production. Bugs here become incidents at 3am. Quality now is sleep later." |
-
-### Slop Risk Assessment
-
-When designing non-coding scores, assess slop risk:
-
-| Risk Level | Description | Mitigation |
-|------------|-------------|------------|
-| 1 (Low) | Clear validation, hard to fake | Code with tests, data with schemas |
-| 2 (Low-Med) | Objective criteria exist | Research with citation counts |
-| 3 (Medium) | Quality subjective but measurable | Writing with word count + style checks |
-| 4 (Med-High) | Quality hard to validate | Add dual-perspective, quantitative gates |
-| 5 (High) | No clear criteria | **Reject** or restructure with explicit framework |
-
-**Rule:** Reject use cases with slop risk 4-5 unless strong mitigations exist.
-
-### Cross-Domain Pattern: Multi-Expert Review
-
-Adapt the code quality review pattern to any domain:
-
-```yaml
-# Sheet structure for multi-expert review
-prompt:
-  template: |
-    {% if sheet_num == 1 %}
-    ## Expert 1: [Domain Expert A]
-    Analyze from perspective: [specific focus]
-    Write findings to: {{ workspace }}/expert-a-review.md
-
-    {% elif sheet_num == 2 %}
-    ## Expert 2: [Domain Expert B]
-    Analyze from perspective: [different focus]
-    Write findings to: {{ workspace }}/expert-b-review.md
-
-    {% elif sheet_num == 3 %}
-    ## Synthesis
-    Read: {{ workspace }}/expert-a-review.md, {{ workspace }}/expert-b-review.md
-
-    Apply convergence scoring:
-    - Issues flagged by BOTH experts = HIGH priority
-    - Issues flagged by ONE expert = MEDIUM priority
-
-    Write synthesis to: {{ workspace }}/synthesis.md
-    {% endif %}
-```
-
-### Example: Literature Review Validation Progression
-
-```yaml
-# Stage 1: Protocol exists
-- type: file_exists
-  path: "{workspace}/01-search-protocol.md"
-  stage: 1
-
-# Stage 2: Protocol is complete
-- type: content_regex
-  path: "{workspace}/01-search-protocol.md"
-  pattern: "inclusion.criteria"
-  stage: 2
-
-# Stage 3: Search was executed
-- type: content_regex
-  path: "{workspace}/02-search-results.md"
-  pattern: "total.*results.*\\d+"
-  stage: 3
-
-# Stage 4: Dual-reviewer agreement
-- type: content_regex
-  path: "{workspace}/03-screening.md"
-  pattern: "kappa.*0\\.[89]"  # ≥0.8 required
-  stage: 4
-
-# Stage 5: Synthesis quality
-- type: content_regex
-  path: "{workspace}/07-synthesis.md"
-  pattern: "theme.*\\d+.*studies"  # Evidence of synthesis
-  stage: 5
-```
-
----
-
-## Architecture
-
-```
-CLI (cli.py)
-    │
-    ▼
-Runner (runner.py)
-├── Sheet iteration, retry logic, validation orchestration
-    │
-    ├── Backend (claude_cli.py, anthropic_api.py)
-    ├── Validation (validation.py)
-    └── State (json_backend.py, sqlite_backend.py)
-```
-
-### Key Files
-
-| File | Purpose |
-|------|---------|
-| `cli.py` | CLI commands |
-| `core/config.py` | Pydantic models |
-| `core/errors.py` | Error classification |
-| `core/checkpoint.py` | State models |
-| `execution/runner.py` | Orchestration |
-| `execution/validation.py` | Validation engine |
-| `backends/claude_cli.py` | Claude CLI backend |
-| `backends/anthropic_api.py` | API backend |
-
-### State File Structure
-
-```json
-{
-  "job_id": "my-job",
-  "status": "running",
-  "current_sheet": 3,
-  "sheets": {
-    "1": {
-      "status": "completed",
-      "attempts": 1,
-      "validation_details": [...],
-      "stdout_tail": "...",
-      "stderr_tail": "..."
-    }
-  },
-  "errors": [...],
-  "total_cost_usd": 0.45
-}
-```
-
----
-
-## Self-Improving Jobs: Use What You Build
-
-When running self-improving or evolution jobs (like `mozart-opus-evolution-vN.yaml`), ensure the jobs actually USE the features they implement. This is critical for closing the feedback loop.
-
-### The Problem
-
-Evolution jobs often build infrastructure without enabling it:
-
-| Cycle | Feature Implemented | Enabled in Config? |
-|-------|--------------------|--------------------|
-| v9 | Grounding hooks | No `grounding:` section |
-| v9 | Pattern feedback loop | Learning enabled, but no patterns applied |
-| v11 | Escalation learning | Being implemented (can't use yet) |
-
-This creates "infrastructure without usage" - features that could work but aren't tested in production.
-
-### The Fix
-
-When generating the next evolution config (Sheet 8), enable features from N-1 or earlier:
-
-```yaml
-# v12 should enable v9's grounding hooks:
-grounding:
-  enabled: true
-  hooks:
-    - type: file_checksum
-      paths:
-        - "{workspace}/*.md"
-
-# v12 should enable v10's pattern learning:
-learning:
-  enabled: true
-  pattern_injection: true  # Actually inject patterns into prompts
-```
-
-### Checklist for Evolution Jobs
-
-Before running vN, verify:
-
-1. **Features from v(N-2) are enabled** - Give features one cycle to stabilize
-2. **Config sections exist** - Not just prompt instructions, actual runtime config
-3. **Validations test the features** - Add validation rules that exercise new features
-
-### Anti-Pattern: Building Without Using
-
-```yaml
-# BAD: v12 instructions mention grounding but don't enable it
-prompt:
-  template: |
-    Use the grounding engine to validate...  # Just words
-
-# GOOD: v12 actually configures grounding
-grounding:
-  enabled: true
-  hooks:
-    - type: file_checksum
-```
-
----
-
-## Self-Healing & Enhanced Validation
-
-Mozart includes two complementary error recovery systems:
-
-### Enhanced Validation (`mozart validate`)
-
-Pre-execution checks that catch configuration issues before jobs run:
-
-```bash
-# Basic validation
-mozart validate job.yaml
-
-# JSON output (for CI/CD)
-mozart validate job.yaml --json
-```
-
-**Exit Codes:**
-| Code | Meaning |
-|------|---------|
-| 0 | Valid (warnings/info OK) |
-| 1 | Invalid (has ERROR-severity issues) |
-| 2 | Cannot validate (file not found, YAML broken) |
-
-**Validation Checks:**
-
-| Check ID | Description | Severity | Auto-fixable |
-|----------|-------------|----------|--------------|
-| V001 | Jinja syntax errors (unclosed blocks, expressions) | ERROR | Manual |
-| V002 | Workspace parent directory missing | ERROR | Yes |
-| V003 | Template file missing | ERROR | Manual |
-| V004 | System prompt file missing | ERROR | Manual |
-| V005 | Working directory invalid | ERROR | Yes |
-| V007 | Invalid regex patterns | ERROR | Suggested |
-| V008 | Missing required validation fields | ERROR | Manual |
-| V101 | Undefined Jinja variable (with typo suggestions) | WARNING | Suggested |
-| V103 | Very short timeout (<60s) | WARNING | Suggested |
-| V104 | Very long timeout (>2h) | INFO | N/A |
-| V106 | Empty pattern in validation | WARNING | Manual |
-| V107 | Referenced files missing | WARNING | Manual |
-
-**Example Output:**
-```
-$ mozart validate my-job.yaml
-
-Validating my-job...
-
-✓ YAML syntax valid
-✓ Schema validation passed (Pydantic)
-
-Running extended validation checks...
-
-ERRORS (must fix before running):
-  ✗ [V001] Line 15: Jinja syntax error - unexpected end of template
-         {{ sheet_num of {{ total_sheets }}
-         Suggestion: Add closing '}}' to the expression
-
-WARNINGS (may cause issues):
-  ! [V101] Undefined variable 'shee_num' in prompt.template
-         Suggestion: Did you mean 'sheet_num'?
-
-Summary: 1 error (must fix), 1 warning (should fix)
-
-Validation: FAILED
-```
-
-### Self-Healing (`--self-healing`)
-
-Automatic diagnosis and remediation when retries are exhausted:
-
-```bash
-# Enable self-healing
-mozart run job.yaml --self-healing
-
-# Auto-confirm suggested fixes (non-interactive)
-mozart run job.yaml --self-healing --yes
-
-# Works with resume too
-mozart resume job-id --self-healing
-```
-
-**How It Works:**
-1. Normal retry flow happens first (retries must be exhausted)
-2. Error context collected (error code, stdout/stderr, config)
-3. Diagnosis engine finds applicable remedies (sorted by confidence)
-4. **Automatic remedies**: Applied without prompting (low-risk, reversible)
-5. **Suggested remedies**: Prompt user unless `--yes` flag
-6. **Diagnostic remedies**: Show guidance only (cannot auto-fix)
-7. If any remedy succeeds, retry counter resets and sheet re-executes
-
-**Built-in Remedies:**
-
-| Remedy | Category | Triggers On | Action |
-|--------|----------|-------------|--------|
-| Create workspace | Automatic | E601 - workspace missing | `mkdir` the workspace |
-| Create parent dirs | Automatic | E601/E201 - path parent missing | `mkdir -p` parents |
-| Fix path separators | Automatic | Backslash paths on Unix | Suggest correction |
-| Suggest Jinja fix | Suggested | E304/E305 - template errors | Typo suggestions |
-| Diagnose auth errors | Diagnostic | E101/E102/E401 | Troubleshooting guidance |
-| Diagnose missing CLI | Diagnostic | CLI not found | Installation guidance |
-
-**Healing Report:**
-```
-═══════════════════════════════════════════════════════════════════════════
-SELF-HEALING REPORT: Sheet 5
-═══════════════════════════════════════════════════════════════════════════
-
-Error Diagnosed:
-  Code: E601 (PREFLIGHT_PATH_MISSING)
-  Message: Workspace directory does not exist: ./my-workspace
-
-Remedies Applied:
-  ✓ [AUTO] mkdir ./my-workspace: Created workspace directory
-
-Result: HEALED - Retrying sheet
-═══════════════════════════════════════════════════════════════════════════
-```
-
-**Configuration (Optional):**
-```yaml
-# In job config YAML
-self_healing:
-  enabled: true                    # Enable without CLI flag
-  auto_confirm: false              # Equivalent to --yes
-  disabled_remedies:               # Skip specific remedies
-    - suggest_jinja_fix            # Don't auto-correct typos
-  max_healing_attempts: 2          # Limit healing cycles
-```
-
-**Key Files:**
-| File | Purpose |
-|------|---------|
-| `src/mozart/validation/` | Enhanced validation module |
-| `src/mozart/healing/` | Self-healing module |
-| `src/mozart/healing/remedies/` | Individual remedy implementations |
-| `tests/test_validation_checks.py` | Validation tests (29 tests) |
-| `tests/test_healing.py` | Healing tests (32 tests) |
-
-### When to Use Which
-
-| Scenario | Use |
-|----------|-----|
-| Before running a new config | `mozart validate job.yaml` |
-| CI/CD pipeline check | `mozart validate job.yaml --json` |
-| Unattended long-running jobs | `mozart run job.yaml --self-healing --yes` |
-| Interactive debugging | `mozart run job.yaml --self-healing` (prompted) |
-| Known-good configs | No flags needed |
-
 ---
 
 ## Quick Reference Card
 
 ```
 COMMANDS                          DEBUGGING ORDER
-────────                          ───────────────
+--------                          ---------------
 run <config>     Execute          1. mozart status ...
 status <job>     Check status     2. mozart diagnose ...
 resume <job>     Continue         3. mozart errors -V
-diagnose <job>   Full report      4. Manual investigation
-errors <job>     List errors
-validate <cfg>   Check config     ERROR CATEGORIES
-list             List all jobs    ────────────────
-logs [job]       View logs        E0xx Execution
-dashboard        Web UI           E1xx Rate limit
-                                  E2xx Validation
-GLOBAL OPTIONS                    E3xx Config
-──────────────                    E4xx State
--v, --verbose    Detailed         E5xx Backend
--q, --quiet      Errors only      E6xx Preflight
--L, --log-level  Level filter     E9xx Network
+pause <job>      Stop gracefully  4. Manual investigation
+modify <job>     Change config
+diagnose <job>   Full report      ERROR CATEGORIES
+errors <job>     List errors      ----------------
+validate <cfg>   Check config     E0xx Execution
+list             List all jobs    E1xx Rate limit
+logs [job]       View logs        E2xx Validation
+dashboard        Web UI           E3xx Config
+                                  E4xx State
+GLOBAL OPTIONS                    E5xx Backend
+--------------                    E6xx Preflight
+-v, --verbose    Detailed         E9xx Network
+-q, --quiet      Errors only
+-L, --log-level  Level filter
 --log-file       Log path
 --log-format     json/console
 
 COMMON OPTIONS                    NOTIFICATION EVENTS
-──────────────                    ───────────────────
+--------------                    -------------------
 -w, --workspace  Directory        job_start, job_complete
 -j, --json       JSON output      job_failed, job_paused
 -V, --verbose    Details          sheet_start, sheet_complete
@@ -1841,31 +718,4 @@ COMMON OPTIONS                    NOTIFICATION EVENTS
 
 ---
 
-## Pattern Catalog (18 Core Patterns)
-
-Mozart has evolved 18 core patterns through 20+ self-evolution cycles:
-
-| # | Pattern | Origin | Cross-Domain Applications |
-|---|---------|--------|---------------------------|
-| 1 | Discovery → Synthesis → Execution → Validation | Evolution scores | Research papers, strategic plans, book writing |
-| 2 | Multi-perspective expert review (TDF-aligned) | Code quality | Legal review, investment analysis, peer review |
-| 3 | Convergence scoring for prioritization | Code quality | Any multi-reviewer workflow |
-| 4 | Concert (multi-job chaining) | Dashboard | Book chapters, course modules, product launches |
-| 5 | Staged validations with quality gates | All configs | Any multi-phase workflow |
-| 6 | CV thresholds for decision gates | Evolution | Complex decision processes |
-| 7 | Mini-META reflection at each phase | Evolution | Self-improving workflows |
-| 8 | Parallel investigation agents | Evolution | Multi-source research |
-| 9 | Quality gates (tool-based) | Self-improvement | CI/CD-style workflows |
-| 10 | Tiered remediation (quick → structural → major) | Code quality | Document editing, process improvement |
-| 11 | Phase architecture for large projects | Dashboard | Enterprise-scale orchestration |
-| 12 | Decision documentation tables | Worktree | Auditable decision processes |
-| 13 | Risk assessment matrices | Worktree | Compliance, security, investment |
-| 14 | Evidence verification protocol | Evolution | Research, journalism, legal |
-| 15 | Auto-chain via hooks | Evolution | Continuous improvement loops |
-| 16 | Self-modifying artifacts | Evolution | Adaptive workflows |
-| 17 | Graceful degradation | All | Fault-tolerant orchestration |
-| 18 | Isolation for parallel safety | Worktree | Concurrent execution |
-
----
-
-*Mozart AI Compose v0.x - Updated 2026-01-23 with Mozart Beyond Coding section*
+*Mozart AI Compose - Updated 2026-02-09 with fan-out parameterized stage instantiation*
