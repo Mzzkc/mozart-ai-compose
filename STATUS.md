@@ -1,7 +1,7 @@
 # Mozart AI Compose - Status
 
-**Overall:** Real-time Output Logging + Schema Migration (2026-02-04)
-**Tests:** 1897+ passing
+**Overall:** Self-Chaining Fix + Quality Score Update (2026-02-06)
+**Tests:** 1897+ passing (+ 15 new)
 **Vision:** Mozart + Recursive Light = Federated AGI Architecture
 **GitHub:** https://github.com/Mzzkc/mozart-ai-compose
 **Dashboard:** Production-grade web UI with job control
@@ -9,30 +9,35 @@
 
 ---
 
-## Current: Real-time Output Logging (2026-02-04)
+## Current: Self-Chaining Workspace Collision Fix (2026-02-06)
 
-### New Features
+### Bug Fix: Infinite Self-Chaining Loop
 
-**1. Real-time Output Logging**
-- `set_output_log_path()` method on Backend ABC
-- Industry-standard separate files: `sheet-NN.stdout.log`, `sheet-NN.stderr.log`
-- Enables `tail -f` monitoring during long executions
-- Files: `backends/base.py`, `backends/claude_cli.py`, `runner/sheet.py`
+Self-chaining jobs (`on_success → run_job` to self) caused infinite empty-run loops when the chained process loaded the previous run's COMPLETED state and executed zero sheets.
 
-**2. Schema Migration System (v10)**
-- `_COLUMN_MIGRATIONS` dict for tracking column additions
-- `_migrate_columns()` adds missing columns to existing tables
-- Fixed `IndexError` on `success_factors` column in existing DBs
+**Defense-in-depth fix (two independent layers):**
 
-**3. Type Safety**
-- Fixed 210+ type errors in `SheetExecutionMixin`
-- Proper mixin type declarations
+1. **`--fresh` flag + `fresh` config field** (root cause)
+   - `mozart run --fresh` deletes existing state before starting
+   - `PostSuccessHookConfig.fresh: bool` passes `--fresh` to chained jobs
+   - Files: `run.py`, `config.py`, `hooks.py`
+
+2. **Zero-work guard** (symptom prevention)
+   - Tracks `was_already_completed` after state load
+   - Skips `on_success` hooks when zero new work was done
+   - Logs `hooks.skipped_zero_work` for visibility
+   - File: `lifecycle.py`
+
+### Quality Score Updated (13 sheets)
+- Expanded from 10 to 13 sheets with completion passes
+- Added mandatory completion rate validations (70%/70%/50%)
+- Self-chain hook now uses `fresh: true`
 
 ### Jobs Running
 
 | Job | Progress | Status |
 |-----|----------|--------|
-| quality-continuous | Iteration 2 | Running (self-chaining) |
+| quality-continuous | Starting fresh | Launching |
 
 ---
 
@@ -233,4 +238,4 @@ Score vN → Discovery → Synthesis → Evolution → Validation → Score v(N+
 
 ---
 
-*Last Updated: 2026-01-30 - Evolution Cycle v24 Complete*
+*Last Updated: 2026-02-06 - Self-Chaining Fix + Quality Score*
