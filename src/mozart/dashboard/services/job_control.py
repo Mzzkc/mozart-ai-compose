@@ -178,7 +178,9 @@ class JobControlService:
                 workspace = Path(config.workspace) if config.workspace else self._workspace_root
 
             # Create and save initial state to backend for dashboard tracking
-            # The runner will update this state as it executes
+            # The runner will update this state as it executes.
+            # Store resolved workspace in worktree_path so _get_job_workspace()
+            # can find it later (prevents pause signals landing in cwd).
             initial_state = CheckpointState(
                 job_id=job_id,
                 job_name=config.name,
@@ -186,6 +188,7 @@ class JobControlService:
                 status=JobStatus.RUNNING,
                 pid=process.pid,
                 started_at=datetime.now(),
+                worktree_path=str(workspace.resolve()),
             )
             await self._state_backend.save(initial_state)
 
@@ -249,11 +252,17 @@ class JobControlService:
         Returns:
             Path to the job's workspace directory.
         """
-        # Use worktree path if available (for isolated jobs)
+        # Use worktree path if available (for isolated jobs, or set by dashboard start_job)
         if state.worktree_path:
             return Path(state.worktree_path)
 
-        # Fall back to workspace root (CheckpointState doesn't store original workspace)
+        # Extract workspace from config snapshot (stored by runner on first save)
+        if state.config_snapshot and "workspace" in state.config_snapshot:
+            ws = Path(state.config_snapshot["workspace"])
+            if ws.is_absolute() and ws.exists():
+                return ws
+
+        # Fall back to workspace root
         return self._workspace_root
 
     async def pause_job(self, job_id: str) -> JobActionResult:
@@ -488,6 +497,15 @@ class JobControlService:
         state.updated_at = datetime.now()
         state.pid = None  # Clear PID
         await self._state_backend.save(state)
+
+        # Clean up any pause signal files
+        try:
+            workspace_path = self._get_job_workspace(state)
+            pause_signal_file = workspace_path / f".mozart-pause-{job_id}"
+            if pause_signal_file.exists():
+                pause_signal_file.unlink()
+        except OSError:
+            logger.debug("Failed to clean pause signal on cancel", exc_info=True)
 
         # Clean up process tracking
         if job_id in self._running_processes:

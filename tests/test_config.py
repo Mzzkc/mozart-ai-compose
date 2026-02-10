@@ -10,11 +10,14 @@ from mozart.core.config import (
     ConductorConfig,
     ConductorPreferences,
     ConductorRole,
+    CostLimitConfig,
+    IsolationConfig,
+    LearningConfig,
+    RateLimitConfig,
+    RetryConfig,
     SheetConfig,
     JobConfig,
     PromptConfig,
-    RateLimitConfig,
-    RetryConfig,
     ValidationRule,
 )
 
@@ -495,3 +498,162 @@ class TestJobConfig:
         assert config.conductor.role == ConductorRole.AI
         assert config.conductor.identity_context == "Self-improving orchestration"
         assert config.conductor.preferences.prefer_minimal_output is True
+
+
+class TestIsolationConfig:
+    """Tests for IsolationConfig edge cases and defaults."""
+
+    def test_defaults(self):
+        config = IsolationConfig()
+        assert config.enabled is False
+        assert config.mode == "worktree"
+        assert config.cleanup_on_success is True
+        assert config.cleanup_on_failure is False
+
+    def test_enabled_with_worktree(self):
+        config = IsolationConfig(enabled=True, mode="worktree")
+        assert config.enabled is True
+        assert config.mode == "worktree"
+
+    def test_lock_during_execution_default(self):
+        config = IsolationConfig()
+        assert config.lock_during_execution is True
+
+    def test_fallback_on_error_default(self):
+        config = IsolationConfig()
+        assert config.fallback_on_error is True
+
+
+class TestLearningConfig:
+    """Tests for LearningConfig validation and edge cases."""
+
+    def test_defaults(self):
+        config = LearningConfig()
+        assert config.enabled is True
+        assert config.high_confidence_threshold == 0.7
+        assert config.min_confidence_threshold == 0.3
+
+    def test_threshold_boundaries(self):
+        """Test confidence thresholds at boundary values."""
+        config = LearningConfig(
+            high_confidence_threshold=1.0,
+            min_confidence_threshold=0.0,
+        )
+        assert config.high_confidence_threshold == 1.0
+        assert config.min_confidence_threshold == 0.0
+
+    def test_disabled_learning(self):
+        config = LearningConfig(enabled=False)
+        assert config.enabled is False
+
+
+class TestCostLimitConfig:
+    """Tests for CostLimitConfig validation and edge cases."""
+
+    def test_defaults(self):
+        config = CostLimitConfig()
+        assert config.enabled is False
+        assert config.max_cost_per_sheet is None
+        assert config.max_cost_per_job is None
+
+    def test_enabled_with_limits(self):
+        config = CostLimitConfig(
+            enabled=True,
+            max_cost_per_sheet=1.0,
+            max_cost_per_job=10.0,
+        )
+        assert config.enabled is True
+        assert config.max_cost_per_sheet == 1.0
+        assert config.max_cost_per_job == 10.0
+
+    def test_negative_cost_rejected(self):
+        with pytest.raises(ValidationError):
+            CostLimitConfig(max_cost_per_sheet=-1.0)
+
+    def test_zero_cost_rejected(self):
+        with pytest.raises(ValidationError):
+            CostLimitConfig(max_cost_per_sheet=0.0)
+
+
+class TestRateLimitConfig:
+    """Tests for RateLimitConfig model."""
+
+    def test_defaults(self):
+        config = RateLimitConfig()
+        assert config.wait_minutes == 60
+        assert config.max_waits == 24
+
+    def test_custom_values(self):
+        config = RateLimitConfig(wait_minutes=2, max_waits=3)
+        assert config.wait_minutes == 2
+        assert config.max_waits == 3
+
+    def test_negative_waits_rejected(self):
+        with pytest.raises(ValidationError):
+            RateLimitConfig(max_waits=-1)
+
+
+class TestJobConfigEdgeCases:
+    """Edge case tests for JobConfig — nested validation, type coercion, missing fields."""
+
+    def test_minimal_config_from_yaml_dict(self):
+        """Minimal YAML-like dict should produce a valid config."""
+        config = JobConfig.model_validate({
+            "name": "minimal",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 5, "total_items": 10},
+            "prompt": {"template": "{{ sheet_num }}"},
+        })
+        assert config.name == "minimal"
+        assert config.sheet.total_sheets == 2
+
+    def test_missing_name_raises(self):
+        with pytest.raises(ValidationError):
+            JobConfig.model_validate({
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 5, "total_items": 10},
+                "prompt": {"template": "x"},
+            })
+
+    def test_string_workspace_coerces_to_path(self):
+        """String workspace from YAML should coerce to Path."""
+        config = JobConfig.model_validate({
+            "name": "test",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 5, "total_items": 10},
+            "prompt": {"template": "x"},
+            "workspace": "/tmp/test-workspace",
+        })
+        assert isinstance(config.workspace, Path)
+        assert str(config.workspace) == "/tmp/test-workspace"
+
+    def test_nested_validation_rule_types(self):
+        """ValidationRules with different types should all parse."""
+        config = JobConfig.model_validate({
+            "name": "test",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 5, "total_items": 10},
+            "prompt": {"template": "x"},
+            "validations": [
+                {"type": "file_exists", "path": "{workspace}/out.txt", "description": "check"},
+                {"type": "command_succeeds", "command": "echo ok", "description": "run"},
+            ],
+        })
+        assert len(config.validations) == 2
+        assert config.validations[0].type == "file_exists"
+        assert config.validations[1].type == "command_succeeds"
+
+    def test_model_dump_roundtrip(self):
+        """Config should survive model_dump -> model_validate roundtrip."""
+        original = JobConfig.model_validate({
+            "name": "roundtrip",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 10, "total_items": 50},
+            "prompt": {"template": "{{ sheet_num }}"},
+            "retry": {"max_retries": 5},
+        })
+        dumped = original.model_dump()
+        restored = JobConfig.model_validate(dumped)
+        assert restored.name == original.name
+        assert restored.retry.max_retries == 5
+        assert restored.sheet.total_sheets == original.sheet.total_sheets

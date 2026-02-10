@@ -505,12 +505,146 @@ class TestArtifactTools:
         await artifact_tools.shutdown()
 
 
-# Code Review During Implementation:
-# ✓ Comprehensive test coverage for all artifact tool methods
-# ✓ Security testing (directory traversal, file size limits)
-# ✓ Error handling and edge cases covered
-# ✓ Mocking used appropriately for external dependencies
-# ✓ Test fixtures provide realistic test data
-# ✓ File encoding and binary file handling tested
-# ✓ Async/await patterns correct throughout
-# ✓ Clear test method names describing what they test
+class TestValidateWorkspacePath:
+    """Tests for _validate_workspace_path security boundary edge cases."""
+
+    @pytest.fixture
+    def temp_workspace(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            (workspace / "job1").mkdir()
+            (workspace / "job1" / "file.txt").write_text("content")
+            yield workspace
+
+    @pytest.fixture
+    def artifact_tools(self, temp_workspace) -> ArtifactTools:
+        return ArtifactTools(temp_workspace)
+
+    def test_valid_workspace_and_target(self, artifact_tools, temp_workspace) -> None:
+        """Normal case: target is within workspace within root."""
+        ws = temp_workspace / "job1"
+        target = ws / "file.txt"
+        resolved_ws, resolved_target = artifact_tools._validate_workspace_path(ws, target)
+        assert resolved_ws == ws.resolve()
+        assert resolved_target == target.resolve()
+
+    def test_workspace_outside_root_raises(self, temp_workspace) -> None:
+        """Workspace outside workspace_root should raise PermissionError."""
+        with tempfile.TemporaryDirectory() as other_dir:
+            tools = ArtifactTools(temp_workspace)
+            outside_ws = Path(other_dir)
+            target = outside_ws / "file.txt"
+            with pytest.raises(PermissionError, match="Workspace outside allowed root"):
+                tools._validate_workspace_path(outside_ws, target)
+
+    def test_target_outside_workspace_raises(self, artifact_tools, temp_workspace) -> None:
+        """Target resolving outside workspace should raise PermissionError."""
+        ws = temp_workspace / "job1"
+        # Target points outside workspace via relative path trick
+        target = ws / ".." / "file.txt"
+        # Create the target so it resolves
+        (temp_workspace / "file.txt").write_text("outside")
+        with pytest.raises(PermissionError, match="Path outside workspace"):
+            artifact_tools._validate_workspace_path(ws, target)
+
+    def test_symlink_outside_workspace_rejected(self, artifact_tools, temp_workspace) -> None:
+        """Symlinks pointing outside workspace should be rejected."""
+        ws = temp_workspace / "job1"
+        # Create a symlink pointing to /tmp
+        link_path = ws / "sneaky_link"
+        with tempfile.TemporaryDirectory() as outside:
+            outside_file = Path(outside) / "secret.txt"
+            outside_file.write_text("secret")
+            link_path.symlink_to(outside_file)
+            with pytest.raises(PermissionError, match="Path outside workspace"):
+                artifact_tools._validate_workspace_path(ws, link_path)
+
+
+class TestCustomLogLevelCache:
+    """Tests for log level regex caching in ArtifactTools."""
+
+    @pytest.fixture
+    def temp_workspace(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            (workspace / "job1").mkdir()
+            (workspace / "job1" / "mozart.log").write_text(
+                "INFO: line1\nCRITICAL: line2\nINFO: line3\nCRITICAL: line4\n"
+            )
+            yield workspace
+
+    @pytest.fixture
+    def artifact_tools(self, temp_workspace) -> ArtifactTools:
+        return ArtifactTools(temp_workspace)
+
+    async def test_custom_level_filters_correctly(self, artifact_tools, temp_workspace) -> None:
+        """Custom log level string should filter lines correctly."""
+        result = await artifact_tools._get_logs({
+            "job_id": "job1",
+            "workspace": str(temp_workspace / "job1"),
+            "level": "CRITICAL",
+            "lines": 50,
+        })
+        text = result["content"][0]["text"]
+        assert "CRITICAL: line2" in text
+        assert "CRITICAL: line4" in text
+        assert "INFO: line1" not in text
+
+    async def test_custom_level_is_cached(self, artifact_tools, temp_workspace) -> None:
+        """Repeated calls with same custom level should use cache."""
+        await artifact_tools._get_logs({
+            "job_id": "job1",
+            "workspace": str(temp_workspace / "job1"),
+            "level": "CRITICAL",
+            "lines": 50,
+        })
+        assert "critical" in artifact_tools._custom_level_cache
+
+        # Call again — should use cached pattern
+        cached_pattern = artifact_tools._custom_level_cache["critical"]
+        await artifact_tools._get_logs({
+            "job_id": "job1",
+            "workspace": str(temp_workspace / "job1"),
+            "level": "CRITICAL",
+            "lines": 50,
+        })
+        # Same pattern object should still be in cache
+        assert artifact_tools._custom_level_cache["critical"] is cached_pattern
+
+    async def test_standard_levels_not_cached(self, artifact_tools, temp_workspace) -> None:
+        """Pre-compiled standard levels (info, error, etc.) should not populate custom cache."""
+        await artifact_tools._get_logs({
+            "job_id": "job1",
+            "workspace": str(temp_workspace / "job1"),
+            "level": "info",
+            "lines": 50,
+        })
+        assert "info" not in artifact_tools._custom_level_cache
+
+    async def test_empty_log_dir_raises(self, artifact_tools, temp_workspace) -> None:
+        """Should raise FileNotFoundError when no log files exist."""
+        empty_job = temp_workspace / "empty"
+        empty_job.mkdir()
+        with pytest.raises(FileNotFoundError, match="No log files found"):
+            await artifact_tools._get_logs({
+                "job_id": "empty",
+                "workspace": str(empty_job),
+                "level": "all",
+            })
+
+
+class TestMakeErrorResponse:
+    """Tests for the module-level _make_error_response helper."""
+
+    def test_formats_exception_message(self) -> None:
+        from mozart.mcp.tools import _make_error_response
+
+        result = _make_error_response(ValueError("test error"))
+        assert result["isError"] is True
+        assert "test error" in result["content"][0]["text"]
+
+    def test_includes_error_type(self) -> None:
+        from mozart.mcp.tools import _make_error_response
+
+        result = _make_error_response(PermissionError("access denied"))
+        assert "PermissionError" in result["content"][0]["text"] or "access denied" in result["content"][0]["text"]

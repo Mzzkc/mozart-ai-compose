@@ -1009,26 +1009,7 @@ class SheetExecutionMixin:
             sheet_state.capture_output(result.stdout, result.stderr)
 
             # Track cost (v4 evolution: Cost Circuit Breaker)
-            if self.config.cost_limits.enabled:
-                await self._track_cost(result, sheet_state, state)
-
-                cost_exceeded, cost_reason = self._check_cost_limits(sheet_state, state)
-                if cost_exceeded:
-                    state.cost_limit_reached = True
-                    if self._summary is not None:
-                        self._summary.cost_limit_hit = True
-                    self._logger.warning(
-                        "cost.limit_exceeded",
-                        sheet_num=sheet_num,
-                        reason=cost_reason,
-                        job_cost=round(state.total_estimated_cost, 4),
-                    )
-                    self.console.print(f"[red]Cost limit exceeded: {cost_reason}[/red]")
-
-                    state.mark_job_paused()
-                    state.error_message = f"Cost limit: {cost_reason}"
-                    await self.state_backend.save(state)
-                    raise GracefulShutdownError(f"Cost limit exceeded: {cost_reason}")
+            await self._enforce_cost_limits(result, sheet_state, state, sheet_num)
 
             # Track execution result for judgment (Phase 4)
             execution_history.append(result)
@@ -1071,18 +1052,10 @@ class SheetExecutionMixin:
                     continue
 
             # ===== VALIDATIONS INCOMPLETE =====
-            passed_count = len(validation_result.get_passed_results())
-            failed_count = len(validation_result.get_failed_results())
-            pass_pct = validation_result.executed_pass_percentage
-            completion_threshold = self.config.retry.completion_threshold_percent
-
-            self.console.print(
-                f"[yellow]Sheet {sheet_num}: Validations {passed_count}/{passed_count + failed_count} passed ({pass_pct:.0f}%)[/yellow]"
+            passed_count, failed_count, pass_pct = self._log_incomplete_validations(
+                sheet_num, validation_result,
             )
-            for failed in validation_result.get_failed_results():
-                self.console.print(
-                    f"  [red]✗[/red] {failed.rule.description}"
-                )
+            completion_threshold = self.config.retry.completion_threshold_percent
 
             # ===== RATE LIMIT CHECK (before completion threshold) =====
             if result.rate_limited:
@@ -1717,6 +1690,79 @@ class SheetExecutionMixin:
 
         return grounding_ctx
 
+    def _log_incomplete_validations(
+        self,
+        sheet_num: int,
+        validation_result: SheetValidationResult,
+    ) -> tuple[int, int, float]:
+        """Log incomplete validation results and return metrics.
+
+        Args:
+            sheet_num: Sheet number for log context.
+            validation_result: Validation result with pass/fail details.
+
+        Returns:
+            Tuple of (passed_count, failed_count, pass_percentage).
+        """
+        passed_count = len(validation_result.get_passed_results())
+        failed_count = len(validation_result.get_failed_results())
+        pass_pct = validation_result.executed_pass_percentage
+
+        self.console.print(
+            f"[yellow]Sheet {sheet_num}: Validations {passed_count}/{passed_count + failed_count} "
+            f"passed ({pass_pct:.0f}%)[/yellow]"
+        )
+        for failed in validation_result.get_failed_results():
+            self.console.print(
+                f"  [red]✗[/red] {failed.rule.description}"
+            )
+
+        return passed_count, failed_count, pass_pct
+
+    async def _enforce_cost_limits(
+        self,
+        result: ExecutionResult,
+        sheet_state: SheetState,
+        state: CheckpointState,
+        sheet_num: int,
+    ) -> None:
+        """Track execution cost and enforce cost limits.
+
+        Raises GracefulShutdownError if cost limits are exceeded,
+        pausing the job for later resumption.
+
+        Args:
+            result: Execution result with cost data.
+            sheet_state: Current sheet state.
+            state: Current job state.
+            sheet_num: Sheet number for log context.
+
+        Raises:
+            GracefulShutdownError: If cost limit is exceeded.
+        """
+        if not self.config.cost_limits.enabled:
+            return
+
+        await self._track_cost(result, sheet_state, state)
+
+        cost_exceeded, cost_reason = self._check_cost_limits(sheet_state, state)
+        if cost_exceeded:
+            state.cost_limit_reached = True
+            if self._summary is not None:
+                self._summary.cost_limit_hit = True
+            self._logger.warning(
+                "cost.limit_exceeded",
+                sheet_num=sheet_num,
+                reason=cost_reason,
+                job_cost=round(state.total_estimated_cost, 4),
+            )
+            self.console.print(f"[red]Cost limit exceeded: {cost_reason}[/red]")
+
+            state.mark_job_paused()
+            state.error_message = f"Cost limit: {cost_reason}"
+            await self.state_backend.save(state)
+            raise GracefulShutdownError(f"Cost limit exceeded: {cost_reason}")
+
     @staticmethod
     def _classify_success_outcome(
         normal_attempts: int,
@@ -1957,6 +2003,26 @@ class SheetExecutionMixin:
                 error=str(e),
             )
 
+    def _is_escalation_available(self) -> bool:
+        """Check if escalation is configured and a handler is available."""
+        return (
+            self.config.learning.escalation_enabled
+            and self.escalation_handler is not None
+        )
+
+    def _should_enter_completion_mode(
+        self, pass_pct: float, completion_attempts: int
+    ) -> bool:
+        """Check if completion mode should be attempted.
+
+        Returns True when pass percentage exceeds the threshold AND
+        completion attempts haven't been exhausted.
+        """
+        return (
+            pass_pct > self.config.retry.completion_threshold_percent
+            and completion_attempts < self.config.retry.max_completion_attempts
+        )
+
     def _decide_next_action(
         self,
         validation_result: "SheetValidationResult",
@@ -1978,9 +2044,7 @@ class SheetExecutionMixin:
         Returns:
             Tuple of (SheetExecutionMode, reason string, semantic_hints list).
         """
-        validation_confidence = validation_result.aggregate_confidence
         pass_pct = validation_result.executed_pass_percentage
-        completion_threshold = self.config.retry.completion_threshold_percent
         max_completion = self.config.retry.max_completion_attempts
 
         high_threshold = self.config.learning.high_confidence_threshold
@@ -1991,27 +2055,22 @@ class SheetExecutionMixin:
         dominant_category = semantic_summary.get("dominant_category")
 
         # Factor grounding confidence into decision
-        confidence = validation_confidence
+        confidence = validation_result.aggregate_confidence
         grounding_suffix = ""
         if grounding_context is not None and grounding_context.hooks_executed > 0:
-            confidence = (validation_confidence * 0.7) + (grounding_context.confidence * 0.3)
+            confidence = (confidence * 0.7) + (grounding_context.confidence * 0.3)
             grounding_suffix = f", grounding: {grounding_context.confidence:.2f}"
 
             if grounding_context.recovery_guidance:
                 semantic_hints = list(semantic_hints)
                 semantic_hints.insert(0, f"[Grounding] {grounding_context.recovery_guidance}")
 
-            if grounding_context.should_escalate:
-                escalation_available = (
-                    self.config.learning.escalation_enabled
-                    and self.escalation_handler is not None
+            if grounding_context.should_escalate and self._is_escalation_available():
+                return (
+                    SheetExecutionMode.ESCALATE,
+                    f"grounding hook requests escalation: {grounding_context.message}",
+                    semantic_hints,
                 )
-                if escalation_available:
-                    return (
-                        SheetExecutionMode.ESCALATE,
-                        f"grounding hook requests escalation: {grounding_context.message}",
-                        semantic_hints,
-                    )
 
         category_suffix = ""
         if dominant_category:
@@ -2019,23 +2078,24 @@ class SheetExecutionMixin:
         category_suffix += grounding_suffix
 
         # High confidence + majority passed -> completion mode
-        if confidence > high_threshold and pass_pct > completion_threshold:
-            if completion_attempts < max_completion:
-                return (
-                    SheetExecutionMode.COMPLETION,
-                    f"high confidence ({confidence:.2f}) with {pass_pct:.0f}% passed, "
-                    f"attempting focused completion{category_suffix}",
-                    semantic_hints,
-                )
-            else:
-                return (
-                    SheetExecutionMode.RETRY,
-                    f"completion attempts exhausted ({completion_attempts}/{max_completion}), "
-                    f"falling back to full retry{category_suffix}",
-                    semantic_hints,
-                )
+        if confidence > high_threshold and self._should_enter_completion_mode(pass_pct, completion_attempts):
+            return (
+                SheetExecutionMode.COMPLETION,
+                f"high confidence ({confidence:.2f}) with {pass_pct:.0f}% passed, "
+                f"attempting focused completion{category_suffix}",
+                semantic_hints,
+            )
 
-        # Low confidence -> escalate if enabled and handler available, else retry
+        if confidence > high_threshold and pass_pct > self.config.retry.completion_threshold_percent:
+            # Completion attempts exhausted
+            return (
+                SheetExecutionMode.RETRY,
+                f"completion attempts exhausted ({completion_attempts}/{max_completion}), "
+                f"falling back to full retry{category_suffix}",
+                semantic_hints,
+            )
+
+        # Low confidence -> escalate if enabled, else retry
         if confidence < min_threshold:
             auto_apply_enabled = self.config.learning.auto_apply_enabled
             auto_apply_threshold = self.config.learning.auto_apply_trust_threshold
@@ -2053,39 +2113,35 @@ class SheetExecutionMixin:
                     semantic_hints,
                 )
 
-            escalation_available = (
-                self.config.learning.escalation_enabled
-                and self.escalation_handler is not None
-            )
-            if escalation_available:
+            if self._is_escalation_available():
                 return (
                     SheetExecutionMode.ESCALATE,
                     f"low confidence ({confidence:.2f}) requires escalation{category_suffix}",
                     semantic_hints,
                 )
-            else:
-                return (
-                    SheetExecutionMode.RETRY,
-                    f"low confidence ({confidence:.2f}) but escalation not available, "
-                    f"attempting retry{category_suffix}",
-                    semantic_hints,
-                )
+
+            return (
+                SheetExecutionMode.RETRY,
+                f"low confidence ({confidence:.2f}) but escalation not available, "
+                f"attempting retry{category_suffix}",
+                semantic_hints,
+            )
 
         # Medium confidence zone: use pass percentage to decide
-        if pass_pct > completion_threshold and completion_attempts < max_completion:
+        if self._should_enter_completion_mode(pass_pct, completion_attempts):
             return (
                 SheetExecutionMode.COMPLETION,
                 f"medium confidence ({confidence:.2f}) with {pass_pct:.0f}% passed, "
                 f"attempting completion mode{category_suffix}",
                 semantic_hints,
             )
-        else:
-            return (
-                SheetExecutionMode.RETRY,
-                f"medium confidence ({confidence:.2f}) with {pass_pct:.0f}% passed, "
-                f"full retry needed{category_suffix}",
-                semantic_hints,
-            )
+
+        return (
+            SheetExecutionMode.RETRY,
+            f"medium confidence ({confidence:.2f}) with {pass_pct:.0f}% passed, "
+            f"full retry needed{category_suffix}",
+            semantic_hints,
+        )
 
     def _can_auto_apply(self, trust_threshold: float) -> bool:
         """Check if high-trust patterns exist that allow auto-apply.

@@ -327,7 +327,7 @@ class TestMCPToolSchemaValidation:
         ("JobTools", 3),
         ("ControlTools", 3),
         ("ArtifactTools", 5),
-        ("ScoreTools", 2),
+        ("ScoreTools", 0),  # Stub tools hidden from discovery
     ])
     async def test_tool_count_per_class(
         self, mock_state_backend, temp_workspace, tool_class_name, expected_count

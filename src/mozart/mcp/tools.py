@@ -1051,64 +1051,13 @@ class ScoreTools:
         self.workspace_root = workspace_root
 
     async def list_tools(self) -> list[dict[str, Any]]:
-        """List all score management tools."""
-        return [
-            {
-                "name": "validate_score",
-                "description": "Validate code changes in workspace meet quality score threshold",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "workspace": {
-                            "type": "string",
-                            "description": "Workspace directory to validate"
-                        },
-                        "min_score": {
-                            "type": "integer",
-                            "description": "Minimum acceptable quality score (0-100)",
-                            "default": 60,
-                            "minimum": 0,
-                            "maximum": 100
-                        },
-                        "target_score": {
-                            "type": "integer",
-                            "description": "Target quality score for high quality (0-100)",
-                            "default": 80,
-                            "minimum": 0,
-                            "maximum": 100
-                        },
-                        "since_commit": {
-                            "type": "string",
-                            "description": "Git commit hash to diff from (if not provided, uses staged + unstaged)"
-                        }
-                    },
-                    "required": ["workspace"]
-                }
-            },
-            {
-                "name": "generate_score",
-                "description": "Generate quality score for code changes in workspace",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "workspace": {
-                            "type": "string",
-                            "description": "Workspace directory to score"
-                        },
-                        "since_commit": {
-                            "type": "string",
-                            "description": "Git commit hash to diff from (if not provided, uses staged + unstaged)"
-                        },
-                        "detailed": {
-                            "type": "boolean",
-                            "description": "Include detailed feedback and suggestions",
-                            "default": False
-                        }
-                    },
-                    "required": ["workspace"]
-                }
-            }
-        ]
+        """List all score management tools.
+
+        Returns empty list because validate_score and generate_score are stub
+        implementations. Registering stubs misleads MCP clients into expecting
+        working functionality. Re-enable when backend integration is complete.
+        """
+        return []
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Execute a score tool."""

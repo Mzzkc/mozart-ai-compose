@@ -16,11 +16,24 @@ import sqlite3
 import uuid
 from collections.abc import Callable
 from contextlib import AbstractContextManager
+from dataclasses import dataclass
 from datetime import datetime
 
 from mozart.core.logging import MozartLogger
 from mozart.learning.store.base import _logger
 from mozart.learning.store.models import QuarantineStatus
+
+
+@dataclass(frozen=True)
+class PatternProvenance:
+    """Provenance information for where a pattern was discovered.
+
+    Groups the job_hash and sheet_num that always travel together
+    when recording pattern origins.
+    """
+
+    job_hash: str | None = None
+    sheet_num: int | None = None
 
 
 class PatternCrudMixin:
@@ -42,6 +55,8 @@ class PatternCrudMixin:
         description: str | None = None,
         context_tags: list[str] | None = None,
         suggested_action: str | None = None,
+        provenance: PatternProvenance | None = None,
+        # Deprecated individual params — use `provenance` instead
         provenance_job_hash: str | None = None,
         provenance_sheet_num: int | None = None,
     ) -> str:
@@ -56,12 +71,21 @@ class PatternCrudMixin:
             description: Human-readable description.
             context_tags: Tags for matching context.
             suggested_action: Recommended action for this pattern.
-            provenance_job_hash: Hash of the job that discovered this pattern.
-            provenance_sheet_num: Sheet number where pattern was discovered.
+            provenance: Grouped provenance info (job_hash + sheet_num).
+            provenance_job_hash: Deprecated — use provenance instead.
+            provenance_sheet_num: Deprecated — use provenance instead.
 
         Returns:
             The pattern ID.
         """
+        # Resolve provenance: prefer grouped param, fall back to individual params
+        if provenance is not None:
+            job_hash = provenance.job_hash
+            sheet_num = provenance.sheet_num
+        else:
+            job_hash = provenance_job_hash
+            sheet_num = provenance_sheet_num
+
         now = datetime.now().isoformat()
         pattern_id = hashlib.sha256(
             f"{pattern_type}:{pattern_name}".encode()
@@ -118,8 +142,8 @@ class PatternCrudMixin:
                         suggested_action,
                         json.dumps(context_tags or []),
                         QuarantineStatus.PENDING.value,
-                        provenance_job_hash,
-                        provenance_sheet_num,
+                        job_hash,
+                        sheet_num,
                         now,
                     ),
                 )

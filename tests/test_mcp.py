@@ -1,7 +1,7 @@
 """Tests for MCP server, tools, and resources modules.
 
-B3-11: Unit tests for the MCP module using simple mocks —
-no MCP server infrastructure required.
+B3-11: Unit tests for the MCP module using real Pydantic objects
+and dataclasses instead of MagicMock where possible.
 """
 
 from __future__ import annotations
@@ -9,11 +9,12 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
 from mozart.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
+from mozart.dashboard.services.job_control import JobActionResult, ProcessHealth
 from mozart.mcp.resources import ConfigResources
 from mozart.mcp.server import MCPServer
 from mozart.mcp.tools import ArtifactTools, ControlTools, JobTools, ScoreTools
@@ -26,36 +27,33 @@ from mozart.mcp.tools import ArtifactTools, ControlTools, JobTools, ScoreTools
 def _make_state(
     job_id: str = "test-job",
     status: JobStatus = JobStatus.COMPLETED,
-    sheets: dict | None = None,
+    sheets: dict[int, SheetState] | None = None,
 ) -> CheckpointState:
-    """Build a minimal CheckpointState for testing."""
-    state = MagicMock(spec=CheckpointState)
-    state.job_id = job_id
-    state.job_name = f"Test Job {job_id}"
-    state.status = status
-    state.started_at = datetime(2026, 1, 1, 12, 0, 0)
-    state.completed_at = datetime(2026, 1, 1, 12, 30, 0)
-    state.updated_at = datetime(2026, 1, 1, 12, 30, 0)
-    state.error_message = None
-    state.workspace = Path("/tmp/workspace")
-    state.backend_type = "claude_cli"
-    state.worktree_path = None
-    state.last_completed_sheet = 1
-
+    """Build a minimal CheckpointState using real Pydantic models."""
     if sheets is None:
-        sheet1 = MagicMock(spec=SheetState)
-        sheet1.sheet_num = 1
-        sheet1.status = SheetStatus.COMPLETED
-        sheet1.started_at = datetime(2026, 1, 1, 12, 0, 0)
-        sheet1.completed_at = datetime(2026, 1, 1, 12, 15, 0)
-        sheet1.attempt_count = 1
-        sheet1.error_message = None
-        sheet1.validation_passed = True
-        sheet1.stdout_tail = "output"
-        sheets = {1: sheet1}
+        sheets = {
+            1: SheetState(
+                sheet_num=1,
+                status=SheetStatus.COMPLETED,
+                started_at=datetime(2026, 1, 1, 12, 0, 0),
+                completed_at=datetime(2026, 1, 1, 12, 15, 0),
+                attempt_count=1,
+                validation_passed=True,
+                stdout_tail="output",
+            ),
+        }
 
-    state.sheets = sheets
-    return state
+    return CheckpointState(
+        job_id=job_id,
+        job_name=f"Test Job {job_id}",
+        status=status,
+        started_at=datetime(2026, 1, 1, 12, 0, 0),
+        completed_at=datetime(2026, 1, 1, 12, 30, 0),
+        updated_at=datetime(2026, 1, 1, 12, 30, 0),
+        total_sheets=len(sheets),
+        last_completed_sheet=1,
+        sheets=sheets,
+    )
 
 
 def _mock_state_backend(state: CheckpointState | None = None) -> AsyncMock:
@@ -332,14 +330,15 @@ class TestJobTools:
         state = _make_state(job_id="my-job")
         backend = _mock_state_backend(state)
 
-        # Mock verify_process_health on the JobControlService
-        health = MagicMock()
-        health.pid = 12345
-        health.is_alive = True
-        health.is_zombie_state = False
-        health.uptime_seconds = 120.0
-        health.cpu_percent = 5.0
-        health.memory_mb = 50.0
+        health = ProcessHealth(
+            pid=12345,
+            is_alive=True,
+            is_zombie_state=False,
+            process_exists=True,
+            uptime_seconds=120.0,
+            cpu_percent=5.0,
+            memory_mb=50.0,
+        )
 
         tools = JobTools(backend, tmp_path)
         tools.job_control.verify_process_health = AsyncMock(return_value=health)
@@ -381,10 +380,9 @@ class TestControlTools:
     async def test_pause_job_success(self, tmp_path: Path) -> None:
         backend = _mock_state_backend()
         tools = ControlTools(backend, tmp_path)
-        action_result = MagicMock()
-        action_result.success = True
-        action_result.status = "paused"
-        action_result.message = "Job paused"
+        action_result = JobActionResult(
+            success=True, job_id="test-job", status="paused", message="Job paused",
+        )
         tools.job_control.pause_job = AsyncMock(return_value=action_result)
 
         result = await tools.call_tool("pause_job", {"job_id": "test-job"})
@@ -394,10 +392,9 @@ class TestControlTools:
     async def test_pause_job_failure(self, tmp_path: Path) -> None:
         backend = _mock_state_backend()
         tools = ControlTools(backend, tmp_path)
-        action_result = MagicMock()
-        action_result.success = False
-        action_result.status = "running"
-        action_result.message = "Cannot pause"
+        action_result = JobActionResult(
+            success=False, job_id="test-job", status="running", message="Cannot pause",
+        )
         tools.job_control.pause_job = AsyncMock(return_value=action_result)
 
         result = await tools.call_tool("pause_job", {"job_id": "test-job"})
@@ -407,10 +404,9 @@ class TestControlTools:
     async def test_resume_job(self, tmp_path: Path) -> None:
         backend = _mock_state_backend()
         tools = ControlTools(backend, tmp_path)
-        action_result = MagicMock()
-        action_result.success = True
-        action_result.status = "running"
-        action_result.message = "Job resumed"
+        action_result = JobActionResult(
+            success=True, job_id="test-job", status="running", message="Job resumed",
+        )
         tools.job_control.resume_job = AsyncMock(return_value=action_result)
 
         result = await tools.call_tool("resume_job", {"job_id": "test-job"})
@@ -419,10 +415,9 @@ class TestControlTools:
     async def test_cancel_job(self, tmp_path: Path) -> None:
         backend = _mock_state_backend()
         tools = ControlTools(backend, tmp_path)
-        action_result = MagicMock()
-        action_result.success = True
-        action_result.status = "cancelled"
-        action_result.message = "Job cancelled"
+        action_result = JobActionResult(
+            success=True, job_id="test-job", status="cancelled", message="Job cancelled",
+        )
         tools.job_control.cancel_job = AsyncMock(return_value=action_result)
 
         result = await tools.call_tool("cancel_job", {"job_id": "test-job"})
@@ -607,14 +602,13 @@ class TestArtifactTools:
 
 
 class TestScoreTools:
-    """Tests for MCP score tools (stub implementation)."""
+    """Tests for MCP score tools (stub implementation, hidden from discovery)."""
 
-    async def test_list_tools(self, tmp_path: Path) -> None:
+    async def test_list_tools_empty_for_stubs(self, tmp_path: Path) -> None:
+        """Stub tools should not be discoverable by MCP clients."""
         tools = ScoreTools(tmp_path)
         result = await tools.list_tools()
-        names = [t["name"] for t in result]
-        assert "validate_score" in names
-        assert "generate_score" in names
+        assert result == [], "Stub tools should not be registered for discovery"
 
     async def test_validate_score(self, tmp_path: Path) -> None:
         tools = ScoreTools(tmp_path)

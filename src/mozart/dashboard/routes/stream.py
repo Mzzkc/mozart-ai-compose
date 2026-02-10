@@ -203,17 +203,28 @@ async def _job_status_stream(
 def _read_tail_lines(log_file: Path, tail_lines: int) -> tuple[list[str], int]:
     """Read the last N lines from a log file.
 
+    Uses collections.deque with maxlen to avoid loading the entire file into
+    memory — only the last N lines are retained during iteration.
+
     Returns:
         Tuple of (tail lines, total line count in file).
     """
-    with open(log_file, encoding='utf-8', errors='replace') as f:
-        all_lines = f.readlines()
+    from collections import deque
 
-    total = len(all_lines)
+    total = 0
     if tail_lines <= 0:
+        # Only count lines without retaining any
+        with open(log_file, encoding='utf-8', errors='replace') as f:
+            total = sum(1 for _ in f)
         return [], total
-    tail = all_lines[-tail_lines:] if total > tail_lines else all_lines
-    return tail, total
+
+    with open(log_file, encoding='utf-8', errors='replace') as f:
+        tail: deque[str] = deque(maxlen=tail_lines)
+        for line in f:
+            tail.append(line)
+            total += 1
+
+    return list(tail), total
 
 
 def _make_log_event(line: str, line_number: int, is_initial_event: bool, event_id: str) -> str:
@@ -431,6 +442,20 @@ async def download_logs(
         HTTPException: 404 if job/logs not found
     """
     log_file = await _get_job_log_file(job_id, backend)
+
+    # Guard against unbounded memory usage on large log files (50 MB limit)
+    max_download_bytes = 50 * 1024 * 1024
+    try:
+        file_size = log_file.stat().st_size
+    except OSError as e:
+        raise HTTPException(status_code=403, detail=f"Cannot access log file: {e}") from e
+
+    if file_size > max_download_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Log file too large for download: {file_size / (1024*1024):.1f} MB "
+                   f"(limit {max_download_bytes // (1024*1024)} MB). Use the streaming endpoint instead."
+        )
 
     try:
         content = log_file.read_text(encoding='utf-8', errors='replace')

@@ -249,6 +249,11 @@ class TestGracefulShutdownError:
             # Should have only executed one sheet
             assert mock_exec.call_count == 1
 
+        # Verify state_backend.save was called to persist shutdown state
+        assert mock_state_backend.save.call_count >= 1, (
+            "Expected state_backend.save to be called during graceful shutdown"
+        )
+
 
 class TestProgressTracking:
     """Tests for progress tracking functionality."""
@@ -295,6 +300,12 @@ class TestProgressTracking:
 
         # All should have total=3
         assert all(total == 3 for _, total, _ in progress_updates)
+
+        # Verify mock_state_backend.save was called (at least once for initial state)
+        assert mock_state_backend.save.call_count >= 1, (
+            f"Expected state_backend.save to be called at least once, "
+            f"got {mock_state_backend.save.call_count}"
+        )
 
     @pytest.mark.asyncio
     async def test_eta_is_calculated_from_sheet_times(
@@ -2001,4 +2012,313 @@ class TestCostTracking:
 
         assert exceeded is False  # Passes because disabled
         assert reason is None
+
+
+class TestClassifySuccessOutcome:
+    """Tests for _classify_success_outcome static method."""
+
+    def test_first_try_success(self) -> None:
+        """Test classification when sheet succeeds on first attempt."""
+        from mozart.execution.runner.sheet import SheetExecutionMixin
+
+        outcome, first = SheetExecutionMixin._classify_success_outcome(0, 0)
+        assert outcome == "success_first_try"
+        assert first is True
+
+    def test_success_after_retry(self) -> None:
+        """Test classification when sheet succeeds after normal retries."""
+        from mozart.execution.runner.sheet import SheetExecutionMixin
+
+        outcome, first = SheetExecutionMixin._classify_success_outcome(2, 0)
+        assert outcome == "success_retry"
+        assert first is False
+
+    def test_success_via_completion_mode(self) -> None:
+        """Test classification when sheet succeeds via completion mode."""
+        from mozart.execution.runner.sheet import SheetExecutionMixin
+
+        outcome, first = SheetExecutionMixin._classify_success_outcome(1, 3)
+        assert outcome == "success_completion"
+        assert first is False
+
+    def test_success_completion_without_retries(self) -> None:
+        """Test classification when completion mode used without prior retries."""
+        from mozart.execution.runner.sheet import SheetExecutionMixin
+
+        outcome, first = SheetExecutionMixin._classify_success_outcome(0, 1)
+        assert outcome == "success_completion"
+        assert first is False
+
+
+class TestDecideNextAction:
+    """Tests for _decide_next_action decision tree in SheetExecutionMixin."""
+
+    @pytest.fixture
+    def runner(
+        self,
+        sample_config: JobConfig,
+        mock_backend: MagicMock,
+        mock_state_backend: MagicMock,
+    ) -> JobRunner:
+        """Create a runner for decision logic tests."""
+        return JobRunner(
+            config=sample_config,
+            backend=mock_backend,
+            state_backend=mock_state_backend,
+        )
+
+    def _make_validation_result(
+        self,
+        pass_pct: float = 80.0,
+        confidence: float = 0.8,
+        passed_count: int = 4,
+        failed_count: int = 1,
+    ) -> MagicMock:
+        """Create a mock SheetValidationResult with configurable scores."""
+        result = MagicMock()
+        result.executed_pass_percentage = pass_pct
+        result.aggregate_confidence = confidence
+        result.pass_percentage = pass_pct
+        result.passed_count = passed_count
+        result.failed_count = failed_count
+        result.get_passed_results.return_value = [MagicMock()] * passed_count
+        result.get_failed_results.return_value = [MagicMock()] * failed_count
+        result.get_semantic_summary.return_value = {"dominant_category": "format"}
+        result.get_actionable_hints.return_value = ["Fix formatting"]
+        return result
+
+    def test_high_confidence_enters_completion(self, runner: JobRunner) -> None:
+        """High confidence + majority passed should enter completion mode."""
+        from mozart.execution.runner.models import SheetExecutionMode
+
+        result = self._make_validation_result(pass_pct=80.0, confidence=0.9)
+        mode, reason, hints = runner._decide_next_action(result, 0, 0)
+        assert mode == SheetExecutionMode.COMPLETION
+        assert "high confidence" in reason
+
+    def test_high_confidence_completion_exhausted_falls_to_retry(self, runner: JobRunner) -> None:
+        """High confidence but completion attempts exhausted should retry."""
+        from mozart.execution.runner.models import SheetExecutionMode
+
+        result = self._make_validation_result(pass_pct=80.0, confidence=0.9)
+        max_completion = runner.config.retry.max_completion_attempts
+        mode, reason, hints = runner._decide_next_action(result, 0, max_completion)
+        assert mode == SheetExecutionMode.RETRY
+        assert "completion attempts exhausted" in reason
+
+    def test_low_confidence_no_escalation_retries(self, runner: JobRunner) -> None:
+        """Low confidence without escalation handler should retry."""
+        from mozart.execution.runner.models import SheetExecutionMode
+
+        result = self._make_validation_result(pass_pct=30.0, confidence=0.1)
+        runner.escalation_handler = None
+        mode, reason, hints = runner._decide_next_action(result, 0, 0)
+        assert mode == SheetExecutionMode.RETRY
+        assert "low confidence" in reason
+        assert "escalation not available" in reason
+
+    def test_medium_confidence_enters_completion_if_eligible(self, runner: JobRunner) -> None:
+        """Medium confidence with eligible pass rate should enter completion."""
+        from mozart.execution.runner.models import SheetExecutionMode
+
+        threshold = runner.config.retry.completion_threshold_percent
+        result = self._make_validation_result(
+            pass_pct=threshold + 10,
+            confidence=0.5,
+        )
+        mode, reason, hints = runner._decide_next_action(result, 0, 0)
+        assert mode == SheetExecutionMode.COMPLETION
+        assert "medium confidence" in reason
+
+    def test_medium_confidence_retries_if_low_pass_rate(self, runner: JobRunner) -> None:
+        """Medium confidence with low pass rate should retry."""
+        from mozart.execution.runner.models import SheetExecutionMode
+
+        result = self._make_validation_result(pass_pct=10.0, confidence=0.5)
+        mode, reason, hints = runner._decide_next_action(result, 0, 0)
+        assert mode == SheetExecutionMode.RETRY
+        assert "full retry needed" in reason
+
+    def test_semantic_hints_included_in_result(self, runner: JobRunner) -> None:
+        """Decision should include semantic hints from validation result."""
+        result = self._make_validation_result(pass_pct=80.0, confidence=0.9)
+        result.get_actionable_hints.return_value = ["Fix file encoding", "Add header"]
+        _, _, hints = runner._decide_next_action(result, 0, 0)
+        assert "Fix file encoding" in hints
+        assert "Add header" in hints
+
+
+class TestShouldEnterCompletionMode:
+    """Tests for _should_enter_completion_mode helper."""
+
+    @pytest.fixture
+    def runner(
+        self,
+        sample_config: JobConfig,
+        mock_backend: MagicMock,
+        mock_state_backend: MagicMock,
+    ) -> JobRunner:
+        return JobRunner(
+            config=sample_config,
+            backend=mock_backend,
+            state_backend=mock_state_backend,
+        )
+
+    def test_eligible_when_above_threshold_and_attempts_remain(self, runner: JobRunner) -> None:
+        threshold = runner.config.retry.completion_threshold_percent
+        assert runner._should_enter_completion_mode(threshold + 10, 0) is True
+
+    def test_not_eligible_when_below_threshold(self, runner: JobRunner) -> None:
+        assert runner._should_enter_completion_mode(10.0, 0) is False
+
+    def test_not_eligible_when_attempts_exhausted(self, runner: JobRunner) -> None:
+        max_comp = runner.config.retry.max_completion_attempts
+        threshold = runner.config.retry.completion_threshold_percent
+        assert runner._should_enter_completion_mode(threshold + 10, max_comp) is False
+
+    def test_boundary_at_threshold_not_eligible(self, runner: JobRunner) -> None:
+        """Pass pct exactly at threshold should NOT enter completion (> not >=)."""
+        threshold = runner.config.retry.completion_threshold_percent
+        assert runner._should_enter_completion_mode(threshold, 0) is False
+
+
+class TestIsEscalationAvailable:
+    """Tests for _is_escalation_available helper."""
+
+    @pytest.fixture
+    def runner(
+        self,
+        sample_config: JobConfig,
+        mock_backend: MagicMock,
+        mock_state_backend: MagicMock,
+    ) -> JobRunner:
+        return JobRunner(
+            config=sample_config,
+            backend=mock_backend,
+            state_backend=mock_state_backend,
+        )
+
+    def test_available_when_enabled_and_handler_present(self, runner: JobRunner) -> None:
+        runner.config.learning.escalation_enabled = True
+        runner.escalation_handler = MagicMock()
+        assert runner._is_escalation_available() is True
+
+    def test_not_available_when_disabled(self, runner: JobRunner) -> None:
+        runner.config.learning.escalation_enabled = False
+        runner.escalation_handler = MagicMock()
+        assert runner._is_escalation_available() is False
+
+    def test_not_available_when_no_handler(self, runner: JobRunner) -> None:
+        runner.config.learning.escalation_enabled = True
+        runner.escalation_handler = None
+        assert runner._is_escalation_available() is False
+
+
+class TestGetRetryDelay:
+    """Tests for _get_retry_delay exponential backoff calculation."""
+
+    @pytest.fixture
+    def runner(
+        self,
+        sample_config: JobConfig,
+        mock_backend: MagicMock,
+        mock_state_backend: MagicMock,
+    ) -> JobRunner:
+        return JobRunner(
+            config=sample_config,
+            backend=mock_backend,
+            state_backend=mock_state_backend,
+        )
+
+    def test_first_attempt_uses_base_delay(self, runner: JobRunner) -> None:
+        runner.config.retry.jitter = False
+        delay = runner._get_retry_delay(1)
+        assert delay == runner.config.retry.base_delay_seconds
+
+    def test_delay_increases_exponentially(self, runner: JobRunner) -> None:
+        runner.config.retry.jitter = False
+        delay1 = runner._get_retry_delay(1)
+        delay2 = runner._get_retry_delay(2)
+        delay3 = runner._get_retry_delay(3)
+        assert delay2 > delay1
+        assert delay3 > delay2
+
+    def test_delay_capped_at_max(self, runner: JobRunner) -> None:
+        runner.config.retry.jitter = False
+        delay = runner._get_retry_delay(100)
+        assert delay <= runner.config.retry.max_delay_seconds
+
+    def test_jitter_adds_variability(self, runner: JobRunner) -> None:
+        runner.config.retry.jitter = True
+        delays = {runner._get_retry_delay(1) for _ in range(20)}
+        # With jitter, we should get some variation (not all identical)
+        assert len(delays) > 1
+
+
+class TestUpdateEscalationOutcome:
+    """Tests for _update_escalation_outcome recording."""
+
+    @pytest.fixture
+    def runner(
+        self,
+        sample_config: JobConfig,
+        mock_backend: MagicMock,
+        mock_state_backend: MagicMock,
+    ) -> JobRunner:
+        runner = JobRunner(
+            config=sample_config,
+            backend=mock_backend,
+            state_backend=mock_state_backend,
+        )
+        return runner
+
+    def test_noop_without_global_store(self, runner: JobRunner) -> None:
+        """Should return silently when no global learning store."""
+        from mozart.core.checkpoint import SheetState
+
+        runner._global_learning_store = None
+        sheet_state = SheetState(sheet_num=1)
+        sheet_state.outcome_data = {"escalation_record_id": "esc-123"}
+        # Should not raise
+        runner._update_escalation_outcome(sheet_state, "success", 1)
+
+    def test_noop_without_escalation_record_id(self, runner: JobRunner) -> None:
+        """Should return silently when no escalation_record_id in outcome_data."""
+        from mozart.core.checkpoint import SheetState
+
+        runner._global_learning_store = MagicMock()
+        sheet_state = SheetState(sheet_num=1)
+        sheet_state.outcome_data = {}
+        runner._update_escalation_outcome(sheet_state, "success", 1)
+        runner._global_learning_store.update_escalation_outcome.assert_not_called()
+
+    def test_records_outcome_when_store_and_id_present(self, runner: JobRunner) -> None:
+        """Should call update_escalation_outcome with correct params."""
+        from mozart.core.checkpoint import SheetState
+
+        mock_store = MagicMock()
+        mock_store.update_escalation_outcome.return_value = True
+        runner._global_learning_store = mock_store
+
+        sheet_state = SheetState(sheet_num=1)
+        sheet_state.outcome_data = {"escalation_record_id": "esc-456"}
+        runner._update_escalation_outcome(sheet_state, "failed", 1)
+
+        mock_store.update_escalation_outcome.assert_called_once_with(
+            escalation_id="esc-456",
+            outcome_after_action="failed",
+        )
+
+    def test_handles_store_exception_gracefully(self, runner: JobRunner) -> None:
+        """Should log warning and not crash if store raises."""
+        from mozart.core.checkpoint import SheetState
+
+        mock_store = MagicMock()
+        mock_store.update_escalation_outcome.side_effect = RuntimeError("DB error")
+        runner._global_learning_store = mock_store
+
+        sheet_state = SheetState(sheet_num=1)
+        sheet_state.outcome_data = {"escalation_record_id": "esc-789"}
+        # Should not raise
+        runner._update_escalation_outcome(sheet_state, "success", 1)
 

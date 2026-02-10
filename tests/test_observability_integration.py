@@ -278,19 +278,21 @@ class TestPreflightIntegration:
 class TestCircuitBreakerIntegration:
     """Tests for circuit breaker integration with job execution."""
 
-    def test_circuit_opens_after_failures(self):
+    @pytest.mark.asyncio
+    async def test_circuit_opens_after_failures(self):
         """Test that circuit opens after failure threshold."""
         breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=60.0)
 
-        breaker.record_failure()
-        breaker.record_failure()
-        assert breaker.get_state() == CircuitState.CLOSED
+        await breaker.record_failure()
+        await breaker.record_failure()
+        assert await breaker.get_state() == CircuitState.CLOSED
 
-        breaker.record_failure()  # Third failure
-        assert breaker.get_state() == CircuitState.OPEN
-        assert breaker.can_execute() is False
+        await breaker.record_failure()  # Third failure
+        assert await breaker.get_state() == CircuitState.OPEN
+        assert await breaker.can_execute() is False
 
-    def test_circuit_breaker_with_error_classifier(self):
+    @pytest.mark.asyncio
+    async def test_circuit_breaker_with_error_classifier(self):
         """Test circuit breaker responds to classified errors."""
         breaker = CircuitBreaker(failure_threshold=2, recovery_timeout=60.0)
         classifier = ErrorClassifier()
@@ -300,20 +302,21 @@ class TestCircuitBreakerIntegration:
         assert error.retriable is True
 
         # Record failures
-        breaker.record_failure()
-        breaker.record_failure()
+        await breaker.record_failure()
+        await breaker.record_failure()
 
-        assert breaker.get_state() == CircuitState.OPEN
+        assert await breaker.get_state() == CircuitState.OPEN
 
-    def test_circuit_breaker_stats_tracking(self):
+    @pytest.mark.asyncio
+    async def test_circuit_breaker_stats_tracking(self):
         """Test that circuit breaker stats are properly tracked."""
         breaker = CircuitBreaker(failure_threshold=2, recovery_timeout=0.01)
 
-        breaker.record_success()
-        breaker.record_failure()
-        breaker.record_failure()  # Opens circuit
+        await breaker.record_success()
+        await breaker.record_failure()
+        await breaker.record_failure()  # Opens circuit
 
-        stats = breaker.get_stats()
+        stats = await breaker.get_stats()
         assert stats.total_successes == 1
         assert stats.total_failures == 2
         assert stats.times_opened == 1
@@ -587,7 +590,8 @@ class TestEndToEndObservability:
         assert sheet.prompt_metrics is not None
         assert sheet.execution_duration_seconds == 5.5
 
-    def test_circuit_breaker_integration_with_state(self, tmp_path: Path):
+    @pytest.mark.asyncio
+    async def test_circuit_breaker_integration_with_state(self, tmp_path: Path):
         """Test circuit breaker integration with checkpoint state."""
         breaker = CircuitBreaker(failure_threshold=2, recovery_timeout=60.0)
         classifier = ErrorClassifier()
@@ -612,7 +616,7 @@ class TestEndToEndObservability:
                 attempt=1,
             )
 
-            breaker.record_failure()
+            await breaker.record_failure()
 
             state.mark_sheet_failed(
                 sheet_num=sheet_num,
@@ -620,12 +624,12 @@ class TestEndToEndObservability:
                 error_category=error.category.value,
             )
 
-            if not breaker.can_execute():
+            if not await breaker.can_execute():
                 break
 
         # Circuit should be open after 2 failures
-        assert breaker.get_state() == CircuitState.OPEN
-        stats = breaker.get_stats()
+        assert await breaker.get_state() == CircuitState.OPEN
+        stats = await breaker.get_stats()
         assert stats.total_failures >= 2
 
     def test_logging_captures_full_execution_trace(self, tmp_path: Path):

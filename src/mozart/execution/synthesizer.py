@@ -110,22 +110,20 @@ class SynthesisResult:
 
     def to_dict(self) -> SynthesisResultDict:
         """Serialize to dictionary for persistence."""
-        # type: ignore needed because mypy/pyright cannot infer a dict literal
-        # as matching a total=False TypedDict — all keys are correct and tested
-        # via from_dict() round-trip in test_synthesizer.py
-        return {
-            "batch_id": self.batch_id,
-            "sheets": self.sheets,
-            "strategy": self.strategy.value,
-            "status": self.status,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
-            "sheet_outputs": self.sheet_outputs,
-            "synthesized_content": self.synthesized_content,
-            "error_message": self.error_message,
-            "metadata": self.metadata,
-            "conflict_detection": self.conflict_detection,
-        }  # type: ignore[return-value]
+        result = SynthesisResultDict(
+            batch_id=self.batch_id,
+            sheets=self.sheets,
+            strategy=self.strategy.value,
+            status=self.status,
+            created_at=self.created_at.isoformat() if self.created_at else None,
+            completed_at=self.completed_at.isoformat() if self.completed_at else None,
+            sheet_outputs=self.sheet_outputs,
+            synthesized_content=self.synthesized_content,
+            error_message=self.error_message,
+            metadata=self.metadata,
+            conflict_detection=self.conflict_detection,
+        )
+        return result
 
     @classmethod
     def from_dict(cls, data: SynthesisResultDict) -> "SynthesisResult":
@@ -620,12 +618,16 @@ class ConflictDetector:
             all_keys.update(vars_dict.keys())
         result.keys_checked = len(all_keys)
 
-        # Compare all pairs of sheets
+        # Build canonical reference from first sheet, compare all others against it.
+        # This is O(n) instead of O(n²) pairwise comparison — for 50 sheets,
+        # 49 comparisons vs 1225.
         sheets_sorted = sorted(sheet_outputs.keys())
-        for i, sheet_a in enumerate(sheets_sorted):
-            for sheet_b in sheets_sorted[i + 1:]:
+        if len(sheets_sorted) >= 2:
+            reference_sheet = sheets_sorted[0]
+            reference_vars = sheet_variables.get(reference_sheet, {})
+            for sheet_b in sheets_sorted[1:]:
                 self._compare_sheets(
-                    sheet_a, sheet_variables.get(sheet_a, {}),
+                    reference_sheet, reference_vars,
                     sheet_b, sheet_variables.get(sheet_b, {}),
                     result,
                 )

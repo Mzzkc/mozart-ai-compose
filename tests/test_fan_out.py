@@ -819,3 +819,115 @@ class TestFanOutParallelE2E:
         assert sorted(config.dependencies[3]) == [1, 2]
         assert sorted(config.dependencies[4]) == [1, 2]
         assert sorted(config.dependencies[5]) == [1, 2]
+
+
+# ─── E2E: Simulated parallel execution with dependency validation ────────
+
+
+class TestFanOutExecutionSimulation:
+    """E2E tests that simulate parallel sheet execution through the DAG,
+    verifying that dependency constraints are never violated.
+    """
+
+    def _simulate_execution(
+        self,
+        config: SheetConfig,
+    ) -> list[list[int]]:
+        """Simulate execution by walking the DAG group by group.
+
+        Returns the list of parallel groups actually executed, with
+        dependency verification at each step.
+        """
+        dag = build_dag_from_config(
+            total_sheets=config.total_sheets,
+            sheet_dependencies=config.dependencies,
+        )
+        executed_groups: list[list[int]] = []
+        completed: set[int] = set()
+
+        for group in dag.get_parallel_groups():
+            # Verify every sheet in this group has all deps satisfied
+            for sheet_num in group:
+                ready = dag.get_ready_sheets(completed)
+                assert sheet_num in ready, (
+                    f"Sheet {sheet_num} scheduled but not ready. "
+                    f"Completed: {completed}, Ready: {ready}"
+                )
+            executed_groups.append(group)
+            completed.update(group)
+
+        # All sheets should have been executed
+        assert completed == set(range(1, config.total_sheets + 1))
+        return executed_groups
+
+    def test_simulation_simple_fan_out_fan_in(self):
+        """Simulate: 1 → 3x → 1. Verify all deps satisfied at each step."""
+        config = SheetConfig(
+            size=1, total_items=3,
+            fan_out={2: 3},
+            dependencies={2: [1], 3: [2]},
+        )
+        groups = self._simulate_execution(config)
+        assert groups == [[1], [2, 3, 4], [5]]
+
+    def test_simulation_multi_fan_pipeline(self):
+        """Simulate: 1 → 3x → 1 → 2x → 1. Five-stage pipeline."""
+        config = SheetConfig(
+            size=1, total_items=5,
+            fan_out={2: 3, 4: 2},
+            dependencies={2: [1], 3: [2], 4: [3], 5: [4]},
+        )
+        groups = self._simulate_execution(config)
+        assert len(groups) == 5
+        assert groups[0] == [1]
+        assert len(groups[1]) == 3  # 3x fan-out
+        assert groups[2] == [5]      # fan-in
+        assert len(groups[3]) == 2  # 2x fan-out
+        assert groups[4] == [8]      # final fan-in
+
+    def test_simulation_metadata_propagation_through_pipeline(self):
+        """Verify stage/instance/fan_count metadata is correct at each sheet."""
+        config = SheetConfig(
+            size=1, total_items=3,
+            fan_out={2: 3},
+            dependencies={2: [1], 3: [2]},
+        )
+        # Stage 1: single sheet
+        meta1 = config.get_fan_out_metadata(1)
+        assert meta1.stage == 1
+        assert meta1.instance == 1
+        assert meta1.fan_count == 1
+
+        # Stage 2: fan-out to 3 instances (sheets 2, 3, 4)
+        for i, sheet_num in enumerate([2, 3, 4], start=1):
+            meta = config.get_fan_out_metadata(sheet_num)
+            assert meta.stage == 2, f"Sheet {sheet_num} should be stage 2"
+            assert meta.instance == i, f"Sheet {sheet_num} should be instance {i}"
+            assert meta.fan_count == 3
+
+        # Stage 3: fan-in (sheet 5)
+        meta5 = config.get_fan_out_metadata(5)
+        assert meta5.stage == 3
+        assert meta5.instance == 1
+        assert meta5.fan_count == 1
+
+    def test_simulation_cross_fan_respects_all_to_all_deps(self):
+        """N→M (N≠M) cross-fan: all upstream must complete before any downstream."""
+        config = SheetConfig(
+            size=1, total_items=3,
+            fan_out={1: 2, 2: 3},
+            dependencies={2: [1], 3: [2]},
+        )
+        groups = self._simulate_execution(config)
+        # 2 instances → 3 instances → 1 final
+        assert len(groups[0]) == 2  # Stage 1: 2x
+        assert len(groups[1]) == 3  # Stage 2: 3x (all-to-all from stage 1)
+        assert len(groups[2]) == 1  # Stage 3: fan-in
+
+        # Verify all-to-all: every stage-2 sheet depends on both stage-1 sheets
+        stage1_sheets = set(groups[0])
+        for sheet_num in groups[1]:
+            deps = set(config.dependencies.get(sheet_num, []))
+            assert deps == stage1_sheets, (
+                f"Sheet {sheet_num} should depend on all of {stage1_sheets}, got {deps}"
+            )

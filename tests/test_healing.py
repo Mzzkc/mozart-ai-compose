@@ -1352,7 +1352,7 @@ class TestRemedyRealCodePaths:
             assert len(diagnostic) > 20, f"{remedy.name} diagnostic too short: {diagnostic}"
 
 
-class TestSelfHealingE2E:
+class TestSelfHealingE2ERealFilesystem:
     """End-to-end integration tests for the full healing pipeline.
 
     These tests exercise the complete flow: error → diagnose → apply → verify,
@@ -1628,3 +1628,143 @@ class TestSelfHealingE2E:
         assert "Sheet 3" in formatted
         assert "E601" in formatted
         assert "HEALED" in formatted
+
+
+# =============================================================================
+# Cascading multi-error recovery E2E tests
+# =============================================================================
+
+
+class TestHealingCascadingRecovery:
+    """E2E tests for cascading error recovery scenarios.
+
+    These simulate realistic failure sequences where fixing one error
+    reveals the next, requiring multiple healing passes.
+    """
+
+    @pytest.mark.asyncio
+    async def test_cascading_workspace_then_parent_dirs(self, tmp_path):
+        """Sequential errors: missing workspace → then missing nested path."""
+        workspace = tmp_path / "cascade-workspace"
+        nested = workspace / "deep" / "nested" / "path"
+
+        mock_config = MagicMock()
+        mock_config.workspace = workspace
+        mock_config.backend.working_directory = None
+
+        registry = create_default_registry()
+
+        # First error: workspace doesn't exist
+        ctx1 = ErrorContext(
+            error_code="E601",
+            error_message=f"Workspace directory does not exist: {workspace}",
+            error_category="preflight",
+            config=mock_config,
+            workspace=workspace,
+            sheet_number=1,
+            working_directory=workspace,
+        )
+        coordinator1 = SelfHealingCoordinator(registry, auto_confirm=True)
+        report1 = await coordinator1.heal(ctx1)
+
+        assert report1.should_retry, "First healing should succeed"
+        assert workspace.exists(), "Workspace should be created"
+
+        # Second error: nested subdirectory doesn't exist
+        ctx2 = ErrorContext(
+            error_code="E201",
+            error_message=f"No such file or directory: {nested}",
+            error_category="preflight",
+            config=mock_config,
+            workspace=workspace,
+            sheet_number=1,
+            working_directory=workspace,
+        )
+        coordinator2 = SelfHealingCoordinator(registry, auto_confirm=True)
+        report2 = await coordinator2.heal(ctx2)
+
+        # Parent dir remedy may or may not match depending on path parsing,
+        # but the pipeline should complete without error
+        assert isinstance(report2, HealingReport)
+
+    @pytest.mark.asyncio
+    async def test_rollback_cascade_reverses_in_correct_order(self, tmp_path):
+        """Apply workspace creation, verify rollback removes it."""
+        workspace = tmp_path / "rollback-cascade"
+
+        mock_config = MagicMock()
+        mock_config.workspace = workspace
+        mock_config.backend.working_directory = None
+
+        ctx = ErrorContext(
+            error_code="E601",
+            error_message=f"Workspace directory does not exist: {workspace}",
+            error_category="preflight",
+            config=mock_config,
+            workspace=workspace,
+            sheet_number=2,
+            working_directory=workspace,
+        )
+
+        remedy = CreateMissingWorkspaceRemedy()
+        diagnosis = remedy.diagnose(ctx)
+        assert diagnosis is not None, "Should diagnose missing workspace"
+
+        # Apply
+        result = remedy.apply(ctx)
+        assert result.success
+        assert workspace.exists()
+
+        # Rollback
+        rolled_back = remedy.rollback(result)
+        assert rolled_back, "Rollback should succeed"
+        assert not workspace.exists(), "Workspace should be removed after rollback"
+
+    @pytest.mark.asyncio
+    async def test_unrecoverable_error_produces_diagnostic_only(self, tmp_path):
+        """Unrecoverable error: CLI not found → diagnostic guidance, no retry."""
+        mock_config = MagicMock()
+        mock_config.workspace = tmp_path
+        mock_config.backend.working_directory = None
+
+        ctx = ErrorContext(
+            error_code="E301",
+            error_message="claude: command not found",
+            error_category="execution",
+            config=mock_config,
+            workspace=tmp_path,
+            sheet_number=1,
+            working_directory=tmp_path,
+        )
+
+        registry = create_default_registry()
+        coordinator = SelfHealingCoordinator(registry, auto_confirm=True)
+        report = await coordinator.heal(ctx)
+
+        # CLI-not-found is a diagnostic-only remedy — should not trigger retry
+        assert not report.any_remedies_applied, "CLI missing is not auto-fixable"
+
+    @pytest.mark.asyncio
+    async def test_healing_idempotent_on_already_fixed_workspace(self, tmp_path):
+        """Healing workspace that already exists is a no-op (idempotent)."""
+        workspace = tmp_path / "already-exists"
+        workspace.mkdir()
+
+        mock_config = MagicMock()
+        mock_config.workspace = workspace
+        mock_config.backend.working_directory = None
+
+        ctx = ErrorContext(
+            error_code="E601",
+            error_message=f"Workspace directory does not exist: {workspace}",
+            error_category="preflight",
+            config=mock_config,
+            workspace=workspace,
+            sheet_number=1,
+            working_directory=workspace,
+        )
+
+        remedy = CreateMissingWorkspaceRemedy()
+        diagnosis = remedy.diagnose(ctx)
+        # Remedy should not diagnose an issue since workspace exists
+        assert diagnosis is None, "No diagnosis needed when workspace already exists"

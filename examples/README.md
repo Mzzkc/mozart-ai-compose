@@ -18,6 +18,8 @@ This directory contains example Mozart configurations for various use cases. Moz
 | [worktree-isolation.yaml](worktree-isolation.yaml) | Parallel-safe execution using git worktrees | Medium |
 | [parallel-research-fanout.yaml](parallel-research-fanout.yaml) | Fan-out: parameterized parallel stages without sheet duplication | Medium |
 | [observability-demo.yaml](observability-demo.yaml) | Demonstrating logging, error tracking, and diagnostics | Medium |
+| [quality-continuous.yaml](quality-continuous.yaml) | Self-chaining quality improvement for Python projects (15 sheets) | High |
+| [quality-continuous-generic.yaml](quality-continuous-generic.yaml) | Language-agnostic quality improvement with parallel reviews (16 sheets, fan-out) | High |
 
 ## Beyond Coding
 
@@ -246,6 +248,8 @@ All examples pass `mozart validate`:
 | training-data-curation.yaml | ✓ | 7 | 24 |
 | nonfiction-book.yaml | ✓ | 8 | 31 |
 | strategic-plan.yaml | ✓ | 8 | 39 |
+| quality-continuous.yaml | ✓ | 15 | 18 |
+| quality-continuous-generic.yaml | ✓ | 16 | 22 |
 
 ---
 

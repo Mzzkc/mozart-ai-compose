@@ -1005,20 +1005,28 @@ class TestConflictDetector:
         assert result.sheets_analyzed == []
 
     def test_detect_three_sheets(self) -> None:
-        """Test conflict detection across three sheets."""
+        """Test conflict detection across three sheets.
+
+        Uses canonical reference comparison (first sheet vs all others),
+        so 1 vs 3 conflict is detected (reference vs differing sheet).
+        """
         from mozart.execution.synthesizer import ConflictDetector
 
         outputs = {
             1: "STATUS: a",
-            2: "STATUS: a",  # Same as 1
-            3: "STATUS: b",  # Different from 1 and 2
+            2: "STATUS: a",  # Same as reference (sheet 1)
+            3: "STATUS: b",  # Different from reference (sheet 1)
         }
 
         detector = ConflictDetector()
         result = detector.detect_conflicts(outputs)
 
-        # Should find conflicts: 1-3 and 2-3
-        assert len(result.conflicts) == 2
+        # Canonical reference (sheet 1) compared against sheets 2 and 3:
+        # - 1 vs 2: same value "a" -> no conflict
+        # - 1 vs 3: "a" vs "b" -> conflict detected
+        assert len(result.conflicts) == 1
+        assert result.conflicts[0].sheet_a == 1
+        assert result.conflicts[0].sheet_b == 3
 
     def test_detect_disjoint_keys(self) -> None:
         """Test sheets with no common keys have no conflicts."""

@@ -112,7 +112,7 @@ class SynthesisResultDict(TypedDict, total=False):
     sheets: list[int]
     strategy: str  # "merge", "summarize", "pass_through"
     status: str  # "pending", "ready", "done", "failed"
-    created_at: str  # ISO format datetime
+    created_at: str | None  # ISO format datetime, or None if not set
     completed_at: str | None
     sheet_outputs: dict[int, str]
     synthesized_content: str | None

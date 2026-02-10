@@ -5,12 +5,30 @@ terminal display with Rich and JSON output for tooling.
 """
 
 import json
-from typing import Any
+from typing import Any, TypedDict
 
 from rich.console import Console
 from rich.panel import Panel
 
 from mozart.validation.base import ValidationIssue, ValidationSeverity
+
+
+class ValidationIssueDict(TypedDict, total=False):
+    """Typed schema for serialized ValidationIssue entries in JSON output.
+
+    Required keys: check_id, severity, message (always present).
+    Optional keys are only included when the source ValidationIssue has them set.
+    """
+
+    check_id: str
+    severity: str
+    message: str
+    line: int
+    column: int
+    context: str
+    suggestion: str
+    auto_fixable: bool
+    metadata: dict[str, str]
 
 
 class ValidationReporter:
@@ -141,13 +159,13 @@ class ValidationReporter:
         }
         return json.dumps(result, indent=2)
 
-    def _issue_to_dict(self, issue: ValidationIssue) -> dict[str, Any]:
-        """Convert a ValidationIssue to a dictionary."""
-        result: dict[str, Any] = {
-            "check_id": issue.check_id,
-            "severity": issue.severity.value,
-            "message": issue.message,
-        }
+    def _issue_to_dict(self, issue: ValidationIssue) -> ValidationIssueDict:
+        """Convert a ValidationIssue to a typed dictionary."""
+        result = ValidationIssueDict(
+            check_id=issue.check_id,
+            severity=issue.severity.value,
+            message=issue.message,
+        )
 
         if issue.line is not None:
             result["line"] = issue.line
