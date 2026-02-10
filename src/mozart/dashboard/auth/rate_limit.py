@@ -13,15 +13,15 @@ from threading import Lock
 from typing import Any
 
 from fastapi import Request, status
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.responses import JSONResponse, Response
+from starlette.types import ASGIApp
 
 from mozart.core.constants import (
     RATE_LIMIT_BURST_LIMIT,
     RATE_LIMIT_REQUESTS_PER_HOUR,
     RATE_LIMIT_REQUESTS_PER_MINUTE,
 )
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.responses import JSONResponse, Response
-from starlette.types import ASGIApp
 
 
 @dataclass

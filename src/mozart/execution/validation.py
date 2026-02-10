@@ -24,7 +24,10 @@ from typing import TYPE_CHECKING, Any
 
 from mozart.core.checkpoint import ValidationDetailDict
 from mozart.core.config import ValidationRule
-from mozart.core.constants import VALIDATION_COMMAND_TIMEOUT_SECONDS, VALIDATION_OUTPUT_TRUNCATE_CHARS
+from mozart.core.constants import (
+    VALIDATION_COMMAND_TIMEOUT_SECONDS,
+    VALIDATION_OUTPUT_TRUNCATE_CHARS,
+)
 from mozart.utils.time import utc_now
 
 _logger = logging.getLogger("mozart.execution.validation")
@@ -902,7 +905,10 @@ class ValidationEngine:
             error_message=f"Pattern not found in {path}: {rule.pattern}",
             failure_reason=f"File '{display_path}' missing expected content: '{display_pattern}'",
             failure_category="incomplete",
-            suggested_fix=f"Add exactly '{rule.pattern}' to the file (this exact text is validated)",
+            suggested_fix=(
+                f"Add exactly '{rule.pattern}' to the file"
+                f" (this exact text is validated)"
+            ),
         )
 
     def _check_content_regex(self, rule: ValidationRule) -> ValidationResult:
@@ -1148,7 +1154,10 @@ class ValidationEngine:
             # Build output summary (truncate if very long)
             output = result.stdout + result.stderr
             if len(output) > VALIDATION_OUTPUT_TRUNCATE_CHARS:
-                output_summary = output[:VALIDATION_OUTPUT_TRUNCATE_CHARS] + f"\n... ({len(output)} chars total)"
+                output_summary = (
+                    output[:VALIDATION_OUTPUT_TRUNCATE_CHARS]
+                    + f"\n... ({len(output)} chars total)"
+                )
             else:
                 output_summary = output
 
@@ -1187,8 +1196,14 @@ class ValidationEngine:
                 rule=rule,
                 passed=False,
                 expected_value="exit_code=0",
-                error_message=f"Command timed out after {VALIDATION_COMMAND_TIMEOUT_SECONDS} seconds",
-                failure_reason=f"Command '{display_command}' timed out after {VALIDATION_COMMAND_TIMEOUT_SECONDS} seconds",
+                error_message=(
+                    f"Command timed out after"
+                    f" {VALIDATION_COMMAND_TIMEOUT_SECONDS} seconds"
+                ),
+                failure_reason=(
+                    f"Command '{display_command}' timed out after"
+                    f" {VALIDATION_COMMAND_TIMEOUT_SECONDS} seconds"
+                ),
                 failure_category="error",
                 suggested_fix="Increase timeout or optimize the command",
             )

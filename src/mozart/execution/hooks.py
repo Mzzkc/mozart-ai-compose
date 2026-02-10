@@ -23,6 +23,7 @@ import shlex
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from mozart.core.config import JobConfig, PostSuccessHookConfig
 from mozart.core.logging import get_logger
@@ -46,6 +47,12 @@ class HookResult:
     chained_job_path: Path | None = None
     chained_job_workspace: Path | None = None
 
+    # Log file path for detached hooks (observability)
+    log_path: Path | None = None
+
+    # Structured chained job tracking (observability: chain tracking)
+    chained_job_info: dict[str, Any] | None = None
+
 
 @dataclass
 class ConcertContext:
@@ -65,6 +72,27 @@ class ConcertContext:
     total_jobs_run: int = 0
     total_sheets_completed: int = 0
     jobs_in_chain: list[str] = field(default_factory=list)
+
+
+def get_hook_log_path(workspace: str | Path | None, hook_type: str) -> Path | None:
+    """Construct log path for a hook execution.
+
+    Creates a timestamped log file in {workspace}/hooks/ for capturing
+    detached hook output that would otherwise go to /dev/null.
+
+    Args:
+        workspace: Job workspace directory. Returns None if not set.
+        hook_type: Hook type identifier used in filename (e.g., "chain", "command").
+
+    Returns:
+        Path to the log file, or None if workspace is not available.
+    """
+    if workspace is None:
+        return None
+    hook_log_dir = Path(workspace) / "hooks"
+    hook_log_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    return hook_log_dir / f"{hook_type}-{timestamp}.log"
 
 
 class HookExecutor:
@@ -263,7 +291,10 @@ class HookExecutor:
                     hook_type="run_job",
                     description=hook.description,
                     success=False,
-                    error_message=f"Concert chain depth limit reached ({self.concert.max_chain_depth})",
+                    error_message=(
+                        f"Concert chain depth limit reached"
+                        f" ({self.concert.max_chain_depth})"
+                    ),
                     chained_job_path=job_path,
                 )
 
@@ -303,18 +334,36 @@ class HookExecutor:
             # sufficient — the external `setsid` binary would double-detach
             # redundantly and adds a dependency on the setsid binary.
             if hook.detached:
+                # Create log file for detached hook output instead of DEVNULL.
+                # This ensures chained job failures leave a diagnostic trace.
+                log_path = get_hook_log_path(self.workspace, "chain")
+                log_file = None
+                if log_path:
+                    log_file = open(log_path, "w")  # noqa: SIM115
+                    stdout_handle = log_file
+                    stderr_handle = log_file
+                else:
+                    stdout_handle = asyncio.subprocess.DEVNULL
+                    stderr_handle = asyncio.subprocess.DEVNULL
+
                 process = await asyncio.create_subprocess_exec(
                     *cmd,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
+                    stdout=stdout_handle,
+                    stderr=stderr_handle,
                     stdin=asyncio.subprocess.DEVNULL,
                     env=os.environ.copy(),
                     start_new_session=True,
                 )
+
+                # Close the file handle in the parent — child inherited the fd
+                if log_file is not None:
+                    log_file.close()
+
                 _logger.info(
                     "hook.detached_job_spawned",
                     job_path=str(job_path),
                     pid=process.pid,
+                    log_path=str(log_path) if log_path else None,
                 )
                 return HookResult(
                     hook_type="run_job",
@@ -323,6 +372,13 @@ class HookExecutor:
                     output=f"Detached job spawned (PID {process.pid})",
                     chained_job_path=job_path,
                     chained_job_workspace=chained_workspace,
+                    log_path=log_path,
+                    chained_job_info={
+                        "job_path": str(job_path),
+                        "workspace": str(chained_workspace) if chained_workspace else None,
+                        "pid": process.pid,
+                        "log_path": str(log_path) if log_path else None,
+                    },
                 )
 
             # Normal mode - wait for completion
@@ -342,7 +398,7 @@ class HookExecutor:
                 )
                 stdout = stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
                 exit_code = process.returncode
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 process.kill()
                 await process.wait()
                 return HookResult(
@@ -362,6 +418,12 @@ class HookExecutor:
                 output=stdout[-2000:] if stdout else None,  # Tail of output
                 chained_job_path=job_path,
                 chained_job_workspace=chained_workspace,
+                chained_job_info={
+                    "job_path": str(job_path),
+                    "workspace": str(chained_workspace) if chained_workspace else None,
+                    "pid": process.pid,
+                    "log_path": None,
+                },
             )
 
         except FileNotFoundError:
@@ -412,7 +474,7 @@ class HookExecutor:
                 )
                 stdout = stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
                 exit_code = process.returncode
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 process.kill()
                 await process.wait()
                 return HookResult(
@@ -478,7 +540,7 @@ class HookExecutor:
                 )
                 stdout = stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
                 exit_code = process.returncode
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 process.kill()
                 await process.wait()
                 return HookResult(

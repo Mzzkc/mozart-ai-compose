@@ -320,7 +320,10 @@ class PromptBuilder:
 
             elif rule.type == "file_modified":
                 lines.append(f"{i}. **{desc}**")
-                lines.append(f"   - Modify file: `{expanded_path}` (must update it during execution)")
+                lines.append(
+                    f"   - Modify file: `{expanded_path}`"
+                    f" (must update it during execution)"
+                )
 
             elif rule.type == "content_contains":
                 lines.append(f"{i}. **{desc}**")

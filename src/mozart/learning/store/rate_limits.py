@@ -16,7 +16,7 @@ import sqlite3
 import uuid
 from collections.abc import Callable
 from contextlib import AbstractContextManager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from mozart.core.logging import MozartLogger, get_logger
 
@@ -69,7 +69,7 @@ class RateLimitMixin:
         from datetime import timedelta
 
         record_id = str(uuid.uuid4())
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         job_hash = self.hash_job(job_id)
 
         # Use 80% of expected duration as expiry (conservative TTL)
@@ -122,7 +122,7 @@ class RateLimitMixin:
             Tuple of (is_limited: bool, seconds_until_expiry: float | None).
             If is_limited is True, seconds_until_expiry indicates when it clears.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         with self._get_connection() as conn:
             # Build query based on filters
@@ -174,7 +174,7 @@ class RateLimitMixin:
         Returns:
             List of RateLimitEvent objects that haven't expired yet.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         with self._get_connection() as conn:
             if model:

@@ -342,9 +342,12 @@ class BudgetMixin:
                         AVG(budget_value) as avg_val,
                         MIN(budget_value) as min_val,
                         MAX(budget_value) as max_val,
-                        SUM(CASE WHEN adjustment_type = 'floor_enforced' THEN 1 ELSE 0 END) as floor_count,
-                        SUM(CASE WHEN adjustment_type = 'boost' THEN 1 ELSE 0 END) as boost_count,
-                        SUM(CASE WHEN adjustment_type = 'decay' THEN 1 ELSE 0 END) as decay_count
+                        SUM(CASE WHEN adjustment_type = 'floor_enforced'
+                            THEN 1 ELSE 0 END) as floor_count,
+                        SUM(CASE WHEN adjustment_type = 'boost'
+                            THEN 1 ELSE 0 END) as boost_count,
+                        SUM(CASE WHEN adjustment_type = 'decay'
+                            THEN 1 ELSE 0 END) as decay_count
                     FROM exploration_budget
                     WHERE job_hash = ?
                     """,
@@ -358,9 +361,12 @@ class BudgetMixin:
                         AVG(budget_value) as avg_val,
                         MIN(budget_value) as min_val,
                         MAX(budget_value) as max_val,
-                        SUM(CASE WHEN adjustment_type = 'floor_enforced' THEN 1 ELSE 0 END) as floor_count,
-                        SUM(CASE WHEN adjustment_type = 'boost' THEN 1 ELSE 0 END) as boost_count,
-                        SUM(CASE WHEN adjustment_type = 'decay' THEN 1 ELSE 0 END) as decay_count
+                        SUM(CASE WHEN adjustment_type = 'floor_enforced'
+                            THEN 1 ELSE 0 END) as floor_count,
+                        SUM(CASE WHEN adjustment_type = 'boost'
+                            THEN 1 ELSE 0 END) as boost_count,
+                        SUM(CASE WHEN adjustment_type = 'decay'
+                            THEN 1 ELSE 0 END) as decay_count
                     FROM exploration_budget
                     """
                 )
@@ -523,7 +529,10 @@ class BudgetMixin:
                 budget_value=new_budget,
                 adjustment_type="boost",
                 entropy_at_time=entropy_at_trigger,
-                adjustment_reason=f"Entropy response: diversity {entropy_at_trigger:.3f} < {threshold_used:.3f}",
+                adjustment_reason=(
+                    f"Entropy response: diversity"
+                    f" {entropy_at_trigger:.3f} < {threshold_used:.3f}"
+                ),
                 floor=budget_floor,
                 ceiling=budget_ceiling,
             )
@@ -664,7 +673,10 @@ class BudgetMixin:
                 actions_taken=json.loads(row["actions_taken"]),
                 budget_boosted=bool(row["budget_boosted"]),
                 quarantine_revisits=row["quarantine_revisits"],
-                patterns_revisited=json.loads(row["patterns_revisited"]) if row["patterns_revisited"] else [],
+                patterns_revisited=(
+                    json.loads(row["patterns_revisited"])
+                    if row["patterns_revisited"] else []
+                ),
             )
 
     def get_entropy_response_history(
@@ -723,7 +735,10 @@ class BudgetMixin:
                         actions_taken=json.loads(row["actions_taken"]),
                         budget_boosted=bool(row["budget_boosted"]),
                         quarantine_revisits=row["quarantine_revisits"],
-                        patterns_revisited=json.loads(row["patterns_revisited"]) if row["patterns_revisited"] else [],
+                        patterns_revisited=(
+                    json.loads(row["patterns_revisited"])
+                    if row["patterns_revisited"] else []
+                ),
                     )
                 )
             return records

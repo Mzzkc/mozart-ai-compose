@@ -281,7 +281,10 @@ async def _list_jobs(
             raise typer.Exit(1) from None
 
     # Sort by updated_at descending and limit
-    unique_jobs.sort(key=lambda x: x[1].updated_at or datetime.min.replace(tzinfo=UTC), reverse=True)
+    def _sort_key(x: tuple) -> datetime:
+        return x[1].updated_at or datetime.min.replace(tzinfo=UTC)
+
+    unique_jobs.sort(key=_sort_key, reverse=True)
     unique_jobs = unique_jobs[:limit]
 
     if not unique_jobs:
@@ -340,6 +343,29 @@ def _output_status_json(job: CheckpointState) -> None:
     # Infer circuit breaker state
     cb_state = _infer_circuit_breaker_state(job)
 
+    # Build per-sheet JSON with enhanced fields
+    sheets_json: dict[str, dict[str, Any]] = {}
+    for num, sheet in job.sheets.items():
+        sheet_data: dict[str, Any] = {
+            "status": sheet.status.value,
+            "attempt_count": sheet.attempt_count,
+            "validation_passed": sheet.validation_passed,
+            "error_message": sheet.error_message,
+            "error_category": sheet.error_category,
+        }
+        if sheet.execution_duration_seconds is not None:
+            sheet_data["execution_duration_seconds"] = sheet.execution_duration_seconds
+        if sheet.estimated_cost is not None:
+            sheet_data["estimated_cost"] = sheet.estimated_cost
+        if sheet.status == SheetStatus.IN_PROGRESS and sheet.started_at:
+            elapsed = (datetime.now(UTC) - sheet.started_at).total_seconds()
+            sheet_data["elapsed_seconds"] = round(elapsed, 1)
+        if sheet.progress_snapshots:
+            sheet_data["progress_snapshots"] = sheet.progress_snapshots
+        if sheet.last_activity_at:
+            sheet_data["last_activity_at"] = sheet.last_activity_at.isoformat()
+        sheets_json[str(num)] = sheet_data
+
     output = {
         "job_id": job.job_id,
         "job_name": job.job_name,
@@ -361,25 +387,35 @@ def _output_status_json(job: CheckpointState) -> None:
             "total_retry_count": job.total_retry_count,
             "rate_limit_waits": job.rate_limit_waits,
         },
+        "cost": {
+            "total_estimated_cost": job.total_estimated_cost,
+            "total_input_tokens": job.total_input_tokens,
+            "total_output_tokens": job.total_output_tokens,
+            "cost_limit_reached": job.cost_limit_reached,
+        },
         "circuit_breaker": cb_state,
+        "hook_results_count": len(job.hook_results),
+        "hook_failures": [
+            {
+                "hook_name": h.get("hook_name", h.get("name", "unknown")),
+                "event": h.get("event"),
+                "error": h.get("error", h.get("error_message", "")),
+            }
+            for h in job.hook_results
+            if not h.get("success", False)
+        ],
         "recent_errors": recent_errors_data,
         "error": job.error_message,
-        "sheets": {
-            str(num): {
-                "status": sheet.status.value,
-                "attempt_count": sheet.attempt_count,
-                "validation_passed": sheet.validation_passed,
-                "error_message": sheet.error_message,
-                "error_category": sheet.error_category,
-            }
-            for num, sheet in job.sheets.items()
-        },
+        "sheets": sheets_json,
     }
     console.print(json.dumps(output, indent=2))
 
 
 def _render_sheet_details(job: CheckpointState) -> None:
-    """Render the sheet details table for rich status output."""
+    """Render the sheet details table for rich status output.
+
+    Shows elapsed time for in-progress sheets and duration for completed ones.
+    """
     if not job.sheets:
         return
 
@@ -391,6 +427,14 @@ def _render_sheet_details(job: CheckpointState) -> None:
         sheet_color = StatusColors.get_sheet_color(sheet.status)
         val_str = format_validation_status(sheet.validation_passed)
 
+        # Build status string with elapsed time for in-progress sheets
+        status_str = f"[{sheet_color}]{sheet.status.value}[/{sheet_color}]"
+        if sheet.status == SheetStatus.IN_PROGRESS and sheet.started_at:
+            elapsed = datetime.now(UTC) - sheet.started_at
+            status_str += f" [dim]({format_duration(elapsed.total_seconds())})[/dim]"
+        elif sheet.execution_duration_seconds is not None:
+            status_str += f" [dim]({format_duration(sheet.execution_duration_seconds)})[/dim]"
+
         error_str = ""
         if sheet.error_message:
             error_str = sheet.error_message[:50]
@@ -399,7 +443,7 @@ def _render_sheet_details(job: CheckpointState) -> None:
 
         sheet_table.add_row(
             str(sheet_num),
-            f"[{sheet_color}]{sheet.status.value}[/{sheet_color}]",
+            status_str,
             str(sheet.attempt_count),
             val_str,
             error_str,
@@ -409,7 +453,12 @@ def _render_sheet_details(job: CheckpointState) -> None:
 
 
 def _render_recent_errors(job: CheckpointState) -> None:
-    """Render the recent errors section for rich status output."""
+    """Render the recent errors section with error source identity.
+
+    Each error line includes sheet number, attempt number, and backend
+    context (if available) so operators can trace exactly where the
+    error occurred.
+    """
     recent_errors = _collect_recent_errors(job, limit=3)
     if not recent_errors:
         return
@@ -422,9 +471,16 @@ def _render_recent_errors(job: CheckpointState) -> None:
         if len(message) > 60:
             message = message[:57] + "..."
 
+        # Build source identity: sheet + attempt + backend (if known)
+        source_parts = [f"Sheet {sheet_num}", f"attempt {error.attempt_number}"]
+        backend = error.context.get("backend") if error.context else None
+        if backend:
+            source_parts.append(str(backend))
+        source_str = ", ".join(source_parts)
+
         console.print(
-            f"  [{type_style}]\u2022[/{type_style}] Sheet {sheet_num}: "
-            f"[{type_style}]{error.error_code}[/{type_style}] - {message}"
+            f"  [{type_style}]\u2022[/{type_style}] [{type_style}]{error.error_code}[/{type_style}]"
+            f" [dim]({source_str})[/dim] - {message}"
         )
 
     console.print(
@@ -458,6 +514,109 @@ def _render_synthesis_results(job: CheckpointState) -> None:
         )
 
     console.print(synth_table)
+
+
+def _render_cost_summary(job: CheckpointState) -> None:
+    """Render cost tracking summary if any cost data is available."""
+    has_job_cost = job.total_estimated_cost > 0
+    has_sheet_cost = any(
+        s.estimated_cost is not None and s.estimated_cost > 0
+        for s in job.sheets.values()
+    )
+    if not has_job_cost and not has_sheet_cost:
+        return
+
+    # Extract cost limit from config snapshot if available
+    cost_limit: float | None = None
+    if job.config_snapshot:
+        cost_limits_cfg = job.config_snapshot.get("cost_limits", {})
+        if isinstance(cost_limits_cfg, dict):
+            cost_limit = cost_limits_cfg.get("max_cost_per_job")
+
+    limit_str = f"(limit: ${cost_limit:.2f})" if cost_limit else "(no limit)"
+
+    console.print("\n[bold]Cost Summary[/bold]")
+    if has_job_cost:
+        console.print(
+            f"  Cost: [yellow]${job.total_estimated_cost:.2f}[/yellow] {limit_str}"
+        )
+        console.print(f"  Input tokens:  {job.total_input_tokens:,}")
+        console.print(f"  Output tokens: {job.total_output_tokens:,}")
+        if job.cost_limit_reached:
+            console.print("  [red]Cost limit reached — job was paused[/red]")
+    elif has_sheet_cost:
+        # Sum from individual sheets if job-level totals aren't populated
+        total = sum(s.estimated_cost for s in job.sheets.values() if s.estimated_cost)
+        console.print(f"  Cost: [yellow]${total:.2f}[/yellow] {limit_str} (from sheets)")
+
+
+def _render_hook_results(job: CheckpointState) -> None:
+    """Render hook execution results if any are recorded."""
+    if not job.hook_results:
+        return
+
+    console.print("\n[bold]Hook Results[/bold]")
+
+    # Show summary counts
+    passed = sum(1 for h in job.hook_results if h.get("success", False))
+    failed = len(job.hook_results) - passed
+
+    console.print(f"  Total: {len(job.hook_results)} | "
+                  f"[green]Passed: {passed}[/green] | "
+                  f"[red]Failed: {failed}[/red]")
+
+    # Show details for failed hooks (most useful for diagnostics)
+    failed_hooks = [h for h in job.hook_results if not h.get("success", False)]
+    for hook in failed_hooks[-3:]:  # Last 3 failures
+        hook_name = hook.get("hook_name", hook.get("name", "unknown"))
+        event = hook.get("event", "?")
+        error = hook.get("error", hook.get("error_message", ""))
+        if len(error) > 60:
+            error = error[:57] + "..."
+        console.print(f"  [red]\u2022[/red] {hook_name} ({event}): {error}")
+
+
+def _render_progress_snapshots(job: CheckpointState) -> None:
+    """Render progress snapshots for any in-progress sheets.
+
+    Shows real-time execution progress: bytes received, lines processed,
+    and current phase. Only displays for sheets currently executing.
+    """
+    for sheet_num in sorted(job.sheets.keys()):
+        sheet = job.sheets[sheet_num]
+        if sheet.status != SheetStatus.IN_PROGRESS:
+            continue
+        if not sheet.progress_snapshots:
+            continue
+
+        console.print(f"\n[bold]Live Progress — Sheet {sheet_num}[/bold]")
+        latest = sheet.progress_snapshots[-1]
+
+        phase = latest.get("phase", "unknown")
+        phase_color = {"starting": "yellow", "executing": "blue", "completed": "green"}.get(
+            phase, "white"
+        )
+        console.print(f"  Phase: [{phase_color}]{phase}[/{phase_color}]")
+
+        bytes_recv = latest.get("bytes_received")
+        if bytes_recv is not None:
+            from mozart.cli.output import format_bytes
+            console.print(f"  Output received: {format_bytes(bytes_recv)}")
+
+        lines = latest.get("lines_received")
+        if lines is not None:
+            console.print(f"  Lines received: {lines:,}")
+
+        elapsed = latest.get("elapsed_seconds")
+        if elapsed is not None:
+            console.print(f"  Elapsed: {format_duration(elapsed)}")
+
+        if sheet.last_activity_at:
+            console.print(f"  Last activity: {format_timestamp(sheet.last_activity_at)}")
+
+        snap_count = len(sheet.progress_snapshots)
+        if snap_count > 1:
+            console.print(f"  [dim]({snap_count} snapshots captured)[/dim]")
 
 
 def _output_status_rich(job: CheckpointState) -> None:
@@ -506,6 +665,9 @@ def _output_status_rich(job: CheckpointState) -> None:
     _render_synthesis_results(job)
     _render_sheet_details(job)
 
+    # Progress snapshots for in-progress sheets
+    _render_progress_snapshots(job)
+
     # Error/info message
     if job.error_message:
         if "Recovered from stale" in job.error_message or "ready to resume" in job.error_message:
@@ -533,6 +695,12 @@ def _output_status_rich(job: CheckpointState) -> None:
         if quota_waits > 0:
             console.print(f"  Quota exhaustion waits: {quota_waits}")
 
+    # Cost summary
+    _render_cost_summary(job)
+
+    # Hook execution results
+    _render_hook_results(job)
+
     _render_recent_errors(job)
 
     # Last activity timestamp
@@ -547,11 +715,13 @@ def _output_status_rich(job: CheckpointState) -> None:
         cb_color = {"open": "red", "half_open": "yellow", "closed": "green"}.get(
             cb_state["state"], "white"
         )
-        console.print("\n[bold]Circuit Breaker (inferred)[/bold]")
+        reason = cb_state.get("reason", "")
+        cb_source = "persisted" if reason.startswith("Persisted:") else "inferred"
+        console.print(f"\n[bold]Circuit Breaker ({cb_source})[/bold]")
         console.print(f"  State: [{cb_color}]{cb_state['state'].upper()}[/{cb_color}]")
         console.print(f"  Consecutive failures: {cb_state['consecutive_failures']}")
-        if cb_state.get("reason"):
-            console.print(f"  [dim]{cb_state['reason']}[/dim]")
+        if reason:
+            console.print(f"  [dim]{reason}[/dim]")
 
 
 # =============================================================================
@@ -653,20 +823,29 @@ def _infer_error_type(
 
 
 def _infer_circuit_breaker_state(job: CheckpointState) -> CircuitBreakerInference | None:
-    """Infer likely circuit breaker state from job state.
+    """Get circuit breaker state from persisted history, falling back to inference.
 
-    The actual CircuitBreaker is a runtime object and not persisted.
-    We can infer the likely state based on failure patterns:
-    - If last N sheets all failed -> likely OPEN
-    - If mix of success/failure -> likely CLOSED
-    - If recovering from failures -> likely HALF_OPEN
+    Prefers ground-truth from ``circuit_breaker_history`` (populated when
+    the runner records CB transitions at runtime). Falls back to the legacy
+    heuristic for state files that predate CB persistence.
 
     Args:
         job: CheckpointState to analyze.
 
     Returns:
-        CircuitBreakerInference with inferred state, or None if no relevant data.
+        CircuitBreakerInference with state info, or None if no relevant data.
     """
+    # --- Ground truth: persisted circuit breaker history ---
+    cb_history = getattr(job, "circuit_breaker_history", None)
+    if cb_history:
+        latest = cb_history[-1]
+        return CircuitBreakerInference(
+            state=latest.get("state", "closed"),
+            consecutive_failures=latest.get("consecutive_failures", 0),
+            reason=f"Persisted: {latest.get('trigger', 'unknown')}",
+        )
+
+    # --- Backward-compat fallback: infer from failure patterns ---
     if not job.sheets:
         return None
 
@@ -690,12 +869,12 @@ def _infer_circuit_breaker_state(job: CheckpointState) -> CircuitBreakerInferenc
         return CircuitBreakerInference(
             state="open",
             consecutive_failures=consecutive_failures,
-            reason=f"\u2265{threshold} consecutive failures detected",
+            reason=f"\u2265{threshold} consecutive failures detected (inferred)",
         )
     return CircuitBreakerInference(
         state="closed",
         consecutive_failures=consecutive_failures,
-        reason=f"Under threshold ({consecutive_failures}/{threshold})",
+        reason=f"Under threshold ({consecutive_failures}/{threshold}) (inferred)",
     )
 
 

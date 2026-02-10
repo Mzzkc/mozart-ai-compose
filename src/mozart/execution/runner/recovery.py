@@ -87,8 +87,8 @@ class RecoveryMixin:
     state_backend: StateBackend
     console: Console
     _logger: MozartLogger
-    _global_learning_store: "GlobalLearningStore | None"
-    _healing_coordinator: "SelfHealingCoordinator | None"
+    _global_learning_store: GlobalLearningStore | None
+    _healing_coordinator: SelfHealingCoordinator | None
     error_classifier: ErrorClassifier
 
     # ─────────────────────────────────────────────────────────────────────
@@ -103,7 +103,7 @@ class RecoveryMixin:
         sheet_num: int,
         retry_count: int,
         max_retries: int,
-    ) -> "HealingReport | None":
+    ) -> HealingReport | None:
         """Attempt self-healing when retries are exhausted.
 
         Creates an ErrorContext from the execution result and runs the

@@ -366,7 +366,7 @@ class JobControlService:
             return await self._restart_job_execution(job_id, state)
 
         try:
-            # Clean up any pause signal files (non-blocking - cleanup failure shouldn't block resume)
+            # Clean up pause signal files (non-blocking - failure shouldn't block resume)
             workspace_path = self._get_job_workspace(state)
             pause_signal_file = workspace_path / f".mozart-pause-{job_id}"
             signal_cleaned = False
@@ -404,7 +404,10 @@ class JobControlService:
                 try:
                     pause_signal_file.unlink()
                 except OSError:
-                    logger.debug("Failed to clean pause signal on dead process resume", exc_info=True)
+                    logger.debug(
+                        "Failed to clean pause signal on dead process resume",
+                        exc_info=True,
+                    )
             return await self._restart_job_execution(job_id, state)
 
         except PermissionError:

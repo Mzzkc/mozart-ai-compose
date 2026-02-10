@@ -385,7 +385,7 @@ def create_progress_bar(
 async def handle_job_completion(
     *,
     state: CheckpointState,
-    summary: "RunSummary",
+    summary: RunSummary,
     notification_manager: NotificationManager | None,
     job_id: str,
     job_name: str,

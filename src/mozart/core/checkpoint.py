@@ -19,7 +19,7 @@ _logger = get_logger("checkpoint")
 MAX_OUTPUT_CAPTURE_BYTES: int = 10240  # 10KB - last N bytes of stdout/stderr to capture
 
 # Constants for error history (Task 10: Error History Model)
-MAX_ERROR_HISTORY: int = 10  # Maximum number of error records to keep per sheet
+MAX_ERROR_HISTORY: int = 50  # Maximum number of error records to keep per sheet
 
 # Type alias for error types
 ErrorType = Literal["transient", "rate_limit", "permanent"]
@@ -396,6 +396,20 @@ class SheetState(BaseModel):
 
         self.output_truncated = stdout_truncated or stderr_truncated
 
+    def add_error_to_history(self, error: CheckpointErrorRecord) -> None:
+        """Append an error record and enforce the history size limit.
+
+        All callers that add errors to ``error_history`` should use this
+        method instead of appending directly so that the list never exceeds
+        ``MAX_ERROR_HISTORY`` entries.
+
+        Args:
+            error: The error record to add.
+        """
+        self.error_history.append(error)
+        if len(self.error_history) > MAX_ERROR_HISTORY:
+            self.error_history = self.error_history[-MAX_ERROR_HISTORY:]
+
 
 
 class CheckpointState(BaseModel):
@@ -529,6 +543,62 @@ class CheckpointState(BaseModel):
         default_factory=dict,
         description="Synthesis results keyed by batch_id (v18: Result Synthesizer)",
     )
+
+    # Hook execution results (observability: detached hook logging)
+    hook_results: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Persisted hook execution results for post-mortem diagnostics",
+    )
+
+    # Circuit breaker state history (observability: CB persistence)
+    circuit_breaker_history: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="History of circuit breaker state transitions for post-mortem diagnostics",
+    )
+
+    def record_hook_result(self, result: dict[str, Any]) -> None:
+        """Append a hook result to the checkpoint state.
+
+        Args:
+            result: Serialized HookResult dict from hook execution.
+        """
+        self.hook_results.append(result)
+        self.updated_at = utc_now()
+
+    def record_circuit_breaker_change(
+        self,
+        state: str,
+        trigger: str,
+        consecutive_failures: int,
+    ) -> None:
+        """Record a circuit breaker state transition.
+
+        Persists circuit breaker state changes so that ``mozart status``
+        can display ground-truth CB state instead of inferring it from
+        failure patterns.
+
+        Args:
+            state: Current CB state after transition ("closed", "open", "half_open").
+            trigger: What caused the transition (e.g., "failure_recorded", "success_recorded").
+            consecutive_failures: Number of consecutive failures at time of transition.
+        """
+        from datetime import UTC, datetime
+
+        self.circuit_breaker_history.append({
+            "state": state,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "trigger": trigger,
+            "consecutive_failures": consecutive_failures,
+        })
+        self.updated_at = utc_now()
+
+        _logger.debug(
+            "circuit_breaker_change_recorded",
+            job_id=self.job_id,
+            state=state,
+            trigger=trigger,
+            consecutive_failures=consecutive_failures,
+        )
 
     def add_synthesis(self, batch_id: str, result: SynthesisResultDict) -> None:
         """Add or update a synthesis result.

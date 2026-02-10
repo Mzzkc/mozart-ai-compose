@@ -95,7 +95,12 @@ class RecursiveLightBackend(HttpxClientMixin, Backend):
         """Human-readable backend name."""
         return "recursive-light"
 
-    async def execute(self, prompt: str, *, timeout_seconds: float | None = None) -> ExecutionResult:
+    async def execute(
+        self,
+        prompt: str,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> ExecutionResult:
         """Execute a prompt through Recursive Light API.
 
         Sends the prompt to RL's /api/process endpoint and parses

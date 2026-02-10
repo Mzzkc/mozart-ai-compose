@@ -166,7 +166,7 @@ class GroundingDecisionContext:
     """Number of grounding hooks that were executed."""
 
     @classmethod
-    def from_results(cls, results: list["GroundingResult"]) -> "GroundingDecisionContext":
+    def from_results(cls, results: list[GroundingResult]) -> GroundingDecisionContext:
         """Build context from grounding results list.
 
         Args:
@@ -208,7 +208,7 @@ class GroundingDecisionContext:
         )
 
     @classmethod
-    def disabled(cls) -> "GroundingDecisionContext":
+    def disabled(cls) -> GroundingDecisionContext:
         """Create context when grounding is disabled.
 
         Returns:
@@ -430,11 +430,11 @@ class RunnerContext:
     judgment_client: JudgmentClient | None = None
     """Client for TDF-aligned execution decisions (Phase 4 Recursive Light)."""
 
-    global_learning_store: "GlobalLearningStore | None" = None
+    global_learning_store: GlobalLearningStore | None = None
     """Store for cross-workspace learning (Evolution #3, #8)."""
 
     # External validation
-    grounding_engine: "GroundingEngine | None" = None
+    grounding_engine: GroundingEngine | None = None
     """Engine for external validation of sheet outputs (v8 Grounding)."""
 
     # UI and progress reporting

@@ -82,7 +82,8 @@ class ExecutionResult:
 
     .. deprecated::
         Use ``input_tokens + output_tokens`` instead. This field will be
-        removed in a future version. Equivalent: ``tokens_used == (input_tokens or 0) + (output_tokens or 0)``.
+        removed in a future version.
+        Equivalent: ``tokens_used == (input_tokens or 0) + (output_tokens or 0)``.
     """
 
     input_tokens: int | None = None
@@ -105,7 +106,9 @@ class Backend(ABC):
     """
 
     @abstractmethod
-    async def execute(self, prompt: str, *, timeout_seconds: float | None = None) -> ExecutionResult:
+    async def execute(
+        self, prompt: str, *, timeout_seconds: float | None = None,
+    ) -> ExecutionResult:
         """Execute a prompt and return the result.
 
         Args:
@@ -165,7 +168,7 @@ class Backend(ABC):
         """
         self._working_directory = value
 
-    async def close(self) -> None:
+    async def close(self) -> None:  # noqa: B027
         """Close the backend and release resources.
 
         Override in subclasses that hold persistent connections or resources.
@@ -173,9 +176,8 @@ class Backend(ABC):
 
         This method should be idempotent - calling it multiple times should be safe.
         """
-        pass
 
-    async def __aenter__(self) -> "Backend":
+    async def __aenter__(self) -> Backend:
         """Async context manager entry."""
         return self
 
@@ -188,7 +190,9 @@ class Backend(ABC):
         """Async context manager exit — ensures close() is called."""
         await self.close()
 
-    def _detect_rate_limit(self, stdout: str = "", stderr: str = "", exit_code: int | None = None) -> bool:
+    def _detect_rate_limit(
+        self, stdout: str = "", stderr: str = "", exit_code: int | None = None,
+    ) -> bool:
         """Check output for rate limit indicators.
 
         Uses the shared ErrorClassifier to ensure consistent detection
@@ -215,7 +219,7 @@ class Backend(ABC):
         )
         return classified.category == ErrorCategory.RATE_LIMIT
 
-    def set_output_log_path(self, _path: Path | None) -> None:
+    def set_output_log_path(self, _path: Path | None) -> None:  # noqa: B027
         """Set base path for real-time output logging.
 
         Called per-sheet by runner to enable streaming output to log files.
@@ -231,7 +235,6 @@ class Backend(ABC):
         Args:
             _path: Base path for log files (without extension), or None to disable.
         """
-        pass
 
 
 class HttpxClientMixin:

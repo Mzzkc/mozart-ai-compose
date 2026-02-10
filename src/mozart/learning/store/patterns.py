@@ -27,12 +27,12 @@ Architecture:
     public API through composition.
 """
 
-from mozart.learning.store.patterns_query import PatternQueryMixin
+from mozart.learning.store.patterns_broadcast import PatternBroadcastMixin
 from mozart.learning.store.patterns_crud import PatternCrudMixin
 from mozart.learning.store.patterns_quarantine import PatternQuarantineMixin
-from mozart.learning.store.patterns_trust import PatternTrustMixin
+from mozart.learning.store.patterns_query import PatternQueryMixin
 from mozart.learning.store.patterns_success_factors import PatternSuccessFactorsMixin
-from mozart.learning.store.patterns_broadcast import PatternBroadcastMixin
+from mozart.learning.store.patterns_trust import PatternTrustMixin
 
 
 class PatternMixin(

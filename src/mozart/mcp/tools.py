@@ -54,7 +54,10 @@ class JobTools:
                     "properties": {
                         "status_filter": {
                             "type": "string",
-                            "description": "Filter jobs by status (running, paused, completed, failed, cancelled)",
+                            "description": (
+                                "Filter jobs by status"
+                                " (running, paused, completed, failed, cancelled)"
+                            ),
                             "enum": ["running", "paused", "completed", "failed", "cancelled"]
                         },
                         "limit": {
@@ -255,7 +258,7 @@ class JobTools:
 
         except Exception as e:
             logger.exception(f"Failed to start job from {config_path}")
-            raise RuntimeError(f"Failed to start job: {e}")
+            raise RuntimeError(f"Failed to start job: {e}") from e
 
     async def shutdown(self) -> None:
         """Cleanup job tools."""
@@ -359,7 +362,7 @@ class ControlTools:
 
         except Exception as e:
             logger.exception(f"Error pausing job {job_id}")
-            raise RuntimeError(f"Failed to pause job: {e}")
+            raise RuntimeError(f"Failed to pause job: {e}") from e
 
     async def _resume_job(self, args: dict[str, Any]) -> dict[str, Any]:
         """Resume a paused job."""
@@ -383,7 +386,7 @@ class ControlTools:
 
         except Exception as e:
             logger.exception(f"Error resuming job {job_id}")
-            raise RuntimeError(f"Failed to resume job: {e}")
+            raise RuntimeError(f"Failed to resume job: {e}") from e
 
     async def _cancel_job(self, args: dict[str, Any]) -> dict[str, Any]:
         """Cancel a running job permanently."""
@@ -408,7 +411,7 @@ class ControlTools:
 
         except Exception as e:
             logger.exception(f"Error cancelling job {job_id}")
-            raise RuntimeError(f"Failed to cancel job: {e}")
+            raise RuntimeError(f"Failed to cancel job: {e}") from e
 
     async def shutdown(self) -> None:
         """Cleanup control tools."""
@@ -627,11 +630,11 @@ class ArtifactTools:
         try:
             workspace.relative_to(workspace_root)
         except ValueError:
-            raise PermissionError("Access denied: Workspace outside allowed root")
+            raise PermissionError("Access denied: Workspace outside allowed root") from None
         try:
             target.relative_to(workspace)
         except ValueError:
-            raise PermissionError("Access denied: Path outside workspace")
+            raise PermissionError("Access denied: Path outside workspace") from None
         return workspace, target
 
     async def _list_files(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -776,7 +779,10 @@ class ArtifactTools:
                 log_files.append(("Found", log_file))
 
         if not log_files:
-            raise FileNotFoundError(f"No log files found for job {job_id} in workspace {workspace_path}")
+            raise FileNotFoundError(
+                f"No log files found for job {job_id}"
+                f" in workspace {workspace_path}"
+            )
 
         parts = [
             f"📋 Logs for Mozart Job: {job_id}\n",
@@ -938,7 +944,9 @@ class ArtifactTools:
         target_artifact = workspace_path / artifact_path
 
         # Security: Ensure we stay within workspace and workspace_root
-        workspace_path, target_artifact = self._validate_workspace_path(workspace_path, target_artifact)
+        workspace_path, target_artifact = self._validate_workspace_path(
+            workspace_path, target_artifact
+        )
 
         if not target_artifact.exists():
             raise FileNotFoundError(f"Artifact not found: {artifact_path}")
@@ -1089,7 +1097,7 @@ class ScoreTools:
             workspace_root = self.workspace_root.resolve()
             workspace.relative_to(workspace_root)
         except ValueError:
-            raise PermissionError("Access denied: Workspace outside allowed root")
+            raise PermissionError("Access denied: Workspace outside allowed root") from None
 
         # Note: This is a stub implementation
         # Full implementation would require backend integration
@@ -1135,7 +1143,7 @@ class ScoreTools:
             workspace_root = self.workspace_root.resolve()
             workspace.relative_to(workspace_root)
         except ValueError:
-            raise PermissionError("Access denied: Workspace outside allowed root")
+            raise PermissionError("Access denied: Workspace outside allowed root") from None
 
         # Note: This is a stub implementation
         # Full implementation would require backend integration

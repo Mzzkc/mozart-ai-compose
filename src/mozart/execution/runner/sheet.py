@@ -165,7 +165,7 @@ class SheetExecutionMixin:
         async def _record_pattern_feedback(
             self,
             pattern_ids: list[str],
-            ctx: "PatternFeedbackContext",
+            ctx: PatternFeedbackContext,
         ) -> None: ...
 
         # Methods from RecoveryMixin
@@ -513,6 +513,14 @@ class SheetExecutionMixin:
         # Record success in circuit breaker (Task 12)
         if self._circuit_breaker is not None:
             await self._circuit_breaker.record_success()
+            # Persist CB state change for observability
+            cb_stats = await self._circuit_breaker.get_stats()
+            cb_state_val = (await self._circuit_breaker.get_state()).value
+            state.record_circuit_breaker_change(
+                state=cb_state_val,
+                trigger="success_recorded",
+                consecutive_failures=cb_stats.consecutive_failures,
+            )
 
         # Evolution #3: Record recovery outcome if we had a pending retry
         if pending_recovery is not None and self._global_learning_store is not None:
@@ -580,7 +588,11 @@ class SheetExecutionMixin:
                 validation_passed=True,
                 first_attempt_success=first_attempt_success,
                 sheet_num=sheet_num,
-                grounding_confidence=grounding_ctx.confidence if grounding_ctx.hooks_executed > 0 else None,
+                grounding_confidence=(
+                    grounding_ctx.confidence
+                    if grounding_ctx.hooks_executed > 0
+                    else None
+                ),
                 validation_types=validation_types_list,
                 prior_sheet_status=prior_status,
                 retry_iteration=normal_attempts - 1 if normal_attempts > 0 else 0,
@@ -696,6 +708,14 @@ class SheetExecutionMixin:
         # Record failure in circuit breaker
         if self._circuit_breaker is not None and not error.is_rate_limit:
             await self._circuit_breaker.record_failure()
+            # Persist CB state change for observability
+            cb_stats = await self._circuit_breaker.get_stats()
+            cb_state_val = (await self._circuit_breaker.get_state()).value
+            ctx.state.record_circuit_breaker_change(
+                state=cb_state_val,
+                trigger="failure_recorded",
+                consecutive_failures=cb_stats.consecutive_failures,
+            )
 
         if error.is_rate_limit:
             ctx.error_history.clear()
@@ -743,7 +763,11 @@ class SheetExecutionMixin:
                 validations_passed=ctx.passed_count,
                 validations_failed=ctx.failed_count,
                 failed_validation_names=[f.rule.description for f in failed_validations],
-                stdout_tail=ctx.result.stdout[-TRUNCATE_STDOUT_TAIL_CHARS:] if ctx.result.stdout else None,
+                stdout_tail=(
+                    ctx.result.stdout[-TRUNCATE_STDOUT_TAIL_CHARS:]
+                    if ctx.result.stdout
+                    else None
+                ),
             )
             return FailureHandlingResult(
                 action="fatal",
@@ -801,7 +825,11 @@ class SheetExecutionMixin:
                     validation_passed=False,
                     first_attempt_success=False,
                     sheet_num=ctx.sheet_num,
-                    grounding_confidence=ctx.grounding_ctx.confidence if ctx.grounding_ctx.hooks_executed > 0 else None,
+                    grounding_confidence=(
+                        ctx.grounding_ctx.confidence
+                        if ctx.grounding_ctx.hooks_executed > 0
+                        else None
+                    ),
                 ),
             )
 
@@ -940,7 +968,6 @@ class SheetExecutionMixin:
         current_mode = setup.current_mode
         max_retries = setup.max_retries
         max_completion = setup.max_completion
-        relevant_patterns = setup.relevant_patterns
 
         # Track attempts
         normal_attempts = 0
@@ -1006,13 +1033,32 @@ class SheetExecutionMixin:
                 sheet_state.last_activity_at = utc_now()
 
             # Capture raw output for debugging (Task 1: Raw Output Capture)
-            sheet_state.capture_output(result.stdout, result.stderr)
+            sheet_state.capture_output(
+                result.stdout,
+                result.stderr,
+                max_bytes=self.config.backend.max_output_capture_bytes,
+            )
 
             # Track cost (v4 evolution: Cost Circuit Breaker)
             await self._enforce_cost_limits(result, sheet_state, state, sheet_num)
 
             # Track execution result for judgment (Phase 4)
             execution_history.append(result)
+
+            # Record execution in history (if sqlite backend supports it)
+            if hasattr(self.state_backend, 'record_execution'):
+                try:
+                    await self.state_backend.record_execution(  # type: ignore[attr-defined]
+                        job_id=self.config.name,
+                        sheet_num=sheet_num,
+                        attempt_num=sheet_state.attempt_count,
+                        prompt=current_prompt[:2000] if current_prompt else None,
+                        output=result.stdout[-5000:] if result and result.stdout else None,
+                        exit_code=result.exit_code if result else None,
+                        duration_seconds=result.duration_seconds if result else None,
+                    )
+                except Exception as e:
+                    self._logger.warning("record_execution_failed", error=str(e))
 
             # ===== VALIDATION-FIRST APPROACH =====
             validation_start = time.monotonic()
@@ -1074,7 +1120,9 @@ class SheetExecutionMixin:
             # Check if pass_pct is high enough for completion mode
             if pass_pct >= completion_threshold:
                 self.console.print(
-                    f"[blue]Sheet {sheet_num}: Pass rate ({pass_pct:.0f}%) >= threshold ({completion_threshold}%) - "
+                    f"[blue]Sheet {sheet_num}: Pass rate"
+                    f" ({pass_pct:.0f}%) >= threshold"
+                    f" ({completion_threshold}%) - "
                     f"using completion mode[/blue]"
                 )
             elif not result.success:
@@ -1254,7 +1302,11 @@ class SheetExecutionMixin:
                             validation_passed=False,
                             first_attempt_success=False,
                             sheet_num=sheet_num,
-                            grounding_confidence=grounding_ctx.confidence if grounding_ctx.hooks_executed > 0 else None,
+                            grounding_confidence=(
+                                grounding_ctx.confidence
+                                if grounding_ctx.hooks_executed > 0
+                                else None
+                            ),
                         ),
                     )
 
@@ -1431,7 +1483,7 @@ class SheetExecutionMixin:
         context: SheetContext,
         state: CheckpointState,
         sheet_num: int,
-        cross_sheet: "CrossSheetConfig",
+        cross_sheet: CrossSheetConfig,
     ) -> None:
         """Populate cross-sheet context from previous sheet outputs.
 
@@ -1469,7 +1521,7 @@ class SheetExecutionMixin:
         self,
         context: SheetContext,
         sheet_num: int,
-        cross_sheet: "CrossSheetConfig",
+        cross_sheet: CrossSheetConfig,
     ) -> None:
         """Capture file contents for cross-sheet context.
 
@@ -1562,10 +1614,16 @@ class SheetExecutionMixin:
         metrics = result.prompt_metrics
 
         if result.has_warnings:
+            _MAX_PREFLIGHT_WARNINGS_LOG = 20
+            log_warnings = result.warnings[:_MAX_PREFLIGHT_WARNINGS_LOG]
+            if len(result.warnings) > _MAX_PREFLIGHT_WARNINGS_LOG:
+                extra = len(result.warnings) - _MAX_PREFLIGHT_WARNINGS_LOG
+                log_warnings.append(f"... and {extra} more warnings")
             self._logger.warning(
                 "sheet.preflight_warnings",
                 sheet_num=sheet_num,
-                warnings=result.warnings,
+                warnings=log_warnings,
+                total_warnings=len(result.warnings),
                 estimated_tokens=metrics.estimated_tokens,
             )
 
@@ -1598,7 +1656,7 @@ class SheetExecutionMixin:
         self,
         state: CheckpointState,
         sheet_num: int,
-        result: "SheetValidationResult",
+        result: SheetValidationResult,
     ) -> None:
         """Update sheet state with validation tracking.
 
@@ -1627,7 +1685,7 @@ class SheetExecutionMixin:
         sheet_num: int,
         prompt: str,
         output: str,
-        validation_result: "SheetValidationResult",
+        validation_result: SheetValidationResult,
     ) -> GroundingDecisionContext:
         """Run external grounding hooks to validate sheet output.
 
@@ -1910,7 +1968,7 @@ class SheetExecutionMixin:
         self,
         sheet_num: int,
         job_id: str,
-        validation_result: "SheetValidationResult",
+        validation_result: SheetValidationResult,
         execution_duration: float,
         normal_attempts: int,
         completion_attempts: int,
@@ -1952,7 +2010,7 @@ class SheetExecutionMixin:
 
     def _update_escalation_outcome(
         self,
-        sheet_state: "SheetState",
+        sheet_state: SheetState,
         outcome: str,
         sheet_num: int,
     ) -> None:
@@ -2025,7 +2083,7 @@ class SheetExecutionMixin:
 
     def _decide_next_action(
         self,
-        validation_result: "SheetValidationResult",
+        validation_result: SheetValidationResult,
         normal_attempts: int,
         completion_attempts: int,
         grounding_context: GroundingDecisionContext | None = None,
@@ -2078,7 +2136,10 @@ class SheetExecutionMixin:
         category_suffix += grounding_suffix
 
         # High confidence + majority passed -> completion mode
-        if confidence > high_threshold and self._should_enter_completion_mode(pass_pct, completion_attempts):
+        should_complete = self._should_enter_completion_mode(
+            pass_pct, completion_attempts,
+        )
+        if confidence > high_threshold and should_complete:
             return (
                 SheetExecutionMode.COMPLETION,
                 f"high confidence ({confidence:.2f}) with {pass_pct:.0f}% passed, "
@@ -2086,7 +2147,8 @@ class SheetExecutionMixin:
                 semantic_hints,
             )
 
-        if confidence > high_threshold and pass_pct > self.config.retry.completion_threshold_percent:
+        threshold_pct = self.config.retry.completion_threshold_percent
+        if confidence > high_threshold and pass_pct > threshold_pct:
             # Completion attempts exhausted
             return (
                 SheetExecutionMode.RETRY,
@@ -2183,7 +2245,7 @@ class SheetExecutionMixin:
     async def _decide_with_judgment(
         self,
         sheet_num: int,
-        validation_result: "SheetValidationResult",
+        validation_result: SheetValidationResult,
         execution_history: Sequence[ExecutionResult],
         normal_attempts: int,
         completion_attempts: int,
@@ -2245,10 +2307,10 @@ class SheetExecutionMixin:
     def _build_judgment_query(
         self,
         sheet_num: int,
-        validation_result: "SheetValidationResult",
+        validation_result: SheetValidationResult,
         execution_history: Sequence[ExecutionResult],
         normal_attempts: int,
-    ) -> "JudgmentQuery":
+    ) -> JudgmentQuery:
         """Build a JudgmentQuery from current execution state.
 
         Args:
@@ -2289,7 +2351,7 @@ class SheetExecutionMixin:
 
     def _map_judgment_to_mode(
         self,
-        response: "JudgmentResponse",
+        response: JudgmentResponse,
         completion_attempts: int,
     ) -> SheetExecutionMode:
         """Map JudgmentResponse.recommended_action to SheetExecutionMode.
@@ -2424,7 +2486,7 @@ class SheetExecutionMixin:
         self,
         state: CheckpointState,
         sheet_num: int,
-        validation_result: "SheetValidationResult",
+        validation_result: SheetValidationResult,
         current_prompt: str,
         error_history: list[str],
         normal_attempts: int,

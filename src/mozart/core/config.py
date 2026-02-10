@@ -3,12 +3,17 @@
 Defines Pydantic models for loading and validating YAML job configurations.
 """
 
+from __future__ import annotations
+
 from enum import Enum
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
+
+if TYPE_CHECKING:
+    from mozart.core.fan_out import FanOutMetadata  # noqa: F401
 
 
 class IsolationMode(str, Enum):
@@ -46,7 +51,10 @@ class IsolationConfig(BaseModel):
 
     worktree_base: Path | None = Field(
         default=None,
-        description="Directory for worktrees. None means resolved dynamically to <repo>/.worktrees at runtime.",
+        description=(
+            "Directory for worktrees. None means resolved"
+            " dynamically to <repo>/.worktrees at runtime."
+        ),
     )
 
     branch_prefix: str = Field(
@@ -277,7 +285,10 @@ class ExplorationBudgetConfig(BaseModel):
 
     enabled: bool = Field(
         default=False,
-        description="Enable dynamic exploration budget. When disabled, uses static exploration_rate.",
+        description=(
+            "Enable dynamic exploration budget."
+            " When disabled, uses static exploration_rate."
+        ),
     )
     floor: float = Field(
         default=0.05,
@@ -457,7 +468,7 @@ class LearningConfig(BaseModel):
         "When enabled, injects diversity when entropy drops.",
     )
     # v22: Trust-Aware Autonomous Application
-    auto_apply: "AutoApplyConfig | None" = Field(
+    auto_apply: AutoApplyConfig | None = Field(
         default=None,
         description="Configuration for autonomous pattern application. "
         "When set with enabled=true, high-trust patterns are applied "
@@ -1260,7 +1271,7 @@ class MCPServerConfig(BaseModel):
     })
 
     @model_validator(mode="after")
-    def _validate_env_keys(self) -> "MCPServerConfig":
+    def _validate_env_keys(self) -> MCPServerConfig:
         """Reject security-sensitive environment variable overrides."""
         for key in self.env:
             if key.upper() in self._BLOCKED_ENV_KEYS:
@@ -1402,6 +1413,13 @@ class BackendConfig(BaseModel):
         "Applied last, can override other settings. "
         "Example: ['--verbose', '--some-new-flag']",
     )
+    max_output_capture_bytes: int = Field(
+        default=10240,
+        gt=0,
+        description="Maximum bytes of stdout/stderr to capture per sheet for diagnostics. "
+        "Default: 10240 (10KB). Increase for jobs that need more debugging context. "
+        "Applies to SheetState.capture_output() during execution.",
+    )
 
     # API-specific options
     model: str = Field(
@@ -1494,7 +1512,7 @@ class SheetConfig(BaseModel):
             )
         return self.total_sheets
 
-    def get_fan_out_metadata(self, sheet_num: int) -> "FanOutMetadata":
+    def get_fan_out_metadata(self, sheet_num: int) -> FanOutMetadata:  # noqa: F821
         """Get fan-out metadata for a specific sheet.
 
         Args:
@@ -1557,7 +1575,7 @@ class SheetConfig(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def expand_fan_out_config(self) -> "SheetConfig":
+    def expand_fan_out_config(self) -> SheetConfig:
         """Expand fan_out declarations into concrete sheet assignments.
 
         This runs after field validators. When fan_out is non-empty:
@@ -1635,7 +1653,7 @@ class PromptConfig(BaseModel):
     )
 
     @model_validator(mode="after")
-    def at_least_one_template(self) -> "PromptConfig":
+    def at_least_one_template(self) -> PromptConfig:
         """Warn when no template source is provided (falls back to default prompt)."""
         if self.template is not None and self.template_file is not None:
             raise ValueError(
@@ -1779,14 +1797,14 @@ class JobConfig(BaseModel):
     )
 
     @classmethod
-    def from_yaml(cls, path: Path) -> "JobConfig":
+    def from_yaml(cls, path: Path) -> JobConfig:
         """Load job configuration from a YAML file."""
         with open(path) as f:
             data = yaml.safe_load(f)
         return cls.model_validate(data)
 
     @classmethod
-    def from_yaml_string(cls, yaml_str: str) -> "JobConfig":
+    def from_yaml_string(cls, yaml_str: str) -> JobConfig:
         """Load job configuration from a YAML string."""
         data = yaml.safe_load(yaml_str)
         return cls.model_validate(data)

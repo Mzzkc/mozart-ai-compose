@@ -162,7 +162,9 @@ class ErrorClassifier:
             auth_patterns: Regex patterns indicating auth failures
             network_patterns: Regex patterns indicating network issues
         """
-        self.rate_limit_patterns = _compile_patterns(rate_limit_patterns or _DEFAULT_RATE_LIMIT_PATTERNS)
+        self.rate_limit_patterns = _compile_patterns(
+            rate_limit_patterns or _DEFAULT_RATE_LIMIT_PATTERNS
+        )
         self.auth_patterns = _compile_patterns(auth_patterns or _DEFAULT_AUTH_PATTERNS)
         self.network_patterns = _compile_patterns(network_patterns or _DEFAULT_NETWORK_PATTERNS)
         self.dns_patterns = _compile_patterns(_DEFAULT_DNS_PATTERNS)
@@ -216,13 +218,14 @@ class ErrorClassifier:
             groups = match.groups()
 
             # Pattern: "resets in X hours/minutes"
-            if len(groups) == 2 and groups[1] and groups[1].lower() in ("hour", "hr", "minute", "min"):
+            if (
+                len(groups) == 2
+                and groups[1]
+                and groups[1].lower() in ("hour", "hr", "minute", "min")
+            ):
                 amount = int(groups[0])
                 unit = groups[1].lower()
-                if unit in ("hour", "hr"):
-                    seconds = amount * 3600
-                else:  # minute, min
-                    seconds = amount * 60
+                seconds = amount * 3600 if unit in ("hour", "hr") else amount * 60
                 return max(seconds, RESET_TIME_MINIMUM_WAIT_SECONDS)  # At least 5 minutes
 
             # Pattern: "resets at X:XX" (24-hour time)
@@ -959,6 +962,6 @@ class ErrorClassifier:
         )
 
     @classmethod
-    def from_config(cls, rate_limit_patterns: list[str]) -> "ErrorClassifier":
+    def from_config(cls, rate_limit_patterns: list[str]) -> ErrorClassifier:
         """Create classifier from config patterns."""
         return cls(rate_limit_patterns=rate_limit_patterns)

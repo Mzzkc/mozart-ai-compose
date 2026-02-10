@@ -20,7 +20,6 @@ from enum import Enum
 from typing import Any
 
 from mozart.core.checkpoint import SynthesisResultDict
-
 from mozart.core.logging import get_logger
 from mozart.utils.time import utc_now
 

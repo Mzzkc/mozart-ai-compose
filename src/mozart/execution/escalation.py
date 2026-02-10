@@ -473,9 +473,8 @@ class ConsoleCheckpointHandler:
 
         for trigger in triggers:
             # Check sheet number match
-            if trigger.sheet_nums is not None:
-                if sheet_num not in trigger.sheet_nums:
-                    continue
+            if trigger.sheet_nums is not None and sheet_num not in trigger.sheet_nums:
+                continue
 
             # Check prompt keyword match
             if trigger.prompt_contains is not None:
@@ -487,9 +486,8 @@ class ConsoleCheckpointHandler:
                     continue
 
             # Check retry count threshold
-            if trigger.min_retry_count is not None:
-                if retry_count < trigger.min_retry_count:
-                    continue
+            if trigger.min_retry_count is not None and retry_count < trigger.min_retry_count:
+                continue
 
             # All conditions passed - trigger matched
             return trigger

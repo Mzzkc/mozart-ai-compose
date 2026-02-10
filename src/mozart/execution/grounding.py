@@ -309,7 +309,7 @@ class GroundingEngine:
                     consecutive_failures = 0
                 else:
                     consecutive_failures += 1
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 consecutive_failures += 1
                 results.append(
                     GroundingResult(

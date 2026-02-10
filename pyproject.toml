@@ -72,9 +72,15 @@ target-version = "py311"
 select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
 ignore = [
     "B008",  # Function call in default argument - required for typer CLI patterns
+    "E402",  # Module-level import not at top - logger init before imports is intentional
     "N802",  # Function name should be lowercase - we override stdlib methods (doRollover)
     "N803",  # Argument name should be lowercase - we match stdlib signatures (maxBytes, backupCount)
+    "N806",  # Variable in function should be lowercase - Pydantic model names etc.
+    "N817",  # CamelCase imported as acronym - domain convention
+    "N818",  # Exception name should end in Error - legacy names
+    "SIM102",  # Nested if - sometimes clearer with intermediate comments
     "SIM105",  # contextlib.suppress - try/except/pass is clearer for error recovery
+    "SIM108",  # Ternary operator - multi-line if/else often more readable
 ]
 
 [tool.mypy]

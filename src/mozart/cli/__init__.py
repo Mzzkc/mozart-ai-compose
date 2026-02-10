@@ -51,6 +51,9 @@ from .commands import (
     # diagnose.py
     diagnose,
     errors,
+    history,
+    # status.py
+    list_jobs,
     logs,
     # pause.py
     modify,
@@ -61,8 +64,6 @@ from .commands import (
     resume,
     # run.py
     run,
-    # status.py
-    list_jobs,
     status,
     # validate.py
     validate,
@@ -80,24 +81,22 @@ from .commands.learning import (
     patterns_list,
     patterns_why,
 )
+from .commands.status import _output_status_rich
+
+# Import helper functions for re-export with backward-compatible names
 from .helpers import (
     OutputLevel,
     configure_global_logging,
+    create_notifiers_from_config,
+    create_pause_signal,
+    find_job_workspace,
     set_log_file,
     set_log_format,
     set_log_level,
     set_output_level,
-)
-from .output import console
-
-# Import helper functions for re-export with backward-compatible names
-from .helpers import (
-    create_notifiers_from_config,
-    create_pause_signal,
-    find_job_workspace,
     wait_for_pause_ack,
 )
-from .commands.status import _output_status_rich
+from .output import console
 
 # Backward-compatible aliases (tests use underscore-prefixed names)
 _find_job_workspace = find_job_workspace
@@ -245,6 +244,7 @@ app.command(hidden=True)(recover)  # Hidden - recovery is advanced operation
 app.command()(logs)
 app.command()(errors)
 app.command()(diagnose)
+app.command()(history)
 
 # Server commands
 app.command()(dashboard)

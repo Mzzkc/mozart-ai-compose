@@ -21,37 +21,37 @@ Usage remains unchanged:
 """
 
 from mozart.learning.store import (
-    # Main class
-    GlobalLearningStore,
-    # Singleton accessor
-    get_global_store,
-    # Base class and constants
-    GlobalLearningStoreBase,
     DEFAULT_GLOBAL_STORE_PATH,
-    # Mixins (for advanced usage/testing)
-    PatternMixin,
-    ExecutionMixin,
-    RateLimitMixin,
-    DriftMixin,
-    EscalationMixin,
     BudgetMixin,
-    # Models - Enums
-    QuarantineStatus,
-    # Models - Core records
-    PatternRecord,
-    ExecutionRecord,
-    ErrorRecoveryRecord,
-    RateLimitEvent,
-    EscalationDecisionRecord,
-    PatternDiscoveryEvent,
     # Models - Metrics and analysis
     DriftMetrics,
+    DriftMixin,
+    EntropyResponseRecord,
     EpistemicDriftMetrics,
-    SuccessFactors,
+    ErrorRecoveryRecord,
+    EscalationDecisionRecord,
+    EscalationMixin,
     EvolutionTrajectoryEntry,
+    ExecutionMixin,
+    ExecutionRecord,
     # Models - Budget management
     ExplorationBudgetRecord,
-    EntropyResponseRecord,
+    # Main class
+    GlobalLearningStore,
+    # Base class and constants
+    GlobalLearningStoreBase,
+    PatternDiscoveryEvent,
+    # Mixins (for advanced usage/testing)
+    PatternMixin,
+    # Models - Core records
+    PatternRecord,
+    # Models - Enums
+    QuarantineStatus,
+    RateLimitEvent,
+    RateLimitMixin,
+    SuccessFactors,
+    # Singleton accessor
+    get_global_store,
 )
 
 __all__ = [

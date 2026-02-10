@@ -582,6 +582,11 @@ def diagnose(
         "-j",
         help="Output diagnostic report as JSON",
     ),
+    include_logs: bool = typer.Option(
+        False,
+        "--include-logs",
+        help="Inline the last 50 lines from each sheet/hook log file in the output",
+    ),
 ) -> None:
     """Generate a comprehensive diagnostic report for a job.
 
@@ -591,6 +596,8 @@ def diagnose(
     - Prompt metrics (token counts, line counts)
     - Execution timeline with timing information
     - All errors with full context and output tails
+    - Log file locations, sizes, and modification times
+    - (with --include-logs) Inline log content from each log file
 
     This command is particularly useful for debugging failed jobs
     or understanding why a job is running slowly.
@@ -599,37 +606,145 @@ def diagnose(
         mozart diagnose my-job                 # Full diagnostic report
         mozart diagnose my-job --json          # Machine-readable output
         mozart diagnose my-job --workspace .   # Specify workspace
+        mozart diagnose my-job --include-logs  # Include inline log content
     """
-    asyncio.run(_diagnose_job(job_id, workspace, json_output))
+    asyncio.run(_diagnose_job(job_id, workspace, json_output, include_logs=include_logs))
 
 
 async def _diagnose_job(
     job_id: str,
     workspace: Path | None,
     json_output: bool,
+    include_logs: bool = False,
 ) -> None:
     """Asynchronously generate diagnostic report for a job."""
     configure_global_logging(console)
 
     # Find job state
-    found_job, _ = await require_job_state(job_id, workspace, json_output=json_output)
+    found_job, found_backend = await require_job_state(job_id, workspace, json_output=json_output)
 
     # Build diagnostic report
-    report: dict[str, Any] = _build_diagnostic_report(found_job)
+    report: dict[str, Any] = _build_diagnostic_report(found_job, workspace=workspace)
+
+    # Inline log content if requested
+    if include_logs:
+        _attach_log_contents(report)
+
+    # Add execution history count if backend supports it
+    if hasattr(found_backend, 'get_execution_history_count'):
+        try:
+            history_count = await found_backend.get_execution_history_count(  # type: ignore[attr-defined]
+                job_id
+            )
+            report["execution_history_count"] = history_count
+        except Exception:
+            report["execution_history_count"] = None
+    else:
+        report["execution_history_count"] = None
 
     if json_output:
-        console.print(json_module.dumps(report, indent=2, default=str))
+        # soft_wrap, highlight=False, markup=False prevent Rich from inserting
+        # newlines or interpreting brackets in JSON output (e.g., log contents).
+        console.print(
+            json_module.dumps(report, indent=2, default=str),
+            soft_wrap=True,
+            highlight=False,
+            markup=False,
+        )
         return
 
     # Display formatted report
     _display_diagnostic_report(found_job, report)
 
 
-def _build_diagnostic_report(job: CheckpointState) -> dict[str, Any]:
+def _discover_log_files(workspace: Path | None) -> list[dict[str, Any]]:
+    """Scan workspace for log files and report metadata.
+
+    Discovers sheet log files in {workspace}/logs/ and hook log files
+    in {workspace}/hooks/, returning path, size, and modification time
+    for each.
+
+    Args:
+        workspace: Workspace directory to scan. Returns empty list if None.
+
+    Returns:
+        List of dicts with path, size_bytes, modified_at, and category keys.
+    """
+    if workspace is None or not workspace.exists():
+        return []
+
+    discovered: list[dict[str, Any]] = []
+
+    # Scan {workspace}/logs/ for sheet log files
+    logs_dir = workspace / "logs"
+    if logs_dir.is_dir():
+        for log_file in sorted(logs_dir.iterdir()):
+            if log_file.is_file() and log_file.suffix == ".log":
+                stat = log_file.stat()
+                discovered.append({
+                    "path": str(log_file),
+                    "name": log_file.name,
+                    "size_bytes": stat.st_size,
+                    "modified_at": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
+                    "category": "sheet_log",
+                })
+
+    # Scan {workspace}/hooks/ for hook log files
+    hooks_dir = workspace / "hooks"
+    if hooks_dir.is_dir():
+        for hook_file in sorted(hooks_dir.iterdir()):
+            if hook_file.is_file() and hook_file.suffix == ".log":
+                stat = hook_file.stat()
+                discovered.append({
+                    "path": str(hook_file),
+                    "name": hook_file.name,
+                    "size_bytes": stat.st_size,
+                    "modified_at": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
+                    "category": "hook_log",
+                })
+
+    return discovered
+
+
+# Default number of tail lines to inline from each log file
+_INCLUDE_LOGS_TAIL_LINES = 50
+
+
+def _attach_log_contents(report: dict[str, Any]) -> None:
+    """Inline the last N lines of each discovered log file into the report.
+
+    Mutates *report* in-place, adding a ``log_contents`` key that maps each
+    log file path to its trailing lines.
+
+    Args:
+        report: Diagnostic report dict (must already contain ``log_files``).
+    """
+    log_contents: dict[str, str] = {}
+
+    for log_info in report.get("log_files", []):
+        log_path = Path(log_info["path"])
+        if not log_path.exists():
+            continue
+        try:
+            lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+            tail = lines[-_INCLUDE_LOGS_TAIL_LINES:]
+            log_contents[str(log_path)] = "\n".join(tail)
+        except OSError:
+            log_contents[str(log_path)] = "<read error>"
+
+    report["log_contents"] = log_contents
+
+
+def _build_diagnostic_report(
+    job: CheckpointState,
+    *,
+    workspace: Path | None = None,
+) -> dict[str, Any]:
     """Build comprehensive diagnostic report from job state.
 
     Args:
         job: CheckpointState to analyze.
+        workspace: Optional workspace directory for log file discovery.
 
     Returns:
         Dictionary with diagnostic information.
@@ -771,6 +886,17 @@ def _build_diagnostic_report(job: CheckpointState) -> dict[str, Any]:
     if job.error_message:
         report["job_error"] = job.error_message
 
+    # Log file discovery
+    log_files = _discover_log_files(workspace)
+    report["log_files"] = log_files
+
+    # Log rotation hint metadata
+    hook_log_count = sum(1 for lf in log_files if lf.get("category") == "hook_log")
+    if hook_log_count > 20:
+        report["log_rotation_hint"] = (
+            f"{hook_log_count} hook log files found — consider cleanup"
+        )
+
     return report
 
 
@@ -808,10 +934,10 @@ def _display_diagnostic_report(job: CheckpointState, report: dict[str, Any]) -> 
     warnings = report.get("preflight_warnings", [])
     if warnings:
         console.print(f"\n[bold yellow]Preflight Warnings ({len(warnings)})[/bold yellow]")
-        for w in warnings[:10]:  # Limit display
+        for w in warnings[:20]:  # Limit display
             console.print(f"  [yellow]•[/yellow] Sheet {w['sheet_num']}: {w['warning']}")
-        if len(warnings) > 10:
-            console.print(f"  [dim]... and {len(warnings) - 10} more[/dim]")
+        if len(warnings) > 20:
+            console.print(f"  [dim]... and {len(warnings) - 20} more warnings[/dim]")
 
     # Token statistics
     token_stats = report.get("token_statistics")
@@ -857,8 +983,16 @@ def _display_diagnostic_report(job: CheckpointState, report: dict[str, Any]) -> 
 
     # Execution stats
     stats = report.get("execution_stats", {})
-    if stats.get("total_retry_count", 0) > 0 or stats.get("rate_limit_waits", 0) > 0:
+    history_count = report.get("execution_history_count")
+    has_stats = (
+        stats.get("total_retry_count", 0) > 0
+        or stats.get("rate_limit_waits", 0) > 0
+        or history_count is not None
+    )
+    if has_stats:
         console.print("\n[bold cyan]Execution Statistics[/bold cyan]")
+        if history_count is not None:
+            console.print(f"  Execution History: {history_count} recorded attempt(s)")
         if stats.get("total_retry_count", 0) > 0:
             console.print(f"  Total Retries: {stats['total_retry_count']}")
         if stats.get("rate_limit_waits", 0) > 0:
@@ -900,6 +1034,201 @@ def _display_diagnostic_report(job: CheckpointState, report: dict[str, Any]) -> 
     if report.get("job_error"):
         console.print(f"\n[bold red]Job Error:[/bold red] {report['job_error']}")
 
+    # Log files section
+    log_files = report.get("log_files", [])
+    if log_files:
+        console.print(f"\n[bold cyan]Log Files ({len(log_files)})[/bold cyan]")
+        log_table = Table()
+        log_table.add_column("File", style="cyan", no_wrap=True)
+        log_table.add_column("Size", justify="right", width=10)
+        log_table.add_column("Modified", style="dim", width=19)
+        log_table.add_column("Category", width=12)
+
+        for lf in log_files:
+            size = lf.get("size_bytes", 0)
+            if size >= 1024 * 1024:
+                size_str = f"{size / (1024 * 1024):.1f} MB"
+            elif size >= 1024:
+                size_str = f"{size / 1024:.1f} KB"
+            else:
+                size_str = f"{size} B"
+
+            modified = lf.get("modified_at", "")[:19] if lf.get("modified_at") else "-"
+
+            log_table.add_row(
+                lf.get("name", ""),
+                size_str,
+                modified,
+                lf.get("category", ""),
+            )
+
+        console.print(log_table)
+
+        # Log rotation hint when hook logs accumulate
+        hook_log_count = sum(1 for lf in log_files if lf.get("category") == "hook_log")
+        if hook_log_count > 20:
+            console.print(
+                f"\n[yellow]Hint:[/yellow] {hook_log_count} hook log files found. "
+                "Consider cleaning up old logs to save disk space."
+            )
+
+        console.print(
+            f"\n[dim]Use 'mozart diagnose {job.job_id} --include-logs' "
+            "to inline log content[/dim]"
+        )
+
+    # Inline log contents (when --include-logs is used)
+    log_contents = report.get("log_contents", {})
+    if log_contents:
+        tail = _INCLUDE_LOGS_TAIL_LINES
+        console.print(f"\n[bold cyan]Log Contents (last {tail} lines each)[/bold cyan]")
+        for log_path, content in log_contents.items():
+            log_name = Path(log_path).name
+            console.print(
+                Panel(
+                    content or "[dim]<empty>[/dim]",
+                    title=log_name,
+                    border_style="dim",
+                )
+            )
+
+
+# =============================================================================
+# history command
+# =============================================================================
+
+
+def history(
+    job_id: str = typer.Argument(..., help="Job ID to show execution history for"),
+    sheet: int | None = typer.Option(
+        None,
+        "--sheet",
+        "-b",
+        help="Filter by specific sheet number",
+    ),
+    limit: int = typer.Option(
+        50,
+        "--limit",
+        "-n",
+        help="Maximum number of records to show",
+    ),
+    workspace: Path | None = typer.Option(
+        None,
+        "--workspace",
+        "-w",
+        help="Workspace directory to search for job state",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        "-j",
+        help="Output history as JSON",
+    ),
+) -> None:
+    """Show execution history for a job.
+
+    Displays a table of past execution attempts from the SQLite state backend,
+    including sheet number, attempt number, exit code, duration, and timestamp.
+
+    Requires the SQLite state backend (execution history is not available with
+    the JSON backend).
+
+    Examples:
+        mozart history my-job                  # Show all history
+        mozart history my-job --sheet 3        # History for sheet 3 only
+        mozart history my-job --limit 100      # Show more records
+        mozart history my-job --json           # Machine-readable output
+    """
+    asyncio.run(_history_job(job_id, sheet, limit, workspace, json_output))
+
+
+async def _history_job(
+    job_id: str,
+    sheet_filter: int | None,
+    limit: int,
+    workspace: Path | None,
+    json_output: bool,
+) -> None:
+    """Asynchronously display execution history for a job."""
+    configure_global_logging(console)
+
+    # Find job state and backend
+    _, found_backend = await require_job_state(job_id, workspace, json_output=json_output)
+
+    # Check if backend supports execution history
+    if not hasattr(found_backend, 'get_execution_history'):
+        if json_output:
+            console.print(json_module.dumps({
+                "error": "Execution history requires SQLite state backend",
+                "hint": "Re-run the job with SQLite state to enable history tracking",
+            }))
+        else:
+            console.print(
+                "[yellow]Execution history requires the SQLite state backend.[/yellow]\n"
+                "[dim]History is only recorded when using SQLite state storage.[/dim]"
+            )
+        raise typer.Exit(1)
+
+    # Query execution history
+    records = await found_backend.get_execution_history(  # type: ignore[attr-defined]
+        job_id=job_id,
+        sheet_num=sheet_filter,
+        limit=limit,
+    )
+
+    # Output as JSON if requested
+    if json_output:
+        output: dict[str, Any] = {
+            "job_id": job_id,
+            "total_records": len(records),
+            "records": records,
+        }
+        if sheet_filter is not None:
+            output["sheet_filter"] = sheet_filter
+        console.print(json_module.dumps(output, indent=2, default=str))
+        return
+
+    # Display with Rich table
+    if not records:
+        console.print(f"[dim]No execution history found for job:[/dim] {job_id}")
+        if sheet_filter is not None:
+            console.print(f"[dim]Sheet filter: {sheet_filter}[/dim]")
+        console.print(
+            "\n[dim]Hint: Execution history is recorded when the job runs "
+            "with the SQLite state backend.[/dim]"
+        )
+        return
+
+    table = Table(title=f"Execution History: {job_id}")
+    table.add_column("Sheet", justify="right", style="cyan", width=6)
+    table.add_column("Attempt", justify="right", width=7)
+    table.add_column("Exit Code", justify="right", width=9)
+    table.add_column("Duration", justify="right", width=10)
+    table.add_column("Timestamp", style="dim", width=19)
+
+    for record in records:
+        exit_code = record.get("exit_code")
+        exit_str = str(exit_code) if exit_code is not None else "-"
+        exit_style = "green" if exit_code == 0 else "red" if exit_code is not None else "dim"
+
+        duration = record.get("duration_seconds")
+        duration_str = f"{duration:.1f}s" if duration is not None else "-"
+
+        timestamp = record.get("executed_at", "")
+        if timestamp and len(timestamp) > 19:
+            timestamp = timestamp[:19]
+
+        table.add_row(
+            str(record.get("sheet_num", "")),
+            str(record.get("attempt_num", "")),
+            f"[{exit_style}]{exit_str}[/{exit_style}]",
+            duration_str,
+            timestamp,
+        )
+
+    console.print(table)
+    console.print(f"\n[dim]Total: {len(records)} record(s)[/dim]")
+
 
 # =============================================================================
 # Public API
@@ -909,4 +1238,5 @@ __all__ = [
     "logs",
     "errors",
     "diagnose",
+    "history",
 ]

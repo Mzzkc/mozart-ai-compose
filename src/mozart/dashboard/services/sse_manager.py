@@ -46,7 +46,9 @@ class ClientConnection:
     """A connected SSE client."""
     client_id: str
     job_id: str
-    queue: asyncio.Queue[SSEEvent] = field(default_factory=lambda: asyncio.Queue(maxsize=SSE_CLIENT_QUEUE_SIZE))
+    queue: asyncio.Queue[SSEEvent] = field(
+        default_factory=lambda: asyncio.Queue(maxsize=SSE_CLIENT_QUEUE_SIZE)
+    )
     connected_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -154,12 +156,18 @@ class SSEManager:
                 connection.queue.put_nowait(event)
                 sent_count += 1
             except asyncio.QueueFull:
-                logger.warning("SSE client queue full, skipping event", extra={"client_id": client_id})
+                logger.warning(
+                    "SSE client queue full, skipping event",
+                    extra={"client_id": client_id},
+                )
                 # Don't disconnect; client might catch up
             except Exception:
                 logger.exception("Error sending SSE event", extra={"client_id": client_id})
 
-        logger.debug("Broadcast SSE event", extra={"event": event.event, "sent_count": sent_count, "job_id": job_id})
+        logger.debug(
+            "Broadcast SSE event",
+            extra={"event": event.event, "sent_count": sent_count, "job_id": job_id},
+        )
         return sent_count
 
     async def send_job_update(self, job_id: str, status: str, data: dict[str, Any]) -> int:
@@ -228,4 +236,8 @@ class SSEManager:
                 except asyncio.QueueFull:
                     pass  # Ignore if queue is full during shutdown
                 except Exception:
-                    logger.debug("Error sending close event", extra={"client_id": client_id}, exc_info=True)
+                    logger.debug(
+                        "Error sending close event",
+                        extra={"client_id": client_id},
+                        exc_info=True,
+                    )

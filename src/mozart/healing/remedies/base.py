@@ -240,4 +240,7 @@ class BaseRemedy:
 
     def generate_diagnostic(self, context: "ErrorContext") -> str:
         """Default diagnostic message."""
-        return f"Remedy '{self.name}' cannot be automatically applied.\n" f"Manual intervention required."
+        return (
+            f"Remedy '{self.name}' cannot be automatically applied.\n"
+            f"Manual intervention required."
+        )

@@ -205,8 +205,8 @@ class TestErrorHistoryMaxConstant:
     """Tests for MAX_ERROR_HISTORY constant."""
 
     def test_max_error_history_value(self):
-        """Test that MAX_ERROR_HISTORY is 10."""
-        assert MAX_ERROR_HISTORY == 10
+        """Test that MAX_ERROR_HISTORY is 50."""
+        assert MAX_ERROR_HISTORY == 50
 
 
 class TestErrorHistorySerialization:

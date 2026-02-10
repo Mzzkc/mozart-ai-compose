@@ -163,6 +163,9 @@ class ClaudeCliBackend(Backend):
         # Verify claude CLI is available
         self._claude_path = shutil.which("claude")
 
+        # Track log write failures for filesystem flakiness visibility
+        self.log_write_failures: int = 0
+
         # Use shared ErrorClassifier for rate limit detection
         # This ensures consistent classification with the runner
         self._error_classifier = ErrorClassifier()
@@ -283,8 +286,9 @@ class ClaudeCliBackend(Backend):
                 try:
                     log_path.parent.mkdir(parents=True, exist_ok=True)
                     log_path.write_bytes(b"")  # Truncate/create
-                except OSError:
-                    pass  # Don't fail execution if logging setup fails
+                except OSError as e:
+                    _logger.warning("log_prepare_failed", path=str(log_path), error=str(e))
+                    self.log_write_failures += 1
 
     def _write_output_logs(
         self, stdout_bytes: bytes, stderr_bytes: bytes,
@@ -298,14 +302,16 @@ class ClaudeCliBackend(Backend):
             try:
                 with open(self._stdout_log_path, "wb") as f:
                     f.write(stdout_bytes)
-            except OSError:
-                pass  # Don't fail execution if logging fails
+            except OSError as e:
+                _logger.warning("log_write_failed", path=str(self._stdout_log_path), error=str(e))
+                self.log_write_failures += 1
         if self._stderr_log_path:
             try:
                 with open(self._stderr_log_path, "wb") as f:
                     f.write(stderr_bytes)
-            except OSError:
-                pass  # Don't fail execution if logging fails
+            except OSError as e:
+                _logger.warning("log_write_failed", path=str(self._stderr_log_path), error=str(e))
+                self.log_write_failures += 1
 
     async def _handle_execution_timeout(
         self,
@@ -359,7 +365,10 @@ class ClaudeCliBackend(Backend):
         partial_stdout = b"".join(self._partial_stdout_chunks).decode("utf-8", errors="replace")
         partial_stderr = b"".join(self._partial_stderr_chunks).decode("utf-8", errors="replace")
         timeout_msg = f"Command timed out after {self.timeout_seconds}s"
-        stderr_combined = f"{partial_stderr}\n{timeout_msg}".strip() if partial_stderr else timeout_msg
+        stderr_combined = (
+            f"{partial_stderr}\n{timeout_msg}".strip()
+            if partial_stderr else timeout_msg
+        )
 
         return ExecutionResult(
             success=False,
@@ -427,8 +436,9 @@ class ClaudeCliBackend(Backend):
                 stderr_bytes=len(stderr),
             )
         else:
-            stdout_tail = stdout[-TRUNCATE_STDOUT_TAIL_CHARS:] if len(stdout) > TRUNCATE_STDOUT_TAIL_CHARS else stdout
-            stderr_tail = stderr[-TRUNCATE_STDOUT_TAIL_CHARS:] if len(stderr) > TRUNCATE_STDOUT_TAIL_CHARS else stderr
+            limit = TRUNCATE_STDOUT_TAIL_CHARS
+            stdout_tail = stdout[-limit:] if len(stdout) > limit else stdout
+            stderr_tail = stderr[-limit:] if len(stderr) > limit else stderr
             _logger.error(
                 "execution_failed",
                 duration_seconds=duration,
@@ -672,8 +682,9 @@ class ClaudeCliBackend(Backend):
         if log_path:
             try:
                 log_file = open(log_path, "ab")  # noqa: SIM115
-            except OSError:
-                pass
+            except OSError as e:
+                _logger.warning("log_file_open_failed", path=str(log_path), error=str(e))
+                self.log_write_failures += 1
 
         try:
             while True:
@@ -700,8 +711,9 @@ class ClaudeCliBackend(Backend):
                     try:
                         log_file.write(chunk)
                         log_file.flush()
-                    except OSError:
-                        pass
+                    except OSError as e:
+                        _logger.warning("log_write_failed", path=str(log_path), error=str(e))
+                        self.log_write_failures += 1
 
                 counters[0] += len(chunk)
                 counters[1] += chunk.count(b"\n")
@@ -825,7 +837,9 @@ class ClaudeCliBackend(Backend):
 
         return b"".join(stdout_chunks), b"".join(stderr_chunks)
 
-    async def execute(self, prompt: str, *, timeout_seconds: float | None = None) -> ExecutionResult:
+    async def execute(
+        self, prompt: str, *, timeout_seconds: float | None = None,
+    ) -> ExecutionResult:
         """Execute a prompt (Backend protocol implementation)."""
         return await self._execute_impl(prompt, timeout_seconds=timeout_seconds)
 

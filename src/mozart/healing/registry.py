@@ -36,7 +36,7 @@ class RemedyRegistry:
 
     def __init__(self) -> None:
         """Initialize an empty registry."""
-        self._remedies: list["Remedy"] = []
+        self._remedies: list[Remedy] = []
 
     def register(self, remedy: "Remedy") -> None:
         """Register a remedy.
@@ -84,7 +84,7 @@ class RemedyRegistry:
         Returns:
             List of (remedy, diagnosis) tuples sorted by confidence.
         """
-        applicable: list[tuple["Remedy", "Diagnosis"]] = []
+        applicable: list[tuple[Remedy, Diagnosis]] = []
 
         for remedy in self._remedies:
             try:

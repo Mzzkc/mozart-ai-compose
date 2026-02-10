@@ -174,7 +174,10 @@ class ValidationTypeCheck:
                     ValidationIssue(
                         check_id=self.check_id,
                         severity=self.severity,
-                        message=f"Validation rule {i + 1} ({validation.type}) missing required fields: {', '.join(missing)}",
+                        message=(
+                            f"Validation rule {i + 1} ({validation.type})"
+                            f" missing required fields: {', '.join(missing)}"
+                        ),
                         suggestion=f"Add {', '.join(missing)} to the validation rule",
                         metadata={
                             "validation_index": str(i),
@@ -228,7 +231,11 @@ class TimeoutRangeCheck:
                     severity=ValidationSeverity.WARNING,
                     message=f"Very short timeout ({timeout}s) may cause premature failures",
                     line=self._find_line_in_yaml(raw_yaml, "timeout_seconds:"),
-                    suggestion=f"Consider timeout_seconds >= {self.MIN_REASONABLE_TIMEOUT} for Claude CLI operations",
+                    suggestion=(
+                        f"Consider timeout_seconds >="
+                        f" {self.MIN_REASONABLE_TIMEOUT}"
+                        f" for Claude CLI operations"
+                    ),
                     metadata={
                         "timeout": str(timeout),
                         "threshold": str(self.MIN_REASONABLE_TIMEOUT),
@@ -241,9 +248,15 @@ class TimeoutRangeCheck:
                 ValidationIssue(
                     check_id="V104",
                     severity=ValidationSeverity.INFO,
-                    message=f"Very long timeout ({timeout}s = {timeout / 3600:.1f}h) - consider if this is necessary",
+                    message=(
+                        f"Very long timeout ({timeout}s = {timeout / 3600:.1f}h)"
+                        f" - consider if this is necessary"
+                    ),
                     line=self._find_line_in_yaml(raw_yaml, "timeout_seconds:"),
-                    suggestion="Long timeouts can tie up resources; consider breaking into smaller tasks",
+                    suggestion=(
+                        "Long timeouts can tie up resources;"
+                        " consider breaking into smaller tasks"
+                    ),
                     metadata={
                         "timeout": str(timeout),
                         "threshold": str(self.MAX_REASONABLE_TIMEOUT),
@@ -317,7 +330,10 @@ class VersionReferenceCheck:
                 ValidationIssue(
                     check_id=self.check_id,
                     severity=self.severity,
-                    message=f"Job name '{config.name}' references v{previous_version} but file is v{current_version}",
+                    message=(
+                        f"Job name '{config.name}' references"
+                        f" v{previous_version} but file is v{current_version}"
+                    ),
                     line=self._find_line_in_yaml(raw_yaml, "name:"),
                     suggestion=f"Update name to use v{current_version}",
                     metadata={
@@ -335,7 +351,10 @@ class VersionReferenceCheck:
                 ValidationIssue(
                     check_id=self.check_id,
                     severity=self.severity,
-                    message=f"Workspace path references v{previous_version} but file is v{current_version}",
+                    message=(
+                        f"Workspace path references v{previous_version}"
+                        f" but file is v{current_version}"
+                    ),
                     line=self._find_line_in_yaml(raw_yaml, "workspace:"),
                     context=workspace_str,
                     suggestion=f"Update workspace to use v{current_version}",
@@ -359,20 +378,32 @@ class VersionReferenceCheck:
             for pattern in prev_patterns:
                 if pattern in line:
                     # Check if this is just historical documentation
-                    if any(hist in line for hist in ["EVOLUTION FROM", "evolved from", "LEARNINGS"]):
+                    hist_markers = [
+                        "EVOLUTION FROM", "evolved from", "LEARNINGS",
+                    ]
+                    if any(hist in line for hist in hist_markers):
                         continue
                     # Check if it's in the version progression list
-                    if f"v{previous_version}→v{current_version}" in line or f"v{previous_version}->v{current_version}" in line:
+                    if (
+                        f"v{previous_version}→v{current_version}" in line
+                        or f"v{previous_version}->v{current_version}" in line
+                    ):
                         continue
 
                     issues.append(
                         ValidationIssue(
                             check_id=self.check_id,
                             severity=ValidationSeverity.WARNING,
-                            message=f"Line {i} references v{previous_version} - verify this is intentional",
+                            message=(
+                                f"Line {i} references v{previous_version}"
+                                f" - verify this is intentional"
+                            ),
                             line=i,
                             context=line.strip()[:80],
-                            suggestion=f"Update to v{current_version} if this should reference the current version",
+                            suggestion=(
+                        f"Update to v{current_version} if this should"
+                        f" reference the current version"
+                    ),
                             metadata={
                                 "pattern": pattern,
                                 "current_version": str(current_version),
@@ -417,18 +448,24 @@ class EmptyPatternCheck:
         issues: list[ValidationIssue] = []
 
         for i, validation in enumerate(config.validations):
-            if validation.type in ("content_contains", "content_regex"):
-                if validation.pattern is not None and validation.pattern.strip() == "":
-                    issues.append(
-                        ValidationIssue(
-                            check_id=self.check_id,
-                            severity=self.severity,
-                            message=f"Empty pattern in validation rule {i + 1} will match any content",
-                            suggestion="Add a meaningful pattern or remove this validation",
-                            metadata={
-                                "validation_index": str(i),
-                            },
-                        )
+            if (
+                validation.type in ("content_contains", "content_regex")
+                and validation.pattern is not None
+                and validation.pattern.strip() == ""
+            ):
+                issues.append(
+                    ValidationIssue(
+                        check_id=self.check_id,
+                        severity=self.severity,
+                        message=(
+                            f"Empty pattern in validation rule {i + 1}"
+                            f" will match any content"
+                        ),
+                        suggestion="Add a meaningful pattern or remove this validation",
+                        metadata={
+                            "validation_index": str(i),
+                        },
                     )
+                )
 
         return issues

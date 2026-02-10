@@ -339,15 +339,21 @@ class SQLiteStateBackend(StateBackend):
                     similar_outcomes_count=row["similar_outcomes_count"],
                     first_attempt_success=bool(row["first_attempt_success"]),
                     outcome_category=row["outcome_category"],
-                    execution_duration_seconds=row["execution_duration_seconds"]
-                    if "execution_duration_seconds" in row.keys()
-                    else None,
-                    exit_signal=row["exit_signal"]
-                    if "exit_signal" in row.keys()
-                    else None,
-                    exit_reason=row["exit_reason"]
-                    if "exit_reason" in row.keys()
-                    else None,
+                    execution_duration_seconds=(
+                        row["execution_duration_seconds"]
+                        if "execution_duration_seconds" in row.keys()  # noqa: SIM118
+                        else None
+                    ),
+                    exit_signal=(
+                        row["exit_signal"]
+                        if "exit_signal" in row.keys()  # noqa: SIM118
+                        else None
+                    ),
+                    exit_reason=(
+                        row["exit_reason"]
+                        if "exit_reason" in row.keys()  # noqa: SIM118
+                        else None
+                    ),
                 )
                 sheets[sheet.sheet_num] = sheet
 
@@ -478,7 +484,10 @@ class SQLiteStateBackend(StateBackend):
                         similar_outcomes_count, first_attempt_success,
                         outcome_category, started_at, completed_at,
                         execution_duration_seconds, exit_signal, exit_reason
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    )
                     ON CONFLICT(job_id, sheet_num) DO UPDATE SET
                         status = excluded.status,
                         attempt_count = excluded.attempt_count,
@@ -704,6 +713,25 @@ class SQLiteStateBackend(StateBackend):
 
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
+
+    async def get_execution_history_count(self, job_id: str) -> int:
+        """Get total count of execution history records for a job.
+
+        Args:
+            job_id: Job identifier
+
+        Returns:
+            Total number of execution history records
+        """
+        await self._ensure_initialized()
+
+        async with self._connect() as db:
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM execution_history WHERE job_id = ?",
+                (job_id,),
+            )
+            row = await cursor.fetchone()
+            return row[0] if row else 0
 
     async def get_job_statistics(self, job_id: str) -> dict[str, Any]:
         """Get aggregate statistics for a job.

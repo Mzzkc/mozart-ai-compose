@@ -24,6 +24,8 @@ from typing import Any
 
 from mozart.core.logging import MozartLogger
 
+# Import logger from base module for consistency across all mixins
+from .base import _logger
 from .models import (
     DriftMetrics,
     EpistemicDriftMetrics,
@@ -31,9 +33,6 @@ from .models import (
     EvolutionTrajectoryEntry,
     PatternRecord,
 )
-
-# Import logger from base module for consistency across all mixins
-from .base import _logger
 
 
 class DriftMixin:
@@ -143,10 +142,7 @@ class DriftMixin:
 
             # Calculate average grounding confidence across all applications
             all_grounding = grounding_recent + grounding_older
-            if all_grounding:
-                avg_grounding = sum(all_grounding) / len(all_grounding)
-            else:
-                avg_grounding = 1.0  # No grounding data - neutral
+            avg_grounding = sum(all_grounding) / len(all_grounding) if all_grounding else 1.0
 
             # Calculate drift
             drift = eff_after - eff_before

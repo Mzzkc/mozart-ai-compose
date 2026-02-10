@@ -31,7 +31,11 @@ router = APIRouter(prefix="/api/scores", tags=["Score Editor"])
 
 class ValidateConfigRequest(BaseModel):
     """Request to validate a YAML configuration."""
-    content: str = Field(..., max_length=1_000_000, description="YAML configuration content to validate")
+    content: str = Field(
+        ...,
+        max_length=1_000_000,
+        description="YAML configuration content to validate",
+    )
     filename: str = Field("config.yaml", description="Virtual filename for context")
     workspace_path: str | None = Field(
         None, description="Optional workspace path for relative path validation"

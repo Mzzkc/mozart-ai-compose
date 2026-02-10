@@ -350,7 +350,11 @@ notifications:
                     "example": {
                         "type": "llm_judge",
                         "description": "Output provides clear, helpful analysis",
-                        "criteria": "The output should be well-structured, informative, and directly address the prompt requirements"
+                        "criteria": (
+                            "The output should be well-structured,"
+                            " informative, and directly address"
+                            " the prompt requirements"
+                        )
                     }
                 }
             }

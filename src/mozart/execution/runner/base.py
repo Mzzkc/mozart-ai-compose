@@ -279,7 +279,7 @@ class JobRunnerBase:
         # Provides automatic diagnosis and remediation when retries are exhausted
         self._self_healing_enabled = self_healing_enabled
         self._self_healing_auto_confirm = self_healing_auto_confirm
-        self._healing_coordinator: "SelfHealingCoordinator | None" = None
+        self._healing_coordinator: SelfHealingCoordinator | None = None
         if self_healing_enabled:
             from mozart.healing.coordinator import SelfHealingCoordinator
             from mozart.healing.registry import create_default_registry
@@ -293,7 +293,7 @@ class JobRunnerBase:
 
         # Parallel executor (v17 evolution: Parallel Sheet Execution)
         # Enables concurrent execution of independent sheets based on DAG
-        self._parallel_executor: "ParallelExecutor | None" = None
+        self._parallel_executor: ParallelExecutor | None = None
         if config.parallel.enabled:
             from mozart.execution.parallel import (
                 ParallelExecutionConfig,
@@ -485,7 +485,8 @@ class JobRunnerBase:
 
         # Show pause confirmation to user
         self.console.print(
-            f"\n[yellow]Job paused gracefully at sheet {current_sheet}/{state.total_sheets}.[/yellow]"
+            f"\n[yellow]Job paused gracefully at sheet "
+            f"{current_sheet}/{state.total_sheets}.[/yellow]"
         )
         self.console.print(
             f"[green]State saved.[/green] To resume: [bold]mozart resume {state.job_id}[/bold]"

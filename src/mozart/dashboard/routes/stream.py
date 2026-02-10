@@ -264,7 +264,11 @@ async def _log_stream(
                 lines, total = _read_tail_lines(log_file, tail_lines)
                 start_num = total - len(lines) + 1
                 for i, line in enumerate(lines):
-                    yield _make_log_event(line, start_num + i, is_initial_event=True, event_id=f"log-init-{i}")
+                    yield _make_log_event(
+                        line, start_num + i,
+                        is_initial_event=True,
+                        event_id=f"log-init-{i}",
+                    )
             except (OSError, PermissionError) as e:
                 error_event = SSEEvent(
                     event="error",
@@ -310,7 +314,11 @@ async def _log_stream(
                     for line in new_lines:
                         if line:  # Skip empty lines
                             line_count += 1
-                            yield _make_log_event(line, line_count, is_initial_event=False, event_id=f"log-{line_count}")
+                            yield _make_log_event(
+                                line, line_count,
+                                is_initial_event=False,
+                                event_id=f"log-{line_count}",
+                            )
 
                     last_size = current_size
 
@@ -453,8 +461,12 @@ async def download_logs(
     if file_size > max_download_bytes:
         raise HTTPException(
             status_code=413,
-            detail=f"Log file too large for download: {file_size / (1024*1024):.1f} MB "
-                   f"(limit {max_download_bytes // (1024*1024)} MB). Use the streaming endpoint instead."
+            detail=(
+                f"Log file too large for download: "
+                f"{file_size / (1024*1024):.1f} MB "
+                f"(limit {max_download_bytes // (1024*1024)} MB). "
+                f"Use the streaming endpoint instead."
+            )
         )
 
     try:

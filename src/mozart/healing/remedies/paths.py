@@ -204,7 +204,10 @@ class CreateMissingParentDirsRemedy(BaseRemedy):
         return Diagnosis(
             error_code=context.error_code,
             issue=f"Parent directories missing for: {missing_path}",
-            explanation=f"Need to create {len(dirs_to_create)} director(ies): {', '.join(str(d) for d in dirs_to_create)}",
+            explanation=(
+                f"Need to create {len(dirs_to_create)} director(ies): "
+                f"{', '.join(str(d) for d in dirs_to_create)}"
+            ),
             suggestion=f"Create parent directories: mkdir -p {dirs_to_create[-1]}",
             confidence=0.85,  # Good confidence
             remedy_name=self.name,
@@ -334,7 +337,9 @@ class FixPathSeparatorsRemedy(BaseRemedy):
     def preview(self, context: "ErrorContext") -> str:
         diagnosis = self.diagnose(context)
         if diagnosis:
-            return f"Convert path: {diagnosis.context['original_path']} → {diagnosis.context['fixed_path']}"
+            orig = diagnosis.context['original_path']
+            fixed = diagnosis.context['fixed_path']
+            return f"Convert path: {orig} → {fixed}"
         return "Convert Windows-style paths to Unix"
 
     def apply(self, context: "ErrorContext") -> RemedyResult:

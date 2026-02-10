@@ -62,10 +62,12 @@ class SuggestJinjaFixRemedy(BaseRemedy):
         """Check for Jinja template issues."""
         # Check for Jinja-related error codes
         jinja_codes = ("E304", "E305", "E201")  # Template errors
-        if context.error_code not in jinja_codes:
-            # Also check message patterns
-            if not self._is_jinja_error(context.error_message):
-                return None
+        # Also check message patterns
+        if (
+            context.error_code not in jinja_codes
+            and not self._is_jinja_error(context.error_message)
+        ):
+            return None
 
         # Try to identify specific Jinja issues
         diagnosis = self._diagnose_syntax_error(context)
@@ -155,8 +157,14 @@ class SuggestJinjaFixRemedy(BaseRemedy):
             return Diagnosis(
                 error_code=context.error_code,
                 issue=f"Undefined variable: '{undefined_var}'",
-                explanation=f"The variable '{undefined_var}' is not defined in the template context.",
-                suggestion=f"Did you mean '{suggested}'? Replace '{undefined_var}' with '{suggested}'.",
+                explanation=(
+                    f"The variable '{undefined_var}' is not defined"
+                    f" in the template context."
+                ),
+                suggestion=(
+                    f"Did you mean '{suggested}'?"
+                    f" Replace '{undefined_var}' with '{suggested}'."
+                ),
                 confidence=0.85,  # High confidence for typo matches
                 remedy_name=self.name,
                 requires_confirmation=True,
@@ -200,8 +208,11 @@ class SuggestJinjaFixRemedy(BaseRemedy):
                 return Diagnosis(
                     error_code=context.error_code,
                     issue=f"Unclosed Jinja {block_type}",
-                    explanation=f"A Jinja block or expression is not properly closed.",
-                    suggestion=f"Check for missing closing tags like {{% end{block_type} %}} or }}.",
+                    explanation="A Jinja block or expression is not properly closed.",
+                    suggestion=(
+                        f"Check for missing closing tags like"
+                        f" {{% end{block_type} %}} or }}."
+                    ),
                     confidence=0.75,
                     remedy_name=self.name,
                     requires_confirmation=True,

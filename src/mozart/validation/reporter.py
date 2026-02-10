@@ -104,11 +104,21 @@ class ValidationReporter:
         self.console.print()
         summary_parts = []
         if errors:
-            summary_parts.append(f"[red]{len(errors)} error{'s' if len(errors) > 1 else ''} (must fix)[/red]")
+            err_s = "s" if len(errors) > 1 else ""
+            summary_parts.append(
+                f"[red]{len(errors)} error{err_s} (must fix)[/red]"
+            )
         if warnings:
-            summary_parts.append(f"[yellow]{len(warnings)} warning{'s' if len(warnings) > 1 else ''} (should fix)[/yellow]")
+            warn_s = "s" if len(warnings) > 1 else ""
+            summary_parts.append(
+                f"[yellow]{len(warnings)} warning{warn_s}"
+                f" (should fix)[/yellow]"
+            )
         if infos:
-            summary_parts.append(f"[blue]{len(infos)} info note{'s' if len(infos) > 1 else ''}[/blue]")
+            info_s = "s" if len(infos) > 1 else ""
+            summary_parts.append(
+                f"[blue]{len(infos)} info note{info_s}[/blue]"
+            )
 
         self.console.print(f"Summary: {', '.join(summary_parts)}")
 

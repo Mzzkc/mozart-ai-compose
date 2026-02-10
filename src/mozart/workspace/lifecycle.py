@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import fnmatch
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from mozart.core.config import WorkspaceLifecycleConfig
@@ -123,7 +123,7 @@ class WorkspaceArchiver:
                     )
             # Fall through to timestamp if iteration file missing/corrupt
 
-        return datetime.now(timezone.utc).strftime("archive-%Y%m%d-%H%M%S")
+        return datetime.now(UTC).strftime("archive-%Y%m%d-%H%M%S")
 
     def _resolve_collision(self, archive_path: Path) -> Path:
         """Add suffix if archive directory already exists."""
@@ -136,7 +136,7 @@ class WorkspaceArchiver:
                 return candidate
 
         # Extremely unlikely — fall back to timestamp suffix
-        ts = datetime.now(timezone.utc).strftime("%H%M%S")
+        ts = datetime.now(UTC).strftime("%H%M%S")
         return archive_path.with_name(f"{archive_path.name}-{ts}")
 
     def _collect_archivable_items(self) -> list[Path]:

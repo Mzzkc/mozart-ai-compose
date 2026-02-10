@@ -154,7 +154,7 @@ class DiagnoseAuthErrorRemedy(BaseRemedy):
 
     def apply(self, context: "ErrorContext") -> RemedyResult:
         """Diagnostic only - no automatic fix."""
-        diagnosis = self.diagnose(context)
+        self.diagnose(context)
         return RemedyResult(
             success=True,
             message="Diagnostic information provided",
@@ -242,10 +242,9 @@ class DiagnoseMissingCLIRemedy(BaseRemedy):
     def diagnose(self, context: "ErrorContext") -> Diagnosis | None:
         """Check for missing CLI errors."""
         # Check for CLI-related error codes
-        if context.error_code in ("E601", "E901"):
-            # Check if it's specifically about CLI
-            if self._is_cli_error(context.error_message):
-                return self._create_diagnosis(context)
+        # Check if it's specifically about CLI
+        if context.error_code in ("E601", "E901") and self._is_cli_error(context.error_message):
+            return self._create_diagnosis(context)
 
         # Check message patterns
         cli_patterns = [
@@ -347,7 +346,8 @@ class DiagnoseMissingCLIRemedy(BaseRemedy):
                 "3. Try: claude --help",
                 "",
                 "If issues persist:",
-                "- Reinstall: npm uninstall -g @anthropic-ai/claude-cli && npm install -g @anthropic-ai/claude-cli",
+                "- Reinstall: npm uninstall -g @anthropic-ai/claude-cli"
+                " && npm install -g @anthropic-ai/claude-cli",
                 "- Check permissions on the binary",
             ])
 

@@ -54,6 +54,11 @@ class AnthropicApiBackend(Backend):
         self.timeout_seconds = timeout_seconds
         self._working_directory: Path | None = None
 
+        # Real-time output logging paths (set per-sheet by runner)
+        # Matches ClaudeCliBackend pattern for observability parity
+        self._stdout_log_path: Path | None = None
+        self._stderr_log_path: Path | None = None
+
         # Get API key from environment
         self._api_key = os.environ.get(api_key_env)
 
@@ -78,6 +83,40 @@ class AnthropicApiBackend(Backend):
     def name(self) -> str:
         return "anthropic-api"
 
+    def set_output_log_path(self, path: Path | None) -> None:
+        """Set base path for real-time output logging.
+
+        Called per-sheet by runner to enable writing API responses to log files.
+        Provides observability parity with ClaudeCliBackend.
+
+        Args:
+            path: Base path for log files (without extension), or None to disable.
+        """
+        if path is None:
+            self._stdout_log_path = None
+            self._stderr_log_path = None
+        else:
+            self._stdout_log_path = path.with_suffix(".stdout.log")
+            self._stderr_log_path = path.with_suffix(".stderr.log")
+
+    def _write_log_file(self, log_path: Path | None, content: str) -> None:
+        """Write content to a log file if path is set.
+
+        Failures are logged as warnings rather than silently swallowed,
+        providing visibility into filesystem issues.
+
+        Args:
+            log_path: Path to write to, or None to skip.
+            content: Text content to write.
+        """
+        if log_path is None:
+            return
+        try:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            log_path.write_text(content, encoding="utf-8")
+        except OSError as e:
+            _logger.warning("log_write_failed", path=str(log_path), error=str(e))
+
     def _get_client(self) -> anthropic.AsyncAnthropic:
         """Get or create the async Anthropic client."""
         if self._client is None:
@@ -91,7 +130,9 @@ class AnthropicApiBackend(Backend):
             )
         return self._client
 
-    async def execute(self, prompt: str, *, timeout_seconds: float | None = None) -> ExecutionResult:
+    async def execute(
+        self, prompt: str, *, timeout_seconds: float | None = None,
+    ) -> ExecutionResult:
         """Execute a prompt via the Anthropic API.
 
         Args:
@@ -155,6 +196,9 @@ class AnthropicApiBackend(Backend):
                 response_length=len(response_text),
             )
 
+            # Write API response to log file for post-mortem analysis
+            self._write_log_file(self._stdout_log_path, response_text)
+
             return ExecutionResult(
                 success=True,
                 exit_code=0,
@@ -175,6 +219,7 @@ class AnthropicApiBackend(Backend):
                 model=self.model,
                 error_message=str(e),
             )
+            self._write_log_file(self._stderr_log_path, str(e))
             return ExecutionResult(
                 success=False,
                 exit_code=429,
@@ -196,6 +241,7 @@ class AnthropicApiBackend(Backend):
                 model=self.model,
                 api_key_env=self.api_key_env,  # Only log env var name, not value
             )
+            self._write_log_file(self._stderr_log_path, str(e))
             return ExecutionResult(
                 success=False,
                 exit_code=401,
@@ -215,6 +261,7 @@ class AnthropicApiBackend(Backend):
                 model=self.model,
                 error_message=str(e),
             )
+            self._write_log_file(self._stderr_log_path, str(e))
             return ExecutionResult(
                 success=False,
                 exit_code=400,
@@ -234,6 +281,7 @@ class AnthropicApiBackend(Backend):
                 timeout_seconds=self.timeout_seconds,
                 model=self.model,
             )
+            self._write_log_file(self._stderr_log_path, str(e))
             return ExecutionResult(
                 success=False,
                 exit_code=408,
@@ -253,6 +301,7 @@ class AnthropicApiBackend(Backend):
                 model=self.model,
                 error_message=str(e),
             )
+            self._write_log_file(self._stderr_log_path, str(e))
             return ExecutionResult(
                 success=False,
                 exit_code=503,
@@ -287,6 +336,7 @@ class AnthropicApiBackend(Backend):
                     error_message=str(e),
                 )
 
+            self._write_log_file(self._stderr_log_path, str(e))
             return ExecutionResult(
                 success=False,
                 exit_code=status_code,
@@ -308,6 +358,7 @@ class AnthropicApiBackend(Backend):
                 error_message=str(e),
                 api_key_env=self.api_key_env,  # Only log env var name, not value
             )
+            self._write_log_file(self._stderr_log_path, str(e))
             return ExecutionResult(
                 success=False,
                 exit_code=1,
@@ -327,6 +378,7 @@ class AnthropicApiBackend(Backend):
                 model=self.model,
                 error_message=str(e),
             )
+            self._write_log_file(self._stderr_log_path, str(e))
             return ExecutionResult(
                 success=False,
                 exit_code=1,

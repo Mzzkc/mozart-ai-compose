@@ -204,7 +204,7 @@ class MCPProxyService:
                 conn.process.terminate()
                 try:
                     await asyncio.wait_for(conn.process.wait(), timeout=5.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Force kill
                     conn.process.kill()
                     await conn.process.wait()
@@ -222,7 +222,7 @@ class MCPProxyService:
         self._tool_routing.clear()
         _logger.info("mcp_proxy_stopped")
 
-    async def __aenter__(self) -> "MCPProxyService":
+    async def __aenter__(self) -> MCPProxyService:
         """Async context manager entry."""
         await self.start()
         return self
@@ -311,7 +311,7 @@ class MCPProxyService:
             # Parse result
             return self._parse_tool_result(result)
 
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             raise ToolExecutionTimeout(f"Tool {tool_name} timed out") from e
 
     async def _start_server(self, config: MCPServerConfig) -> MCPConnection:

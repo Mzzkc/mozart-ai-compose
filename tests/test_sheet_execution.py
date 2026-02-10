@@ -917,7 +917,12 @@ class TestCircuitBreakerBlocking:
         cb = MagicMock()
         cb.can_execute = AsyncMock(side_effect=[False, True])
         cb.time_until_retry = AsyncMock(return_value=0.01)
-        cb.get_state = AsyncMock(return_value=MagicMock(value="open"))
+        # First get_state call: during blocking log (open)
+        # Second get_state call: after record_success for persistence (closed)
+        cb.get_state = AsyncMock(
+            side_effect=[MagicMock(value="open"), MagicMock(value="closed")]
+        )
+        cb.get_stats = AsyncMock(return_value=MagicMock(consecutive_failures=0))
         cb.record_success = AsyncMock()
         mixin._circuit_breaker = cb
 

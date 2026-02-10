@@ -198,7 +198,7 @@ def _expand_dependency_pair(
 
     elif source_count == target_count:
         # N→N (instance-matched): target[i] depends on source[i]
-        for target, source in zip(target_sheets, source_sheets):
+        for target, source in zip(target_sheets, source_sheets, strict=False):
             _add_dep(expanded_deps, target, source)
 
     else:

@@ -97,7 +97,8 @@ class MCPServer:
         self.client_info = client_info or {}
         self.initialized = True
 
-        logger.info(f"MCP Server initialized with client: {self.client_info.get('name', 'unknown')}")
+        client_name = self.client_info.get('name', 'unknown')
+        logger.info(f"MCP Server initialized with client: {client_name}")
 
         return {
             "capabilities": self.capabilities,
@@ -147,8 +148,12 @@ class MCPServer:
         # Route to appropriate tool handler
         job_tool_names = ["list_jobs", "get_job", "start_job"]
         control_tool_names = ["pause_job", "resume_job", "cancel_job"]
-        artifact_tool_names = ["mozart_artifact_list", "mozart_artifact_read", "mozart_artifact_get_logs",
-                              "mozart_artifact_list_artifacts", "mozart_artifact_get_artifact"]
+        artifact_tool_names = [
+            "mozart_artifact_list", "mozart_artifact_read",
+            "mozart_artifact_get_logs",
+            "mozart_artifact_list_artifacts",
+            "mozart_artifact_get_artifact",
+        ]
         score_tool_names = ["validate_score", "generate_score"]
 
         if name in job_tool_names:

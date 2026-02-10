@@ -12,7 +12,11 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from mozart.cli import app
-from mozart.cli.commands.diagnose import _build_diagnostic_report
+from mozart.cli.commands.diagnose import (
+    _attach_log_contents,
+    _build_diagnostic_report,
+    _discover_log_files,
+)
 from mozart.core.checkpoint import (
     CheckpointState,
     ErrorRecord,
@@ -546,3 +550,165 @@ class TestLogsCommand:
         )
         assert result.exit_code == 1
         assert "Invalid log level" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Log file discovery tests
+# ---------------------------------------------------------------------------
+
+
+class TestDiscoverLogFiles:
+    """Tests for _discover_log_files() helper."""
+
+    def test_no_workspace(self) -> None:
+        assert _discover_log_files(None) == []
+
+    def test_nonexistent_workspace(self, tmp_path: Path) -> None:
+        assert _discover_log_files(tmp_path / "nope") == []
+
+    def test_empty_workspace(self, tmp_path: Path) -> None:
+        assert _discover_log_files(tmp_path) == []
+
+    def test_discovers_sheet_logs(self, tmp_path: Path) -> None:
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir()
+        (logs_dir / "sheet-01.stdout.log").write_text("hello from sheet 1")
+        (logs_dir / "sheet-02.stderr.log").write_text("err")
+        (logs_dir / "not-a-log.txt").write_text("ignored")
+
+        discovered = _discover_log_files(tmp_path)
+        names = [d["name"] for d in discovered]
+        assert "sheet-01.stdout.log" in names
+        assert "sheet-02.stderr.log" in names
+        assert "not-a-log.txt" not in names
+        assert all(d["category"] == "sheet_log" for d in discovered)
+
+    def test_discovers_hook_logs(self, tmp_path: Path) -> None:
+        hooks_dir = tmp_path / "hooks"
+        hooks_dir.mkdir()
+        (hooks_dir / "post-success.log").write_text("hook output")
+
+        discovered = _discover_log_files(tmp_path)
+        assert len(discovered) == 1
+        assert discovered[0]["name"] == "post-success.log"
+        assert discovered[0]["category"] == "hook_log"
+
+    def test_reports_size_and_mtime(self, tmp_path: Path) -> None:
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir()
+        (logs_dir / "test.log").write_text("x" * 100)
+
+        discovered = _discover_log_files(tmp_path)
+        assert len(discovered) == 1
+        assert discovered[0]["size_bytes"] == 100
+        assert "modified_at" in discovered[0]
+
+
+class TestAttachLogContents:
+    """Tests for _attach_log_contents() helper."""
+
+    def test_attaches_tail_lines(self, tmp_path: Path) -> None:
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir()
+        log_file = logs_dir / "sheet-01.log"
+        # Write 60 lines — only last 50 should be inlined
+        log_file.write_text("\n".join(f"line {i}" for i in range(60)))
+
+        report: dict = {"log_files": [{"path": str(log_file)}]}
+        _attach_log_contents(report)
+
+        content = report["log_contents"][str(log_file)]
+        lines = content.strip().splitlines()
+        assert len(lines) == 50
+        assert lines[0] == "line 10"
+        assert lines[-1] == "line 59"
+
+    def test_empty_log_files_list(self) -> None:
+        report: dict = {"log_files": []}
+        _attach_log_contents(report)
+        assert report["log_contents"] == {}
+
+    def test_missing_file_skipped(self, tmp_path: Path) -> None:
+        report: dict = {"log_files": [{"path": str(tmp_path / "gone.log")}]}
+        _attach_log_contents(report)
+        assert report["log_contents"] == {}
+
+
+class TestDiagnosticReportLogFiles:
+    """Tests for log_files integration in _build_diagnostic_report()."""
+
+    def test_report_includes_log_files_key(self) -> None:
+        job = _make_job()
+        report = _build_diagnostic_report(job)
+        assert "log_files" in report
+
+    def test_report_discovers_workspace_logs(self, tmp_path: Path) -> None:
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir()
+        (logs_dir / "sheet-01.log").write_text("data")
+
+        job = _make_job()
+        report = _build_diagnostic_report(job, workspace=tmp_path)
+        assert len(report["log_files"]) == 1
+        assert report["log_files"][0]["name"] == "sheet-01.log"
+
+    def test_report_no_workspace_empty_log_files(self) -> None:
+        job = _make_job()
+        report = _build_diagnostic_report(job, workspace=None)
+        assert report["log_files"] == []
+
+
+class TestDiagnoseIncludeLogsFlag:
+    """Tests for the --include-logs CLI flag."""
+
+    def test_include_logs_flag_accepted(self, tmp_path: Path) -> None:
+        job = _make_job()
+        _write_state(tmp_path, job)
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir()
+        (logs_dir / "test.log").write_text("some log content\n")
+
+        result = runner.invoke(
+            app,
+            ["diagnose", "diag-test", "--include-logs", "--workspace", str(tmp_path)],
+        )
+        assert result.exit_code == 0
+
+    def test_include_logs_json_output(self, tmp_path: Path) -> None:
+        job = _make_job()
+        _write_state(tmp_path, job)
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir()
+        (logs_dir / "sheet.log").write_text("log line\n")
+
+        result = runner.invoke(
+            app,
+            ["diagnose", "diag-test", "--include-logs", "--json", "--workspace", str(tmp_path)],
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert "log_files" in data
+        assert "log_contents" in data
+
+
+class TestMaxOutputCaptureConfig:
+    """Tests for configurable max_output_capture_bytes in BackendConfig."""
+
+    def test_default_value(self) -> None:
+        from mozart.core.config import BackendConfig
+        config = BackendConfig()
+        assert config.max_output_capture_bytes == 10240
+
+    def test_custom_value(self) -> None:
+        from mozart.core.config import BackendConfig
+        config = BackendConfig(max_output_capture_bytes=20480)
+        assert config.max_output_capture_bytes == 20480
+
+    def test_capture_output_respects_max_bytes(self) -> None:
+        """SheetState.capture_output uses the configured max_bytes."""
+        sheet = SheetState(sheet_num=1)
+        big_output = "x" * 50000
+        sheet.capture_output(big_output, "", max_bytes=1000)
+        assert sheet.stdout_tail is not None
+        assert len(sheet.stdout_tail.encode("utf-8")) <= 1000
+        assert sheet.output_truncated is True

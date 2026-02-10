@@ -11,6 +11,7 @@ merge them with existing patterns in the global store.
 
 from datetime import datetime
 from pathlib import Path
+
 from mozart.core.logging import get_logger
 from mozart.learning.global_store import GlobalLearningStore, PatternRecord
 from mozart.learning.outcomes import SheetOutcome

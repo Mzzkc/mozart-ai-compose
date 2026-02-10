@@ -438,7 +438,9 @@ def classify_single_json_error(
     )
 
 
-def select_root_cause(errors: list[ClassifiedError]) -> tuple[ClassifiedError, list[ClassifiedError], float]:
+def select_root_cause(
+    errors: list[ClassifiedError],
+) -> tuple[ClassifiedError, list[ClassifiedError], float]:
     """Select the most likely root cause from multiple errors.
 
     Uses priority-based scoring where lower score = more fundamental cause.
@@ -486,42 +488,52 @@ def select_root_cause(errors: list[ClassifiedError]) -> tuple[ClassifiedError, l
         # === Priority Modifiers for Common Masking Patterns ===
 
         # ENOENT (missing binary) masks everything - it's almost always root cause
-        if error.error_code == ErrorCode.BACKEND_NOT_FOUND:
-            if any(e.error_code != ErrorCode.BACKEND_NOT_FOUND for e in errors):
-                priority -= 10  # Strong boost - ENOENT is very fundamental
+        if error.error_code == ErrorCode.BACKEND_NOT_FOUND and any(
+            e.error_code != ErrorCode.BACKEND_NOT_FOUND for e in errors
+        ):
+            priority -= 10  # Strong boost - ENOENT is very fundamental
 
         # Config path not found is similar - can't run without config
         if error.error_code == ErrorCode.CONFIG_PATH_NOT_FOUND:
             priority -= 5
 
         # Auth errors mask rate limits (can't be rate limited if auth fails)
-        if error.error_code == ErrorCode.BACKEND_AUTH:
-            if ErrorCode.RATE_LIMIT_API in error_codes_present or ErrorCode.RATE_LIMIT_CLI in error_codes_present:
-                priority -= 5
+        if error.error_code == ErrorCode.BACKEND_AUTH and (
+            ErrorCode.RATE_LIMIT_API in error_codes_present
+            or ErrorCode.RATE_LIMIT_CLI in error_codes_present
+        ):
+            priority -= 5
 
         # Network errors mask service errors
         if error.error_code in (
             ErrorCode.NETWORK_CONNECTION_FAILED,
             ErrorCode.NETWORK_DNS_ERROR,
             ErrorCode.NETWORK_SSL_ERROR,
+        ) and (
+            ErrorCode.BACKEND_TIMEOUT in error_codes_present
+            or ErrorCode.RATE_LIMIT_API in error_codes_present
         ):
-            if ErrorCode.BACKEND_TIMEOUT in error_codes_present or ErrorCode.RATE_LIMIT_API in error_codes_present:
-                priority -= 3
+            priority -= 3
 
         # MCP config errors mask tool execution errors
-        if error.error_code == ErrorCode.CONFIG_MCP_ERROR:
-            if ErrorCode.VALIDATION_COMMAND_FAILED in error_codes_present:
-                priority -= 3
+        if (
+            error.error_code == ErrorCode.CONFIG_MCP_ERROR
+            and ErrorCode.VALIDATION_COMMAND_FAILED in error_codes_present
+        ):
+            priority -= 3
 
         # CLI mode errors (streaming vs JSON) are config issues that mask execution
-        if error.error_code == ErrorCode.CONFIG_CLI_MODE_ERROR:
-            if any(e.error_code.category == "execution" for e in errors):
-                priority -= 3
+        if error.error_code == ErrorCode.CONFIG_CLI_MODE_ERROR and any(
+            e.error_code.category == "execution" for e in errors
+        ):
+            priority -= 3
 
         # Timeout is a symptom when paired with rate limits (waited too long)
-        if error.error_code == ErrorCode.EXECUTION_TIMEOUT:
-            if ErrorCode.RATE_LIMIT_API in error_codes_present:
-                priority += 5  # Demote timeout - rate limit is root cause
+        if (
+            error.error_code == ErrorCode.EXECUTION_TIMEOUT
+            and ErrorCode.RATE_LIMIT_API in error_codes_present
+        ):
+            priority += 5  # Demote timeout - rate limit is root cause
 
         priorities.append(priority)
 

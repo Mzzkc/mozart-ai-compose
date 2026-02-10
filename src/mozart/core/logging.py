@@ -253,7 +253,10 @@ class CompressingRotatingFileHandler(RotatingFileHandler):
                     except OSError:
                         # Can't use logger here (inside log handler = recursion risk)
                         import sys
-                        print(f"Warning: failed to remove old log backup {old_file}", file=sys.stderr)
+                        print(
+                            f"Warning: failed to remove old log backup {old_file}",
+                            file=sys.stderr,
+                        )
 
         # Reopen the base file for writing
         if not self.delay:
@@ -436,7 +439,9 @@ def with_context(ctx: ExecutionContext) -> Iterator[ExecutionContext]:
         _current_context.reset(token)
 
 
-def _sanitize_value(key: str, value: str | int | float | bool | None) -> str | int | float | bool | None:
+def _sanitize_value(
+    key: str, value: str | int | float | bool | None,
+) -> str | int | float | bool | None:
     """Sanitize potentially sensitive values.
 
     Args:

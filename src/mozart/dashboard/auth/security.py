@@ -70,7 +70,7 @@ class SecurityConfig:
     referrer_policy: str = "strict-origin-when-cross-origin"
 
     @classmethod
-    def from_env(cls) -> "SecurityConfig":
+    def from_env(cls) -> SecurityConfig:
         """Create config from environment variables.
 
         Environment variables:
@@ -91,7 +91,7 @@ class SecurityConfig:
         )
 
     @classmethod
-    def production(cls) -> "SecurityConfig":
+    def production(cls) -> SecurityConfig:
         """Create strict production configuration."""
         return cls(
             cors_origins=[],  # No CORS in production (same-origin only)
@@ -210,10 +210,7 @@ def validate_path_component(component: str) -> bool:
         return False
 
     # Block null bytes
-    if "\x00" in component:
-        return False
-
-    return True
+    return "\x00" not in component
 
 
 def sanitize_filename(filename: str) -> str:

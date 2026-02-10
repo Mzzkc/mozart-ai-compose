@@ -14,9 +14,10 @@ import json
 import re
 import time
 import uuid
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import httpx
 
@@ -180,7 +181,7 @@ class OllamaBackend(HttpxClientMixin, Backend):
         self._init_httpx_mixin(self.base_url, self.timeout, connect_timeout=10.0)
 
     @classmethod
-    def from_config(cls, config: BackendConfig) -> "OllamaBackend":
+    def from_config(cls, config: BackendConfig) -> OllamaBackend:
         """Create backend from configuration.
 
         Args:
@@ -204,7 +205,12 @@ class OllamaBackend(HttpxClientMixin, Backend):
         """Human-readable backend name."""
         return f"ollama:{self.model}"
 
-    async def execute(self, prompt: str, *, timeout_seconds: float | None = None) -> ExecutionResult:
+    async def execute(
+        self,
+        prompt: str,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> ExecutionResult:
         """Execute a prompt and return the result.
 
         Runs the agentic loop if tools are available via MCPProxyService,

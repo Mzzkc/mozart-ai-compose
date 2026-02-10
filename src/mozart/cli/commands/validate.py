@@ -21,6 +21,7 @@ configuration validation before job execution.
 from __future__ import annotations
 
 from pathlib import Path
+
 import typer
 import yaml
 
@@ -163,7 +164,7 @@ def _show_dag_visualization(config: JobConfig, verbose: bool) -> None:  # noqa: 
 
     # Calculate levels (BFS from roots)
     levels: dict[int, int] = {}
-    in_degree: dict[int, int] = {i: 0 for i in range(1, total + 1)}
+    in_degree: dict[int, int] = dict.fromkeys(range(1, total + 1), 0)
 
     # Count incoming edges
     for sheet_num, sheet_deps in deps.items():

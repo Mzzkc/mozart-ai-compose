@@ -55,7 +55,7 @@ class AuthConfig:
     header_name: str = "X-API-Key"
 
     @classmethod
-    def from_env(cls) -> "AuthConfig":
+    def from_env(cls) -> AuthConfig:
         """Create config from environment variables.
 
         Environment variables:
@@ -105,10 +105,7 @@ def verify_api_key(key: str, hashed_keys: list[str]) -> bool:
         True if key is valid
     """
     key_hash = hash_api_key(key)
-    for stored_hash in hashed_keys:
-        if hmac.compare_digest(key_hash, stored_hash):
-            return True
-    return False
+    return any(hmac.compare_digest(key_hash, stored_hash) for stored_hash in hashed_keys)
 
 
 def generate_api_key() -> str:

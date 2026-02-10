@@ -203,8 +203,9 @@ async def templates_list_partial(
     """Render the templates grid partial (HTMX target)."""
     try:
         import yaml
-        from mozart.scores.templates import list_templates, get_template_path
+
         from mozart.dashboard.routes.scores import analyze_template
+        from mozart.scores.templates import get_template_path, list_templates
 
         template_dict = list_templates()
         filtered_templates = []
@@ -223,7 +224,10 @@ async def templates_list_partial(
                 if search:
                     data = yaml.safe_load(content)
                     data_name = data.get('name', '') if isinstance(data, dict) else ''
-                    if search.lower() not in name.lower() and search.lower() not in data_name.lower():
+                    if (
+                        search.lower() not in name.lower()
+                        and search.lower() not in data_name.lower()
+                    ):
                         continue
 
                 filtered_templates.append(tmpl.model_dump())

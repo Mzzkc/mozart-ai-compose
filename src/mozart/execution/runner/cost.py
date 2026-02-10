@@ -83,7 +83,7 @@ class CostMixin:
     config: JobConfig
     console: Console
     _logger: MozartLogger
-    _circuit_breaker: "CircuitBreaker | None"
+    _circuit_breaker: CircuitBreaker | None
     _summary: RunSummary | None
 
     # ─────────────────────────────────────────────────────────────────────

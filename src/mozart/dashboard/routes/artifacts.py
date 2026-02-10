@@ -82,9 +82,7 @@ def _is_safe_path(requested_path: str, workspace_root: Path) -> bool:
         # Reject symlinks to prevent TOCTOU: a symlink could be retargeted
         # between this check and the actual file read
         unresolved = workspace_root / requested_path
-        if unresolved.is_symlink():
-            return False
-        return True
+        return not unresolved.is_symlink()
     except (ValueError, OSError):
         return False
 

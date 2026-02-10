@@ -90,7 +90,7 @@ class PatternsMixin:
     # Type hints for attributes provided by base.py
     config: JobConfig
     _logger: MozartLogger
-    _global_learning_store: "GlobalLearningStore | None"
+    _global_learning_store: GlobalLearningStore | None
     outcome_store: OutcomeStore | None
     _exploration_pattern_ids: list[str]
     _exploitation_pattern_ids: list[str]

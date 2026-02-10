@@ -309,7 +309,11 @@ class ParallelExecutor:
             # Log any ungrouped exceptions that couldn't be mapped to tasks
             # Use object identity (id) instead of str() to avoid collisions
             # when different exceptions have identical string representations
-            mapped_error_ids = {id(t.exception()) for t in tasks.values() if t.done() and t.exception() is not None}
+            mapped_error_ids = {
+                id(t.exception())
+                for t in tasks.values()
+                if t.done() and t.exception() is not None
+            }
             for exc in eg.exceptions:
                 if id(exc) not in mapped_error_ids:
                     self._logger.error(

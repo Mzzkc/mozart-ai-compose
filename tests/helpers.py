@@ -5,7 +5,6 @@ from typing import Any
 from mozart.core.checkpoint import (
     CheckpointErrorRecord,
     ErrorType,
-    MAX_ERROR_HISTORY,
     SheetState,
 )
 
@@ -36,6 +35,4 @@ def record_error_on_sheet(
         stderr_tail=stderr_tail,
         stack_trace=stack_trace,
     )
-    state.error_history.append(record)
-    if len(state.error_history) > MAX_ERROR_HISTORY:
-        state.error_history = state.error_history[-MAX_ERROR_HISTORY:]
+    state.add_error_to_history(record)

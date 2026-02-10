@@ -2,7 +2,7 @@
 #
 # Each module in this package provides one or more CLI commands.
 
-from .diagnose import diagnose, errors, logs
+from .diagnose import diagnose, errors, history, logs
 from .pause import modify, pause
 from .recover import recover
 from .resume import resume
@@ -15,6 +15,7 @@ __all__ = [
     "logs",
     "errors",
     "diagnose",
+    "history",
     # pause.py
     "pause",
     "modify",

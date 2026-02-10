@@ -297,27 +297,33 @@ class SkillFilesExistCheck:
 
         for i, validation in enumerate(config.validations):
             # Skip validations with template variables in path
-            if validation.path and "{" not in validation.path:
-                # Check file_exists validations - these are expected to be created
-                # so we don't warn about them. Check other types.
-                if validation.type in ("content_contains", "content_regex"):
-                    file_path = self._resolve_path(Path(validation.path), config_path)
+            # Check file_exists validations - these are expected to be created
+            # so we don't warn about them. Check other types.
+            if (
+                validation.path
+                and "{" not in validation.path
+                and validation.type in ("content_contains", "content_regex")
+            ):
+                file_path = self._resolve_path(Path(validation.path), config_path)
 
-                    # Only warn if it's an absolute path that doesn't exist
-                    # Relative paths might be created during execution
-                    if file_path.is_absolute() and not file_path.exists():
-                        issues.append(
-                            ValidationIssue(
-                                check_id=self.check_id,
-                                severity=self.severity,
-                                message=f"File referenced in validation {i + 1} does not exist: {file_path}",
-                                suggestion="Ensure file will be created before this validation runs",
-                                metadata={
-                                    "validation_index": str(i),
-                                    "path": str(file_path),
-                                },
-                            )
+                # Only warn if it's an absolute path that doesn't exist
+                # Relative paths might be created during execution
+                if file_path.is_absolute() and not file_path.exists():
+                    issues.append(
+                        ValidationIssue(
+                            check_id=self.check_id,
+                            severity=self.severity,
+                            message=(
+                                f"File referenced in validation {i + 1}"
+                                f" does not exist: {file_path}"
+                            ),
+                            suggestion="Ensure file will be created before this validation runs",
+                            metadata={
+                                "validation_index": str(i),
+                                "path": str(file_path),
+                            },
                         )
+                    )
 
         return issues
 

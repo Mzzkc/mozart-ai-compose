@@ -476,7 +476,11 @@ class LifecycleMixin:
             "circuit_breaker_enabled": self.config.circuit_breaker.enabled,
             "circuit_breaker_threshold": self.config.circuit_breaker.failure_threshold,
             "isolation_enabled": self.config.isolation.enabled,
-            "isolation_mode": self.config.isolation.mode.value if self.config.isolation.enabled else None,
+            "isolation_mode": (
+                self.config.isolation.mode.value
+                if self.config.isolation.enabled
+                else None
+            ),
         }
 
     # =========================================================================
@@ -742,7 +746,7 @@ class LifecycleMixin:
 
     async def _synthesize_batch_outputs(
         self,
-        result: "ParallelBatchResult",
+        result: ParallelBatchResult,
         state: CheckpointState,
     ) -> None:
         """Synthesize outputs from a completed parallel batch (v18 evolution).
