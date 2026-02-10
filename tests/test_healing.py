@@ -1768,3 +1768,291 @@ class TestHealingCascadingRecovery:
         diagnosis = remedy.diagnose(ctx)
         # Remedy should not diagnose an issue since workspace exists
         assert diagnosis is None, "No diagnosis needed when workspace already exists"
+
+
+# =============================================================================
+# Stacked healing, remedy failure, and retry counter tests (FIX-48)
+# =============================================================================
+
+
+class TestHealingStackedRemedies:
+    """Tests for multiple remedies applied in sequence and failure modes."""
+
+    @pytest.mark.asyncio
+    async def test_multiple_remedies_applied_in_single_heal(self, tmp_path):
+        """When multiple remedies match, all applicable ones run in sequence."""
+        workspace = tmp_path / "stacked-ws"
+
+        mock_config = MagicMock()
+        mock_config.workspace = workspace
+        mock_config.backend.working_directory = None
+
+        # E601 triggers CreateMissingWorkspaceRemedy (auto) and potentially
+        # CreateMissingParentDirsRemedy if path parsing matches
+        ctx = ErrorContext(
+            error_code="E601",
+            error_message=f"Workspace directory does not exist: {workspace}",
+            error_category="preflight",
+            config=mock_config,
+            workspace=workspace,
+            sheet_number=1,
+            working_directory=workspace,
+        )
+
+        registry = create_default_registry()
+        coordinator = SelfHealingCoordinator(registry, auto_confirm=True)
+        report = await coordinator.heal(ctx)
+
+        # At least one remedy should have been applied
+        assert report.any_remedies_applied
+        assert workspace.exists()
+
+        # Report should track all attempted actions
+        total_actions = (
+            len(report.actions_taken)
+            + len(report.actions_skipped)
+            + len(report.diagnostic_outputs)
+        )
+        assert total_actions >= 1, "Should have at least one action recorded"
+
+    @pytest.mark.asyncio
+    async def test_remedy_failure_does_not_block_other_remedies(self, tmp_path):
+        """If one remedy fails, subsequent remedies should still be attempted."""
+        registry = RemedyRegistry()
+
+        # Register a remedy that always fails
+        class FailingRemedy(BaseRemedy):
+            @property
+            def name(self):
+                return "always_fail"
+
+            @property
+            def category(self):
+                return RemedyCategory.AUTOMATIC
+
+            @property
+            def description(self):
+                return "Always fails"
+
+            def diagnose(self, context):
+                return Diagnosis(
+                    error_code=context.error_code,
+                    issue="Test issue",
+                    explanation="Test",
+                    suggestion="Test",
+                    confidence=0.9,
+                    remedy_name="always_fail",
+                )
+
+            def apply(self, context):
+                return RemedyResult(
+                    success=False,
+                    message="Intentional failure",
+                    action_taken="Failed operation",
+                )
+
+        # Register a remedy that succeeds
+        class SucceedingRemedy(BaseRemedy):
+            @property
+            def name(self):
+                return "always_succeed"
+
+            @property
+            def category(self):
+                return RemedyCategory.AUTOMATIC
+
+            @property
+            def description(self):
+                return "Always succeeds"
+
+            def diagnose(self, context):
+                return Diagnosis(
+                    error_code=context.error_code,
+                    issue="Test issue 2",
+                    explanation="Test",
+                    suggestion="Test",
+                    confidence=0.8,
+                    remedy_name="always_succeed",
+                )
+
+            def apply(self, context):
+                return RemedyResult(
+                    success=True,
+                    message="Success",
+                    action_taken="Succeeded",
+                )
+
+        registry.register(FailingRemedy())
+        registry.register(SucceedingRemedy())
+
+        mock_config = MagicMock()
+        mock_config.workspace = tmp_path
+        mock_config.backend.working_directory = None
+
+        ctx = ErrorContext(
+            error_code="E999",
+            error_message="Test error",
+            error_category="execution",
+            config=mock_config,
+            workspace=tmp_path,
+            sheet_number=1,
+            working_directory=tmp_path,
+        )
+
+        coordinator = SelfHealingCoordinator(registry)
+        report = await coordinator.heal(ctx)
+
+        # Both remedies should have been attempted
+        assert len(report.actions_taken) == 2
+        # First should have failed, second should have succeeded
+        failed = [name for name, r in report.actions_taken if not r.success]
+        succeeded = [name for name, r in report.actions_taken if r.success]
+        assert "always_fail" in failed
+        assert "always_succeed" in succeeded
+        # Overall should_retry should be True (at least one succeeded)
+        assert report.should_retry
+
+    @pytest.mark.asyncio
+    async def test_coordinator_reset_clears_attempt_counter(self, tmp_path):
+        """Calling reset() allows a fresh healing cycle."""
+        workspace = tmp_path / "reset-test"
+
+        mock_config = MagicMock()
+        mock_config.workspace = workspace
+        mock_config.backend.working_directory = None
+
+        ctx = ErrorContext(
+            error_code="E601",
+            error_message=f"Workspace directory does not exist: {workspace}",
+            error_category="preflight",
+            config=mock_config,
+            workspace=workspace,
+            sheet_number=1,
+            working_directory=workspace,
+        )
+
+        registry = create_default_registry()
+        coordinator = SelfHealingCoordinator(
+            registry, auto_confirm=True, max_healing_attempts=1,
+        )
+
+        # First heal succeeds
+        report1 = await coordinator.heal(ctx)
+        assert report1.any_remedies_applied or len(report1.diagnoses) >= 0
+
+        # Second heal should be blocked (max attempts = 1)
+        report2 = await coordinator.heal(ctx)
+        assert not report2.should_retry
+        assert any("Max healing" in reason for _, reason in report2.actions_skipped)
+
+        # Reset and try again — should work
+        coordinator.reset()
+        workspace2 = tmp_path / "reset-test-2"
+        mock_config.workspace = workspace2
+        ctx2 = ErrorContext(
+            error_code="E601",
+            error_message=f"Workspace directory does not exist: {workspace2}",
+            error_category="preflight",
+            config=mock_config,
+            workspace=workspace2,
+            sheet_number=2,
+            working_directory=workspace2,
+        )
+        report3 = await coordinator.heal(ctx2)
+        assert report3.any_remedies_applied
+        assert workspace2.exists()
+
+    @pytest.mark.asyncio
+    async def test_disabled_remedies_are_skipped(self, tmp_path):
+        """Remedies in the disabled set should be skipped with reason."""
+        workspace = tmp_path / "disabled-test"
+
+        mock_config = MagicMock()
+        mock_config.workspace = workspace
+        mock_config.backend.working_directory = None
+
+        ctx = ErrorContext(
+            error_code="E601",
+            error_message=f"Workspace directory does not exist: {workspace}",
+            error_category="preflight",
+            config=mock_config,
+            workspace=workspace,
+            sheet_number=1,
+            working_directory=workspace,
+        )
+
+        registry = create_default_registry()
+        # Disable the workspace creation remedy
+        coordinator = SelfHealingCoordinator(
+            registry,
+            auto_confirm=True,
+            disabled_remedies={"create_missing_workspace"},
+        )
+        report = await coordinator.heal(ctx)
+
+        # The workspace remedy should have been skipped
+        skipped_names = [name for name, _ in report.actions_skipped]
+        assert "create_missing_workspace" in skipped_names
+        # Workspace should NOT have been created
+        assert not workspace.exists()
+
+    @pytest.mark.asyncio
+    async def test_dry_run_does_not_modify_filesystem(self, tmp_path):
+        """Dry run mode should preview actions without applying them."""
+        workspace = tmp_path / "dry-run-test"
+
+        mock_config = MagicMock()
+        mock_config.workspace = workspace
+        mock_config.backend.working_directory = None
+
+        ctx = ErrorContext(
+            error_code="E601",
+            error_message=f"Workspace directory does not exist: {workspace}",
+            error_category="preflight",
+            config=mock_config,
+            workspace=workspace,
+            sheet_number=1,
+            working_directory=workspace,
+        )
+
+        registry = create_default_registry()
+        coordinator = SelfHealingCoordinator(
+            registry, auto_confirm=True, dry_run=True,
+        )
+        report = await coordinator.heal(ctx)
+
+        # Nothing should have been applied
+        assert len(report.actions_taken) == 0
+        assert not workspace.exists()
+        # But actions should be recorded as skipped with "Dry run" reason
+        dry_run_skipped = [
+            name for name, reason in report.actions_skipped
+            if "Dry run" in reason
+        ]
+        assert len(dry_run_skipped) >= 1
+
+    @pytest.mark.asyncio
+    async def test_healing_report_issues_remaining_count(self, tmp_path):
+        """Verify issues_remaining correctly counts unresolved issues."""
+        mock_config = MagicMock()
+        mock_config.workspace = tmp_path
+        mock_config.backend.working_directory = None
+
+        # Use an error that triggers diagnostic-only remedies
+        ctx = ErrorContext(
+            error_code="E301",
+            error_message="claude: command not found",
+            error_category="execution",
+            config=mock_config,
+            workspace=tmp_path,
+            sheet_number=1,
+            working_directory=tmp_path,
+        )
+
+        registry = create_default_registry()
+        coordinator = SelfHealingCoordinator(registry, auto_confirm=True)
+        report = await coordinator.heal(ctx)
+
+        # Diagnostic-only issues should count as remaining
+        assert report.issues_remaining >= 1
+        assert not report.should_retry

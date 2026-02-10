@@ -931,3 +931,132 @@ class TestFanOutExecutionSimulation:
             assert deps == stage1_sheets, (
                 f"Sheet {sheet_num} should depend on all of {stage1_sheets}, got {deps}"
             )
+
+
+# ─── Integration: Fan-out state tracking and failure isolation ────────────
+
+
+class TestFanOutStateTracking:
+    """Integration tests for fan-out metadata serialization and state tracking.
+
+    Tests the gap between pure expansion logic and the runtime:
+    metadata persistence, per-instance state, and failure isolation.
+    """
+
+    def test_metadata_round_trip_through_model_dump(self):
+        """Fan-out metadata survives SheetConfig serialization round-trip."""
+        config = SheetConfig(
+            size=1, total_items=3,
+            fan_out={2: 3},
+            dependencies={2: [1], 3: [2]},
+        )
+        # Serialize to dict
+        data = config.model_dump()
+
+        # Verify fan_out_stage_map is populated
+        assert data["fan_out_stage_map"] is not None
+        assert len(data["fan_out_stage_map"]) == 5  # 5 sheets total
+
+        # Reconstruct and verify metadata preserved
+        restored = SheetConfig.model_validate(data)
+        for sheet_num in range(1, 6):
+            original = config.get_fan_out_metadata(sheet_num)
+            roundtrip = restored.get_fan_out_metadata(sheet_num)
+            assert original.stage == roundtrip.stage
+            assert original.instance == roundtrip.instance
+            assert original.fan_count == roundtrip.fan_count
+
+    def test_metadata_round_trip_complex_pipeline(self):
+        """Complex fan-out pipeline metadata survives serialization."""
+        config = SheetConfig(
+            size=1, total_items=5,
+            fan_out={2: 3, 4: 2},
+            dependencies={2: [1], 3: [2], 4: [3], 5: [4]},
+        )
+        data = config.model_dump()
+        restored = SheetConfig.model_validate(data)
+
+        # All 8 sheets should preserve metadata
+        assert restored.total_sheets == 8
+        for sheet_num in range(1, 9):
+            orig = config.get_fan_out_metadata(sheet_num)
+            rest = restored.get_fan_out_metadata(sheet_num)
+            assert orig == rest, f"Sheet {sheet_num} metadata mismatch"
+
+    def test_fan_out_failure_isolation_via_dag(self):
+        """One fan-out instance failing should not block sibling instances.
+
+        In a 1→3x→1 pipeline, if instance 2 fails, instances 1 and 3
+        of stage 2 can still complete. Only the fan-in (stage 3) is blocked.
+        """
+        config = SheetConfig(
+            size=1, total_items=3,
+            fan_out={2: 3},
+            dependencies={2: [1], 3: [2]},
+        )
+        dag = build_dag_from_config(
+            total_sheets=config.total_sheets,
+            sheet_dependencies=config.dependencies,
+        )
+
+        # Complete stage 1
+        completed = {1}
+
+        # All three fan-out instances should be ready
+        ready = dag.get_ready_sheets(completed)
+        assert set(ready) == {2, 3, 4}
+
+        # Complete instances 1 and 3 (sheet 2 and 4), but NOT instance 2 (sheet 3)
+        completed.update({2, 4})
+        ready = dag.get_ready_sheets(completed)
+
+        # Sheet 3 (instance 2) should still be ready (no dep on siblings)
+        assert 3 in ready
+
+        # Sheet 5 (fan-in) should NOT be ready — needs all of {2,3,4}
+        assert 5 not in ready
+
+        # Now complete sheet 3
+        completed.add(3)
+        ready = dag.get_ready_sheets(completed)
+        assert 5 in ready  # Now fan-in can proceed
+
+    def test_fan_out_per_instance_deps_are_independent(self):
+        """Fan-out instances depend only on upstream, not on each other."""
+        config = SheetConfig(
+            size=1, total_items=3,
+            fan_out={2: 4},
+            dependencies={2: [1], 3: [2]},
+        )
+        # Stage 2: sheets 2,3,4,5 — each depends only on sheet 1
+        for sheet_num in [2, 3, 4, 5]:
+            deps = config.dependencies.get(sheet_num, [])
+            assert deps == [1], (
+                f"Sheet {sheet_num} should only depend on sheet 1, got {deps}"
+            )
+            # No cross-instance dependencies
+            for other in [2, 3, 4, 5]:
+                if other != sheet_num:
+                    assert other not in deps
+
+    def test_fan_out_total_sheets_matches_expansion(self):
+        """SheetConfig.total_sheets must match expansion result."""
+        test_cases = [
+            # (total_items, fan_out, expected_sheets)
+            (3, {2: 3}, 5),        # 1 + 3 + 1
+            (3, {2: 5}, 7),        # 1 + 5 + 1
+            (4, {2: 2, 3: 3}, 7),  # 1 + 2 + 3 + 1
+            (2, {1: 4}, 5),        # 4 + 1
+            (1, {}, 1),            # No fan-out
+        ]
+        for total_items, fan_out, expected in test_cases:
+            deps = {i: [i - 1] for i in range(2, total_items + 1)}
+            config = SheetConfig(
+                size=1, total_items=total_items,
+                fan_out=fan_out,
+                dependencies=deps,
+            )
+            assert config.total_sheets == expected, (
+                f"For total_items={total_items}, fan_out={fan_out}: "
+                f"expected {expected} sheets, got {config.total_sheets}"
+            )

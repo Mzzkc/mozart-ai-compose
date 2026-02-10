@@ -635,3 +635,129 @@ class TestScoreTools:
         tools = ScoreTools(tmp_path)
         result = await tools.call_tool("nonexistent", {})
         assert result.get("isError") is True
+
+
+# ===========================================================================
+# Parametrized tests — reduce setup duplication (FIX-46)
+# ===========================================================================
+
+
+class MockFactory:
+    """Centralized factory for creating test mocks and fixtures.
+
+    Reduces scattered mock construction across test classes by providing
+    reusable builders with sensible defaults.
+    """
+
+    @staticmethod
+    def state_backend(state: CheckpointState | None = None) -> AsyncMock:
+        """Create a mock StateBackend with standard method signatures."""
+        return _mock_state_backend(state)
+
+    @staticmethod
+    def job_action(
+        success: bool, job_id: str = "test-job",
+        status: str = "running", message: str = "",
+    ) -> JobActionResult:
+        return JobActionResult(
+            success=success, job_id=job_id, status=status, message=message,
+        )
+
+
+class TestControlToolsParametrized:
+    """Parametrized tests for ControlTools operations.
+
+    Tests pause/resume/cancel via a single parametrized test,
+    eliminating the repeated backend+tools+action_result setup.
+    """
+
+    @pytest.mark.parametrize(
+        "tool_name,action_method,status,expected_text",
+        [
+            ("pause_job", "pause_job", "paused", "paus"),
+            ("resume_job", "resume_job", "running", "resum"),
+            ("cancel_job", "cancel_job", "cancelled", "cancel"),
+        ],
+    )
+    async def test_control_action_success(
+        self, tmp_path: Path, tool_name: str, action_method: str,
+        status: str, expected_text: str,
+    ) -> None:
+        """All control actions share the same success pattern."""
+        backend = MockFactory.state_backend()
+        tools = ControlTools(backend, tmp_path)
+        action_result = MockFactory.job_action(
+            success=True, status=status, message=f"Job {status}",
+        )
+        setattr(tools.job_control, action_method, AsyncMock(return_value=action_result))
+
+        result = await tools.call_tool(tool_name, {"job_id": "test-job"})
+        assert not result.get("isError")
+        text = result["content"][0]["text"].lower()
+        assert expected_text in text
+
+    @pytest.mark.parametrize("tool_name,action_method", [
+        ("pause_job", "pause_job"),
+        ("resume_job", "resume_job"),
+        ("cancel_job", "cancel_job"),
+    ])
+    async def test_control_action_failure(
+        self, tmp_path: Path, tool_name: str, action_method: str,
+    ) -> None:
+        """All control actions share the same failure pattern."""
+        backend = MockFactory.state_backend()
+        tools = ControlTools(backend, tmp_path)
+        action_result = MockFactory.job_action(
+            success=False, status="running", message="Cannot perform action",
+        )
+        setattr(tools.job_control, action_method, AsyncMock(return_value=action_result))
+
+        result = await tools.call_tool(tool_name, {"job_id": "test-job"})
+        text = result["content"][0]["text"]
+        assert "Failed" in text or "Cannot" in text or result.get("isError")
+
+
+class TestArtifactCategorization:
+    """Parametrized tests for artifact categorization logic."""
+
+    @pytest.mark.parametrize("filename,expected_category", [
+        ("app.log", "log"),
+        ("debug.log", "log"),
+        ("state.json", "state"),
+        ("checkpoint.json", "state"),
+        ("error-output.txt", "error"),
+        ("output-results.md", "output"),
+        ("data.csv", "other"),
+        ("image.png", "other"),
+    ])
+    def test_categorize_artifact(self, filename: str, expected_category: str) -> None:
+        assert ArtifactTools._categorize_artifact(Path(filename)) == expected_category
+
+    @pytest.mark.parametrize("size,expected", [
+        (500, "500B"),
+        (1024, "1.0KB"),
+        (1024 * 1024, "1.0MB"),
+        (1024 * 1024 * 1024, "1.0GB"),
+        (0, "0B"),
+    ])
+    def test_format_size(self, tmp_path: Path, size: int, expected: str) -> None:
+        tools = ArtifactTools(tmp_path)
+        assert tools._format_size(size) == expected
+
+
+class TestResourceURIParametrized:
+    """Parametrized tests for ConfigResources URI routing."""
+
+    @pytest.mark.parametrize("uri,expected_key", [
+        ("config://schema", "properties"),
+        ("config://backend-options", "available_backends"),
+        ("config://validation-types", "available_validation_types"),
+        ("config://learning-options", "learning_system"),
+    ])
+    async def test_static_resource_uris(self, uri: str, expected_key: str) -> None:
+        """All static config resources should return valid JSON with expected keys."""
+        resources = ConfigResources()
+        result = await resources.read_resource(uri)
+        content = result["contents"][0]
+        data = json.loads(content["text"])
+        assert expected_key in data or "$defs" in data
