@@ -265,6 +265,7 @@ class ErrorClassifier:
         exit_signal: int | None = None,
         exit_reason: ExitReason | None = None,
         exception: Exception | None = None,
+        output_format: str | None = None,
     ) -> ClassifiedError:
         """Classify an error based on output, exit code, and signal.
 
@@ -282,6 +283,9 @@ class ErrorClassifier:
             exit_signal: Signal number if killed by signal
             exit_reason: Why execution ended (completed, timeout, killed, error)
             exception: Optional exception that was raised
+            output_format: Backend output format ("text", "json", "stream-json").
+                When "text", exit code 1 is classified as E209 (validation)
+                instead of E009 (unknown).
 
         Returns:
             ClassifiedError with category, error_code, and metadata
@@ -343,7 +347,7 @@ class ErrorClassifier:
 
         # 4. Exit code analysis (with output for non-transient detection)
         exit_code_result = self._classify_by_exit_code(
-            exit_code, exit_reason, exception, combined,
+            exit_code, exit_reason, exception, combined, output_format,
         )
         if exit_code_result is not None:
             return exit_code_result
@@ -536,12 +540,18 @@ class ErrorClassifier:
         exit_reason: ExitReason | None,
         exception: Exception | None,
         combined: str = "",
+        output_format: str | None = None,
     ) -> ClassifiedError | None:
         """Classify error based on process exit code.
 
         For exit codes 1/2, checks output for non-transient indicators before
         defaulting to TRANSIENT classification. This prevents wasting retries
         on errors like permission denied or validation failures.
+
+        When output_format is "text", exit code 1 is treated as a validation
+        scenario (E209) rather than an unknown execution error (E009), since
+        Claude CLI text mode uses exit code 1 to signal "task complete but
+        output may need validation".
 
         Returns None if exit_code is None (signal-killed) or unrecognized.
         """
@@ -560,6 +570,32 @@ class ErrorClassifier:
             return None
 
         if exit_code in (1, 2):
+            # Text mode: exit code 1 is a normal "task complete, validation
+            # needed" signal — classify as VALIDATION_GENERIC (E209) to avoid
+            # false E009 warnings and unnecessary 10s retry delays.
+            if exit_code == 1 and output_format == "text":
+                result = ClassifiedError(
+                    category=ErrorCategory.VALIDATION,
+                    message="Text mode completed — output validation needed",
+                    error_code=ErrorCode.VALIDATION_GENERIC,
+                    original_error=exception,
+                    exit_code=exit_code,
+                    exit_signal=None,
+                    exit_reason=exit_reason,
+                    retriable=True,
+                    suggested_wait_seconds=None,
+                )
+                _logger.info(
+                    "error_classified",
+                    category=result.category.value,
+                    error_code=result.error_code.value,
+                    exit_code=exit_code,
+                    retriable=result.retriable,
+                    message=result.message,
+                    output_format=output_format,
+                )
+                return result
+
             # Check output for non-transient error indicators before defaulting
             # to TRANSIENT. Exit code 1 can mean permission denied, validation
             # failure, or other non-retriable errors.
@@ -799,6 +835,7 @@ class ErrorClassifier:
         exit_signal: int | None = None,
         exit_reason: ExitReason | None = None,
         exception: Exception | None = None,
+        output_format: str | None = None,
     ) -> ClassificationResult:
         """Classify execution errors using structured JSON parsing with fallback.
 
@@ -937,6 +974,7 @@ class ErrorClassifier:
                 exit_signal=exit_signal,
                 exit_reason=exit_reason,
                 exception=exception,
+                output_format=output_format,
             )
             all_errors.append(fallback_error)
 

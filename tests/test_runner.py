@@ -8,7 +8,8 @@ import pytest
 
 from mozart.backends.base import ExecutionResult
 from mozart.core.checkpoint import CheckpointState, JobStatus
-from mozart.core.config import JobConfig
+from mozart.core.config import JobConfig, ValidationRule
+from mozart.execution.preflight import PreflightResult, PromptMetrics
 from mozart.execution.runner import (
     FatalError,
     GracefulShutdownError,
@@ -16,8 +17,6 @@ from mozart.execution.runner import (
     RunSummary,
 )
 from mozart.execution.runner.models import RunnerContext
-from mozart.execution.preflight import PreflightResult, PromptMetrics
-from mozart.core.config import ValidationRule
 from mozart.execution.validation import SheetValidationResult, ValidationResult
 
 
@@ -1580,8 +1579,6 @@ class TestActiveBroadcastPolling:
         mock_state_backend: MagicMock,
     ) -> None:
         """Verify polling calls check_recent_pattern_discoveries on store."""
-        from datetime import datetime
-        from mozart.learning.global_store import PatternDiscoveryEvent
 
         mock_store = MagicMock()
         mock_store.check_recent_pattern_discoveries = MagicMock(return_value=[])
@@ -1634,6 +1631,7 @@ class TestActiveBroadcastPolling:
     ) -> None:
         """Verify polling logs when patterns are discovered."""
         from datetime import datetime, timedelta
+
         from mozart.learning.global_store import PatternDiscoveryEvent
 
         now = datetime.now()

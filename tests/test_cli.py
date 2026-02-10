@@ -11,7 +11,7 @@ from click.exceptions import Exit as ClickExit
 from typer.testing import CliRunner
 
 from mozart.cli import app
-from mozart.core.checkpoint import SheetState, SheetStatus, CheckpointState, JobStatus
+from mozart.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
 from mozart.state import SQLiteStateBackend
 
 # Module-level runner is safe: CliRunner is stateless (no mutable state between invocations).
@@ -654,7 +654,9 @@ class TestFindJobState:
             updated_at=datetime.now(UTC),
         )
 
-    def test_find_job_state_json_backend(self, tmp_path: Path, paused_state: CheckpointState) -> None:
+    def test_find_job_state_json_backend(
+        self, tmp_path: Path, paused_state: CheckpointState
+    ) -> None:
         """Test _find_job_state finds state from JSON backend."""
         from mozart.cli.commands.resume import _find_job_state
 
@@ -667,7 +669,9 @@ class TestFindJobState:
         assert found_state.job_id == "test-job"
         assert found_state.status == JobStatus.PAUSED
 
-    def test_find_job_state_sqlite_priority(self, tmp_path: Path, paused_state: CheckpointState) -> None:
+    def test_find_job_state_sqlite_priority(
+        self, tmp_path: Path, paused_state: CheckpointState
+    ) -> None:
         """Test _find_job_state prefers SQLite backend when workspace has .mozart-state.db."""
         from mozart.cli.commands.resume import _find_job_state
 
@@ -689,8 +693,8 @@ class TestFindJobState:
 
     def test_find_job_state_not_found_exits(self, tmp_path: Path) -> None:
         """Test _find_job_state raises Exit when job doesn't exist."""
+
         from mozart.cli.commands.resume import _find_job_state
-        import typer
 
         workspace = tmp_path / "empty_ws"
         workspace.mkdir()
@@ -810,6 +814,7 @@ class TestReconstructConfig:
     def test_priority1_config_file(self, tmp_path: Path, config_dict: dict) -> None:
         """Test Priority 1: explicit --config file always wins."""
         import yaml
+
         from mozart.cli.commands.resume import _reconstruct_config
 
         config_path = tmp_path / "explicit.yaml"
@@ -821,7 +826,11 @@ class TestReconstructConfig:
             total_sheets=5,
             last_completed_sheet=2,
             status=JobStatus.PAUSED,
-            config_snapshot={"name": "old-config", "sheet": {"size": 1}, "prompt": {"template": "Old"}},
+            config_snapshot={
+                "name": "old-config",
+                "sheet": {"size": 1},
+                "prompt": {"template": "Old"},
+            },
         )
 
         config, was_reloaded = _reconstruct_config(state, config_path, reload_config=False)
@@ -831,6 +840,7 @@ class TestReconstructConfig:
     def test_priority2_reload_from_stored_path(self, tmp_path: Path, config_dict: dict) -> None:
         """Test Priority 2: --reload-config uses stored config_path."""
         import yaml
+
         from mozart.cli.commands.resume import _reconstruct_config
 
         config_path = tmp_path / "original.yaml"
@@ -917,6 +927,7 @@ class TestReconstructConfig:
     def test_priority4_stored_config_path(self, tmp_path: Path, config_dict: dict) -> None:
         """Test Priority 4: loads from stored config_path as last resort."""
         import yaml
+
         from mozart.cli.commands.resume import _reconstruct_config
 
         config_path = tmp_path / "stored.yaml"
@@ -956,6 +967,7 @@ class TestReconstructConfig:
     def test_config_file_overrides_snapshot(self, tmp_path: Path) -> None:
         """Test Priority 1 overrides existing snapshot (not used)."""
         import yaml
+
         from mozart.cli.commands.resume import _reconstruct_config
 
         new_config = {

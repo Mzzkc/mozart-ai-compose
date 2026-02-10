@@ -25,13 +25,12 @@ from typing import Any
 import pytest
 import structlog
 
-from tests.helpers import record_error_on_sheet
 from mozart.backends.base import ExecutionResult
 from mozart.core.checkpoint import (
     MAX_ERROR_HISTORY,
     MAX_OUTPUT_CAPTURE_BYTES,
-    SheetState,
     CheckpointState,
+    SheetState,
 )
 from mozart.core.config import JobConfig, LogConfig
 from mozart.core.errors import (
@@ -60,6 +59,7 @@ from mozart.execution.retry_strategy import (
 from mozart.execution.retry_strategy import (
     ErrorRecord as RetryErrorRecord,
 )
+from tests.helpers import record_error_on_sheet
 
 
 class TestOutputCaptureIntegration:

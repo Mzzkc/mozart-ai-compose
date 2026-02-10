@@ -13,8 +13,9 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
 from mozart.core.checkpoint import CheckpointState, JobStatus
-from mozart.core.config import JobConfig, BackendConfig, SheetConfig, PromptConfig
+from mozart.core.config import BackendConfig, JobConfig, PromptConfig, SheetConfig
 from mozart.dashboard.services.job_control import JobControlService
 from mozart.execution.runner import GracefulShutdownError, JobRunner
 from mozart.state.json_backend import JsonStateBackend
@@ -217,9 +218,10 @@ class TestRunnerPauseHandling:
             original_clear(state_arg)
             # Don't actually raise - the real implementation handles failures gracefully
 
-        with patch.object(runner, '_clear_pause_signal', side_effect=failing_clear):
-            # Should still handle pause gracefully
-            with pytest.raises(GracefulShutdownError):
+        with (
+            patch.object(runner, '_clear_pause_signal', side_effect=failing_clear),
+            pytest.raises(GracefulShutdownError),
+        ):
                 await runner._handle_pause_request(state, current_sheet=2)
 
 
@@ -533,8 +535,10 @@ class TestPauseResumeErrorCases:
         job_control_service.get_job_pid = AsyncMock(return_value=12345)
 
         # Mock Path.exists to return True but unlink to fail
-        with patch('pathlib.Path.exists', return_value=True):
-            with patch('pathlib.Path.unlink', side_effect=OSError("Permission denied")):
+        with (
+            patch('pathlib.Path.exists', return_value=True),
+            patch('pathlib.Path.unlink', side_effect=OSError("Permission denied")),
+        ):
                 # Resume should still succeed despite cleanup failure
                 result = await job_control_service.resume_job(state.job_id)
 

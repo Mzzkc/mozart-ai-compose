@@ -24,7 +24,6 @@ from mozart.isolation.worktree import (
     WorktreeResult,
 )
 
-
 # --- Fixtures ---
 
 
@@ -327,7 +326,9 @@ class TestCreateWorktreeDetached:
         # Create a second commit
         test_file = temp_git_repo / "test.txt"
         test_file.write_text("test content")
-        subprocess.run(["git", "add", "test.txt"], cwd=temp_git_repo, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "add", "test.txt"], cwd=temp_git_repo, check=True, capture_output=True,
+        )
         subprocess.run(
             ["git", "commit", "-m", "Second commit"],
             cwd=temp_git_repo,
@@ -759,8 +760,9 @@ class TestIsolationConfig:
 
     def test_branch_prefix_validation(self) -> None:
         """Test branch prefix pattern validation."""
-        from mozart.core.config import IsolationConfig
         from pydantic import ValidationError
+
+        from mozart.core.config import IsolationConfig
 
         # Valid prefixes
         IsolationConfig(branch_prefix="mozart")
@@ -932,6 +934,7 @@ class TestRunnerIsolationSetup:
     def minimal_config(self, tmp_path: Path):  # type: ignore[no-untyped-def]
         """Create minimal JobConfig for testing."""
         import yaml
+
         from mozart.core.config import JobConfig
 
         config_yaml = f"""
@@ -952,7 +955,7 @@ isolation:
         """Test _setup_isolation returns None when isolation is disabled."""
         from mozart.core.checkpoint import CheckpointState
 
-        state = CheckpointState(
+        CheckpointState(
             job_id="test-123",
             job_name="test-job",
             total_sheets=1,
@@ -966,6 +969,7 @@ isolation:
     ) -> None:
         """Test _setup_isolation falls back when not in git repo."""
         import yaml
+
         from mozart.core.checkpoint import CheckpointState
         from mozart.core.config import JobConfig
 
@@ -990,7 +994,7 @@ isolation:
         data = yaml.safe_load(config_yaml)
         config = JobConfig.model_validate(data)
 
-        state = CheckpointState(
+        CheckpointState(
             job_id="fallback-test",
             job_name="test-fallback",
             total_sheets=1,
@@ -1044,8 +1048,9 @@ class TestRunnerBackendWorkingDirectory:
 
     def test_backend_working_directory_override(self) -> None:
         """Test that backend working_directory can be overridden."""
-        from mozart.backends.claude_cli import ClaudeCliBackend
         from pathlib import Path
+
+        from mozart.backends.claude_cli import ClaudeCliBackend
 
         backend = ClaudeCliBackend(working_directory=Path("/original"))
         assert backend.working_directory == Path("/original")
@@ -1061,8 +1066,9 @@ class TestRunnerBackendWorkingDirectory:
 
     def test_backend_working_directory_getattr_setattr(self) -> None:
         """Test dynamic attribute access works for working_directory."""
-        from mozart.backends.claude_cli import ClaudeCliBackend
         from pathlib import Path
+
+        from mozart.backends.claude_cli import ClaudeCliBackend
 
         backend = ClaudeCliBackend(working_directory=Path("/test"))
 
@@ -1074,5 +1080,5 @@ class TestRunnerBackendWorkingDirectory:
         assert wd == Path("/test")
 
         # setattr
-        setattr(backend, "working_directory", Path("/new"))
+        backend.working_directory = Path("/new")
         assert backend.working_directory == Path("/new")

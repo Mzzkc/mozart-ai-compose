@@ -346,18 +346,20 @@ class HookExecutor:
                     stdout_handle = asyncio.subprocess.DEVNULL
                     stderr_handle = asyncio.subprocess.DEVNULL
 
-                process = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=stdout_handle,
-                    stderr=stderr_handle,
-                    stdin=asyncio.subprocess.DEVNULL,
-                    env=os.environ.copy(),
-                    start_new_session=True,
-                )
-
-                # Close the file handle in the parent — child inherited the fd
-                if log_file is not None:
-                    log_file.close()
+                try:
+                    process = await asyncio.create_subprocess_exec(
+                        *cmd,
+                        stdout=stdout_handle,
+                        stderr=stderr_handle,
+                        stdin=asyncio.subprocess.DEVNULL,
+                        env=os.environ.copy(),
+                        start_new_session=True,
+                    )
+                finally:
+                    # Close fd in parent — child inherited it.
+                    # Using finally ensures no fd leak if subprocess creation raises.
+                    if log_file is not None:
+                        log_file.close()
 
                 _logger.info(
                     "hook.detached_job_spawned",

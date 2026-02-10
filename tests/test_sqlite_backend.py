@@ -1,10 +1,11 @@
 """Tests for SQLite state backend."""
 
-import pytest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from mozart.core.checkpoint import SheetStatus, CheckpointState, JobStatus
+import pytest
+
+from mozart.core.checkpoint import CheckpointState, JobStatus, SheetStatus
 from mozart.state.sqlite_backend import SQLiteStateBackend
 
 
@@ -443,13 +444,13 @@ class TestQueryJobs:
         await sqlite_backend.save(state)
 
         # Query with time in the past
-        past_time = datetime.now(timezone.utc) - timedelta(hours=1)
+        past_time = datetime.now(UTC) - timedelta(hours=1)
         results = await sqlite_backend.query_jobs(since=past_time)
 
         assert len(results) == 1
 
         # Query with time in the future
-        future_time = datetime.now(timezone.utc) + timedelta(hours=1)
+        future_time = datetime.now(UTC) + timedelta(hours=1)
         results = await sqlite_backend.query_jobs(since=future_time)
 
         assert len(results) == 0
@@ -554,7 +555,8 @@ class TestSchemaMigration:
             )
             row = await cursor.fetchone()
             assert row is not None
-            assert row[0] == 3  # Updated to v3 for execution_duration_seconds, exit_signal, exit_reason
+            # Updated to v3 for execution_duration_seconds, exit_signal, exit_reason
+            assert row[0] == 3
 
     async def test_migration_is_idempotent(
         self, sqlite_backend: SQLiteStateBackend

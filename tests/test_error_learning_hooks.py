@@ -393,7 +393,8 @@ class TestErrorLearningHooksAuthFailure:
         # Add 5 samples with 4 successes (80% recovery rate)
         for i in range(5):
             conn.execute(
-                f"INSERT INTO error_recoveries VALUES ({i}, 'E102', 60, 60, {1 if i < 4 else 0}, 'claude-3')"
+                "INSERT INTO error_recoveries VALUES "
+                f"({i}, 'E102', 60, 60, {1 if i < 4 else 0}, 'claude-3')"
             )
         conn.commit()
 

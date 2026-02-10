@@ -19,7 +19,6 @@ from mozart.mcp.resources import ConfigResources
 from mozart.mcp.server import MCPServer
 from mozart.mcp.tools import ArtifactTools, ControlTools, JobTools, ScoreTools
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -387,7 +386,8 @@ class TestControlTools:
 
         result = await tools.call_tool("pause_job", {"job_id": "test-job"})
         assert not result.get("isError")
-        assert "paused" in result["content"][0]["text"].lower() or "Pause" in result["content"][0]["text"]
+        text = result["content"][0]["text"]
+        assert "paused" in text.lower() or "Pause" in text
 
     async def test_pause_job_failure(self, tmp_path: Path) -> None:
         backend = _mock_state_backend()

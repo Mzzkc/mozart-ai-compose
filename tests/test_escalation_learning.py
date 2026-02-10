@@ -34,7 +34,6 @@ from mozart.learning.global_store import (
     GlobalLearningStore,
 )
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -1737,7 +1736,6 @@ class TestCheckpointTrigger:
 
     def test_trigger_creation(self) -> None:
         """Test basic trigger creation."""
-        from mozart.execution.escalation import CheckpointTrigger
 
         trigger = CheckpointTrigger(
             name="test_trigger",
@@ -1757,7 +1755,6 @@ class TestCheckpointTrigger:
 
     def test_trigger_defaults(self) -> None:
         """Test trigger default values."""
-        from mozart.execution.escalation import CheckpointTrigger
 
         trigger = CheckpointTrigger(name="minimal_trigger")
 
@@ -1774,7 +1771,6 @@ class TestCheckpointContext:
 
     def test_context_creation(self) -> None:
         """Test basic context creation."""
-        from mozart.execution.escalation import CheckpointContext, CheckpointTrigger
 
         trigger = CheckpointTrigger(name="test")
         context = CheckpointContext(
@@ -1799,7 +1795,6 @@ class TestCheckpointResponse:
 
     def test_proceed_response(self) -> None:
         """Test proceed response."""
-        from mozart.execution.escalation import CheckpointResponse
 
         response = CheckpointResponse(
             action="proceed",
@@ -1812,7 +1807,6 @@ class TestCheckpointResponse:
 
     def test_abort_response(self) -> None:
         """Test abort response."""
-        from mozart.execution.escalation import CheckpointResponse
 
         response = CheckpointResponse(
             action="abort",
@@ -1823,7 +1817,6 @@ class TestCheckpointResponse:
 
     def test_modify_prompt_response(self) -> None:
         """Test modify_prompt response."""
-        from mozart.execution.escalation import CheckpointResponse
 
         response = CheckpointResponse(
             action="modify_prompt",
@@ -1849,7 +1842,6 @@ class TestConsoleCheckpointHandler:
         self, handler: "ConsoleCheckpointHandler"
     ) -> None:
         """Test should_checkpoint matches on sheet number."""
-        from mozart.execution.escalation import CheckpointTrigger
 
         triggers = [
             CheckpointTrigger(name="sheet_5", sheet_nums=[5]),
@@ -1879,7 +1871,6 @@ class TestConsoleCheckpointHandler:
         self, handler: "ConsoleCheckpointHandler"
     ) -> None:
         """Test should_checkpoint matches on prompt keywords."""
-        from mozart.execution.escalation import CheckpointTrigger
 
         triggers = [
             CheckpointTrigger(
@@ -1912,7 +1903,6 @@ class TestConsoleCheckpointHandler:
         self, handler: "ConsoleCheckpointHandler"
     ) -> None:
         """Test should_checkpoint matches on retry count."""
-        from mozart.execution.escalation import CheckpointTrigger
 
         triggers = [
             CheckpointTrigger(
@@ -1945,7 +1935,6 @@ class TestConsoleCheckpointHandler:
         self, handler: "ConsoleCheckpointHandler"
     ) -> None:
         """Test should_checkpoint with multiple conditions (AND logic)."""
-        from mozart.execution.escalation import CheckpointTrigger
 
         triggers = [
             CheckpointTrigger(
@@ -1999,7 +1988,6 @@ class TestConsoleCheckpointHandler:
         self, handler: "ConsoleCheckpointHandler"
     ) -> None:
         """Test checkpoint with requires_confirmation=False auto-proceeds."""
-        from mozart.execution.escalation import CheckpointContext, CheckpointTrigger
 
         trigger = CheckpointTrigger(
             name="warning_only",
@@ -2025,7 +2013,6 @@ class TestConsoleCheckpointHandler:
         self, handler: "ConsoleCheckpointHandler"
     ) -> None:
         """Test interactive checkpoint with 'p' (proceed) response."""
-        from mozart.execution.escalation import CheckpointContext, CheckpointTrigger
 
         trigger = CheckpointTrigger(
             name="interactive",
@@ -2040,9 +2027,11 @@ class TestConsoleCheckpointHandler:
         )
 
         # Mock user input: 'p' for proceed, then empty guidance
-        with patch('builtins.input', side_effect=['p', '']):
-            with patch('sys.stdout', new=StringIO()):
-                response = await handler.checkpoint(context)
+        with (
+            patch('builtins.input', side_effect=['p', '']),
+            patch('sys.stdout', new=StringIO()),
+        ):
+            response = await handler.checkpoint(context)
 
         assert response.action == "proceed"
 
@@ -2051,7 +2040,6 @@ class TestConsoleCheckpointHandler:
         self, handler: "ConsoleCheckpointHandler"
     ) -> None:
         """Test interactive checkpoint with 'a' (abort) response."""
-        from mozart.execution.escalation import CheckpointContext, CheckpointTrigger
 
         trigger = CheckpointTrigger(
             name="interactive",
@@ -2066,9 +2054,11 @@ class TestConsoleCheckpointHandler:
         )
 
         # Mock user input: 'a' for abort
-        with patch('builtins.input', side_effect=['a']):
-            with patch('sys.stdout', new=StringIO()):
-                response = await handler.checkpoint(context)
+        with (
+            patch('builtins.input', side_effect=['a']),
+            patch('sys.stdout', new=StringIO()),
+        ):
+            response = await handler.checkpoint(context)
 
         assert response.action == "abort"
 
@@ -2077,7 +2067,6 @@ class TestConsoleCheckpointHandler:
         self, handler: "ConsoleCheckpointHandler"
     ) -> None:
         """Test interactive checkpoint with 's' (skip) response."""
-        from mozart.execution.escalation import CheckpointContext, CheckpointTrigger
 
         trigger = CheckpointTrigger(
             name="interactive",
@@ -2092,9 +2081,11 @@ class TestConsoleCheckpointHandler:
         )
 
         # Mock user input: 's' for skip, with guidance
-        with patch('builtins.input', side_effect=['s', 'Skip this one']):
-            with patch('sys.stdout', new=StringIO()):
-                response = await handler.checkpoint(context)
+        with (
+            patch('builtins.input', side_effect=['s', 'Skip this one']),
+            patch('sys.stdout', new=StringIO()),
+        ):
+            response = await handler.checkpoint(context)
 
         assert response.action == "skip"
         assert response.guidance == "Skip this one"

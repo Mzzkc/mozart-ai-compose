@@ -27,6 +27,7 @@ Architecture:
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -223,13 +224,10 @@ class LifecycleMixin:
             # only successes contributed to the learning system.
             try:
                 await self._aggregate_to_global_store(state)
-            except (OSError, ValueError, RuntimeError) as agg_err:
-                self._logger.error(
+            except (sqlite3.Error, OSError, ValueError, RuntimeError):
+                self._logger.warning(
                     "cleanup.learning_aggregation_failed",
                     job_id=state.job_id,
-                    error_type=type(agg_err).__name__,
-                    error=str(agg_err),
-                    completed_sheets=state.last_completed_sheet,
                     exc_info=True,
                 )
 
@@ -634,9 +632,17 @@ class LifecycleMixin:
 
             # Pause between sheets
             if next_sheet < state.total_sheets:
-                await self._interruptible_sleep(
-                    self.config.pause_between_sheets_seconds
-                )
+                pause_secs = self.config.pause_between_sheets_seconds
+                if pause_secs > 0:
+                    self._logger.info(
+                        "lifecycle.inter_sheet_pause",
+                        pause_seconds=pause_secs,
+                        next_sheet=next_sheet,
+                    )
+                    self.console.print(
+                        f"[dim]Pausing {pause_secs}s before sheet {next_sheet}...[/dim]"
+                    )
+                await self._interruptible_sleep(pause_secs)
 
             # Use DAG-aware sheet selection (v17 evolution)
             next_sheet = self._get_next_sheet_dag_aware(state)
@@ -891,9 +897,10 @@ class LifecycleMixin:
                     f"{result.patterns_detected} patterns detected[/dim]"
                 )
 
-        except Exception as e:
-            # Global learning failures should not block job completion
-            # Log with exc_info to capture full stack trace for debugging
+        except (sqlite3.Error, OSError, ValueError, RuntimeError) as e:
+            # Global learning failures should not block job completion.
+            # Narrowed from bare Exception to let programming errors
+            # (TypeError, AttributeError, NameError) propagate.
             self._logger.warning(
                 "learning.global_aggregation_failed",
                 job_id=state.job_id,

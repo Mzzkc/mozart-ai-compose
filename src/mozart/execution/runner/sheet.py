@@ -40,6 +40,8 @@ from __future__ import annotations
 
 import asyncio
 import random
+import re
+import sqlite3
 import time
 from collections import deque
 from collections.abc import Sequence
@@ -383,7 +385,7 @@ class SheetExecutionMixin:
                         f"waiting {wait_seconds:.0f}s[/yellow]"
                     )
                     await self._interruptible_sleep(wait_seconds)
-            except Exception as e:  # Non-critical: cross-workspace check
+            except (sqlite3.Error, OSError) as e:  # Non-critical: cross-workspace check
                 self._logger.warning(
                     "rate_limit.cross_workspace_check_failed",
                     sheet_num=sheet_num,
@@ -636,10 +638,22 @@ class SheetExecutionMixin:
             first_attempt_success=first_attempt_success,
             exit_code_was_nonzero=not result.success,
         )
-        self.console.print(
-            f"[green]Sheet {sheet_num}: All {len(validation_result.results)} "
-            f"validations passed[/green]"
-        )
+        # Log validation summary, distinguishing new vs inherited validations
+        total_validations = len(validation_result.results)
+        new_count = self._count_new_validations(validation_result, sheet_num)
+        inherited = total_validations - new_count
+
+        if inherited > 0:
+            self.console.print(
+                f"[green]Sheet {sheet_num}: {new_count} new + "
+                f"{inherited} inherited validations passed "
+                f"({total_validations} total)[/green]"
+            )
+        else:
+            self.console.print(
+                f"[green]Sheet {sheet_num}: All {total_validations} "
+                f"validations passed[/green]"
+            )
         return None
 
     async def _handle_execution_failure(
@@ -1102,6 +1116,15 @@ class SheetExecutionMixin:
                 sheet_num, validation_result,
             )
             completion_threshold = self.config.retry.completion_threshold_percent
+
+            # Refresh error_message with current validation failures so that
+            # completion/escalation modes see up-to-date failure descriptions.
+            failed_descs = [
+                r.format_failure_summary()
+                for r in validation_result.get_failed_results()
+            ]
+            if failed_descs:
+                sheet_state.error_message = "; ".join(failed_descs[:3])
 
             # ===== RATE LIMIT CHECK (before completion threshold) =====
             if result.rate_limited:
@@ -1777,6 +1800,37 @@ class SheetExecutionMixin:
 
         return passed_count, failed_count, pass_pct
 
+    @staticmethod
+    def _count_new_validations(
+        validation_result: SheetValidationResult,
+        sheet_num: int,
+    ) -> int:
+        """Count validations first active at this sheet (not inherited from earlier sheets).
+
+        Parses each validation rule's condition to determine its origin sheet.
+        Rules with no condition or conditions that don't specify a sheet threshold
+        are assumed to originate at sheet 1.
+
+        Args:
+            validation_result: Validation result containing all rules.
+            sheet_num: Current sheet number.
+
+        Returns:
+            Number of validations whose origin sheet >= sheet_num.
+        """
+        _ORIGIN_PATTERN = re.compile(r"(?:sheet_num|stage)\s*(?:>=|==)\s*(\d+)")
+        count = 0
+        for vr in validation_result.results:
+            condition = vr.rule.condition
+            if condition is None:
+                origin = 1
+            else:
+                match = _ORIGIN_PATTERN.search(condition)
+                origin = int(match.group(1)) if match else 1
+            if origin >= sheet_num:
+                count += 1
+        return count
+
     async def _enforce_cost_limits(
         self,
         result: ExecutionResult,
@@ -1835,7 +1889,9 @@ class SheetExecutionMixin:
         Returns:
             Tuple of (outcome_category, first_attempt_success).
         """
-        first_attempt_success = normal_attempts == 0 and completion_attempts == 0
+        # normal_attempts counts executions (first run = 1), not retries.
+        # A first-attempt success means exactly 1 normal attempt and 0 completion attempts.
+        first_attempt_success = normal_attempts <= 1 and completion_attempts == 0
         if first_attempt_success:
             return "success_first_try", True
         elif completion_attempts > 0:
@@ -1847,6 +1903,8 @@ class SheetExecutionMixin:
         """Classify execution errors using multi-error root cause analysis.
 
         Uses classify_execution() to detect all errors and identify the root cause.
+        Passes output_format so text-mode exit code 1 is classified as E209
+        (validation) instead of E009 (unknown).
 
         Args:
             result: Execution result with error details.
@@ -1855,12 +1913,15 @@ class SheetExecutionMixin:
             ClassificationResult with primary (root cause), secondary errors,
             and confidence in root cause identification.
         """
+        # Pass output_format to distinguish text-mode exit code 1 from errors
+        output_format = getattr(self.config.backend, "output_format", None)
         classification = self.error_classifier.classify_execution(
             stdout=result.stdout,
             stderr=result.stderr,
             exit_code=result.exit_code,
             exit_signal=result.exit_signal,
             exit_reason=result.exit_reason,
+            output_format=output_format,
         )
 
         if classification.secondary:

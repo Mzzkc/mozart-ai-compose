@@ -6,15 +6,15 @@ HIGH complexity tests covering:
 - Integration with job control service
 - State management during pause/resume cycles
 """
-import asyncio
 import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
 from mozart.core.checkpoint import CheckpointState, JobStatus
-from mozart.core.config import JobConfig, BackendConfig, SheetConfig, PromptConfig
-from mozart.dashboard.services.job_control import JobActionResult, JobControlService
+from mozart.core.config import BackendConfig, JobConfig, PromptConfig, SheetConfig
+from mozart.dashboard.services.job_control import JobControlService
 from mozart.execution.runner import GracefulShutdownError, JobRunner
 from mozart.state.json_backend import JsonStateBackend
 
@@ -393,7 +393,9 @@ class TestPauseResumeIntegrationFlow:
             assert pause_signal_file.exists()
 
             # Phase 2: Simulate runner detecting pause and handling it
-            runner = JobRunner(config=mock_config, backend=mock_backend, state_backend=state_backend)
+            runner = JobRunner(
+                config=mock_config, backend=mock_backend, state_backend=state_backend,
+            )
             runner.console = MagicMock()
 
             # JobRunner should detect pause signal

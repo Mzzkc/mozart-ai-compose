@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from mozart.core.config import ValidationRule
 from mozart.core.checkpoint import CheckpointState, SheetState, SheetStatus
+from mozart.core.config import ValidationRule
 from mozart.execution.validation import (
     FailureHistoryStore,
     HistoricalFailure,

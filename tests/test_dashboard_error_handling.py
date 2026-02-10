@@ -7,7 +7,6 @@ from fastapi.testclient import TestClient
 
 from mozart.core.checkpoint import CheckpointState, JobStatus
 from mozart.dashboard.app import create_app
-
 from tests.conftest import MockStateBackend
 
 
@@ -150,7 +149,10 @@ class TestHTTPErrorCodes:
         """Test 500 Internal Server Error for system failures."""
 
         # Simulate subprocess creation failure
-        with patch("asyncio.create_subprocess_exec", side_effect=RuntimeError("Process creation failed")):
+        with patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=RuntimeError("Process creation failed"),
+        ):
             response = client.post("/api/jobs", json={
                 "config_path": str(sample_config_file)
             })

@@ -13,12 +13,11 @@ Note: These tests follow patterns from test_parallel.py for consistency.
 
 import json
 from datetime import datetime
-from io import StringIO
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mozart.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
+from mozart.core.checkpoint import CheckpointState
 from mozart.execution.parallel import ParallelBatchResult
 from mozart.execution.synthesizer import (
     ResultSynthesizer,
@@ -27,7 +26,6 @@ from mozart.execution.synthesizer import (
     SynthesisStrategy,
     synthesize_batch,
 )
-
 
 # =============================================================================
 # Fixtures (adapted from test_parallel.py patterns)
@@ -677,8 +675,6 @@ class TestSynthesizerRunnerIntegration:
         # Full integration requires backend setup
 
         # Create minimal mocks
-        mock_backend = MagicMock()
-        mock_state_backend = MagicMock()
         mock_config = MagicMock()
         mock_config.workspace = "."
         mock_config.parallel = MagicMock()

@@ -8,6 +8,7 @@ SENSITIVE_PATTERNS to automatically redact fields containing 'api_key', 'token',
 'secret', etc.
 """
 
+import asyncio
 import os
 import time
 from pathlib import Path
@@ -408,7 +409,7 @@ class AnthropicApiBackend(Backend):
             )
             # Check we got a response
             return len(response.content) > 0
-        except Exception as e:
+        except (anthropic.APIError, asyncio.TimeoutError, OSError) as e:
             _logger.warning("health_check_failed", error_type=type(e).__name__, error=str(e))
             return False
 

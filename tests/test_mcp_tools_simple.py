@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from mozart.core.checkpoint import CheckpointState, JobStatus, SheetStatus, SheetState
+from mozart.core.checkpoint import CheckpointState, JobStatus
 from mozart.dashboard.services.job_control import JobActionResult, JobStartResult, ProcessHealth
-from mozart.mcp.tools import JobTools, ControlTools
+from mozart.mcp.tools import ControlTools, JobTools
 from mozart.state.json_backend import JsonStateBackend
 
 
@@ -51,7 +51,9 @@ class TestJobToolsBasic:
         assert "Mozart MCP Job Listing" in result["content"][0]["text"]
 
     @patch('mozart.mcp.tools.JobControlService')
-    async def test_get_job_success(self, mock_service_class, mock_state_backend: Mock, temp_workspace):
+    async def test_get_job_success(
+        self, mock_service_class, mock_state_backend: Mock, temp_workspace,
+    ):
         """Test successful get_job operation."""
         # Setup mock state
         mock_state = CheckpointState(
@@ -143,7 +145,9 @@ class TestControlToolsBasic:
         assert "cancel_job" in tool_names
 
     @patch('mozart.mcp.tools.JobControlService')
-    async def test_pause_job_success(self, mock_service_class, mock_state_backend: Mock, temp_workspace):
+    async def test_pause_job_success(
+        self, mock_service_class, mock_state_backend: Mock, temp_workspace,
+    ):
         """Test successful pause_job operation."""
         # Mock successful pause result
         pause_result = JobActionResult(
@@ -166,7 +170,9 @@ class TestControlToolsBasic:
         assert "✓ Pause request sent to job: test-job-123" in content_text
 
     @patch('mozart.mcp.tools.JobControlService')
-    async def test_pause_job_failure(self, mock_service_class, mock_state_backend: Mock, temp_workspace):
+    async def test_pause_job_failure(
+        self, mock_service_class, mock_state_backend: Mock, temp_workspace,
+    ):
         """Test pause_job when operation fails."""
         # Mock failed pause result
         pause_result = JobActionResult(
@@ -214,7 +220,9 @@ class TestMCPCoverage:
         return backend
 
     @patch('mozart.mcp.tools.JobControlService')
-    async def test_start_job_with_workspace_param(self, mock_service_class, mock_state_backend, temp_workspace):
+    async def test_start_job_with_workspace_param(
+        self, mock_service_class, mock_state_backend, temp_workspace,
+    ):
         """Test start_job with workspace parameter."""
         config_file = temp_workspace / "test.yaml"
         config_file.write_text("""
@@ -288,7 +296,9 @@ sheet:
         assert "permanent and cannot be undone" in result["content"][0]["text"]
 
     @patch('mozart.mcp.tools.JobControlService')
-    async def test_service_exception_handling(self, mock_service_class, mock_state_backend, temp_workspace):
+    async def test_service_exception_handling(
+        self, mock_service_class, mock_state_backend, temp_workspace,
+    ):
         """Test exception handling from job control service."""
         mock_service = Mock()
         mock_service.pause_job = AsyncMock(side_effect=RuntimeError("Service error"))

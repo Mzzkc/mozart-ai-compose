@@ -19,7 +19,6 @@ from mozart.core.checkpoint import CheckpointState, JobStatus
 from mozart.dashboard.app import create_app
 from mozart.state.json_backend import JsonStateBackend
 
-
 # Fixed timestamp for deterministic tests
 _FIXED_TIME = datetime(2024, 1, 15, 12, 0, 0)
 
@@ -141,7 +140,7 @@ class TestMakeLogEvent:
         assert "event: log" in event_str
         assert "hello world" in event_str
         # Newline should be stripped for initial events
-        data_line = [l for l in event_str.split("\n") if l.startswith("data:")][0]
+        data_line = [x for x in event_str.split("\n") if x.startswith("data:")][0]
         data = json.loads(data_line.replace("data: ", ""))
         assert data["line"] == "hello world"
         assert data["initial"] is True
@@ -152,7 +151,7 @@ class TestMakeLogEvent:
         from mozart.dashboard.routes.stream import _make_log_event
 
         event_str = _make_log_event("new line", 42, is_initial_event=False, event_id="log-42")
-        data_line = [l for l in event_str.split("\n") if l.startswith("data:")][0]
+        data_line = [x for x in event_str.split("\n") if x.startswith("data:")][0]
         data = json.loads(data_line.replace("data: ", ""))
         assert data["line"] == "new line"
         assert data["initial"] is False

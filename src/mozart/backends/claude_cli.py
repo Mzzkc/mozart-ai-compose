@@ -462,7 +462,7 @@ class ClaudeCliBackend(Backend):
         )
 
     async def _kill_orphaned_process(
-        self, process: asyncio.subprocess.Process, error: Exception,
+        self, process: asyncio.subprocess.Process, error: BaseException,
     ) -> None:
         """Kill an orphaned subprocess to prevent resource leaks.
 
@@ -629,6 +629,12 @@ class ClaudeCliBackend(Backend):
                 error_type="not_found",
                 error_message="claude CLI not found in PATH",
             )
+        except asyncio.CancelledError:
+            # CancelledError is BaseException, not Exception — must handle
+            # separately to prevent subprocess zombie leaks.
+            if process is not None and process.returncode is None:
+                await self._kill_orphaned_process(process, asyncio.CancelledError())
+            raise
         except Exception as e:
             duration = time.monotonic() - start_time
 
@@ -831,6 +837,13 @@ class ClaudeCliBackend(Backend):
                 process.kill()
             except ProcessLookupError:
                 pass
+            # Reap the zombie to release FDs and process table entry.
+            # Without wait(), the subprocess transport leaks pipes and the
+            # kernel keeps the process as defunct until GC finalizes it.
+            try:
+                await asyncio.wait_for(process.wait(), timeout=5.0)
+            except (TimeoutError, ProcessLookupError, OSError):
+                pass
             raise
 
         await self._await_process_exit(process)
@@ -852,5 +865,6 @@ class ClaudeCliBackend(Backend):
             # Simple test prompt
             result = await self._execute_impl("Say 'ready' and nothing else.")
             return result.success and "ready" in result.stdout.lower()
-        except Exception:
+        except (asyncio.TimeoutError, OSError, RuntimeError) as e:
+            _logger.warning("health_check_failed", error_type=type(e).__name__, error=str(e))
             return False

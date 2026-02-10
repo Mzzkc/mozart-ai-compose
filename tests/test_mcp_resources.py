@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from mozart.core.checkpoint import CheckpointState, JobStatus, SheetStatus, SheetState
+from mozart.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
 from mozart.mcp.resources import ConfigResources
 from mozart.state.json_backend import JsonStateBackend
 
@@ -205,7 +205,9 @@ class TestConfigResources:
         assert "error" in response
         assert "state backend" in response["error"]
 
-    async def test_get_jobs_overview_with_backend(self, config_resources_with_backend, mock_state_backend, sample_job_state):
+    async def test_get_jobs_overview_with_backend(
+        self, config_resources_with_backend, mock_state_backend, sample_job_state,
+    ):
         """Test jobs overview with state backend."""
         # Mock the state backend to return our sample state
         mock_state_backend.load.return_value = sample_job_state
@@ -232,7 +234,9 @@ class TestConfigResources:
         assert "error" in response
         assert "state backend" in response["error"]
 
-    async def test_get_job_details_with_backend(self, config_resources_with_backend, mock_state_backend, sample_job_state):
+    async def test_get_job_details_with_backend(
+        self, config_resources_with_backend, mock_state_backend, sample_job_state,
+    ):
         """Test job details with state backend."""
         mock_state_backend.load.return_value = sample_job_state
 
@@ -257,7 +261,9 @@ class TestConfigResources:
         assert "completed_sheets" in progress
         assert "failed_sheets" in progress
 
-    async def test_get_job_details_not_found(self, config_resources_with_backend, mock_state_backend):
+    async def test_get_job_details_not_found(
+        self, config_resources_with_backend, mock_state_backend,
+    ):
         """Test job details for non-existent job."""
         mock_state_backend.load.return_value = None
 
@@ -328,7 +334,9 @@ class TestConfigResources:
         jobs = json.loads(content["text"])
         assert "jobs" in jobs or "error" in jobs  # Either jobs list or error message
 
-    async def test_read_resource_job_detail(self, config_resources_with_backend, mock_state_backend, sample_job_state):
+    async def test_read_resource_job_detail(
+        self, config_resources_with_backend, mock_state_backend, sample_job_state,
+    ):
         """Test reading specific job detail resource."""
         mock_state_backend.load.return_value = sample_job_state
 
@@ -356,7 +364,9 @@ class TestConfigResources:
         assert content["mimeType"] == "text/plain"
         assert "Error reading resource" in content["text"]
 
-    async def test_read_resource_error_handling(self, config_resources_with_backend, mock_state_backend):
+    async def test_read_resource_error_handling(
+        self, config_resources_with_backend, mock_state_backend,
+    ):
         """Test error handling in resource reading."""
         # Make state backend raise an exception
         mock_state_backend.load.side_effect = Exception("Database error")

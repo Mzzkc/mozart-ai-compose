@@ -241,7 +241,8 @@ class TestRecoverCommand:
             ["recover", "fail-val", "--workspace", str(tmp_path)],
         )
         assert result.exit_code == 0
-        assert "cannot recover" in result.stdout.lower() or "no sheets could be recovered" in result.stdout.lower()
+        lower_out = result.stdout.lower()
+        assert "cannot recover" in lower_out or "no sheets could be recovered" in lower_out
 
         # State should not change
         updated = json.loads((tmp_path / "fail-val.json").read_text())

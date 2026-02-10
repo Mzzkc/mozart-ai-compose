@@ -7,6 +7,7 @@ including API integration, error markers, and validation panel behavior.
 
 import pytest
 from fastapi.testclient import TestClient
+
 from mozart.dashboard.app import create_app
 
 

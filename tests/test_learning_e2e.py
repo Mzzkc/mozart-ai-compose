@@ -158,7 +158,10 @@ class TestLearningCycleE2E:
         pattern_id = store.record_pattern(
             pattern_type="error_recovery",
             pattern_name="add_explicit_output_path",
-            description="Adding explicit output path to prompt prevents file-not-found validation failures",
+            description=(
+                "Adding explicit output path to prompt prevents "
+                "file-not-found validation failures"
+            ),
             context_tags=["validation", "output_file", "prompt_engineering"],
             suggested_action="Append 'Write output to {{workspace}}/output.txt' to prompt",
             provenance_job_hash="run-1",
@@ -264,7 +267,7 @@ class TestErrorRecoveryLearningE2E:
         model = "claude-sonnet-4-20250514"
 
         # Record several successful recoveries with consistent wait times
-        for i in range(5):
+        for _ in range(5):
             store.record_error_recovery(
                 error_code=error_code,
                 suggested_wait=60.0,
@@ -592,7 +595,7 @@ class TestMultiRunMeasurementE2E:
             context_tags=["test"],
         )
 
-        baseline_trust = store.calculate_trust_score(pattern_id)
+        store.calculate_trust_score(pattern_id)
 
         # Record 5 failed applications (pattern applied but didn't help)
         for i in range(5):
@@ -607,7 +610,7 @@ class TestMultiRunMeasurementE2E:
             )
 
         # Trust should be lower or at least not improved
-        degraded_trust = store.calculate_trust_score(pattern_id)
+        store.calculate_trust_score(pattern_id)
         final_patterns = store.get_patterns_for_auto_apply(
             trust_threshold=0.0,
             require_validated=False,

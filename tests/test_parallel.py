@@ -13,11 +13,11 @@ Integration tests would require a full backend setup.
 """
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from mozart.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
+from mozart.core.checkpoint import CheckpointState, JobStatus, SheetStatus
 from mozart.execution.dag import DependencyDAG
 from mozart.execution.parallel import (
     ParallelBatchResult,
@@ -26,7 +26,6 @@ from mozart.execution.parallel import (
     ParallelExecutor,
     execute_sheets_parallel,
 )
-
 
 # =============================================================================
 # Fixtures
@@ -635,36 +634,30 @@ class TestExecuteSheetsParallel:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_fail_fast_disabled_continues_through_partial_failure(
+    async def test_fail_fast_disabled_continues_remaining_sheets(
         self, parallel_runner
     ) -> None:
-        """Without fail_fast, a batch failure doesn't abort the overall loop.
+        """Without fail_fast, remaining sheets execute even if one fails.
 
-        Note: execute_sheets_parallel has a known limitation where persistent
-        failures without fail_fast can loop indefinitely (the failed sheet keeps
-        being returned as "ready"). This test verifies the non-fail-fast behavior
-        using a scenario where failure is transient — sheet 2 fails on first
-        attempt but succeeds on second, allowing the loop to complete.
+        When a sheet fails (retries exhausted inside _execute_sheet_with_recovery),
+        it's marked permanently failed and not retried. Other sheets continue.
+        The overall result is False because not all sheets succeeded.
         """
-        # Independent sheets: 1, 2 (can run in parallel)
+        # Sheet 2 depends on sheet 1; sheet 3 is independent
         dag = DependencyDAG.from_dependencies(
-            total_sheets=2,
-            dependencies=None,
+            total_sheets=3,
+            dependencies={2: [1]},
         )
         parallel_runner.dependency_dag = dag
 
         state = MagicMock(spec=CheckpointState)
-        state.total_sheets = 2
+        state.total_sheets = 3
         state.sheets = {}
 
-        call_count = {"sheet_2": 0}
-
-        # Sheet 2 fails first time, succeeds second time (transient failure)
+        # Sheet 1 permanently fails, sheet 3 succeeds independently
         async def mock_execute(st, sheet_num):
-            if sheet_num == 2:
-                call_count["sheet_2"] += 1
-                if call_count["sheet_2"] == 1:
-                    raise RuntimeError("Transient failure")
+            if sheet_num == 1:
+                raise RuntimeError("Permanent failure")
             st.sheets[sheet_num] = MagicMock(status=SheetStatus.COMPLETED)
 
         parallel_runner._execute_sheet_with_recovery = AsyncMock(
@@ -676,10 +669,10 @@ class TestExecuteSheetsParallel:
         )
         result = await execute_sheets_parallel(parallel_runner, state, config)
 
-        assert result is True
-        # Sheet 1 ran once successfully, sheet 2 ran twice (fail then success)
-        assert parallel_runner._execute_sheet_with_recovery.call_count == 3
-        assert call_count["sheet_2"] == 2
+        assert result is False
+        # Sheet 1 and 3 ran in first batch (independent from DAG perspective),
+        # sheet 2 becomes unblocked (dep 1 treated as done) and runs in second batch
+        assert state.sheets[3].status == SheetStatus.COMPLETED
 
     @pytest.mark.asyncio
     async def test_state_backend_restored_after_execution(
@@ -967,3 +960,214 @@ class TestLockingStateBackend:
         )
 
         assert not overlap_detected, "Lock should prevent concurrent access"
+
+
+# =============================================================================
+# Infinite Loop Regression Tests
+# =============================================================================
+
+
+class TestParallelNoInfiniteLoop:
+    """Regression tests for the infinite-loop bug when fail_fast=False.
+
+    Previously, when a sheet permanently failed (exhausted all retries) with
+    fail_fast=False, get_next_parallel_batch() would return the failed sheet
+    again indefinitely because it checked only COMPLETED status, not FAILED.
+    """
+
+    @pytest.fixture
+    def parallel_runner(self):
+        """Create a mock runner with state_backend and _state_lock."""
+        runner = MagicMock()
+        runner._execute_sheet_with_recovery = AsyncMock()
+        runner._state_lock = asyncio.Lock()
+        runner.state_backend = MagicMock()
+        runner.state_backend.save = AsyncMock()
+        runner.state_backend.load = AsyncMock(return_value=None)
+        return runner
+
+    @pytest.mark.asyncio
+    async def test_permanent_failure_terminates_no_infinite_loop(
+        self, parallel_runner
+    ) -> None:
+        """Permanent sheet failure with fail_fast=False must not loop infinitely.
+
+        Sets up a 3-sheet DAG (2 depends on 1, 3 independent).
+        Sheet 1 permanently fails. Verifies the executor terminates within
+        a bounded number of iterations rather than looping forever.
+        """
+        dag = DependencyDAG.from_dependencies(
+            total_sheets=3,
+            dependencies={2: [1]},
+        )
+        parallel_runner.dependency_dag = dag
+
+        state = MagicMock(spec=CheckpointState)
+        state.total_sheets = 3
+        state.sheets = {}
+
+        execution_count: dict[int, int] = {}
+
+        async def mock_execute(st, sheet_num):
+            execution_count[sheet_num] = execution_count.get(sheet_num, 0) + 1
+            if sheet_num == 1:
+                # Permanent failure — retries exhausted
+                raise RuntimeError("Sheet 1 permanently failed")
+            st.sheets[sheet_num] = MagicMock(status=SheetStatus.COMPLETED)
+
+        parallel_runner._execute_sheet_with_recovery = AsyncMock(
+            side_effect=mock_execute
+        )
+
+        config = ParallelExecutionConfig(
+            enabled=True, max_concurrent=3, fail_fast=False
+        )
+
+        result = await execute_sheets_parallel(parallel_runner, state, config)
+
+        # Must terminate (not hang)
+        assert result is False
+
+        # Sheet 1 should only be attempted ONCE (not retried by the loop)
+        assert execution_count.get(1, 0) == 1, (
+            f"Sheet 1 was executed {execution_count.get(1, 0)} times — "
+            "infinite loop not prevented!"
+        )
+
+        # Sheet 3 should have succeeded (independent of sheet 1)
+        assert 3 in state.sheets
+        assert state.sheets[3].status == SheetStatus.COMPLETED
+
+    @pytest.mark.asyncio
+    async def test_downstream_of_failed_sheet_still_runs(
+        self, parallel_runner
+    ) -> None:
+        """Downstream sheets of a failed dependency still get scheduled.
+
+        When sheet 1 permanently fails, sheet 2 (which depends on 1) should
+        still be scheduled because the DAG treats failed sheets as 'done'
+        for dependency resolution. The downstream sheet gets a chance to run
+        (it may handle the missing dependency gracefully or fail on its own).
+        """
+        dag = DependencyDAG.from_dependencies(
+            total_sheets=3,
+            dependencies={2: [1], 3: [2]},
+        )
+        parallel_runner.dependency_dag = dag
+
+        state = MagicMock(spec=CheckpointState)
+        state.total_sheets = 3
+        state.sheets = {}
+
+        execution_order: list[int] = []
+
+        async def mock_execute(st, sheet_num):
+            execution_order.append(sheet_num)
+            if sheet_num == 1:
+                raise RuntimeError("Sheet 1 permanently failed")
+            st.sheets[sheet_num] = MagicMock(status=SheetStatus.COMPLETED)
+
+        parallel_runner._execute_sheet_with_recovery = AsyncMock(
+            side_effect=mock_execute
+        )
+
+        config = ParallelExecutionConfig(
+            enabled=True, max_concurrent=3, fail_fast=False
+        )
+
+        result = await execute_sheets_parallel(parallel_runner, state, config)
+
+        assert result is False
+        # Sheet 1 ran first, then 2 was unblocked, then 3
+        assert 1 in execution_order
+        assert 2 in execution_order
+        assert 3 in execution_order
+        # Each sheet only ran once
+        assert execution_order.count(1) == 1
+        assert execution_order.count(2) == 1
+        assert execution_order.count(3) == 1
+
+    def test_get_next_batch_filters_permanently_failed(self) -> None:
+        """get_next_parallel_batch excludes permanently failed sheets."""
+        runner = MagicMock()
+        dag = DependencyDAG.from_dependencies(
+            total_sheets=3,
+            dependencies=None,
+        )
+        runner.dependency_dag = dag
+
+        config = ParallelExecutionConfig(enabled=True, max_concurrent=3)
+        executor = ParallelExecutor(runner, config)
+
+        state = MagicMock(spec=CheckpointState)
+        state.total_sheets = 3
+        state.sheets = {}
+
+        # Initially all 3 sheets should be ready
+        batch = executor.get_next_parallel_batch(state)
+        assert batch == [1, 2, 3]
+
+        # Mark sheet 2 as permanently failed
+        executor._permanently_failed.add(2)
+
+        # Now only sheets 1 and 3 should be returned
+        batch = executor.get_next_parallel_batch(state)
+        assert batch == [1, 3]
+
+    @pytest.mark.asyncio
+    async def test_bounded_iterations_on_all_failures(
+        self, parallel_runner
+    ) -> None:
+        """When ALL sheets fail, the loop must terminate promptly.
+
+        This is the worst-case scenario for the old bug — every sheet fails,
+        so without the fix, every sheet would be retried every iteration.
+        """
+        dag = DependencyDAG.from_dependencies(
+            total_sheets=4,
+            dependencies=None,
+        )
+        parallel_runner.dependency_dag = dag
+
+        state = MagicMock(spec=CheckpointState)
+        state.total_sheets = 4
+        state.sheets = {}
+
+        batch_count = 0
+
+        async def mock_execute(st, sheet_num):
+            nonlocal batch_count
+            raise RuntimeError(f"Sheet {sheet_num} always fails")
+
+        parallel_runner._execute_sheet_with_recovery = AsyncMock(
+            side_effect=mock_execute
+        )
+
+        config = ParallelExecutionConfig(
+            enabled=True, max_concurrent=4, fail_fast=False
+        )
+
+        # Patch to count loop iterations
+        original_get_batch = ParallelExecutor.get_next_parallel_batch
+
+        def counting_get_batch(self_exec, st):
+            nonlocal batch_count
+            batch_count += 1
+            return original_get_batch(self_exec, st)
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(
+                ParallelExecutor,
+                "get_next_parallel_batch",
+                counting_get_batch,
+            )
+            result = await execute_sheets_parallel(parallel_runner, state, config)
+
+        assert result is False
+        # Should terminate in exactly 2 iterations:
+        # 1st: returns [1,2,3,4], all fail, all marked permanently failed
+        # 2nd: returns [], loop breaks
+        assert batch_count == 2, (
+            f"Expected 2 loop iterations but got {batch_count} — "
+            "possible infinite loop!"
+        )

@@ -219,6 +219,7 @@ class ParallelExecutor:
         self.runner = runner
         self.config = config
         self._logger = _logger
+        self._permanently_failed: set[int] = set()
 
     @property
     def dag(self) -> DependencyDAG | None:
@@ -402,11 +403,20 @@ class ParallelExecutor:
             if s.status == SheetStatus.COMPLETED
         }
 
-        # Get ready sheets from DAG
-        ready = self.dag.get_ready_sheets(completed)
+        # Treat permanently failed sheets as "done" for dependency resolution
+        # so downstream sheets aren't blocked forever waiting for them.
+        done_for_dag: set[int] = completed | self._permanently_failed
 
-        # Filter out already-completed sheets
-        pending_ready = [s for s in ready if s not in completed]
+        # Get ready sheets from DAG (uses done_for_dag so downstream
+        # sheets of failed deps can be identified, though they'll be
+        # filtered out below if their dep truly failed)
+        ready = self.dag.get_ready_sheets(done_for_dag)
+
+        # Filter out completed and permanently failed sheets
+        pending_ready = [
+            s for s in ready
+            if s not in completed and s not in self._permanently_failed
+        ]
 
         # Limit to max_concurrent
         batch = pending_ready[: self.config.max_concurrent]
@@ -459,4 +469,13 @@ async def execute_sheets_parallel(
             # Stop on first failure
             return False
 
-    return True
+        if not result.success and not config.fail_fast:
+            # Track permanently failed sheets so they're not retried
+            # infinitely. The batch already ran retry logic internally
+            # via _execute_sheet_with_recovery, so failures here are
+            # permanent (retries exhausted).
+            for sheet_num in result.failed:
+                executor._permanently_failed.add(sheet_num)
+
+    # If any sheets permanently failed, the job didn't fully succeed
+    return len(executor._permanently_failed) == 0

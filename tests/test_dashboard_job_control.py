@@ -1,8 +1,7 @@
 """Tests for JobControlService."""
-import asyncio
 import signal
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -12,7 +11,6 @@ from mozart.dashboard.services.job_control import (
     JobStartResult,
     ProcessHealth,
 )
-
 from tests.conftest import MockStateBackend
 
 
@@ -72,7 +70,7 @@ class TestJobControlService:
 
             # Verify subprocess was called correctly
             mock_subprocess.assert_called_once()
-            args, kwargs = mock_subprocess.call_args
+            args, _kwargs = mock_subprocess.call_args
             # args contains all the individual arguments passed to create_subprocess_exec
             # When called with *cmd_args, they become individual arguments
             assert len(args) >= 4
@@ -91,43 +89,46 @@ class TestJobControlService:
         mock_process = Mock()
         mock_process.pid = 12346
 
-        with patch("asyncio.create_subprocess_exec") as mock_subprocess:
-            with patch("tempfile.mkstemp") as mock_mkstemp:
-                mock_mkstemp.return_value = (3, "/tmp/test.yaml")
-                with patch("builtins.open", create=True) as mock_open:
-                    with patch("os.close"), patch("os.fchmod") as mock_fchmod:
-                        mock_subprocess.return_value = mock_process
+        with (
+            patch("asyncio.create_subprocess_exec") as mock_subprocess,
+            patch("tempfile.mkstemp") as mock_mkstemp,
+            patch("builtins.open", create=True) as mock_open,
+            patch("os.close"),
+            patch("os.fchmod") as mock_fchmod,
+        ):
+            mock_mkstemp.return_value = (3, "/tmp/test.yaml")
+            mock_subprocess.return_value = mock_process
 
-                        result = await job_control_service.start_job(
-                            config_content=sample_yaml_config,
-                            workspace=Path("./custom-workspace"),
-                            start_sheet=2,
-                            self_healing=True,
-                        )
+            result = await job_control_service.start_job(
+                config_content=sample_yaml_config,
+                workspace=Path("./custom-workspace"),
+                start_sheet=2,
+                self_healing=True,
+            )
 
-                        assert isinstance(result, JobStartResult)
-                        assert result.job_name == "test-job"
-                        assert result.status == JobStatus.RUNNING.value
-                        assert result.pid == 12346
-                        assert result.workspace == Path("./custom-workspace")
+            assert isinstance(result, JobStartResult)
+            assert result.job_name == "test-job"
+            assert result.status == JobStatus.RUNNING.value
+            assert result.pid == 12346
+            assert result.workspace == Path("./custom-workspace")
 
-                        # Verify temp file was created with restrictive permissions
-                        mock_mkstemp.assert_called_once_with(suffix='.yaml', text=True)
-                        mock_fchmod.assert_called_once_with(3, 0o600)
-                        mock_open.assert_called_once_with(3, 'w')
+            # Verify temp file was created with restrictive permissions
+            mock_mkstemp.assert_called_once_with(suffix='.yaml', text=True)
+            mock_fchmod.assert_called_once_with(3, 0o600)
+            mock_open.assert_called_once_with(3, 'w')
 
-                        # Verify subprocess was called with correct arguments
-                        mock_subprocess.assert_called_once()
-                        args, kwargs = mock_subprocess.call_args
-                        # args contains all the individual arguments passed to create_subprocess_exec
-                        args_list = list(args)
-                        assert "--workspace" in args_list
-                        # The workspace Path might be converted to different string format
-                        workspace_idx = args_list.index("--workspace")
-                        assert "custom-workspace" in args_list[workspace_idx + 1]
-                        assert "--start-sheet" in args_list
-                        assert "2" in args_list
-                        assert "--self-healing" in args_list
+            # Verify subprocess was called with correct arguments
+            mock_subprocess.assert_called_once()
+            args, _kwargs = mock_subprocess.call_args
+            # args: individual arguments passed to create_subprocess_exec
+            args_list = list(args)
+            assert "--workspace" in args_list
+            # The workspace Path might be converted to different string format
+            workspace_idx = args_list.index("--workspace")
+            assert "custom-workspace" in args_list[workspace_idx + 1]
+            assert "--start-sheet" in args_list
+            assert "2" in args_list
+            assert "--self-healing" in args_list
 
     @pytest.mark.asyncio
     async def test_start_job_no_config_raises_error(
@@ -172,7 +173,8 @@ class TestJobControlService:
         # File-based pause: request is sent, but job remains RUNNING until runner processes it
         assert result.success is True
         assert result.job_id == job_id
-        assert result.status == JobStatus.RUNNING.value  # Still running until runner picks up signal
+        # Still running until runner picks up signal
+        assert result.status == JobStatus.RUNNING.value
         assert "Pause request sent" in result.message
 
         # Verify pause signal file was created
@@ -244,7 +246,8 @@ class TestJobControlService:
 
         # Pause request is still sent (file created)
         assert result.success is True
-        assert result.status == JobStatus.RUNNING.value  # Still running until runner processes signal
+        # Still running until runner processes signal
+        assert result.status == JobStatus.RUNNING.value
         assert "Pause request sent" in result.message
 
         # Verify pause signal file was created
@@ -339,23 +342,25 @@ class TestJobControlService:
         mock_process = Mock()
         mock_process.pid = 54321
 
-        with patch.object(job_control_service, "get_job_pid", return_value=None):
-            with patch("asyncio.create_subprocess_exec") as mock_subprocess:
-                mock_subprocess.return_value = mock_process
+        with (
+            patch.object(job_control_service, "get_job_pid", return_value=None),
+            patch("asyncio.create_subprocess_exec") as mock_subprocess,
+        ):
+            mock_subprocess.return_value = mock_process
 
-                result = await job_control_service.resume_job(job_id)
+            result = await job_control_service.resume_job(job_id)
 
-                assert result.success is True
-                assert result.status == JobStatus.RUNNING.value
-                assert "restarted" in result.message
+            assert result.success is True
+            assert result.status == JobStatus.RUNNING.value
+            assert "restarted" in result.message
 
-                # Verify restart command was called
-                mock_subprocess.assert_called_once()
-                args, kwargs = mock_subprocess.call_args
-                # args contains all the individual arguments passed to create_subprocess_exec
-                args_list = list(args)
-                assert "resume" in args_list
-                assert job_id in args_list
+            # Verify restart command was called
+            mock_subprocess.assert_called_once()
+            args, _kwargs = mock_subprocess.call_args
+            # args: individual arguments passed to create_subprocess_exec
+            args_list = list(args)
+            assert "resume" in args_list
+            assert job_id in args_list
 
     @pytest.mark.asyncio
     async def test_cancel_running_job(
@@ -374,29 +379,33 @@ class TestJobControlService:
         )
         await mock_state_backend.save(state)
 
-        with patch("os.kill") as mock_kill:
-            with patch.object(job_control_service, "get_job_pid", return_value=12345):
-                with patch("asyncio.sleep"):
-                    # First call succeeds (SIGTERM), second raises ProcessLookupError (process exited)
-                    mock_kill.side_effect = [None, ProcessLookupError("No such process")]
+        with (
+            patch("os.kill") as mock_kill,
+            patch.object(job_control_service, "get_job_pid", return_value=12345),
+            patch("asyncio.sleep"),
+        ):
+            # SIGTERM succeeds, then ProcessLookupError (process exited)
+            mock_kill.side_effect = [
+                None, ProcessLookupError("No such process"),
+            ]
 
-                    result = await job_control_service.cancel_job(job_id)
+            result = await job_control_service.cancel_job(job_id)
 
-                    assert result.success is True
-                    assert result.job_id == job_id
-                    assert result.status == JobStatus.CANCELLED.value
-                    assert "cancelled successfully" in result.message
+            assert result.success is True
+            assert result.job_id == job_id
+            assert result.status == JobStatus.CANCELLED.value
+            assert "cancelled successfully" in result.message
 
-                    # Verify SIGTERM was sent
-                    assert mock_kill.call_count == 2
-                    mock_kill.assert_any_call(12345, signal.SIGTERM)
-                    mock_kill.assert_any_call(12345, 0)  # Check if still alive
+            # Verify SIGTERM was sent
+            assert mock_kill.call_count == 2
+            mock_kill.assert_any_call(12345, signal.SIGTERM)
+            mock_kill.assert_any_call(12345, 0)  # Check if still alive
 
-                    # Verify state was updated
-                    updated_state = await mock_state_backend.load(job_id)
-                    assert updated_state is not None
-                    assert updated_state.status == JobStatus.CANCELLED
-                    assert updated_state.pid is None
+            # Verify state was updated
+            updated_state = await mock_state_backend.load(job_id)
+            assert updated_state is not None
+            assert updated_state.status == JobStatus.CANCELLED
+            assert updated_state.pid is None
 
     @pytest.mark.asyncio
     async def test_cancel_completed_job(
@@ -461,15 +470,17 @@ class TestJobControlService:
         )
         await mock_state_backend.save(state)
 
-        with patch.object(job_control_service, "get_job_pid", return_value=12345):
-            with patch("os.kill"):  # Process exists
-                result = await job_control_service.delete_job(job_id)
+        with (
+            patch.object(job_control_service, "get_job_pid", return_value=12345),
+            patch("os.kill"),  # Process exists
+        ):
+            result = await job_control_service.delete_job(job_id)
 
-                assert result is False
+            assert result is False
 
-                # Verify job was not deleted
-                existing_state = await mock_state_backend.load(job_id)
-                assert existing_state is not None
+            # Verify job was not deleted
+            existing_state = await mock_state_backend.load(job_id)
+            assert existing_state is not None
 
     @pytest.mark.asyncio
     async def test_delete_nonexistent_job(
@@ -562,17 +573,19 @@ class TestProcessManagement:
         # Mock process start time
         job_control_service._process_start_times[job_id] = 1000.0
 
-        with patch.object(job_control_service, "get_job_pid", return_value=12345):
-            with patch("os.kill"):  # Process exists
-                with patch("time.time", return_value=1100.0):  # 100 seconds later
-                    health = await job_control_service.verify_process_health(job_id)
+        with (
+            patch.object(job_control_service, "get_job_pid", return_value=12345),
+            patch("os.kill"),  # Process exists
+            patch("time.time", return_value=1100.0),  # 100 seconds later
+        ):
+            health = await job_control_service.verify_process_health(job_id)
 
-                    assert isinstance(health, ProcessHealth)
-                    assert health.pid == 12345
-                    assert health.is_alive is True
-                    assert health.is_zombie_state is False
-                    assert health.process_exists is True
-                    assert health.uptime_seconds == 100.0
+            assert isinstance(health, ProcessHealth)
+            assert health.pid == 12345
+            assert health.is_alive is True
+            assert health.is_zombie_state is False
+            assert health.process_exists is True
+            assert health.uptime_seconds == 100.0
 
     @pytest.mark.asyncio
     async def test_verify_process_health_zombie_state(
@@ -591,16 +604,18 @@ class TestProcessManagement:
         )
         await mock_state_backend.save(state)
 
-        with patch.object(job_control_service, "get_job_pid", return_value=12345):
+        with (
+            patch.object(job_control_service, "get_job_pid", return_value=12345),
             # Mock dead process but PID in state - this creates a zombie state
-            with patch("os.kill", side_effect=ProcessLookupError("No such process")):
-                health = await job_control_service.verify_process_health(job_id)
+            patch("os.kill", side_effect=ProcessLookupError("No such process")),
+        ):
+            health = await job_control_service.verify_process_health(job_id)
 
-                assert health.pid == 12345
-                assert health.is_alive is False
-                # Zombie state is detected when process doesn't exist but state shows running with PID
-                assert health.is_zombie_state is True
-                assert health.process_exists is False
+            assert health.pid == 12345
+            assert health.is_alive is False
+            # Zombie state: process doesn't exist but state shows running with PID
+            assert health.is_zombie_state is True
+            assert health.process_exists is False
 
     @pytest.mark.asyncio
     async def test_verify_process_health_with_metrics(
@@ -625,19 +640,21 @@ class TestProcessManagement:
         mock_memory_info.rss = 104857600  # 100 MB in bytes
         mock_process_metrics.memory_info.return_value = mock_memory_info
 
-        with patch.object(job_control_service, "get_job_pid", return_value=12345):
-            with patch("os.kill"):  # Process exists
-                with patch("builtins.__import__") as mock_import:
-                    mock_psutil = Mock()
-                    mock_psutil.Process.return_value = mock_process_metrics
-                    mock_import.return_value = mock_psutil
+        with (
+            patch.object(job_control_service, "get_job_pid", return_value=12345),
+            patch("os.kill"),  # Process exists
+            patch("builtins.__import__") as mock_import,
+        ):
+            mock_psutil = Mock()
+            mock_psutil.Process.return_value = mock_process_metrics
+            mock_import.return_value = mock_psutil
 
-                    health = await job_control_service.verify_process_health(job_id)
+            health = await job_control_service.verify_process_health(job_id)
 
-                    assert health.pid == 12345
-                    assert health.is_alive is True
-                    assert health.cpu_percent == 15.5
-                    assert health.memory_mb == 100.0  # 100 MB
+            assert health.pid == 12345
+            assert health.is_alive is True
+            assert health.cpu_percent == 15.5
+            assert health.memory_mb == 100.0  # 100 MB
 
     @pytest.mark.asyncio
     async def test_verify_process_health_no_psutil(
@@ -656,15 +673,17 @@ class TestProcessManagement:
         )
         await mock_state_backend.save(state)
 
-        with patch.object(job_control_service, "get_job_pid", return_value=12345):
-            with patch("os.kill"):  # Process exists
-                # Instead of patching __import__, we can patch the specific import in the method
-                health = await job_control_service.verify_process_health(job_id)
+        with (
+            patch.object(job_control_service, "get_job_pid", return_value=12345),
+            patch("os.kill"),  # Process exists
+        ):
+            # Without patching __import__, psutil metrics won't be available
+            health = await job_control_service.verify_process_health(job_id)
 
-                assert health.pid == 12345
-                assert health.is_alive is True
-                assert health.cpu_percent is None
-                assert health.memory_mb is None
+            assert health.pid == 12345
+            assert health.is_alive is True
+            assert health.cpu_percent is None
+            assert health.memory_mb is None
 
     @pytest.mark.asyncio
     async def test_cleanup_orphaned_processes(
@@ -802,15 +821,17 @@ class TestProcessManagement:
 
         start_time = 1000.0
 
-        with patch("asyncio.create_subprocess_exec") as mock_subprocess:
-            with patch("time.time", return_value=start_time):
-                mock_subprocess.return_value = mock_process
+        with (
+            patch("asyncio.create_subprocess_exec") as mock_subprocess,
+            patch("time.time", return_value=start_time),
+        ):
+            mock_subprocess.return_value = mock_process
 
-                result = await job_control_service.start_job(config_path=sample_config_file)
+            result = await job_control_service.start_job(config_path=sample_config_file)
 
-                # Verify start time was recorded
-                assert result.job_id in job_control_service._process_start_times
-                assert job_control_service._process_start_times[result.job_id] == start_time
+            # Verify start time was recorded
+            assert result.job_id in job_control_service._process_start_times
+            assert job_control_service._process_start_times[result.job_id] == start_time
 
     @pytest.mark.asyncio
     async def test_process_start_time_tracking_on_restart(
@@ -832,16 +853,18 @@ class TestProcessManagement:
         mock_process.pid = 54321
         restart_time = 2000.0
 
-        with patch.object(job_control_service, "get_job_pid", return_value=None):
-            with patch("asyncio.create_subprocess_exec") as mock_subprocess:
-                with patch("time.time", return_value=restart_time):
-                    mock_subprocess.return_value = mock_process
+        with (
+            patch.object(job_control_service, "get_job_pid", return_value=None),
+            patch("asyncio.create_subprocess_exec") as mock_subprocess,
+            patch("time.time", return_value=restart_time),
+        ):
+            mock_subprocess.return_value = mock_process
 
-                    result = await job_control_service.resume_job(job_id)
+            await job_control_service.resume_job(job_id)
 
-                    # Verify start time was recorded for restarted process
-                    assert job_id in job_control_service._process_start_times
-                    assert job_control_service._process_start_times[job_id] == restart_time
+            # Verify start time was recorded for restarted process
+            assert job_id in job_control_service._process_start_times
+            assert job_control_service._process_start_times[job_id] == restart_time
 
     @pytest.mark.asyncio
     async def test_process_cleanup_on_cancel(
@@ -864,16 +887,18 @@ class TestProcessManagement:
         job_control_service._running_processes[job_id] = Mock()
         job_control_service._process_start_times[job_id] = 1000.0
 
-        with patch("os.kill") as mock_kill:
-            with patch.object(job_control_service, "get_job_pid", return_value=12345):
-                with patch("asyncio.sleep"):
-                    mock_kill.side_effect = [None, ProcessLookupError("No such process")]
+        with (
+            patch("os.kill") as mock_kill,
+            patch.object(job_control_service, "get_job_pid", return_value=12345),
+            patch("asyncio.sleep"),
+        ):
+            mock_kill.side_effect = [None, ProcessLookupError("No such process")]
 
-                    await job_control_service.cancel_job(job_id)
+            await job_control_service.cancel_job(job_id)
 
-                    # Verify cleanup
-                    assert job_id not in job_control_service._running_processes
-                    assert job_id not in job_control_service._process_start_times
+            # Verify cleanup
+            assert job_id not in job_control_service._running_processes
+            assert job_id not in job_control_service._process_start_times
 
     @pytest.mark.asyncio
     async def test_process_cleanup_on_delete(

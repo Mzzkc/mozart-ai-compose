@@ -1,6 +1,5 @@
 """Tests for Mozart Dashboard rate limiting module."""
 
-import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -9,8 +8,8 @@ from fastapi.testclient import TestClient
 
 from mozart.dashboard.auth.rate_limit import (
     RateLimitConfig,
-    RateLimitMiddleware,
     RateLimiter,
+    RateLimitMiddleware,
     SlidingWindowCounter,
     get_client_identifier,
 )

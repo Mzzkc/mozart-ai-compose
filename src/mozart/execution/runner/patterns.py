@@ -249,7 +249,9 @@ class PatternsMixin:
                     self._exploitation_pattern_ids.append(pattern.id)
                     mode_indicator = ""
 
-                # Build description based on pattern type and effectiveness
+                # Build description with effectiveness indicator only (no
+                # duplicate percentage — pattern.description may already
+                # contain a success rate which would contradict effectiveness_score)
                 if pattern.effectiveness_score > 0.7:
                     effectiveness_indicator = "✓"
                 elif pattern.effectiveness_score > 0.4:
@@ -257,16 +259,15 @@ class PatternsMixin:
                 else:
                     effectiveness_indicator = "⚠"
 
-                # v22: Include trust score for auto-applied patterns
-                trust_info = f", trust={pattern.trust_score:.0%}" if is_auto_applied else ""
-
-                # Format: [indicator] description (occurrence count)
-                # Include mode indicator for exploration/auto-apply patterns
+                # Format: [indicator] description (occurrence count, effectiveness)
+                # Single effectiveness metric avoids contradicting the description's
+                # own success rate. Drop mode/trust indicators that are only
+                # meaningful for internal tracking, not actionable for Claude.
                 desc = (
-                    f"{mode_indicator}{effectiveness_indicator} "
+                    f"{effectiveness_indicator} "
                     f"{pattern.description or pattern.pattern_name} "
                     f"(seen {pattern.occurrence_count}x, "
-                    f"{pattern.effectiveness_score:.0%} effective{trust_info})"
+                    f"{pattern.effectiveness_score:.0%} effective)"
                 )
                 descriptions.append(desc)
                 pattern_ids.append(pattern.id)
@@ -286,8 +287,18 @@ class PatternsMixin:
 
             return descriptions, pattern_ids
 
+        except sqlite3.IntegrityError as e:
+            # Data consistency bug: FK/UNIQUE constraint violation
+            # Log at error level so it's visible — don't silently swallow
+            self._logger.error(
+                "patterns.query_integrity_error",
+                job_id=job_id,
+                sheet_num=sheet_num,
+                error=str(e),
+            )
+            return [], []
         except (sqlite3.Error, KeyError, ValueError, OSError) as e:
-            # Pattern query failure shouldn't block execution
+            # Transient failures (db locked, disk full) shouldn't block execution
             self._logger.warning(
                 "patterns.query_global_failed",
                 job_id=job_id,
@@ -370,6 +381,19 @@ class PatternsMixin:
                 "recommended_adjustments": recommendations,
             }
 
+        except sqlite3.IntegrityError as e:
+            self._logger.error(
+                "risk_assessment.integrity_error",
+                job_id=job_id,
+                sheet_num=sheet_num,
+                error=str(e),
+            )
+            return {
+                "risk_level": "unknown",
+                "confidence": 0.0,
+                "factors": [f"integrity error: {e}"],
+                "recommended_adjustments": [],
+            }
         except (sqlite3.Error, KeyError, ValueError, OSError) as e:
             self._logger.warning(
                 "risk_assessment.failed",
@@ -465,8 +489,17 @@ class PatternsMixin:
                     application_mode=application_mode,
                     grounding_confidence=ctx.grounding_confidence,
                 )
+            except sqlite3.IntegrityError as e:
+                # FK/UNIQUE constraint violation — data consistency bug
+                # Log at error level; don't silently lose feedback data
+                self._logger.error(
+                    "learning.pattern_feedback_integrity_error",
+                    pattern_id=pattern_id,
+                    sheet_num=ctx.sheet_num,
+                    error=str(e),
+                )
             except (sqlite3.Error, KeyError, ValueError, OSError) as e:
-                # Pattern feedback recording should not block execution
+                # Transient failures should not block execution
                 self._logger.warning(
                     "learning.pattern_feedback_failed",
                     pattern_id=pattern_id,

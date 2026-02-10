@@ -12,16 +12,13 @@ import signal
 
 import pytest
 
-from tests.helpers import record_error_on_sheet
 from mozart.core.errors import (
     ClassifiedError,
     ErrorCategory,
     ErrorClassifier,
     ErrorCode,
-    FATAL_SIGNALS,
-    RETRIABLE_SIGNALS,
 )
-
+from tests.helpers import record_error_on_sheet
 
 # ============================================================================
 # ErrorCode Enum Tests

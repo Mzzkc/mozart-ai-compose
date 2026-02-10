@@ -18,9 +18,8 @@ import signal
 import pytest
 
 from mozart.core.errors.classifier import ErrorClassifier
-from mozart.core.errors.codes import ErrorCategory, ErrorCode, ExitReason
-from mozart.core.errors.models import ClassifiedError, ClassificationResult
-
+from mozart.core.errors.codes import ErrorCategory, ErrorCode
+from mozart.core.errors.models import ClassificationResult
 
 # =============================================================================
 # Fixtures
@@ -247,7 +246,11 @@ class TestClassifyByPattern:
             ("403 Forbidden", ErrorCode.BACKEND_AUTH, ErrorCategory.AUTH),
             # MCP patterns
             ("MCP server error occurred", ErrorCode.CONFIG_MCP_ERROR, ErrorCategory.CONFIGURATION),
-            ("Missing environment variables: FOO", ErrorCode.CONFIG_MCP_ERROR, ErrorCategory.CONFIGURATION),
+            (
+                "Missing environment variables: FOO",
+                ErrorCode.CONFIG_MCP_ERROR,
+                ErrorCategory.CONFIGURATION,
+            ),
             # DNS patterns
             ("getaddrinfo ENOTFOUND", ErrorCode.NETWORK_DNS_ERROR, ErrorCategory.NETWORK),
             ("DNS resolution failed", ErrorCode.NETWORK_DNS_ERROR, ErrorCategory.NETWORK),
@@ -501,11 +504,15 @@ class TestMatchesAny:
 
     def test_matches_any_returns_true_on_match(self, classifier: ErrorClassifier) -> None:
         """Test _matches_any returns True when text matches a pattern."""
-        assert classifier._matches_any("rate limit exceeded", classifier.rate_limit_patterns) is True
+        assert classifier._matches_any(
+            "rate limit exceeded", classifier.rate_limit_patterns,
+        ) is True
 
     def test_matches_any_returns_false_on_no_match(self, classifier: ErrorClassifier) -> None:
         """Test _matches_any returns False when no pattern matches."""
-        assert classifier._matches_any("everything is fine", classifier.rate_limit_patterns) is False
+        assert classifier._matches_any(
+            "everything is fine", classifier.rate_limit_patterns,
+        ) is False
 
     def test_matches_any_caches_combined_pattern(self, classifier: ErrorClassifier) -> None:
         """Test that _matches_any uses pre-computed combined regex patterns."""
@@ -534,7 +541,9 @@ class TestMatchesAny:
 
     def test_matches_any_case_insensitive(self, classifier: ErrorClassifier) -> None:
         """Test that _matches_any is case insensitive."""
-        assert classifier._matches_any("RATE LIMIT EXCEEDED", classifier.rate_limit_patterns) is True
+        assert classifier._matches_any(
+            "RATE LIMIT EXCEEDED", classifier.rate_limit_patterns,
+        ) is True
         assert classifier._matches_any("Rate Limit", classifier.rate_limit_patterns) is True
 
 
@@ -780,7 +789,8 @@ class TestEdgeCases:
         assert result.category == ErrorCategory.RATE_LIMIT
 
     def test_capacity_is_subset_of_rate_limit(self, classifier: ErrorClassifier) -> None:
-        """Test capacity patterns produce CAPACITY_EXCEEDED when combined with rate limit patterns."""
+        """Test capacity patterns produce CAPACITY_EXCEEDED
+        when combined with rate limit patterns."""
         # "overloaded" matches both capacity_patterns and rate_limit_patterns
         result = classifier.classify(stderr="server overloaded", exit_code=1)
         assert result.error_code == ErrorCode.CAPACITY_EXCEEDED

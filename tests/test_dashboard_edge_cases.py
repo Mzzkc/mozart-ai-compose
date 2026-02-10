@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from mozart.core.checkpoint import CheckpointState, JobStatus
-from mozart.state.memory import InMemoryStateBackend
 from mozart.dashboard.services.job_control import JobControlService
-from mozart.dashboard.services.sse_manager import SSEManager, SSEEvent
+from mozart.dashboard.services.sse_manager import SSEEvent, SSEManager
+from mozart.state.memory import InMemoryStateBackend
 
 
 @pytest.fixture
@@ -125,17 +125,19 @@ prompt:
 
         # resume_job now uses file-based signals, not os.kill
         # Test failure when cleaning up signal file
-        with patch.object(job_control_service, "get_job_pid", return_value=12345):
-            with patch("pathlib.Path.exists", return_value=True):
-                with patch("pathlib.Path.unlink") as mock_unlink:
-                    mock_unlink.side_effect = PermissionError("Permission denied")
+        with (
+            patch.object(job_control_service, "get_job_pid", return_value=12345),
+            patch("pathlib.Path.exists", return_value=True),
+            patch("pathlib.Path.unlink") as mock_unlink,
+        ):
+            mock_unlink.side_effect = PermissionError("Permission denied")
 
-                    result = await job_control_service.resume_job(job_id)
+            result = await job_control_service.resume_job(job_id)
 
-                    # PermissionError during unlink is caught - check actual behavior
-                    # The implementation may succeed or fail depending on error handling
-                    # Updated to reflect actual behavior
-                    assert result.job_id == job_id
+            # PermissionError during unlink is caught - check actual behavior
+            # The implementation may succeed or fail depending on error handling
+            # Updated to reflect actual behavior
+            assert result.job_id == job_id
 
     async def test_resume_job_restart_failure(self, job_control_service, mock_state_backend):
         """Test resume job when restart fails."""
@@ -148,16 +150,20 @@ prompt:
         )
         await mock_state_backend.save(state)
 
-        with patch.object(job_control_service, "get_job_pid", return_value=None):
-            with patch("asyncio.create_subprocess_exec") as mock_subprocess:
-                mock_subprocess.side_effect = FileNotFoundError("Command not found")
+        with (
+            patch.object(job_control_service, "get_job_pid", return_value=None),
+            patch("asyncio.create_subprocess_exec") as mock_subprocess,
+        ):
+            mock_subprocess.side_effect = FileNotFoundError("Command not found")
 
-                result = await job_control_service.resume_job(job_id)
+            result = await job_control_service.resume_job(job_id)
 
-                assert result.success is False
-                assert "Failed to restart job" in result.message
+            assert result.success is False
+            assert "Failed to restart job" in result.message
 
-    async def test_cancel_job_permission_error_during_kill(self, job_control_service, mock_state_backend):
+    async def test_cancel_job_permission_error_during_kill(
+        self, job_control_service, mock_state_backend,
+    ):
         """Test cancel job with permission error during kill."""
         job_id = "test-job-123"
         state = CheckpointState(
@@ -169,15 +175,17 @@ prompt:
         )
         await mock_state_backend.save(state)
 
-        with patch("os.kill") as mock_kill:
-            with patch.object(job_control_service, "get_job_pid", return_value=12345):
-                mock_kill.side_effect = PermissionError("Permission denied")
+        with (
+            patch("os.kill") as mock_kill,
+            patch.object(job_control_service, "get_job_pid", return_value=12345),
+        ):
+            mock_kill.side_effect = PermissionError("Permission denied")
 
-                result = await job_control_service.cancel_job(job_id)
+            result = await job_control_service.cancel_job(job_id)
 
-                # Should still mark as cancelled despite kill failure
-                assert result.success is True
-                assert result.status == JobStatus.CANCELLED.value
+            # Should still mark as cancelled despite kill failure
+            assert result.success is True
+            assert result.status == JobStatus.CANCELLED.value
 
     async def test_cancel_job_force_kill_required(self, job_control_service, mock_state_backend):
         """Test cancel job that requires force kill."""
@@ -191,24 +199,26 @@ prompt:
         )
         await mock_state_backend.save(state)
 
-        with patch("os.kill") as mock_kill:
-            with patch.object(job_control_service, "get_job_pid", return_value=12345):
-                with patch("asyncio.sleep"):
-                    # Process survives SIGTERM, needs SIGKILL
-                    def kill_side_effect(pid, sig):
-                        if sig == 0:  # Check if alive after SIGTERM
-                            return  # Process still exists
-                        elif sig == 9:  # SIGKILL
-                            raise ProcessLookupError("Process killed")
+        with (
+            patch("os.kill") as mock_kill,
+            patch.object(job_control_service, "get_job_pid", return_value=12345),
+            patch("asyncio.sleep"),
+        ):
+            # Process survives SIGTERM, needs SIGKILL
+            def kill_side_effect(pid, sig):
+                if sig == 0:  # Check if alive after SIGTERM
+                    return  # Process still exists
+                elif sig == 9:  # SIGKILL
+                    raise ProcessLookupError("Process killed")
 
-                    mock_kill.side_effect = kill_side_effect
+            mock_kill.side_effect = kill_side_effect
 
-                    result = await job_control_service.cancel_job(job_id)
+            result = await job_control_service.cancel_job(job_id)
 
-                    assert result.success is True
-                    assert result.status == JobStatus.CANCELLED.value
-                    # Verify SIGKILL was called
-                    assert any(call.args[1] == 9 for call in mock_kill.call_args_list)
+            assert result.success is True
+            assert result.status == JobStatus.CANCELLED.value
+            # Verify SIGKILL was called
+            assert any(call.args[1] == 9 for call in mock_kill.call_args_list)
 
     async def test_start_job_cleanup_on_failure(self, job_control_service):
         """Test that process is cleaned up when job start fails."""
@@ -228,8 +238,10 @@ prompt:
         mock_process.terminate = Mock()
         mock_process.wait = AsyncMock()
 
-        with patch("asyncio.create_subprocess_exec") as mock_subprocess:
-            with patch("mozart.core.config.JobConfig.from_yaml_string") as mock_config:
+        with (
+            patch("asyncio.create_subprocess_exec") as mock_subprocess,
+            patch("mozart.core.config.JobConfig.from_yaml_string") as mock_config,
+        ):
                 # Make subprocess succeed but config parsing fail
                 mock_subprocess.return_value = mock_process
                 mock_config.side_effect = ValueError("Invalid config")

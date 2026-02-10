@@ -12,12 +12,12 @@ from mozart.core.config import (
     ConductorRole,
     CostLimitConfig,
     IsolationConfig,
+    JobConfig,
     LearningConfig,
+    PromptConfig,
     RateLimitConfig,
     RetryConfig,
     SheetConfig,
-    JobConfig,
-    PromptConfig,
     ValidationRule,
 )
 
@@ -427,8 +427,14 @@ class TestConductorConfig:
         assert restored.name == original.name
         assert restored.role == original.role
         assert restored.identity_context == original.identity_context
-        assert restored.preferences.prefer_minimal_output == original.preferences.prefer_minimal_output
-        assert restored.preferences.notification_channels == original.preferences.notification_channels
+        assert (
+            restored.preferences.prefer_minimal_output
+            == original.preferences.prefer_minimal_output
+        )
+        assert (
+            restored.preferences.notification_channels
+            == original.preferences.notification_channels
+        )
 
 
 class TestPromptConfig:

@@ -439,12 +439,14 @@ class RecoveryMixin:
             - secondary: List of secondary/symptom errors
             - confidence: Confidence in root cause identification
         """
+        output_format = getattr(self.config.backend, "output_format", None)
         classification = self.error_classifier.classify_execution(
             stdout=result.stdout,
             stderr=result.stderr,
             exit_code=result.exit_code,
             exit_signal=result.exit_signal,
             exit_reason=result.exit_reason,
+            output_format=output_format,
         )
 
         # Log secondary errors for debugging multi-error scenarios

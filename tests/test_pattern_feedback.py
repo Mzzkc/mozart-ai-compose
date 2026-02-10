@@ -91,12 +91,9 @@ class TestPatternFeedbackRecording:
     async def test_record_feedback_skipped_when_no_global_store(self):
         """Test feedback recording skips when global store is None."""
         # Create a mock runner with no global store
-        from mozart.execution.runner import JobRunner
 
         # We can't easily instantiate JobRunner without full config,
         # so we'll test the logic directly by creating a mock
-        mock_store = None
-        pattern_ids = ["id-1", "id-2"]
 
         # The logic should early-return when store is None
         # This is tested implicitly - no exception means success

@@ -28,7 +28,6 @@ from mozart.core.errors import ClassifiedError, ErrorCategory
 from mozart.core.errors.codes import ErrorCode
 from mozart.execution.runner import FatalError, JobRunner
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -361,13 +360,15 @@ class TestRateLimitHandling:
             rate_limit_waits=2,  # Already at max_waits - 1
         )
 
-        with pytest.raises(FatalError) as exc_info:
-            with patch("asyncio.sleep", new_callable=AsyncMock):
-                await runner_with_global_store._handle_rate_limit(
-                    state=state,
-                    error_code="E101",
-                    suggested_wait_seconds=1.0,
-                )
+        with (
+            pytest.raises(FatalError) as exc_info,
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            await runner_with_global_store._handle_rate_limit(
+                state=state,
+                error_code="E101",
+                suggested_wait_seconds=1.0,
+            )
 
         assert "Exceeded maximum rate limit waits" in str(exc_info.value)
 
@@ -411,13 +412,15 @@ class TestRateLimitHandling:
         # Make health check fail
         runner_with_global_store.backend.health_check = AsyncMock(return_value=False)
 
-        with pytest.raises(FatalError) as exc_info:
-            with patch("asyncio.sleep", new_callable=AsyncMock):
-                await runner_with_global_store._handle_rate_limit(
-                    state=state,
-                    error_code="E101",
-                    suggested_wait_seconds=1.0,
-                )
+        with (
+            pytest.raises(FatalError) as exc_info,
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            await runner_with_global_store._handle_rate_limit(
+                state=state,
+                error_code="E101",
+                suggested_wait_seconds=1.0,
+            )
 
         assert "health check failed" in str(exc_info.value).lower()
 
@@ -490,7 +493,9 @@ class TestCrossWorkspaceRateLimitCheck:
             status=JobStatus.RUNNING,
         )
 
-        is_limited, wait_time = await runner_with_global_store._check_cross_workspace_rate_limit(state)
+        is_limited, wait_time = (
+            await runner_with_global_store._check_cross_workspace_rate_limit(state)
+        )
 
         assert is_limited is False
         assert wait_time is None
@@ -511,7 +516,9 @@ class TestCrossWorkspaceRateLimitCheck:
             status=JobStatus.RUNNING,
         )
 
-        is_limited, wait_time = await runner_with_global_store._check_cross_workspace_rate_limit(state)
+        is_limited, wait_time = (
+            await runner_with_global_store._check_cross_workspace_rate_limit(state)
+        )
 
         assert is_limited is True
         assert wait_time == 120.0
@@ -533,7 +540,9 @@ class TestCrossWorkspaceRateLimitCheck:
         )
 
         # Should not raise, should return safe default
-        is_limited, wait_time = await runner_with_global_store._check_cross_workspace_rate_limit(state)
+        is_limited, wait_time = (
+            await runner_with_global_store._check_cross_workspace_rate_limit(state)
+        )
 
         assert is_limited is False
         assert wait_time is None
@@ -739,7 +748,9 @@ class TestBroadcastPolling:
         mock_global_store: MagicMock,
     ) -> None:
         """Test that polling errors don't block execution."""
-        mock_global_store.check_recent_pattern_discoveries.side_effect = sqlite3.OperationalError("DB error")
+        mock_global_store.check_recent_pattern_discoveries.side_effect = (
+            sqlite3.OperationalError("DB error")
+        )
 
         # Should not raise
         await runner_with_global_store._poll_broadcast_discoveries(

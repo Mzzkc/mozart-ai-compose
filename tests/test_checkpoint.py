@@ -2,14 +2,15 @@
 
 from datetime import datetime
 
+import pydantic
 import pytest
 
 from mozart.core.checkpoint import (
     MAX_OUTPUT_CAPTURE_BYTES,
-    SheetState,
-    SheetStatus,
     CheckpointState,
     JobStatus,
+    SheetState,
+    SheetStatus,
 )
 
 
@@ -61,10 +62,10 @@ class TestSheetState:
         SheetState(sheet_num=1, confidence_score=0.5)
 
         # Invalid values should raise validation error
-        with pytest.raises(Exception):  # Pydantic ValidationError
+        with pytest.raises(pydantic.ValidationError):
             SheetState(sheet_num=1, confidence_score=1.5)
 
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             SheetState(sheet_num=1, confidence_score=-0.1)
 
 
@@ -728,7 +729,7 @@ class TestZombieDetection:
 
     def test_set_running_pid_updates_timestamp(self):
         """Test that set_running_pid updates updated_at."""
-        from datetime import UTC, datetime, timedelta
+        from datetime import UTC, timedelta
 
         state = CheckpointState(
             job_id="test-job",
@@ -822,7 +823,7 @@ class TestZombieDetection:
     def test_is_zombie_alive_pid_never_zombie(self):
         """Test that alive PID is never detected as zombie regardless of update time."""
         import os
-        from datetime import UTC, datetime, timedelta
+        from datetime import UTC, timedelta
 
         state = CheckpointState(
             job_id="test-job",
@@ -840,7 +841,7 @@ class TestZombieDetection:
     def test_is_zombie_fresh_updates_not_zombie(self):
         """Test that alive process with recent updates is not zombie."""
         import os
-        from datetime import UTC, datetime
+        from datetime import UTC
 
         state = CheckpointState(
             job_id="test-job",

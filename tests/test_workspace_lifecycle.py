@@ -24,7 +24,9 @@ def default_config() -> WorkspaceLifecycleConfig:
 class TestArchiveNaming:
     """Tests for archive directory naming."""
 
-    def test_iteration_file_present(self, workspace: Path, default_config: WorkspaceLifecycleConfig):
+    def test_iteration_file_present(
+        self, workspace: Path, default_config: WorkspaceLifecycleConfig
+    ):
         """When .iteration file exists, archive is named iteration-N."""
         (workspace / ".iteration").write_text("3")
         (workspace / "01-report.md").write_text("data")
@@ -45,7 +47,9 @@ class TestArchiveNaming:
 
         assert result.name.startswith("archive-")
 
-    def test_iteration_file_corrupt(self, workspace: Path, default_config: WorkspaceLifecycleConfig):
+    def test_iteration_file_corrupt(
+        self, workspace: Path, default_config: WorkspaceLifecycleConfig
+    ):
         """Corrupt .iteration file falls back to timestamp naming."""
         (workspace / ".iteration").write_text("not-a-number")
         (workspace / "01-report.md").write_text("data")
@@ -74,7 +78,9 @@ class TestArchiveNaming:
 class TestFilePreservation:
     """Tests for file preservation vs archival."""
 
-    def test_iteration_file_preserved(self, workspace: Path, default_config: WorkspaceLifecycleConfig):
+    def test_iteration_file_preserved(
+        self, workspace: Path, default_config: WorkspaceLifecycleConfig
+    ):
         """The .iteration file is preserved in workspace, not moved."""
         (workspace / ".iteration").write_text("1")
         (workspace / "01-report.md").write_text("data")
@@ -85,7 +91,9 @@ class TestFilePreservation:
         assert (workspace / ".iteration").exists()
         assert not (workspace / "01-report.md").exists()
 
-    def test_mozart_state_files_preserved(self, workspace: Path, default_config: WorkspaceLifecycleConfig):
+    def test_mozart_state_files_preserved(
+        self, workspace: Path, default_config: WorkspaceLifecycleConfig
+    ):
         """Files matching .mozart-* are preserved."""
         (workspace / ".mozart-state.db").write_text("")
         (workspace / ".mozart-outcomes.json").write_text("{}")
@@ -98,7 +106,9 @@ class TestFilePreservation:
         assert (workspace / ".mozart-outcomes.json").exists()
         assert not (workspace / "05-plan.md").exists()
 
-    def test_coverage_file_preserved(self, workspace: Path, default_config: WorkspaceLifecycleConfig):
+    def test_coverage_file_preserved(
+        self, workspace: Path, default_config: WorkspaceLifecycleConfig
+    ):
         """.coverage file is preserved."""
         (workspace / ".coverage").write_text("")
         (workspace / "report.md").write_text("data")
@@ -108,7 +118,9 @@ class TestFilePreservation:
 
         assert (workspace / ".coverage").exists()
 
-    def test_archive_directory_preserved(self, workspace: Path, default_config: WorkspaceLifecycleConfig):
+    def test_archive_directory_preserved(
+        self, workspace: Path, default_config: WorkspaceLifecycleConfig
+    ):
         """The archive/ directory itself is never archived."""
         archive_dir = workspace / "archive" / "iteration-1"
         archive_dir.mkdir(parents=True)
@@ -116,14 +128,16 @@ class TestFilePreservation:
         (workspace / "new-report.md").write_text("new data")
 
         archiver = WorkspaceArchiver(workspace, default_config)
-        result = archiver.archive()
+        archiver.archive()
 
         # Old archive untouched
         assert (archive_dir / "old-report.md").exists()
         # New file archived
         assert not (workspace / "new-report.md").exists()
 
-    def test_worktrees_directory_preserved(self, workspace: Path, default_config: WorkspaceLifecycleConfig):
+    def test_worktrees_directory_preserved(
+        self, workspace: Path, default_config: WorkspaceLifecycleConfig
+    ):
         """.worktrees/ directory is preserved."""
         wt = workspace / ".worktrees"
         wt.mkdir()
@@ -135,7 +149,9 @@ class TestFilePreservation:
 
         assert (wt / "job-1").exists()
 
-    def test_non_preserved_files_archived(self, workspace: Path, default_config: WorkspaceLifecycleConfig):
+    def test_non_preserved_files_archived(
+        self, workspace: Path, default_config: WorkspaceLifecycleConfig
+    ):
         """Regular workspace files are moved to archive."""
         (workspace / ".iteration").write_text("2")
         (workspace / "01-architecture-review.md").write_text("review")
@@ -181,7 +197,9 @@ class TestEmptyWorkspace:
 
         assert result is None
 
-    def test_workspace_only_preserved_files(self, workspace: Path, default_config: WorkspaceLifecycleConfig):
+    def test_workspace_only_preserved_files(
+        self, workspace: Path, default_config: WorkspaceLifecycleConfig
+    ):
         """Workspace with only preserved files returns None."""
         (workspace / ".iteration").write_text("5")
         (workspace / ".coverage").write_text("")
@@ -232,14 +250,16 @@ class TestArchiveRotation:
         (workspace / "report.md").write_text("new")
 
         archiver = WorkspaceArchiver(workspace, config)
-        result = archiver.archive()
+        archiver.archive()
 
         # Should have 2 archives total (mid + new), oldest deleted
         remaining = sorted(d.name for d in archive_base.iterdir() if d.is_dir())
         assert len(remaining) == 2
         assert "iteration-1" not in remaining
 
-    def test_no_rotation_when_unlimited(self, workspace: Path, default_config: WorkspaceLifecycleConfig):
+    def test_no_rotation_when_unlimited(
+        self, workspace: Path, default_config: WorkspaceLifecycleConfig
+    ):
         """max_archives=0 means unlimited, no rotation."""
         archive_base = workspace / "archive"
         for i in range(1, 6):
@@ -282,7 +302,9 @@ class TestNameCollision:
 class TestErrorTolerance:
     """Tests for error handling (archive failures should warn, not crash)."""
 
-    def test_archive_returns_none_on_error(self, tmp_path: Path, default_config: WorkspaceLifecycleConfig):
+    def test_archive_returns_none_on_error(
+        self, tmp_path: Path, default_config: WorkspaceLifecycleConfig
+    ):
         """Archive errors are caught and return None."""
         # Use a path that exists but we can't write to
         workspace = tmp_path / "workspace"
@@ -361,7 +383,9 @@ workspace_lifecycle:
 class TestSubdirectoryArchival:
     """Tests for archival of subdirectories within workspace."""
 
-    def test_subdirectories_are_archived(self, workspace: Path, default_config: WorkspaceLifecycleConfig):
+    def test_subdirectories_are_archived(
+        self, workspace: Path, default_config: WorkspaceLifecycleConfig
+    ):
         """Subdirectories in workspace are also archived."""
         (workspace / ".iteration").write_text("1")
         inner = workspace / "inner-run"

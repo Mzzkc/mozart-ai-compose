@@ -8,8 +8,8 @@ import pytest
 
 from mozart.core.config import AIReviewConfig
 from mozart.review.scorer import (
-    AIReviewResult,
     AIReviewer,
+    AIReviewResult,
     GitDiffProvider,
     ReviewIssue,
 )

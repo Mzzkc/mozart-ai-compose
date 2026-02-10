@@ -9,7 +9,6 @@ These tests verify that all components work together correctly:
 All tests use mocked backends to avoid actual Claude/API calls.
 """
 
-import asyncio
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,12 +21,10 @@ from typer.testing import CliRunner
 
 from mozart.backends.base import ExecutionResult
 from mozart.cli import app
-from mozart.core.checkpoint import SheetState, SheetStatus, CheckpointState, JobStatus
-from mozart.core.config import JobConfig
+from mozart.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
 from mozart.dashboard import create_app
-from mozart.execution.runner import JobRunner, RunSummary
+from mozart.execution.runner import RunSummary
 from mozart.state.json_backend import JsonStateBackend
-
 
 runner = CliRunner()
 

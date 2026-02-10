@@ -23,13 +23,11 @@ from mozart.core.config import JobConfig
 from mozart.core.errors import ClassificationResult, ClassifiedError, ErrorCategory, ErrorCode
 from mozart.execution.runner.models import (
     ExecutionFailureContext,
-    FailureHandlingResult,
     FatalError,
     GracefulShutdownError,
     GroundingDecisionContext,
     SheetExecutionMode,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -173,7 +171,9 @@ class _MockMixin:
     async def _record_pattern_feedback(self, pattern_ids, ctx) -> None:
         pass
 
-    async def _try_self_healing(self, result, error, config_path, sheet_num, retry_count, max_retries):
+    async def _try_self_healing(
+        self, result, error, config_path, sheet_num, retry_count, max_retries,
+    ):
         return None
 
     async def _handle_rate_limit(self, state, error_code="E101", suggested_wait_seconds=None):
@@ -226,14 +226,18 @@ class TestDecideNextAction:
     def test_high_confidence_majority_passed_returns_completion(self, mixin: _TestableSheetMixin):
         """High confidence + majority passed → COMPLETION mode."""
         vr = _make_validation_result(confidence=0.95, pass_pct=75.0)
-        mode, reason, hints = mixin._decide_next_action(vr, normal_attempts=0, completion_attempts=0)
+        mode, reason, hints = mixin._decide_next_action(
+            vr, normal_attempts=0, completion_attempts=0,
+        )
         assert mode == SheetExecutionMode.COMPLETION
         assert "high confidence" in reason
 
     def test_high_confidence_completion_exhausted_returns_retry(self, mixin: _TestableSheetMixin):
         """When completion attempts exhausted, falls back to RETRY."""
         vr = _make_validation_result(confidence=0.95, pass_pct=75.0)
-        mode, reason, hints = mixin._decide_next_action(vr, normal_attempts=0, completion_attempts=2)
+        mode, reason, hints = mixin._decide_next_action(
+            vr, normal_attempts=0, completion_attempts=2,
+        )
         assert mode == SheetExecutionMode.RETRY
         assert "completion attempts exhausted" in reason
 
@@ -242,7 +246,9 @@ class TestDecideNextAction:
         mixin.config.learning.escalation_enabled = True
         mixin.escalation_handler = MagicMock()
         vr = _make_validation_result(confidence=0.15, pass_pct=30.0)
-        mode, reason, hints = mixin._decide_next_action(vr, normal_attempts=0, completion_attempts=0)
+        mode, reason, hints = mixin._decide_next_action(
+            vr, normal_attempts=0, completion_attempts=0,
+        )
         assert mode == SheetExecutionMode.ESCALATE
         assert "low confidence" in reason
 
@@ -250,21 +256,27 @@ class TestDecideNextAction:
         """Low confidence without escalation → RETRY."""
         mixin.config.learning.escalation_enabled = False
         vr = _make_validation_result(confidence=0.15, pass_pct=30.0)
-        mode, reason, hints = mixin._decide_next_action(vr, normal_attempts=0, completion_attempts=0)
+        mode, reason, hints = mixin._decide_next_action(
+            vr, normal_attempts=0, completion_attempts=0,
+        )
         assert mode == SheetExecutionMode.RETRY
         assert "escalation not available" in reason
 
     def test_medium_confidence_above_threshold_returns_completion(self, mixin: _TestableSheetMixin):
         """Medium confidence with pass_pct above completion threshold → COMPLETION."""
         vr = _make_validation_result(confidence=0.55, pass_pct=75.0)
-        mode, reason, hints = mixin._decide_next_action(vr, normal_attempts=0, completion_attempts=0)
+        mode, reason, hints = mixin._decide_next_action(
+            vr, normal_attempts=0, completion_attempts=0,
+        )
         assert mode == SheetExecutionMode.COMPLETION
         assert "medium confidence" in reason
 
     def test_medium_confidence_below_threshold_returns_retry(self, mixin: _TestableSheetMixin):
         """Medium confidence with pass_pct below threshold → RETRY."""
         vr = _make_validation_result(confidence=0.55, pass_pct=40.0)
-        mode, reason, hints = mixin._decide_next_action(vr, normal_attempts=0, completion_attempts=0)
+        mode, reason, hints = mixin._decide_next_action(
+            vr, normal_attempts=0, completion_attempts=0,
+        )
         assert mode == SheetExecutionMode.RETRY
         assert "full retry needed" in reason
 
@@ -769,9 +781,8 @@ class TestExecuteSheetWithRecovery:
 
         with patch(
             "mozart.execution.runner.sheet.ValidationEngine"
-        ):
-            with pytest.raises(FatalError, match="Preflight check failed"):
-                await mixin._execute_sheet_with_recovery(state, sheet_num=1)
+        ), pytest.raises(FatalError, match="Preflight check failed"):
+            await mixin._execute_sheet_with_recovery(state, sheet_num=1)
 
         assert state.sheets[1].status == SheetStatus.FAILED
 
@@ -1451,7 +1462,10 @@ class TestHandleExecutionFailure:
             "suggested_wait": 5.0,
             "actual_wait": 10.0,
         }
-        ctx = _make_failure_ctx(mixin, state, normal_attempts=0, max_retries=3, pending_recovery=pending)
+        ctx = _make_failure_ctx(
+            mixin, state, normal_attempts=0, max_retries=3,
+            pending_recovery=pending,
+        )
 
         classification = _make_classification(
             category=ErrorCategory.TRANSIENT,

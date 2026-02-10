@@ -21,7 +21,6 @@ from mozart.learning.aggregator import (
     PatternAggregator,
 )
 from mozart.learning.global_store import (
-    DriftMetrics,
     EntropyResponseRecord,
     ExplorationBudgetRecord,
     GlobalLearningStore,
@@ -36,7 +35,6 @@ from mozart.learning.patterns import (
     PatternType,
 )
 from mozart.learning.weighter import PatternWeighter
-
 
 # =============================================================================
 # Fixtures
@@ -3062,7 +3060,7 @@ class TestPatternAutoRetirement:
         assert metrics.threshold_exceeded is False or metrics.drift_direction == "stable"
 
         # Try to retire - should NOT retire stable patterns
-        retired = global_store.retire_drifting_patterns(drift_threshold=0.2)
+        global_store.retire_drifting_patterns(drift_threshold=0.2)
 
         # The stable pattern should NOT be retired
         patterns = global_store.get_patterns(min_priority=0.0, limit=100)
@@ -4785,7 +4783,7 @@ class TestPatternSuccessFactorsIntegration:
         # Should only return patterns with >= 2 observations
         assert len(results) == 2  # Pattern 1 (2 obs) and Pattern 2 (3 obs)
 
-        for pattern, analysis in results:
+        for _pattern, analysis in results:
             assert analysis["has_factors"] is True
             assert analysis["observation_count"] >= 2
 
@@ -5133,7 +5131,6 @@ class TestExplorationBudget:
         self, global_store: GlobalLearningStore
     ) -> None:
         """Test basic budget update recording."""
-        from mozart.learning.global_store import ExplorationBudgetRecord
 
         record = global_store.update_exploration_budget(
             job_hash="test-job",
@@ -5407,7 +5404,6 @@ class TestEntropyResponse:
         self, global_store: GlobalLearningStore
     ) -> None:
         """Test that cooldown prevents response triggering."""
-        from mozart.learning.global_store import EntropyResponseRecord
 
         # First, trigger a response
         global_store.trigger_entropy_response(
@@ -5431,7 +5427,6 @@ class TestEntropyResponse:
         self, global_store: GlobalLearningStore
     ) -> None:
         """Test basic entropy response triggering."""
-        from mozart.learning.global_store import EntropyResponseRecord
 
         record = global_store.trigger_entropy_response(
             job_hash="test-job",
@@ -5714,8 +5709,9 @@ class TestExplorationBudgetConfig:
 
     def test_config_validation(self) -> None:
         """Test config validation constraints."""
-        from mozart.core.config import ExplorationBudgetConfig
         from pydantic import ValidationError
+
+        from mozart.core.config import ExplorationBudgetConfig
 
         # Floor should be 0-1
         with pytest.raises(ValidationError):
@@ -5760,8 +5756,9 @@ class TestEntropyResponseConfig:
 
     def test_config_validation(self) -> None:
         """Test config validation constraints."""
-        from mozart.core.config import EntropyResponseConfig
         from pydantic import ValidationError
+
+        from mozart.core.config import EntropyResponseConfig
 
         # Threshold should be 0-1
         with pytest.raises(ValidationError):
@@ -5814,8 +5811,8 @@ class TestLearningConfigIntegration:
     def test_learning_config_nested_serialization(self) -> None:
         """Test that nested configs serialize correctly."""
         from mozart.core.config import (
-            ExplorationBudgetConfig,
             EntropyResponseConfig,
+            ExplorationBudgetConfig,
             LearningConfig,
         )
 

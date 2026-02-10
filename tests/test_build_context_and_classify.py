@@ -16,7 +16,7 @@ from mozart.core.checkpoint import CheckpointState
 from mozart.core.config import JobConfig
 from mozart.core.errors.classifier import ErrorClassifier
 from mozart.core.errors.codes import ErrorCategory, ErrorCode
-from mozart.core.errors.models import ClassificationResult, ClassifiedError
+from mozart.core.errors.models import ClassificationResult
 from mozart.execution.runner import JobRunner
 
 

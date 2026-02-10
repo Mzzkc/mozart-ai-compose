@@ -20,7 +20,6 @@ from mozart.execution.dag import CycleDetectedError, DependencyDAG, build_dag_fr
 from mozart.execution.fan_out import FanOutMetadata, expand_fan_out
 from mozart.prompts.templating import PromptBuilder, SheetContext
 
-
 # ─── Unit tests: expand_fan_out() ────────────────────────────────────────
 
 
@@ -505,7 +504,7 @@ class TestTemplateIntegration:
             total_stages=3,
         )
         prompt = builder.build_sheet_prompt(context)
-        assert "Stage 2 instance 2/3 of 3 total stages" == prompt
+        assert prompt == "Stage 2 instance 2/3 of 3 total stages"
 
     def test_backwards_compat_sheet_num_still_works(self):
         """{{ sheet_num }} still returns concrete expanded number."""
@@ -526,7 +525,7 @@ class TestTemplateIntegration:
             fan_count=3,
         )
         prompt = builder.build_sheet_prompt(context)
-        assert "Sheet 3 of 5" == prompt
+        assert prompt == "Sheet 3 of 5"
 
     def test_stage_defaults_to_sheet_num_without_fan_out(self):
         """When no fan_out, {{ stage }} == {{ sheet_num }}."""
@@ -545,7 +544,7 @@ class TestTemplateIntegration:
             # stage=0 triggers fallback to sheet_num
         )
         prompt = builder.build_sheet_prompt(context)
-        assert "stage=2 sheet=2" == prompt
+        assert prompt == "stage=2 sheet=2"
 
     def test_total_stages_defaults_to_total_sheets_without_fan_out(self):
         """When no fan_out, {{ total_stages }} == {{ total_sheets }}."""
@@ -564,7 +563,7 @@ class TestTemplateIntegration:
             # total_stages=0 triggers fallback to total_sheets
         )
         prompt = builder.build_sheet_prompt(context)
-        assert "stages=5 sheets=5" == prompt
+        assert prompt == "stages=5 sheets=5"
 
     def test_conditional_template_with_stage(self):
         """Jinja {% if stage == N %} branching works."""

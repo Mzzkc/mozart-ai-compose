@@ -23,7 +23,6 @@ from mozart.execution.dag import DependencyDAG
 from mozart.execution.runner.lifecycle import LifecycleMixin
 from mozart.execution.runner.models import FatalError, GracefulShutdownError, RunSummary
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

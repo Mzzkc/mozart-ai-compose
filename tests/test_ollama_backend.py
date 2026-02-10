@@ -14,8 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from mozart.backends.ollama import OllamaBackend, OllamaMessage, StreamChunk, ToolCall
-
+from mozart.backends.ollama import OllamaBackend, OllamaMessage, StreamChunk
 
 # =============================================================================
 # Fixtures
@@ -596,7 +595,7 @@ class TestAgenticLoop:
         tools = [{"type": "function", "function": {"name": "read_file"}}]
 
         with patch.object(ollama_backend, "_get_client", return_value=mock_client):
-            result = await ollama_backend._agentic_loop(messages, tools)
+            await ollama_backend._agentic_loop(messages, tools)
 
         # Should stop after max_iterations
         assert mock_client.post.call_count == 2

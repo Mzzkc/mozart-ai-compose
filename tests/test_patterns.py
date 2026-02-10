@@ -17,7 +17,6 @@ from mozart.learning.patterns import (
     PatternType,
 )
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -578,7 +577,8 @@ class TestSemanticPatterns:
                         "passed": False,
                         "confidence": 1.0,
                         "failure_category": "malformed",
-                        "failure_reason": "Pattern not found in the output",  # "pattern not found" will match
+                        # "pattern not found" will match
+                        "failure_reason": "Pattern not found in the output",
                     },
                 ],
                 execution_duration=30.0,
@@ -674,9 +674,18 @@ class TestSemanticPatterns:
         detector = PatternDetector([])
 
         # Test common pattern extraction - patterns must contain exact substring
-        assert detector._normalize_failure_reason("file not created during execution") == "file not created"
-        assert detector._normalize_failure_reason("Error: pattern not found in output") == "pattern not found"
-        assert detector._normalize_failure_reason("command failed with exit code 1") == "command failed"
+        assert (
+            detector._normalize_failure_reason("file not created during execution")
+            == "file not created"
+        )
+        assert (
+            detector._normalize_failure_reason("Error: pattern not found in output")
+            == "pattern not found"
+        )
+        assert (
+            detector._normalize_failure_reason("command failed with exit code 1")
+            == "command failed"
+        )
         assert detector._normalize_failure_reason("Timeout after 60 seconds") == "timeout"
 
         # Test that phrases only partially matching get full normalized string
@@ -697,17 +706,28 @@ class TestSemanticPatterns:
         assert detector._normalize_failure_reason(long_reason) == ""
 
         # Test that long strings WITH keywords extract the keyword (Issue #8 fix)
-        long_with_timeout = "connection to database at localhost:5432 failed with timeout after 30s"
+        long_with_timeout = (
+            "connection to database at localhost:5432 failed with timeout after 30s"
+        )
         assert detector._normalize_failure_reason(long_with_timeout) == "timeout"
 
-        long_with_rate_limit = "API request failed: rate limit exceeded after 5 retries, please wait before trying again"
+        long_with_rate_limit = (
+            "API request failed: rate limit exceeded after 5 retries,"
+            " please wait before trying again"
+        )
         assert detector._normalize_failure_reason(long_with_rate_limit) == "rate limit"
 
-        long_with_connection = "Unable to establish connection to the remote server at https://api.example.com"
+        long_with_connection = (
+            "Unable to establish connection to the remote server"
+            " at https://api.example.com"
+        )
         assert detector._normalize_failure_reason(long_with_connection) == "connection"
 
         # Test new keywords added in Issue #8 fix
-        assert detector._normalize_failure_reason("connection refused by host") == "connection refused"
+        assert (
+            detector._normalize_failure_reason("connection refused by host")
+            == "connection refused"
+        )
         assert detector._normalize_failure_reason("authentication required") == "authentication"
         assert detector._normalize_failure_reason("access denied for user") == "access denied"
 

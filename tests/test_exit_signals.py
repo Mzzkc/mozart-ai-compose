@@ -16,13 +16,12 @@ from mozart.backends.base import ExecutionResult, ExitReason
 from mozart.backends.claude_cli import ClaudeCliBackend
 from mozart.core.checkpoint import SheetState, SheetStatus
 from mozart.core.errors import (
-    ErrorCategory,
-    ErrorClassifier,
     FATAL_SIGNALS,
     RETRIABLE_SIGNALS,
+    ErrorCategory,
+    ErrorClassifier,
     get_signal_name,
 )
-
 
 # ============================================================================
 # ExecutionResult Tests
@@ -406,11 +405,17 @@ class TestErrorClassifierBackwardsCompatibility:
     @pytest.mark.parametrize(
         ("output_kwargs", "expected_category", "expected_retriable"),
         [
-            ({"stdout": "Error: rate limit exceeded", "exit_code": 1}, ErrorCategory.RATE_LIMIT, True),
+            (
+                {"stdout": "Error: rate limit exceeded", "exit_code": 1},
+                ErrorCategory.RATE_LIMIT, True,
+            ),
             ({"stderr": "401 Unauthorized", "exit_code": 1}, ErrorCategory.AUTH, False),
             ({"stderr": "connection refused", "exit_code": 1}, ErrorCategory.NETWORK, True),
             ({"exit_code": 124}, ErrorCategory.TIMEOUT, True),
-            ({"stderr": "ENOENT: no such file or directory", "exit_code": 1}, ErrorCategory.CONFIGURATION, True),
+            (
+                {"stderr": "ENOENT: no such file or directory", "exit_code": 1},
+                ErrorCategory.CONFIGURATION, True,
+            ),
         ],
         ids=["rate_limit", "auth", "network", "timeout_124", "enoent"],
     )

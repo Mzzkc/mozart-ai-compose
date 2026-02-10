@@ -1,18 +1,14 @@
 """End-to-end integration tests for Mozart Dashboard."""
-import asyncio
-import json
-import signal
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-from httpx import AsyncClient
 
 from mozart.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
-from mozart.state.memory import InMemoryStateBackend
 from mozart.dashboard.app import create_app
 from mozart.dashboard.services.job_control import JobControlService
+from mozart.state.memory import InMemoryStateBackend
 
 
 @pytest.fixture
@@ -42,17 +38,19 @@ def client(app):
 
 
 @pytest.fixture
-def sample_yaml_config():
+def sample_yaml_config(tmp_path):
     """Sample YAML config for testing."""
-    return """
+    workspace_dir = tmp_path / "e2e-test-workspace"
+    workspace_dir.mkdir(exist_ok=True)
+    return f"""
 name: "e2e-test-job"
 description: "E2E test job for integration tests"
-workspace: "./e2e-test-workspace"
+workspace: "{workspace_dir}"
 sheet:
   size: 5
   total_items: 10
 prompt:
-  template: "Process item {{item}} with error handling"
+  template: "Process item {{{{item}}}} with error handling"
 timeout_seconds: 300
 retries: 2
 """
@@ -143,22 +141,21 @@ class TestJobLifecycleE2E:
                 assert resumed_state.status == JobStatus.RUNNING
 
             # 4. CANCEL JOB
-            with patch("os.kill") as mock_kill:
-                with patch("asyncio.sleep"):
-                    mock_kill.side_effect = [None, ProcessLookupError("No such process")]
+            with patch("os.kill") as mock_kill, patch("asyncio.sleep"):
+                mock_kill.side_effect = [None, ProcessLookupError("No such process")]
 
-                    cancel_response = client.post(f"/api/jobs/{job_id}/cancel")
+                cancel_response = client.post(f"/api/jobs/{job_id}/cancel")
 
-                    assert cancel_response.status_code == 200
-                    cancel_data = cancel_response.json()
-                    assert cancel_data["success"] is True
-                    assert cancel_data["status"] == JobStatus.CANCELLED.value
+                assert cancel_response.status_code == 200
+                cancel_data = cancel_response.json()
+                assert cancel_data["success"] is True
+                assert cancel_data["status"] == JobStatus.CANCELLED.value
 
-                    # Verify state was updated
-                    cancelled_state = await mock_state_backend.load(job_id)
-                    assert cancelled_state is not None
-                    assert cancelled_state.status == JobStatus.CANCELLED
-                    assert cancelled_state.pid is None
+                # Verify state was updated
+                cancelled_state = await mock_state_backend.load(job_id)
+                assert cancelled_state is not None
+                assert cancelled_state.status == JobStatus.CANCELLED
+                assert cancelled_state.pid is None
 
             # 5. DELETE JOB
             delete_response = client.delete(f"/api/jobs/{job_id}")
@@ -183,25 +180,28 @@ class TestJobLifecycleE2E:
         mock_process = Mock()
         mock_process.pid = 54321
 
-        with patch("asyncio.create_subprocess_exec") as mock_subprocess:
-            with patch("tempfile.mkstemp") as mock_mkstemp:
-                mock_mkstemp.return_value = (3, "/tmp/test.yaml")
-                with patch("builtins.open", create=True):
-                    with patch("os.close"), patch("os.fchmod"):
-                        mock_subprocess.return_value = mock_process
+        with (
+            patch("asyncio.create_subprocess_exec") as mock_subprocess,
+            patch("tempfile.mkstemp") as mock_mkstemp,
+            patch("builtins.open", create=True),
+            patch("os.close"),
+            patch("os.fchmod"),
+        ):
+            mock_mkstemp.return_value = (3, "/tmp/test.yaml")
+            mock_subprocess.return_value = mock_process
 
-                        response = client.post("/api/jobs", json={
-                            "config_content": sample_yaml_config,
-                            "workspace": "./custom-workspace",
-                            "start_sheet": 2,
-                            "self_healing": True,
-                        })
+            response = client.post("/api/jobs", json={
+                "config_content": sample_yaml_config,
+                "workspace": "./custom-workspace",
+                "start_sheet": 2,
+                "self_healing": True,
+            })
 
-                        assert response.status_code == 200
-                        data = response.json()
-                        assert data["success"] is True
-                        assert data["job_name"] == "e2e-test-job"
-                        assert data["pid"] == 54321
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            assert data["job_name"] == "e2e-test-job"
+            assert data["pid"] == 54321
 
     async def test_job_error_scenarios(
         self,
@@ -305,7 +305,11 @@ class TestSheetDetailsE2E:
             validation_passed=True,
             validation_details=[
                 {"test": "file_exists", "passed": True, "description": "Output file created"},
-                {"test": "content_check", "passed": True, "description": "Content validation passed"},
+                {
+                    "test": "content_check",
+                    "passed": True,
+                    "description": "Content validation passed",
+                },
             ],
             execution_duration_seconds=45.2,
             exit_signal=None,
@@ -358,8 +362,10 @@ class TestSheetDetailsE2E:
         assert data["execution_duration_seconds"] == 45.2
         assert data["exit_reason"] == "success"
         assert data["completion_attempts"] == 2
-        assert data["passed_validations"] == ["file_exists", "content_check"]  # List of validation names
-        assert data["failed_validations"] == []  # Empty list for failed validations
+        assert data["passed_validations"] == [
+            "file_exists", "content_check",
+        ]  # List of validation names
+        assert data["failed_validations"] == []
         assert data["last_pass_percentage"] == 100.0
         assert data["confidence_score"] == 0.955  # 0-1 scale
         assert data["outcome_category"] == "success"
@@ -367,7 +373,9 @@ class TestSheetDetailsE2E:
         assert data["stdout_tail"] == "Process completed successfully\nOutput written to file"
         assert data["stderr_tail"] == ""
         assert data["output_truncated"] is False
-        assert data["applied_pattern_descriptions"] == ["retry-pattern", "validation-pattern"]
+        assert data["applied_pattern_descriptions"] == [
+            "retry-pattern", "validation-pattern",
+        ]
         assert data["grounding_passed"] is True
         assert data["grounding_confidence"] == 0.982  # 0-1 scale
         assert data["input_tokens"] == 1250
@@ -515,20 +523,22 @@ class TestProcessManagementE2E:
                 # Second call (check if alive) - process exited
                 raise ProcessLookupError("No such process")
 
-        with patch("os.kill", side_effect=mock_kill_side_effect):
-            with patch("asyncio.sleep"):  # Speed up the test
-                cancel_response = client.post(f"/api/jobs/{job_id}/cancel")
+        with (
+            patch("os.kill", side_effect=mock_kill_side_effect),
+            patch("asyncio.sleep"),
+        ):
+            cancel_response = client.post(f"/api/jobs/{job_id}/cancel")
 
-                assert cancel_response.status_code == 200
-                data = cancel_response.json()
-                assert data["success"] is True
-                assert data["status"] == JobStatus.CANCELLED.value
+            assert cancel_response.status_code == 200
+            data = cancel_response.json()
+            assert data["success"] is True
+            assert data["status"] == JobStatus.CANCELLED.value
 
-                # Verify state was cleaned up
-                cancelled_state = await mock_state_backend.load(job_id)
-                assert cancelled_state is not None
-                assert cancelled_state.status == JobStatus.CANCELLED
-                assert cancelled_state.pid is None
+            # Verify state was cleaned up
+            cancelled_state = await mock_state_backend.load(job_id)
+            assert cancelled_state is not None
+            assert cancelled_state.status == JobStatus.CANCELLED
+            assert cancelled_state.pid is None
 
 
 if __name__ == "__main__":

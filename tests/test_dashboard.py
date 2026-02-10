@@ -7,11 +7,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from mozart.core.checkpoint import SheetState, SheetStatus, CheckpointState, JobStatus
+from mozart.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
 from mozart.dashboard import create_app
-from mozart.dashboard.app import get_state_backend
 from mozart.state.json_backend import JsonStateBackend
-
 
 # ============================================================================
 # Fixtures

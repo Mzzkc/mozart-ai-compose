@@ -18,14 +18,13 @@ import pytest
 from typer.testing import CliRunner
 
 from mozart.cli import (
-    app,
-    _find_job_workspace,
     _create_pause_signal,
+    _find_job_workspace,
     _wait_for_pause_ack,
+    app,
 )
 from mozart.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
 from mozart.state.json_backend import JsonStateBackend
-
 
 runner = CliRunner()
 
@@ -535,7 +534,10 @@ class TestPauseCommand:
         state, workspace = running_job_state
 
         # Patch where the function is used (in commands.pause), not where it's defined
-        with patch("mozart.cli.commands.pause.create_pause_signal", side_effect=PermissionError("Read-only")):
+        with patch(
+            "mozart.cli.commands.pause.create_pause_signal",
+            side_effect=PermissionError("Read-only"),
+        ):
             result = runner.invoke(app, [
                 "pause", state.job_id,
                 "--workspace", str(workspace),
@@ -837,7 +839,10 @@ class TestModifyCommand:
         """Test modify shows E503 on permission error."""
         state, workspace = running_job_state
 
-        with patch("mozart.cli.commands.pause.create_pause_signal", side_effect=PermissionError("Read-only")):
+        with patch(
+            "mozart.cli.commands.pause.create_pause_signal",
+            side_effect=PermissionError("Read-only"),
+        ):
             result = runner.invoke(app, [
                 "modify", state.job_id,
                 "--config", str(sample_valid_config),

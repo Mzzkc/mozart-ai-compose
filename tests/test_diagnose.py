@@ -56,11 +56,16 @@ def _make_job(
             )
             for i in range(1, total_sheets + 1)
         }
+    # last_completed_sheet tracks sequential progress: highest sheet that
+    # completed in the sequential chain. Count actual COMPLETED sheets.
+    last_completed = sum(
+        1 for s in sheets.values() if s.status == SheetStatus.COMPLETED
+    )
     return CheckpointState(
         job_id=job_id,
         job_name=job_name,
         total_sheets=total_sheets,
-        last_completed_sheet=max(sheets.keys()) if sheets else 0,
+        last_completed_sheet=last_completed,
         status=status,
         created_at=now - timedelta(hours=1),
         started_at=now - timedelta(minutes=total_sheets + 1),
@@ -456,14 +461,24 @@ class TestErrorsCommand:
             error_message="Error on sheet 2", attempt_number=1, timestamp=now,
         )
         sheets = {
-            1: SheetState(sheet_num=1, status=SheetStatus.FAILED, attempt_count=1, error_history=[err1]),
-            2: SheetState(sheet_num=2, status=SheetStatus.FAILED, attempt_count=1, error_history=[err2]),
+            1: SheetState(
+                sheet_num=1, status=SheetStatus.FAILED,
+                attempt_count=1, error_history=[err1],
+            ),
+            2: SheetState(
+                sheet_num=2, status=SheetStatus.FAILED,
+                attempt_count=1, error_history=[err2],
+            ),
         }
         job = _make_job(total_sheets=2, status=JobStatus.FAILED, sheets=sheets)
         _write_state(tmp_path, job)
 
         result = runner.invoke(
-            app, ["errors", "diag-test", "--sheet", "1", "--json", "--workspace", str(tmp_path)]
+            app, [
+                "errors", "diag-test",
+                "--sheet", "1", "--json",
+                "--workspace", str(tmp_path),
+            ]
         )
         assert result.exit_code == 0
         data = json.loads(result.stdout)
@@ -490,7 +505,11 @@ class TestErrorsCommand:
         _write_state(tmp_path, job)
 
         result = runner.invoke(
-            app, ["errors", "diag-test", "--type", "rate_limit", "--json", "--workspace", str(tmp_path)]
+            app, [
+                "errors", "diag-test",
+                "--type", "rate_limit", "--json",
+                "--workspace", str(tmp_path),
+            ]
         )
         assert result.exit_code == 0
         data = json.loads(result.stdout)

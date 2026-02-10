@@ -15,7 +15,6 @@ import pytest
 
 from mozart.core.checkpoint import SheetStatus
 
-
 # =============================================================================
 # MigrationResult tests
 # =============================================================================
@@ -172,7 +171,9 @@ class TestOutcomeMigrator:
         workspace.mkdir()
         outcomes_file = workspace / ".mozart-outcomes.json"
         outcomes_file.write_text(json.dumps({
-            "outcomes": [{"sheet_id": "s1", "final_status": "completed", "timestamp": "2024-01-15T10:00:00"}]
+            "outcomes": [
+                {"sheet_id": "s1", "final_status": "completed", "timestamp": "2024-01-15T10:00:00"},
+            ]
         }))
 
         migrator = OutcomeMigrator(mock_store)
@@ -197,7 +198,9 @@ class TestOutcomeMigrator:
         workspace.mkdir()
         outcomes_file = workspace / ".mozart-outcomes.json"
         outcomes_file.write_text(json.dumps({
-            "outcomes": [{"sheet_id": "s1", "final_status": "completed", "timestamp": "2024-01-15T10:00:00"}]
+            "outcomes": [
+                {"sheet_id": "s1", "final_status": "completed", "timestamp": "2024-01-15T10:00:00"},
+            ]
         }))
 
         migrator = OutcomeMigrator(mock_store, aggregator=mock_aggregator)

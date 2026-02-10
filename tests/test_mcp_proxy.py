@@ -26,7 +26,6 @@ from mozart.bridge.mcp_proxy import (
 )
 from mozart.core.config import MCPServerConfig
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -839,7 +838,7 @@ class TestToolExecutionTimeout:
         proxy._connections["test-server"] = conn
 
         # Patch _send_jsonrpc to raise TimeoutError
-        proxy._send_jsonrpc = AsyncMock(side_effect=asyncio.TimeoutError())
+        proxy._send_jsonrpc = AsyncMock(side_effect=TimeoutError())
 
         with pytest.raises(ToolExecutionTimeout, match="slow_tool"):
             await proxy.execute_tool("slow_tool", {})

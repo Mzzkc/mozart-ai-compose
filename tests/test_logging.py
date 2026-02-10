@@ -18,8 +18,8 @@ def strip_ansi(text: str) -> str:
 
 from mozart.core.config import LogConfig
 from mozart.core.logging import (
-    CompressingRotatingFileHandler,
     SENSITIVE_PATTERNS,
+    CompressingRotatingFileHandler,
     MozartLogger,
     _sanitize_event_dict,
     _sanitize_value,
@@ -1648,7 +1648,10 @@ class TestLogsCLI:
 
         assert result.exit_code == 0
         # Output should be valid JSON
-        output_lines = [l for l in result.output.strip().split("\n") if l.startswith("{")]
+        output_lines = [
+            line for line in result.output.strip().split("\n")
+            if line.startswith("{")
+        ]
         assert len(output_lines) >= 1
         parsed = json.loads(output_lines[0])
         assert parsed["event"] == "test_event"

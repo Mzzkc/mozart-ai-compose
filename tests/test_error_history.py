@@ -10,10 +10,9 @@ from pydantic import ValidationError
 
 from mozart.core.checkpoint import (
     MAX_ERROR_HISTORY,
-    SheetState,
     ErrorRecord,
+    SheetState,
 )
-
 from tests.helpers import record_error_on_sheet
 
 

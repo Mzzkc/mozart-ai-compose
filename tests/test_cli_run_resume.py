@@ -232,6 +232,7 @@ class TestFindJobState:
     async def test_find_job_state_workspace_not_found(self) -> None:
         """Should raise typer.Exit when workspace doesn't exist."""
         import typer
+
         from mozart.cli.commands.resume import _find_job_state
 
         with pytest.raises(typer.Exit):
@@ -241,6 +242,7 @@ class TestFindJobState:
     async def test_find_job_state_job_not_found(self, tmp_path: Path) -> None:
         """Should raise typer.Exit when job state not found."""
         import typer
+
         from mozart.cli.commands.resume import _find_job_state
 
         workspace = tmp_path / "ws"
@@ -253,6 +255,7 @@ class TestFindJobState:
     async def test_find_job_state_completed_without_force(self, tmp_path: Path) -> None:
         """Completed job without --force should raise typer.Exit."""
         import typer
+
         from mozart.cli.commands.resume import _find_job_state
 
         state = CheckpointState(
@@ -267,14 +270,14 @@ class TestFindJobState:
             "mozart.cli.commands.resume.require_job_state",
             new_callable=AsyncMock,
             return_value=(state, AsyncMock()),
-        ):
-            with pytest.raises(typer.Exit):
-                await _find_job_state("completed-job", tmp_path, force=False)
+        ), pytest.raises(typer.Exit):
+            await _find_job_state("completed-job", tmp_path, force=False)
 
     @pytest.mark.asyncio
     async def test_find_job_state_pending_job(self, tmp_path: Path) -> None:
         """Pending job should raise typer.Exit with hint to use 'run'."""
         import typer
+
         from mozart.cli.commands.resume import _find_job_state
 
         state = CheckpointState(
@@ -288,9 +291,8 @@ class TestFindJobState:
             "mozart.cli.commands.resume.require_job_state",
             new_callable=AsyncMock,
             return_value=(state, AsyncMock()),
-        ):
-            with pytest.raises(typer.Exit):
-                await _find_job_state("pending-job", tmp_path, force=False)
+        ), pytest.raises(typer.Exit):
+            await _find_job_state("pending-job", tmp_path, force=False)
 
     @pytest.mark.asyncio
     async def test_find_job_state_paused_job_succeeds(self) -> None:
@@ -354,6 +356,7 @@ class TestReconstructConfig:
     def test_no_config_available_raises(self) -> None:
         """Should raise typer.Exit when no config source is available."""
         import typer
+
         from mozart.cli.commands.resume import _reconstruct_config
 
         state = CheckpointState(
@@ -378,6 +381,7 @@ class TestReconstructConfig:
     def test_reload_config_missing_path(self) -> None:
         """--reload-config without stored path should fail."""
         import typer
+
         from mozart.cli.commands.resume import _reconstruct_config
 
         state = CheckpointState(
@@ -403,6 +407,7 @@ class TestReconstructConfig:
     def test_stored_config_path_missing_file(self, tmp_path: Path) -> None:
         """Stored config_path pointing to missing file should fail."""
         import typer
+
         from mozart.cli.commands.resume import _reconstruct_config
 
         state = CheckpointState(
@@ -437,16 +442,18 @@ class TestSharedHelpers:
 
     def test_create_progress_bar_default(self) -> None:
         """create_progress_bar should return a Progress instance."""
-        from mozart.cli.commands._shared import create_progress_bar
         from rich.progress import Progress
+
+        from mozart.cli.commands._shared import create_progress_bar
 
         progress = create_progress_bar()
         assert isinstance(progress, Progress)
 
     def test_create_progress_bar_with_exec_status(self) -> None:
         """create_progress_bar with include_exec_status should add extra column."""
-        from mozart.cli.commands._shared import create_progress_bar
         from rich.progress import Progress
+
+        from mozart.cli.commands._shared import create_progress_bar
 
         progress = create_progress_bar(include_exec_status=True)
         assert isinstance(progress, Progress)

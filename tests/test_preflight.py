@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-import pytest
-
 from mozart.execution.preflight import (
     CHARS_PER_TOKEN,
     LINE_WARNING_THRESHOLD,

@@ -20,7 +20,6 @@ from mozart.validation import (
 )
 from mozart.validation.base import ValidationIssue
 from mozart.validation.checks.config import (
-    EmptyPatternCheck,
     RegexPatternCheck,
     TimeoutRangeCheck,
     ValidationTypeCheck,
@@ -30,13 +29,11 @@ from mozart.validation.checks.jinja import (
     JinjaUndefinedVariableCheck,
 )
 from mozart.validation.checks.paths import (
-    SystemPromptFileCheck,
     TemplateFileExistsCheck,
     WorkingDirectoryCheck,
     WorkspaceParentExistsCheck,
 )
 from mozart.validation.reporter import ValidationReporter
-
 
 # ============================================================================
 # Fixtures
@@ -158,7 +155,9 @@ class TestJinjaSyntaxCheck:
 class TestJinjaUndefinedVariableCheck:
     """Tests for JinjaUndefinedVariableCheck (V101)."""
 
-    def test_all_variables_defined_passes(self, minimal_config: tuple[JobConfig, Path, str]) -> None:
+    def test_all_variables_defined_passes(
+        self, minimal_config: tuple[JobConfig, Path, str],
+    ) -> None:
         """No warnings when all variables are defined."""
         config, config_path, raw_yaml = minimal_config
         check = JinjaUndefinedVariableCheck()
@@ -630,7 +629,9 @@ class TestValidationRunner:
 
         assert runner.get_exit_code(issues) == 1
 
-    def test_exit_code_0_on_warnings_only(self, minimal_config: tuple[JobConfig, Path, str]) -> None:
+    def test_exit_code_0_on_warnings_only(
+        self, minimal_config: tuple[JobConfig, Path, str],
+    ) -> None:
         """Returns exit code 0 with only warnings."""
         config, config_path, raw_yaml = minimal_config
         runner = ValidationRunner(create_default_checks())

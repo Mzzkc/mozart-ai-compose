@@ -20,7 +20,6 @@ from mozart.core.checkpoint import CheckpointState, JobStatus
 from mozart.core.config import JobConfig, PostSuccessHookConfig
 from mozart.execution.hooks import HookExecutor
 
-
 # =========================================================================
 # Fixtures
 # =========================================================================
@@ -268,7 +267,9 @@ class TestZeroWorkGuard:
         )
 
         # Track if _execute_post_success_hooks is called
-        with patch.object(runner, "_execute_post_success_hooks", new_callable=AsyncMock) as mock_hooks:
+        with patch.object(
+            runner, "_execute_post_success_hooks", new_callable=AsyncMock,
+        ) as mock_hooks:
             state, summary = await runner.run()
 
             # Hooks should NOT have been called
@@ -323,7 +324,9 @@ class TestZeroWorkGuard:
         )
 
         # Track if _execute_post_success_hooks is called
-        with patch.object(runner, "_execute_post_success_hooks", new_callable=AsyncMock) as mock_hooks:
+        with patch.object(
+            runner, "_execute_post_success_hooks", new_callable=AsyncMock,
+        ) as mock_hooks:
             state, summary = await runner.run()
 
             # Hooks SHOULD be called since real work was done
@@ -385,7 +388,9 @@ class TestZeroWorkGuard:
             context=context,
         )
 
-        with patch.object(runner, "_execute_post_success_hooks", new_callable=AsyncMock) as mock_hooks:
+        with patch.object(
+            runner, "_execute_post_success_hooks", new_callable=AsyncMock,
+        ) as mock_hooks:
             state, summary = await runner.run()
 
             # Hooks SHOULD fire — partial job was NOT already completed

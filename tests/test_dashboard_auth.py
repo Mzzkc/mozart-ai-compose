@@ -3,7 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from mozart.dashboard.auth import (
@@ -52,7 +52,11 @@ class TestAuthConfig:
             config = AuthConfig.from_env()
 
             assert config.mode == AuthMode.API_KEY
-            assert config.api_keys == [hash_api_key("key1"), hash_api_key("key2"), hash_api_key("key3")]
+            assert config.api_keys == [
+                hash_api_key("key1"),
+                hash_api_key("key2"),
+                hash_api_key("key3"),
+            ]
             assert config.localhost_bypass is False
 
     def test_from_env_disabled_mode(self):
@@ -625,7 +629,7 @@ class TestRateLimitMiddleware:
 
     @staticmethod
     def _create_app(config=None):
-        from mozart.dashboard.auth.rate_limit import RateLimitConfig, RateLimitMiddleware
+        from mozart.dashboard.auth.rate_limit import RateLimitMiddleware
 
         app = FastAPI()
         app.add_middleware(RateLimitMiddleware, config=config)

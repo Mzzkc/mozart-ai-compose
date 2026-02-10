@@ -1,18 +1,15 @@
 """Tests for Mozart MCP Tools - Job Management and Control."""
 
-import asyncio
-import json
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from mozart.core.checkpoint import CheckpointState, JobStatus, SheetStatus, SheetState
+from mozart.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
 from mozart.dashboard.services.job_control import JobActionResult, JobStartResult, ProcessHealth
-from mozart.mcp.tools import JobTools, ControlTools, ArtifactTools
+from mozart.mcp.tools import ArtifactTools, ControlTools, JobTools
 from mozart.state.json_backend import JsonStateBackend
 
 
@@ -453,14 +450,18 @@ class TestArtifactTools:
         for expected in expected_tools:
             assert expected in tool_names
 
-    async def test_artifact_tools_still_functional(self, artifact_tools: ArtifactTools, temp_workspace: Path):
+    async def test_artifact_tools_still_functional(
+        self, artifact_tools: ArtifactTools, temp_workspace: Path,
+    ):
         """Test that ArtifactTools are still functional after JobTools/ControlTools changes."""
         # Create a test file
         test_file = temp_workspace / "test.txt"
         test_file.write_text("Test content")
 
         # Test file listing
-        result = await artifact_tools.call_tool("mozart_artifact_list", {"workspace": str(temp_workspace)})
+        result = await artifact_tools.call_tool(
+            "mozart_artifact_list", {"workspace": str(temp_workspace)},
+        )
         assert "content" in result
         assert "test.txt" in result["content"][0]["text"]
 

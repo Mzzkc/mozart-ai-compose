@@ -16,11 +16,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from mozart.core.checkpoint import CheckpointState, JobStatus
 from mozart.core.config import JobConfig
 from mozart.execution.runner import JobRunner
 from mozart.execution.runner.patterns import PatternFeedbackContext
-
 
 # =============================================================================
 # Fixtures
@@ -536,7 +534,9 @@ class TestRecordPatternFeedback:
         mock_global_store: MagicMock,
     ) -> None:
         """Test that errors don't block execution."""
-        mock_global_store.record_pattern_application.side_effect = sqlite3.OperationalError("DB error")
+        mock_global_store.record_pattern_application.side_effect = (
+            sqlite3.OperationalError("DB error")
+        )
 
         # Should not raise
         await runner_with_global_store._record_pattern_feedback(

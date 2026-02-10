@@ -246,7 +246,9 @@ class TestAnthropicApiBackendRateLimitDetection:
             "try again later",
         ]
         for pattern in patterns:
-            assert backend._detect_rate_limit(pattern, exit_code=1) is True, f"Failed for: {pattern}"
+            assert backend._detect_rate_limit(pattern, exit_code=1) is True, (
+                f"Failed for: {pattern}"
+            )
 
     def test_no_rate_limit_detected(self, backend: AnthropicApiBackend) -> None:
         """Test that normal messages don't trigger rate limit detection."""
@@ -257,7 +259,9 @@ class TestAnthropicApiBackendRateLimitDetection:
             "Connection failed",
         ]
         for message in normal_messages:
-            assert backend._detect_rate_limit(message, exit_code=1) is False, f"Failed for: {message}"
+            assert backend._detect_rate_limit(message, exit_code=1) is False, (
+                f"Failed for: {message}"
+            )
 
     def test_exit_code_zero_never_rate_limited(self, backend: AnthropicApiBackend) -> None:
         """Successful execution (exit_code=0) should never be classified as rate-limited."""
@@ -273,7 +277,9 @@ class TestAnthropicApiBackendRateLimitDetection:
         """When exit_code is None (e.g. signal kill), don't falsely classify as rate-limited."""
         assert backend._detect_rate_limit("rate limit exceeded", "", exit_code=None) is False
 
-    def test_exit_code_none_all_patterns_not_rate_limited(self, backend: AnthropicApiBackend) -> None:
+    def test_exit_code_none_all_patterns_not_rate_limited(
+        self, backend: AnthropicApiBackend,
+    ) -> None:
         """All rate limit patterns must return False when exit_code is None (signal/timeout)."""
         patterns = [
             "rate limit exceeded",
@@ -336,7 +342,11 @@ class TestAnthropicApiBackendHealthCheck:
         backend = AnthropicApiBackend()
 
         mock_client = AsyncMock()
-        mock_client.messages.create = AsyncMock(side_effect=Exception("API error"))
+        mock_client.messages.create = AsyncMock(
+            side_effect=anthropic.APIError(
+                "API error", request=httpx.Request("POST", "https://api.anthropic.com"), body=None,
+            )
+        )
 
         with patch.object(backend, "_get_client", return_value=mock_client):
             result = await backend.health_check()
@@ -414,7 +424,9 @@ class TestClaudeCliBackendTimeoutOverride:
         mock_result.stdout = "ok"
         mock_result.stderr = ""
 
-        with patch.object(backend, "_execute_impl", new_callable=AsyncMock, return_value=mock_result) as mock_impl:
+        with patch.object(
+            backend, "_execute_impl", new_callable=AsyncMock, return_value=mock_result,
+        ) as mock_impl:
             await backend.execute("test prompt", timeout_seconds=60.0)
             mock_impl.assert_called_once_with("test prompt", timeout_seconds=60.0)
 
@@ -424,7 +436,9 @@ class TestClaudeCliBackendTimeoutOverride:
         mock_result = MagicMock()
         mock_result.success = True
 
-        with patch.object(backend, "_execute_impl", new_callable=AsyncMock, return_value=mock_result) as mock_impl:
+        with patch.object(
+            backend, "_execute_impl", new_callable=AsyncMock, return_value=mock_result,
+        ) as mock_impl:
             await backend.execute("test prompt")
             mock_impl.assert_called_once_with("test prompt", timeout_seconds=None)
 
@@ -437,21 +451,22 @@ class TestClaudeCliBackendTimeoutOverride:
         mock_process.communicate = AsyncMock(return_value=(b"output", b""))
         mock_process.returncode = 0
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            with patch.object(backend, "_build_command", return_value=["claude", "-p", "test"]):
-                with patch.object(backend, "_prepare_log_files"):
-                    with patch.object(backend, "_write_output_logs"):
-                        # The key assertion: wait_for should use 60.0, not 1800.0
-                        with patch("asyncio.wait_for", new_callable=AsyncMock) as mock_wait:
-                            mock_wait.return_value = (b"output", b"")
-                            try:
-                                await backend._execute_impl("test", timeout_seconds=60.0)
-                            except Exception:
-                                pass  # We only care about wait_for args
-                            # Check that wait_for was called with timeout=60.0
-                            if mock_wait.called:
-                                _, kwargs = mock_wait.call_args
-                                assert kwargs.get("timeout") == 60.0
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=mock_process),
+            patch.object(backend, "_build_command", return_value=["claude", "-p", "test"]),
+            patch.object(backend, "_prepare_log_files"),
+            patch.object(backend, "_write_output_logs"),
+            patch("asyncio.wait_for", new_callable=AsyncMock) as mock_wait,
+        ):
+            mock_wait.return_value = (b"output", b"")
+            try:
+                await backend._execute_impl("test", timeout_seconds=60.0)
+            except Exception:
+                pass  # We only care about wait_for args
+            # Check that wait_for was called with timeout=60.0
+            if mock_wait.called:
+                _, kwargs = mock_wait.call_args
+                assert kwargs.get("timeout") == 60.0
 
 
 class TestClaudeCliBackendRateLimitDetection:
@@ -1140,10 +1155,11 @@ class TestExecuteImpl:
         proc.communicate = AsyncMock(side_effect=TimeoutError)
         proc.returncode = None  # Still running when timeout hits
 
-        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)):
-            # Patch wait_for to propagate TimeoutError
-            with patch("asyncio.wait_for", side_effect=TimeoutError):
-                result = await backend._execute_impl("test prompt")
+        with (
+            patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)),
+            patch("asyncio.wait_for", side_effect=TimeoutError),
+        ):
+            result = await backend._execute_impl("test prompt")
 
         assert result.success is False
         assert result.exit_reason == "timeout"
@@ -1178,10 +1194,12 @@ class TestExecuteImpl:
 
         proc.communicate = _failing_communicate
 
-        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)):
-            with patch("os.killpg") as mock_killpg:
-                with patch("os.getpgid", return_value=12345):
-                    result = await backend._execute_impl("test prompt")
+        with (
+            patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)),
+            patch("os.killpg") as mock_killpg,
+            patch("os.getpgid", return_value=12345),
+        ):
+            result = await backend._execute_impl("test prompt")
 
         assert result.success is False
         assert result.error_type == "exception"

@@ -10,7 +10,6 @@ Tests cover:
 - Diagnosis formatting
 """
 
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -28,7 +27,6 @@ from mozart.healing.remedies.paths import (
     CreateMissingWorkspaceRemedy,
     FixPathSeparatorsRemedy,
 )
-
 
 # =============================================================================
 # Fixtures
@@ -505,7 +503,6 @@ class TestSelfHealingCoordinator:
         assert not workspace.exists()
         # If the remedy was diagnosed, it should be in skipped list
         if report.diagnoses:
-            skipped_names = [name for name, _ in report.actions_skipped]
             # Might also be skipped for other reasons or have other remedies
             assert not report.any_remedies_applied
 
@@ -1462,7 +1459,7 @@ class TestSelfHealingE2ERealFilesystem:
             registry=registry, max_healing_attempts=1
         )
 
-        report1 = await coordinator.heal(ctx)
+        await coordinator.heal(ctx)
         report2 = await coordinator.heal(ctx)
 
         # Second attempt should indicate max attempts exceeded
@@ -1593,8 +1590,8 @@ class TestSelfHealingE2E:
         )
 
         # First two attempts should work
-        report1 = await coordinator.heal(context)
-        report2 = await coordinator.heal(context)
+        await coordinator.heal(context)
+        await coordinator.heal(context)
 
         # Third should be rejected
         report3 = await coordinator.heal(context)

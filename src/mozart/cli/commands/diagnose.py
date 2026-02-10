@@ -756,16 +756,16 @@ def _build_diagnostic_report(
         "generated_at": datetime.now(UTC).isoformat(),
     }
 
-    # Progress summary
-    completed_count = sum(
-        1 for sheet in job.sheets.values() if sheet.status == SheetStatus.COMPLETED
-    )
+    # Progress summary — use last_completed_sheet as ground truth for both
+    # count and percentage (the sheets dict can contain stale records from
+    # retried sheets, inflating or deflating the count relative to actual
+    # sequential progress)
     failed_count = sum(
         1 for sheet in job.sheets.values() if sheet.status == SheetStatus.FAILED
     )
     report["progress"] = {
         "total_sheets": job.total_sheets,
-        "completed": completed_count,
+        "completed": job.last_completed_sheet,
         "failed": failed_count,
         "last_completed": job.last_completed_sheet,
         "percent": (

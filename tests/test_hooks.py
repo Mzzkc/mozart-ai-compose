@@ -131,7 +131,7 @@ class TestHookExecutor:
 
         result = executor._expand_template("{workspace}/output/{job_id}.json")
 
-        assert "/test/workspace/output/test-job.json" == result
+        assert result == "/test/workspace/output/test-job.json"
 
     def test_expand_template_sheet_count(self, minimal_config: JobConfig) -> None:
         """_expand_template should substitute sheet_count."""
@@ -142,7 +142,7 @@ class TestHookExecutor:
 
         result = executor._expand_template("Processed {sheet_count} sheets")
 
-        assert "Processed 1 sheets" == result
+        assert result == "Processed 1 sheets"
 
     @pytest.mark.asyncio
     async def test_no_hooks_returns_empty(self, minimal_config: JobConfig) -> None:

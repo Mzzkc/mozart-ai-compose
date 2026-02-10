@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from mozart.core.checkpoint import CheckpointState, JobStatus, SheetStatus, SheetState
+from mozart.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
 from mozart.mcp.tools import ArtifactTools
 from mozart.state.json_backend import JsonStateBackend
 
@@ -28,7 +28,8 @@ class TestArtifactTools:
 
             # Create test files
             (workspace / "job1" / "mozart.log").write_text(
-                "INFO: Job started\nDEBUG: Processing sheet 1\nERROR: Validation failed\nINFO: Job completed\n"
+                "INFO: Job started\nDEBUG: Processing sheet 1\n"
+                "ERROR: Validation failed\nINFO: Job completed\n"
             )
             (workspace / "job1" / "job1.json").write_text('{"status": "completed"}')
             (workspace / "job1" / "outputs" / "result.txt").write_text("Test output content")
@@ -316,7 +317,8 @@ class TestArtifactTools:
         text = result["content"][0]["text"]
         assert "🎯 Artifacts for Mozart Job: job1" in text
         assert "LOG Artifacts" in text
-        assert ("STATE Artifacts" in text or "OTHER Artifacts" in text)  # job1.json categorization may vary
+        # job1.json categorization may vary
+        assert "STATE Artifacts" in text or "OTHER Artifacts" in text
         assert "mozart.log" in text
         assert "job1.json" in text
         assert "result.txt" in text
@@ -352,7 +354,9 @@ class TestArtifactTools:
         assert "sheet_2_error.log" not in text
 
     @patch.object(ArtifactTools, '_find_job_workspace')
-    async def test_list_artifacts_auto_find_workspace(self, mock_find, artifact_tools, temp_workspace):
+    async def test_list_artifacts_auto_find_workspace(
+        self, mock_find, artifact_tools, temp_workspace,
+    ):
         """Test artifact listing with automatic workspace detection."""
         mock_find.return_value = str(temp_workspace / "job1")
 
@@ -647,4 +651,5 @@ class TestMakeErrorResponse:
         from mozart.mcp.tools import _make_error_response
 
         result = _make_error_response(PermissionError("access denied"))
-        assert "PermissionError" in result["content"][0]["text"] or "access denied" in result["content"][0]["text"]
+        text = result["content"][0]["text"]
+        assert "PermissionError" in text or "access denied" in text

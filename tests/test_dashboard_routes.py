@@ -3,7 +3,7 @@ import asyncio
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 # Fixed timestamp for deterministic tests
 _FIXED_TIME = datetime(2024, 1, 15, 12, 0, 0)
@@ -13,8 +13,8 @@ from fastapi.testclient import TestClient
 
 from mozart.core.checkpoint import CheckpointState, JobStatus
 from mozart.dashboard.app import create_app
-from mozart.dashboard.services.job_control import JobStartResult, JobActionResult
-from mozart.dashboard.routes.jobs import StartJobRequest, JobActionResponse
+from mozart.dashboard.routes.jobs import JobActionResponse, StartJobRequest
+from mozart.dashboard.services.job_control import JobActionResult, JobStartResult
 from mozart.state.json_backend import JsonStateBackend
 
 
@@ -124,7 +124,9 @@ class TestJobRoutes:
 
     def test_start_job_with_config_content(self, client, sample_config_yaml):
         """Test starting job with inline config content."""
-        with patch('mozart.dashboard.services.job_control.JobControlService.start_job') as mock_start:
+        with patch(
+            'mozart.dashboard.services.job_control.JobControlService.start_job'
+        ) as mock_start:
             mock_start.return_value = JobStartResult(
                 job_id="test-123",
                 job_name="Test Job",
@@ -165,7 +167,9 @@ class TestJobRoutes:
         config_file = temp_state_dir / "test-config.yaml"
         config_file.write_text(sample_config_yaml)
 
-        with patch('mozart.dashboard.services.job_control.JobControlService.start_job') as mock_start:
+        with patch(
+            'mozart.dashboard.services.job_control.JobControlService.start_job'
+        ) as mock_start:
             mock_start.return_value = JobStartResult(
                 job_id="test-456",
                 job_name="Test Job",
@@ -210,7 +214,9 @@ class TestJobRoutes:
 
     def test_start_job_file_not_found(self, client):
         """Test file not found error."""
-        with patch('mozart.dashboard.services.job_control.JobControlService.start_job') as mock_start:
+        with patch(
+            'mozart.dashboard.services.job_control.JobControlService.start_job'
+        ) as mock_start:
             mock_start.side_effect = FileNotFoundError("Config file not found: /nonexistent.yaml")
 
             response = client.post("/api/jobs", json={
@@ -222,7 +228,9 @@ class TestJobRoutes:
 
     def test_start_job_runtime_error(self, client, sample_config_yaml):
         """Test runtime error during job start."""
-        with patch('mozart.dashboard.services.job_control.JobControlService.start_job') as mock_start:
+        with patch(
+            'mozart.dashboard.services.job_control.JobControlService.start_job'
+        ) as mock_start:
             mock_start.side_effect = RuntimeError("Failed to start job: Permission denied")
 
             response = client.post("/api/jobs", json={
@@ -234,7 +242,9 @@ class TestJobRoutes:
 
     def test_pause_job_success(self, client):
         """Test successful job pause."""
-        with patch('mozart.dashboard.services.job_control.JobControlService.pause_job') as mock_pause:
+        with patch(
+            'mozart.dashboard.services.job_control.JobControlService.pause_job'
+        ) as mock_pause:
             mock_pause.return_value = JobActionResult(
                 success=True,
                 job_id="test-123",
@@ -253,7 +263,9 @@ class TestJobRoutes:
 
     def test_pause_job_not_found(self, client):
         """Test pausing non-existent job."""
-        with patch('mozart.dashboard.services.job_control.JobControlService.pause_job') as mock_pause:
+        with patch(
+            'mozart.dashboard.services.job_control.JobControlService.pause_job'
+        ) as mock_pause:
             mock_pause.return_value = JobActionResult(
                 success=False,
                 job_id="nonexistent",
@@ -268,7 +280,9 @@ class TestJobRoutes:
 
     def test_resume_job_success(self, client):
         """Test successful job resume."""
-        with patch('mozart.dashboard.services.job_control.JobControlService.resume_job') as mock_resume:
+        with patch(
+            'mozart.dashboard.services.job_control.JobControlService.resume_job'
+        ) as mock_resume:
             mock_resume.return_value = JobActionResult(
                 success=True,
                 job_id="test-123",
@@ -285,7 +299,9 @@ class TestJobRoutes:
 
     def test_cancel_job_success(self, client):
         """Test successful job cancellation."""
-        with patch('mozart.dashboard.services.job_control.JobControlService.cancel_job') as mock_cancel:
+        with patch(
+            'mozart.dashboard.services.job_control.JobControlService.cancel_job'
+        ) as mock_cancel:
             mock_cancel.return_value = JobActionResult(
                 success=True,
                 job_id="test-123",
@@ -302,7 +318,9 @@ class TestJobRoutes:
 
     def test_delete_job_success(self, client):
         """Test successful job deletion."""
-        with patch('mozart.dashboard.services.job_control.JobControlService.delete_job') as mock_delete:
+        with patch(
+            'mozart.dashboard.services.job_control.JobControlService.delete_job'
+        ) as mock_delete:
             mock_delete.return_value = True
 
             response = client.delete("/api/jobs/test-123")
@@ -315,8 +333,9 @@ class TestJobRoutes:
 
     def test_delete_job_not_found(self, client):
         """Test deleting non-existent job."""
-        with patch('mozart.dashboard.services.job_control.JobControlService.delete_job') as mock_delete:
-
+        with patch(
+            'mozart.dashboard.services.job_control.JobControlService.delete_job'
+        ) as mock_delete:
             mock_delete.return_value = False
 
             response = client.delete("/api/jobs/nonexistent")
@@ -341,7 +360,7 @@ class TestJobRoutes:
             pid=12345,  # PID must be set for running job check
         )
         backend = JsonStateBackend(temp_state_dir)
-        asyncio.get_event_loop().run_until_complete(backend.save(running_state))
+        asyncio.run(backend.save(running_state))
 
         # Mock os.kill to make the process appear alive (prevents deletion)
         with patch('os.kill'):
