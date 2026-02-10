@@ -90,7 +90,7 @@ class CostMixin:
     # Token & Cost Tracking
     # ─────────────────────────────────────────────────────────────────────
 
-    def _track_cost(
+    async def _track_cost(
         self,
         result: ExecutionResult,
         sheet_state: SheetState,
@@ -168,7 +168,7 @@ class CostMixin:
 
         # Update circuit breaker for real-time tracking
         if self._circuit_breaker is not None:
-            self._circuit_breaker.record_cost(input_tokens, output_tokens, estimated_cost)
+            await self._circuit_breaker.record_cost(input_tokens, output_tokens, estimated_cost)
 
         # Update summary
         if self._summary is not None:

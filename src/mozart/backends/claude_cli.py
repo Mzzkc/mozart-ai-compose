@@ -154,6 +154,12 @@ class ClaudeCliBackend(Backend):
         self._stdout_log_path: Path | None = None
         self._stderr_log_path: Path | None = None
 
+        # Partial output accumulator — populated during execution so that
+        # _handle_execution_timeout() can capture partial output on timeout
+        # instead of returning empty strings.
+        self._partial_stdout_chunks: list[bytes] = []
+        self._partial_stderr_chunks: list[bytes] = []
+
         # Verify claude CLI is available
         self._claude_path = shutil.which("claude")
 
@@ -347,13 +353,21 @@ class ClaudeCliBackend(Backend):
                 "phase": "timeout",
             })
 
+        # Capture partial output collected before timeout.
+        # The streaming path accumulates chunks in _partial_stdout_chunks;
+        # the non-streaming path leaves them empty (communicate() is atomic).
+        partial_stdout = b"".join(self._partial_stdout_chunks).decode("utf-8", errors="replace")
+        partial_stderr = b"".join(self._partial_stderr_chunks).decode("utf-8", errors="replace")
+        timeout_msg = f"Command timed out after {self.timeout_seconds}s"
+        stderr_combined = f"{partial_stderr}\n{timeout_msg}".strip() if partial_stderr else timeout_msg
+
         return ExecutionResult(
             success=False,
             exit_code=None,
             exit_signal=signal.SIGKILL,
             exit_reason="timeout",
-            stdout="",
-            stderr=f"Command timed out after {self.timeout_seconds}s",
+            stdout=partial_stdout,
+            stderr=stderr_combined,
             duration_seconds=duration,
             error_type="timeout",
             error_message=f"Timed out after {self.timeout_seconds}s",
@@ -519,6 +533,9 @@ class ClaudeCliBackend(Backend):
 
         process: asyncio.subprocess.Process | None = None
         self._prepare_log_files()
+        # Reset partial output accumulators for this execution
+        self._partial_stdout_chunks = []
+        self._partial_stderr_chunks = []
 
         try:
             # create_subprocess_exec is shell-injection safe.
@@ -762,8 +779,10 @@ class ClaudeCliBackend(Backend):
             TimeoutError: If execution exceeds timeout.
         """
         timeout = effective_timeout if effective_timeout is not None else self.timeout_seconds
-        stdout_chunks: list[bytes] = []
-        stderr_chunks: list[bytes] = []
+        # Use the instance-level accumulators so partial output survives timeout.
+        # _handle_execution_timeout() reads these if a TimeoutError occurs.
+        stdout_chunks = self._partial_stdout_chunks
+        stderr_chunks = self._partial_stderr_chunks
         # Mutable accumulator shared by concurrent stream readers:
         # [total_bytes, total_lines, last_update_time]
         counters: list[int | float] = [0, 0, start_time]

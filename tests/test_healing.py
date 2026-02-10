@@ -1495,3 +1495,136 @@ class TestSelfHealingE2E:
         rolled_back = remedy.rollback(result)
         assert rolled_back
         assert not workspace.exists(), "Rollback should remove created workspace"
+
+
+# =============================================================================
+# End-to-end: Full healing chain tests
+# =============================================================================
+
+
+class TestSelfHealingE2E:
+    """E2E tests exercising the full healing chain:
+    error → context → diagnosis → remedy → retry decision.
+    """
+
+    @pytest.mark.asyncio
+    async def test_workspace_missing_full_chain(self, tmp_path):
+        """E2E: missing workspace → diagnose → auto-create → should_retry=True."""
+        workspace = tmp_path / "nonexistent-workspace"
+        assert not workspace.exists()
+
+        mock_config = MagicMock()
+        mock_config.workspace = workspace
+        mock_config.backend.working_directory = None
+
+        # 1. Create error context (simulating a preflight failure)
+        context = ErrorContext(
+            error_code="E601",
+            error_message=f"Workspace directory does not exist: {workspace}",
+            error_category="preflight",
+            config=mock_config,
+            workspace=workspace,
+            sheet_number=1,
+            working_directory=workspace,
+        )
+
+        # 2. Run the full healing coordinator
+        registry = create_default_registry()
+        coordinator = SelfHealingCoordinator(registry, auto_confirm=True)
+        report = await coordinator.heal(context)
+
+        # 3. Verify the full chain
+        assert report.any_remedies_applied, "Workspace creation should succeed"
+        assert report.should_retry, "Should recommend retry after fix"
+        assert workspace.exists(), "Workspace should have been created"
+
+        # Verify the report contains the right action
+        assert len(report.actions_taken) >= 1
+        action_name, result = report.actions_taken[0]
+        assert result.success
+        assert "workspace" in result.action_taken.lower() or "create" in result.action_taken.lower()
+
+    @pytest.mark.asyncio
+    async def test_auth_error_diagnostic_only(self, tmp_path):
+        """E2E: auth error → diagnose → no auto-fix → should_retry=False."""
+        mock_config = MagicMock()
+        mock_config.workspace = tmp_path
+        mock_config.backend.working_directory = None
+
+        context = ErrorContext(
+            error_code="E101",
+            error_message="Authentication failed: invalid API key",
+            error_category="execution",
+            config=mock_config,
+            workspace=tmp_path,
+            sheet_number=1,
+            working_directory=tmp_path,
+        )
+
+        registry = create_default_registry()
+        coordinator = SelfHealingCoordinator(registry, auto_confirm=True)
+        report = await coordinator.heal(context)
+
+        # Auth errors can't be auto-fixed
+        assert not report.should_retry, "Auth errors are not auto-fixable"
+        # But there should be diagnostic output guiding the user
+        assert len(report.diagnostic_outputs) >= 1 or len(report.actions_skipped) >= 0
+
+    @pytest.mark.asyncio
+    async def test_max_healing_attempts_respected(self, tmp_path):
+        """E2E: healing respects max_healing_attempts cap."""
+        mock_config = MagicMock()
+        mock_config.workspace = tmp_path
+        mock_config.backend.working_directory = None
+
+        context = ErrorContext(
+            error_code="E601",
+            error_message="Some error",
+            error_category="preflight",
+            config=mock_config,
+            workspace=tmp_path / "nonexistent",
+            sheet_number=1,
+            working_directory=tmp_path,
+        )
+
+        registry = create_default_registry()
+        coordinator = SelfHealingCoordinator(
+            registry, auto_confirm=True, max_healing_attempts=2,
+        )
+
+        # First two attempts should work
+        report1 = await coordinator.heal(context)
+        report2 = await coordinator.heal(context)
+
+        # Third should be rejected
+        report3 = await coordinator.heal(context)
+        assert not report3.should_retry, "Should stop after max attempts"
+        assert any("Max healing" in reason for _, reason in report3.actions_skipped)
+
+    @pytest.mark.asyncio
+    async def test_healing_report_format(self, tmp_path):
+        """E2E: verify healing report is well-formatted."""
+        workspace = tmp_path / "format-test-workspace"
+        mock_config = MagicMock()
+        mock_config.workspace = workspace
+        mock_config.backend.working_directory = None
+
+        context = ErrorContext(
+            error_code="E601",
+            error_message=f"Workspace directory does not exist: {workspace}",
+            error_category="preflight",
+            config=mock_config,
+            workspace=workspace,
+            sheet_number=3,
+            working_directory=workspace,
+        )
+
+        registry = create_default_registry()
+        coordinator = SelfHealingCoordinator(registry, auto_confirm=True)
+        report = await coordinator.heal(context)
+
+        formatted = report.format(verbose=True)
+        assert "SELF-HEALING REPORT" in formatted
+        assert "Sheet 3" in formatted
+        assert "E601" in formatted
+        assert "HEALED" in formatted

@@ -1,5 +1,7 @@
 """Tests for mozart.execution.circuit_breaker module."""
 
+import asyncio
+
 import pytest
 
 from mozart.execution.circuit_breaker import (
@@ -77,13 +79,14 @@ class TestCircuitBreakerStats:
 class TestCircuitBreakerInitialization:
     """Tests for CircuitBreaker initialization."""
 
-    def test_default_values(self):
+    @pytest.mark.asyncio
+    async def test_default_values(self):
         """Test circuit breaker with default values."""
         cb = CircuitBreaker()
         assert cb.failure_threshold == 5
         assert cb.recovery_timeout == 300.0
         assert cb.name == "default"
-        assert cb.get_state() == CircuitState.CLOSED
+        assert await cb.get_state() == CircuitState.CLOSED
 
     def test_custom_values(self):
         """Test circuit breaker with custom values."""
@@ -124,58 +127,63 @@ class TestCircuitBreakerInitialization:
 class TestCircuitBreakerClosedState:
     """Tests for circuit breaker in CLOSED state."""
 
-    def test_can_execute_when_closed(self):
+    @pytest.mark.asyncio
+    async def test_can_execute_when_closed(self):
         """Test that requests are allowed when closed."""
         cb = CircuitBreaker(failure_threshold=3)
-        assert cb.can_execute() is True
-        assert cb.get_state() == CircuitState.CLOSED
+        assert await cb.can_execute() is True
+        assert await cb.get_state() == CircuitState.CLOSED
 
-    def test_success_resets_failure_count(self):
+    @pytest.mark.asyncio
+    async def test_success_resets_failure_count(self):
         """Test that success resets consecutive failure count."""
         cb = CircuitBreaker(failure_threshold=3)
 
         # Record some failures (but not enough to open)
-        cb.record_failure()
-        cb.record_failure()
-        assert cb.get_state() == CircuitState.CLOSED
+        await cb.record_failure()
+        await cb.record_failure()
+        assert await cb.get_state() == CircuitState.CLOSED
 
         # Record success
-        cb.record_success()
-        assert cb.get_state() == CircuitState.CLOSED
+        await cb.record_success()
+        assert await cb.get_state() == CircuitState.CLOSED
 
         # Failure count should be reset, so 2 more failures shouldn't open
-        cb.record_failure()
-        cb.record_failure()
-        assert cb.get_state() == CircuitState.CLOSED
+        await cb.record_failure()
+        await cb.record_failure()
+        assert await cb.get_state() == CircuitState.CLOSED
 
-    def test_failures_open_circuit(self):
+    @pytest.mark.asyncio
+    async def test_failures_open_circuit(self):
         """Test that enough failures transition to OPEN."""
         cb = CircuitBreaker(failure_threshold=3)
 
-        cb.record_failure()
-        assert cb.get_state() == CircuitState.CLOSED
-        cb.record_failure()
-        assert cb.get_state() == CircuitState.CLOSED
-        cb.record_failure()  # This should trigger OPEN
-        assert cb.get_state() == CircuitState.OPEN
+        await cb.record_failure()
+        assert await cb.get_state() == CircuitState.CLOSED
+        await cb.record_failure()
+        assert await cb.get_state() == CircuitState.CLOSED
+        await cb.record_failure()  # This should trigger OPEN
+        assert await cb.get_state() == CircuitState.OPEN
 
-    def test_stats_updated_on_failure(self):
+    @pytest.mark.asyncio
+    async def test_stats_updated_on_failure(self):
         """Test that stats are updated on failure."""
         cb = CircuitBreaker(failure_threshold=5)
 
-        cb.record_failure()
-        stats = cb.get_stats()
+        await cb.record_failure()
+        stats = await cb.get_stats()
 
         assert stats.total_failures == 1
         assert stats.consecutive_failures == 1
         assert stats.last_failure_at is not None
 
-    def test_stats_updated_on_success(self):
+    @pytest.mark.asyncio
+    async def test_stats_updated_on_success(self):
         """Test that stats are updated on success."""
         cb = CircuitBreaker(failure_threshold=5)
 
-        cb.record_success()
-        stats = cb.get_stats()
+        await cb.record_success()
+        stats = await cb.get_stats()
 
         assert stats.total_successes == 1
         assert stats.consecutive_failures == 0
@@ -184,47 +192,52 @@ class TestCircuitBreakerClosedState:
 class TestCircuitBreakerOpenState:
     """Tests for circuit breaker in OPEN state."""
 
-    def test_blocks_requests_when_open(self):
+    @pytest.mark.asyncio
+    async def test_blocks_requests_when_open(self):
         """Test that requests are blocked when open."""
         cb = CircuitBreaker(failure_threshold=1, recovery_timeout=60.0)
-        cb.record_failure()  # Opens the circuit
+        await cb.record_failure()  # Opens the circuit
 
-        assert cb.get_state() == CircuitState.OPEN
-        assert cb.can_execute() is False
+        assert await cb.get_state() == CircuitState.OPEN
+        assert await cb.can_execute() is False
 
-    def test_time_until_retry(self):
+    @pytest.mark.asyncio
+    async def test_time_until_retry(self):
         """Test time_until_retry returns correct value when open."""
         cb = CircuitBreaker(failure_threshold=1, recovery_timeout=60.0)
-        cb.record_failure()
+        await cb.record_failure()
 
-        time_left = cb.time_until_retry()
+        time_left = await cb.time_until_retry()
         assert time_left is not None
         assert time_left > 0
         assert time_left <= 60.0
 
-    def test_time_until_retry_none_when_not_open(self):
+    @pytest.mark.asyncio
+    async def test_time_until_retry_none_when_not_open(self):
         """Test time_until_retry returns None when not open."""
         cb = CircuitBreaker(failure_threshold=5)
-        assert cb.time_until_retry() is None
+        assert await cb.time_until_retry() is None
 
-    def test_transitions_to_half_open_after_timeout(self):
+    @pytest.mark.asyncio
+    async def test_transitions_to_half_open_after_timeout(self):
         """Test automatic transition to HALF_OPEN after timeout."""
         cb = CircuitBreaker(failure_threshold=1, recovery_timeout=0.1)
-        cb.record_failure()
-        assert cb.get_state() == CircuitState.OPEN
+        await cb.record_failure()
+        assert await cb.get_state() == CircuitState.OPEN
 
         # Simulate time passing beyond recovery_timeout
         _advance_circuit_breaker_time(cb, 0.15)
 
         # State check should trigger transition
-        assert cb.get_state() == CircuitState.HALF_OPEN
+        assert await cb.get_state() == CircuitState.HALF_OPEN
 
-    def test_stats_count_open_transitions(self):
+    @pytest.mark.asyncio
+    async def test_stats_count_open_transitions(self):
         """Test that opening circuit increments times_opened."""
         cb = CircuitBreaker(failure_threshold=1)
-        cb.record_failure()
+        await cb.record_failure()
 
-        stats = cb.get_stats()
+        stats = await cb.get_stats()
         assert stats.times_opened == 1
         assert stats.last_state_change_at is not None
 
@@ -232,84 +245,91 @@ class TestCircuitBreakerOpenState:
 class TestCircuitBreakerHalfOpenState:
     """Tests for circuit breaker in HALF_OPEN state."""
 
-    def test_allows_single_request_in_half_open(self):
+    @pytest.mark.asyncio
+    async def test_allows_single_request_in_half_open(self):
         """Test that HALF_OPEN allows requests."""
         cb = CircuitBreaker(failure_threshold=1, recovery_timeout=0.01)
-        cb.record_failure()
+        await cb.record_failure()
         _advance_circuit_breaker_time(cb, 0.02)
 
-        assert cb.get_state() == CircuitState.HALF_OPEN
-        assert cb.can_execute() is True
+        assert await cb.get_state() == CircuitState.HALF_OPEN
+        assert await cb.can_execute() is True
 
-    def test_success_in_half_open_closes_circuit(self):
+    @pytest.mark.asyncio
+    async def test_success_in_half_open_closes_circuit(self):
         """Test that success in HALF_OPEN transitions to CLOSED."""
         cb = CircuitBreaker(failure_threshold=1, recovery_timeout=0.01)
-        cb.record_failure()
+        await cb.record_failure()
         _advance_circuit_breaker_time(cb, 0.02)
 
-        assert cb.get_state() == CircuitState.HALF_OPEN
+        assert await cb.get_state() == CircuitState.HALF_OPEN
 
-        cb.record_success()
-        assert cb.get_state() == CircuitState.CLOSED
+        await cb.record_success()
+        assert await cb.get_state() == CircuitState.CLOSED
 
-    def test_failure_in_half_open_reopens_circuit(self):
+    @pytest.mark.asyncio
+    async def test_failure_in_half_open_reopens_circuit(self):
         """Test that failure in HALF_OPEN transitions back to OPEN."""
         cb = CircuitBreaker(failure_threshold=1, recovery_timeout=0.01)
-        cb.record_failure()
+        await cb.record_failure()
         _advance_circuit_breaker_time(cb, 0.02)
 
-        assert cb.get_state() == CircuitState.HALF_OPEN
+        assert await cb.get_state() == CircuitState.HALF_OPEN
 
-        cb.record_failure()
-        assert cb.get_state() == CircuitState.OPEN
+        await cb.record_failure()
+        assert await cb.get_state() == CircuitState.OPEN
 
-    def test_stats_count_half_open_transitions(self):
+    @pytest.mark.asyncio
+    async def test_stats_count_half_open_transitions(self):
         """Test that half-open transition increments counter."""
         cb = CircuitBreaker(failure_threshold=1, recovery_timeout=0.01)
-        cb.record_failure()
+        await cb.record_failure()
         _advance_circuit_breaker_time(cb, 0.02)
 
         # Trigger the transition check
-        cb.get_state()
+        await cb.get_state()
 
-        stats = cb.get_stats()
+        stats = await cb.get_stats()
         assert stats.times_half_opened == 1
 
 
 class TestCircuitBreakerReset:
     """Tests for circuit breaker reset functionality."""
 
-    def test_reset_from_open(self):
+    @pytest.mark.asyncio
+    async def test_reset_from_open(self):
         """Test reset from OPEN state."""
         cb = CircuitBreaker(failure_threshold=1)
-        cb.record_failure()
-        assert cb.get_state() == CircuitState.OPEN
+        await cb.record_failure()
+        assert await cb.get_state() == CircuitState.OPEN
 
-        cb.reset()
+        await cb.reset()
 
-        assert cb.get_state() == CircuitState.CLOSED
-        assert cb.time_until_retry() is None
+        assert await cb.get_state() == CircuitState.CLOSED
+        assert await cb.time_until_retry() is None
 
-    def test_reset_clears_failure_count(self):
+    @pytest.mark.asyncio
+    async def test_reset_clears_failure_count(self):
         """Test that reset clears failure count."""
         cb = CircuitBreaker(failure_threshold=3)
-        cb.record_failure()
-        cb.record_failure()
+        await cb.record_failure()
+        await cb.record_failure()
 
-        cb.reset()
+        await cb.reset()
 
         # After reset, 2 failures shouldn't open (would have been 4)
-        cb.record_failure()
-        cb.record_failure()
-        assert cb.get_state() == CircuitState.CLOSED
+        await cb.record_failure()
+        await cb.record_failure()
+        assert await cb.get_state() == CircuitState.CLOSED
 
-    def test_reset_does_not_clear_stats(self):
+    @pytest.mark.asyncio
+    async def test_reset_does_not_clear_stats(self):
         """Test that reset preserves stats history."""
         cb = CircuitBreaker(failure_threshold=1)
-        cb.record_failure()  # Opens circuit
-        cb.reset()
+        await cb.record_failure()  # Opens circuit
+        await cb.reset()
 
-        stats = cb.get_stats()
+        stats = await cb.get_stats()
         assert stats.total_failures == 1
         assert stats.times_opened == 1
         assert stats.times_closed == 1  # Reset triggers close transition
@@ -318,82 +338,69 @@ class TestCircuitBreakerReset:
 class TestCircuitBreakerForce:
     """Tests for force_open and force_close functionality."""
 
-    def test_force_open(self):
+    @pytest.mark.asyncio
+    async def test_force_open(self):
         """Test force_open transitions to OPEN."""
         cb = CircuitBreaker(failure_threshold=5)
-        assert cb.get_state() == CircuitState.CLOSED
+        assert await cb.get_state() == CircuitState.CLOSED
 
-        cb.force_open()
+        await cb.force_open()
 
-        assert cb.get_state() == CircuitState.OPEN
-        assert cb.can_execute() is False
+        assert await cb.get_state() == CircuitState.OPEN
+        assert await cb.can_execute() is False
 
-    def test_force_close(self):
+    @pytest.mark.asyncio
+    async def test_force_close(self):
         """Test force_close transitions to CLOSED."""
         cb = CircuitBreaker(failure_threshold=1)
-        cb.record_failure()
-        assert cb.get_state() == CircuitState.OPEN
+        await cb.record_failure()
+        assert await cb.get_state() == CircuitState.OPEN
 
-        cb.force_close()
+        await cb.force_close()
 
-        assert cb.get_state() == CircuitState.CLOSED
-        assert cb.can_execute() is True
+        assert await cb.get_state() == CircuitState.CLOSED
+        assert await cb.can_execute() is True
 
-    def test_force_close_resets_failure_count(self):
+    @pytest.mark.asyncio
+    async def test_force_close_resets_failure_count(self):
         """Test that force_close resets failure count."""
         cb = CircuitBreaker(failure_threshold=3)
-        cb.record_failure()
-        cb.record_failure()
-        cb.force_close()
+        await cb.record_failure()
+        await cb.record_failure()
+        await cb.force_close()
 
         # After force_close, 2 more failures shouldn't open
-        cb.record_failure()
-        cb.record_failure()
-        assert cb.get_state() == CircuitState.CLOSED
+        await cb.record_failure()
+        await cb.record_failure()
+        assert await cb.get_state() == CircuitState.CLOSED
 
 
-class TestCircuitBreakerThreadSafety:
-    """Tests for thread safety (basic verification)."""
+class TestCircuitBreakerAsyncSafety:
+    """Tests for async safety (basic verification)."""
 
-    def test_concurrent_operations_dont_crash(self):
-        """Test that concurrent operations don't cause crashes."""
-        import threading
-
+    @pytest.mark.asyncio
+    async def test_concurrent_async_operations_dont_crash(self):
+        """Test that concurrent async operations don't cause crashes."""
         cb = CircuitBreaker(failure_threshold=100, recovery_timeout=60.0)
-        errors = []
 
-        def record_failures():
-            try:
-                for _ in range(50):
-                    cb.record_failure()
-                    cb.get_state()
-            except Exception as e:
-                errors.append(e)
+        async def record_failures():
+            for _ in range(50):
+                await cb.record_failure()
+                await cb.get_state()
 
-        def record_successes():
-            try:
-                for _ in range(50):
-                    cb.record_success()
-                    cb.can_execute()
-            except Exception as e:
-                errors.append(e)
+        async def record_successes():
+            for _ in range(50):
+                await cb.record_success()
+                await cb.can_execute()
 
-        threads = [
-            threading.Thread(target=record_failures),
-            threading.Thread(target=record_successes),
-            threading.Thread(target=record_failures),
-            threading.Thread(target=record_successes),
-        ]
+        await asyncio.gather(
+            record_failures(),
+            record_successes(),
+            record_failures(),
+            record_successes(),
+        )
 
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-
-        assert len(errors) == 0
-
-        # Stats should be consistent
-        stats = cb.get_stats()
+        stats = await cb.get_stats()
         assert stats.total_failures == 100
         assert stats.total_successes == 100
 
@@ -401,14 +408,15 @@ class TestCircuitBreakerThreadSafety:
 class TestCircuitBreakerStatsSnapshot:
     """Tests for stats snapshot (copy) behavior."""
 
-    def test_stats_are_copied(self):
+    @pytest.mark.asyncio
+    async def test_stats_are_copied(self):
         """Test that get_stats returns a copy."""
         cb = CircuitBreaker(failure_threshold=5)
-        cb.record_failure()
+        await cb.record_failure()
 
-        stats1 = cb.get_stats()
-        cb.record_failure()
-        stats2 = cb.get_stats()
+        stats1 = await cb.get_stats()
+        await cb.record_failure()
+        stats2 = await cb.get_stats()
 
         # stats1 should be unchanged
         assert stats1.total_failures == 1
@@ -418,47 +426,92 @@ class TestCircuitBreakerStatsSnapshot:
 class TestCircuitBreakerLogging:
     """Tests for circuit breaker logging."""
 
-    def test_state_change_logged_at_info(self):
+    @pytest.mark.asyncio
+    async def test_state_change_logged_at_info(self):
         """Test that state changes are logged at INFO level."""
         cb = CircuitBreaker(failure_threshold=1, name="test-logger")
-        assert cb.get_state() == CircuitState.CLOSED
+        assert await cb.get_state() == CircuitState.CLOSED
 
-        cb.record_failure()  # CLOSED -> OPEN
-        assert cb.get_state() == CircuitState.OPEN
+        await cb.record_failure()  # CLOSED -> OPEN
+        assert await cb.get_state() == CircuitState.OPEN
 
-        cb.force_close()  # OPEN -> CLOSED
-        assert cb.get_state() == CircuitState.CLOSED
+        await cb.force_close()  # OPEN -> CLOSED
+        assert await cb.get_state() == CircuitState.CLOSED
 
 
 class TestCircuitBreakerEdgeCases:
     """Tests for edge cases."""
 
-    def test_single_failure_threshold(self):
+    @pytest.mark.asyncio
+    async def test_single_failure_threshold(self):
         """Test with failure_threshold=1 (immediate open)."""
         cb = CircuitBreaker(failure_threshold=1)
-        cb.record_failure()
-        assert cb.get_state() == CircuitState.OPEN
+        await cb.record_failure()
+        assert await cb.get_state() == CircuitState.OPEN
 
-    def test_very_short_recovery_timeout(self):
+    @pytest.mark.asyncio
+    async def test_very_short_recovery_timeout(self):
         """Test with very short recovery timeout."""
         cb = CircuitBreaker(failure_threshold=1, recovery_timeout=0.001)
-        cb.record_failure()
+        await cb.record_failure()
         _advance_circuit_breaker_time(cb, 0.01)
-        assert cb.get_state() == CircuitState.HALF_OPEN
+        assert await cb.get_state() == CircuitState.HALF_OPEN
 
-    def test_success_when_open_has_no_effect(self):
+    @pytest.mark.asyncio
+    async def test_success_when_open_has_no_effect(self):
         """Test that success while OPEN doesn't change state."""
         cb = CircuitBreaker(failure_threshold=1, recovery_timeout=60.0)
-        cb.record_failure()
-        assert cb.get_state() == CircuitState.OPEN
+        await cb.record_failure()
+        assert await cb.get_state() == CircuitState.OPEN
 
         # Record success while open (shouldn't happen in practice)
-        cb.record_success()
+        await cb.record_success()
 
         # State should still be OPEN
         # (success increments counter but doesn't change OPEN state)
-        assert cb.get_state() == CircuitState.OPEN
+        assert await cb.get_state() == CircuitState.OPEN
 
         # But stats should reflect the success
-        stats = cb.get_stats()
+        stats = await cb.get_stats()
         assert stats.total_successes == 1
+
+
+class TestCircuitBreakerCostTracking:
+    """Tests for cost tracking functionality."""
+
+    @pytest.mark.asyncio
+    async def test_record_cost(self):
+        """Test recording cost updates stats."""
+        cb = CircuitBreaker(failure_threshold=5)
+        await cb.record_cost(100, 50, 0.005)
+
+        stats = await cb.get_stats()
+        assert stats.total_input_tokens == 100
+        assert stats.total_output_tokens == 50
+        assert stats.total_estimated_cost == pytest.approx(0.005)
+
+    @pytest.mark.asyncio
+    async def test_cost_accumulates(self):
+        """Test that cost accumulates across multiple recordings."""
+        cb = CircuitBreaker(failure_threshold=5)
+        await cb.record_cost(100, 50, 0.005)
+        await cb.record_cost(200, 100, 0.010)
+
+        stats = await cb.get_stats()
+        assert stats.total_input_tokens == 300
+        assert stats.total_output_tokens == 150
+        assert stats.total_estimated_cost == pytest.approx(0.015)
+
+    @pytest.mark.asyncio
+    async def test_check_cost_threshold_not_exceeded(self):
+        """Test cost threshold check when under limit."""
+        cb = CircuitBreaker(failure_threshold=5)
+        await cb.record_cost(100, 50, 0.005)
+        assert await cb.check_cost_threshold(1.0) is False
+
+    @pytest.mark.asyncio
+    async def test_check_cost_threshold_exceeded(self):
+        """Test cost threshold check when over limit."""
+        cb = CircuitBreaker(failure_threshold=5)
+        await cb.record_cost(100, 50, 5.0)
+        assert await cb.check_cost_threshold(1.0) is True

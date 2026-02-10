@@ -1787,7 +1787,8 @@ class TestCostTracking:
             state_backend=mock_state_backend,
         )
 
-    def test_track_cost_with_exact_tokens(
+    @pytest.mark.asyncio
+    async def test_track_cost_with_exact_tokens(
         self,
         cost_runner: JobRunner,
     ) -> None:
@@ -1809,7 +1810,7 @@ class TestCostTracking:
             job_id="test", job_name="Test", total_sheets=1
         )
 
-        input_tokens, output_tokens, cost, confidence = cost_runner._track_cost(
+        input_tokens, output_tokens, cost, confidence = await cost_runner._track_cost(
             result, sheet_state, state
         )
 
@@ -1819,7 +1820,8 @@ class TestCostTracking:
         assert abs(cost - 0.0105) < 0.0001
         assert confidence == 1.0  # Exact counts
 
-    def test_track_cost_with_legacy_tokens(
+    @pytest.mark.asyncio
+    async def test_track_cost_with_legacy_tokens(
         self,
         cost_runner: JobRunner,
     ) -> None:
@@ -1840,14 +1842,15 @@ class TestCostTracking:
             job_id="test", job_name="Test", total_sheets=1
         )
 
-        _, output_tokens, _, confidence = cost_runner._track_cost(
+        _, output_tokens, _, confidence = await cost_runner._track_cost(
             result, sheet_state, state
         )
 
         assert output_tokens == 1000
         assert confidence == 0.85  # Lower confidence for legacy
 
-    def test_track_cost_with_estimation(
+    @pytest.mark.asyncio
+    async def test_track_cost_with_estimation(
         self,
         cost_runner: JobRunner,
     ) -> None:
@@ -1868,14 +1871,15 @@ class TestCostTracking:
             job_id="test", job_name="Test", total_sheets=1
         )
 
-        _, output_tokens, _, confidence = cost_runner._track_cost(
+        _, output_tokens, _, confidence = await cost_runner._track_cost(
             result, sheet_state, state
         )
 
         assert output_tokens == 100  # 400 chars / 4
         assert confidence == 0.7  # Lowest confidence for estimation
 
-    def test_track_cost_accumulates_to_state(
+    @pytest.mark.asyncio
+    async def test_track_cost_accumulates_to_state(
         self,
         cost_runner: JobRunner,
     ) -> None:
@@ -1899,7 +1903,7 @@ class TestCostTracking:
                 output_tokens=500,
             )
             sheet_state = SheetState(sheet_num=i + 1)
-            cost_runner._track_cost(result, sheet_state, state)
+            await cost_runner._track_cost(result, sheet_state, state)
 
         # Total should be 3x the individual cost
         expected_cost = 3 * 0.0105

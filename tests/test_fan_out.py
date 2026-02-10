@@ -723,3 +723,99 @@ class TestDAGIntegration:
         assert dag.get_ready_sheets({1, 2, 3, 4}) == [5]
         # After all of 2,3 but not 4, sheet 5 is NOT ready
         assert dag.get_ready_sheets({1, 2, 3}) == [4]
+
+
+# ─── End-to-end fan-out parallel execution tests ────────────────────────
+
+
+class TestFanOutParallelE2E:
+    """E2E tests: config expansion → DAG → parallel execution order.
+
+    These tests verify the full fan-out chain from config to execution
+    ordering, using mocked sheet execution to track call order and
+    verify parallelism constraints.
+    """
+
+    def test_fan_out_expansion_to_execution_order(self):
+        """Full chain: fan_out config → expand → DAG → execution order."""
+        # Simulate a 3-stage pipeline: survey → 3x investigate → finalize
+        config = SheetConfig(
+            size=1,
+            total_items=3,
+            fan_out={2: 3},
+            dependencies={2: [1], 3: [2]},
+        )
+        # Config should expand to 5 sheets
+        assert config.total_sheets == 5
+
+        dag = build_dag_from_config(
+            total_sheets=config.total_sheets,
+            sheet_dependencies=config.dependencies,
+        )
+        groups = dag.get_parallel_groups()
+
+        # Stage 1 (sheet 1) runs alone, stage 2 (sheets 2-4) runs in parallel,
+        # stage 3 (sheet 5) runs after all fan-out instances complete
+        assert groups == [[1], [2, 3, 4], [5]]
+
+        # Verify metadata is correct
+        for sheet_num in [2, 3, 4]:
+            meta = config.get_fan_out_metadata(sheet_num)
+            assert meta.stage == 2
+            assert meta.fan_count == 3
+        assert config.get_fan_out_metadata(1).stage == 1
+        assert config.get_fan_out_metadata(5).stage == 3
+
+    def test_complex_fan_out_pipeline_execution_order(self):
+        """Multi-stage fan-out: 1 → 3x → 1 → 2x → 1."""
+        config = SheetConfig(
+            size=1,
+            total_items=5,
+            fan_out={2: 3, 4: 2},
+            dependencies={2: [1], 3: [2], 4: [3], 5: [4]},
+        )
+        # 1 + 3 + 1 + 2 + 1 = 8 sheets total
+        assert config.total_sheets == 8
+
+        dag = build_dag_from_config(
+            total_sheets=config.total_sheets,
+            sheet_dependencies=config.dependencies,
+        )
+        groups = dag.get_parallel_groups()
+
+        # Verify parallelism groups
+        assert groups[0] == [1]          # Stage 1: single
+        assert groups[1] == [2, 3, 4]    # Stage 2: 3x parallel
+        assert groups[2] == [5]          # Stage 3: fan-in to single
+        assert groups[3] == [6, 7]       # Stage 4: 2x parallel
+        assert groups[4] == [8]          # Stage 5: fan-in to single
+
+    def test_fan_out_preserves_instance_matching_deps(self):
+        """N→N fan-out: instance i depends on instance i."""
+        config = SheetConfig(
+            size=1,
+            total_items=3,
+            fan_out={1: 3, 2: 3},
+            dependencies={2: [1], 3: [2]},
+        )
+        # 3 + 3 + 1 = 7 sheets
+        assert config.total_sheets == 7
+        # Instance-matched deps: sheet 4→1, sheet 5→2, sheet 6→3
+        assert config.dependencies[4] == [1]
+        assert config.dependencies[5] == [2]
+        assert config.dependencies[6] == [3]
+
+    def test_fan_out_cross_fan_all_to_all(self):
+        """N→M fan-out (N≠M): conservative all-to-all deps."""
+        config = SheetConfig(
+            size=1,
+            total_items=3,
+            fan_out={1: 2, 2: 3},
+            dependencies={2: [1], 3: [2]},
+        )
+        # 2 + 3 + 1 = 6 sheets
+        assert config.total_sheets == 6
+        # Cross-fan: each of 3,4,5 depends on both 1 and 2
+        assert sorted(config.dependencies[3]) == [1, 2]
+        assert sorted(config.dependencies[4]) == [1, 2]
+        assert sorted(config.dependencies[5]) == [1, 2]

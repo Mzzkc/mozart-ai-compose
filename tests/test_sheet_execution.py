@@ -179,7 +179,7 @@ class _MockMixin:
     async def _handle_rate_limit(self, state, error_code="E101", suggested_wait_seconds=None):
         pass
 
-    def _track_cost(self, result, sheet_state, state) -> None:
+    async def _track_cost(self, result, sheet_state, state) -> None:
         pass
 
     def _check_cost_limits(self, sheet_state, state) -> tuple[bool, str | None]:
@@ -915,10 +915,10 @@ class TestCircuitBreakerBlocking:
 
         # Circuit breaker: block on first call, allow on second
         cb = MagicMock()
-        cb.can_execute = MagicMock(side_effect=[False, True])
-        cb.time_until_retry.return_value = 0.01
-        cb.get_state.return_value = MagicMock(value="open")
-        cb.record_success = MagicMock()
+        cb.can_execute = AsyncMock(side_effect=[False, True])
+        cb.time_until_retry = AsyncMock(return_value=0.01)
+        cb.get_state = AsyncMock(return_value=MagicMock(value="open"))
+        cb.record_success = AsyncMock()
         mixin._circuit_breaker = cb
 
         mock_vr = _make_validation_result(all_passed=True)

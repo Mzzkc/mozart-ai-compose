@@ -1505,7 +1505,7 @@ class SheetConfig(BaseModel):
             When no fan-out is configured, returns identity metadata
             (stage=sheet_num, instance=1, fan_count=1).
         """
-        from mozart.execution.fan_out import FanOutMetadata
+        from mozart.core.fan_out import FanOutMetadata
 
         if self.fan_out_stage_map and sheet_num in self.fan_out_stage_map:
             meta = self.fan_out_stage_map[sheet_num]
@@ -1582,7 +1582,7 @@ class SheetConfig(BaseModel):
                 "Fan-out stages are 1-indexed from the beginning."
             )
 
-        from mozart.execution.fan_out import expand_fan_out
+        from mozart.core.fan_out import expand_fan_out
 
         expansion = expand_fan_out(
             total_stages=self.total_items,

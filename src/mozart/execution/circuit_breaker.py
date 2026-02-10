@@ -19,27 +19,27 @@ Example usage:
 
     breaker = CircuitBreaker(failure_threshold=5, recovery_timeout=300.0)
 
-    if breaker.can_execute():
+    if await breaker.can_execute():
         try:
             result = await backend.execute(prompt)
             if result.success:
-                breaker.record_success()
+                await breaker.record_success()
             else:
-                breaker.record_failure()
+                await breaker.record_failure()
         except Exception:
-            breaker.record_failure()
+            await breaker.record_failure()
             raise
     else:
         # Circuit is open - wait or use fallback
-        wait_time = breaker.time_until_retry()
+        wait_time = await breaker.time_until_retry()
 """
 
 from __future__ import annotations
 
+import asyncio
 import time
 from dataclasses import dataclass
 from enum import Enum
-from threading import Lock
 from typing import Any
 
 from mozart.core.logging import get_logger
@@ -139,7 +139,7 @@ class CircuitBreaker:
     blocks further requests when a failure threshold is exceeded. This prevents
     overwhelming a failing service and gives it time to recover.
 
-    Thread-safe: All state modifications are protected by a lock.
+    Async-safe: All state modifications are protected by an asyncio.Lock.
 
     Attributes:
         failure_threshold: Number of consecutive failures before opening circuit.
@@ -178,8 +178,9 @@ class CircuitBreaker:
         self._last_failure_time: float | None = None
         self._stats = CircuitBreakerStats()
 
-        # Thread safety
-        self._lock = Lock()
+        # Async safety — asyncio.Lock is the correct primitive for
+        # async code (threading.Lock blocks the event loop).
+        self._lock = asyncio.Lock()
 
         _logger.debug(
             "circuit_breaker.initialized",
@@ -203,7 +204,7 @@ class CircuitBreaker:
         """Name of this circuit breaker."""
         return self._name
 
-    def get_state(self) -> CircuitState:
+    async def get_state(self) -> CircuitState:
         """Get the current circuit state.
 
         This method handles automatic state transitions:
@@ -212,7 +213,7 @@ class CircuitBreaker:
         Returns:
             Current CircuitState.
         """
-        with self._lock:
+        async with self._lock:
             self._maybe_transition_to_half_open()
             return self._state
 
@@ -263,7 +264,7 @@ class CircuitBreaker:
         elif new_state == CircuitState.CLOSED and old_state != CircuitState.CLOSED:
             self._stats.times_closed += 1
 
-    def can_execute(self) -> bool:
+    async def can_execute(self) -> bool:
         """Check if a request can be executed.
 
         Returns True if:
@@ -277,11 +278,11 @@ class CircuitBreaker:
         Returns:
             True if the request should be allowed, False if it should be blocked.
         """
-        with self._lock:
+        async with self._lock:
             self._maybe_transition_to_half_open()
             return self._state in (CircuitState.CLOSED, CircuitState.HALF_OPEN)
 
-    def record_success(self) -> None:
+    async def record_success(self) -> None:
         """Record a successful operation.
 
         Effects by state:
@@ -289,7 +290,7 @@ class CircuitBreaker:
         - HALF_OPEN: Transitions to CLOSED (recovery confirmed)
         - OPEN: No effect (shouldn't happen - request blocked)
         """
-        with self._lock:
+        async with self._lock:
             self._stats.total_successes += 1
             self._stats.consecutive_failures = 0
             self._failure_count = 0
@@ -311,7 +312,7 @@ class CircuitBreaker:
                     state=self._state.value,
                 )
 
-    def record_failure(self) -> None:
+    async def record_failure(self) -> None:
         """Record a failed operation.
 
         Effects by state:
@@ -319,7 +320,7 @@ class CircuitBreaker:
         - HALF_OPEN: Transitions to OPEN (recovery failed)
         - OPEN: No effect (shouldn't happen - request blocked)
         """
-        with self._lock:
+        async with self._lock:
             now = time.monotonic()
             self._stats.total_failures += 1
             self._stats.consecutive_failures += 1
@@ -359,14 +360,14 @@ class CircuitBreaker:
                         failure_threshold=self._failure_threshold,
                     )
 
-    def time_until_retry(self) -> float | None:
+    async def time_until_retry(self) -> float | None:
         """Get time remaining until retry is allowed.
 
         Returns:
             Seconds until the circuit transitions to HALF_OPEN, or None if
             the circuit is not OPEN.
         """
-        with self._lock:
+        async with self._lock:
             if self._state != CircuitState.OPEN:
                 return None
 
@@ -377,7 +378,7 @@ class CircuitBreaker:
             remaining = self._recovery_timeout - elapsed
             return max(0.0, remaining)
 
-    def record_cost(
+    async def record_cost(
         self,
         input_tokens: int,
         output_tokens: int,
@@ -393,7 +394,7 @@ class CircuitBreaker:
             output_tokens: Number of output tokens consumed.
             estimated_cost: Estimated cost in USD for this execution.
         """
-        with self._lock:
+        async with self._lock:
             self._stats.total_input_tokens += input_tokens
             self._stats.total_output_tokens += output_tokens
             self._stats.total_estimated_cost += estimated_cost
@@ -409,7 +410,7 @@ class CircuitBreaker:
                 total_estimated_cost=round(self._stats.total_estimated_cost, 4),
             )
 
-    def check_cost_threshold(self, max_cost: float) -> bool:
+    async def check_cost_threshold(self, max_cost: float) -> bool:
         """Check if total estimated cost exceeds a threshold.
 
         Args:
@@ -418,7 +419,7 @@ class CircuitBreaker:
         Returns:
             True if threshold is exceeded (should stop), False otherwise.
         """
-        with self._lock:
+        async with self._lock:
             exceeded = self._stats.total_estimated_cost > max_cost
             if exceeded:
                 _logger.warning(
@@ -429,13 +430,13 @@ class CircuitBreaker:
                 )
             return exceeded
 
-    def get_stats(self) -> CircuitBreakerStats:
+    async def get_stats(self) -> CircuitBreakerStats:
         """Get current statistics.
 
         Returns:
             Copy of current CircuitBreakerStats.
         """
-        with self._lock:
+        async with self._lock:
             # Return a copy to prevent external modification
             return CircuitBreakerStats(
                 total_successes=self._stats.total_successes,
@@ -451,7 +452,7 @@ class CircuitBreaker:
                 total_estimated_cost=self._stats.total_estimated_cost,
             )
 
-    def reset(self) -> None:
+    async def reset(self) -> None:
         """Reset the circuit breaker to initial state.
 
         This resets:
@@ -461,7 +462,7 @@ class CircuitBreaker:
 
         Statistics are NOT reset (use get_stats() to view history).
         """
-        with self._lock:
+        async with self._lock:
             old_state = self._state
             self._state = CircuitState.CLOSED
             self._failure_count = 0
@@ -477,12 +478,12 @@ class CircuitBreaker:
                     from_state=old_state.value,
                 )
 
-    def force_open(self) -> None:
+    async def force_open(self) -> None:
         """Force the circuit to OPEN state.
 
         Useful for manual intervention or testing.
         """
-        with self._lock:
+        async with self._lock:
             if self._state != CircuitState.OPEN:
                 old_state = self._state
                 self._set_state(CircuitState.OPEN)
@@ -493,12 +494,12 @@ class CircuitBreaker:
                     from_state=old_state.value,
                 )
 
-    def force_close(self) -> None:
+    async def force_close(self) -> None:
         """Force the circuit to CLOSED state.
 
         Useful for manual intervention or testing. Also resets failure counts.
         """
-        with self._lock:
+        async with self._lock:
             old_state = self._state
             self._state = CircuitState.CLOSED
             self._failure_count = 0

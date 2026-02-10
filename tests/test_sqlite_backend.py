@@ -233,6 +233,53 @@ class TestSheetStatePreservation:
         assert sheet.last_pass_percentage == 66.7
 
 
+    async def test_sheet_duration_fields_preserved(
+        self, sqlite_backend: SQLiteStateBackend, sample_state: CheckpointState
+    ) -> None:
+        """Test that execution_duration_seconds, exit_signal, exit_reason survive round-trip."""
+        from mozart.core.checkpoint import SheetState
+
+        sample_state.sheets[1] = SheetState(
+            sheet_num=1,
+            status=SheetStatus.COMPLETED,
+            execution_duration_seconds=45.2,
+            exit_signal=9,
+            exit_reason="timeout",
+        )
+        await sqlite_backend.save(sample_state)
+
+        loaded = await sqlite_backend.load(sample_state.job_id)
+        assert loaded is not None
+        sheet = loaded.sheets[1]
+
+        assert sheet.execution_duration_seconds == 45.2
+        assert sheet.exit_signal == 9
+        assert sheet.exit_reason == "timeout"
+
+    async def test_sheet_duration_none_preserved(
+        self, sqlite_backend: SQLiteStateBackend, sample_state: CheckpointState
+    ) -> None:
+        """Test that None duration/signal/reason stay None (not coerced to 0.0)."""
+        from mozart.core.checkpoint import SheetState
+
+        sample_state.sheets[1] = SheetState(
+            sheet_num=1,
+            status=SheetStatus.COMPLETED,
+            execution_duration_seconds=None,
+            exit_signal=None,
+            exit_reason=None,
+        )
+        await sqlite_backend.save(sample_state)
+
+        loaded = await sqlite_backend.load(sample_state.job_id)
+        assert loaded is not None
+        sheet = loaded.sheets[1]
+
+        assert sheet.execution_duration_seconds is None
+        assert sheet.exit_signal is None
+        assert sheet.exit_reason is None
+
+
 class TestExecutionHistory:
     """Test execution history recording."""
 

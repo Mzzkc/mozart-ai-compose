@@ -1034,9 +1034,17 @@ class ValidationEngine:
             4. Context values are shell-quoted via ``shlex.quote()``
             5. Commands with high-risk patterns are logged at warning level
 
+            **Environment Variable Risk:**
+            Shell ``${VAR}`` references in validation commands are expanded by
+            ``/bin/sh`` at runtime. If an attacker controls the execution
+            environment's variables (e.g. via compromised ``.env``, container
+            config, or parent process), this becomes an injection vector.
+            Ensure Mozart runs in a controlled environment with trusted env vars.
+
             **When NOT to use command_succeeds:**
             - Never interpolate untrusted data into commands
             - Never allow users to provide arbitrary commands via UI/API
+            - Never run Mozart in environments where untrusted actors can set env vars
             - If you need to run commands with variable data, use
               ValidationRule.working_directory for path customization
 
@@ -1069,11 +1077,28 @@ class ValidationEngine:
         # with shell variable syntax like ${VAR} and ${VAR:-default}.
         # Values are shell-quoted to prevent injection via context values.
         #
-        # Trust model: Mozart {placeholder} values are shell-quoted (safe).
-        # Shell ${VAR} syntax is intentionally preserved and expanded by
-        # /bin/sh — the config file author is the trust boundary for shell
-        # variable usage. This is by design: validation commands may
-        # legitimately reference environment variables like ${PATH}.
+        # SECURITY: Shell Expansion Trust Model
+        # ──────────────────────────────────────
+        # Two separate expansion layers exist, with different trust boundaries:
+        #
+        # 1. Mozart {placeholder} expansion (SAFE):
+        #    - Values come from Mozart internals (workspace path, sheet_num)
+        #    - All values are passed through shlex.quote() before substitution
+        #    - Cannot inject shell metacharacters
+        #
+        # 2. Shell ${VAR} expansion (TRUST BOUNDARY):
+        #    - Preserved verbatim and expanded by /bin/sh at runtime
+        #    - The config file author is the trust boundary — they choose which
+        #      env vars to reference, just like in a Makefile or CI pipeline
+        #    - RISK: If an attacker can control environment variables (e.g. via
+        #      a compromised .env file, container config, or parent process),
+        #      ${VAR} references in validation commands become injection vectors.
+        #      This is the same risk as any shell script or Makefile.
+        #    - MITIGATION: Run Mozart in a controlled environment. Do not allow
+        #      untrusted processes to set env vars in the Mozart execution context.
+        #      The MCPServerConfig.env validator (core/config.py) blocks dangerous
+        #      env var overrides for MCP servers, but validation commands inherit
+        #      the full parent environment by design.
         context = dict(self.sheet_context)
         context["workspace"] = str(self.workspace)
         expanded_command = rule.command

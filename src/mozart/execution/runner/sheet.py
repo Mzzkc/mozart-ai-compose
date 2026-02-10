@@ -187,7 +187,7 @@ class SheetExecutionMixin:
         ) -> None: ...
 
         # Methods from CostMixin
-        def _track_cost(
+        async def _track_cost(
             self,
             result: ExecutionResult,
             sheet_state: SheetState,
@@ -334,10 +334,10 @@ class SheetExecutionMixin:
         # Circuit breaker check
         if (
             self._circuit_breaker is not None
-            and not self._circuit_breaker.can_execute()
+            and not await self._circuit_breaker.can_execute()
         ):
-            wait_time = self._circuit_breaker.time_until_retry()
-            cb_state = self._circuit_breaker.get_state()
+            wait_time = await self._circuit_breaker.time_until_retry()
+            cb_state = await self._circuit_breaker.get_state()
             self._logger.warning(
                 "circuit_breaker.blocked",
                 sheet_num=sheet_num,
@@ -512,7 +512,7 @@ class SheetExecutionMixin:
 
         # Record success in circuit breaker (Task 12)
         if self._circuit_breaker is not None:
-            self._circuit_breaker.record_success()
+            await self._circuit_breaker.record_success()
 
         # Evolution #3: Record recovery outcome if we had a pending retry
         if pending_recovery is not None and self._global_learning_store is not None:
@@ -695,7 +695,7 @@ class SheetExecutionMixin:
 
         # Record failure in circuit breaker
         if self._circuit_breaker is not None and not error.is_rate_limit:
-            self._circuit_breaker.record_failure()
+            await self._circuit_breaker.record_failure()
 
         if error.is_rate_limit:
             ctx.error_history.clear()
@@ -1010,7 +1010,7 @@ class SheetExecutionMixin:
 
             # Track cost (v4 evolution: Cost Circuit Breaker)
             if self.config.cost_limits.enabled:
-                self._track_cost(result, sheet_state, state)
+                await self._track_cost(result, sheet_state, state)
 
                 cost_exceeded, cost_reason = self._check_cost_limits(sheet_state, state)
                 if cost_exceeded:
