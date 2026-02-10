@@ -2,7 +2,7 @@
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 # Fixed timestamp for deterministic tests
 _FIXED_TIME = datetime(2024, 1, 15, 12, 0, 0)
@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from mozart.core.checkpoint import CheckpointState, JobStatus
 from mozart.dashboard.app import create_app
-from mozart.dashboard.services.job_control import JobStartResult, JobActionResult
+from mozart.dashboard.services.job_control import JobActionResult, JobStartResult
 from mozart.state.json_backend import JsonStateBackend
 
 
@@ -73,7 +73,9 @@ name: Test Job
   total_sheets: 3
 """
 
-        with patch('mozart.dashboard.services.job_control.JobControlService.start_job') as mock_start:
+        with patch(
+            'mozart.dashboard.services.job_control.JobControlService.start_job',
+        ) as mock_start:
             mock_start.side_effect = RuntimeError("Failed to start job: Invalid YAML")
 
             response = client.post("/api/jobs", json={
@@ -85,7 +87,9 @@ name: Test Job
 
     def test_start_job_with_all_optional_parameters(self, client, sample_config_yaml):
         """Test starting job with all optional parameters."""
-        with patch('mozart.dashboard.services.job_control.JobControlService.start_job') as mock_start:
+        with patch(
+            'mozart.dashboard.services.job_control.JobControlService.start_job',
+        ) as mock_start:
             mock_start.return_value = JobStartResult(
                 job_id="test-456",
                 job_name="Test Job",
@@ -115,7 +119,9 @@ name: Test Job
 
     def test_pause_job_already_paused(self, client):
         """Test pausing job that's already paused."""
-        with patch('mozart.dashboard.services.job_control.JobControlService.pause_job') as mock_pause:
+        with patch(
+            'mozart.dashboard.services.job_control.JobControlService.pause_job',
+        ) as mock_pause:
             mock_pause.return_value = JobActionResult(
                 success=False,
                 job_id="test-123",
@@ -130,7 +136,9 @@ name: Test Job
 
     def test_resume_job_not_found(self, client):
         """Test resuming non-existent job."""
-        with patch('mozart.dashboard.services.job_control.JobControlService.resume_job') as mock_resume:
+        with patch(
+            'mozart.dashboard.services.job_control.JobControlService.resume_job',
+        ) as mock_resume:
             mock_resume.return_value = JobActionResult(
                 success=False,
                 job_id="nonexistent",
@@ -145,7 +153,9 @@ name: Test Job
 
     def test_cancel_job_already_finished(self, client):
         """Test cancelling job that's already finished."""
-        with patch('mozart.dashboard.services.job_control.JobControlService.cancel_job') as mock_cancel:
+        with patch(
+            'mozart.dashboard.services.job_control.JobControlService.cancel_job',
+        ) as mock_cancel:
             mock_cancel.return_value = JobActionResult(
                 success=False,
                 job_id="test-123",
@@ -160,7 +170,9 @@ name: Test Job
 
     def test_delete_job_currently_paused(self, client):
         """Test deleting paused job (should work)."""
-        with patch('mozart.dashboard.services.job_control.JobControlService.delete_job') as mock_delete:
+        with patch(
+            'mozart.dashboard.services.job_control.JobControlService.delete_job',
+        ) as mock_delete:
             mock_delete.return_value = True
 
             response = client.delete("/api/jobs/test-123")
@@ -297,17 +309,19 @@ class TestStreamRoutesExtended:
 
     def test_stream_job_status_edge_case_poll_intervals(self, client, temp_state_dir):
         """Test streaming with edge case poll intervals."""
-        job_state = CheckpointState(
+        # Use COMPLETED status so the SSE stream terminates naturally
+        # (RUNNING would loop forever waiting for state changes)
+        completed_state = CheckpointState(
             job_id="test-123",
             job_name="Test Job",
-            status=JobStatus.RUNNING,
+            status=JobStatus.COMPLETED,
             total_sheets=3,
             created_at=_FIXED_TIME,
             updated_at=_FIXED_TIME,
         )
 
         with patch('mozart.dashboard.app._state_backend') as mock_backend:
-            mock_backend.load = AsyncMock(return_value=job_state)
+            mock_backend.load = AsyncMock(return_value=completed_state)
 
             # Test minimum valid poll interval (seconds, min=0.1)
             response = client.get("/api/jobs/test-123/stream?poll_interval=0.1")
@@ -327,11 +341,19 @@ class TestStreamRoutesExtended:
 
     def test_log_streaming_edge_case_tail_lines(self, client, temp_state_dir):
         """Test log streaming with edge case tail_lines values."""
+        # Create a workspace with a log file so valid requests don't 404
+        workspace = temp_state_dir / "test-workspace"
+        workspace.mkdir()
+        log_file = workspace / "mozart.log"
+        log_file.write_text("line1\nline2\nline3\n")
+
+        # Use COMPLETED so the log stream terminates (follow mode exits for finished jobs)
         job_state = CheckpointState(
             job_id="test-123",
             job_name="Test Job",
-            status=JobStatus.RUNNING,
+            status=JobStatus.COMPLETED,
             total_sheets=3,
+            worktree_path=str(workspace),
             created_at=_FIXED_TIME,
             updated_at=_FIXED_TIME,
         )
@@ -340,11 +362,11 @@ class TestStreamRoutesExtended:
             mock_backend.load = AsyncMock(return_value=job_state)
 
             # Test minimum valid tail_lines (0 is valid per route: tail_lines < 0 is invalid)
-            response = client.get("/api/jobs/test-123/logs?tail_lines=0")
+            response = client.get("/api/jobs/test-123/logs?tail_lines=0&follow=false")
             assert response.status_code == 200
 
             # Test maximum valid tail_lines
-            response = client.get("/api/jobs/test-123/logs?tail_lines=1000")
+            response = client.get("/api/jobs/test-123/logs?tail_lines=1000&follow=false")
             assert response.status_code == 200
 
             # Test negative tail_lines (invalid)
@@ -425,7 +447,9 @@ class TestWorkspacePathTraversal:
         content = 'name: "test"\nsheet:\n  total_sheets: 1\nprompt:\n  template: "hello"'
 
         # Path with '..' should be silently rejected
-        issues = run_extended_validation(config, content, "test.yaml", workspace_path="../../etc/passwd")
+        issues = run_extended_validation(
+            config, content, "test.yaml", workspace_path="../../etc/passwd",
+        )
         # Should not raise — the path is replaced with None internally
         assert isinstance(issues, list)
 

@@ -119,9 +119,10 @@ class TestMCPServerIntegration:
         assert "mozart_artifact_read" in tool_names
         assert "mozart_artifact_get_logs" in tool_names
 
-        # Score tools
-        assert "validate_score" in tool_names
-        assert "generate_score" in tool_names
+        # Score tools are intentionally hidden from list_tools (stubs)
+        # They still work via call_tool but aren't advertised to MCP clients
+        assert "validate_score" not in tool_names
+        assert "generate_score" not in tool_names
 
     async def test_job_tools_integration(self, mcp_server, sample_job_state):
         """Test job management tools integration."""
@@ -131,8 +132,10 @@ class TestMCPServerIntegration:
         assert isinstance(result["content"], list)
 
         # Test get_job
-        with patch.object(mcp_server.state_backend, 'load', return_value=sample_job_state):
-            with patch.object(mcp_server.job_tools.job_control, 'verify_process_health') as mock_health:
+        with (
+            patch.object(mcp_server.state_backend, 'load', return_value=sample_job_state),
+            patch.object(mcp_server.job_tools.job_control, 'verify_process_health') as mock_health,
+        ):
                 mock_health.return_value = Mock(
                     pid=12345,
                     is_alive=True,
@@ -149,7 +152,9 @@ class TestMCPServerIntegration:
     async def test_control_tools_integration(self, mcp_server):
         """Test job control tools integration."""
         with patch.object(mcp_server.control_tools.job_control, 'pause_job') as mock_pause:
-            mock_pause.return_value = Mock(success=True, status="paused", message="Job paused successfully")
+            mock_pause.return_value = Mock(
+                success=True, status="paused", message="Job paused successfully",
+            )
 
             result = await mcp_server.call_tool("pause_job", {"job_id": "test-job"})
             assert "content" in result
@@ -295,27 +300,18 @@ class TestMCPToolSchemas:
                 assert isinstance(schema["required"], list)
 
     async def test_score_tool_schemas(self):
-        """Test score tool schemas are comprehensive."""
+        """Test score tools are hidden stubs (not listed but callable)."""
         from mozart.mcp.tools import ScoreTools
 
         tools = ScoreTools(Path("/tmp"))
         tool_list = await tools.list_tools()
 
-        # Find validate_score tool
-        validate_tool = next(t for t in tool_list if t["name"] == "validate_score")
-        schema = validate_tool["inputSchema"]
+        # Score tools are intentionally hidden from list_tools (stubs)
+        assert len(tool_list) == 0
 
-        # Verify score validation parameters
-        props = schema["properties"]
-        assert "workspace" in props
-        assert "min_score" in props
-        assert "target_score" in props
-
-        # Verify score range constraints
-        assert props["min_score"]["minimum"] == 0
-        assert props["min_score"]["maximum"] == 100
-        assert props["target_score"]["minimum"] == 0
-        assert props["target_score"]["maximum"] == 100
+        # But they should still be callable via call_tool
+        result = await tools.call_tool("validate_score", {"workspace": "/tmp"})
+        assert "content" in result
 
 
 # Code Review During Implementation:
