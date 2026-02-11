@@ -674,6 +674,8 @@ prompt:
       git checkout daemon-symphony
       ```
       All commits go to `daemon-symphony`, NEVER to `main`.
+      NEVER use `git add .` or `git add -A`. Only stage specific source files listed in the instructions.
+      NEVER commit workspace files (`.daemon-workspace-*`). They are gitignored artifacts.
 
       **Phase 3 Goal:** Cross-job scheduling, rate limit coordination, backpressure,
       and centralized learning. The daemon knows about ALL jobs and optimizes globally.

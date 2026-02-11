@@ -832,6 +832,8 @@ prompt:
       git checkout daemon-symphony
       ```
       All commits go to `daemon-symphony`, NEVER to `main`.
+      NEVER use `git add .` or `git add -A`. Only stage specific source files listed in the instructions.
+      NEVER commit workspace files (`.daemon-workspace-*`). They are gitignored artifacts.
 
       **Phase 2 Goal:** Create mozartd — the long-running daemon that manages jobs,
       monitors resources, owns child processes, and prevents orphans (issue #38).

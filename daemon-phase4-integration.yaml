@@ -600,6 +600,8 @@ prompt:
       git checkout daemon-symphony
       ```
       All commits go to `daemon-symphony`, NEVER to `main`.
+      NEVER use `git add .` or `git add -A`. Only stage specific source files listed in the instructions.
+      NEVER commit workspace files (`.daemon-workspace-*`). They are gitignored artifacts.
       This is the FINAL phase. The last stage creates a PR to merge to main.
 
       **Phase 4 Goal:** Integration testing, CLI backwards compat, dashboard/MCP
