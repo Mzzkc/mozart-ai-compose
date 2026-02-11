@@ -185,7 +185,7 @@ class OutcomeMigrator:
         unique_files = list({f.resolve() for f in outcome_files})
         result.workspaces_found = len(unique_files)
 
-        _logger.info(f"Found {len(unique_files)} workspace outcome files to migrate")
+        _logger.info("migration_files_found", count=len(unique_files))
 
         # Import each file
         for outcome_file in unique_files:
@@ -209,10 +209,7 @@ class OutcomeMigrator:
             except Exception as e:
                 result.errors.append(f"Pattern detection error: {e}")
 
-        _logger.info(
-            f"Migration complete: {result.outcomes_imported} outcomes, "
-            f"{result.patterns_detected} patterns"
-        )
+        _logger.info("migration_complete", outcomes=result.outcomes_imported, patterns=result.patterns_detected)
 
         return result
 
@@ -262,7 +259,7 @@ class OutcomeMigrator:
         # Check if already imported
         workspace_hash = self._store.hash_workspace(workspace_path)
         if workspace_hash in self._imported_workspace_hashes:
-            _logger.debug(f"Skipping already-imported workspace: {workspace_path}")
+            _logger.debug("skipping_imported_workspace", workspace=str(workspace_path))
             return 0
 
         # Load outcomes from JSON file
@@ -287,15 +284,13 @@ class OutcomeMigrator:
                     )
                     imported_count += 1
             except Exception as e:
-                _logger.debug(f"Skipping invalid outcome: {e}")
+                _logger.debug("skipping_invalid_outcome", error=str(e))
                 continue
 
         # Mark workspace as imported
         self._imported_workspace_hashes.add(workspace_hash)
 
-        _logger.info(
-            f"Imported {imported_count} outcomes from {workspace_path.name}"
-        )
+        _logger.info("outcomes_imported", count=imported_count, workspace=workspace_path.name)
 
         return imported_count
 
@@ -358,7 +353,7 @@ class OutcomeMigrator:
                 timestamp=parsed_timestamp,
             )
         except Exception as e:
-            _logger.debug(f"Failed to parse outcome: {e}")
+            _logger.debug("outcome_parse_failed", error=str(e))
             return None
 
     def _detect_patterns_from_store(self) -> int:
@@ -380,13 +375,13 @@ class OutcomeMigrator:
 
             # Prune patterns that have become ineffective
             pruned_count = self._aggregator.prune_deprecated_patterns()
-            _logger.debug(f"Pruned {pruned_count} deprecated patterns")
+            _logger.debug("patterns_pruned", count=pruned_count)
 
             # Return current pattern count
             stats = self._store.get_execution_stats()
             return int(stats.get("total_patterns", 0))
         except Exception as e:
-            _logger.warning(f"Pattern detection error: {e}")
+            _logger.warning("pattern_detection_error", error=str(e))
             return 0
 
 

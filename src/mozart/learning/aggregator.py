@@ -162,7 +162,7 @@ class PatternAggregator:
             )
             return pattern_id
         except Exception as e:
-            _logger.warning(f"Failed to merge pattern {pattern_name}: {e}")
+            _logger.warning("pattern_merge_failed", pattern_name=pattern_name, error=str(e))
             return None
 
     def _generate_pattern_name(self, pattern: DetectedPattern) -> str:
@@ -315,7 +315,7 @@ class PatternAggregator:
                     deprecated_count += 1
 
         if deprecated_count > 0:
-            _logger.info(f"Deprecated {deprecated_count} low-effectiveness patterns")
+            _logger.info("patterns_deprecated", count=deprecated_count)
 
         return deprecated_count
 

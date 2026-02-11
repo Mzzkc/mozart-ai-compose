@@ -518,5 +518,5 @@ class PatternCrudMixin:
                 if result is not None:
                     updated += 1
 
-        _logger.info(f"Recalculated priorities for {updated} patterns")
+        _logger.info("priorities_recalculated", count=updated)
         return updated

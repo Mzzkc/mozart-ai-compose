@@ -164,7 +164,7 @@ class SlackNotifier:
                 normalized = event_name.upper()
                 events.add(NotificationEvent[normalized])
             except KeyError:
-                _logger.warning(f"Unknown notification event: {event_name}")
+                _logger.warning("unknown_notification_event", event_name=event_name)
 
         return cls(
             webhook_url=config.get("webhook_url"),
@@ -316,22 +316,20 @@ class SlackNotifier:
             )
 
             if response.status_code == 200:
-                _logger.debug(f"Slack notification sent: {context.format_title()}")
+                _logger.debug("slack_notification_sent", title=context.format_title())
                 return True
             else:
-                _logger.warning(
-                    f"Slack webhook returned {response.status_code}: {response.text}"
-                )
+                _logger.warning("slack_webhook_error", status_code=response.status_code, body=response.text[:200])
                 return False
 
         except httpx.TimeoutException:
             _logger.warning("Slack notification timed out")
             return False
         except httpx.RequestError as e:
-            _logger.warning(f"Failed to send Slack notification: {e}")
+            _logger.warning("slack_notification_failed", error=str(e))
             return False
         except Exception as e:
-            _logger.warning(f"Unexpected error sending Slack notification: {e}")
+            _logger.warning("slack_notification_unexpected_error", error=str(e))
             return False
 
     async def close(self) -> None:

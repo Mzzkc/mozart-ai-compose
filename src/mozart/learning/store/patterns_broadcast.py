@@ -151,7 +151,7 @@ class PatternBroadcastMixin:
             deleted = cursor.rowcount
 
         if deleted > 0:
-            _logger.debug(f"Cleaned up {deleted} expired pattern discovery events")
+            _logger.debug("pattern_discovery_events_cleaned", count=deleted)
 
         return deleted
 

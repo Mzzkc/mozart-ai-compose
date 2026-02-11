@@ -118,7 +118,7 @@ class DesktopNotifier:
                 normalized = event_name.upper()
                 events.add(NotificationEvent[normalized])
             except KeyError:
-                _logger.warning(f"Unknown notification event: {event_name}")
+                _logger.warning("unknown_notification_event", event_name=event_name)
 
         return cls(
             events=events if events else None,
@@ -172,13 +172,13 @@ class DesktopNotifier:
                 app_name=self._app_name,
                 timeout=self._timeout,
             )
-            _logger.debug(f"Desktop notification sent: {title}")
+            _logger.debug("desktop_notification_sent", title=title)
             return True
 
         except Exception as e:
             # Various platform-specific errors can occur
             # (missing system notification service, etc.)
-            _logger.warning(f"Failed to send desktop notification: {e}")
+            _logger.warning("desktop_notification_failed", error=str(e))
             return False
 
     async def close(self) -> None:

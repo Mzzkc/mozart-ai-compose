@@ -188,7 +188,7 @@ class WebhookNotifier:
                 normalized = event_name.upper()
                 events.add(NotificationEvent[normalized])
             except KeyError:
-                _logger.warning(f"Unknown notification event: {event_name}")
+                _logger.warning("unknown_notification_event", event_name=event_name)
 
         return cls(
             url=config.get("url"),
@@ -325,14 +325,14 @@ class WebhookNotifier:
             success, error = await self._send_with_retry(client, payload)
 
             if success:
-                _logger.debug(f"Webhook notification sent: {context.format_title()}")
+                _logger.debug("webhook_notification_sent", title=context.format_title())
             else:
-                _logger.warning(f"Webhook notification failed: {error}")
+                _logger.warning("webhook_notification_failed", error=error)
 
             return success
 
         except Exception as e:
-            _logger.warning(f"Unexpected error sending webhook notification: {e}")
+            _logger.warning("webhook_notification_unexpected_error", error=str(e))
             return False
 
     async def close(self) -> None:

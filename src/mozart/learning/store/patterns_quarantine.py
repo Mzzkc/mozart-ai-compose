@@ -53,7 +53,7 @@ class PatternQuarantineMixin:
                 (pattern_id,),
             )
             if not cursor.fetchone():
-                _logger.warning(f"Pattern {pattern_id} not found for quarantine")
+                _logger.warning("pattern_not_found", pattern_id=pattern_id, operation="quarantine")
                 return False
 
             conn.execute(
@@ -72,7 +72,7 @@ class PatternQuarantineMixin:
                 ),
             )
 
-        _logger.info(f"Quarantined pattern {pattern_id}: {reason or 'no reason given'}")
+        _logger.info("pattern_quarantined", pattern_id=pattern_id, reason=reason or "no reason given")
         return True
 
     def validate_pattern(self, pattern_id: str) -> bool:
@@ -95,7 +95,7 @@ class PatternQuarantineMixin:
                 (pattern_id,),
             )
             if not cursor.fetchone():
-                _logger.warning(f"Pattern {pattern_id} not found for validation")
+                _logger.warning("pattern_not_found", pattern_id=pattern_id, operation="validation")
                 return False
 
             conn.execute(
@@ -113,7 +113,7 @@ class PatternQuarantineMixin:
                 ),
             )
 
-        _logger.info(f"Validated pattern {pattern_id}")
+        _logger.info("pattern_validated", pattern_id=pattern_id)
         return True
 
     def retire_pattern(self, pattern_id: str) -> bool:
@@ -134,7 +134,7 @@ class PatternQuarantineMixin:
                 (pattern_id,),
             )
             if not cursor.fetchone():
-                _logger.warning(f"Pattern {pattern_id} not found for retirement")
+                _logger.warning("pattern_not_found", pattern_id=pattern_id, operation="retirement")
                 return False
 
             conn.execute(
@@ -149,7 +149,7 @@ class PatternQuarantineMixin:
                 ),
             )
 
-        _logger.info(f"Retired pattern {pattern_id}")
+        _logger.info("pattern_retired", pattern_id=pattern_id)
         return True
 
     def get_quarantined_patterns(self, limit: int = 50) -> list[PatternRecord]:

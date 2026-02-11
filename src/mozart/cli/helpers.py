@@ -300,7 +300,7 @@ def create_notifiers_from_config(
                 config=config.config,
             )
         else:
-            _logger.warning(f"Unknown notification type: {config.type}")
+            _logger.warning("unknown_notification_type", type=config.type)
             continue
 
         if notifier:

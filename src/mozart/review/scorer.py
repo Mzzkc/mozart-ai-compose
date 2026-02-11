@@ -197,7 +197,7 @@ class GitDiffProvider:
             _logger.debug("Git not found")
             return ""
         except Exception as e:
-            _logger.warning(f"Error getting git diff: {e}")
+            _logger.warning("git_diff_error", error=str(e))
             return ""
 
 
@@ -272,7 +272,7 @@ class AIReviewer:
                     summary="Failed to execute review",
                 )
         except Exception as e:
-            _logger.error(f"AI review failed: {e}")
+            _logger.error("ai_review_failed", error=str(e))
             return AIReviewResult(
                 score=0,
                 error=str(e),
@@ -331,7 +331,7 @@ class AIReviewer:
             )
 
         except json.JSONDecodeError as e:
-            _logger.warning(f"Failed to parse review JSON: {e}")
+            _logger.warning("review_json_parse_failed", error=str(e))
             return AIReviewResult(
                 score=50,
                 error=f"JSON parse error: {e}",
@@ -339,7 +339,7 @@ class AIReviewer:
                 summary="Review response was malformed",
             )
         except Exception as e:
-            _logger.warning(f"Error parsing review response: {e}")
+            _logger.warning("review_response_parse_error", error=str(e))
             return AIReviewResult(
                 score=50,
                 error=str(e),

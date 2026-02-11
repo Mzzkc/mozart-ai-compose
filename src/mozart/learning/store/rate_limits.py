@@ -231,6 +231,6 @@ class RateLimitMixin:
             deleted_count = cursor.rowcount
 
         if deleted_count > 0:
-            _logger.debug(f"Cleaned up {deleted_count} expired rate limit events")
+            _logger.debug("rate_limit_events_cleaned", count=deleted_count)
 
         return deleted_count

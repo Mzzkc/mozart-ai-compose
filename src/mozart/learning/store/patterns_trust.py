@@ -83,7 +83,7 @@ class PatternTrustMixin:
                 (trust, now.isoformat(), pattern_id),
             )
 
-        _logger.debug(f"Calculated trust score for {pattern_id}: {trust:.3f}")
+        _logger.debug("trust_score_calculated", pattern_id=pattern_id, trust=round(trust, 3))
         return trust
 
     def update_trust_score(self, pattern_id: str, delta: float) -> float | None:
@@ -113,9 +113,7 @@ class PatternTrustMixin:
                 (new_trust, datetime.now().isoformat(), pattern_id),
             )
 
-        _logger.debug(
-            f"Updated trust score for {pattern_id}: {pattern.trust_score:.3f} → {new_trust:.3f}"
-        )
+        _logger.debug("trust_score_updated", pattern_id=pattern_id, old_trust=round(float(pattern.trust_score), 3), new_trust=round(new_trust, 3))
         return new_trust
 
     def get_high_trust_patterns(
@@ -212,10 +210,7 @@ class PatternTrustMixin:
 
         patterns = patterns[:limit]
 
-        _logger.debug(
-            f"Found {len(patterns)} patterns eligible for auto-apply "
-            f"(threshold={trust_threshold}, validated={require_validated})"
-        )
+        _logger.debug("auto_apply_patterns_found", count=len(patterns), threshold=trust_threshold, require_validated=require_validated)
         return patterns
 
     def recalculate_all_trust_scores(self) -> int:
@@ -234,5 +229,5 @@ class PatternTrustMixin:
             if result is not None:
                 updated += 1
 
-        _logger.info(f"Recalculated trust scores for {updated} patterns")
+        _logger.info("trust_scores_recalculated", count=updated)
         return updated

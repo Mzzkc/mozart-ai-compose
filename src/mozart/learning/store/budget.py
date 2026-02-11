@@ -538,7 +538,7 @@ class BudgetMixin:
             )
             budget_boosted = True
             actions_taken.append("budget_boost")
-            _logger.info(f"Entropy response: Boosted budget by {budget_boost_amount:.1%}")
+            _logger.info("entropy_budget_boost", boost_amount=round(budget_boost_amount, 4))
 
         # Action 2: Revisit quarantined patterns
         if revisit_quarantine:

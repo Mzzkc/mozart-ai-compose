@@ -599,7 +599,7 @@ class GlobalLearningStoreBase:
             (self.SCHEMA_VERSION,),
         )
 
-        self._logger.info(f"Created global learning schema v{self.SCHEMA_VERSION}")
+        self._logger.info("schema_created", version=self.SCHEMA_VERSION)
 
     def _migrate_columns(self, conn: sqlite3.Connection) -> None:
         """Add missing columns to existing tables.
