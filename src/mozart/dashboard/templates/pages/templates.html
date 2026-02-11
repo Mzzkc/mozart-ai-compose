@@ -1,0 +1,306 @@
+{% extends "base.html" %}
+
+{% block title %}Score Templates - Mozart Dashboard{% endblock %}
+
+{% block content %}
+<div id="main-content" class="py-6">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <!-- Page Header -->
+        <div class="sm:flex sm:items-center sm:justify-between mb-6">
+            <div class="sm:flex-auto">
+                <h1 class="text-2xl font-semibold text-gray-900 dark:text-white">
+                    Score Templates
+                </h1>
+                <p class="mt-2 text-sm text-gray-700 dark:text-gray-300">
+                    Pre-built score configurations to jump-start your Mozart workflows
+                </p>
+            </div>
+            <div class="mt-4 sm:mt-0 sm:ml-16 sm:flex-none">
+                <button type="button"
+                        class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
+                        onclick="window.location.href='/editor'">
+                    <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                    </svg>
+                    Create Custom Score
+                </button>
+            </div>
+        </div>
+
+        <!-- Template Categories -->
+        <div class="mb-6">
+            <div class="border-b border-gray-200 dark:border-gray-700">
+                <nav class="-mb-px flex space-x-8">
+                    <button class="template-category-tab border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm transition-colors active"
+                            data-category=""
+                            hx-get="/api/templates/list"
+                            hx-target="#templates-grid"
+                            hx-vals='{"category": ""}'
+                            hx-trigger="click">
+                        All Templates
+                    </button>
+                    <button class="template-category-tab border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm transition-colors"
+                            data-category="workflow"
+                            hx-get="/api/templates/list"
+                            hx-target="#templates-grid"
+                            hx-vals='{"category": "workflow"}'
+                            hx-trigger="click">
+                        Workflow
+                    </button>
+                    <button class="template-category-tab border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm transition-colors"
+                            data-category="data"
+                            hx-get="/api/templates/list"
+                            hx-target="#templates-grid"
+                            hx-vals='{"category": "data"}'
+                            hx-trigger="click">
+                        Data Processing
+                    </button>
+                    <button class="template-category-tab border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm transition-colors"
+                            data-category="testing"
+                            hx-get="/api/templates/list"
+                            hx-target="#templates-grid"
+                            hx-vals='{"category": "testing"}'
+                            hx-trigger="click">
+                        Testing & QA
+                    </button>
+                    <button class="template-category-tab border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm transition-colors"
+                            data-category="deployment"
+                            hx-get="/api/templates/list"
+                            hx-target="#templates-grid"
+                            hx-vals='{"category": "deployment"}'
+                            hx-trigger="click">
+                        CI/CD & Deployment
+                    </button>
+                </nav>
+            </div>
+        </div>
+
+        <!-- Search and Filter -->
+        <div class="mb-6 flex flex-col sm:flex-row gap-4">
+            <div class="flex-1">
+                <label for="search" class="sr-only">Search templates</label>
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                        </svg>
+                    </div>
+                    <input type="text"
+                           id="search"
+                           name="search"
+                           class="block w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md leading-5 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
+                           placeholder="Search templates..."
+                           hx-get="/api/templates/list"
+                           hx-target="#templates-grid"
+                           hx-trigger="keyup changed delay:300ms"
+                           hx-include="[data-search-context]">
+                </div>
+            </div>
+            <div class="flex items-center space-x-4">
+                <div class="flex items-center">
+                    <label for="complexity" class="text-sm font-medium text-gray-700 dark:text-gray-300 mr-2">Complexity:</label>
+                    <select id="complexity"
+                            name="complexity"
+                            data-search-context
+                            class="rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 text-sm focus:border-indigo-500 focus:ring-indigo-500"
+                            hx-get="/api/templates/list"
+                            hx-target="#templates-grid"
+                            hx-trigger="change"
+                            hx-include="[data-search-context], #search">
+                        <option value="">All</option>
+                        <option value="simple">Simple (1 sheet)</option>
+                        <option value="medium">Medium (2-3 sheets)</option>
+                        <option value="complex">Complex (4+ sheets)</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Templates Grid with Auto-load -->
+        <div id="templates-grid"
+             hx-get="/api/templates/list"
+             hx-trigger="load"
+             hx-indicator="#templates-loading"
+             class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <!-- Initial loading state -->
+            <div id="templates-loading" class="col-span-full flex justify-center py-8">
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div>
+            </div>
+        </div>
+
+        <!-- Empty State -->
+        <template id="empty-templates-template">
+            <div class="col-span-full text-center py-12">
+                <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 48 48">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">No templates found</h3>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Try adjusting your search criteria or browse different categories.</p>
+                <div class="mt-6">
+                    <button type="button"
+                            class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                            onclick="window.location.href='/editor'">
+                        <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                        </svg>
+                        Create Custom Score
+                    </button>
+                </div>
+            </div>
+        </template>
+    </div>
+</div>
+
+<!-- Template Preview Modal -->
+<div x-data="{ showPreview: false, selectedTemplate: null }"
+     @open-template-preview.window="showPreview = true; selectedTemplate = $event.detail">
+    <div x-show="showPreview"
+         x-transition
+         class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
+         @click.self="showPreview = false">
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+            <!-- Modal Header -->
+            <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100" x-text="selectedTemplate?.name"></h3>
+                    <p class="text-sm text-gray-600 dark:text-gray-400" x-text="selectedTemplate?.description"></p>
+                </div>
+                <button @click="showPreview = false"
+                        class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Modal Body -->
+            <div class="flex h-[70vh]">
+                <!-- Template Info -->
+                <div class="w-1/3 p-6 border-r border-gray-200 dark:border-gray-700 overflow-y-auto">
+                    <div class="space-y-4">
+                        <div>
+                            <h4 class="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">Template Info</h4>
+                            <dl class="space-y-2 text-sm">
+                                <div class="flex justify-between">
+                                    <dt class="text-gray-600 dark:text-gray-400">Complexity:</dt>
+                                    <dd class="text-gray-900 dark:text-gray-100" x-text="selectedTemplate?.complexity"></dd>
+                                </div>
+                                <div class="flex justify-between">
+                                    <dt class="text-gray-600 dark:text-gray-400">Sheets:</dt>
+                                    <dd class="text-gray-900 dark:text-gray-100" x-text="selectedTemplate?.sheets + ' sheets'"></dd>
+                                </div>
+                                <div class="flex justify-between">
+                                    <dt class="text-gray-600 dark:text-gray-400">Category:</dt>
+                                    <dd class="text-gray-900 dark:text-gray-100" x-text="selectedTemplate?.category"></dd>
+                                </div>
+                            </dl>
+                        </div>
+
+                        <div x-show="selectedTemplate?.features">
+                            <h4 class="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">Features</h4>
+                            <ul class="space-y-1 text-sm text-gray-600 dark:text-gray-400">
+                                <template x-for="feature in selectedTemplate?.features || []">
+                                    <li class="flex items-start">
+                                        <svg class="w-4 h-4 text-green-500 mt-0.5 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                                        </svg>
+                                        <span x-text="feature"></span>
+                                    </li>
+                                </template>
+                            </ul>
+                        </div>
+
+                        <div x-show="selectedTemplate?.variables">
+                            <h4 class="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">Variables</h4>
+                            <div class="space-y-2 text-sm">
+                                <template x-for="variable in selectedTemplate?.variables || []">
+                                    <div class="bg-gray-50 dark:bg-gray-700 p-2 rounded">
+                                        <div class="font-medium" x-text="`{{ ${variable.name} }}`"></div>
+                                        <div class="text-gray-600 dark:text-gray-400 text-xs" x-text="variable.description"></div>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Template Preview -->
+                <div class="flex-1 p-6">
+                    <h4 class="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">YAML Preview</h4>
+                    <pre class="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg overflow-auto text-sm font-mono h-full border"
+                         x-text="selectedTemplate?.content"></pre>
+                </div>
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-between">
+                <button @click="showPreview = false"
+                        class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
+                    Close
+                </button>
+                <div class="space-x-3">
+                    <button @click="downloadTemplate(selectedTemplate)"
+                            class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
+                        <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                        </svg>
+                        Download
+                    </button>
+                    <button @click="useTemplate(selectedTemplate)"
+                            class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition-colors">
+                        <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                        </svg>
+                        Use Template
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Active tab styling */
+.template-category-tab.active {
+    color: rgb(99 102 241);
+    border-color: rgb(99 102 241);
+}
+.dark .template-category-tab.active {
+    color: rgb(129 140 248);
+    border-color: rgb(129 140 248);
+}
+</style>
+
+<script>
+// Template browser functionality
+document.addEventListener('DOMContentLoaded', function() {
+    // Tab switching logic
+    const tabs = document.querySelectorAll('.template-category-tab');
+    tabs.forEach(tab => {
+        tab.addEventListener('click', function() {
+            tabs.forEach(t => t.classList.remove('active'));
+            this.classList.add('active');
+        });
+    });
+
+    // Global template functions
+    window.downloadTemplate = function(template) {
+        const blob = new Blob([template.content], { type: 'text/yaml' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${template.filename || 'template.yaml'}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+    };
+
+    window.useTemplate = function(template) {
+        // Redirect to editor with template content
+        sessionStorage.setItem('templateToLoad', JSON.stringify(template));
+        window.location.href = '/editor';
+    };
+});
+</script>
+{% endblock %}

@@ -1,0 +1,282 @@
+<!-- Sheet Details Partial -->
+<!-- This template is loaded on demand when sheet details are expanded -->
+<div class="sheet-details-content">
+    <!-- Execution Information -->
+    <div class="mb-6">
+        <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-3">Execution Information</h4>
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 text-sm">
+            {% if started_at %}
+            <div>
+                <dt class="text-gray-500 dark:text-gray-400">Started At</dt>
+                <dd class="font-medium text-gray-900 dark:text-white">
+                    {{ started_at[:19].replace('T', ' ') }}
+                </dd>
+            </div>
+            {% endif %}
+            {% if completed_at %}
+            <div>
+                <dt class="text-gray-500 dark:text-gray-400">Completed At</dt>
+                <dd class="font-medium text-gray-900 dark:text-white">
+                    {{ completed_at[:19].replace('T', ' ') }}
+                </dd>
+            </div>
+            {% endif %}
+            {% if execution_duration_seconds %}
+            <div>
+                <dt class="text-gray-500 dark:text-gray-400">Duration</dt>
+                <dd class="font-medium text-gray-900 dark:text-white">
+                    {{ "%.1fs" | format(execution_duration_seconds) }}
+                </dd>
+            </div>
+            {% endif %}
+            {% if exit_code is not none %}
+            <div>
+                <dt class="text-gray-500 dark:text-gray-400">Exit Code</dt>
+                <dd class="font-medium text-gray-900 dark:text-white">
+                    <span class="{% if exit_code == 0 %}text-green-600 dark:text-green-400{% else %}text-red-600 dark:text-red-400{% endif %}">
+                        {{ exit_code }}
+                    </span>
+                </dd>
+            </div>
+            {% endif %}
+            {% if exit_reason %}
+            <div>
+                <dt class="text-gray-500 dark:text-gray-400">Exit Reason</dt>
+                <dd class="font-medium text-gray-900 dark:text-white capitalize">{{ exit_reason }}</dd>
+            </div>
+            {% endif %}
+            {% if execution_mode %}
+            <div>
+                <dt class="text-gray-500 dark:text-gray-400">Mode</dt>
+                <dd class="font-medium text-gray-900 dark:text-white capitalize">{{ execution_mode }}</dd>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Validation Results -->
+    {% if validation_details and validation_details|length > 0 %}
+    <div class="mb-6">
+        <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-3">Validation Results</h4>
+        <div class="space-y-2">
+            {% for detail in validation_details %}
+            <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0">
+                        {% if detail.passed %}
+                            <svg class="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                        {% else %}
+                            <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        {% endif %}
+                    </div>
+                    <div class="ml-3">
+                        <p class="text-sm font-medium text-gray-900 dark:text-white">
+                            {{ detail.description or 'Validation check' }}
+                        </p>
+                        {% if detail.details %}
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ detail.details }}</p>
+                        {% endif %}
+                    </div>
+                </div>
+                {% if detail.passed %}
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                        Passed
+                    </span>
+                {% else %}
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
+                        Failed
+                    </span>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Pattern Application -->
+    {% if applied_pattern_descriptions and applied_pattern_descriptions|length > 0 %}
+    <div class="mb-6">
+        <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-3">Applied Patterns</h4>
+        <div class="space-y-2">
+            {% for pattern in applied_pattern_descriptions %}
+            <div class="flex items-center p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                <div class="flex-shrink-0">
+                    <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+                    </svg>
+                </div>
+                <span class="ml-2 text-sm text-gray-700 dark:text-gray-300">{{ pattern }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Grounding Information -->
+    {% if grounding_passed is not none %}
+    <div class="mb-6">
+        <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-3">Grounding Validation</h4>
+        <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
+            <div class="flex items-center justify-between mb-2">
+                <span class="text-sm text-gray-700 dark:text-gray-300">Grounding Status</span>
+                {% if grounding_passed %}
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                        Passed
+                    </span>
+                {% else %}
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
+                        Failed
+                    </span>
+                {% endif %}
+            </div>
+            {% if grounding_confidence is not none %}
+            <div class="flex items-center justify-between mb-2">
+                <span class="text-sm text-gray-700 dark:text-gray-300">Confidence</span>
+                <span class="text-sm font-medium text-gray-900 dark:text-white">{{ "%.1f%" | format(grounding_confidence * 100) }}</span>
+            </div>
+            {% endif %}
+            {% if grounding_guidance %}
+            <div class="mt-2">
+                <p class="text-xs text-gray-500 dark:text-gray-400">{{ grounding_guidance }}</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Cost Information -->
+    {% if input_tokens or output_tokens or estimated_cost %}
+    <div class="mb-6">
+        <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-3">Cost & Tokens</h4>
+        <div class="grid grid-cols-3 gap-4 text-sm">
+            {% if input_tokens %}
+            <div>
+                <dt class="text-gray-500 dark:text-gray-400">Input Tokens</dt>
+                <dd class="font-medium text-gray-900 dark:text-white">{{ "{:,}".format(input_tokens) }}</dd>
+            </div>
+            {% endif %}
+            {% if output_tokens %}
+            <div>
+                <dt class="text-gray-500 dark:text-gray-400">Output Tokens</dt>
+                <dd class="font-medium text-gray-900 dark:text-white">{{ "{:,}".format(output_tokens) }}</dd>
+            </div>
+            {% endif %}
+            {% if estimated_cost %}
+            <div>
+                <dt class="text-gray-500 dark:text-gray-400">Estimated Cost</dt>
+                <dd class="font-medium text-gray-900 dark:text-white">
+                    ${{ "%.4f" | format(estimated_cost) }}
+                    {% if cost_confidence and cost_confidence < 1.0 %}
+                        <span class="text-xs text-gray-400">({{ "%.0f%" | format(cost_confidence * 100) }})</span>
+                    {% endif %}
+                </dd>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Quality Metrics -->
+    {% if confidence_score or outcome_category or first_attempt_success is not none %}
+    <div class="mb-6">
+        <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-3">Quality Metrics</h4>
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+            {% if confidence_score is not none %}
+            <div>
+                <dt class="text-gray-500 dark:text-gray-400">Confidence</dt>
+                <dd class="font-medium text-gray-900 dark:text-white">{{ "%.1f%" | format(confidence_score * 100) }}</dd>
+            </div>
+            {% endif %}
+            {% if outcome_category %}
+            <div>
+                <dt class="text-gray-500 dark:text-gray-400">Outcome</dt>
+                <dd class="font-medium text-gray-900 dark:text-white capitalize">{{ outcome_category.replace('_', ' ') }}</dd>
+            </div>
+            {% endif %}
+            {% if first_attempt_success is not none %}
+            <div>
+                <dt class="text-gray-500 dark:text-gray-400">First Attempt</dt>
+                <dd class="font-medium text-gray-900 dark:text-white">
+                    {% if first_attempt_success %}
+                        <span class="text-green-600 dark:text-green-400">Success</span>
+                    {% else %}
+                        <span class="text-orange-600 dark:text-orange-400">Retry Needed</span>
+                    {% endif %}
+                </dd>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Error Information -->
+    {% if error_message or error_category %}
+    <div class="mb-6">
+        <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-3">Error Information</h4>
+        <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+            {% if error_category %}
+            <div class="mb-2">
+                <span class="text-xs font-medium text-red-800 dark:text-red-200 uppercase tracking-wide">{{ error_category }}</span>
+            </div>
+            {% endif %}
+            {% if error_message %}
+            <p class="text-sm text-red-700 dark:text-red-300">{{ error_message }}</p>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Output Logs -->
+    {% if stdout_tail or stderr_tail %}
+    <div class="mb-6">
+        <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-3">Output Logs</h4>
+
+        {% if stdout_tail %}
+        <div class="mb-4">
+            <h5 class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2 uppercase tracking-wide">
+                Standard Output
+                {% if output_truncated %}(Truncated){% endif %}
+            </h5>
+            <div class="bg-gray-900 dark:bg-black rounded-lg p-3 overflow-x-auto">
+                <pre class="log-output text-green-400"><code>{{ stdout_tail }}</code></pre>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if stderr_tail %}
+        <div class="mb-4">
+            <h5 class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2 uppercase tracking-wide">
+                Standard Error
+                {% if output_truncated %}(Truncated){% endif %}
+            </h5>
+            <div class="bg-gray-900 dark:bg-black rounded-lg p-3 overflow-x-auto">
+                <pre class="log-output text-red-400"><code>{{ stderr_tail }}</code></pre>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Warnings -->
+    {% if preflight_warnings and preflight_warnings|length > 0 %}
+    <div class="mb-6">
+        <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-3">Warnings</h4>
+        <div class="space-y-2">
+            {% for warning in preflight_warnings %}
+            <div class="flex items-start p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
+                <div class="flex-shrink-0">
+                    <svg class="w-4 h-4 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+                    </svg>
+                </div>
+                <span class="ml-2 text-sm text-yellow-700 dark:text-yellow-300">{{ warning }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>

@@ -1,0 +1,67 @@
+<!-- Jobs List Content Partial (for HTMX updates) -->
+{% if jobs %}
+    <!-- Jobs Grid -->
+    <div class="space-y-4">
+        {% for job in jobs %}
+            {% include 'components/job_card.html' %}
+        {% endfor %}
+    </div>
+
+    <!-- Summary Footer -->
+    {% if total_jobs > 0 %}
+        <div class="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
+            {% if applied_filter %}
+                Showing {{ jobs|length }} of {{ filtered_jobs }} {{ applied_filter }} jobs
+                ({{ total_jobs }} total jobs)
+            {% else %}
+                Showing {{ jobs|length }} of {{ total_jobs }} jobs
+            {% endif %}
+        </div>
+    {% endif %}
+
+{% else %}
+    <!-- Empty State -->
+    <div class="text-center py-12">
+        {% if applied_filter %}
+            <!-- No jobs matching filter -->
+            <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 48 48">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 13l6 6"/>
+            </svg>
+            <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">
+                No {{ applied_filter }} jobs found
+            </h3>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                Try selecting a different status filter or create a new job.
+            </p>
+            <div class="mt-6">
+                <button type="button"
+                        class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                        @click="openNewJobModal()">
+                    <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                    </svg>
+                    Create New Job
+                </button>
+            </div>
+        {% else %}
+            <!-- No jobs at all -->
+            <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 48 48">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M34 40h10v-4a6 6 0 00-10.712-3.714M34 40H14m20 0v-4a9.971 9.971 0 00-.712-3.714M14 40H4v-4a6 6 0 0110.712-3.714M14 40v-4a9.971 9.971 0 01.712-3.714M28 16a4 4 0 11-8 0 4 4 0 018 0zm-8 8a9.971 9.971 0 00-6.288 2.286"/>
+            </svg>
+            <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">No jobs yet</h3>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                Get started by creating your first Mozart orchestration job.
+            </p>
+            <div class="mt-6">
+                <button type="button"
+                        class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                        @click="openNewJobModal()">
+                    <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                    </svg>
+                    Create Your First Job
+                </button>
+            </div>
+        {% endif %}
+    </div>
+{% endif %}

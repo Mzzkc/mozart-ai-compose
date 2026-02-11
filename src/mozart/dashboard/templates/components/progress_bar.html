@@ -1,0 +1,186 @@
+<!-- Progress Bar Component -->
+<!-- Usage: {% include 'components/progress_bar.html' %} with context vars: progress, status, size -->
+{% set progress = progress or 0 %}
+{% set status = status or 'pending' %}
+{% set size = size or 'default' %}
+
+<!-- Progress bar container -->
+<div class="progress-container">
+    <!-- Progress bar track -->
+    <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden
+                {% if size == 'sm' %}h-2
+                {% elif size == 'lg' %}h-4
+                {% else %}h-3{% endif %}">
+
+        <!-- Progress bar fill with status-based colors and animation -->
+        <div class="h-full rounded-full transition-all duration-300 ease-in-out
+                    {% if status == 'completed' %}
+                        bg-green-500 dark:bg-green-400
+                    {% elif status == 'running' %}
+                        bg-blue-500 dark:bg-blue-400 progress-animate
+                    {% elif status == 'failed' %}
+                        bg-red-500 dark:bg-red-400
+                    {% elif status == 'paused' %}
+                        bg-yellow-500 dark:bg-yellow-400
+                    {% elif status == 'pending' %}
+                        bg-gray-400 dark:bg-gray-500
+                    {% else %}
+                        bg-indigo-500 dark:bg-indigo-400
+                    {% endif %}"
+             style="width: {{ progress }}%"
+             {% if status == 'running' %}
+                x-data="{ shimmer: true }"
+                :class="shimmer ? 'shimmer-effect' : ''"
+             {% endif %}>
+
+            <!-- Subtle shine effect for running jobs -->
+            {% if status == 'running' %}
+                <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white to-transparent opacity-20 animate-shimmer"></div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Optional progress text (if size is lg) -->
+    {% if size == 'lg' %}
+        <div class="flex justify-between items-center mt-2 text-sm">
+            <span class="text-gray-600 dark:text-gray-400">
+                {% if status == 'completed' %}
+                    Complete
+                {% elif status == 'running' %}
+                    In Progress
+                {% elif status == 'failed' %}
+                    Failed
+                {% elif status == 'paused' %}
+                    Paused
+                {% elif status == 'pending' %}
+                    Pending
+                {% else %}
+                    {{ status|title }}
+                {% endif %}
+            </span>
+            <span class="font-medium text-gray-900 dark:text-white">
+                {{ "%.1f" | format(progress) }}%
+            </span>
+        </div>
+    {% endif %}
+</div>
+
+<style>
+/* Animated progress bar for running jobs */
+.progress-animate {
+    position: relative;
+    overflow: hidden;
+}
+
+/* Shimmer animation for running progress bars */
+@keyframes shimmer {
+    0% {
+        transform: translateX(-100%);
+    }
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+.animate-shimmer {
+    animation: shimmer 2s infinite;
+}
+
+/* Pulse effect for running status */
+.progress-animate::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.2),
+        transparent
+    );
+    animation: shimmer 2s infinite;
+}
+
+/* Status-specific progress bar animations */
+.progress-container .bg-blue-500,
+.progress-container .bg-blue-400 {
+    background-image: linear-gradient(
+        45deg,
+        rgba(255, 255, 255, 0.1) 25%,
+        transparent 25%,
+        transparent 50%,
+        rgba(255, 255, 255, 0.1) 50%,
+        rgba(255, 255, 255, 0.1) 75%,
+        transparent 75%,
+        transparent
+    );
+    background-size: 20px 20px;
+    animation: progress-stripes 1s linear infinite;
+}
+
+@keyframes progress-stripes {
+    0% {
+        background-position: 0 0;
+    }
+    100% {
+        background-position: 20px 0;
+    }
+}
+
+/* Smooth transitions for progress changes */
+.progress-container div[style*="width"] {
+    transition: width 0.3s ease-in-out;
+}
+
+/* Dark mode enhancements */
+.dark .progress-container {
+    /* Enhance contrast in dark mode */
+}
+
+.dark .progress-animate::before {
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.1),
+        transparent
+    );
+}
+
+/* Accessibility: High contrast mode support */
+@media (prefers-contrast: high) {
+    .progress-container .bg-blue-500,
+    .progress-container .bg-blue-400 {
+        background-color: #0066cc;
+    }
+
+    .progress-container .bg-green-500,
+    .progress-container .bg-green-400 {
+        background-color: #00aa00;
+    }
+
+    .progress-container .bg-red-500,
+    .progress-container .bg-red-400 {
+        background-color: #cc0000;
+    }
+
+    .progress-container .bg-yellow-500,
+    .progress-container .bg-yellow-400 {
+        background-color: #ffaa00;
+    }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    .progress-animate::before,
+    .animate-shimmer,
+    .progress-container div[style*="width"] {
+        animation: none;
+    }
+
+    .progress-container div[style*="width"] {
+        transition: none;
+    }
+}
+</style>

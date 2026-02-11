@@ -1,0 +1,615 @@
+{% extends "base.html" %}
+{% block title %}Job {{ job.job_name }} - Mozart Dashboard{% endblock %}
+
+{% block extra_head %}
+<!-- Job Detail Page Specific Styles -->
+<style>
+.job-sheet-row {
+    transition: all 0.2s ease-in-out;
+}
+
+.job-sheet-row:hover {
+    background-color: rgba(0, 0, 0, 0.02);
+}
+
+.dark .job-sheet-row:hover {
+    background-color: rgba(255, 255, 255, 0.02);
+}
+
+.sheet-expandable {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease-out;
+}
+
+.sheet-expandable.expanded {
+    max-height: 500px;
+}
+
+.log-output {
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 0.75rem;
+    line-height: 1.4;
+}
+
+@keyframes realtime-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+.realtime-indicator {
+    animation: realtime-pulse 2s ease-in-out infinite;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- SSE Connection Container -->
+<div hx-ext="sse" sse-connect="/api/jobs/{{ job.job_id }}/stream">
+    <div class="py-6">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+
+            <!-- Job Header Section -->
+            <div class="mb-8">
+                <!-- Breadcrumb Navigation -->
+                <nav class="flex mb-4" aria-label="Breadcrumb">
+                    <ol class="flex items-center space-x-4">
+                        <li>
+                            <div>
+                                <a href="/jobs"
+                                   hx-get="/jobs"
+                                   hx-target="#main-content"
+                                   hx-push-url="/jobs"
+                                   class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 transition-colors">
+                                    <svg class="flex-shrink-0 h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M9.707 14.707a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 1.414L7.414 9H15a1 1 0 110 2H7.414l2.293 2.293a1 1 0 010 1.414z" clip-rule="evenodd"/>
+                                    </svg>
+                                    <span class="sr-only">Jobs</span>
+                                </a>
+                            </div>
+                        </li>
+                        <li>
+                            <div class="flex items-center">
+                                <svg class="flex-shrink-0 h-5 w-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"/>
+                                </svg>
+                                <span class="ml-4 text-sm font-medium text-gray-700 dark:text-gray-300">{{ job.job_name }}</span>
+                            </div>
+                        </li>
+                    </ol>
+                </nav>
+
+                <!-- Job Title and Status -->
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center min-w-0 flex-1">
+                        <div class="flex-shrink-0">
+                            {% set status = job.status %}
+                            {% set size = 'lg' %}
+                            {% include 'components/status_badge.html' %}
+                        </div>
+                        <div class="ml-4 min-w-0 flex-1">
+                            <h1 class="text-3xl font-bold text-gray-900 dark:text-white truncate">
+                                {{ job.job_name }}
+                            </h1>
+                            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                                Job ID: {{ job.job_id }}
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Real-time Status Indicator -->
+                    <div class="ml-4 flex items-center space-x-2">
+                        <div class="realtime-indicator flex items-center text-sm text-green-600 dark:text-green-400">
+                            <div class="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+                            Live Updates
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Job Statistics -->
+                <div sse-swap="job_status" class="mt-6 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-6">
+                    <div class="text-center">
+                        <div class="text-2xl font-bold text-indigo-600 dark:text-indigo-400" id="progress-percent">{{ "%.1f" | format(job.progress_percent) }}%</div>
+                        <div class="text-sm text-gray-500 dark:text-gray-400">Progress</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-2xl font-bold text-gray-900 dark:text-white" id="completed-sheets">{{ job.completed_sheets }}</div>
+                        <div class="text-sm text-gray-500 dark:text-gray-400">Completed</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-2xl font-bold text-gray-900 dark:text-white">{{ job.total_sheets }}</div>
+                        <div class="text-sm text-gray-500 dark:text-gray-400">Total Sheets</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-2xl font-bold text-purple-600 dark:text-purple-400">{{ job.total_retry_count }}</div>
+                        <div class="text-sm text-gray-500 dark:text-gray-400">Retries</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-2xl font-bold text-orange-600 dark:text-orange-400">{{ job.rate_limit_waits }}</div>
+                        <div class="text-sm text-gray-500 dark:text-gray-400">Rate Limits</div>
+                    </div>
+                    <div class="text-center">
+                        {% if job.current_sheet %}
+                            <div class="text-2xl font-bold text-blue-600 dark:text-blue-400" id="current-sheet">{{ job.current_sheet }}</div>
+                            <div class="text-sm text-gray-500 dark:text-gray-400">Current Sheet</div>
+                        {% else %}
+                            <div class="text-2xl font-bold text-gray-400">—</div>
+                            <div class="text-sm text-gray-500 dark:text-gray-400">Current Sheet</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Progress Bar -->
+                <div class="mt-6">
+                    {% set progress = job.progress_percent %}
+                    {% set status = job.status %}
+                    {% include 'components/progress_bar.html' %}
+                </div>
+            </div>
+
+            <!-- Action Buttons Section -->
+            <div class="mb-8 flex flex-wrap gap-3" x-data="jobControls('{{ job.job_id }}', '{{ job.status }}')">
+                {% if job.status == 'running' %}
+                    <button type="button"
+                            @click="pauseJob()"
+                            :disabled="actionInProgress"
+                            class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-yellow-600 hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                        <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        <span x-text="actionInProgress === 'pause' ? 'Pausing...' : 'Pause Job'"></span>
+                    </button>
+                {% elif job.status == 'paused' %}
+                    <button type="button"
+                            @click="resumeJob()"
+                            :disabled="actionInProgress"
+                            class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                        <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h1m4 0h1m6-6a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        <span x-text="actionInProgress === 'resume' ? 'Resuming...' : 'Resume Job'"></span>
+                    </button>
+                {% endif %}
+
+                {% if job.status in ['running', 'paused'] %}
+                    <button type="button"
+                            @click="cancelJob()"
+                            :disabled="actionInProgress"
+                            class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                        <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        <span x-text="actionInProgress === 'cancel' ? 'Cancelling...' : 'Cancel Job'"></span>
+                    </button>
+                {% endif %}
+
+                <button type="button"
+                        hx-get="/jobs/{{ job.job_id }}/logs"
+                        hx-target="#main-content"
+                        hx-push-url="/jobs/{{ job.job_id }}/logs"
+                        :disabled="actionInProgress"
+                        class="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 text-sm font-medium rounded-md shadow-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                    <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                    </svg>
+                    View Logs
+                </button>
+
+                {% if job.status not in ['running', 'paused'] %}
+                    <button type="button"
+                            @click="deleteJob()"
+                            :disabled="actionInProgress"
+                            class="inline-flex items-center px-4 py-2 border border-red-300 text-sm font-medium rounded-md shadow-sm text-red-700 dark:text-red-400 bg-white dark:bg-gray-700 hover:bg-red-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                        <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                        </svg>
+                        <span x-text="actionInProgress === 'delete' ? 'Deleting...' : 'Delete Job'"></span>
+                    </button>
+                {% endif %}
+
+                <!-- Enhanced Status Feedback Section -->
+                <div id="action-feedback"
+                     x-show="showFeedback"
+                     x-transition:enter="transition ease-out duration-300"
+                     x-transition:enter-start="opacity-0 transform scale-95"
+                     x-transition:enter-end="opacity-100 transform scale-100"
+                     x-transition:leave="transition ease-in duration-200"
+                     x-transition:leave-start="opacity-100 transform scale-100"
+                     x-transition:leave-end="opacity-0 transform scale-95"
+                     class="flex items-center px-3 py-2 rounded-md text-sm font-medium"
+                     :class="feedbackClass">
+                    <svg x-show="feedbackType === 'success'" class="h-5 w-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                    </svg>
+                    <svg x-show="feedbackType === 'error'" class="h-5 w-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+                    </svg>
+                    <span x-text="feedbackMessage"></span>
+                </div>
+            </div>
+
+            <!-- Error Message Section -->
+            {% if job.error_message %}
+                <div class="mb-8 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800 rounded-md p-4">
+                    <div class="flex">
+                        <div class="flex-shrink-0">
+                            <svg class="h-5 w-5 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+                            </svg>
+                        </div>
+                        <div class="ml-3">
+                            <h3 class="text-sm font-medium text-red-800 dark:text-red-200">
+                                Job Error
+                            </h3>
+                            <div class="mt-2 text-sm text-red-700 dark:text-red-300">
+                                <p>{{ job.error_message }}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endif %}
+
+            <!-- Job Detail Tabs Section -->
+            <div x-data="{ activeTab: 'sheets' }" class="bg-white dark:bg-gray-800 shadow rounded-lg">
+                <!-- Tab Navigation -->
+                <div class="border-b border-gray-200 dark:border-gray-700">
+                    <nav class="-mb-px flex space-x-8 px-4 sm:px-6" aria-label="Tabs">
+                        <button @click="activeTab = 'sheets'"
+                                :class="activeTab === 'sheets' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'"
+                                class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors">
+                            <div class="flex items-center">
+                                <svg class="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+                                </svg>
+                                Execution Sheets ({{ job.sheets|length }})
+                            </div>
+                        </button>
+
+                        <button @click="activeTab = 'logs'"
+                                :class="activeTab === 'logs' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'"
+                                class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors">
+                            <div class="flex items-center">
+                                <svg class="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                </svg>
+                                Execution Logs
+                            </div>
+                        </button>
+
+                        <button @click="activeTab = 'artifacts'"
+                                :class="activeTab === 'artifacts' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'"
+                                class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors">
+                            <div class="flex items-center">
+                                <svg class="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                                </svg>
+                                Job Artifacts
+                            </div>
+                        </button>
+
+                        <button @click="activeTab = 'metadata'"
+                                :class="activeTab === 'metadata' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'"
+                                class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors">
+                            <div class="flex items-center">
+                                <svg class="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                                Job Metadata
+                            </div>
+                        </button>
+                    </nav>
+                </div>
+
+                <!-- Tab Content -->
+                <div class="p-0">
+                    <!-- Sheets Tab -->
+                    <div x-show="activeTab === 'sheets'" class="p-4 sm:p-6">
+                        <h3 class="text-lg leading-6 font-medium text-gray-900 dark:text-white mb-4">
+                            Execution Sheets ({{ job.sheets|length }})
+                        </h3>
+
+                        <!-- Sheets List -->
+                        <div class="divide-y divide-gray-200 dark:divide-gray-700">
+                            {% for sheet in job.sheets %}
+                                {% set job_id = job.job_id %}
+                                {% include 'components/sheet_row.html' %}
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <!-- Logs Tab -->
+                    <div x-show="activeTab === 'logs'" class="p-0">
+                        {% include 'components/log_viewer.html' %}
+                    </div>
+
+                    <!-- Artifacts Tab -->
+                    <div x-show="activeTab === 'artifacts'" class="p-0">
+                        {% include 'components/artifact_tree.html' %}
+                    </div>
+
+                    <!-- Metadata Tab -->
+                    <div x-show="activeTab === 'metadata'" class="p-4 sm:p-6">
+                        <h3 class="text-lg leading-6 font-medium text-gray-900 dark:text-white mb-4">
+                            Job Metadata
+                        </h3>
+
+                        <dl class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Created At</dt>
+                                <dd class="mt-1 text-sm text-gray-900 dark:text-white">
+                                    {{ job.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}
+                                </dd>
+                            </div>
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Updated At</dt>
+                                <dd class="mt-1 text-sm text-gray-900 dark:text-white" id="updated-at">
+                                    {{ job.updated_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}
+                                </dd>
+                            </div>
+                            {% if job.started_at %}
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Started At</dt>
+                                <dd class="mt-1 text-sm text-gray-900 dark:text-white">
+                                    {{ job.started_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}
+                                </dd>
+                            </div>
+                            {% endif %}
+                            {% if job.completed_at %}
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Completed At</dt>
+                                <dd class="mt-1 text-sm text-gray-900 dark:text-white">
+                                    {{ job.completed_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}
+                                </dd>
+                            </div>
+                            {% endif %}
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Last Completed Sheet</dt>
+                                <dd class="mt-1 text-sm text-gray-900 dark:text-white">
+                                    Sheet {{ job.last_completed_sheet }}
+                                </dd>
+                            </div>
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Total Retries</dt>
+                                <dd class="mt-1 text-sm text-gray-900 dark:text-white">
+                                    {{ job.total_retry_count }}
+                                </dd>
+                            </div>
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Rate Limit Waits</dt>
+                                <dd class="mt-1 text-sm text-gray-900 dark:text-white">
+                                    {{ job.rate_limit_waits }}
+                                </dd>
+                            </div>
+                        </dl>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Alpine.js Job Control Component
+function jobControls(jobId, initialStatus) {
+    return {
+        jobId: jobId,
+        currentStatus: initialStatus,
+        actionInProgress: false,
+        showFeedback: false,
+        feedbackType: '',
+        feedbackMessage: '',
+
+        get feedbackClass() {
+            const baseClass = 'flex items-center px-3 py-2 rounded-md text-sm font-medium';
+            if (this.feedbackType === 'success') {
+                return `${baseClass} bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-400`;
+            } else if (this.feedbackType === 'error') {
+                return `${baseClass} bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-400`;
+            }
+            return `${baseClass} bg-blue-50 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400`;
+        },
+
+        async pauseJob() {
+            if (this.actionInProgress) return;
+
+            const confirmed = confirm('Are you sure you want to pause this job?\n\nThe job will be suspended but can be resumed later.');
+            if (!confirmed) return;
+
+            await this.executeAction('pause', '/api/jobs/' + this.jobId + '/pause', 'POST');
+        },
+
+        async resumeJob() {
+            if (this.actionInProgress) return;
+
+            const confirmed = confirm('Resume this job?\n\nThe job will continue execution from where it was paused.');
+            if (!confirmed) return;
+
+            await this.executeAction('resume', '/api/jobs/' + this.jobId + '/resume', 'POST');
+        },
+
+        async cancelJob() {
+            if (this.actionInProgress) return;
+
+            const confirmed = confirm('Cancel this job?\n\nThis will stop the job execution. This action cannot be undone.');
+            if (!confirmed) return;
+
+            await this.executeAction('cancel', '/api/jobs/' + this.jobId + '/cancel', 'POST');
+        },
+
+        async deleteJob() {
+            if (this.actionInProgress) return;
+
+            const confirmed = confirm('Delete this job permanently?\n\nThis will remove all job data and logs. This action cannot be undone.');
+            if (!confirmed) return;
+
+            const success = await this.executeAction('delete', '/api/jobs/' + this.jobId, 'DELETE');
+            if (success) {
+                setTimeout(() => {
+                    window.location.href = '/jobs';
+                }, 1500);
+            }
+        },
+
+        async executeAction(action, url, method) {
+            this.actionInProgress = action;
+            this.showActionFeedback('info', `${action.charAt(0).toUpperCase() + action.slice(1)}ing job...`);
+
+            try {
+                const response = await fetch(url, {
+                    method: method,
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    this.showActionFeedback('success', `Job ${action}ed successfully`);
+
+                    // Update status if provided
+                    if (result.status) {
+                        this.currentStatus = result.status;
+                    }
+
+                    // Trigger global notification
+                    if (window.app && window.app.addNotification) {
+                        window.app.addNotification({
+                            type: 'success',
+                            title: `Job ${action.charAt(0).toUpperCase() + action.slice(1)}ed`,
+                            message: result.message || `Job has been ${action}ed successfully.`
+                        });
+                    }
+
+                    // Reload page to reflect changes (except delete)
+                    if (action !== 'delete') {
+                        setTimeout(() => {
+                            location.reload();
+                        }, 1500);
+                    }
+
+                    return true;
+                } else {
+                    throw new Error(result.message || `Failed to ${action} job`);
+                }
+            } catch (error) {
+                console.error(`Error during ${action}:`, error);
+                this.showActionFeedback('error', `Failed to ${action} job: ${error.message}`);
+
+                // Trigger global notification
+                if (window.app && window.app.addNotification) {
+                    window.app.addNotification({
+                        type: 'error',
+                        title: `${action.charAt(0).toUpperCase() + action.slice(1)} Failed`,
+                        message: error.message || `Failed to ${action} job`
+                    });
+                }
+
+                return false;
+            } finally {
+                this.actionInProgress = false;
+            }
+        },
+
+        showActionFeedback(type, message) {
+            this.feedbackType = type;
+            this.feedbackMessage = message;
+            this.showFeedback = true;
+
+            // Auto-hide feedback after 5 seconds
+            setTimeout(() => {
+                this.showFeedback = false;
+            }, 5000);
+        }
+    };
+}
+
+// Handle SSE updates for job status
+document.addEventListener('htmx:sseMessage', function(evt) {
+    if (evt.detail.type === 'job_status') {
+        const data = JSON.parse(evt.detail.data);
+
+        // Update progress indicators
+        const progressElement = document.getElementById('progress-percent');
+        if (progressElement) {
+            progressElement.textContent = data.progress_percent.toFixed(1) + '%';
+        }
+
+        const completedElement = document.getElementById('completed-sheets');
+        if (completedElement) {
+            completedElement.textContent = data.completed_sheets;
+        }
+
+        const currentElement = document.getElementById('current-sheet');
+        if (currentElement && data.current_sheet) {
+            currentElement.textContent = data.current_sheet;
+        }
+
+        const updatedElement = document.getElementById('updated-at');
+        if (updatedElement) {
+            const updatedTime = new Date(data.updated_at);
+            updatedElement.textContent = updatedTime.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+        }
+
+        // Update Alpine.js component status if changed
+        if (window.Alpine && data.status) {
+            const controlsElement = document.querySelector('[x-data*="jobControls"]');
+            if (controlsElement && controlsElement._x_dataStack) {
+                const controlsData = controlsElement._x_dataStack[0];
+                if (controlsData && controlsData.currentStatus !== data.status) {
+                    controlsData.currentStatus = data.status;
+                }
+            }
+        }
+
+        // Show notification for status changes
+        if (window.app && window.app.addNotification) {
+            if (data.status === 'completed') {
+                window.app.addNotification({
+                    type: 'success',
+                    title: 'Job Completed',
+                    message: `Job ${data.job_id} has completed successfully!`
+                });
+            } else if (data.status === 'failed') {
+                window.app.addNotification({
+                    type: 'error',
+                    title: 'Job Failed',
+                    message: `Job ${data.job_id} has failed. Check logs for details.`
+                });
+            }
+        }
+    } else if (evt.detail.type === 'job_finished') {
+        // Auto-reload page when job finishes to show final state
+        setTimeout(() => {
+            location.reload();
+        }, 2000);
+    }
+});
+
+// Enhanced error handling for HTMX requests
+document.addEventListener('htmx:responseError', function(evt) {
+    console.error('HTMX Response Error:', evt.detail);
+    if (window.app && window.app.addNotification) {
+        window.app.addNotification({
+            type: 'error',
+            title: 'Request Failed',
+            message: `HTTP ${evt.detail.xhr.status}: ${evt.detail.xhr.statusText}`
+        });
+    }
+});
+
+document.addEventListener('htmx:timeout', function(evt) {
+    console.warn('HTMX Timeout:', evt.detail);
+    if (window.app && window.app.addNotification) {
+        window.app.addNotification({
+            type: 'warning',
+            title: 'Request Timeout',
+            message: 'The request took too long to complete'
+        });
+    }
+});
+</script>
+{% endblock %}

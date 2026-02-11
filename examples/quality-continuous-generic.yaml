@@ -1,0 +1,1662 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║              CONTINUOUS QUALITY IMPROVEMENT (GENERIC)                        ║
+# ║                                                                              ║
+# ║  Language-agnostic quality review. Claude examines the project, generates   ║
+# ║  runner scripts for test/typecheck/lint, then uses those scripts throughout ║
+# ║  the pipeline. Validations execute the scripts — truly generic.             ║
+# ║                                                                              ║
+# ║  The 3 expert reviews run IN PARALLEL via fan-out, cutting review            ║
+# ║  wall-time from ~120 min to ~40 min.                                        ║
+# ║                                                                              ║
+# ║  Execution Flow (14 stages, 16 concrete sheets):                            ║
+# ║                                                                              ║
+# ║    Stage 1: Setup (iteration + GitHub issues + runner scripts)              ║
+# ║         |                                                                    ║
+# ║         +------------+-----------+                                           ║
+# ║         v            v           v                                           ║
+# ║    Stage 2 x3: Expert Reviews (PARALLEL)                                    ║
+# ║      [Architecture] [Test Coverage] [Code Debt]                              ║
+# ║         |            |           |                                           ║
+# ║         +------------+-----------+                                           ║
+# ║                   v                                                          ║
+# ║    Stage 3:  Category Discovery (30 issues)                                 ║
+# ║    Stage 4:  Synthesis & Prioritization                                     ║
+# ║    Stage 5:  Batch 1 - Quick Wins (70%+ required)                           ║
+# ║    Stage 6:  Batch 1 - Completion Pass                                      ║
+# ║    Stage 7:  Batch 2 - Medium Effort (70%+ required)                        ║
+# ║    Stage 8:  Batch 2 - Completion Pass                                      ║
+# ║    Stage 9:  Batch 3 - Significant (50%+ required)                          ║
+# ║    Stage 10: Batch 3 - Completion Pass                                      ║
+# ║    Stage 11: Verification & Summary (re-runs scripts, audit trail)          ║
+# ║    Stage 12: Commit & Push                                                  ║
+# ║    Stage 13: Merge Conflict Resolution                                      ║
+# ║    Stage 14: File GitHub Issues                                             ║
+# ║                                                                              ║
+# ║  Usage:                                                                      ║
+# ║    cd /path/to/your/project                                                  ║
+# ║    mozart run /path/to/examples/quality-continuous-generic.yaml             ║
+# ║                                                                              ║
+# ║  Goal: Close the gap between 90% LLM completion and 100% production quality  ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+name: "quality-continuous-generic"
+description: "Language-agnostic expert reviews + batched fixes + commits, with parallel reviews and self-chaining"
+
+workspace: "./.quality-workspace"
+
+workspace_lifecycle:
+  archive_on_fresh: true
+  max_archives: 10
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  timeout_seconds: 2400  # 40 min per sheet for thorough analysis
+
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 3000
+  lookback_sheets: 3  # Needed so Stage 3 (Sheet 5) can read all 3 fan-out outputs
+  capture_files:
+    - "{{ workspace }}/*.md"
+    - "{{ workspace }}/*.yaml"
+
+sheet:
+  size: 1
+  total_items: 14  # 14 stages → 16 concrete sheets after fan-out expansion
+
+  # Stage 2 runs 3 parallel instances (Architecture, Test Coverage, Code Debt)
+  fan_out:
+    2: 3
+
+  # Dependency DAG (stage-level, auto-expanded for fan-out)
+  dependencies:
+    2: [1]     # Expert reviews depend on setup
+    3: [2]     # Category discovery depends on all reviews (fan-in)
+    4: [3]     # Synthesis depends on category discovery
+    5: [4]     # Batch 1 depends on synthesis
+    6: [5]     # Batch 1 completion depends on batch 1
+    7: [6]     # Batch 2 depends on batch 1 completion
+    8: [7]     # Batch 2 completion depends on batch 2
+    9: [8]     # Batch 3 depends on batch 2 completion
+    10: [9]    # Batch 3 completion depends on batch 3
+    11: [10]   # Verification depends on batch 3 completion
+    12: [11]   # Commit depends on verification
+    13: [12]   # Merge resolution depends on commit
+    14: [13]   # GitHub issues depends on merge resolution
+
+parallel:
+  enabled: true
+  max_concurrent: 3  # All 3 expert reviews can run simultaneously
+
+retry:
+  max_retries: 2
+
+prompt:
+  template: |
+    {{ preamble }}
+
+    {% if stage == 1 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 1: SETUP                                                              ║
+    ║  "Preparation precedes performance"                                          ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Step 1: Track iteration**
+    ```bash
+    mkdir -p {{ workspace }}
+    if [ -f {{ workspace }}/.iteration ]; then
+      ITER=$(cat {{ workspace }}/.iteration)
+      ITER=$((ITER + 1))
+    else
+      ITER=1
+    fi
+    echo $ITER > {{ workspace }}/.iteration
+    echo "=== QUALITY ITERATION $ITER ==="
+    ```
+
+    **Step 2: Survey open GitHub issues**
+    ```bash
+    gh issue list --state open --label "bug" --json number,title,body --limit 20 2>/dev/null || echo "gh not available"
+    gh issue list --state open --label "mozart-quality" --json number,title,body --limit 10 2>/dev/null || true
+    ```
+
+    Save a summary of open issues to {{ workspace }}/00-known-issues.md:
+    ```markdown
+    # Known Open Issues (Iteration N)
+
+    | # | Title | Labels | Relevant Modules |
+    |---|-------|--------|------------------|
+    ```
+
+    For each open issue, note which source files or modules it relates to.
+    If `gh` is not available, note "No GitHub access" and continue.
+
+    **Step 3: Project orientation**
+
+    Examine the project thoroughly:
+    ```bash
+    # Map project structure
+    find . -type f \
+      -not -path '*/.git/*' -not -path '*/node_modules/*' \
+      -not -path '*/target/*' -not -path '*/__pycache__/*' \
+      -not -path '*/.quality-workspace/*' \
+      | head -60
+
+    # Find manifests and build files
+    find . -maxdepth 3 \( \
+      -name "Cargo.toml" -o -name "package.json" -o -name "pyproject.toml" \
+      -o -name "go.mod" -o -name "pom.xml" -o -name "build.gradle" \
+      -o -name "Gemfile" -o -name "mix.exs" -o -name "composer.json" \
+      -o -name "*.csproj" -o -name "*.sln" -o -name "Makefile" \
+      -o -name "CMakeLists.txt" -o -name "build.zig" -o -name "*.cabal" \
+      -o -name "stack.yaml" -o -name "Package.swift" -o -name "deno.json" \
+      -o -name "setup.py" -o -name "setup.cfg" \
+    \) -not -path '*/node_modules/*' 2>/dev/null
+    ```
+
+    Understand what languages, frameworks, test runners, linters, and type
+    checkers this project uses. Read the manifests to find test configurations,
+    script definitions, and dev dependencies.
+
+    **Step 4: Generate runner scripts**
+
+    Based on your examination of the project, create three shell scripts that
+    Mozart's validation system will use to independently verify your work.
+    These scripts are regenerated each iteration to track project changes.
+
+    **IMPORTANT:** Only include tools and suites you have VERIFIED exist in
+    this project. Do NOT guess. Check for:
+    - Manifest files (Cargo.toml, package.json, etc.)
+    - Test files actually exist (not just the framework installed)
+    - Commands are available (`command -v cargo`, etc.)
+    - For monorepos, include suites for EACH sub-package
+
+    **{{ workspace }}/.run-tests.sh** — Runs ALL test suites. REQUIRED.
+
+    Write this script following this exact structure:
+    ```bash
+    #!/usr/bin/env bash
+    # Mozart Quality — Test Runner (Iteration N)
+    # Project: [brief description of what was detected]
+    # Regenerated each iteration to track project changes.
+    #
+    # Exit 0 = all suites passed (or no tests found)
+    # Exit 1 = one or more suites failed
+
+    FAILURES=0
+    PASSED=0
+    SKIPPED=0
+
+    run_suite() {
+      local label="$1"; shift
+      echo ">>> Running: $label"
+      if "$@" 2>&1; then
+        echo "PASS: $label"
+        PASSED=$((PASSED + 1))
+      else
+        echo "FAIL: $label"
+        FAILURES=$((FAILURES + 1))
+      fi
+    }
+
+    # --- [Only suites verified to exist in this project] ---
+    #
+    # Common patterns (include ONLY what applies):
+    #   run_suite "cargo test"    cargo test
+    #   run_suite "pytest"        pytest -x -q --tb=short
+    #   run_suite "go test"       go test ./...
+    #   run_suite "vitest"        npx vitest run          (from correct dir)
+    #   run_suite "jest"          npx jest                (from correct dir)
+    #   run_suite "mix test"      mix test
+    #   run_suite "rspec"         bundle exec rspec
+    #   run_suite "dotnet test"   dotnet test
+    #   run_suite "mvn test"      mvn test -q
+    #   run_suite "swift test"    swift test
+    #
+    # For monorepos with multiple package.json files, cd to each directory:
+    #   (cd frontend && run_suite "frontend vitest" npx vitest run)
+    #
+    # If a toolchain isn't installed, SKIP (don't fail):
+    #   if command -v cargo >/dev/null 2>&1; then
+    #     run_suite "cargo test" cargo test
+    #   else
+    #     echo "SKIP: cargo not installed"; SKIPPED=$((SKIPPED + 1))
+    #   fi
+
+    echo ""
+    echo "======================================="
+    TOTAL=$((PASSED + FAILURES))
+    if [ "$TOTAL" -eq 0 ]; then
+      echo "NO TEST SUITES DETECTED"
+      [ "$SKIPPED" -gt 0 ] && echo "(skipped $SKIPPED — toolchain not installed)"
+      exit 0
+    elif [ "$FAILURES" -gt 0 ]; then
+      echo "FAILED: $FAILURES of $TOTAL suite(s) failed"
+      exit 1
+    else
+      echo "PASSED: All $TOTAL suite(s) passed"
+      exit 0
+    fi
+    ```
+
+    **{{ workspace }}/.run-typecheck.sh** — Runs ALL type checkers. Informational.
+    Same structure as above. Common type checkers:
+    - `cargo check` (Rust), `tsc --noEmit` (TypeScript), `mypy src/` (Python)
+    - `go vet ./...` (Go), `dotnet build` (.NET), `dialyzer` (Elixir)
+
+    **{{ workspace }}/.run-lint.sh** — Runs ALL linters. Informational.
+    Same structure. Common linters:
+    - `cargo clippy` (Rust), `eslint .` (JS/TS), `ruff check .` (Python)
+    - `golangci-lint run` (Go), `mix credo` (Elixir), `rubocop` (Ruby)
+
+    After writing all three scripts, verify them:
+    ```bash
+    # Verify scripts are syntactically valid
+    bash -n {{ workspace }}/.run-tests.sh && echo "test script OK"
+    bash -n {{ workspace }}/.run-typecheck.sh && echo "typecheck script OK"
+    bash -n {{ workspace }}/.run-lint.sh && echo "lint script OK"
+
+    # Do a quick smoke run of the test script
+    bash {{ workspace }}/.run-tests.sh
+    ```
+
+    If the smoke run reveals test failures, that's expected — this is a quality
+    improvement run. Note the failures; they'll be addressed in the batch stages.
+
+    **Output to:** {{ workspace }}/00-known-issues.md
+
+    {% elif stage == 2 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 2: EXPERT REVIEW — {{ review_types[instance] | upper }}               ║
+    ║  Instance {{ instance }} of {{ fan_count }} (running in PARALLEL)             ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Known issues context:** Read {{ workspace }}/00-known-issues.md (from stage 1).
+    If your analysis rediscovers a known issue, reference its GitHub issue number.
+
+    {% if instance == 1 %}
+    {# ═══════════════ ARCHITECTURE REVIEW ═══════════════ #}
+
+    You are the **Architecture Analyst**. Find structural issues that cause bugs,
+    maintenance burden, and incomplete implementations.
+
+    **Use the open issues list as a lens:** modules mentioned in open bugs
+    deserve deeper scrutiny. If you find a structural problem that explains
+    a known bug, call out the connection explicitly.
+
+    **1. Module Cohesion & Correctness**
+    - Do modules have single responsibilities?
+    - Are there methods that belong elsewhere (feature envy)?
+    - Are return types consistent? Do functions return what they claim?
+    - Are edge cases handled or silently ignored?
+    - Do functions do what their names suggest?
+
+    **2. Import/Dependency Graph**
+    ```bash
+    # Find source files and examine dependency patterns
+    find . -type f \( -name "*.py" -o -name "*.rs" -o -name "*.ts" -o -name "*.tsx" \
+      -o -name "*.js" -o -name "*.go" -o -name "*.rb" -o -name "*.java" \) \
+      -not -path '*/node_modules/*' -not -path '*/target/*' | head -30
+
+    # Look for wildcard/re-export patterns that hide dependencies
+    grep -rn "import \*\|pub use.*\*\|export \*\|from.*import \*" \
+      --include="*.py" --include="*.rs" --include="*.ts" --include="*.js" | head -10
+    ```
+    Adapt these commands for the project's actual languages, then check:
+    - Circular dependencies?
+    - Wildcard imports / re-exports hiding dependencies?
+    - Modules importing implementation details instead of interfaces?
+
+    **3. Code Flow & Control**
+    - Unreachable code paths?
+    - Early returns leaving resources uncleaned?
+    - Inconsistent async patterns?
+    - Missing loop termination conditions?
+    - Infinite loop risks?
+
+    **4. Resource Management**
+    - Files/connections/locks properly closed?
+    - Language-appropriate patterns used? (RAII/Drop, context managers,
+      defer, try/finally, AbortController, using/IDisposable, etc.)
+    - Missing cleanup in error paths?
+    - Do destructors/cleanup methods actually get called?
+
+    **5. Interface Consistency**
+    - Public APIs clearly defined?
+    - Similar functions with dissimilar signatures?
+    - Optional parameters that aren't actually optional in usage?
+    - Errors/exceptions matching documentation?
+
+    **Output to:** {{ workspace }}/01-architecture-review.md
+
+    Format:
+    ```markdown
+    # Architecture Review (Iteration N)
+
+    ## Open Issues Cross-Reference
+    | GitHub # | Title | Modules Affected | Findings This Review |
+    |----------|-------|------------------|---------------------|
+
+    ## Correctness Issues
+    | Location | Issue | Severity | Fix |
+    |----------|-------|----------|-----|
+
+    ## Code Flow Problems
+    | Location | Issue | Risk |
+    |----------|-------|------|
+
+    ## Cleanup Gaps
+    | Resource | Location | Missing Cleanup |
+    |----------|----------|-----------------|
+
+    ## Structural Issues
+    | Module | Cohesion | Problems |
+    |--------|----------|----------|
+
+    ## Top 5 Architecture Fixes Needed
+    1. [Most critical]
+    ...
+    ```
+
+    {% elif instance == 2 %}
+    {# ═══════════════ TEST COVERAGE REVIEW ═══════════════ #}
+
+    You are the **Test Coverage Analyst**. Find gaps that let bugs slip through.
+
+    **1. Unit Test Gaps**
+    ```bash
+    # Count test files (adapt patterns for the project's conventions)
+    find . -type f \( -name "test_*" -o -name "*_test.*" -o -name "*.test.*" \
+      -o -name "*.spec.*" -o -name "*Test.*" -o -name "*_test.rs" \) \
+      -not -path '*/node_modules/*' -not -path '*/target/*' | head -30
+
+    # Count test functions/assertions
+    grep -rc "def test_\|fn test_\|#\[test\]\|#\[tokio::test\]\|it(\|describe(\|test(\|func Test" \
+      --include="*.py" --include="*.rs" --include="*.ts" --include="*.js" \
+      --include="*.go" 2>/dev/null | sort -t: -k2 -rn | head -10
+    ```
+
+    Find source files that have no corresponding test file. Check the project's
+    test conventions (naming patterns, directory structure) and identify untested
+    modules.
+
+    **2. Functional Test Gaps**
+    - End-to-end tests for critical user flows?
+    - Integration tests covering module boundaries?
+    - Error paths tested, not just happy paths?
+    - Tests that verify behavior vs just calling functions?
+
+    **3. Smoke Test Coverage**
+    - Can the app start without crashing?
+    - Do basic commands work (--help, --version)?
+    - Does import/use of main modules succeed?
+    - Are config files validated on load?
+    ```bash
+    # Check for smoke/sanity tests
+    grep -rn "smoke\|sanity\|basic\|health" \
+      --include="test_*" --include="*_test.*" --include="*.test.*" \
+      --include="*.spec.*" 2>/dev/null | head -10
+
+    # Check if main entry points are tested
+    grep -rn "def test.*main\|def test.*cli\|fn test.*main\|test.*app\|test.*server" \
+      --include="*.py" --include="*.rs" --include="*.ts" --include="*.js" \
+      --include="*.go" 2>/dev/null | head -10
+    ```
+
+    **4. Edge Case Coverage**
+    - Empty/null/None inputs
+    - Boundary values (0, -1, max_int, empty string)
+    - Unicode/special characters
+    - Concurrent access
+    - Network failures
+    - Disk full / resource exhaustion scenarios
+
+    **5. Test Quality Issues**
+    Find tests with weak or missing assertions. Look for:
+    - Tests that always pass (no assertions)
+    - Tests that test implementation, not behavior
+    - Flaky tests (timing-dependent, order-dependent)
+    - Tests with shared mutable state
+    - Missing cleanup in test fixtures
+
+    **Output to:** {{ workspace }}/02-test-coverage-review.md
+
+    Format:
+    ```markdown
+    # Test Coverage Review (Iteration N)
+
+    ## Missing Unit Tests
+    | Module | Language | Functions Untested | Priority |
+    |--------|----------|-------------------|----------|
+
+    ## Functional Test Gaps
+    | User Flow | Current Coverage | Gap |
+    |-----------|-----------------|-----|
+
+    ## Missing Smoke Tests
+    | Entry Point | Test Exists? | Impact if Broken |
+    |-------------|--------------|------------------|
+
+    ## Edge Cases Not Covered
+    | Scenario | Files Affected | Risk |
+    |----------|---------------|------|
+
+    ## Test Quality Issues
+    | Test File | Issue | Fix |
+    |-----------|-------|-----|
+
+    ## Top 5 Test Gaps to Fix
+    1. [Most critical gap]
+    ...
+    ```
+
+    {% elif instance == 3 %}
+    {# ═══════════════ CODE DEBT & SIMPLICITY REVIEW ═══════════════ #}
+
+    You are the **Code Debt & Simplicity Analyst**. Find complexity that hides bugs.
+
+    **1. Dead Code & Cruft**
+    ```bash
+    # Find TODO/FIXME/HACK comments (language-neutral)
+    grep -rn "TODO\|FIXME\|HACK\|XXX\|DEPRECATED" \
+      --include="*.py" --include="*.rs" --include="*.ts" --include="*.tsx" \
+      --include="*.js" --include="*.go" --include="*.rb" --include="*.java" \
+      -not -path '*/node_modules/*' -not -path '*/target/*' | head -20
+
+    # Find commented-out code blocks (function/class/import definitions)
+    grep -rn "^[[:space:]]*//.*fn \|^[[:space:]]*//.*def \|^[[:space:]]*//.*class \|^#.*def \|^#.*class " \
+      --include="*.py" --include="*.rs" --include="*.ts" --include="*.js" \
+      --include="*.go" | head -10
+    ```
+
+    Also run the project's linter(s) to detect unused imports, dead code,
+    and unreachable branches — linters are more reliable than manual grep.
+    Check {{ workspace }}/.run-lint.sh for which linters are available.
+
+    **2. Complexity Hotspots**
+    ```bash
+    # Find large files (language-neutral)
+    find . -type f \( -name "*.py" -o -name "*.rs" -o -name "*.ts" -o -name "*.tsx" \
+      -o -name "*.js" -o -name "*.go" \) \
+      -not -path '*/node_modules/*' -not -path '*/target/*' \
+      -exec wc -l {} \; | sort -rn | head -10
+
+    # Find deeply nested code (4+ indentation levels)
+    grep -rn "^                " \
+      --include="*.py" --include="*.rs" --include="*.ts" --include="*.js" \
+      --include="*.go" | head -10
+    ```
+    - Functions over 50 lines
+    - Nesting deeper than 4 levels
+    - Functions with more than 5 parameters
+    - Classes/structs with more than 10 methods
+    - Files over 500 lines
+
+    **3. Code Simplicity Issues**
+    - Overly clever one-liners that should be expanded
+    - Premature abstractions (interfaces/traits with one implementation)
+    - Over-engineering (factory factories, unnecessary indirection)
+    - Magic numbers without constants
+    - Boolean parameters that should be enums
+    - Long parameter lists that should be config objects
+
+    **4. Naming & Clarity**
+    - Single-letter variables (except loop counters)
+    - Misleading names (is_valid that doesn't validate)
+    - Inconsistent naming conventions within the project
+    - Abbreviations that aren't obvious
+    - Names that don't match behavior
+
+    **5. Type Safety**
+    Run the project's type checker(s) — check {{ workspace }}/.run-typecheck.sh
+    for which are available. Also look for:
+    ```bash
+    # Find type safety gaps (adapt for project languages)
+    grep -rn ": Any\|-> Any\|as any\|: any\|dyn Any\|interface{}\|Object " \
+      --include="*.py" --include="*.rs" --include="*.ts" --include="*.go" | head -10
+
+    # Find unchecked type assertions (unwrap, as, !)
+    grep -rn "\.unwrap()\|\.expect(\|as.*unsafe\|! " \
+      --include="*.rs" --include="*.ts" --include="*.go" | head -10
+    ```
+    - Missing type annotations where they'd prevent bugs
+    - Excessive use of `any`/`Any`/`dyn Any`/`interface{}`
+    - Type assertions without checks (`as`, `unwrap`, unsafe casts)
+    - Type suppression comments (`type: ignore`, `@ts-ignore`, `#[allow(...)]`)
+
+    **Output to:** {{ workspace }}/03-code-debt-review.md
+
+    Format:
+    ```markdown
+    # Code Debt & Simplicity Review (Iteration N)
+
+    ## Dead Code to Remove
+    | Location | Language | Type | Lines | Safe to Delete? |
+    |----------|----------|------|-------|-----------------|
+
+    ## Complexity Hotspots
+    | File | Function | LOC | Nesting | Params | Recommendation |
+    |------|----------|-----|---------|--------|----------------|
+
+    ## Over-Engineering
+    | Location | Pattern | Simpler Alternative |
+    |----------|---------|---------------------|
+
+    ## Naming Issues
+    | Location | Current Name | Problem | Suggested |
+    |----------|--------------|---------|-----------|
+
+    ## Type Safety Gaps
+    | File | Issue | Language | Priority |
+    |------|-------|----------|----------|
+
+    ## Top 5 Simplification Opportunities
+    1. [Most impactful simplification]
+    ...
+    ```
+
+    {% endif %}
+
+    {% elif stage == 3 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 3: CATEGORY DISCOVERY (30 Specific Issues)                            ║
+    ║  "Systematic discovery reveals patterns invisible to intuition"              ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    {% if previous_outputs %}
+    ## Expert Reviews Summary
+    {{ previous_outputs[2][:600] if 2 in previous_outputs else "" }}
+    {{ previous_outputs[3][:600] if 3 in previous_outputs else "" }}
+    {{ previous_outputs[4][:600] if 4 in previous_outputs else "" }}
+    {% endif %}
+
+    **Known issues context:** Read {{ workspace }}/00-known-issues.md (from stage 1).
+    If an issue you discover matches a known GitHub issue, reference its number.
+    Focus discovery effort on areas NOT already tracked.
+
+    Find **30 specific, actionable issues** across 10 categories (3 per category).
+    Focus on issues the expert reviews may have missed.
+
+    **Categories:**
+    1. **Dead Code** - unused imports, unreachable branches, orphan functions
+    2. **Complexity** - functions >50 LOC, deep nesting, complex conditionals
+    3. **Naming** - unclear names, inconsistent conventions, misleading names
+    4. **Error Handling** - bare excepts, swallowed errors, missing context, unchecked `unwrap()`
+    5. **Type Safety** - missing hints, Any/any abuse, unchecked type assertions
+    6. **Duplication** - copy-paste code, repeated patterns extractable to functions
+    7. **Documentation** - missing doc comments, stale comments, wrong docs
+    8. **Testing Gaps** - untested paths, assertions that don't assert
+    9. **Performance** - O(n^2) loops, repeated computations, unnecessary allocations
+    10. **Security** - path injection, unsafe deserialization, hardcoded secrets
+
+    **Output to:** {{ workspace }}/04-category-discovery.yaml
+
+    Format each issue:
+    ```yaml
+    issues:
+      - id: Q001
+        category: Dead Code
+        file: path/to/file.ext
+        line: N
+        language: Rust | TypeScript | Python | Go | etc.
+        severity: critical | high | medium | low
+        description: Specific description of the issue
+        current_code: |
+          [5-10 line snippet showing the problem]
+        suggested_fix: How to fix it
+        fix_effort: quick | medium | significant
+    ```
+
+    {% elif stage == 4 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 4: SYNTHESIS & PRIORITIZATION                                         ║
+    ║  "Wisdom is knowing which fires to fight first"                              ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read all review files and create a prioritized remediation plan.
+
+    **Files to synthesize:**
+    - {{ workspace }}/01-architecture-review.md
+    - {{ workspace }}/02-test-coverage-review.md
+    - {{ workspace }}/03-code-debt-review.md
+    - {{ workspace }}/04-category-discovery.yaml
+
+    **Create prioritized plan:**
+    1. **Deduplicate** - Remove issues found by multiple reviewers
+    2. **Score** each issue: `severity x impact x (1/effort)`
+       - Critical = 4, High = 3, Medium = 2, Low = 1
+       - Quick effort = 3, Medium = 2, Significant = 1
+    3. **Batch** into 3 remediation groups:
+       - **Batch 1 (Stage 5):** Quick wins - high impact, low effort
+       - **Batch 2 (Stage 7):** Medium effort - structural fixes
+       - **Batch 3 (Stage 9):** Significant - refactoring, new tests
+
+    **Output to:** {{ workspace }}/05-fix-plan.md
+
+    Format:
+    ```markdown
+    # Quality Remediation Plan (Iteration N)
+
+    ## Summary
+    | Metric | Count |
+    |--------|-------|
+    | Total unique issues | N |
+    | Duplicates removed | N |
+    | Critical | N |
+    | High | N |
+
+    ## Batch 1: Quick Wins (Stage 5)
+    | ID | Issue | Score | File | Language |
+    |----|-------|-------|------|----------|
+
+    ## Batch 2: Medium Effort (Stage 7)
+    | ID | Issue | Score | File | Language |
+    |----|-------|-------|------|----------|
+
+    ## Batch 3: Significant (Stage 9)
+    | ID | Issue | Score | File | Language |
+    |----|-------|-------|------|----------|
+    ```
+
+    {% elif stage == 5 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 5: BATCH 1 - QUICK WINS (MANDATORY 70%+ COMPLETION)                   ║
+    ║  "Low-hanging fruit that compounds into significant improvement"             ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/05-fix-plan.md and fix Batch 1 issues.
+
+    **MANDATORY REQUIREMENT: You MUST complete at least 70% of Batch 1 issues.**
+    Validation will FAIL if you skip more than 30%.
+
+    **Fix quick wins:**
+    - Remove unused imports and variables
+    - Delete dead code and unreachable branches
+    - Add missing type annotations (simple cases)
+    - Fix obvious naming inconsistencies
+    - Remove commented-out code blocks
+    - Add missing doc comments on public APIs
+
+    {{ batch_rules }}
+
+    After each change, verify tests still pass:
+    ```bash
+    bash {{ workspace }}/.run-tests.sh
+    ```
+
+    **Valid skip reasons (ONLY these):**
+    - Would break existing tests (must show which test)
+    - Requires schema/migration change
+    - File/function no longer exists
+    - Already implemented (must verify with grep/code check)
+
+    **Output to:** {{ workspace }}/06-batch1-fixes.md
+
+    Format EXACTLY (validation parses this):
+    ```markdown
+    # Batch 1 Results: Quick Wins
+
+    **Total:** N issues
+    **Fixed:** N issues
+    **Completion:** N% (MUST BE >= 70%)
+
+    ## Fixed
+    | ID | What was fixed | File | Verified |
+    |----|---------------|------|----------|
+
+    ## Deferred (max 30%)
+    | ID | Blocker reason | Evidence |
+    |----|----------------|----------|
+
+    ## Test Results
+    [test output showing all tests pass]
+    ```
+
+    {% elif stage == 6 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 6: BATCH 1 - COMPLETION PASS                                          ║
+    ║  "No excuses - complete what was deferred"                                   ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/06-batch1-fixes.md and complete ALL deferred items.
+
+    **MANDATORY: Complete every deferred item or prove it's impossible.**
+
+    For each deferred item:
+    1. Re-attempt the fix
+    2. If still blocked, provide CONCRETE evidence (error message, failing test)
+    3. "Risky" or "complex" are NOT acceptable - do the work
+
+    After each fix, verify: `bash {{ workspace }}/.run-tests.sh`
+
+    **Output to:** {{ workspace }}/07-batch1-completion.md
+
+    Format:
+    ```markdown
+    # Batch 1 Completion Pass
+
+    **Deferred from first pass:** N items
+    **Now completed:** N items
+    **Still blocked:** N items (must be 0 or have concrete evidence)
+
+    ## Completed
+    | ID | What was fixed | Evidence it works |
+    |----|---------------|-------------------|
+
+    ## Truly Blocked (with proof)
+    | ID | Blocker | Error message/test failure |
+    |----|---------|---------------------------|
+    ```
+
+    {% elif stage == 7 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 7: BATCH 2 - MEDIUM EFFORT (MANDATORY 70%+ COMPLETION)                ║
+    ║  "Structural improvements that prevent future bugs"                          ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/05-fix-plan.md and fix Batch 2 issues.
+
+    **MANDATORY REQUIREMENT: You MUST complete at least 70% of Batch 2 issues.**
+
+    **Fix medium effort issues:**
+    - Improve error handling (add context, remove bare catches/unwraps)
+    - Extract duplicated code into shared functions
+    - Simplify complex conditionals and control flow
+    - Add type annotations requiring cross-reference analysis
+    - Fix resource management gaps (missing close/cleanup/Drop)
+    - Break down overly long functions (>50 LOC)
+
+    {{ batch_rules }}
+
+    After each change, verify: `bash {{ workspace }}/.run-tests.sh`
+
+    **Valid skip reasons for Batch 2 (ONLY these):**
+    - Would require database/schema migration
+    - Would break public API contract
+    - File/function no longer exists
+    - Already implemented (must verify)
+
+    **Output to:** {{ workspace }}/08-batch2-fixes.md
+
+    Format EXACTLY:
+    ```markdown
+    # Batch 2 Results: Medium Effort
+
+    **Total:** N issues
+    **Fixed:** N issues
+    **Completion:** N% (MUST BE >= 70%)
+
+    ## Fixed
+    | ID | What was fixed | File | Test verification |
+    |----|---------------|------|-------------------|
+
+    ## Deferred (max 30%)
+    | ID | Blocker | Evidence command/output |
+    |----|---------|------------------------|
+    ```
+
+    {% elif stage == 8 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 8: BATCH 2 - COMPLETION PASS                                          ║
+    ║  "No excuses - complete what was deferred"                                   ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/08-batch2-fixes.md and complete ALL deferred items.
+
+    **MANDATORY: Complete every deferred item or prove it's impossible.**
+
+    For each deferred item:
+    1. Re-attempt the fix with fresh approach
+    2. If blocked, provide CONCRETE evidence (specific error, test failure)
+    3. "Would require significant effort" is NOT acceptable - do the work
+
+    After each fix, verify: `bash {{ workspace }}/.run-tests.sh`
+
+    **Output to:** {{ workspace }}/09-batch2-completion.md
+
+    Format:
+    ```markdown
+    # Batch 2 Completion Pass
+
+    **Deferred from first pass:** N items
+    **Now completed:** N items
+    **Still blocked:** N items (must have concrete proof)
+
+    ## Completed
+    | ID | What was fixed | Test verification |
+    |----|---------------|-------------------|
+
+    ## Truly Blocked (with proof)
+    | ID | Blocker | Specific error/failure |
+    |----|---------|----------------------|
+    ```
+
+    {% elif stage == 9 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 9: BATCH 3 - SIGNIFICANT FIXES (MANDATORY 50%+ COMPLETION)            ║
+    ║  "The 10% that separates good from production-ready"                         ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/05-fix-plan.md and address Batch 3 issues.
+
+    **MANDATORY REQUIREMENT: You MUST complete at least 50% of Batch 3 issues.**
+    These are significant but that doesn't mean optional.
+
+    **Fix significant issues:**
+    - Write missing unit tests (PRIORITY - no skipping test writing)
+    - Write missing smoke tests
+    - Refactor complex functions (break into smaller steps)
+    - Fix security issues (CRITICAL - no skipping)
+    - Add missing functional tests
+
+    **DO NOT be conservative. Be thorough:**
+    - Tests are NEVER optional - write them
+    - Security issues are NEVER optional - fix them
+    - "Major architectural change" is not a skip reason - do it incrementally
+
+    After each fix, verify: `bash {{ workspace }}/.run-tests.sh`
+
+    **Valid skip reasons for Batch 3 (ONLY these):**
+    - Would require multi-day refactoring (must estimate hours)
+    - Requires external dependency change
+    - Already has adequate test coverage (must show coverage proof)
+
+    **INVALID skip reasons (will fail validation):**
+    - "Risky" without specific test failure
+    - "Low benefit" - that's not your call
+    - "Extensive testing needed" - that's the job
+    - "Better for future version" - do it now
+
+    **Output to:** {{ workspace }}/10-batch3-fixes.md
+
+    Format EXACTLY:
+    ```markdown
+    # Batch 3 Results: Significant Fixes
+
+    **Total:** N issues
+    **Fixed:** N issues
+    **Completion:** N% (MUST BE >= 50%)
+
+    ## Fixed
+    | ID | What was fixed | File | Tests added/passed |
+    |----|---------------|------|-------------------|
+
+    ## Deferred
+    | ID | Blocker | Estimated effort | Why not now |
+    |----|---------|------------------|-------------|
+    ```
+
+    {% elif stage == 10 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 10: BATCH 3 - COMPLETION PASS                                         ║
+    ║  "Tests and security are NEVER optional"                                     ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/10-batch3-fixes.md and complete ALL deferred items.
+
+    **MANDATORY: Complete every deferred item. No exceptions for tests/security.**
+
+    For each deferred item:
+    1. If it's a missing test - WRITE THE TEST
+    2. If it's a security issue - FIX IT
+    3. If it's refactoring - do it incrementally, one function at a time
+    4. Only truly multi-day efforts can remain (must estimate hours)
+
+    After each fix, verify: `bash {{ workspace }}/.run-tests.sh`
+
+    **Output to:** {{ workspace }}/11-batch3-completion.md
+
+    Format:
+    ```markdown
+    # Batch 3 Completion Pass
+
+    **Deferred from first pass:** N items
+    **Now completed:** N items
+    **Remaining (multi-day only):** N items
+
+    ## Completed
+    | ID | What was fixed | Tests added |
+    |----|---------------|-------------|
+
+    ## Multi-Day Items (deferred to next iteration)
+    | ID | Estimated hours | What's needed |
+    |----|-----------------|---------------|
+    ```
+
+    {% elif stage == 11 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 11: VERIFICATION & SUMMARY                                            ║
+    ║  "Measure twice, commit once"                                                ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Step 1: Update runner scripts if needed**
+
+    If the batch fixes added or removed test frameworks, updated build
+    configurations, or changed project structure, update the runner scripts
+    in {{ workspace }}/ to reflect the current state. Note any changes in
+    the summary.
+
+    **Step 2: Run full test suite**
+    ```bash
+    bash {{ workspace }}/.run-tests.sh 2>&1 | tee {{ workspace }}/12-test-output.txt
+    ```
+
+    **Step 3: Run type checkers**
+    ```bash
+    bash {{ workspace }}/.run-typecheck.sh 2>&1 | tee {{ workspace }}/12-typecheck-output.txt
+    ```
+    If type check script doesn't exist, run whatever type checkers you know
+    are available in this project.
+
+    **Step 4: Run linters**
+    ```bash
+    bash {{ workspace }}/.run-lint.sh 2>&1 | tee {{ workspace }}/12-lint-output.txt
+    ```
+    If lint script doesn't exist, run whatever linters you know are available.
+
+    **Step 5: Check for build regressions**
+    Verify the project builds/compiles successfully for each language present.
+    Common build commands:
+    - `cargo build` (Rust)
+    - `tsc --noEmit` (TypeScript, also catches type errors)
+    - `go build ./...` (Go)
+    - `python -c "import <main_module>"` (Python)
+    - `dotnet build` (.NET)
+    - `mix compile` (Elixir)
+
+    **Step 6: Summarize this iteration**
+
+    Read all batch results and create summary:
+    - {{ workspace }}/06-batch1-fixes.md
+    - {{ workspace }}/07-batch1-completion.md
+    - {{ workspace }}/08-batch2-fixes.md
+    - {{ workspace }}/09-batch2-completion.md
+    - {{ workspace }}/10-batch3-fixes.md
+    - {{ workspace }}/11-batch3-completion.md
+
+    **Output to:** {{ workspace }}/12-summary.md
+
+    ```markdown
+    # Quality Iteration N Summary
+
+    ## Issues Found
+    | Source | Count |
+    |--------|-------|
+    | Architecture Review | N |
+    | Test Coverage Review | N |
+    | Code Debt Review | N |
+    | Category Discovery | N |
+    | **Total (deduplicated)** | **N** |
+
+    ## Issues Fixed (First Pass + Completion)
+    | Batch | First Pass | Completion | Total | Remaining |
+    |-------|------------|------------|-------|-----------|
+    | Quick Wins | N | N | N | N |
+    | Medium | N | N | N | N |
+    | Significant | N | N | N | N |
+    | **Total** | **N** | **N** | **N** | **N** |
+
+    ## Overall Completion Rate
+    **N%** of identified issues resolved
+
+    ## Key Improvements
+    - [List major improvements]
+
+    ## Remaining Issues (for next iteration)
+    - [Only truly blocked items]
+
+    ## Test Results
+    [output from bash .run-tests.sh]
+
+    ## Type Check Results
+    [output from type checkers]
+
+    ## Lint Results
+    [output from linters]
+
+    ## Runner Script Changes
+    [note any updates made to runner scripts in step 1, or "No changes needed"]
+    ```
+
+    {% elif stage == 12 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 12: COMMIT CHANGES                                                    ║
+    ║  "Ship it"                                                                   ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Step 1: Check for changes**
+    ```bash
+    git status --short | head -30
+    ```
+
+    **Step 2: Build commit message from actual results**
+
+    Read the batch result files to extract what was actually fixed:
+    - {{ workspace }}/06-batch1-fixes.md — "## Fixed" table
+    - {{ workspace }}/07-batch1-completion.md — "## Completed" table
+    - {{ workspace }}/08-batch2-fixes.md — "## Fixed" table
+    - {{ workspace }}/09-batch2-completion.md — "## Completed" table
+    - {{ workspace }}/10-batch3-fixes.md — "## Fixed" table
+    - {{ workspace }}/11-batch3-completion.md — "## Completed" table
+    - {{ workspace }}/12-summary.md — overall stats
+
+    Write a commit message file to {{ workspace }}/13-commit-message.txt with
+    EXACTLY this structure:
+
+    ```
+    refactor: Quality iteration N - YYYY-MM-DD
+
+    Fixed M issues across N files:
+    - [ID]: [one-line description of what was fixed] ([file])
+    - [ID]: [one-line description] ([file])
+    ...
+    (list EVERY fixed issue — do not truncate or summarize)
+
+    Stats: M fixed, N deferred | Tests: [pass count] passed
+    GitHub issues referenced: #X, #Y (if any known issues were addressed)
+
+    Co-Authored-By: Mozart AI Compose <noreply@mozart.ai>
+    ```
+
+    Rules for the commit message:
+    - The subject line (first line) must be under 72 characters
+    - List every fixed issue by ID — this is the audit trail
+    - Each line item should be a concrete change, not a category label
+    - If a fix addresses a known GitHub issue, include "Refs #N" on that line
+    - Do NOT paste raw markdown tables — convert to a flat list
+    - Do NOT include deferred/skipped items — only what was fixed
+
+    **Step 3: Selective staging**
+
+    Do NOT use `git add -A` — that absorbs unrelated changes from concurrent
+    jobs or manual work. Instead, stage ONLY the files this iteration touched.
+
+    Extract the list of modified files from batch result tables (the "File"
+    column in each "## Fixed" and "## Completed" section). Then stage only
+    those files:
+    ```bash
+    # Stage only files this quality iteration actually modified.
+    # Build list from batch results — example:
+    #   git add src/core/config.py src/backends/cli.py ...
+    #
+    # If you modified test files, include them too.
+    # Do NOT stage workspace files, yaml scores, or unrelated changes.
+    git add [list each file explicitly]
+
+    # Verify: only our changes are staged
+    git diff --cached --stat
+    git diff --cached --stat | wc -l  # Should match expected file count
+    ```
+
+    If `git diff --cached --stat` shows files you did NOT modify, unstage them:
+    ```bash
+    git restore --staged path/to/unrelated/file
+    ```
+
+    If nothing is staged (all changes were already committed by another job),
+    skip the commit and note "No changes to commit — likely absorbed by
+    concurrent job" in your output file. Do NOT create an empty commit.
+
+    **Step 4: Sync with remote before committing**
+    ```bash
+    # Check if remote has new commits we don't have
+    git fetch origin main 2>/dev/null
+
+    BEHIND=$(git rev-list HEAD..origin/main --count 2>/dev/null || echo "0")
+    echo "Commits behind remote: $BEHIND"
+    ```
+
+    If behind, rebase our staged changes on top:
+    ```bash
+    # Stash staged changes, rebase, re-apply
+    git stash
+    git pull --rebase origin main
+    git stash pop
+    ```
+
+    If the stash pop causes **merge conflicts**:
+    1. Check which files conflict: `git diff --name-only --diff-filter=U`
+    2. For each conflicted file, try to resolve:
+       - If the conflict is in code you modified — keep both changes
+       - If the conflict is in code you did NOT modify — accept theirs
+       (`git checkout --theirs <file>`)
+    3. After resolving simple conflicts: `git add <resolved files>`
+
+    If conflicts remain that you cannot resolve inline (e.g., both sides
+    modified the same function in incompatible ways), do NOT abort. Instead:
+
+    1. Save the full conflict context for stage 13 to resolve:
+       ```bash
+       # Capture every conflicted file's state
+       CONFLICTED=$(git diff --name-only --diff-filter=U)
+       echo "$CONFLICTED"
+       ```
+    2. For each conflicted file, write to `{{ workspace }}/13-merge-conflicts.md`:
+       - The file path
+       - What OUR quality fix was trying to do (from batch result files)
+       - The full conflict markers (`<<<<<<<` ... `>>>>>>>`) verbatim
+       - The remote's intent (from `git log --oneline origin/main -3 -- <file>`)
+    3. Abort to a clean state:
+       ```bash
+       git checkout -- .       # Discard conflict markers
+       git stash drop          # Drop our changes (context saved above)
+       ```
+       Now git is clean at remote HEAD. Stage 13 will re-apply intelligently.
+    4. Skip steps 5-7 below. Set status to "conflicts_pending" in output.
+
+    **Step 5: Commit** (skip if conflicts_pending)
+    ```bash
+    ITER=$(cat {{ workspace }}/.iteration)
+    git commit -F {{ workspace }}/13-commit-message.txt
+    echo "Commit created for iteration $ITER"
+    ```
+
+    **Step 6: Push** (skip if conflicts_pending)
+    ```bash
+    git push
+    echo "Pushed to remote"
+    ```
+
+    If push fails due to new remote commits (race condition), pull and retry:
+    ```bash
+    git pull --rebase origin main && git push
+    ```
+    Do NOT force-push.
+
+    **Step 7: Verify** (skip if conflicts_pending)
+    ```bash
+    git log --oneline -1
+    git show --stat HEAD | tail -20
+    ```
+
+    **Output to:** {{ workspace }}/13-commit.md
+
+    ```markdown
+    # Commit Results (Iteration N)
+
+    ## Status
+    [committed | conflicts_pending]
+
+    ## Commit Message
+    [full commit message as written, or "N/A — deferred to stage 13"]
+
+    ## Files Staged (selective)
+    [list of files explicitly staged]
+
+    ## Sync Status
+    - Commits behind remote before sync: N
+    - Rebase needed: yes/no
+    - Merge conflicts: none / resolved inline / deferred to stage 13
+
+    ## Changes Committed
+    [git diff --stat output, or "N/A — conflicts pending"]
+
+    ## Commit Hash
+    [git log --oneline -1 output, or "N/A"]
+
+    ## Push Status
+    - Pushed: yes/no/deferred
+    - Retries needed: N
+
+    ## Next Steps
+    - If conflicts_pending: Stage 13 will resolve and commit
+    - If committed: Quality iteration complete
+    ```
+
+    {% elif stage == 13 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 13: MERGE CONFLICT RESOLUTION                                         ║
+    ║  "Complexity is not a reason to abort — it's a reason to think harder"       ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Step 1: Check if conflict resolution is needed**
+
+    Read {{ workspace }}/13-commit.md and check the Status field.
+    - If status is "committed" → stage 12 succeeded, no conflicts.
+      Write "No conflicts to resolve — stage 12 committed successfully"
+      to your output file and stop.
+    - If status is "conflicts_pending" → proceed to step 2.
+
+    Also verify the conflict context file exists:
+    ```bash
+    if [ -f "{{ workspace }}/13-merge-conflicts.md" ]; then
+      echo "Conflict context found"
+      wc -l "{{ workspace }}/13-merge-conflicts.md"
+    else
+      echo "No conflict file — nothing to resolve"
+    fi
+    ```
+
+    **Step 2: Understand the conflicts**
+
+    Read {{ workspace }}/13-merge-conflicts.md carefully. For each
+    conflicted file, understand:
+    - What our quality fix was changing and why
+    - What the remote changed and why
+    - Whether both changes can coexist
+
+    Also read the relevant batch result files for full context on our
+    changes:
+    - {{ workspace }}/06-batch1-fixes.md
+    - {{ workspace }}/08-batch2-fixes.md
+    - {{ workspace }}/10-batch3-fixes.md
+
+    **Step 3: Re-apply our changes on top of current remote**
+
+    The working tree is clean at remote HEAD (stage 12 cleaned up).
+    For each conflicted file:
+
+    1. Read the current version of the file
+    2. Understand what our quality fix intended to change
+    3. Apply the change manually — adapt it to the current code state
+       rather than blindly replaying the old diff
+    4. If the remote's changes made our fix unnecessary (e.g., they
+       already fixed the same issue), skip it and note why
+    5. After each file, verify syntax/compilation for that language
+
+    **Step 4: Verify the resolution**
+    ```bash
+    # Run tests to ensure our re-applied changes don't break anything
+    bash {{ workspace }}/.run-tests.sh
+    ```
+
+    If tests fail:
+    - Identify which of our re-applied changes caused the failure
+    - If a specific fix conflicts with remote's changes, REVERT that one
+      fix and note it as "incompatible with remote changes — deferred"
+    - Re-run tests after each revert until they pass
+    - Do NOT revert all changes — save as many fixes as possible
+
+    **Step 5: Stage, commit, and push**
+    ```bash
+    # Stage only the files we re-applied changes to
+    git add [list each resolved file]
+
+    # Verify staging
+    git diff --cached --stat
+
+    # Commit using the message from stage 12
+    git commit -F {{ workspace }}/13-commit-message.txt
+
+    # Push
+    git push
+    ```
+
+    If push fails (race condition):
+    ```bash
+    git pull --rebase origin main && git push
+    ```
+
+    **Step 6: Verify**
+    ```bash
+    git log --oneline -1
+    git show --stat HEAD | tail -20
+    ```
+
+    **Output to:** {{ workspace }}/14-merge-resolution.md
+
+    ```markdown
+    # Merge Conflict Resolution (Iteration N)
+
+    ## Resolution Needed
+    [yes / no — stage 12 already committed]
+
+    ## Conflicts Resolved
+    | File | Our Intent | Remote's Change | Resolution | Tests Pass |
+    |------|-----------|-----------------|------------|------------|
+
+    ## Fixes Deferred (incompatible with remote)
+    | File | Our Fix | Why Incompatible | Deferred To |
+    |------|---------|------------------|-------------|
+    (or "None — all fixes re-applied successfully")
+
+    ## Test Results
+    [output from bash .run-tests.sh]
+
+    ## Commit
+    - Hash: [git log --oneline -1]
+    - Files changed: N
+    - Pushed: yes/no
+
+    ## Stats
+    - Conflicts received from stage 12: N files
+    - Successfully re-applied: N
+    - Deferred (incompatible): N
+    - Resolution rate: N%
+    ```
+
+    {% elif stage == 14 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 14: FILE GITHUB ISSUES FOR DEFERRED ITEMS                             ║
+    ║  "What we can't do today, we document for tomorrow"                          ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    File a GitHub issue tracking items deferred to future iterations.
+
+    **Step 1: Check prerequisites**
+    ```bash
+    gh auth status
+    gh repo view --json name,owner
+    ```
+    If `gh` is not available or this isn't a GitHub repo, note "Skipped: no
+    GitHub access" and stop.
+
+    **Step 2: Collect remaining items** from:
+    - {{ workspace }}/12-summary.md — "Remaining Issues"
+    - {{ workspace }}/07-batch1-completion.md — "Truly Blocked"
+    - {{ workspace }}/09-batch2-completion.md — "Truly Blocked"
+    - {{ workspace }}/11-batch3-completion.md — "Multi-Day Items"
+
+    If NO remaining items, write "All issues resolved" and stop.
+    Do NOT create an empty tracking issue.
+
+    **Step 3: Deduplicate against existing issues**
+    ```bash
+    gh issue list --label "mozart-quality" --state open --json number,title,body --limit 10
+    ```
+    - If a previous iteration's tracking issue exists and ALL its checklist
+      items were resolved this iteration, close it with comment:
+      "All items resolved in quality iteration N."
+    - Note which items are already tracked to avoid filing duplicates.
+
+    **Step 4: Create tracking issue**
+    ```bash
+    gh label create "mozart-quality" \
+      --description "Deferred items from automated quality review" \
+      --color "d4c5f9" 2>/dev/null || true
+    ```
+
+    Create ONE issue with:
+    - **Title:** `Quality Iteration N: M deferred items requiring manual effort`
+    - **Label:** `mozart-quality`
+    - **Body:** Checkbox list (`- [ ]`) of each deferred item with effort
+      estimate, category, and summary table of issues found/fixed/deferred.
+      Footer: `*Filed automatically by Mozart Quality Score*`
+
+    Do NOT create individual issues per item — one summary issue per iteration.
+
+    **Output to:** {{ workspace }}/15-issues-filed.md
+
+    ```markdown
+    # GitHub Issues Filed (Iteration N)
+
+    ## Summary
+    | Metric | Count |
+    |--------|-------|
+    | Remaining items collected | N |
+    | New issues created | N |
+    | Previous issues closed | N |
+    | Items already tracked (deduped) | N |
+
+    ## Issues Created
+    | Issue # | Title | Deferred Items |
+    |---------|-------|----------------|
+
+    ## Issues Closed (resolved this iteration)
+    | Issue # | Reason |
+    |---------|--------|
+
+    ## All Tracked Items
+    | ID | Description | Effort Estimate | GitHub Issue # |
+    |----|-------------|-----------------|----------------|
+    ```
+
+    {% endif %}
+
+  variables:
+    preamble: |
+      ╔══════════════════════════════════════════════════════════════════════════╗
+      ║              CONTINUOUS QUALITY IMPROVEMENT (GENERIC)                    ║
+      ║                                                                          ║
+      ║  Goal: Close the gap between 90% LLM completion and 100% quality         ║
+      ║                                                                          ║
+      ║  Parallel Expert Reviews → Discovery → Prioritization → Fix → Commit    ║
+      ╚══════════════════════════════════════════════════════════════════════════╝
+
+      This is a **language-agnostic** quality score. During Stage 1, you
+      examined the project and generated runner scripts:
+      - `{{ workspace }}/.run-tests.sh` — runs all test suites
+      - `{{ workspace }}/.run-typecheck.sh` — runs all type checkers
+      - `{{ workspace }}/.run-lint.sh` — runs all linters
+
+      Use these scripts throughout the pipeline to verify your changes.
+      If a script needs updating (e.g., you added a new test framework),
+      update it and note the change.
+
+      **The Last 10% Checklist:**
+      - Correctness: Does code do what it claims?
+      - Completeness: Are edge cases handled?
+      - Cleanup: Are resources properly released?
+      - Clarity: Can a new developer understand it?
+      - Coverage: Are critical paths tested?
+
+    review_types:
+      1: "Architecture"
+      2: "Test Coverage"
+      3: "Code Debt & Simplicity"
+
+    batch_rules: |
+      **Rules:**
+      - One logical change at a time
+      - Run `bash {{ workspace }}/.run-tests.sh` after each change
+      - DO NOT SKIP unless genuinely blocked (not "risky" or "low benefit")
+      - "Already fixed" is acceptable ONLY if you verify it's actually fixed
+
+      **INVALID skip reasons (will fail validation):**
+      - "Risky" without specific test failure
+      - "Low benefit" — that's not your call
+      - "Extensive testing needed" — that's the job
+      - "Better for future version" — do it now
+
+validations:
+  # Stage 1: Setup
+  - type: file_exists
+    path: "{workspace}/00-known-issues.md"
+    description: "Known issues file must exist"
+    condition: "stage >= 1"
+
+  # Stage 1: Test runner script must be generated
+  - type: command_succeeds
+    command: |
+      SCRIPT="{workspace}/.run-tests.sh"
+      if [ -f "$SCRIPT" ]; then
+        # Verify it's a valid bash script (not empty, has shebang or structure)
+        LINES=$(wc -l < "$SCRIPT")
+        if [ "$LINES" -gt 3 ]; then
+          echo "Test runner script exists ($LINES lines)"
+        else
+          echo "Test runner script too short ($LINES lines)"
+          exit 1
+        fi
+      else
+        echo "Test runner script missing"
+        exit 1
+      fi
+    description: "Test runner script must be generated during setup"
+    condition: "stage >= 1"
+
+  # Stage 2: Expert Reviews (per-instance)
+  - type: file_exists
+    path: "{workspace}/01-architecture-review.md"
+    description: "Architecture review must exist"
+    condition: "stage == 2 and instance == 1"
+
+  - type: file_exists
+    path: "{workspace}/02-test-coverage-review.md"
+    description: "Test coverage review must exist"
+    condition: "stage == 2 and instance == 2"
+
+  - type: file_exists
+    path: "{workspace}/03-code-debt-review.md"
+    description: "Code debt review must exist"
+    condition: "stage == 2 and instance == 3"
+
+  # Stage 3: Category Discovery
+  - type: file_exists
+    path: "{workspace}/04-category-discovery.yaml"
+    description: "Category discovery must exist"
+    condition: "stage >= 3"
+
+  # Stage 4: Synthesis
+  - type: file_exists
+    path: "{workspace}/05-fix-plan.md"
+    description: "Fix plan must exist"
+    condition: "stage >= 4"
+
+  # Stage 5: Batch 1 First Pass
+  - type: file_exists
+    path: "{workspace}/06-batch1-fixes.md"
+    description: "Batch 1 results must exist"
+    condition: "stage >= 5"
+
+  # Batch 1: Must have 70%+ completion
+  - type: command_succeeds
+    command: |
+      FILE="{workspace}/06-batch1-fixes.md"
+      if [ ! -f "$FILE" ]; then echo "file missing"; exit 1; fi
+      COMPLETION=$(grep -oE 'Completion.*[0-9]+%' "$FILE" | grep -oE '[0-9]+' | head -1)
+      if [ -z "$COMPLETION" ]; then
+        FIXED=$(grep -E '^\*\*Fixed:\*\*' "$FILE" | grep -oE '[0-9]+' | head -1)
+        TOTAL=$(grep -E '^\*\*Total:\*\*' "$FILE" | grep -oE '[0-9]+' | head -1)
+        if [ -n "$FIXED" ] && [ -n "$TOTAL" ] && [ "$TOTAL" -gt 0 ]; then
+          COMPLETION=$((FIXED * 100 / TOTAL))
+        fi
+      fi
+      if [ -n "$COMPLETION" ] && [ "$COMPLETION" -ge 70 ]; then
+        echo "Batch 1 completion: ${COMPLETION}% (>=70% required) - PASSED"
+      else
+        echo "Batch 1 completion: ${COMPLETION:-unknown}% (>=70% required) - FAILED"
+        exit 1
+      fi
+    description: "Batch 1 must have >=70% completion rate"
+    condition: "stage >= 5"
+
+  # Stage 6: Batch 1 Completion Pass
+  - type: file_exists
+    path: "{workspace}/07-batch1-completion.md"
+    description: "Batch 1 completion pass must exist"
+    condition: "stage >= 6"
+
+  # Stage 7: Batch 2 First Pass
+  - type: file_exists
+    path: "{workspace}/08-batch2-fixes.md"
+    description: "Batch 2 results must exist"
+    condition: "stage >= 7"
+
+  - type: command_succeeds
+    command: |
+      FILE="{workspace}/08-batch2-fixes.md"
+      if [ ! -f "$FILE" ]; then echo "file missing"; exit 1; fi
+      COMPLETION=$(grep -oE 'Completion.*[0-9]+%' "$FILE" | grep -oE '[0-9]+' | head -1)
+      if [ -z "$COMPLETION" ]; then
+        FIXED=$(grep -E '^\*\*Fixed:\*\*' "$FILE" | grep -oE '[0-9]+' | head -1)
+        TOTAL=$(grep -E '^\*\*Total:\*\*' "$FILE" | grep -oE '[0-9]+' | head -1)
+        if [ -n "$FIXED" ] && [ -n "$TOTAL" ] && [ "$TOTAL" -gt 0 ]; then
+          COMPLETION=$((FIXED * 100 / TOTAL))
+        fi
+      fi
+      if [ -n "$COMPLETION" ] && [ "$COMPLETION" -ge 70 ]; then
+        echo "Batch 2 completion: ${COMPLETION}% (>=70% required) - PASSED"
+      else
+        echo "Batch 2 completion: ${COMPLETION:-unknown}% (>=70% required) - FAILED"
+        exit 1
+      fi
+    description: "Batch 2 must have >=70% completion rate"
+    condition: "stage >= 7"
+
+  # Stage 8: Batch 2 Completion Pass
+  - type: file_exists
+    path: "{workspace}/09-batch2-completion.md"
+    description: "Batch 2 completion pass must exist"
+    condition: "stage >= 8"
+
+  # Stage 9: Batch 3 First Pass
+  - type: file_exists
+    path: "{workspace}/10-batch3-fixes.md"
+    description: "Batch 3 results must exist"
+    condition: "stage >= 9"
+
+  - type: command_succeeds
+    command: |
+      FILE="{workspace}/10-batch3-fixes.md"
+      if [ ! -f "$FILE" ]; then echo "file missing"; exit 1; fi
+      COMPLETION=$(grep -oE 'Completion.*[0-9]+%' "$FILE" | grep -oE '[0-9]+' | head -1)
+      if [ -z "$COMPLETION" ]; then
+        FIXED=$(grep -E '^\*\*Fixed:\*\*' "$FILE" | grep -oE '[0-9]+' | head -1)
+        TOTAL=$(grep -E '^\*\*Total:\*\*' "$FILE" | grep -oE '[0-9]+' | head -1)
+        if [ -n "$FIXED" ] && [ -n "$TOTAL" ] && [ "$TOTAL" -gt 0 ]; then
+          COMPLETION=$((FIXED * 100 / TOTAL))
+        fi
+      fi
+      if [ -n "$COMPLETION" ] && [ "$COMPLETION" -ge 50 ]; then
+        echo "Batch 3 completion: ${COMPLETION}% (>=50% required) - PASSED"
+      else
+        echo "Batch 3 completion: ${COMPLETION:-unknown}% (>=50% required) - FAILED"
+        exit 1
+      fi
+    description: "Batch 3 must have >=50% completion rate"
+    condition: "stage >= 9"
+
+  # Stage 10: Batch 3 Completion Pass
+  - type: file_exists
+    path: "{workspace}/11-batch3-completion.md"
+    description: "Batch 3 completion pass must exist"
+    condition: "stage >= 10"
+
+  # Stage 11: Verification & Summary
+  - type: file_exists
+    path: "{workspace}/12-summary.md"
+    description: "Summary must exist"
+    condition: "stage >= 11"
+
+  # Tests must pass (via generated runner script — truly generic)
+  - type: command_succeeds
+    command: |
+      SCRIPT="{workspace}/.run-tests.sh"
+      if [ -f "$SCRIPT" ]; then
+        bash "$SCRIPT" 2>&1 | tail -10
+      else
+        echo "No test runner script — cannot verify"
+        exit 1
+      fi
+    description: "All test suites must pass (via generated runner script)"
+    condition: "stage >= 11"
+
+  # Stage 12: Commit
+  - type: file_exists
+    path: "{workspace}/13-commit.md"
+    description: "Commit report must exist"
+    condition: "stage == 12"
+
+  # Verify commit was created (by stage 12 or stage 13)
+  - type: command_succeeds
+    command: "git log --oneline -1 --since='30 minutes ago' 2>/dev/null | grep -qE '.' && echo 'passed' || echo 'no recent commit'"
+    description: "Recent commit should exist after commit/merge-resolve"
+    condition: "stage == 13"
+
+  # Stage 13: Merge Conflict Resolution
+  - type: file_exists
+    path: "{workspace}/14-merge-resolution.md"
+    description: "Merge resolution report must exist"
+    condition: "stage >= 13"
+
+  # Stage 14: GitHub Issues
+  - type: file_exists
+    path: "{workspace}/15-issues-filed.md"
+    description: "Issue filing report must exist"
+    condition: "stage >= 14"
+
+# Self-chain for continuous improvement
+on_success:
+  - type: run_job
+    job_path: "examples/quality-continuous-generic.yaml"
+    description: "Chain to next quality iteration"
+    detached: true
+    fresh: true
+
+concert:
+  enabled: true
+  max_chain_depth: 10
+  cooldown_between_jobs_seconds: 120
+  inherit_workspace: false

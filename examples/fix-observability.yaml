@@ -1,0 +1,1078 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║              FIX OBSERVABILITY GAPS                                         ║
+# ║                                                                              ║
+# ║  Make every Mozart failure diagnosable. No more silent deaths.               ║
+# ║                                                                              ║
+# ║  One-shot cleanup — no self-chaining. 13 stages, 15 sheets after fan-out.   ║
+# ║                                                                              ║
+# ║  Execution Flow:                                                             ║
+# ║                                                                              ║
+# ║    [1] [2] [3]     ← parallel (independent critical fixes)                  ║
+# ║      \  |  /                                                                 ║
+# ║       [4]          ← completion pass for sheets 1-3                          ║
+# ║        |                                                                     ║
+# ║    [5] [6] [7]     ← parallel (high-priority fixes)                         ║
+# ║      \  |  /                                                                 ║
+# ║       [8]          ← completion pass for sheets 5-7                          ║
+# ║        |                                                                     ║
+# ║       [9]          ← medium-priority polish                                  ║
+# ║        |                                                                     ║
+# ║      [10]          ← integration tests for all changes                       ║
+# ║        |                                                                     ║
+# ║    [11] x3         ← code review (fan-out: 3 parallel reviewers)             ║
+# ║        |                                                                     ║
+# ║      [12]          ← full test suite + selective git commit + push           ║
+# ║        |                                                                     ║
+# ║      [13]          ← close GitHub issues, update docs                        ║
+# ║                                                                              ║
+# ║  Context: Iteration 13 died with zero diagnostics because detached hook      ║
+# ║  output goes to /dev/null. This score fixes all visibility gaps.             ║
+# ║                                                                              ║
+# ║  Usage:                                                                      ║
+# ║    mozart validate examples/fix-observability.yaml                           ║
+# ║    setsid mozart run examples/fix-observability.yaml \                       ║
+# ║      > .observability-workspace/mozart.log 2>&1 &                            ║
+# ║    mozart status fix-observability -w .observability-workspace --watch       ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+name: "fix-observability"
+description: "Fix all visibility gaps — detached hook logging, execution history, enhanced diagnostics"
+
+workspace: "./.observability-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  working_directory: /home/emzi/Projects/mozart-ai-compose
+  timeout_seconds: 2400   # 40 min — these are focused changes
+  disable_mcp: false
+
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 3000
+  lookback_sheets: 2
+  capture_files:
+    - "{{ workspace }}/*.md"
+
+sheet:
+  size: 1
+  total_items: 13  # 13 stages → 15 concrete sheets after fan-out on stage 11
+
+  # Stage 11 runs 3 parallel code review instances
+  fan_out:
+    11: 3
+
+  # Dependency DAG (stage-level, auto-expanded for fan-out)
+  dependencies:
+    4: [1, 2, 3]     # Completion pass depends on all critical fixes
+    5: [4]            # High-priority depends on completion pass
+    6: [4]
+    7: [4]
+    8: [5, 6, 7]      # Completion pass depends on all high-priority fixes
+    9: [8]             # Medium-priority depends on high-priority completion
+    10: [9]            # Integration tests depend on all fixes being done
+    11: [10]           # Code review depends on integration tests passing
+    12: [11]           # Commit depends on all reviews complete (fan-in)
+    13: [12]           # Cleanup depends on commit
+
+parallel:
+  enabled: true
+  max_concurrent: 3
+
+retry:
+  max_retries: 2
+
+prompt:
+  template: |
+    {{ preamble }}
+
+    {% if sheet_num == 1 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 1: DETACHED HOOK LOG FILES + HOOK RESULT PERSISTENCE                 ║
+    ║  Priority: CRITICAL — This is THE fix that prompted this entire score       ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Problem:** When hooks run in detached mode (e.g., self-chaining via `on_success`),
+    their stdout/stderr go to `asyncio.subprocess.DEVNULL`. If the chained job fails,
+    there is ZERO diagnostic output. Iteration 13 died this way.
+
+    **Files to modify:**
+    - `src/mozart/execution/hooks.py` (lines 305-313)
+    - `src/mozart/core/checkpoint.py` (add `hook_results` field to CheckpointState)
+
+    **Changes required:**
+
+    1. **`src/mozart/execution/hooks.py` lines 305-313** — Replace DEVNULL with file handles:
+       ```python
+       if hook.detached:
+           # Create log directory and file handles instead of DEVNULL
+           hook_log_dir = Path(self._workspace) / "hooks" if self._workspace else None
+           if hook_log_dir:
+               hook_log_dir.mkdir(parents=True, exist_ok=True)
+               timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+               log_path = hook_log_dir / f"chain-{timestamp}.log"
+               log_file = open(log_path, "w")  # noqa: SIM115
+               stdout_handle = log_file
+               stderr_handle = log_file
+           else:
+               stdout_handle = asyncio.subprocess.DEVNULL
+               stderr_handle = asyncio.subprocess.DEVNULL
+               log_path = None
+
+           process = await asyncio.create_subprocess_exec(
+               *cmd,
+               stdout=stdout_handle,
+               stderr=stderr_handle,
+               stdin=asyncio.subprocess.DEVNULL,
+               env=os.environ.copy(),
+               start_new_session=True,
+           )
+       ```
+       Note: Close the file handle in the parent after subprocess creation — the child
+       inherits the fd but the parent still holds a reference that must be released:
+       ```python
+       if hook_log_dir and log_file:
+           log_file.close()  # Child process inherited the fd
+       ```
+
+    2. **Add `get_hook_log_path()` helper** to `hooks.py`:
+       ```python
+       def get_hook_log_path(workspace: str | Path | None, hook_type: str) -> Path | None:
+           """Construct log path for a hook execution."""
+           if workspace is None:
+               return None
+           hook_log_dir = Path(workspace) / "hooks"
+           hook_log_dir.mkdir(parents=True, exist_ok=True)
+           timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+           return hook_log_dir / f"{hook_type}-{timestamp}.log"
+       ```
+
+    3. **`src/mozart/core/checkpoint.py`** — Add `hook_results` field to `CheckpointState`:
+       ```python
+       hook_results: list[dict[str, Any]] = Field(default_factory=list)
+       ```
+       This stores `HookResult` dicts after each hook execution. Add a helper method:
+       ```python
+       def record_hook_result(self, result: dict[str, Any]) -> None:
+           """Append a hook result to the checkpoint state."""
+           self.hook_results.append(result)
+       ```
+
+    4. **Back in `hooks.py`** — After each hook execution, persist the result to state.
+       In the `execute_hooks()` method, after `hook_result = HookResult(...)` is created,
+       call through to persist it. Add the log_path to HookResult if available.
+
+    **After making changes, run:**
+    ```bash
+    pytest tests/test_hooks.py -v --tb=short 2>&1 | tail -30
+    ```
+
+    **Output to:** {{ workspace }}/01-detached-hook-logging.md
+
+    Format:
+    ```markdown
+    # Sheet 1: Detached Hook Log Files
+
+    ## Changes Made
+    | File | Lines Modified | Description |
+    |------|---------------|-------------|
+
+    ## Code Changes
+    [Describe each change with before/after]
+
+    ## Test Results
+    [pytest output]
+
+    ## Verification
+    - [ ] DEVNULL replaced with file handles in detached mode
+    - [ ] Hook log directory created at {workspace}/hooks/
+    - [ ] hook_results field added to CheckpointState
+    - [ ] HookResult persisted after execution
+    - [ ] Tests pass
+    ```
+
+    {% elif sheet_num == 2 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 2: API BACKEND LOGGING + STREAM ERROR HANDLING                       ║
+    ║  Priority: CRITICAL — API backend has no output log files                   ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Problem:** The `anthropic_api.py` backend has no file-based logging of API
+    responses (unlike `claude_cli.py` which has `_stdout_log_path`). Additionally,
+    `claude_cli.py` has bare `except OSError: pass` blocks that silently swallow
+    log write failures.
+
+    **Files to modify:**
+    - `src/mozart/backends/anthropic_api.py`
+    - `src/mozart/backends/claude_cli.py` (lines 673-676, 699-704)
+
+    **Changes required:**
+
+    1. **`src/mozart/backends/anthropic_api.py`** — Add output logging:
+       - Add `_stdout_log_path: Path | None = None` and `_stderr_log_path: Path | None = None`
+         instance variables (matching `claude_cli.py` pattern at its line 154-155)
+       - Add `set_output_log_path(stdout_path, stderr_path)` method (matching `claude_cli.py:189`)
+       - In the `execute()` method, after receiving the API response, write the full
+         response text to `_stdout_log_path` if set
+       - If an API error occurs, write the error details to `_stderr_log_path` if set
+
+    2. **`src/mozart/backends/claude_cli.py` lines 673-676** — Replace bare except:
+       ```python
+       # BEFORE:
+       try:
+           log_file = open(log_path, "ab")
+       except OSError:
+           pass
+
+       # AFTER:
+       try:
+           log_file = open(log_path, "ab")  # noqa: SIM115
+       except OSError as e:
+           _logger.warning("log_file_open_failed", path=str(log_path), error=str(e))
+       ```
+
+    3. **`src/mozart/backends/claude_cli.py` lines 699-704** — Replace bare except:
+       ```python
+       # BEFORE:
+       if log_file is not None:
+           try:
+               log_file.write(chunk)
+               log_file.flush()
+           except OSError:
+               pass
+
+       # AFTER:
+       if log_file is not None:
+           try:
+               log_file.write(chunk)
+               log_file.flush()
+           except OSError as e:
+               _logger.warning("log_write_failed", path=str(log_path), error=str(e))
+       ```
+
+    4. Add `log_write_failures: int = 0` counter to `ClaudeCliBackend` to track
+       how many log writes failed during execution. Increment it in each warning path.
+       This gives visibility into flaky filesystems.
+
+    **After making changes, run:**
+    ```bash
+    pytest tests/test_backends.py -v --tb=short 2>&1 | tail -30
+    ```
+
+    **Output to:** {{ workspace }}/02-api-backend-logging.md
+
+    Format:
+    ```markdown
+    # Sheet 2: API Backend Logging + Error Handling
+
+    ## Changes Made
+    | File | Lines Modified | Description |
+    |------|---------------|-------------|
+
+    ## Code Changes
+    [Before/after for each change]
+
+    ## Test Results
+    [pytest output]
+
+    ## Verification
+    - [ ] anthropic_api.py has _stdout_log_path/_stderr_log_path
+    - [ ] anthropic_api.py writes API responses to log files
+    - [ ] claude_cli.py bare OSError catches replaced with warnings
+    - [ ] log_write_failures counter added
+    - [ ] Tests pass
+    ```
+
+    {% elif sheet_num == 3 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 3: WIRE EXECUTION HISTORY INTO RUNNER                                ║
+    ║  Priority: CRITICAL — record_execution() exists but nothing calls it        ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Problem:** The `sqlite_backend.py` has a `record_execution()` method at lines
+    615-661 that records sheet execution attempts, but the runner never calls it.
+    This means the `execution_history` SQLite table is always empty.
+
+    **Files to modify:**
+    - `src/mozart/execution/runner/sheet.py` (call record_execution after each attempt)
+    - `src/mozart/cli/cli.py` (add `mozart history` CLI command)
+    - `src/mozart/cli/commands/diagnose.py` (include execution history count)
+
+    **Changes required:**
+
+    1. **`src/mozart/execution/runner/sheet.py`** — After each sheet execution attempt
+       (whether success or failure), call `state_backend.record_execution()`. Look for
+       the point where `sheet_state.attempt_count` is incremented and add:
+       ```python
+       # Record execution in history (if sqlite backend supports it)
+       if hasattr(self.state_backend, 'record_execution'):
+           try:
+               await self.state_backend.record_execution(
+                   job_id=self.config.name,
+                   sheet_num=sheet_num,
+                   attempt_num=sheet_state.attempt_count,
+                   prompt=prompt[:2000] if prompt else None,
+                   output=result.stdout_tail[:5000] if result and result.stdout_tail else None,
+                   exit_code=result.exit_code if result else None,
+                   duration_seconds=sheet_state.execution_duration_seconds,
+               )
+           except Exception as e:
+               _logger.warning("record_execution_failed", error=str(e))
+       ```
+
+    2. **Add `mozart history` CLI command** — Create a new command that queries
+       the execution_history table and displays past attempts. Add it to the CLI
+       router. It should accept `<job-id>` and optional `--sheet N` to filter.
+       Display: `| Sheet | Attempt | Exit Code | Duration | Timestamp |`
+
+    3. **`src/mozart/cli/commands/diagnose.py`** — In `_build_diagnostic_report()`,
+       add execution history count. Also add `get_execution_history_count()` method
+       to `sqlite_backend.py`.
+
+    **After making changes, run:**
+    ```bash
+    pytest tests/test_backends.py tests/test_cli_diagnose.py -v --tb=short 2>&1 | tail -30
+    ```
+
+    **Output to:** {{ workspace }}/03-execution-history.md
+
+    Format:
+    ```markdown
+    # Sheet 3: Execution History Integration
+
+    ## Changes Made
+    | File | Lines Modified | Description |
+    |------|---------------|-------------|
+
+    ## Code Changes
+    [Before/after for each change]
+
+    ## Test Results
+    [pytest output]
+
+    ## Verification
+    - [ ] record_execution() called after each sheet attempt
+    - [ ] mozart history command works
+    - [ ] diagnose output includes execution history count
+    - [ ] Tests pass
+    ```
+
+    {% elif sheet_num == 4 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 4: COMPLETION PASS FOR SHEETS 1-3                                    ║
+    ║  "Review + finish anything deferred from the critical fixes"                ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    {% if previous_outputs %}
+    ## Previous Sheet Results
+    {{ previous_outputs[1][:800] if 1 in previous_outputs else "Sheet 1 output not available" }}
+    {{ previous_outputs[2][:800] if 2 in previous_outputs else "Sheet 2 output not available" }}
+    {{ previous_outputs[3][:800] if 3 in previous_outputs else "Sheet 3 output not available" }}
+    {% endif %}
+
+    **Task:** Review the work from sheets 1-3. For each sheet:
+
+    1. Read the output files: `{{ workspace }}/01-detached-hook-logging.md`,
+       `{{ workspace }}/02-api-backend-logging.md`, `{{ workspace }}/03-execution-history.md`
+    2. Check if all verification checkboxes are satisfied
+    3. If anything was deferred or marked incomplete — finish it now
+    4. Run the test suite:
+       ```bash
+       pytest tests/test_hooks.py tests/test_backends.py tests/test_cli_diagnose.py -v --tb=short 2>&1 | tail -40
+       ```
+    5. Search for TODO comments referencing sheets 1-3:
+       ```bash
+       grep -rn "TODO.*sheet.*[123]\|FIXME.*sheet.*[123]\|TODO.*hook.*log\|TODO.*record_execution\|TODO.*api.*log" src/ --include="*.py" | head -20
+       ```
+       If any exist, resolve them now.
+
+    **Also verify actual behavior:**
+    - Check that `CheckpointState.hook_results` field exists
+    - Check that `record_execution` is actually called from the runner
+    - Check that bare `except OSError: pass` no longer exists in claude_cli.py
+
+    **Output to:** {{ workspace }}/04-completion-pass-critical.md
+
+    Format:
+    ```markdown
+    # Sheet 4: Completion Pass (Critical Fixes)
+
+    ## Review Results
+    | Sheet | Status | Issues Found |
+    |-------|--------|-------------|
+
+    ## Items Completed This Pass
+    | Item | What Was Done |
+    |------|--------------|
+
+    ## TODO Comments Resolved
+    | Location | Previous TODO | Resolution |
+    |----------|--------------|------------|
+
+    ## Test Results
+    [pytest output]
+    ```
+
+    {% elif sheet_num == 5 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 5: ENHANCED DIAGNOSTICS                                              ║
+    ║  Priority: HIGH — Make `mozart diagnose` actually useful                    ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Problem:** `mozart diagnose` doesn't show log file locations, can't detect
+    zombie processes, and doesn't inline output from sheet logs.
+
+    **Files to modify:**
+    - `src/mozart/cli/commands/diagnose.py` (lines 628-774)
+    - `src/mozart/backends/claude_cli.py` (line 359 area)
+
+    **Changes required:**
+
+    1. **`diagnose.py`** — Add log file discovery to `_build_diagnostic_report()`:
+       - Scan `{workspace}/logs/` for `sheet-*.log` files
+       - Report paths, sizes, and last modification times
+       - Also scan `{workspace}/hooks/` for hook log files
+
+    2. **`diagnose.py`** — Add `--include-logs` flag to the diagnose command:
+       - When set, inline the last 50 lines from each sheet log file in the output
+       - Default: off (log files can be large)
+
+    3. **`claude_cli.py`** — Make output capture size configurable:
+       - The constant `MAX_OUTPUT_CAPTURE_BYTES` exists at `checkpoint.py:19` (10240)
+       - Wire it into `ClaudeCliBackend` so it can be overridden via config
+       - Add `max_output_capture_bytes` to `BackendConfig` in `config.py`
+
+    **After making changes, run:**
+    ```bash
+    pytest tests/test_cli_diagnose.py -v --tb=short 2>&1 | tail -30
+    ```
+
+    **Output to:** {{ workspace }}/05-enhanced-diagnostics.md
+
+    Format:
+    ```markdown
+    # Sheet 5: Enhanced Diagnostics
+
+    ## Changes Made
+    | File | Lines Modified | Description |
+    |------|---------------|-------------|
+
+    ## New Features
+    - Log file discovery in diagnose output
+    - --include-logs flag for inline log content
+    - Configurable output capture size
+    - Hook log discovery
+
+    ## Test Results
+    [pytest output]
+    ```
+
+    {% elif sheet_num == 6 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 6: REAL-TIME STATUS VISIBILITY + ERROR STREAM IDENTITY               ║
+    ║  Priority: HIGH                                                             ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Problem:** `mozart status` doesn't show enough real-time information about
+    what's happening during execution. Error classification could be more informative.
+
+    **Files to modify:**
+    - `src/mozart/cli/commands/status.py`
+
+    **Changes required:**
+
+    1. **`status.py`** — Enhance the status display to show:
+       - Current sheet's elapsed time (not just start time)
+       - Last activity timestamp for the current sheet
+       - Log file path for the current sheet (if available)
+       - Hook execution results (from the new `hook_results` field)
+       - Cost summary (total spent so far)
+
+    2. **Error stream identity** — When errors are displayed in status output,
+       include the error source (which sheet, which attempt, which backend).
+
+    3. If a sheet is currently `in_progress`, show its `progress_snapshots` if available.
+
+    **After making changes, run tests related to status:**
+    ```bash
+    grep -rl "status" tests/ --include="*.py" | head -5
+    pytest tests/ -k "status" -v --tb=short 2>&1 | tail -30
+    ```
+
+    **Output to:** {{ workspace }}/06-status-visibility.md
+
+    Format:
+    ```markdown
+    # Sheet 6: Real-Time Status Visibility
+
+    ## Changes Made
+    | File | Lines Modified | Description |
+    |------|---------------|-------------|
+
+    ## Status Display Improvements
+    | Enhancement | Description |
+    |------------|-------------|
+
+    ## Test Results
+    [pytest output]
+    ```
+
+    {% elif sheet_num == 7 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 7: CIRCUIT BREAKER PERSISTENCE + CHAINED JOB TRACKING                ║
+    ║  Priority: HIGH                                                             ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Problem:** Circuit breaker state is ephemeral — lost on restart. The status
+    command has to *infer* it from failure patterns (`_infer_circuit_breaker_state`
+    at `status.py:655-699`). When chained jobs spawn, we don't track PID or log path.
+
+    **Files to modify:**
+    - `src/mozart/core/checkpoint.py`
+    - `src/mozart/execution/hooks.py`
+    - `src/mozart/cli/commands/status.py` (lines 655-699)
+
+    **Changes required:**
+
+    1. **`checkpoint.py`** — Add circuit breaker history:
+       ```python
+       circuit_breaker_history: list[dict[str, Any]] = Field(default_factory=list)
+       ```
+       Add method:
+       ```python
+       def record_circuit_breaker_change(self, state: str, trigger: str, consecutive_failures: int) -> None:
+           self.circuit_breaker_history.append({
+               "state": state,
+               "timestamp": datetime.now(UTC).isoformat(),
+               "trigger": trigger,
+               "consecutive_failures": consecutive_failures,
+           })
+       ```
+
+    2. **`hooks.py`** — Add `chained_job_info` to `HookResult`:
+       - When a `run_job` hook spawns a process, populate:
+         `{"job_path": ..., "workspace": ..., "pid": ..., "log_path": ...}`
+
+    3. **`status.py` lines 655-699** — Replace inference with persisted state read,
+       falling back to inference for backward compatibility.
+
+    4. Wire the circuit breaker in the runner to call `record_circuit_breaker_change()`.
+
+    **After making changes, run:**
+    ```bash
+    pytest tests/ -k "circuit or hook" -v --tb=short 2>&1 | tail -30
+    ```
+
+    **Output to:** {{ workspace }}/07-circuit-breaker-persistence.md
+
+    Format:
+    ```markdown
+    # Sheet 7: Circuit Breaker Persistence + Chain Tracking
+
+    ## Changes Made
+    | File | Lines Modified | Description |
+    |------|---------------|-------------|
+
+    ## New Fields
+    | Model | Field | Type | Purpose |
+    |-------|-------|------|---------|
+
+    ## Test Results
+    [pytest output]
+    ```
+
+    {% elif sheet_num == 8 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 8: COMPLETION PASS FOR SHEETS 5-7                                    ║
+    ║  "Review + finish anything deferred from the high-priority fixes"           ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    {% if previous_outputs %}
+    ## Previous Sheet Results
+    {{ previous_outputs[5][:800] if 5 in previous_outputs else "" }}
+    {{ previous_outputs[6][:800] if 6 in previous_outputs else "" }}
+    {{ previous_outputs[7][:800] if 7 in previous_outputs else "" }}
+    {% endif %}
+
+    **Task:** Review sheets 5-7. For each:
+
+    1. Read output files: `{{ workspace }}/05-enhanced-diagnostics.md`,
+       `{{ workspace }}/06-status-visibility.md`, `{{ workspace }}/07-circuit-breaker-persistence.md`
+    2. Verify all changes are complete
+    3. Finish any deferred items
+    4. Run tests:
+       ```bash
+       pytest tests/test_cli_diagnose.py tests/ -k "status or circuit" -v --tb=short 2>&1 | tail -40
+       ```
+    5. Resolve any TODO comments from sheets 5-7
+
+    **Output to:** {{ workspace }}/08-completion-pass-high.md
+
+    Format:
+    ```markdown
+    # Sheet 8: Completion Pass (High-Priority Fixes)
+
+    ## Review Results
+    | Sheet | Status | Issues Found |
+    |-------|--------|-------------|
+
+    ## Items Completed This Pass
+    | Item | What Was Done |
+    |------|--------------|
+
+    ## Test Results
+    [pytest output]
+    ```
+
+    {% elif sheet_num == 9 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 9: MEDIUM PRIORITY POLISH                                            ║
+    ║  Error history limit, preflight cap, cost display                           ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Files to modify:**
+    - `src/mozart/core/checkpoint.py` — Error history limit
+    - `src/mozart/cli/commands/status.py` — Cost display
+    - Various files — Preflight warning cap
+
+    **Changes required:**
+
+    1. **Error history limit** — `SheetState.error_history` can grow unbounded.
+       Add MAX_ERROR_HISTORY = 50, and a method to enforce it:
+       ```python
+       def add_error_to_history(self, error: dict[str, Any]) -> None:
+           self.error_history.append(error)
+           if len(self.error_history) > MAX_ERROR_HISTORY:
+               self.error_history = self.error_history[-MAX_ERROR_HISTORY:]
+       ```
+       Route all `error_history.append()` calls through this method.
+
+    2. **Preflight warning cap** — If preflight checks generate > 20 warnings,
+       truncate and show "... and N more warnings".
+
+    3. **Cost display in status** — Show `Cost: $X.XX (limit: $Y.YY)` or `(no limit)`.
+
+    4. **Log rotation hint** — When `{workspace}/hooks/` has > 20 log files,
+       show a hint in diagnose output suggesting cleanup.
+
+    **After making changes, run:**
+    ```bash
+    pytest -x -q --tb=short 2>&1 | tail -20
+    ```
+
+    **Output to:** {{ workspace }}/09-medium-priority-polish.md
+
+    Format:
+    ```markdown
+    # Sheet 9: Medium Priority Polish
+
+    ## Changes Made
+    | File | Change | Description |
+    |------|--------|-------------|
+
+    ## Test Results
+    [pytest output]
+    ```
+
+    {% elif sheet_num == 10 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 10: INTEGRATION TESTS FOR ALL OBSERVABILITY CHANGES                  ║
+    ║  "Trust but verify"                                                         ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Task:** Write comprehensive integration tests for ALL observability changes.
+
+    **Create `tests/test_observability.py`** with these test cases:
+
+    1. **test_detached_hook_creates_log_file** — Simulate detached hook execution,
+       verify log file created in `{workspace}/hooks/`
+
+    2. **test_hook_result_persisted_to_checkpoint** — Execute a hook and verify
+       result appears in `CheckpointState.hook_results`
+
+    3. **test_api_backend_writes_log_files** — Set log paths on API backend,
+       verify it writes responses to them
+
+    4. **test_cli_backend_logs_write_failures** — Simulate OSError during log
+       write, verify warning logged (not silently swallowed)
+
+    5. **test_execution_history_recorded** — Run sheet through runner, verify
+       `record_execution()` was called
+
+    6. **test_mozart_history_command** — Test `mozart history` CLI command
+
+    7. **test_diagnose_includes_log_files** — Run diagnose on workspace with
+       log files, verify they appear in output
+
+    8. **test_circuit_breaker_state_persisted** — Trigger CB state change,
+       verify recorded in `CheckpointState.circuit_breaker_history`
+
+    9. **test_chained_job_info_in_hook_result** — Verify spawned job tracking
+       fields populated
+
+    10. **test_error_history_capped** — Add 60 errors, verify only last 50 kept
+
+    **Target:** >85% coverage of modified code paths.
+
+    **After writing tests, run:**
+    ```bash
+    pytest tests/test_observability.py -v --tb=short 2>&1 | tail -40
+    pytest -x -q --tb=no 2>&1 | tail -5
+    ```
+
+    **Output to:** {{ workspace }}/10-integration-tests.md
+
+    Format:
+    ```markdown
+    # Sheet 10: Integration Tests
+
+    ## Tests Created
+    | Test | What It Verifies | Status |
+    |------|-----------------|--------|
+
+    ## Coverage
+    - Tests created: N
+    - Tests passing: N
+
+    ## Full Suite Results
+    [pytest output]
+    ```
+
+    {% elif stage == 11 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 11: CODE REVIEW — {{ review_types[instance] | upper }}                ║
+    ║  Instance {{ instance }} of {{ fan_count }} (running in PARALLEL)            ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    You are reviewing ALL code changes made in sheets 1-10. Find issues BEFORE we commit.
+
+    **Read workspace reports first:**
+    ```bash
+    ls {{ workspace }}/*.md
+    ```
+
+    **Then examine actual code changes:**
+    ```bash
+    git diff --stat
+    git diff src/
+    ```
+
+    {% if instance == 1 %}
+    {# ═══════════════ ARCHITECTURE REVIEWER ═══════════════ #}
+
+    You are the **Architecture Reviewer**. Focus on:
+
+    1. **API consistency** — Do new methods/fields follow existing patterns?
+    2. **State model bloat** — Are new fields properly optional with defaults?
+    3. **Import hygiene** — Any circular dependencies introduced?
+    4. **Interface boundaries** — Is `hasattr()` the right pattern or should we use Protocol?
+
+    **Output to:** {{ workspace }}/11-review-architecture.md
+
+    {% elif instance == 2 %}
+    {# ═══════════════ SECURITY REVIEWER ═══════════════ #}
+
+    You are the **Security Reviewer**. Focus on:
+
+    1. **Log file paths** — Path traversal risks in hook log paths?
+    2. **Sensitive data in logs** — API keys, tokens in new log files?
+    3. **File handle leaks** — Detached hook file handle management?
+    4. **Unbounded growth** — Could `hook_results` or `circuit_breaker_history` grow indefinitely?
+
+    **Output to:** {{ workspace }}/11-review-security.md
+
+    {% elif instance == 3 %}
+    {# ═══════════════ ERROR HANDLING REVIEWER ═══════════════ #}
+
+    You are the **Error Handling Reviewer**. Focus on:
+
+    1. **New failure modes** — What if hook log dir can't be created? record_execution fails?
+    2. **Error swallowing** — Did we introduce new bare `except: pass`?
+    3. **Graceful degradation** — Do features degrade when workspace missing?
+    4. **Backward compatibility** — Old checkpoints without new fields?
+
+    **Output to:** {{ workspace }}/11-review-error-handling.md
+
+    {% endif %}
+
+    Format:
+    ```markdown
+    # Code Review: [Focus Area]
+
+    ## Summary
+    [2-3 sentence summary]
+
+    ## Critical Issues (must fix before commit)
+    | Location | Issue | Fix |
+    |----------|-------|-----|
+
+    ## Recommendations (should fix)
+    | Location | Issue | Suggestion |
+    |----------|-------|-----------|
+
+    ## Observations (nice to have)
+    | Location | Note |
+    |----------|------|
+
+    ## Verdict
+    [APPROVE / REQUEST_CHANGES / COMMENT]
+    ```
+
+    {% elif sheet_num == 12 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 12: FULL TEST SUITE + SELECTIVE GIT COMMIT + PUSH                    ║
+    ║  "Ship it — but only what we changed"                                       ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Step 1: Address review findings**
+    Read review reports at `{{ workspace }}/11-review-*.md`. Fix critical issues.
+
+    **Step 2: Run full test suite**
+    ```bash
+    pytest -x -q --tb=short 2>&1 | tail -20
+    ```
+
+    **Step 3: Run linter**
+    ```bash
+    ruff check src/ 2>&1 | tail -20
+    ```
+
+    **Step 4: Stage ONLY modified files**
+    ```bash
+    git diff --name-only src/ tests/ | sort
+    git add [list each file]
+    git diff --cached --stat
+    ```
+
+    **Step 5: Commit**
+    Write commit message to {{ workspace }}/12-commit-message.txt:
+    ```
+    fix: Add observability — hook logging, execution history, enhanced diagnostics
+
+    - Replace DEVNULL with file handles for detached hooks (hooks.py)
+    - Persist HookResult to CheckpointState after each execution
+    - Add API backend output logging (anthropic_api.py)
+    - Replace bare except OSError with logged warnings (claude_cli.py)
+    - Wire record_execution() into runner for execution history
+    - Add mozart history CLI command
+    - Enhance diagnose with log file discovery and --include-logs
+    - Persist circuit breaker state changes to checkpoint
+    - Track chained job info (PID, log path) in HookResult
+    - Add integration tests (tests/test_observability.py)
+
+    Co-Authored-By: Mozart AI Compose <noreply@mozart.ai>
+    ```
+    ```bash
+    git commit -F {{ workspace }}/12-commit-message.txt
+    ```
+
+    **Step 6: Push**
+    ```bash
+    git push origin main
+    ```
+
+    **Step 7: Verify**
+    ```bash
+    git log --oneline -1
+    git show --stat HEAD | tail -20
+    ```
+
+    **Output to:** {{ workspace }}/12-commit.md
+
+    Format:
+    ```markdown
+    # Sheet 12: Commit Results
+
+    ## Review Fixes Applied
+    | Source | Issue | Fix |
+    |--------|-------|-----|
+
+    ## Test Results
+    [must be all passing]
+
+    ## Lint Results
+    [must be clean]
+
+    ## Files Committed
+    [git diff --cached --stat]
+
+    ## Commit Hash
+    [git log --oneline -1]
+
+    ## Push Status
+    [pushed/failed/retried]
+    ```
+
+    {% elif sheet_num == 13 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 13: CLOSE GITHUB ISSUES + UPDATE DOCS                                ║
+    ║  "Leave the campsite cleaner than you found it"                             ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Step 1: Find related GitHub issues**
+    ```bash
+    gh issue list --state open --json number,title,labels --limit 30
+    ```
+    Look for issues about: hook output, execution history, diagnostics, circuit breaker,
+    silent failures, visibility.
+
+    **Step 2: Close resolved issues** with commit reference.
+
+    **Step 3: Update STATUS.md** if it exists.
+
+    **Step 4: Update memory bank** if `memory-bank/activeContext.md` exists.
+
+    **Output to:** {{ workspace }}/13-cleanup.md
+
+    Format:
+    ```markdown
+    # Sheet 13: Cleanup
+
+    ## GitHub Issues Closed
+    | # | Title | Comment |
+    |---|-------|---------|
+
+    ## Documentation Updated
+    | File | Change |
+    |------|--------|
+
+    ## Summary
+    [Brief summary of everything this score accomplished]
+    ```
+
+    {% endif %}
+
+  variables:
+    preamble: |
+      ╔══════════════════════════════════════════════════════════════════════════╗
+      ║              FIX OBSERVABILITY GAPS                                      ║
+      ║                                                                          ║
+      ║  Goal: Make every Mozart failure diagnosable. No more silent deaths.     ║
+      ║                                                                          ║
+      ║  Working directory: /home/emzi/Projects/mozart-ai-compose                ║
+      ║  Workspace: {{ workspace }}                                              ║
+      ║  Sheet: {{ sheet_num }} of {{ total_sheets }}                            ║
+      ╚══════════════════════════════════════════════════════════════════════════╝
+
+      **Rules:**
+      - Make one logical change at a time
+      - Run relevant tests after each change
+      - Do NOT skip unless genuinely blocked
+      - Write output to the specified file
+      - Be precise with file paths and line numbers
+
+    review_types:
+      1: "Architecture"
+      2: "Security"
+      3: "Error Handling"
+
+validations:
+  # Sheets 1-3: Output files
+  - type: file_exists
+    path: "{workspace}/01-detached-hook-logging.md"
+    description: "Sheet 1 output must exist"
+    condition: "sheet_num >= 1"
+
+  - type: file_exists
+    path: "{workspace}/02-api-backend-logging.md"
+    description: "Sheet 2 output must exist"
+    condition: "sheet_num >= 2"
+
+  - type: file_exists
+    path: "{workspace}/03-execution-history.md"
+    description: "Sheet 3 output must exist"
+    condition: "sheet_num >= 3"
+
+  # Sheet 4: Completion pass
+  - type: file_exists
+    path: "{workspace}/04-completion-pass-critical.md"
+    description: "Sheet 4 completion pass must exist"
+    condition: "sheet_num >= 4"
+
+  # Tests must pass after critical fixes
+  - type: command_succeeds
+    command: "cd /home/emzi/Projects/mozart-ai-compose && pytest tests/test_hooks.py tests/test_backends.py -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed'"
+    description: "Hook and backend tests must pass"
+    condition: "sheet_num >= 4"
+
+  # Sheets 5-7: Output files
+  - type: file_exists
+    path: "{workspace}/05-enhanced-diagnostics.md"
+    description: "Sheet 5 output must exist"
+    condition: "sheet_num >= 5"
+
+  - type: file_exists
+    path: "{workspace}/06-status-visibility.md"
+    description: "Sheet 6 output must exist"
+    condition: "sheet_num >= 6"
+
+  - type: file_exists
+    path: "{workspace}/07-circuit-breaker-persistence.md"
+    description: "Sheet 7 output must exist"
+    condition: "sheet_num >= 7"
+
+  # Sheet 8: Completion pass
+  - type: file_exists
+    path: "{workspace}/08-completion-pass-high.md"
+    description: "Sheet 8 completion pass must exist"
+    condition: "sheet_num >= 8"
+
+  # Sheet 9: Medium priority
+  - type: file_exists
+    path: "{workspace}/09-medium-priority-polish.md"
+    description: "Sheet 9 output must exist"
+    condition: "sheet_num >= 9"
+
+  # Sheet 10: Integration tests
+  - type: file_exists
+    path: "{workspace}/10-integration-tests.md"
+    description: "Sheet 10 output must exist"
+    condition: "sheet_num >= 10"
+
+  - type: command_succeeds
+    command: "cd /home/emzi/Projects/mozart-ai-compose && pytest tests/test_observability.py -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed'"
+    description: "Observability integration tests must pass"
+    condition: "sheet_num >= 11"
+
+  # Stage 11: Review reports (fan-out)
+  - type: file_exists
+    path: "{workspace}/11-review-architecture.md"
+    description: "Architecture review must exist"
+    condition: "stage == 11 and instance == 1"
+
+  - type: file_exists
+    path: "{workspace}/11-review-security.md"
+    description: "Security review must exist"
+    condition: "stage == 11 and instance == 2"
+
+  - type: file_exists
+    path: "{workspace}/11-review-error-handling.md"
+    description: "Error handling review must exist"
+    condition: "stage == 11 and instance == 3"
+
+  # Sheet 12: Commit
+  - type: file_exists
+    path: "{workspace}/12-commit.md"
+    description: "Commit report must exist"
+    condition: "sheet_num >= 12"
+
+  - type: command_succeeds
+    command: "cd /home/emzi/Projects/mozart-ai-compose && pytest -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed'"
+    description: "Full test suite must pass"
+    condition: "sheet_num >= 12"
+
+  - type: command_succeeds
+    command: "cd /home/emzi/Projects/mozart-ai-compose && ruff check src/ --quiet"
+    description: "Ruff linting must pass"
+    condition: "sheet_num >= 12"
+
+  - type: command_succeeds
+    command: "git -C /home/emzi/Projects/mozart-ai-compose log --oneline -1 --since='3 hours ago' 2>/dev/null | grep -qE '.' && echo 'passed'"
+    description: "Recent commit should exist"
+    condition: "sheet_num == 12"
+
+  # Sheet 13: Cleanup
+  - type: file_exists
+    path: "{workspace}/13-cleanup.md"
+    description: "Cleanup report must exist"
+    condition: "sheet_num >= 13"

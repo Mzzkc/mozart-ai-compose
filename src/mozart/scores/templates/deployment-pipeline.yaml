@@ -1,0 +1,187 @@
+# Deployment Pipeline Template
+# For CI/CD workflows and production deployment processes
+
+name: deployment-pipeline
+workspace: ./workspace
+
+backend:
+  type: claude_cli
+  model: sonnet  # Good for deployment planning
+
+sheet:
+  total_sheets: 5
+  timeout_seconds: 1200  # 20 minutes for deployment tasks
+
+  dependencies:
+    2: [1]  # Build after prep
+    3: [2]  # Test after build
+    4: [3]  # Stage after test
+    5: [4]  # Deploy after staging
+
+  template: |
+    You are executing a deployment pipeline for: {{ application_name }}
+
+    Environment: {{ target_environment | default('production') }}
+    Version: {{ version | default('latest') }}
+
+    {% if sheet_num == 1 %}
+    ## PHASE 1: PRE-DEPLOYMENT PREPARATION
+    Your task: Prepare for deployment and validate prerequisites
+
+    Application: {{ application_name }}
+    Target environment: {{ target_environment | default('production') }}
+
+    Please:
+    1. Validate source code readiness
+    2. Check environment prerequisites
+    3. Backup current version (if applicable)
+    4. Verify configuration files
+    5. Create deployment checklist
+    6. Document preparation in prep.md
+
+    Pre-deployment checks:
+    - Code quality gates passed
+    - Security scans clean
+    - Dependencies resolved
+    - Configuration validated
+    - Rollback plan ready
+
+    {% elif sheet_num == 2 %}
+    ## PHASE 2: BUILD & PACKAGE
+    Your task: Build application and create deployment packages
+
+    Preparation: Review {{ workspace }}/prep.md
+    Build configuration: {{ build_config | default('standard') }}
+
+    Please:
+    1. Execute build process
+    2. Run build-time tests
+    3. Create deployment artifacts
+    4. Generate build metadata
+    5. Validate package integrity
+    6. Document build in build.md
+
+    Build outputs:
+    - Compiled binaries/packages
+    - Docker images (if applicable)
+    - Configuration files
+    - Documentation
+    - Version metadata
+
+    {% elif sheet_num == 3 %}
+    ## PHASE 3: AUTOMATED TESTING
+    Your task: Run comprehensive test suite on build artifacts
+
+    Build artifacts: Review {{ workspace }}/build.md
+    Test scope: {{ test_scope | default('full regression') }}
+
+    Please:
+    1. Deploy to test environment
+    2. Execute automated test suite
+    3. Run performance benchmarks
+    4. Validate security requirements
+    5. Check compatibility
+    6. Document test results in testing.md
+
+    Test categories:
+    - Unit tests
+    - Integration tests
+    - Performance tests
+    - Security scans
+    - Smoke tests
+
+    {% elif sheet_num == 4 %}
+    ## PHASE 4: STAGING DEPLOYMENT
+    Your task: Deploy to staging environment for final validation
+
+    Test results: Review {{ workspace }}/testing.md
+    Staging environment: {{ staging_env | default('staging') }}
+
+    Please:
+    1. Deploy to staging environment
+    2. Execute staging validation tests
+    3. Perform user acceptance testing
+    4. Monitor system health
+    5. Validate rollback procedures
+    6. Document staging in staging.md
+
+    Staging validation:
+    - Functional testing
+    - Performance validation
+    - User acceptance
+    - Monitoring setup
+    - Rollback testing
+
+    {% elif sheet_num == 5 %}
+    ## PHASE 5: PRODUCTION DEPLOYMENT
+    Your task: Execute production deployment and validate success
+
+    Staging validation: Review {{ workspace }}/staging.md
+    Deployment strategy: {{ deployment_strategy | default('rolling') }}
+
+    Please:
+    1. Execute production deployment
+    2. Monitor deployment progress
+    3. Validate system health
+    4. Perform post-deployment checks
+    5. Update documentation
+    6. Create deployment report in deployment.md
+
+    Production validation:
+    - Health checks
+    - Performance monitoring
+    - Error rate validation
+    - User experience validation
+    - Rollback readiness confirmation
+
+    🚀 DEPLOYMENT COMPLETE! 🚀
+    {% endif %}
+
+validations:
+  - name: phase_documentation
+    type: file_exists
+    path: "{{ workspace }}/{{ ['prep', 'build', 'testing', 'staging', 'deployment'][sheet_num-1] }}.md"
+    description: "Deployment phase {{ sheet_num }} documented"
+
+  - name: deployment_success_check
+    type: file_regex
+    path: "{{ workspace }}/deployment.md"
+    pattern: "(success|deployed|healthy|complete)"
+    description: "Deployment success confirmed"
+    only_sheets: [5]
+
+  - name: rollback_plan
+    type: file_regex
+    path: "{{ workspace }}/prep.md"
+    pattern: "rollback"
+    description: "Rollback plan documented"
+    only_sheets: [1]
+
+notifications:
+  - type: webhook
+    url: "{{ notification_url | default('https://httpbin.org/post') }}"
+    on: [sheet_completed, failed]
+    template: |
+      🚀 Deployment Pipeline {{ application_name }}
+      Phase {{ sheet_num }}: {% if sheet_num == 1 %}Preparation{% elif sheet_num == 2 %}Build{% elif sheet_num == 3 %}Testing{% elif sheet_num == 4 %}Staging{% elif sheet_num == 5 %}Production{% endif %}
+      Status: {{ status }} {% if status == "completed" %}✅{% else %}❌{% endif %}
+
+  - type: webhook
+    url: "{{ critical_notification_url | default('https://httpbin.org/post') }}"
+    on: [completed]
+    only_sheets: [5]
+    template: |
+      🎉 PRODUCTION DEPLOYMENT COMPLETE! 🎉
+
+      Application: {{ application_name }}
+      Version: {{ version | default('latest') }}
+      Environment: {{ target_environment | default('production') }}
+
+      All phases completed successfully:
+      ✅ Preparation
+      ✅ Build & Package
+      ✅ Automated Testing
+      ✅ Staging Validation
+      ✅ Production Deployment
+
+      Deployment report: {{ workspace }}/deployment.md

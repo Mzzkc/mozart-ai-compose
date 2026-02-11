@@ -1,0 +1,54 @@
+<!-- Footer -->
+<footer class="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
+    <div class="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8">
+        <div class="flex justify-between items-center">
+            <!-- Left side - Version and status info -->
+            <div class="flex items-center space-x-4 text-sm text-gray-500 dark:text-gray-400">
+                <span>Mozart Dashboard v0.1.0</span>
+                <span class="hidden sm:inline">•</span>
+                <span class="hidden sm:inline" x-text="`${jobCount} active job${jobCount !== 1 ? 's' : ''}`"></span>
+                <span class="hidden md:inline">•</span>
+                <span class="hidden md:inline" x-text="`Last updated: ${lastUpdate}`"></span>
+            </div>
+
+            <!-- Right side - Links and actions -->
+            <div class="flex items-center space-x-4">
+                <!-- Health Status -->
+                <div class="flex items-center space-x-1">
+                    <div class="h-2 w-2 rounded-full bg-green-400"></div>
+                    <span class="text-sm text-gray-500 dark:text-gray-400">Healthy</span>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="hidden sm:flex items-center space-x-2">
+                    <!-- Refresh Button -->
+                    <button @click="refreshData()"
+                            class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                            :class="{ 'animate-spin': isRefreshing }"
+                            title="Refresh data">
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0V9a8 8 0 1115.356 2.476M15.582 9V4h-5"/>
+                        </svg>
+                    </button>
+
+                    <!-- API Status -->
+                    <button @click="showApiStatus()"
+                            class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                            title="API status">
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Extended footer info (mobile-responsive) -->
+        <div class="mt-2 sm:hidden">
+            <div class="text-xs text-gray-400 space-y-1">
+                <div x-text="`${jobCount} active job${jobCount !== 1 ? 's' : ''}`"></div>
+                <div x-text="`Last updated: ${lastUpdate}`"></div>
+            </div>
+        </div>
+    </div>
+</footer>

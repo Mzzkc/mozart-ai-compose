@@ -1,0 +1,90 @@
+# Example: Worktree Isolation Configuration
+#
+# This example demonstrates how to enable worktree isolation for parallel-safe
+# Mozart jobs. When enabled, each job runs in an isolated git worktree, allowing
+# multiple jobs to modify code simultaneously without interference.
+#
+# Key benefits:
+# - True parallel execution: Multiple jobs can edit files without conflicts
+# - Clean validation: Each job's changes are isolated from others
+# - Fast isolation: ~24ms overhead per worktree (negligible vs API latency)
+# - Storage efficient: Git objects are shared between worktrees
+#
+# Use worktree isolation when:
+# - Running multiple code-modifying jobs in parallel
+# - Needing clean commit validation without other jobs' changes
+# - CI/CD environments where multiple agents work on the same repo
+
+name: parallel-safe-code-review
+description: Code review with worktree isolation for parallel safety
+workspace: ./review-workspace
+working_directory: /path/to/your/repo  # Must be a git repository
+
+backend:
+  type: claude_cli
+  timeout_seconds: 300
+  # working_directory will be automatically overridden to worktree path
+
+# Worktree isolation configuration
+isolation:
+  # Enable/disable isolation (default: false)
+  enabled: true
+
+  # Isolation mode - currently only 'worktree' is supported
+  mode: worktree
+
+  # Directory where worktrees are created (default: <workspace>/.worktrees)
+  # worktree_base: .worktrees
+
+  # Branch to base worktree on (default: current HEAD)
+  # source_branch: main
+
+  # Remove worktree after successful completion (default: true)
+  # Set to false to inspect successful job's changes
+  cleanup_on_success: true
+
+  # Remove worktree when job fails (default: false)
+  # Keep false to preserve failed state for debugging
+  cleanup_on_failure: false
+
+  # Lock worktree during execution to prevent accidental removal (default: true)
+  lock_during_execution: true
+
+  # If worktree creation fails, continue without isolation (default: true)
+  # Set to false for strict mode where isolation is required
+  fallback_on_error: true
+
+prompt:
+  template: |
+    Review the code in the current working directory.
+    Focus on:
+    - Code quality issues
+    - Potential bugs
+    - Security concerns
+
+    Create a review report at review-{sheet_num}.md
+
+sheet:
+  total_items: 10
+  size: 5
+
+validations:
+  - type: file_exists
+    path: "{workspace}/review-{sheet_num}.md"
+    description: "Review report generated"
+
+# How worktree isolation works:
+#
+# 1. At job start, Mozart creates a git worktree in detached HEAD mode:
+#    git worktree add --detach <workspace>/.worktrees/<job-id> [<source_branch>]
+#
+# 2. The backend's working_directory is set to the worktree path
+#
+# 3. All sheet executions happen within the isolated worktree
+#
+# 4. On completion:
+#    - Success + cleanup_on_success: worktree removed
+#    - Failure + !cleanup_on_failure: worktree preserved for debugging
+#    - Paused/interrupted: worktree preserved for resume
+#
+# 5. On resume, existing worktree is reused if it still exists

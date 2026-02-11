@@ -1,0 +1,587 @@
+<!-- Artifact Tree Browser Component -->
+<!-- This component displays job artifacts in a hierarchical tree structure with file preview -->
+<div class="bg-white dark:bg-gray-800 shadow rounded-lg">
+    <div class="px-4 py-5 sm:p-6">
+        <!-- Artifact Tree Header -->
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg leading-6 font-medium text-gray-900 dark:text-white">
+                Job Artifacts
+            </h3>
+            <div class="flex items-center space-x-3">
+                <!-- View Mode Toggle -->
+                <div x-data="{ view: 'tree' }" class="flex rounded-md shadow-sm">
+                    <button @click="view = 'tree'; setViewMode('tree')"
+                            :class="view === 'tree' ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300'"
+                            class="relative inline-flex items-center px-3 py-2 rounded-l-md border border-gray-300 dark:border-gray-600 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600 focus:z-10 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors">
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2-2z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5a2 2 0 012-2h2a2 2 0 012 2v2H8V5z"/>
+                        </svg>
+                        <span class="ml-1">Tree</span>
+                    </button>
+                    <button @click="view = 'list'; setViewMode('list')"
+                            :class="view === 'list' ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300'"
+                            class="relative -ml-px inline-flex items-center px-3 py-2 rounded-r-md border border-gray-300 dark:border-gray-600 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600 focus:z-10 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors">
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/>
+                        </svg>
+                        <span class="ml-1">List</span>
+                    </button>
+                </div>
+
+                <!-- Refresh Button -->
+                <button @click="refreshArtifacts()"
+                        class="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors">
+                    <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    Refresh
+                </button>
+
+                <!-- Download All Button -->
+                <button @click="downloadAllArtifacts()"
+                        class="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors">
+                    <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-4-4m4 4l4-4m-6 4h8a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                    </svg>
+                    Download All
+                </button>
+            </div>
+        </div>
+
+        <!-- Search and Filter Bar -->
+        <div class="mb-4 flex flex-col sm:flex-row gap-4">
+            <!-- Search -->
+            <div class="flex-1">
+                <div class="relative">
+                    <input x-model="searchQuery"
+                           @input="filterArtifacts()"
+                           type="text"
+                           placeholder="Search artifacts..."
+                           class="block w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md leading-5 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <svg class="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <!-- File Type Filter -->
+            <div class="sm:w-48">
+                <select x-model="fileTypeFilter"
+                        @change="filterArtifacts()"
+                        class="block w-full pl-3 pr-10 py-2 text-sm border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                    <option value="all">All Types</option>
+                    <option value="markdown">Markdown (.md)</option>
+                    <option value="text">Text (.txt)</option>
+                    <option value="json">JSON (.json)</option>
+                    <option value="yaml">YAML (.yaml/.yml)</option>
+                    <option value="log">Logs (.log)</option>
+                    <option value="image">Images</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Artifact Container -->
+        <div class="relative">
+            <div x-data="artifactTree"
+                 x-init="init()"
+                 class="border border-gray-200 dark:border-gray-700 rounded-lg">
+
+                <!-- Empty State -->
+                <div x-show="filteredArtifacts.length === 0"
+                     class="flex items-center justify-center h-64 text-gray-500 dark:text-gray-400">
+                    <div class="text-center">
+                        <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                        </svg>
+                        <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">No artifacts found</h3>
+                        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Artifacts will appear here as the job executes.</p>
+                    </div>
+                </div>
+
+                <!-- Tree View -->
+                <div x-show="viewMode === 'tree' && filteredArtifacts.length > 0"
+                     class="p-4">
+                    <div class="space-y-1">
+                        <template x-for="(node, index) in artifactTree" :key="node.path">
+                            <div>
+                                <!-- Folder Node -->
+                                <div x-show="node.type === 'folder'"
+                                     class="flex items-center py-1 hover:bg-gray-50 dark:hover:bg-gray-700 rounded cursor-pointer"
+                                     @click="toggleFolder(node.path)">
+                                    <div class="flex items-center text-sm">
+                                        <!-- Expand/Collapse Icon -->
+                                        <svg x-show="!expandedFolders.includes(node.path)"
+                                             class="h-4 w-4 text-gray-400 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                                        </svg>
+                                        <svg x-show="expandedFolders.includes(node.path)"
+                                             class="h-4 w-4 text-gray-400 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                                        </svg>
+
+                                        <!-- Folder Icon -->
+                                        <svg class="h-4 w-4 text-blue-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                            <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/>
+                                        </svg>
+                                        <span class="text-gray-700 dark:text-gray-300" x-text="node.name"></span>
+                                        <span class="ml-2 text-xs text-gray-500" x-text="`(${node.children?.length || 0} items)`"></span>
+                                    </div>
+                                </div>
+
+                                <!-- File Node -->
+                                <div x-show="node.type === 'file'"
+                                     class="flex items-center justify-between py-2 px-2 hover:bg-gray-50 dark:hover:bg-gray-700 rounded group">
+                                    <div class="flex items-center min-w-0 flex-1">
+                                        <!-- File Icon -->
+                                        <div class="flex-shrink-0 mr-3">
+                                            <svg x-show="getFileIcon(node.name) === 'markdown'"
+                                                 class="h-5 w-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                                                <path d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z"/>
+                                            </svg>
+                                            <svg x-show="getFileIcon(node.name) === 'text'"
+                                                 class="h-5 w-5 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd"/>
+                                            </svg>
+                                            <svg x-show="getFileIcon(node.name) === 'json'"
+                                                 class="h-5 w-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                                                <path d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z"/>
+                                            </svg>
+                                            <svg x-show="getFileIcon(node.name) === 'yaml'"
+                                                 class="h-5 w-5 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
+                                                <path d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z"/>
+                                            </svg>
+                                            <svg x-show="!['markdown', 'text', 'json', 'yaml'].includes(getFileIcon(node.name))"
+                                                 class="h-5 w-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd"/>
+                                            </svg>
+                                        </div>
+
+                                        <!-- File Details -->
+                                        <div class="min-w-0 flex-1">
+                                            <button @click="previewFile(node)"
+                                                    class="text-sm font-medium text-gray-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 truncate block text-left">
+                                                <span x-text="node.name"></span>
+                                            </button>
+                                            <p class="text-xs text-gray-500 dark:text-gray-400">
+                                                <span x-text="formatFileSize(node.size)"></span>
+                                                • Modified <span x-text="formatRelativeTime(node.modified)"></span>
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <!-- Action Buttons -->
+                                    <div class="flex items-center opacity-0 group-hover:opacity-100 transition-opacity space-x-2">
+                                        <button @click="previewFile(node)"
+                                                class="text-gray-400 hover:text-indigo-600 p-1"
+                                                title="Preview">
+                                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                            </svg>
+                                        </button>
+                                        <button @click="downloadFile(node)"
+                                                class="text-gray-400 hover:text-green-600 p-1"
+                                                title="Download">
+                                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-4-4m4 4l4-4m-6 4h8a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- List View -->
+                <div x-show="viewMode === 'list' && filteredArtifacts.length > 0"
+                     class="divide-y divide-gray-200 dark:divide-gray-700">
+                    <template x-for="file in filteredArtifacts" :key="file.path">
+                        <div class="p-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors group">
+                            <div class="flex items-center min-w-0 flex-1">
+                                <!-- File Icon -->
+                                <div class="flex-shrink-0 mr-4">
+                                    <div class="h-10 w-10 rounded-lg flex items-center justify-center"
+                                         :class="{
+                                             'bg-blue-100 dark:bg-blue-900': getFileIcon(file.name) === 'markdown',
+                                             'bg-gray-100 dark:bg-gray-800': getFileIcon(file.name) === 'text',
+                                             'bg-green-100 dark:bg-green-900': getFileIcon(file.name) === 'json',
+                                             'bg-purple-100 dark:bg-purple-900': getFileIcon(file.name) === 'yaml',
+                                             'bg-yellow-100 dark:bg-yellow-900': getFileIcon(file.name) === 'log'
+                                         }">
+                                        <svg class="h-5 w-5"
+                                             :class="{
+                                                 'text-blue-600': getFileIcon(file.name) === 'markdown',
+                                                 'text-gray-600': getFileIcon(file.name) === 'text',
+                                                 'text-green-600': getFileIcon(file.name) === 'json',
+                                                 'text-purple-600': getFileIcon(file.name) === 'yaml',
+                                                 'text-yellow-600': getFileIcon(file.name) === 'log',
+                                                 'text-gray-400': !['markdown', 'text', 'json', 'yaml', 'log'].includes(getFileIcon(file.name))
+                                             }"
+                                             fill="currentColor" viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd"/>
+                                        </svg>
+                                    </div>
+                                </div>
+
+                                <!-- File Info -->
+                                <div class="min-w-0 flex-1">
+                                    <button @click="previewFile(file)"
+                                            class="text-sm font-medium text-gray-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 truncate block text-left">
+                                        <span x-text="file.name"></span>
+                                    </button>
+                                    <p class="text-sm text-gray-500 dark:text-gray-400 truncate" x-text="file.path"></p>
+                                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                        <span x-text="formatFileSize(file.size)"></span>
+                                        • Modified <span x-text="formatRelativeTime(file.modified)"></span>
+                                    </p>
+                                </div>
+                            </div>
+
+                            <!-- Action Buttons -->
+                            <div class="flex items-center opacity-0 group-hover:opacity-100 transition-opacity space-x-3">
+                                <button @click="previewFile(file)"
+                                        class="inline-flex items-center px-3 py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-xs font-medium rounded text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
+                                    <svg class="-ml-0.5 mr-1.5 h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                    </svg>
+                                    Preview
+                                </button>
+                                <button @click="downloadFile(file)"
+                                        class="inline-flex items-center px-3 py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-xs font-medium rounded text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
+                                    <svg class="-ml-0.5 mr-1.5 h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-4-4m4 4l4-4"/>
+                                    </svg>
+                                    Download
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Artifacts Statistics -->
+            <div class="mt-4 flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
+                <div>
+                    Showing <span x-text="filteredArtifacts.length"></span> of <span x-text="artifacts.length"></span> artifacts
+                    (<span x-text="formatFileSize(totalSize)"></span> total)
+                </div>
+                <div class="text-xs">
+                    Last updated: <span x-text="new Date().toLocaleTimeString()"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Artifact Tree Alpine.js Component
+document.addEventListener('alpine:init', () => {
+    Alpine.data('artifactTree', () => ({
+        artifacts: [],
+        filteredArtifacts: [],
+        artifactTree: [],
+        searchQuery: '',
+        fileTypeFilter: 'all',
+        viewMode: 'tree',
+        expandedFolders: [],
+        totalSize: 0,
+
+        init() {
+            this.loadArtifacts();
+            this.expandedFolders = ['workspace']; // Default expand workspace folder
+        },
+
+        loadArtifacts() {
+            // In production, this would fetch from /api/jobs/{job_id}/artifacts
+            // Sample artifact data
+            const sampleArtifacts = [
+                {
+                    name: 'sheet1-result.md',
+                    path: 'workspace/sheet1-result.md',
+                    size: 2048,
+                    modified: new Date(Date.now() - 3600000).toISOString(),
+                    type: 'file'
+                },
+                {
+                    name: 'sheet2-result.md',
+                    path: 'workspace/sheet2-result.md',
+                    size: 1536,
+                    modified: new Date(Date.now() - 1800000).toISOString(),
+                    type: 'file'
+                },
+                {
+                    name: 'job-config.yaml',
+                    path: 'workspace/job-config.yaml',
+                    size: 512,
+                    modified: new Date(Date.now() - 7200000).toISOString(),
+                    type: 'file'
+                },
+                {
+                    name: 'execution.log',
+                    path: 'workspace/execution.log',
+                    size: 8192,
+                    modified: new Date(Date.now() - 300000).toISOString(),
+                    type: 'file'
+                },
+                {
+                    name: 'state.json',
+                    path: 'workspace/.mozart-state.db',
+                    size: 4096,
+                    modified: new Date(Date.now() - 300000).toISOString(),
+                    type: 'file'
+                }
+            ];
+
+            this.artifacts = sampleArtifacts;
+            this.calculateTotalSize();
+            this.buildArtifactTree();
+            this.filterArtifacts();
+        },
+
+        buildArtifactTree() {
+            const tree = {};
+
+            this.artifacts.forEach(artifact => {
+                const pathParts = artifact.path.split('/');
+                let current = tree;
+
+                // Build the tree structure
+                for (let i = 0; i < pathParts.length - 1; i++) {
+                    const folder = pathParts[i];
+                    if (!current[folder]) {
+                        current[folder] = {
+                            type: 'folder',
+                            name: folder,
+                            path: pathParts.slice(0, i + 1).join('/'),
+                            children: {},
+                            files: []
+                        };
+                    }
+                    current = current[folder].children;
+                }
+
+                // Add the file
+                const fileName = pathParts[pathParts.length - 1];
+                if (!current[fileName]) {
+                    current[fileName] = {
+                        ...artifact,
+                        type: 'file'
+                    };
+                }
+            });
+
+            this.artifactTree = this.flattenTree(tree);
+        },
+
+        flattenTree(tree, level = 0) {
+            const flattened = [];
+
+            Object.values(tree).forEach(node => {
+                if (node.type === 'folder') {
+                    flattened.push({
+                        ...node,
+                        level,
+                        children: Object.keys(node.children).length + node.files?.length || 0
+                    });
+
+                    if (this.expandedFolders.includes(node.path)) {
+                        flattened.push(...this.flattenTree(node.children, level + 1));
+                    }
+                } else {
+                    flattened.push({
+                        ...node,
+                        level
+                    });
+                }
+            });
+
+            return flattened;
+        },
+
+        setViewMode(mode) {
+            this.viewMode = mode;
+        },
+
+        toggleFolder(folderPath) {
+            const index = this.expandedFolders.indexOf(folderPath);
+            if (index > -1) {
+                this.expandedFolders.splice(index, 1);
+            } else {
+                this.expandedFolders.push(folderPath);
+            }
+            this.buildArtifactTree();
+        },
+
+        filterArtifacts() {
+            let filtered = [...this.artifacts];
+
+            // Filter by search query
+            if (this.searchQuery.trim()) {
+                const query = this.searchQuery.toLowerCase();
+                filtered = filtered.filter(artifact =>
+                    artifact.name.toLowerCase().includes(query) ||
+                    artifact.path.toLowerCase().includes(query)
+                );
+            }
+
+            // Filter by file type
+            if (this.fileTypeFilter !== 'all') {
+                filtered = filtered.filter(artifact => {
+                    const ext = artifact.name.split('.').pop()?.toLowerCase();
+                    switch (this.fileTypeFilter) {
+                        case 'markdown': return ext === 'md';
+                        case 'text': return ext === 'txt';
+                        case 'json': return ext === 'json';
+                        case 'yaml': return ['yaml', 'yml'].includes(ext);
+                        case 'log': return ext === 'log';
+                        case 'image': return ['png', 'jpg', 'jpeg', 'gif', 'svg'].includes(ext);
+                        default: return true;
+                    }
+                });
+            }
+
+            this.filteredArtifacts = filtered;
+        },
+
+        calculateTotalSize() {
+            this.totalSize = this.artifacts.reduce((sum, artifact) => sum + artifact.size, 0);
+        },
+
+        getFileIcon(filename) {
+            const ext = filename.split('.').pop()?.toLowerCase();
+            switch (ext) {
+                case 'md': return 'markdown';
+                case 'txt': return 'text';
+                case 'json': return 'json';
+                case 'yaml':
+                case 'yml': return 'yaml';
+                case 'log': return 'log';
+                case 'png':
+                case 'jpg':
+                case 'jpeg':
+                case 'gif':
+                case 'svg': return 'image';
+                default: return 'file';
+            }
+        },
+
+        formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        },
+
+        formatRelativeTime(timestamp) {
+            const now = new Date();
+            const then = new Date(timestamp);
+            const diffMs = now - then;
+            const diffHrs = Math.floor(diffMs / 3600000);
+            const diffMins = Math.floor((diffMs % 3600000) / 60000);
+
+            if (diffHrs > 0) {
+                return `${diffHrs}h ago`;
+            } else if (diffMins > 0) {
+                return `${diffMins}m ago`;
+            } else {
+                return 'Just now';
+            }
+        },
+
+        previewFile(file) {
+            // Open file preview modal using safe DOM methods
+            if (window.app && window.app.openModal) {
+                window.app.openModal({
+                    title: `Preview: ${file.name}`,
+                    size: '4xl',
+                    htmxTarget: true
+                });
+
+                // Load file content via HTMX using safe methods
+                const modalContent = document.getElementById('modal-htmx-content');
+                if (modalContent) {
+                    // Clear existing content
+                    modalContent.textContent = '';
+
+                    // Create loading div safely
+                    const loadingDiv = document.createElement('div');
+                    loadingDiv.setAttribute('hx-get', `/api/artifacts/${encodeURIComponent(file.path)}/preview`);
+                    loadingDiv.setAttribute('hx-trigger', 'load');
+                    loadingDiv.setAttribute('hx-swap', 'innerHTML');
+
+                    const loadingContent = document.createElement('div');
+                    loadingContent.className = 'flex items-center justify-center p-8';
+
+                    const spinner = document.createElement('div');
+                    spinner.className = 'animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600';
+
+                    const loadingText = document.createElement('span');
+                    loadingText.className = 'ml-3 text-gray-600 dark:text-gray-400';
+                    loadingText.textContent = 'Loading preview...';
+
+                    loadingContent.appendChild(spinner);
+                    loadingContent.appendChild(loadingText);
+                    loadingDiv.appendChild(loadingContent);
+                    modalContent.appendChild(loadingDiv);
+
+                    htmx.process(modalContent);
+                }
+            }
+        },
+
+        downloadFile(file) {
+            // Create download link
+            const link = document.createElement('a');
+            link.href = `/api/artifacts/${encodeURIComponent(file.path)}/download`;
+            link.download = file.name;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            if (window.app && window.app.addNotification) {
+                window.app.addNotification({
+                    type: 'success',
+                    title: 'Download Started',
+                    message: `Downloading ${file.name}`
+                });
+            }
+        },
+
+        downloadAllArtifacts() {
+            if (confirm('Download all artifacts as a zip file?')) {
+                const link = document.createElement('a');
+                link.href = '/api/artifacts/download-all';
+                link.download = `job-artifacts-${Date.now()}.zip`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+
+                if (window.app && window.app.addNotification) {
+                    window.app.addNotification({
+                        type: 'success',
+                        title: 'Download Started',
+                        message: 'Downloading all artifacts as ZIP'
+                    });
+                }
+            }
+        },
+
+        refreshArtifacts() {
+            this.loadArtifacts();
+            if (window.app && window.app.addNotification) {
+                window.app.addNotification({
+                    type: 'info',
+                    title: 'Refreshed',
+                    message: 'Artifact list updated'
+                });
+            }
+        }
+    }));
+});
+</script>

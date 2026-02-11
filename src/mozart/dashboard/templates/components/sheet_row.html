@@ -1,0 +1,126 @@
+<!-- Sheet Row Component -->
+<!-- Usage: {% include 'components/sheet_row.html' %} with context vars: sheet, job_id -->
+<div class="job-sheet-row py-4" x-data="{ expanded: false }">
+    <!-- Sheet Header -->
+    <div class="flex items-center justify-between">
+        <!-- Sheet Info -->
+        <div class="flex items-center min-w-0 flex-1">
+            <!-- Sheet Number Badge -->
+            <div class="flex-shrink-0">
+                <div class="inline-flex items-center justify-center w-10 h-10 rounded-full text-sm font-semibold
+                    {% if sheet.status == 'completed' %}
+                        bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200
+                    {% elif sheet.status == 'running' %}
+                        bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200
+                    {% elif sheet.status == 'failed' %}
+                        bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200
+                    {% else %}
+                        bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200
+                    {% endif %}">
+                    {{ sheet.sheet_num }}
+                </div>
+            </div>
+
+            <!-- Sheet Status and Info -->
+            <div class="ml-4 min-w-0 flex-1">
+                <div class="flex items-center">
+                    {% set status = sheet.status %}
+                    {% set size = 'default' %}
+                    {% include 'components/status_badge.html' %}
+
+                    <!-- Attempt Count Badge -->
+                    {% if sheet.attempt_count > 1 %}
+                        <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">
+                            Attempt {{ sheet.attempt_count }}
+                        </span>
+                    {% endif %}
+
+                    <!-- Validation Badge -->
+                    {% if sheet.validation_passed is not none %}
+                        {% set validation_passed = sheet.validation_passed %}
+                        {% set size = 'sm' %}
+                        {% include 'components/validation_badge.html' %}
+                    {% endif %}
+                </div>
+
+                <!-- Sheet Title -->
+                <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                    Sheet {{ sheet.sheet_num }}
+                    {% if sheet.status == 'running' %}
+                        - Currently executing...
+                    {% elif sheet.status == 'completed' %}
+                        - Execution complete
+                    {% elif sheet.status == 'failed' %}
+                        - Execution failed
+                    {% elif sheet.status == 'pending' %}
+                        - Waiting to execute
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+
+        <!-- Sheet Actions -->
+        <div class="ml-4 flex-shrink-0 flex items-center space-x-2">
+            <!-- Expand/Collapse Button -->
+            <button @click="expanded = !expanded"
+                    class="inline-flex items-center p-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm leading-4 font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors">
+                <span x-text="expanded ? 'Less' : 'Details'" class="mr-1"></span>
+                <svg class="h-4 w-4 transition-transform duration-200"
+                     :class="expanded ? 'rotate-180' : ''"
+                     fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Expandable Details Section -->
+    <div x-show="expanded"
+         x-transition:enter="transition ease-out duration-300"
+         x-transition:enter-start="opacity-0 transform -translate-y-2"
+         x-transition:enter-end="opacity-100 transform translate-y-0"
+         x-transition:leave="transition ease-in duration-200"
+         x-transition:leave-start="opacity-100 transform translate-y-0"
+         x-transition:leave-end="opacity-0 transform -translate-y-2"
+         class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600">
+
+        <!-- Sheet Metadata Grid -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4 text-sm">
+            <div>
+                <dt class="text-gray-500 dark:text-gray-400">Status</dt>
+                <dd class="font-medium text-gray-900 dark:text-white capitalize">{{ sheet.status }}</dd>
+            </div>
+            <div>
+                <dt class="text-gray-500 dark:text-gray-400">Attempts</dt>
+                <dd class="font-medium text-gray-900 dark:text-white">{{ sheet.attempt_count }}</dd>
+            </div>
+            <div>
+                <dt class="text-gray-500 dark:text-gray-400">Validation</dt>
+                <dd class="font-medium text-gray-900 dark:text-white">
+                    {% if sheet.validation_passed is none %}
+                        Not run
+                    {% elif sheet.validation_passed %}
+                        <span class="text-green-600 dark:text-green-400">Passed</span>
+                    {% else %}
+                        <span class="text-red-600 dark:text-red-400">Failed</span>
+                    {% endif %}
+                </dd>
+            </div>
+            <div>
+                <dt class="text-gray-500 dark:text-gray-400">Sheet Number</dt>
+                <dd class="font-medium text-gray-900 dark:text-white">#{{ sheet.sheet_num }}</dd>
+            </div>
+        </div>
+
+        <!-- Load detailed sheet information on demand -->
+        <div hx-get="/api/jobs/{{ job_id }}/sheets/{{ sheet.sheet_num }}"
+             hx-trigger="load"
+             hx-swap="outerHTML"
+             class="text-sm text-gray-500 dark:text-gray-400">
+            <div class="flex items-center">
+                <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400 mr-2"></div>
+                Loading detailed sheet information...
+            </div>
+        </div>
+    </div>
+</div>

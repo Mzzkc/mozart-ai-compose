@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}Score Editor - Mozart Dashboard{% endblock %}
+
+{% block extra_head %}
+<!-- CodeMirror CSS -->
+<link rel="stylesheet" href="https://unpkg.com/@codemirror/theme-one-dark@6.1.2/dist/index.css">
+<link rel="stylesheet" href="https://unpkg.com/@codemirror/theme-material-light@1.1.1/dist/index.css">
+{% endblock %}
+
+{% block content %}
+<div id="main-content" class="py-6">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <!-- Page Header -->
+        <div class="sm:flex sm:items-center sm:justify-between mb-6">
+            <div class="sm:flex-auto">
+                <h1 class="text-2xl font-semibold text-gray-900 dark:text-white">
+                    Score Editor
+                </h1>
+                <p class="mt-2 text-sm text-gray-700 dark:text-gray-300">
+                    Create and edit Mozart score configurations with real-time validation
+                </p>
+            </div>
+            <div class="mt-4 sm:mt-0 sm:ml-16 sm:flex-none space-x-2">
+                <button type="button"
+                        onclick="window.location.href='/templates'"
+                        class="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 text-sm font-medium rounded-md text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
+                    <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                    </svg>
+                    Browse Templates
+                </button>
+                <button type="button"
+                        id="save-score-btn"
+                        class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors">
+                    <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/>
+                    </svg>
+                    Save Score
+                </button>
+            </div>
+        </div>
+
+        <!-- Score Editor Component -->
+        <div class="bg-white dark:bg-gray-900 shadow rounded-lg">
+            {% include "components/score_editor.html" %}
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Load template if specified in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const templateName = urlParams.get('template');
+
+    if (templateName) {
+        // Load template from API
+        fetch(`/api/templates/${templateName}`)
+            .then(response => response.json())
+            .then(template => {
+                // Use the score editor's template loading function
+                if (window.scoreEditorInstance && window.scoreEditorInstance.loadTemplateContent) {
+                    window.scoreEditorInstance.loadTemplateContent(template.content, template.title);
+                }
+            })
+            .catch(error => {
+                console.error('Failed to load template:', error);
+                // Show error notification
+                if (window.showNotification) {
+                    window.showNotification('Failed to load template', 'error');
+                }
+            });
+    }
+
+    // Check if we have a template to load from session storage (from template browser)
+    const storedTemplate = sessionStorage.getItem('templateToLoad');
+    if (storedTemplate) {
+        try {
+            const template = JSON.parse(storedTemplate);
+            if (window.scoreEditorInstance && window.scoreEditorInstance.loadTemplateContent) {
+                window.scoreEditorInstance.loadTemplateContent(template.content, template.title);
+            }
+            // Clear from session storage
+            sessionStorage.removeItem('templateToLoad');
+        } catch (error) {
+            console.error('Failed to load stored template:', error);
+        }
+    }
+});
+</script>
+{% endblock %}

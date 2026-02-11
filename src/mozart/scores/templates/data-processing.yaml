@@ -1,0 +1,125 @@
+# Data Processing Pipeline Template
+# For ETL workflows, data analysis, and processing tasks
+
+name: data-processing-pipeline
+workspace: ./workspace
+
+backend:
+  type: claude_cli
+  model: sonnet  # Good for data analysis reasoning
+
+sheet:
+  total_sheets: 4
+  timeout_seconds: 1200  # 20 minutes for data processing
+
+  dependencies:
+    2: [1]  # Extract before Transform
+    3: [2]  # Transform before Load
+    4: [3]  # Load before Validate
+
+  template: |
+    You are working on a data processing pipeline: {{ pipeline_name }}
+
+    Data source: {{ data_source }}
+    Target: {{ target_system | default('local files') }}
+
+    {% if sheet_num == 1 %}
+    ## PHASE 1: DATA EXTRACTION
+    Your task: Extract and validate source data
+
+    Source: {{ data_source }}
+    Format: {{ source_format | default('auto-detect') }}
+
+    Please:
+    1. Connect to and examine the data source
+    2. Understand the data structure and schema
+    3. Extract a sample for analysis
+    4. Document data quality issues
+    5. Save extraction results and metadata in extract.md
+
+    Create data quality report including:
+    - Record counts
+    - Missing values
+    - Data types
+    - Anomalies
+
+    {% elif sheet_num == 2 %}
+    ## PHASE 2: DATA TRANSFORMATION
+    Your task: Clean and transform the extracted data
+
+    Source data: Review {{ workspace }}/extract.md
+    Transformation rules: {{ transform_rules | default('standard cleaning') }}
+
+    Please:
+    1. Review extraction results
+    2. Apply data cleaning rules
+    3. Perform required transformations
+    4. Handle missing/invalid data
+    5. Document transformation logic in transform.md
+
+    Include:
+    - Cleaning steps taken
+    - Transformation rules applied
+    - Data validation results
+    - Quality metrics
+
+    {% elif sheet_num == 3 %}
+    ## PHASE 3: DATA LOADING
+    Your task: Load transformed data to target destination
+
+    Transformed data: Review {{ workspace }}/transform.md
+    Target: {{ target_system | default('local files') }}
+
+    Please:
+    1. Prepare target system/location
+    2. Load transformed data
+    3. Verify load success
+    4. Create data catalog/documentation
+    5. Document load process in load.md
+
+    Include:
+    - Load statistics
+    - Performance metrics
+    - Error handling
+    - Data location/access info
+
+    {% elif sheet_num == 4 %}
+    ## PHASE 4: VALIDATION & REPORTING
+    Your task: Validate the complete pipeline and create final report
+
+    Previous work: Review all phase documents
+
+    Please:
+    1. End-to-end validation of the pipeline
+    2. Compare source vs. target data quality
+    3. Performance analysis
+    4. Create executive summary
+    5. Document final results in validation.md
+
+    Final report should include:
+    - Pipeline success metrics
+    - Data quality assessment
+    - Performance statistics
+    - Recommendations for production use
+    {% endif %}
+
+validations:
+  - name: phase_documentation
+    type: file_exists
+    path: "{{ workspace }}/{{ ['extract', 'transform', 'load', 'validation'][sheet_num-1] }}.md"
+    description: "Data processing phase {{ sheet_num }} documented"
+
+  - name: data_quality_check
+    type: file_regex
+    path: "{{ workspace }}/{{ ['extract', 'transform', 'load', 'validation'][sheet_num-1] }}.md"
+    pattern: "quality|records|validation"
+    description: "Data quality metrics included"
+
+notifications:
+  - type: webhook
+    url: "{{ notification_url | default('https://httpbin.org/post') }}"
+    on: [sheet_completed, failed]
+    template: |
+      Data Pipeline {{ pipeline_name }} - Phase {{ sheet_num }} {{ status }}
+      {% if status == "completed" %}✅{% else %}❌{% endif %}
+      {% if sheet_num == 4 %}🎯 Pipeline complete! Check {{ workspace }}/validation.md{% endif %}

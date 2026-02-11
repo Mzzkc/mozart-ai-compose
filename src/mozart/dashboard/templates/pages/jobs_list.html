@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+
+{% block title %}Jobs - Mozart Dashboard{% endblock %}
+
+{% block content %}
+<div id="main-content" class="py-6">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <!-- Page Header -->
+        <div class="sm:flex sm:items-center sm:justify-between mb-6">
+            <div class="sm:flex-auto">
+                <h1 class="text-2xl font-semibold text-gray-900 dark:text-white">
+                    Jobs
+                </h1>
+                <p class="mt-2 text-sm text-gray-700 dark:text-gray-300">
+                    Monitor and manage your Mozart orchestration jobs
+                </p>
+            </div>
+            <div class="mt-4 sm:mt-0 sm:ml-16 sm:flex-none">
+                <button type="button"
+                        class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
+                        @click="openNewJobModal()">
+                    <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                    </svg>
+                    New Job
+                </button>
+            </div>
+        </div>
+
+        <!-- Status Filter Tabs -->
+        <div class="mb-6">
+            <div class="sm:hidden">
+                <label for="status-filter" class="sr-only">Choose a status</label>
+                <select id="status-filter"
+                        name="status-filter"
+                        class="block w-full rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500"
+                        hx-get="/jobs/list"
+                        hx-target="#jobs-list"
+                        hx-include="this"
+                        hx-trigger="change">
+                    <option value="">All Jobs</option>
+                    <option value="running">Running</option>
+                    <option value="completed">Completed</option>
+                    <option value="failed">Failed</option>
+                    <option value="paused">Paused</option>
+                </select>
+            </div>
+            <div class="hidden sm:block">
+                <div class="border-b border-gray-200 dark:border-gray-700">
+                    <nav class="-mb-px flex space-x-8">
+                        <button class="status-tab border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm transition-colors active"
+                                data-status=""
+                                hx-get="/jobs/list"
+                                hx-target="#jobs-list"
+                                hx-vals='{"status": ""}'
+                                hx-trigger="click">
+                            All Jobs
+                        </button>
+                        <button class="status-tab border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm transition-colors"
+                                data-status="running"
+                                hx-get="/jobs/list"
+                                hx-target="#jobs-list"
+                                hx-vals='{"status": "running"}'
+                                hx-trigger="click">
+                            Running
+                        </button>
+                        <button class="status-tab border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm transition-colors"
+                                data-status="completed"
+                                hx-get="/jobs/list"
+                                hx-target="#jobs-list"
+                                hx-vals='{"status": "completed"}'
+                                hx-trigger="click">
+                            Completed
+                        </button>
+                        <button class="status-tab border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm transition-colors"
+                                data-status="failed"
+                                hx-get="/jobs/list"
+                                hx-target="#jobs-list"
+                                hx-vals='{"status": "failed"}'
+                                hx-trigger="click">
+                            Failed
+                        </button>
+                        <button class="status-tab border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm transition-colors"
+                                data-status="paused"
+                                hx-get="/jobs/list"
+                                hx-target="#jobs-list"
+                                hx-vals='{"status": "paused"}'
+                                hx-trigger="click">
+                            Paused
+                        </button>
+                    </nav>
+                </div>
+            </div>
+        </div>
+
+        <!-- Jobs List with Auto-refresh -->
+        <div id="jobs-list"
+             hx-get="/jobs/list"
+             hx-trigger="load, every 30s"
+             hx-indicator="#loading-indicator"
+             class="space-y-4">
+            <!-- Initial loading state -->
+            <div class="text-center py-8">
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500 mx-auto"></div>
+                <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">Loading jobs...</p>
+            </div>
+        </div>
+
+        <!-- Empty State (will be shown by the jobs list endpoint when no jobs) -->
+        <template id="empty-jobs-template">
+            <div class="text-center py-12">
+                <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 48 48">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M34 40h10v-4a6 6 0 00-10.712-3.714M34 40H14m20 0v-4a9.971 9.971 0 00-.712-3.714M14 40H4v-4a6 6 0 0110.712-3.714M14 40v-4a9.971 9.971 0 01.712-3.714M28 16a4 4 0 11-8 0 4 4 0 018 0zm-8 8a9.971 9.971 0 00-6.288 2.286"/>
+                </svg>
+                <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">No jobs</h3>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Get started by creating your first job.</p>
+                <div class="mt-6">
+                    <button type="button"
+                            class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                            @click="openNewJobModal()">
+                        <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                        </svg>
+                        New Job
+                    </button>
+                </div>
+            </div>
+        </template>
+    </div>
+</div>
+
+<style>
+/* Active tab styling */
+.status-tab.active {
+    color: rgb(99 102 241);
+    border-color: rgb(99 102 241);
+}
+.dark .status-tab.active {
+    color: rgb(129 140 248);
+    border-color: rgb(129 140 248);
+}
+</style>
+
+<script>
+// Tab switching logic
+document.addEventListener('DOMContentLoaded', function() {
+    const tabs = document.querySelectorAll('.status-tab');
+
+    tabs.forEach(tab => {
+        tab.addEventListener('click', function() {
+            // Remove active class from all tabs
+            tabs.forEach(t => t.classList.remove('active'));
+            // Add active class to clicked tab
+            this.classList.add('active');
+        });
+    });
+});
+</script>
+{% endblock %}

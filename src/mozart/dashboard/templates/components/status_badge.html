@@ -1,0 +1,185 @@
+<!-- Status Badge Component -->
+<!-- Usage: {% include 'components/status_badge.html' %} with context vars: status, size, show_icon -->
+{% set status = status or 'pending' %}
+{% set size = size or 'default' %}
+{% set show_icon = show_icon if show_icon is defined else true %}
+
+<span class="inline-flex items-center font-medium rounded-full
+            {% if size == 'sm' %}
+                px-2 py-1 text-xs
+            {% elif size == 'lg' %}
+                px-3 py-2 text-sm
+            {% else %}
+                px-2.5 py-0.5 text-xs
+            {% endif %}
+            {% if status == 'completed' %}
+                bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200
+            {% elif status == 'running' %}
+                bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 animate-pulse
+            {% elif status == 'failed' %}
+                bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200
+            {% elif status == 'paused' %}
+                bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200
+            {% elif status == 'pending' %}
+                bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200
+            {% elif status == 'cancelled' %}
+                bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200
+            {% else %}
+                bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200
+            {% endif %}"
+     {% if status in ['running', 'pending'] %}
+        title="Status: {{ status|title }} - Click for details"
+     {% else %}
+        title="Status: {{ status|title }}"
+     {% endif %}>
+
+    <!-- Status Icon -->
+    {% if show_icon %}
+        {% if status == 'completed' %}
+            <svg class="-ml-0.5 mr-1.5 h-2 w-2
+                        {% if size == 'sm' %}h-2 w-2{% elif size == 'lg' %}h-3 w-3{% else %}h-2 w-2{% endif %}"
+                 fill="currentColor" viewBox="0 0 8 8">
+                <circle cx="4" cy="4" r="3"/>
+            </svg>
+        {% elif status == 'running' %}
+            <!-- Animated spinner for running jobs -->
+            <svg class="-ml-0.5 mr-1.5 animate-spin
+                        {% if size == 'sm' %}h-2 w-2{% elif size == 'lg' %}h-3 w-3{% else %}h-2 w-2{% endif %}"
+                 fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+        {% elif status == 'failed' %}
+            <svg class="-ml-0.5 mr-1.5
+                        {% if size == 'sm' %}h-2 w-2{% elif size == 'lg' %}h-3 w-3{% else %}h-2 w-2{% endif %}"
+                 fill="currentColor" viewBox="0 0 8 8">
+                <circle cx="4" cy="4" r="3"/>
+            </svg>
+        {% elif status == 'paused' %}
+            <svg class="-ml-0.5 mr-1.5
+                        {% if size == 'sm' %}h-2 w-2{% elif size == 'lg' %}h-3 w-3{% else %}h-2 w-2{% endif %}"
+                 fill="currentColor" viewBox="0 0 8 8">
+                <path d="M3 2v4M5 2v4"/>
+            </svg>
+        {% elif status == 'pending' %}
+            <svg class="-ml-0.5 mr-1.5
+                        {% if size == 'sm' %}h-2 w-2{% elif size == 'lg' %}h-3 w-3{% else %}h-2 w-2{% endif %}"
+                 fill="currentColor" viewBox="0 0 8 8">
+                <circle cx="4" cy="4" r="3"/>
+            </svg>
+        {% elif status == 'cancelled' %}
+            <svg class="-ml-0.5 mr-1.5
+                        {% if size == 'sm' %}h-2 w-2{% elif size == 'lg' %}h-3 w-3{% else %}h-2 w-2{% endif %}"
+                 fill="none" stroke="currentColor" viewBox="0 0 8 8" stroke-width="2">
+                <path d="m2.5 2.5 3 3m0-3-3 3"/>
+            </svg>
+        {% else %}
+            <svg class="-ml-0.5 mr-1.5
+                        {% if size == 'sm' %}h-2 w-2{% elif size == 'lg' %}h-3 w-3{% else %}h-2 w-2{% endif %}"
+                 fill="currentColor" viewBox="0 0 8 8">
+                <circle cx="4" cy="4" r="3"/>
+            </svg>
+        {% endif %}
+    {% endif %}
+
+    <!-- Status Text -->
+    {% if status == 'completed' %}
+        Complete
+    {% elif status == 'running' %}
+        Running
+    {% elif status == 'failed' %}
+        Failed
+    {% elif status == 'paused' %}
+        Paused
+    {% elif status == 'pending' %}
+        Pending
+    {% elif status == 'cancelled' %}
+        Cancelled
+    {% else %}
+        {{ status|title }}
+    {% endif %}
+</span>
+
+<!-- Additional styles for enhanced status badges -->
+<style>
+/* Enhanced status badge animations and effects */
+.status-badge-running {
+    position: relative;
+    overflow: hidden;
+}
+
+.status-badge-running::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.2),
+        transparent
+    );
+    animation: badge-shimmer 2s infinite;
+}
+
+@keyframes badge-shimmer {
+    0% {
+        left: -100%;
+    }
+    100% {
+        left: 100%;
+    }
+}
+
+/* Pulsing effect for running status */
+{% if status == 'running' %}
+.animate-pulse {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: .8;
+    }
+}
+{% endif %}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    .bg-green-100 { background-color: #d4edda; }
+    .text-green-800 { color: #155724; }
+    .bg-blue-100 { background-color: #cce7ff; }
+    .text-blue-800 { color: #003d82; }
+    .bg-red-100 { background-color: #f8d7da; }
+    .text-red-800 { color: #721c24; }
+    .bg-yellow-100 { background-color: #fff3cd; }
+    .text-yellow-800 { color: #856404; }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    .animate-spin,
+    .animate-pulse,
+    .status-badge-running::before {
+        animation: none;
+    }
+}
+
+/* Focus states for interactive badges */
+.status-badge:focus {
+    outline: 2px solid #4F46E5;
+    outline-offset: 2px;
+}
+
+/* Hover effects for interactive badges */
+.status-badge-interactive:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s ease;
+}
+</style>

@@ -1,0 +1,1288 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║              FIX DEFERRED ISSUES                                            ║
+# ║                                                                              ║
+# ║  Zero failing tests, <20 mypy errors, all long-deferred items resolved.     ║
+# ║                                                                              ║
+# ║  One-shot cleanup — no self-chaining. 16 stages, 18 sheets after fan-out.   ║
+# ║                                                                              ║
+# ║  Phase 1: Fix Tests + Production Bug                                         ║
+# ║    [1] [2] [3] [4]  ← parallel (independent test fixes)                     ║
+# ║       \  |  |  /                                                             ║
+# ║          [5]         ← parallel infinite-loop bug fix                        ║
+# ║           |                                                                  ║
+# ║          [6]         ← quality score template fix                            ║
+# ║           |                                                                  ║
+# ║          [7]         ← Phase 1 commit (tests + bug)                          ║
+# ║                                                                              ║
+# ║  Phase 2: Fix Types                                                          ║
+# ║          [8]         ← runner mixin Protocol base class                      ║
+# ║           |                                                                  ║
+# ║          [9]         ← remaining mypy cleanup                                ║
+# ║           |                                                                  ║
+# ║         [10]         ← Phase 2 commit (mypy)                                 ║
+# ║                                                                              ║
+# ║  Phase 3: Structural Refactoring                                             ║
+# ║    [11] [12] [13]   ← parallel (independent structural changes)              ║
+# ║       \  |  /                                                                ║
+# ║        [14]          ← Phase 3 commit (structural)                           ║
+# ║         |                                                                    ║
+# ║       [15] x3        ← code review (fan-out: 3 reviewers)                    ║
+# ║         |                                                                    ║
+# ║        [16]          ← final cleanup + docs                                  ║
+# ║                                                                              ║
+# ║  PREREQUISITE: Run fix-observability.yaml first (it modifies shared files).  ║
+# ║                                                                              ║
+# ║  Usage:                                                                      ║
+# ║    mozart validate examples/fix-deferred-issues.yaml                         ║
+# ║    setsid mozart run examples/fix-deferred-issues.yaml \                     ║
+# ║      > .deferred-workspace/mozart.log 2>&1 &                                 ║
+# ║    mozart status fix-deferred-issues -w .deferred-workspace --watch          ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+name: "fix-deferred-issues"
+description: "Fix failing tests, mypy errors, production bug, and structural debt"
+
+workspace: "./.deferred-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  working_directory: /home/emzi/Projects/mozart-ai-compose
+  timeout_seconds: 3600   # 60 min — structural refactoring needs more time
+  disable_mcp: false
+
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 3000
+  lookback_sheets: 2
+  capture_files:
+    - "{{ workspace }}/*.md"
+
+sheet:
+  size: 1
+  total_items: 16  # 16 stages → 18 concrete sheets after fan-out on stage 15
+
+  # Stage 15 runs 3 parallel code review instances
+  fan_out:
+    15: 3
+
+  # Dependency DAG (stage-level)
+  dependencies:
+    5: [1, 2, 3, 4]     # Bug fix depends on all test fixes
+    6: [5]               # Template fix after bug fix
+    7: [6]               # Phase 1 commit after all fixes
+    8: [7]               # Protocol base class after Phase 1
+    9: [8]               # Mypy cleanup after protocol
+    10: [9]              # Phase 2 commit after mypy
+    11: [10]             # Structural changes after Phase 2
+    12: [10]
+    13: [10]
+    14: [11, 12, 13]     # Phase 3 commit after all structural
+    15: [14]             # Code review after Phase 3 (fan-out)
+    16: [15]             # Final cleanup after reviews (fan-in)
+
+parallel:
+  enabled: true
+  max_concurrent: 1    # Sequential to debug SIGABRT crashes
+
+retry:
+  max_retries: 2
+
+prompt:
+  template: |
+    {{ preamble }}
+
+    {% if sheet_num == 1 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 1: DASHBOARD E2E WORKSPACE FIX (2 failing tests)                     ║
+    ║  Phase: TEST FIXES                                                          ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Problem:** Two E2E tests fail with `assert 409 == 200` because the pause
+    endpoint tries to create `.mozart-pause-{job_id}` in a non-existent workspace.
+
+    **Failing tests:**
+    - `tests/test_dashboard_e2e.py::test_complete_job_lifecycle`
+    - `tests/test_dashboard_e2e.py::test_zombie_detection_and_recovery`
+
+    **Root cause:** The test fixture creates a job with a workspace path but doesn't
+    ensure the workspace directory actually exists before calling the pause endpoint.
+    The pause endpoint writes a pause marker file to the workspace, which fails if
+    the directory doesn't exist.
+
+    **Fix:**
+    1. Read `tests/test_dashboard_e2e.py` to understand the test fixture
+    2. Find the workspace path used in the test setup
+    3. Add `workspace.mkdir(parents=True, exist_ok=True)` in the test fixture
+       before any job operations that need the workspace
+    4. Alternatively, the fix may need to be in the dashboard route itself —
+       it should create the workspace dir if needed before writing the pause file
+
+    **IMPORTANT:** First assume the app code is broken. Read the actual pause
+    endpoint code to understand why it returns 409. The test may be correct and
+    the endpoint may need the fix.
+
+    **After fixing, verify:**
+    ```bash
+    pytest tests/test_dashboard_e2e.py::test_complete_job_lifecycle tests/test_dashboard_e2e.py::test_zombie_detection_and_recovery -v --tb=short 2>&1
+    ```
+
+    **Output to:** {{ workspace }}/01-dashboard-e2e-fix.md
+
+    Format:
+    ```markdown
+    # Sheet 1: Dashboard E2E Fix
+
+    ## Root Cause
+    [Where the bug actually is — test or app code]
+
+    ## Fix Applied
+    | File | Change | Reason |
+    |------|--------|--------|
+
+    ## Test Results
+    [pytest output showing both tests pass]
+    ```
+
+    {% elif sheet_num == 2 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 2: DASHBOARD SSE THREADING FIX (1 failing test)                      ║
+    ║  Phase: TEST FIXES                                                          ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Problem:** `test_stream_job_status_edge_case_poll_intervals` in
+    `tests/test_dashboard_routes_extended.py` deadlocks on `threading.Condition`
+    because the SSE event never arrives.
+
+    **Failing test:**
+    - `tests/test_dashboard_routes_extended.py::test_stream_job_status_edge_case_poll_intervals`
+
+    **Root cause:** The test uses `threading.Condition` to synchronize between the
+    SSE consumer thread and the main thread, but the SSE event stream doesn't
+    deliver events fast enough (or at all), causing an indefinite wait.
+
+    **Fix options (choose the most appropriate):**
+    1. Replace `threading.Condition` sync with explicit polling + hard timeout
+    2. Use `asyncio.Event` with timeout if the test is async
+    3. Add exponential backoff with a hard 10-second timeout
+    4. Mock the SSE event delivery to avoid real timing dependencies
+
+    **IMPORTANT:** Read the test first. Understand the intent. The test may be
+    testing an edge case that legitimately doesn't work — in which case the app
+    code needs fixing, not the test.
+
+    **After fixing, verify:**
+    ```bash
+    pytest "tests/test_dashboard_routes_extended.py::test_stream_job_status_edge_case_poll_intervals" -v --tb=short 2>&1
+    ```
+
+    **Output to:** {{ workspace }}/02-sse-threading-fix.md
+
+    Format:
+    ```markdown
+    # Sheet 2: SSE Threading Fix
+
+    ## Root Cause
+    [Detailed analysis]
+
+    ## Fix Applied
+    | File | Change | Reason |
+    |------|--------|--------|
+
+    ## Test Results
+    [pytest output]
+    ```
+
+    {% elif sheet_num == 3 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 3: DASHBOARD LOG STREAMING FIX (1 failing test)                      ║
+    ║  Phase: TEST FIXES                                                          ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Problem:** A dashboard log streaming test in `tests/test_dashboard_routes_extended.py`
+    fails.
+
+    **First, identify the exact failing test:**
+    ```bash
+    pytest tests/test_dashboard_routes_extended.py -v --tb=short 2>&1 | grep -E "FAILED|ERROR"
+    ```
+
+    There may be a test related to log streaming that fails for similar reasons
+    to sheet 2 (timing/threading). Read the test, understand the root cause, and fix.
+
+    **IMPORTANT:** If there's only 1 failing test in this file (the one from sheet 2),
+    then this sheet has nothing to do — verify and report.
+
+    **After fixing, verify:**
+    ```bash
+    pytest tests/test_dashboard_routes_extended.py -v --tb=short 2>&1
+    ```
+    ALL tests in this file must pass.
+
+    **Output to:** {{ workspace }}/03-log-streaming-fix.md
+
+    Format:
+    ```markdown
+    # Sheet 3: Log Streaming Fix
+
+    ## Failing Tests Found
+    [List from pytest output]
+
+    ## Root Cause
+    [Analysis]
+
+    ## Fix Applied
+    | File | Change | Reason |
+    |------|--------|--------|
+
+    ## Test Results
+    [ALL tests in file must pass]
+    ```
+
+    {% elif sheet_num == 4 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 4: MCP INTEGRATION TEST ALIGNMENT (2 failing tests)                  ║
+    ║  Phase: TEST FIXES                                                          ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Problem:** MCP integration tests in `tests/test_mcp_integration.py` fail
+    due to test expectations not matching actual behavior.
+
+    **First, identify the exact failures:**
+    ```bash
+    pytest tests/test_mcp_integration.py -v --tb=short 2>&1
+    ```
+
+    **Fix approach:**
+    1. Read the failing tests and understand what they expect
+    2. Read the actual MCP code to understand current behavior
+    3. Align tests to match actual behavior (if behavior is correct)
+       OR fix the code if the tests are testing the right thing
+
+    **IMPORTANT:** Assume the app code is correct first. MCP integration tests
+    may have been written against an older API version.
+
+    **After fixing, verify:**
+    ```bash
+    pytest tests/test_mcp_integration.py -v --tb=short 2>&1
+    ```
+
+    **Output to:** {{ workspace }}/04-mcp-integration-fix.md
+
+    Format:
+    ```markdown
+    # Sheet 4: MCP Integration Fix
+
+    ## Failing Tests
+    [List]
+
+    ## Root Cause
+    [Analysis for each test]
+
+    ## Fix Applied
+    | File | Change | Reason |
+    |------|--------|--------|
+
+    ## Test Results
+    [pytest output]
+    ```
+
+    {% elif sheet_num == 5 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 5: PARALLEL INFINITE-LOOP FIX (PRODUCTION BUG)                       ║
+    ║  Phase: BUG FIX — Deferred since iteration 5                                ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Problem:** In `src/mozart/execution/parallel.py`, when `fail_fast=False` and
+    a sheet permanently fails (exhausts all retries), `get_next_parallel_batch()`
+    returns the failed sheet again infinitely. The DAG sees it as "not completed"
+    and it's not filtered out.
+
+    **Location:** `src/mozart/execution/parallel.py` — `get_next_parallel_batch()` method
+
+    **Root cause analysis:** The method at lines 374-410 gets ready sheets from the DAG
+    by checking `completed` status. A permanently failed sheet has status `FAILED`,
+    not `COMPLETED`, so it's included in `ready` but not in `completed`. The filter
+    `pending_ready = [s for s in ready if s not in completed]` keeps it in every batch.
+
+    **Fix:**
+    1. Add `_permanently_failed: set[int]` attribute to `ParallelExecutor`
+    2. When a sheet exhausts all retries with `fail_fast=False`, add it to this set
+    3. In `get_next_parallel_batch()`, filter out permanently failed sheets:
+       ```python
+       pending_ready = [
+           s for s in ready
+           if s not in completed and s not in self._permanently_failed
+       ]
+       ```
+    4. Also consider sheets with status `FAILED` in the completed set for dependency
+       resolution purposes (downstream sheets should not wait forever for a
+       permanently failed dependency)
+
+    **MUST include regression test:**
+    Write `test_parallel_no_infinite_loop_on_permanent_failure` that:
+    - Sets up a 3-sheet DAG where sheet 2 depends on sheet 1
+    - Makes sheet 1 permanently fail (exhaust retries)
+    - Verifies the executor doesn't loop infinitely
+    - Verifies it terminates within a reasonable number of iterations
+
+    **After fixing, verify:**
+    ```bash
+    pytest tests/test_parallel.py -v -k "infinite_loop or permanent_fail" --tb=short 2>&1
+    pytest tests/test_parallel.py -v --tb=short 2>&1 | tail -20
+    ```
+
+    **Output to:** {{ workspace }}/05-parallel-infinite-loop-fix.md
+
+    Format:
+    ```markdown
+    # Sheet 5: Parallel Infinite Loop Fix
+
+    ## Root Cause
+    [Detailed analysis with line numbers]
+
+    ## Fix Applied
+    | File | Change | Description |
+    |------|--------|-------------|
+
+    ## Regression Test
+    [Test code and description]
+
+    ## Test Results
+    [pytest output]
+    ```
+
+    {% elif sheet_num == 6 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 6: QUALITY SCORE TEMPLATE FIX (Issue #24)                            ║
+    ║  Phase: TEMPLATE FIX                                                        ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Problem:** Issue #24 reports that the quality-continuous.yaml score template
+    has issues that need fixing.
+
+    **First, check the issue:**
+    ```bash
+    gh issue view 24 --json title,body 2>/dev/null || echo "Issue #24 not accessible"
+    ```
+
+    **Then examine the template:**
+    Read `examples/quality-continuous.yaml` and look for:
+    - Incorrect variable references
+    - Validation conditions that don't match sheet/stage numbers
+    - Template syntax errors
+    - Jinja2 rendering issues
+
+    **Run validation:**
+    ```bash
+    mozart validate examples/quality-continuous.yaml 2>&1
+    ```
+
+    Fix any issues found. If issue #24 describes specific problems, address them.
+    If #24 doesn't exist or is unrelated, still audit the template for correctness.
+
+    **Output to:** {{ workspace }}/06-template-fix.md
+
+    Format:
+    ```markdown
+    # Sheet 6: Quality Score Template Fix
+
+    ## Issue #24 Content
+    [Summary of the issue, or "not found"]
+
+    ## Issues Found
+    | File | Location | Issue | Fix |
+    |------|----------|-------|-----|
+
+    ## Validation Result
+    [mozart validate output]
+    ```
+
+    {% elif sheet_num == 7 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 7: PHASE 1 COMMIT — Tests Green, Bug Fixed                           ║
+    ║  "First checkpoint — zero test failures"                                    ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Step 1: Verify all tests pass**
+    ```bash
+    pytest -x -q --tb=short 2>&1 | tail -20
+    ```
+    If any tests fail, fix them before committing.
+
+    **Step 2: Verify the parallel bug is fixed**
+    ```bash
+    pytest tests/test_parallel.py -v -k "infinite" --tb=short 2>&1 | tail -10
+    ```
+
+    **Step 3: Stage modified files**
+    ```bash
+    git diff --name-only src/ tests/ examples/ | sort
+    ```
+    Stage ONLY files modified by sheets 1-6:
+    ```bash
+    git add [list each file]
+    git diff --cached --stat
+    ```
+
+    **Step 4: Commit**
+    ```bash
+    git commit -m "$(cat <<'EOF'
+    fix: Resolve 6 failing tests + parallel infinite-loop production bug
+
+    Test fixes:
+    - Dashboard E2E: workspace directory created before pause operations
+    - SSE threading: replaced Condition deadlock with timeout-based polling
+    - Dashboard log streaming: fixed timing/threading issues
+    - MCP integration: aligned test expectations with current behavior
+
+    Bug fix:
+    - Parallel executor: filter permanently-failed sheets from batch selection
+      to prevent infinite loop when fail_fast=False (deferred since iteration 5)
+
+    Template:
+    - Quality score template fixes per issue #24
+
+    Co-Authored-By: Mozart AI Compose <noreply@mozart.ai>
+    EOF
+    )"
+    ```
+
+    **Step 5: Push**
+    ```bash
+    git push origin main
+    ```
+
+    **Step 6: Verify**
+    ```bash
+    git log --oneline -1
+    ```
+
+    **Output to:** {{ workspace }}/07-phase1-commit.md
+
+    Format:
+    ```markdown
+    # Sheet 7: Phase 1 Commit
+
+    ## Pre-Commit Test Results
+    [pytest output — MUST show 0 failures]
+
+    ## Files Committed
+    [git diff --cached --stat]
+
+    ## Commit Hash
+    [git log --oneline -1]
+
+    ## Push Status
+    [success/retry]
+    ```
+
+    {% elif sheet_num == 8 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 8: RUNNER MIXIN PROTOCOL BASE CLASS                                  ║
+    ║  Phase: TYPE FIXES — The foundation for mypy cleanup                        ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Problem:** The runner uses mixin classes (`LifecycleMixin`, `SheetMixin`,
+    `PatternsMixin`, etc.) that access attributes like `self.config`, `self.backend`,
+    `self._logger` — but mypy doesn't know these attributes exist because the mixins
+    don't declare them. This causes ~185 mypy errors.
+
+    **Solution:** Create a `RunnerProtocol` that declares all shared attributes,
+    then annotate `self` in each mixin.
+
+    **Files to create:**
+    - `src/mozart/execution/runner/protocol.py`
+
+    **Files to modify:**
+    - All mixin files in `src/mozart/execution/runner/`
+
+    **Steps:**
+
+    1. **Audit the runner** — Read all files in `src/mozart/execution/runner/` to
+       understand which attributes mixins access. Common ones:
+       - `self.config` (JobConfig)
+       - `self.backend` (Backend protocol)
+       - `self.state_backend` (StateBackend protocol)
+       - `self.console` (Rich Console)
+       - `self._logger` (Logger)
+       - `self.dependency_dag`
+       - `self._parallel_executor`
+       - And more — discover them by running mypy
+
+    2. **Create `protocol.py`:**
+       ```python
+       from __future__ import annotations
+       from typing import TYPE_CHECKING, Protocol, Any
+
+       if TYPE_CHECKING:
+           from mozart.core.config import JobConfig
+           # ... other imports
+
+       class RunnerProtocol(Protocol):
+           config: JobConfig
+           backend: Any  # BackendProtocol
+           state_backend: Any  # StateBackendProtocol
+           console: Any  # rich.console.Console
+           _logger: Any
+           # ... all other attributes mixins access
+       ```
+
+    3. **Annotate each mixin** with `self: RunnerProtocol`:
+       ```python
+       from __future__ import annotations
+       from typing import TYPE_CHECKING
+
+       if TYPE_CHECKING:
+           from .protocol import RunnerProtocol
+
+       class SheetMixin:
+           def _execute_sheet(self: RunnerProtocol, sheet_num: int) -> ...:
+               # Now mypy knows self.config, self.backend, etc.
+       ```
+
+    4. **Run mypy to measure progress:**
+       ```bash
+       mypy src/mozart/execution/runner/ 2>&1 | grep -c "error:"
+       ```
+       Target: significantly fewer errors than the starting ~185.
+
+    **Output to:** {{ workspace }}/08-runner-protocol.md
+
+    Format:
+    ```markdown
+    # Sheet 8: Runner Mixin Protocol
+
+    ## RunnerProtocol Fields
+    | Attribute | Type | Accessed By |
+    |-----------|------|------------|
+
+    ## Mixins Updated
+    | Mixin File | Methods Annotated |
+    |-----------|-------------------|
+
+    ## Mypy Results
+    - Before: ~185 errors
+    - After: N errors
+    - Reduction: N%
+    ```
+
+    {% elif sheet_num == 9 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 9: REMAINING MYPY CLEANUP                                            ║
+    ║  Phase: TYPE FIXES — Get under 20 errors                                    ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Task:** After the Protocol base class from sheet 8, address remaining mypy
+    errors across the codebase.
+
+    **Step 1: Measure current state**
+    ```bash
+    mypy src/ --ignore-missing-imports 2>&1 | tail -5
+    mypy src/ --ignore-missing-imports 2>&1 | grep -c "error:"
+    ```
+
+    **Step 2: Categorize errors**
+    ```bash
+    mypy src/ --ignore-missing-imports 2>&1 | grep "error:" | sed 's/.*: error: //' | sort | uniq -c | sort -rn | head -20
+    ```
+    This shows the most common error types. Fix them in order of frequency.
+
+    **Step 3: Fix errors systematically**
+    - Add missing type annotations
+    - Fix incompatible types
+    - Add `# type: ignore[specific-error]` ONLY as a last resort with a comment
+    - Fix Protocol incompatibilities
+
+    **Step 4: Verify**
+    ```bash
+    mypy src/ --ignore-missing-imports 2>&1 | grep -c "error:"
+    ```
+    Target: <20 errors remaining.
+
+    Also ensure tests still pass:
+    ```bash
+    pytest -x -q --tb=no 2>&1 | tail -5
+    ```
+
+    **Output to:** {{ workspace }}/09-mypy-cleanup.md
+
+    Format:
+    ```markdown
+    # Sheet 9: Mypy Cleanup
+
+    ## Error Reduction
+    - Starting errors: N
+    - Remaining errors: N (target: <20)
+
+    ## Fixes Applied
+    | Error Type | Count Fixed | Approach |
+    |-----------|------------|----------|
+
+    ## Remaining Errors (if any)
+    | Location | Error | Reason Not Fixed |
+    |----------|-------|-----------------|
+
+    ## Test Results
+    [pytest output]
+    ```
+
+    {% elif sheet_num == 10 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 10: PHASE 2 COMMIT — Mypy Errors Resolved                            ║
+    ║  "Type safety checkpoint"                                                   ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Step 1: Final mypy check**
+    ```bash
+    mypy src/ --ignore-missing-imports 2>&1 | grep -c "error:"
+    ```
+    Must be <20 errors.
+
+    **Step 2: Tests must pass**
+    ```bash
+    pytest -x -q --tb=no 2>&1 | tail -5
+    ```
+
+    **Step 3: Stage and commit**
+    ```bash
+    git diff --name-only src/ tests/ | sort
+    git add [list each file]
+    git diff --cached --stat
+    git commit -m "$(cat <<'EOF'
+    refactor: Add RunnerProtocol + resolve mypy errors (<20 remaining)
+
+    - Create RunnerProtocol defining all shared runner attributes
+    - Annotate mixin methods with self: RunnerProtocol
+    - Fix type annotations across runner modules
+    - Resolve incompatible type assignments
+
+    Mypy errors: ~185 → <20
+
+    Co-Authored-By: Mozart AI Compose <noreply@mozart.ai>
+    EOF
+    )"
+    ```
+
+    **Step 4: Push**
+    ```bash
+    git push origin main
+    ```
+
+    **Output to:** {{ workspace }}/10-phase2-commit.md
+
+    Format:
+    ```markdown
+    # Sheet 10: Phase 2 Commit
+
+    ## Mypy Error Count
+    [must be <20]
+
+    ## Test Results
+    [must be all passing]
+
+    ## Commit Hash
+    [git log --oneline -1]
+    ```
+
+    {% elif sheet_num == 11 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 11: SPLIT config.py (1808 LOC → 5 modules)                           ║
+    ║  Phase: STRUCTURAL REFACTORING                                              ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Problem:** `src/mozart/core/config.py` is 1808 lines with 30+ model classes.
+    Too large to navigate or maintain.
+
+    **Target structure:**
+    ```
+    src/mozart/core/config/
+    ├── __init__.py       ← re-exports everything (backward compatible)
+    ├── job.py            ← JobConfig, SheetConfig, PromptConfig
+    ├── backend.py        ← BackendConfig, ClaudeCliConfig, AnthropicApiConfig, OllamaConfig
+    ├── execution.py      ← RetryConfig, RateLimitConfig, CircuitBreakerConfig, ParallelConfig
+    ├── learning.py       ← LearningConfig, ExplorationBudgetConfig, EntropyResponseConfig
+    └── validation.py     ← ValidationRule, SemanticConsistencyConfig, GroundingConfig
+    ```
+
+    **Critical constraint:** `from mozart.core.config import JobConfig` must still
+    work everywhere. The `__init__.py` must re-export all public names.
+
+    **Steps:**
+    1. Read `src/mozart/core/config.py` fully to understand class dependencies
+    2. Create the package directory
+    3. Split classes into appropriate modules
+    4. Create `__init__.py` with all re-exports
+    5. Find all import sites:
+       ```bash
+       grep -rn "from mozart.core.config import\|from mozart.core import config" src/ tests/ --include="*.py" | wc -l
+       ```
+    6. Verify ALL imports still work:
+       ```bash
+       python -c "from mozart.core.config import JobConfig, BackendConfig, ValidationRule, LearningConfig; print('OK')"
+       ```
+    7. Run tests:
+       ```bash
+       pytest -x -q --tb=short 2>&1 | tail -10
+       ```
+
+    **Output to:** {{ workspace }}/11-split-config.md
+
+    Format:
+    ```markdown
+    # Sheet 11: Split config.py
+
+    ## Module Breakdown
+    | Module | Classes | LOC |
+    |--------|---------|-----|
+
+    ## Import Sites Updated
+    [count and verification]
+
+    ## Test Results
+    [must pass — no import errors]
+    ```
+
+    {% elif sheet_num == 12 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 12: SPLIT validation.py (1757 LOC → 5 modules)                       ║
+    ║  Phase: STRUCTURAL REFACTORING                                              ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Problem:** `src/mozart/execution/validation.py` is 1757 lines. Too large.
+
+    **Target structure:**
+    ```
+    src/mozart/execution/validation/
+    ├── __init__.py          ← re-exports
+    ├── core.py              ← ValidationEngine, base validator logic (~500 LOC)
+    ├── history.py           ← ValidationHistory, FailureHistoryStore (~400 LOC)
+    ├── semantic.py          ← SemanticConsistencyChecker, KeyVariableExtractor (~400 LOC)
+    └── retry_strategy.py    ← ValidationRetryStrategy (~200 LOC)
+    ```
+
+    **Critical constraint:** `from mozart.execution.validation import ValidationEngine`
+    must still work.
+
+    **Steps:**
+    1. Read `src/mozart/execution/validation.py` to understand class dependencies
+    2. Create the package directory
+    3. Split into modules (be careful about internal cross-references)
+    4. Create `__init__.py` with all re-exports
+    5. Find all import sites:
+       ```bash
+       grep -rn "from mozart.execution.validation import\|from mozart.execution import validation" src/ tests/ --include="*.py" | wc -l
+       ```
+    6. Verify imports and run tests
+
+    **Output to:** {{ workspace }}/12-split-validation.md
+
+    Format:
+    ```markdown
+    # Sheet 12: Split validation.py
+
+    ## Module Breakdown
+    | Module | Classes | LOC |
+    |--------|---------|-----|
+
+    ## Import Sites Updated
+    [count and verification]
+
+    ## Test Results
+    [must pass]
+    ```
+
+    {% elif sheet_num == 13 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 13: RENAME first_attempt_success + SCHEMA MIGRATION                  ║
+    ║  Phase: STRUCTURAL REFACTORING                                              ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Problem:** The field `first_attempt_success` is misleading — it tracks whether
+    a sheet succeeded without retries, not whether the first attempt succeeded.
+    Rename to `success_without_retry` across the codebase.
+
+    **Scope:**
+    ```bash
+    grep -rn "first_attempt_success" src/ tests/ --include="*.py" | wc -l
+    ```
+    Expected: ~192 references in ~28 files.
+
+    **Steps:**
+
+    1. **Rename in Python code** — Use find-and-replace across all `.py` files:
+       `first_attempt_success` → `success_without_retry`
+
+    2. **Pydantic backward compatibility** — Use `AliasChoices` so old JSON state files
+       still load (Pydantic v2 pattern):
+       ```python
+       from pydantic import AliasChoices
+       success_without_retry: bool = Field(
+           default=False,
+           validation_alias=AliasChoices("success_without_retry", "first_attempt_success"),
+       )
+       ```
+       This allows both the new and old field names during deserialization.
+       Also ensure `model_config = ConfigDict(populate_by_name=True)` is set.
+
+    3. **SQLite migration** — If the field is stored in SQLite tables:
+       - Add migration v4 for global learning store (if applicable)
+       - Add migration for state backend columns
+       - Use `ALTER TABLE ... RENAME COLUMN` or add new column + copy data
+
+    4. **Dashboard HTML templates** — Update any Jinja2 templates that reference
+       the old field name:
+       ```bash
+       grep -rn "first_attempt_success" src/mozart/dashboard/ 2>/dev/null | head -10
+       ```
+
+    5. **Verify zero references remain:**
+       ```bash
+       grep -rn "first_attempt_success" src/ tests/ --include="*.py" --include="*.html" | wc -l
+       ```
+       Must be 0 (except in migration code or alias definitions).
+
+    6. **Run tests:**
+       ```bash
+       pytest -x -q --tb=short 2>&1 | tail -10
+       ```
+
+    **Output to:** {{ workspace }}/13-rename-field.md
+
+    Format:
+    ```markdown
+    # Sheet 13: Rename first_attempt_success
+
+    ## References Updated
+    - Python files: N
+    - HTML templates: N
+    - SQLite migrations: N
+    - Total references changed: N
+
+    ## Backward Compatibility
+    [Alias/migration approach used]
+
+    ## Remaining References
+    [grep output — must be 0 in non-migration code]
+
+    ## Test Results
+    [must pass]
+    ```
+
+    {% elif sheet_num == 14 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 14: PHASE 3 COMMIT — Structural Refactoring Done                     ║
+    ║  "Final checkpoint — all refactoring landed"                                ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Step 1: Full verification**
+    ```bash
+    # All tests pass
+    pytest -x -q --tb=short 2>&1 | tail -10
+
+    # Mypy still under 20 errors
+    mypy src/ --ignore-missing-imports 2>&1 | grep -c "error:"
+
+    # Ruff clean
+    ruff check src/ 2>&1 | tail -5
+
+    # No files >1000 LOC in refactored modules
+    wc -l src/mozart/core/config/*.py src/mozart/execution/validation/*.py 2>/dev/null | sort -rn | head -10
+
+    # No first_attempt_success references (except aliases/migrations)
+    grep -rn "first_attempt_success" src/ tests/ --include="*.py" | grep -v "alias\|migration\|RENAME" | wc -l
+    ```
+
+    **Step 2: Stage and commit**
+    ```bash
+    git diff --name-only src/ tests/ | sort
+    git add [list each file]
+    git diff --cached --stat
+    git commit -m "$(cat <<'EOF'
+    refactor: Split config.py + validation.py, rename first_attempt_success
+
+    Structural:
+    - Split core/config.py (1808 LOC) into 5-module package
+    - Split execution/validation.py (1757 LOC) into 5-module package
+    - All re-exports maintain backward compatibility
+
+    Rename:
+    - first_attempt_success → success_without_retry (192 refs, 28 files)
+    - Pydantic alias for backward-compatible state loading
+    - SQLite schema migration included
+
+    No files >1000 LOC in refactored modules.
+
+    Co-Authored-By: Mozart AI Compose <noreply@mozart.ai>
+    EOF
+    )"
+    ```
+
+    **Step 3: Push**
+    ```bash
+    git push origin main
+    ```
+
+    **Output to:** {{ workspace }}/14-phase3-commit.md
+
+    Format:
+    ```markdown
+    # Sheet 14: Phase 3 Commit
+
+    ## Verification
+    - Tests: [pass count]
+    - Mypy errors: [count, must be <20]
+    - Ruff: [clean/issues]
+    - Max file LOC: [must be <1000]
+    - first_attempt_success refs: [must be 0 non-alias]
+
+    ## Commit Hash
+    [git log --oneline -1]
+
+    ## Push Status
+    [success/retry]
+    ```
+
+    {% elif stage == 15 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 15: CODE REVIEW — {{ review_types[instance] | upper }}                ║
+    ║  Instance {{ instance }} of {{ fan_count }} (running in PARALLEL)            ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Review ALL code changes made in this score (sheets 1-14).
+
+    **Read workspace reports:**
+    ```bash
+    ls {{ workspace }}/*.md
+    ```
+
+    **Examine code changes across all 3 commits:**
+    ```bash
+    git log --oneline -3
+    git diff HEAD~3..HEAD --stat
+    ```
+
+    {% if instance == 1 %}
+    {# ═══════════════ CORRECTNESS REVIEWER ═══════════════ #}
+
+    You are the **Correctness Reviewer**. Focus on:
+
+    1. **Test fixes** — Did sheets 1-4 actually fix the root cause, or just
+       make the tests pass superficially?
+    2. **Parallel bug fix** — Is the infinite loop truly prevented? Edge cases?
+    3. **Module splits** — Do re-exports cover everything? Any missing names?
+    4. **Rename** — Any references missed? Do SQLite migrations handle edge cases?
+
+    **Output to:** {{ workspace }}/15-review-correctness.md
+
+    {% elif instance == 2 %}
+    {# ═══════════════ REGRESSION REVIEWER ═══════════════ #}
+
+    You are the **Regression Reviewer**. Focus on:
+
+    1. **Import breakage** — After splitting config.py and validation.py, do ALL
+       existing imports still work? Check edge cases like `import *`.
+    2. **State file compatibility** — Can old checkpoint JSON files still be loaded?
+    3. **API compatibility** — Did the rename break any public APIs?
+    4. **Test quality** — Are the new/fixed tests actually testing behavior?
+
+    **Output to:** {{ workspace }}/15-review-regression.md
+
+    {% elif instance == 3 %}
+    {# ═══════════════ IMPORTS REVIEWER ═══════════════ #}
+
+    You are the **Import & Dependency Reviewer**. Focus on:
+
+    1. **Circular imports** — Did the module split introduce circular deps?
+       ```bash
+       python -c "from mozart.core.config import JobConfig" 2>&1
+       python -c "from mozart.execution.validation import ValidationEngine" 2>&1
+       ```
+    2. **Lazy imports** — Are `TYPE_CHECKING` guards used correctly?
+    3. **__init__.py completeness** — Do the re-export files cover all public names?
+    4. **New protocol.py** — Is it importable without triggering heavy imports?
+
+    **Output to:** {{ workspace }}/15-review-imports.md
+
+    {% endif %}
+
+    Format:
+    ```markdown
+    # Code Review: [Focus Area]
+
+    ## Summary
+    [2-3 sentence summary]
+
+    ## Critical Issues
+    | Location | Issue | Fix |
+    |----------|-------|-----|
+
+    ## Recommendations
+    | Location | Issue | Suggestion |
+    |----------|-------|-----------|
+
+    ## Verdict
+    [APPROVE / REQUEST_CHANGES / COMMENT]
+    ```
+
+    {% elif sheet_num == 16 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 16: FINAL CLEANUP — Close Issues, Update Docs, Summary               ║
+    ║  "The last sheet ties everything together"                                  ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Step 1: Address any critical review findings**
+    Read `{{ workspace }}/15-review-*.md`. If any reviewer has "REQUEST_CHANGES",
+    fix those issues now.
+
+    **Step 2: Close GitHub issues**
+    ```bash
+    gh issue list --state open --json number,title --limit 30
+    ```
+    Close issues #24 and #37 (if they exist and were resolved by this score):
+    ```bash
+    gh issue close 24 --comment "Resolved by fix-deferred-issues score" 2>/dev/null || true
+    gh issue close 37 --comment "Resolved by fix-deferred-issues score" 2>/dev/null || true
+    ```
+
+    **Step 3: Update STATUS.md**
+    Add summary of what was accomplished.
+
+    **Step 4: Final verification**
+    ```bash
+    pytest -x -q --tb=no 2>&1 | tail -5
+    mypy src/ --ignore-missing-imports 2>&1 | grep -c "error:"
+    ruff check src/ --quiet 2>&1
+    ```
+
+    **Step 5: If review fixes were made, commit them**
+    ```bash
+    git diff --name-only src/ tests/ | head -20
+    ```
+    If there are changes, stage and commit:
+    ```bash
+    git add [modified files]
+    git commit -m "$(cat <<'EOF'
+    fix: Address code review findings from fix-deferred-issues
+
+    Co-Authored-By: Mozart AI Compose <noreply@mozart.ai>
+    EOF
+    )"
+    git push origin main
+    ```
+
+    **Output to:** {{ workspace }}/16-final-cleanup.md
+
+    Format:
+    ```markdown
+    # Sheet 16: Final Cleanup
+
+    ## Review Fixes
+    | Source | Issue | Fix |
+    |--------|-------|-----|
+
+    ## GitHub Issues Closed
+    | # | Title |
+    |---|-------|
+
+    ## Final Verification
+    - Tests: [count] passed, 0 failed
+    - Mypy errors: [count] (<20)
+    - Ruff: clean
+
+    ## Score Summary
+    - Failing tests fixed: 6
+    - Production bugs fixed: 1 (parallel infinite loop)
+    - Mypy errors resolved: ~185 → <20
+    - Files split: config.py (1808→5), validation.py (1757→5)
+    - Fields renamed: first_attempt_success → success_without_retry
+    - GitHub issues closed: #24, #37
+    ```
+
+    {% endif %}
+
+  variables:
+    preamble: |
+      ╔══════════════════════════════════════════════════════════════════════════╗
+      ║              FIX DEFERRED ISSUES                                        ║
+      ║                                                                          ║
+      ║  Goal: Zero failing tests, <20 mypy errors, resolve all deferred items  ║
+      ║                                                                          ║
+      ║  Working directory: /home/emzi/Projects/mozart-ai-compose                ║
+      ║  Workspace: {{ workspace }}                                              ║
+      ║  Sheet: {{ sheet_num }} of {{ total_sheets }}                            ║
+      ╚══════════════════════════════════════════════════════════════════════════╝
+
+      **Rules:**
+      - Always assume the app code is broken before assuming the test is broken
+      - Make one logical change at a time
+      - Run relevant tests after each change
+      - Do NOT skip unless genuinely blocked
+      - Write output to the specified file
+
+    review_types:
+      1: "Correctness"
+      2: "Regression"
+      3: "Imports & Dependencies"
+
+validations:
+  # Phase 1: Test fixes (sheets 1-4)
+  - type: file_exists
+    path: "{workspace}/01-dashboard-e2e-fix.md"
+    description: "Sheet 1 output must exist"
+    condition: "sheet_num >= 1"
+
+  - type: file_exists
+    path: "{workspace}/02-sse-threading-fix.md"
+    description: "Sheet 2 output must exist"
+    condition: "sheet_num >= 2"
+
+  - type: file_exists
+    path: "{workspace}/03-log-streaming-fix.md"
+    description: "Sheet 3 output must exist"
+    condition: "sheet_num >= 3"
+
+  - type: file_exists
+    path: "{workspace}/04-mcp-integration-fix.md"
+    description: "Sheet 4 output must exist"
+    condition: "sheet_num >= 4"
+
+  # Each specific test must pass
+  - type: command_succeeds
+    command: "cd /home/emzi/Projects/mozart-ai-compose && pytest tests/test_dashboard_e2e.py -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed'"
+    description: "Dashboard E2E tests must pass"
+    condition: "sheet_num >= 1"
+
+  - type: command_succeeds
+    command: "cd /home/emzi/Projects/mozart-ai-compose && pytest tests/test_dashboard_routes_extended.py -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed'"
+    description: "Dashboard routes extended tests must pass"
+    condition: "sheet_num >= 3"
+
+  # Sheet 5: Parallel bug fix
+  - type: file_exists
+    path: "{workspace}/05-parallel-infinite-loop-fix.md"
+    description: "Sheet 5 output must exist"
+    condition: "sheet_num >= 5"
+
+  - type: command_succeeds
+    command: "cd /home/emzi/Projects/mozart-ai-compose && pytest tests/test_parallel.py -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed'"
+    description: "Parallel tests must pass (including infinite loop regression)"
+    condition: "sheet_num >= 5"
+
+  # Sheet 6: Template fix
+  - type: file_exists
+    path: "{workspace}/06-template-fix.md"
+    description: "Sheet 6 output must exist"
+    condition: "sheet_num >= 6"
+
+  # Sheet 7: Phase 1 commit — zero test failures
+  - type: file_exists
+    path: "{workspace}/07-phase1-commit.md"
+    description: "Phase 1 commit report must exist"
+    condition: "sheet_num >= 7"
+
+  - type: command_succeeds
+    command: "cd /home/emzi/Projects/mozart-ai-compose && pytest -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed'"
+    description: "Full test suite must pass (zero failures)"
+    condition: "sheet_num >= 7"
+
+  # Sheet 8: Runner protocol
+  - type: file_exists
+    path: "{workspace}/08-runner-protocol.md"
+    description: "Sheet 8 output must exist"
+    condition: "sheet_num >= 8"
+
+  # Sheet 9: Mypy cleanup
+  - type: file_exists
+    path: "{workspace}/09-mypy-cleanup.md"
+    description: "Sheet 9 output must exist"
+    condition: "sheet_num >= 9"
+
+  # Mypy error count must be <20 after sheet 9
+  - type: command_succeeds
+    command: |
+      cd /home/emzi/Projects/mozart-ai-compose
+      ERRORS=$(mypy src/ --ignore-missing-imports 2>&1 | grep -c "error:" || echo "0")
+      if [ "$ERRORS" -lt 20 ]; then
+        echo "Mypy errors: $ERRORS (<20 target) - PASSED"
+      else
+        echo "Mypy errors: $ERRORS (target: <20) - FAILED"
+        exit 1
+      fi
+    description: "Mypy must have <20 errors"
+    condition: "sheet_num >= 9"
+
+  # Sheet 10: Phase 2 commit
+  - type: file_exists
+    path: "{workspace}/10-phase2-commit.md"
+    description: "Phase 2 commit report must exist"
+    condition: "sheet_num >= 10"
+
+  # Sheets 11-13: Structural refactoring
+  - type: file_exists
+    path: "{workspace}/11-split-config.md"
+    description: "Config split report must exist"
+    condition: "sheet_num >= 11"
+
+  - type: file_exists
+    path: "{workspace}/12-split-validation.md"
+    description: "Validation split report must exist"
+    condition: "sheet_num >= 12"
+
+  - type: file_exists
+    path: "{workspace}/13-rename-field.md"
+    description: "Rename report must exist"
+    condition: "sheet_num >= 13"
+
+  # After structural refactoring, imports must still work
+  - type: command_succeeds
+    command: "cd /home/emzi/Projects/mozart-ai-compose && python -c 'from mozart.core.config import JobConfig, BackendConfig; from mozart.execution.validation import ValidationEngine; print(\"imports OK\")'"
+    description: "All imports must resolve after module splits"
+    condition: "sheet_num >= 13"
+
+  # No first_attempt_success references (except aliases)
+  - type: command_succeeds
+    command: |
+      cd /home/emzi/Projects/mozart-ai-compose
+      COUNT=$(grep -rn "first_attempt_success" src/ tests/ --include="*.py" | grep -v "alias\|migration\|RENAME\|backward\|compat" | wc -l)
+      if [ "$COUNT" -eq 0 ]; then
+        echo "No remaining first_attempt_success references - PASSED"
+      else
+        echo "Found $COUNT non-alias references to first_attempt_success - FAILED"
+        exit 1
+      fi
+    description: "first_attempt_success must be fully renamed"
+    condition: "sheet_num >= 13"
+
+  # Sheet 14: Phase 3 commit
+  - type: file_exists
+    path: "{workspace}/14-phase3-commit.md"
+    description: "Phase 3 commit report must exist"
+    condition: "sheet_num >= 14"
+
+  - type: command_succeeds
+    command: "cd /home/emzi/Projects/mozart-ai-compose && pytest -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed'"
+    description: "Full test suite must pass after structural refactoring"
+    condition: "sheet_num >= 14"
+
+  # Stage 15: Review reports (fan-out)
+  - type: file_exists
+    path: "{workspace}/15-review-correctness.md"
+    description: "Correctness review must exist"
+    condition: "stage == 15 and instance == 1"
+
+  - type: file_exists
+    path: "{workspace}/15-review-regression.md"
+    description: "Regression review must exist"
+    condition: "stage == 15 and instance == 2"
+
+  - type: file_exists
+    path: "{workspace}/15-review-imports.md"
+    description: "Imports review must exist"
+    condition: "stage == 15 and instance == 3"
+
+  # Sheet 16: Final cleanup
+  - type: file_exists
+    path: "{workspace}/16-final-cleanup.md"
+    description: "Final cleanup report must exist"
+    condition: "sheet_num >= 16"

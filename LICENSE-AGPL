@@ -1,0 +1,28 @@
+GNU AFFERO GENERAL PUBLIC LICENSE
+Version 3, 19 November 2007
+
+The complete AGPL-3.0 license text is available at:
+https://www.gnu.org/licenses/agpl-3.0.txt
+
+This software is licensed under AGPL-3.0 for open source use.
+For commercial licensing, see LICENSE file.
+
+================================================================================
+SUMMARY (not a substitute for the full license)
+================================================================================
+
+The AGPL-3.0 grants you the following freedoms:
+- Use the software for any purpose
+- Study and modify the source code
+- Distribute copies
+- Distribute modified versions
+
+With the following conditions:
+- Disclose source code when distributing
+- License modifications under AGPL-3.0
+- State changes made to the code
+- NETWORK USE IS DISTRIBUTION: If you run a modified version on a server
+  and let users interact with it, you must offer them the source code
+
+For the authoritative license text, see:
+https://www.gnu.org/licenses/agpl-3.0.txt

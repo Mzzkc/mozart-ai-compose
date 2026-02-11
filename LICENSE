@@ -1,0 +1,47 @@
+Mozart AI Compose - Dual License
+
+Copyright (c) 2024-2025 Mozart AI Contributors
+
+This software is available under a dual license:
+
+1. OPEN SOURCE LICENSE (AGPL-3.0)
+   For open source projects and non-commercial use, this software is
+   licensed under the GNU Affero General Public License version 3.
+   See LICENSE-AGPL for the full text.
+
+2. COMMERCIAL LICENSE
+   For proprietary/commercial use without AGPL obligations, a commercial
+   license is available. Contact the copyright holder for licensing terms.
+
+
+================================================================================
+WHICH LICENSE APPLIES TO YOU?
+================================================================================
+
+You may use this software under the AGPL-3.0 if ALL of the following are true:
+- Your project is open source under an AGPL-compatible license
+- You will share any modifications under AGPL-3.0
+- If you provide this software as a service (SaaS), you will make the
+  complete source code available to users
+
+You MUST obtain a commercial license if ANY of the following are true:
+- You want to use this software in a proprietary/closed-source product
+- You do not want to disclose your source code
+- You are providing this as a SaaS and do not want to share source code
+
+
+================================================================================
+THIRD-PARTY COMPONENTS
+================================================================================
+
+This software may include third-party open source components, each of which
+has its own license. These components are listed in THIRD-PARTY-LICENSES.md.
+
+
+================================================================================
+DISCLAIMER
+================================================================================
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.

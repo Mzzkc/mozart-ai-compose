@@ -1,0 +1,215 @@
+<!-- Validation Badge Component -->
+<!-- Usage: {% include 'components/validation_badge.html' %} with context vars: validation_passed, size, details -->
+{% set size = size or 'default' %}
+{% set show_icon = show_icon if show_icon is defined else true %}
+
+<div class="inline-flex items-center relative"
+     {% if details and details|length > 0 %}
+        x-data="{ showTooltip: false }"
+        @mouseenter="showTooltip = true"
+        @mouseleave="showTooltip = false"
+     {% endif %}>
+
+    <!-- Validation Badge -->
+    <span class="inline-flex items-center font-medium rounded-full
+            {% if size == 'sm' %}
+                px-2 py-0.5 text-xs
+            {% elif size == 'lg' %}
+                px-3 py-1.5 text-sm
+            {% else %}
+                px-2.5 py-0.5 text-xs
+            {% endif %}
+            {% if validation_passed %}
+                bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200
+            {% elif validation_passed is false %}
+                bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200
+            {% else %}
+                bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200
+            {% endif %}"
+         title="{% if validation_passed %}Validation passed{% elif validation_passed is false %}Validation failed{% else %}Validation not run{% endif %}">
+
+        <!-- Validation Icon -->
+        {% if show_icon %}
+            {% if validation_passed %}
+                <svg class="-ml-0.5 mr-1.5
+                            {% if size == 'sm' %}h-3 w-3{% elif size == 'lg' %}h-4 w-4{% else %}h-3 w-3{% endif %}"
+                     fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                </svg>
+            {% elif validation_passed is false %}
+                <svg class="-ml-0.5 mr-1.5
+                            {% if size == 'sm' %}h-3 w-3{% elif size == 'lg' %}h-4 w-4{% else %}h-3 w-3{% endif %}"
+                     fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            {% else %}
+                <svg class="-ml-0.5 mr-1.5
+                            {% if size == 'sm' %}h-3 w-3{% elif size == 'lg' %}h-4 w-4{% else %}h-3 w-3{% endif %}"
+                     fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+            {% endif %}
+        {% endif %}
+
+        <!-- Validation Text -->
+        {% if validation_passed %}
+            Valid
+        {% elif validation_passed is false %}
+            Invalid
+        {% else %}
+            Pending
+        {% endif %}
+    </span>
+
+    <!-- Tooltip with Validation Details -->
+    {% if details and details|length > 0 %}
+        <div x-show="showTooltip"
+             x-transition:enter="transition ease-out duration-200"
+             x-transition:enter-start="opacity-0 transform scale-95"
+             x-transition:enter-end="opacity-100 transform scale-100"
+             x-transition:leave="transition ease-in duration-150"
+             x-transition:leave-start="opacity-100 transform scale-100"
+             x-transition:leave-end="opacity-0 transform scale-95"
+             class="absolute z-10 w-64 px-3 py-2 text-sm text-white bg-gray-900 dark:bg-gray-700 rounded-lg shadow-lg -top-2 left-full ml-2">
+
+            <!-- Tooltip Arrow -->
+            <div class="absolute top-2 -left-1 w-2 h-2 bg-gray-900 dark:bg-gray-700 rotate-45"></div>
+
+            <!-- Validation Details List -->
+            <div class="space-y-1">
+                <div class="font-medium mb-2">Validation Details:</div>
+                {% for detail in details %}
+                    <div class="flex items-start text-xs">
+                        <div class="flex-shrink-0 mt-0.5">
+                            {% if detail.passed %}
+                                <svg class="w-3 h-3 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                </svg>
+                            {% else %}
+                                <svg class="w-3 h-3 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                </svg>
+                            {% endif %}
+                        </div>
+                        <span class="ml-1 flex-1">{{ detail.description or 'Validation check' }}</span>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    {% endif %}
+</div>
+
+<!-- Enhanced Validation Badge Styles -->
+<style>
+/* Validation badge animations */
+.validation-pulse {
+    animation: validation-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes validation-pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: .7;
+    }
+}
+
+/* Success animation */
+.validation-success {
+    animation: validation-success 0.6s ease-in-out;
+}
+
+@keyframes validation-success {
+    0% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.1);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+/* Failure shake animation */
+.validation-failure {
+    animation: validation-shake 0.6s ease-in-out;
+}
+
+@keyframes validation-shake {
+    0%, 20%, 50%, 80%, 100% {
+        transform: translateX(0);
+    }
+    10% {
+        transform: translateX(-2px);
+    }
+    30% {
+        transform: translateX(2px);
+    }
+    60% {
+        transform: translateX(-1px);
+    }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    .bg-green-100 { background-color: #dcfce7; border: 1px solid #22c55e; }
+    .text-green-800 { color: #15803d; }
+    .bg-red-100 { background-color: #fee2e2; border: 1px solid #ef4444; }
+    .text-red-800 { color: #dc2626; }
+    .bg-gray-100 { background-color: #f3f4f6; border: 1px solid #6b7280; }
+    .text-gray-800 { color: #374151; }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    .validation-pulse,
+    .validation-success,
+    .validation-failure {
+        animation: none;
+    }
+}
+
+/* Focus states for accessibility */
+.validation-badge:focus {
+    outline: 2px solid #4F46E5;
+    outline-offset: 2px;
+}
+
+/* Interactive validation badges */
+.validation-badge-interactive:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s ease;
+}
+
+/* Tooltip positioning helpers */
+.tooltip-top {
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: 8px;
+}
+
+.tooltip-bottom {
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-top: 8px;
+}
+
+.tooltip-left {
+    right: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-right: 8px;
+}
+
+.tooltip-right {
+    left: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-left: 8px;
+}
+</style>

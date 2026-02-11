@@ -1,0 +1,135 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║  AGENT SPIKE: Task Tool Feasibility Test                                    ║
+# ║                                                                              ║
+# ║  Tests whether Claude Code's Task tool and plugin-defined agent types       ║
+# ║  are available in -p (prompt) mode. Used to validate the integration        ║
+# ║  approach for quality-continuous.yaml before committing to it.              ║
+# ║                                                                              ║
+# ║  Expected outcomes:                                                          ║
+# ║  - Task tool works + agent type resolves → full agent integration viable    ║
+# ║  - Task tool works but agent type unknown → inline system prompts needed    ║
+# ║  - Task tool not available → fallback-only approach (still valuable)        ║
+# ║                                                                              ║
+# ║  Usage:                                                                      ║
+# ║    mozart run examples/agent-spike.yaml                                     ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+name: "agent-spike"
+description: "Feasibility test for Task tool invocations in Claude -p mode"
+
+workspace: "./.agent-spike-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  timeout_seconds: 600  # 10 min — should be quick
+
+sheet:
+  size: 1
+  total_items: 2
+
+  dependencies:
+    2: [1]
+
+prompt:
+  template: |
+    {% if stage == 1 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 1: Test Task Tool + Agent Type Resolution                            ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    This is a feasibility test. Try to invoke the Task tool with a plugin-defined
+    agent type. Report exactly what happens.
+
+    **Test 1: Task tool availability**
+
+    Try to use the Task tool with:
+    - subagent_type: "pr-review-toolkit:silent-failure-hunter"
+    - prompt: "Audit the file src/mozart/core/errors.py for silent failure
+      patterns. Find: bare except blocks, catch-and-continue, empty except
+      handlers, fallback logic that masks errors. Report each finding with
+      file path, line number, severity, and description."
+    - description: "Audit errors.py for silent failures"
+
+    **Test 2: Task tool with general agent**
+
+    If Test 1 fails (agent type not found), try:
+    - subagent_type: "general-purpose"
+    - prompt: "Read the file src/mozart/core/errors.py and identify any bare
+      except blocks, broad exception catches, or error-swallowing patterns.
+      List each finding with line number and severity."
+    - description: "General agent audit of errors.py"
+
+    **Report to stdout (CRITICAL — this is captured by cross_sheet):**
+
+    ```
+    === AGENT SPIKE RESULTS ===
+    Task tool available: yes/no
+    Plugin agent type resolved: yes/no
+    General agent type resolved: yes/no
+    Fallback needed: yes/no
+    Error messages: [any error text]
+    Agent output quality: [brief assessment]
+    === END RESULTS ===
+    ```
+
+    Also write detailed results to {{ workspace }}/spike-results.md including
+    the full agent output (or error messages if it failed).
+
+    {% elif stage == 2 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  SHEET 2: Analyze Spike Results                                              ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/spike-results.md and analyze the results.
+
+    **Determine the integration approach:**
+
+    1. If plugin agent types work → "FULL_AGENTS" approach
+       - Task tool invocations with specific subagent_types
+       - Best quality, purpose-built analysis
+
+    2. If only general-purpose agent works → "GENERAL_AGENTS" approach
+       - Task tool with general-purpose type + detailed system prompts
+       - Good quality, requires more prompt engineering
+
+    3. If Task tool not available → "FALLBACK_ONLY" approach
+       - Embed analysis methodology directly in prompts
+       - Manual grep/analysis commands as substitute
+       - Still valuable — codifies expert patterns
+
+    **Output to:** {{ workspace }}/spike-recommendation.md
+
+    Format:
+    ```markdown
+    # Agent Integration Recommendation
+
+    ## Test Results
+    | Test | Result | Notes |
+    |------|--------|-------|
+    | Task tool available | yes/no | |
+    | Plugin agent resolved | yes/no | |
+    | General agent resolved | yes/no | |
+
+    ## Recommended Approach
+    [FULL_AGENTS / GENERAL_AGENTS / FALLBACK_ONLY]
+
+    ## Rationale
+    [Why this approach, what worked, what didn't]
+
+    ## Quality Assessment
+    [How good was the agent output vs what manual analysis would produce]
+    ```
+
+    {% endif %}
+
+validations:
+  - type: file_exists
+    path: "{workspace}/spike-results.md"
+    description: "Spike results must exist"
+    condition: "stage >= 1"
+
+  - type: file_exists
+    path: "{workspace}/spike-recommendation.md"
+    description: "Recommendation must exist"
+    condition: "stage >= 2"

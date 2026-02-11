@@ -35,9 +35,21 @@ env/
 
 # Mozart artifacts - workspaces contain runtime state, never commit
 *-workspace/
-*-workspace-v*/
+*-workspace-*/
+.daemon-workspace-*/
 test-workspace-*/
 *.log
+
+# Test coverage artifacts
+.coverage
+coverage*.json
+dashboard_coverage.json
+healing_coverage.json
+htmlcov/
+
+# Investigation/debug artifacts
+investigation-results/
+debug-*.yaml
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Mozart Workspaces and Generated Content

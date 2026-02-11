@@ -1,0 +1,167 @@
+<!-- HTTP Error Component -->
+<!-- Usage: Display specific HTTP error with appropriate messaging and actions -->
+<div class="min-h-screen flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
+    <div class="max-w-md w-full space-y-8 text-center">
+        <!-- Error Icon -->
+        <div class="flex justify-center">
+            <div class="rounded-full p-4"
+                 :class="{
+                     'bg-yellow-100 dark:bg-yellow-900': status_code >= 400 && status_code < 500,
+                     'bg-red-100 dark:bg-red-900': status_code >= 500
+                 }">
+                <!-- 404 Icon -->
+                <svg x-show="status_code === 404" class="h-12 w-12 text-yellow-600 dark:text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 12h6m-6-4h6m2 5.291A7.962 7.962 0 0112 15c-2.34 0-4.47-.881-6.08-2.33l-.143.143c.17.17.34.34.515.495a10.015 10.015 0 005.708 1.77z" />
+                </svg>
+                <!-- 409 Icon -->
+                <svg x-show="status_code === 409" class="h-12 w-12 text-yellow-600 dark:text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <!-- 500 Icon -->
+                <svg x-show="status_code >= 500" class="h-12 w-12 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+                <!-- Generic 4xx Icon -->
+                <svg x-show="status_code >= 400 && status_code < 500 && status_code !== 404 && status_code !== 409" class="h-12 w-12 text-yellow-600 dark:text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+            </div>
+        </div>
+
+        <!-- Status Code Display -->
+        <div>
+            <h1 class="text-6xl font-bold text-gray-900 dark:text-white" x-text="status_code">
+                {{ status_code or '---' }}
+            </h1>
+            <h2 class="mt-2 text-3xl font-bold text-gray-900 dark:text-white" x-text="status_text">
+                {{ status_text or 'Unknown Error' }}
+            </h2>
+        </div>
+
+        <!-- Error Message -->
+        <div class="mt-8">
+            <p class="text-lg text-gray-600 dark:text-gray-400" x-text="error_message || getDefaultMessage(status_code)">
+                {{ error_message or 'An unexpected error occurred.' }}
+            </p>
+        </div>
+
+        <!-- Context-Specific Information -->
+        <div x-show="status_code === 404" class="mt-6 p-4 bg-yellow-50 dark:bg-yellow-900 rounded-lg">
+            <h3 class="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                What you can try:
+            </h3>
+            <ul class="mt-2 text-sm text-yellow-700 dark:text-yellow-300 list-disc list-inside space-y-1">
+                <li>Check if the job ID or resource path is correct</li>
+                <li>Verify that the resource hasn't been deleted</li>
+                <li>Return to the main dashboard and navigate from there</li>
+            </ul>
+        </div>
+
+        <div x-show="status_code === 409" class="mt-6 p-4 bg-yellow-50 dark:bg-yellow-900 rounded-lg">
+            <h3 class="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                Conflict Resolution:
+            </h3>
+            <ul class="mt-2 text-sm text-yellow-700 dark:text-yellow-300 list-disc list-inside space-y-1">
+                <li>Another operation may be in progress on this resource</li>
+                <li>Try waiting a moment and then retry</li>
+                <li>Check if the resource is in the expected state</li>
+                <li>Cancel conflicting operations if possible</li>
+            </ul>
+        </div>
+
+        <div x-show="status_code >= 500" class="mt-6 p-4 bg-red-50 dark:bg-red-900 rounded-lg">
+            <h3 class="text-sm font-medium text-red-800 dark:text-red-200">
+                Server Error:
+            </h3>
+            <ul class="mt-2 text-sm text-red-700 dark:text-red-300 list-disc list-inside space-y-1">
+                <li>This appears to be a temporary server issue</li>
+                <li>Please try again in a few moments</li>
+                <li>If the problem persists, contact support</li>
+            </ul>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="mt-8 space-y-3 sm:space-y-0 sm:space-x-3 sm:flex sm:justify-center">
+            <!-- Retry Button (for retryable errors) -->
+            <button x-show="isRetryable(status_code)"
+                    @click="window.location.reload()"
+                    class="w-full flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:w-auto">
+                <svg class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Try Again
+            </button>
+
+            <!-- Go Back Button -->
+            <button @click="history.back()"
+                    class="w-full flex justify-center items-center px-4 py-2 border border-gray-300 dark:border-gray-500 text-sm font-medium rounded-md text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-600 hover:bg-gray-50 dark:hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:w-auto">
+                <svg class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                </svg>
+                Go Back
+            </button>
+
+            <!-- Home Button -->
+            <a href="/"
+               class="w-full flex justify-center items-center px-4 py-2 border border-gray-300 dark:border-gray-500 text-sm font-medium rounded-md text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-600 hover:bg-gray-50 dark:hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:w-auto">
+                <svg class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                </svg>
+                Dashboard Home
+            </a>
+        </div>
+
+        <!-- Additional Help -->
+        <div class="mt-8 text-center">
+            <details class="group">
+                <summary class="cursor-pointer text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+                    Need more help?
+                </summary>
+                <div class="mt-3 text-sm text-gray-600 dark:text-gray-400 space-y-2">
+                    <p>Error ID: <code class="bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded text-xs" x-text="error_id || 'N/A'">{{ error_id or 'N/A' }}</code></p>
+                    <p>Timestamp: <code class="bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded text-xs" x-text="new Date().toISOString()"></code></p>
+                    <p class="text-xs">
+                        If this error persists, please copy the above information when reporting the issue.
+                    </p>
+                </div>
+            </details>
+        </div>
+    </div>
+</div>
+
+<script>
+// Helper functions for error handling
+function getDefaultMessage(statusCode) {
+    switch (statusCode) {
+        case 400:
+            return "The request was invalid or malformed.";
+        case 401:
+            return "Authentication is required to access this resource.";
+        case 403:
+            return "You don't have permission to access this resource.";
+        case 404:
+            return "The requested resource could not be found.";
+        case 409:
+            return "The request conflicts with the current state of the resource.";
+        case 422:
+            return "The request was well-formed but contains invalid data.";
+        case 429:
+            return "Too many requests have been sent. Please try again later.";
+        case 500:
+            return "An internal server error occurred.";
+        case 502:
+            return "The server received an invalid response from upstream.";
+        case 503:
+            return "The service is temporarily unavailable.";
+        case 504:
+            return "The server timed out waiting for a response.";
+        default:
+            return "An unexpected error occurred.";
+    }
+}
+
+function isRetryable(statusCode) {
+    // Define which status codes are safe to retry
+    return [408, 429, 500, 502, 503, 504].includes(statusCode);
+}
+</script>

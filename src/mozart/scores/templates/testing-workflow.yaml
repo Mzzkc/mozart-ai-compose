@@ -1,0 +1,136 @@
+# Testing Workflow Template
+# For comprehensive testing cycles including unit, integration, and end-to-end tests
+
+name: testing-workflow
+workspace: ./workspace
+
+backend:
+  type: claude_cli
+  model: sonnet  # Good reasoning for test planning
+
+sheet:
+  total_sheets: 4
+  timeout_seconds: 900  # 15 minutes per test phase
+
+  dependencies:
+    2: [1]  # Unit tests before integration
+    3: [2]  # Integration before E2E
+    4: [3]  # E2E before final report
+
+  template: |
+    You are conducting a comprehensive testing workflow for: {{ project_name }}
+
+    Project type: {{ project_type | default('software application') }}
+    Test scope: {{ test_scope | default('full coverage') }}
+
+    {% if sheet_num == 1 %}
+    ## PHASE 1: TEST PLANNING & UNIT TESTING
+    Your task: Plan testing strategy and implement unit tests
+
+    Project: {{ project_name }}
+    Testing framework: {{ test_framework | default('pytest') }}
+
+    Please:
+    1. Analyze codebase to understand testing requirements
+    2. Create comprehensive test plan
+    3. Implement unit tests for core functionality
+    4. Run unit tests and generate coverage report
+    5. Document results in unit-tests.md
+
+    Focus on:
+    - Critical business logic
+    - Edge cases
+    - Error handling
+    - Code coverage > 80%
+
+    {% elif sheet_num == 2 %}
+    ## PHASE 2: INTEGRATION TESTING
+    Your task: Test component interactions and API endpoints
+
+    Previous work: {{ workspace }}/unit-tests.md
+    API endpoints: {{ api_endpoints | default('auto-discover') }}
+
+    Please:
+    1. Review unit test results
+    2. Design integration test scenarios
+    3. Test component interactions
+    4. Validate API contracts
+    5. Test database interactions
+    6. Document results in integration-tests.md
+
+    Cover:
+    - Service-to-service communication
+    - Database operations
+    - External API calls
+    - Configuration handling
+
+    {% elif sheet_num == 3 %}
+    ## PHASE 3: END-TO-END TESTING
+    Your task: Test complete user workflows and system behavior
+
+    Previous work: Review integration test results
+    User scenarios: {{ user_scenarios | default('critical user journeys') }}
+
+    Please:
+    1. Design E2E test scenarios
+    2. Set up test environment
+    3. Execute complete user workflows
+    4. Test system performance under load
+    5. Validate business requirements
+    6. Document results in e2e-tests.md
+
+    Test scenarios:
+    - Happy path workflows
+    - Error recovery
+    - Performance benchmarks
+    - Security validation
+
+    {% elif sheet_num == 4 %}
+    ## PHASE 4: TEST REPORTING & QUALITY GATE
+    Your task: Generate comprehensive test report and quality assessment
+
+    Previous work: Review all test phase results
+
+    Please:
+    1. Aggregate results from all testing phases
+    2. Calculate overall quality metrics
+    3. Identify critical issues and recommendations
+    4. Generate executive summary for stakeholders
+    5. Create final report in test-summary.md
+
+    Final report should include:
+    - Test coverage statistics
+    - Pass/fail rates by category
+    - Performance benchmarks
+    - Critical issues requiring attention
+    - Quality gate decision (pass/fail)
+    - Recommendations for production readiness
+    {% endif %}
+
+validations:
+  - name: test_documentation
+    type: file_exists
+    path: "{{ workspace }}/{{ ['unit-tests', 'integration-tests', 'e2e-tests', 'test-summary'][sheet_num-1] }}.md"
+    description: "Test phase {{ sheet_num }} documented"
+
+  - name: test_results_included
+    type: file_regex
+    path: "{{ workspace }}/{{ ['unit-tests', 'integration-tests', 'e2e-tests', 'test-summary'][sheet_num-1] }}.md"
+    pattern: "(pass|fail|coverage|results)"
+    description: "Test results metrics included"
+
+  - name: quality_gate_final
+    type: file_regex
+    path: "{{ workspace }}/test-summary.md"
+    pattern: "(PASS|FAIL|quality gate|production ready)"
+    description: "Quality gate decision documented"
+    only_sheets: [4]
+
+notifications:
+  - type: webhook
+    url: "{{ notification_url | default('https://httpbin.org/post') }}"
+    on: [sheet_completed, failed]
+    template: |
+      Testing {{ project_name }} - Phase {{ sheet_num }} {{ status }}
+      {% if sheet_num == 1 %}🧪 Unit Testing{% elif sheet_num == 2 %}🔄 Integration Testing{% elif sheet_num == 3 %}🎯 E2E Testing{% elif sheet_num == 4 %}📊 Final Report{% endif %} {{ status }}
+      {% if status == "completed" %}✅{% else %}❌{% endif %}

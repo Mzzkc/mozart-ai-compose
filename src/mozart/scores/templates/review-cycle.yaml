@@ -1,0 +1,88 @@
+# Review Cycle Template
+# For iterative review and improvement workflows
+
+name: review-cycle
+workspace: ./workspace
+
+backend:
+  type: claude_cli
+  model: sonnet  # Good balance for review tasks
+
+sheet:
+  total_sheets: 3
+  timeout_seconds: 900  # 15 minutes for thorough reviews
+
+  template: |
+    You are conducting a systematic review cycle for: {{ subject }}
+
+    {% if sheet_num == 1 %}
+    ## INITIAL REVIEW
+    Your task: Conduct initial analysis and identify areas for improvement
+
+    Subject: {{ subject }}
+    Focus areas: {{ focus_areas | default('all aspects') }}
+
+    Please:
+    1. Thoroughly analyze the subject
+    2. Identify strengths and weaknesses
+    3. Create a prioritized improvement list
+    4. Document findings in review-initial.md
+
+    Be detailed and specific in your analysis.
+
+    {% elif sheet_num == 2 %}
+    ## IMPROVEMENT IMPLEMENTATION
+    Your task: Address the highest priority improvements identified in the initial review
+
+    Previous review: {{ workspace }}/review-initial.md
+
+    Please:
+    1. Review the initial findings
+    2. Implement the top priority improvements
+    3. Document changes made
+    4. Note any new issues discovered
+    5. Save work in improvements.md
+
+    Focus on the most impactful changes first.
+
+    {% elif sheet_num == 3 %}
+    ## FINAL REVIEW & VALIDATION
+    Your task: Validate improvements and create final assessment
+
+    Previous work:
+    - Initial review: {{ workspace }}/review-initial.md
+    - Improvements: {{ workspace }}/improvements.md
+
+    Please:
+    1. Review all changes made
+    2. Validate improvements were successful
+    3. Identify any remaining issues
+    4. Create final quality assessment
+    5. Document final status in review-final.md
+
+    Provide clear before/after comparison and recommendations for next steps.
+    {% endif %}
+
+validations:
+  - name: review_documentation
+    type: file_exists
+    path: "{{ workspace }}/review-{{ ['initial', 'improvements', 'final'][sheet_num-1] }}.md"
+    description: "Review phase {{ sheet_num }} documented"
+
+  - name: improvement_tracking
+    type: file_exists
+    path: "{{ workspace }}/improvements.md"
+    description: "Improvements tracked"
+    only_sheets: [2, 3]
+
+notifications:
+  - type: webhook
+    url: "{{ notification_url | default('https://httpbin.org/post') }}"
+    on: [completed]
+    template: |
+      Review cycle for "{{ subject }}" completed! 📝
+
+      Results available in:
+      - Initial review: {{ workspace }}/review-initial.md
+      - Improvements: {{ workspace }}/improvements.md
+      - Final assessment: {{ workspace }}/review-final.md

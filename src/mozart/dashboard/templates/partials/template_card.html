@@ -1,0 +1,107 @@
+<!-- Template Card Component -->
+<div class="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow duration-200">
+    <!-- Template Header -->
+    <div class="px-4 py-5 sm:p-6">
+        <div class="flex items-start justify-between">
+            <div class="flex-1">
+                <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">
+                    {{ template.title }}
+                </h3>
+                <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                    {{ template.description }}
+                </p>
+            </div>
+            <div class="ml-3 flex-shrink-0">
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                    {% if template.complexity == 'simple' %}bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200
+                    {% elif template.complexity == 'medium' %}bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200
+                    {% else %}bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200{% endif %}">
+                    {{ template.complexity.title() }}
+                </span>
+            </div>
+        </div>
+
+        <!-- Template Metadata -->
+        <div class="mt-4 flex items-center space-x-4 text-sm text-gray-500 dark:text-gray-400">
+            <div class="flex items-center">
+                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                {{ template.sheets }} sheet{{ 's' if template.sheets != 1 else '' }}
+            </div>
+            <div class="flex items-center">
+                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a.997.997 0 01-.707.293H7a4 4 0 01-4-4V7a4 4 0 014-4z"/>
+                </svg>
+                {{ template.category.title() }}
+            </div>
+            {% if template.estimated_duration %}
+            <div class="flex items-center">
+                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                ~{{ template.estimated_duration }}
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Template Features (first 3) -->
+        {% if template.features %}
+        <div class="mt-4">
+            <ul class="space-y-1 text-sm text-gray-600 dark:text-gray-400">
+                {% for feature in template.features[:3] %}
+                <li class="flex items-start">
+                    <svg class="w-4 h-4 text-green-500 mt-0.5 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                    </svg>
+                    <span>{{ feature }}</span>
+                </li>
+                {% endfor %}
+                {% if template.features|length > 3 %}
+                <li class="text-xs text-gray-500 dark:text-gray-500 ml-6">
+                    +{{ template.features|length - 3 }} more feature{{ 's' if (template.features|length - 3) != 1 else '' }}
+                </li>
+                {% endif %}
+            </ul>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Template Actions -->
+    <div class="bg-gray-50 dark:bg-gray-700 px-4 py-4 sm:px-6">
+        <div class="flex space-x-3">
+            <button type="button"
+                    onclick="window.dispatchEvent(new CustomEvent('open-template-preview', { detail: {{ template|tojson }} }))"
+                    class="flex-1 inline-flex justify-center items-center px-4 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-md text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
+                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                </svg>
+                Preview
+            </button>
+
+            <button type="button"
+                    hx-post="/api/templates/{{ template.name }}/use"
+                    hx-swap="none"
+                    hx-trigger="click"
+                    class="flex-1 inline-flex justify-center items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors">
+                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                </svg>
+                Use Template
+            </button>
+        </div>
+
+        <!-- Quick Download Link -->
+        <div class="mt-2 text-center">
+            <a href="/api/templates/{{ template.name }}/download"
+               download="{{ template.filename }}"
+               class="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors">
+                <svg class="w-3 h-3 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                Download {{ template.filename }}
+            </a>
+        </div>
+    </div>
+</div>
