@@ -5,6 +5,9 @@ Provides ``DaemonClient`` with two call patterns:
 - ``call(method, params)``: send a JSON-RPC request, await a single response.
 - ``stream(method, params)``: send a request, yield streaming notifications,
   and return the final result when the stream ends.
+
+Plus typed convenience methods (``status``, ``submit_job``, etc.) that wrap
+``call`` with Pydantic model serialization for type safety at the CLI layer.
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ from mozart.core.logging import get_logger
 from mozart.daemon.exceptions import DaemonNotRunningError
 from mozart.daemon.ipc.errors import rpc_error_to_exception
 from mozart.daemon.ipc.protocol import JsonRpcRequest
+from mozart.daemon.types import DaemonStatus, JobRequest, JobResponse
 
 _logger = get_logger("daemon.ipc.client")
 
@@ -170,6 +174,50 @@ class DaemonClient:
 
                 # Notification — yield params to caller
                 yield msg.get("params", {})
+
+    # ------------------------------------------------------------------
+    # Typed convenience methods
+    # ------------------------------------------------------------------
+
+    async def is_daemon_running(self) -> bool:
+        """Check if daemon is running by attempting a socket connection.
+
+        Unlike ``call()``, this does not send a request — it only tests
+        whether the socket accepts connections, making it safe to call
+        even before the handler loop is fully ready.
+        """
+        try:
+            _reader, writer = await asyncio.wait_for(
+                asyncio.open_unix_connection(str(self._socket_path)),
+                timeout=2.0,
+            )
+            writer.close()
+            await writer.wait_closed()
+            return True
+        except (ConnectionRefusedError, FileNotFoundError, asyncio.TimeoutError, OSError):
+            return False
+
+    async def status(self) -> DaemonStatus:
+        """Get daemon status."""
+        result = await self.call("daemon.status")
+        return DaemonStatus(**result)
+
+    async def submit_job(self, request: JobRequest) -> JobResponse:
+        """Submit a job to the daemon."""
+        result = await self.call("job.submit", request.model_dump(mode="json"))
+        return JobResponse(**result)
+
+    async def get_job_status(self, job_id: str, workspace: str) -> dict[str, Any]:
+        """Get status of a specific job."""
+        return await self.call("job.status", {"job_id": job_id, "workspace": workspace})
+
+    async def pause_job(self, job_id: str, workspace: str) -> bool:
+        """Pause a running job."""
+        return await self.call("job.pause", {"job_id": job_id, "workspace": workspace})
+
+    async def list_jobs(self) -> list[dict[str, Any]]:
+        """List all jobs known to the daemon."""
+        return await self.call("job.list")
 
 
 __all__ = ["DaemonClient"]
