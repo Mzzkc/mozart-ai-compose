@@ -8,6 +8,7 @@ from mozart.daemon.monitor import ResourceMonitor, ResourceSnapshot
 from mozart.daemon.output import ConsoleOutput, NullOutput, OutputProtocol, StructuredOutput
 from mozart.daemon.pgroup import ProcessGroupManager
 from mozart.daemon.process import DaemonProcess
+from mozart.daemon.scheduler import GlobalSheetScheduler, SchedulerStats, SheetEntry, SheetInfo
 from mozart.daemon.types import DaemonStatus, JobRequest, JobResponse
 
 __all__ = [
@@ -15,6 +16,7 @@ __all__ = [
     "DaemonConfig",
     "DaemonProcess",
     "DaemonStatus",
+    "GlobalSheetScheduler",
     "HealthChecker",
     "JobManager",
     "JobMeta",
@@ -26,5 +28,8 @@ __all__ = [
     "ProcessGroupManager",
     "ResourceMonitor",
     "ResourceSnapshot",
+    "SchedulerStats",
+    "SheetEntry",
+    "SheetInfo",
     "StructuredOutput",
 ]

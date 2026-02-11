@@ -20,6 +20,7 @@ from mozart.daemon.config import DaemonConfig
 from mozart.daemon.exceptions import JobSubmissionError
 from mozart.daemon.job_service import JobService
 from mozart.daemon.output import StructuredOutput
+from mozart.daemon.scheduler import GlobalSheetScheduler
 from mozart.daemon.types import JobRequest, JobResponse
 
 _logger = get_logger("daemon.manager")
@@ -55,6 +56,12 @@ class JobManager:
         )
         self._shutting_down = False
         self._shutdown_event = asyncio.Event()
+
+        # Phase 3: Global sheet scheduler for cross-job coordination.
+        # Routes sheet execution through priority queue with fair-share.
+        # The semaphore above gates job-level entry; the scheduler gates
+        # sheet-level concurrency across all jobs.
+        self._scheduler = GlobalSheetScheduler(config)
 
     # ─── RPC Handlers ─────────────────────────────────────────────────
 
@@ -260,10 +267,17 @@ class JobManager:
     def active_sheet_count(self) -> int:
         """Total active sheets across all jobs.
 
-        Returns running_count as a proxy — per-sheet tracking requires
-        deeper integration with JobRunner state.
+        Uses the GlobalSheetScheduler's active count when available,
+        falling back to running_count as a proxy.
         """
+        if self._scheduler.active_count > 0:
+            return self._scheduler.active_count
         return self.running_count
+
+    @property
+    def scheduler(self) -> GlobalSheetScheduler:
+        """Access the global sheet scheduler for cross-job coordination."""
+        return self._scheduler
 
     # ─── Internal ─────────────────────────────────────────────────────
 
