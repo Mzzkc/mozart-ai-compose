@@ -52,6 +52,16 @@ class TestWritePid:
         _write_pid(pid_file)
         assert int(pid_file.read_text().strip()) == os.getpid()
 
+    def test_write_pid_rejects_symlink(self, tmp_path: Path):
+        """_write_pid raises OSError when PID file is a symlink."""
+        target = tmp_path / "real.pid"
+        target.write_text("99999")
+        pid_file = tmp_path / "link.pid"
+        pid_file.symlink_to(target)
+
+        with pytest.raises(OSError, match="symlink"):
+            _write_pid(pid_file)
+
 
 class TestReadPid:
     """Tests for _read_pid()."""
@@ -312,6 +322,34 @@ class TestDaemonProcess:
         assert signal.SIGTERM in handlers_added
         assert signal.SIGINT in handlers_added
         assert signal.SIGHUP in handlers_added
+
+    @pytest.mark.asyncio
+    async def test_run_cleans_pid_file_on_crash(self):
+        """run() removes PID file even if an exception occurs mid-lifecycle."""
+        from mozart.daemon.config import DaemonConfig, SocketConfig
+
+        pid_file = Path("/tmp/test-mozartd-crash.pid")
+        config = DaemonConfig(
+            pid_file=pid_file,
+            socket=SocketConfig(path=Path("/tmp/test-mozartd-crash.sock")),
+        )
+        dp = DaemonProcess(config)
+
+        with (
+            patch.object(dp._pgroup, "setup", side_effect=RuntimeError("crash!")),
+            patch("mozart.daemon.process._write_pid") as mock_write,
+        ):
+            # _write_pid is called, then setup() raises, then finally cleans up
+            mock_write.side_effect = (
+                lambda pf: pf.parent.mkdir(parents=True, exist_ok=True)
+                or pf.write_text("12345")
+            )
+
+            with pytest.raises(RuntimeError, match="crash!"):
+                await dp.run()
+
+        # PID file should be cleaned up by the finally block
+        assert not pid_file.exists()
 
     @pytest.mark.asyncio
     async def test_register_methods_wires_rpc(self):

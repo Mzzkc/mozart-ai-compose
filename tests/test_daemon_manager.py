@@ -1,7 +1,8 @@
 """Tests for mozart.daemon.manager module.
 
 Covers JobManager submit/cancel/shutdown, concurrency limit enforcement,
-duplicate handling, and _on_task_done cleanup.
+duplicate handling, _on_task_done cleanup, pause/resume, and job history
+pruning.
 """
 
 from __future__ import annotations
@@ -467,3 +468,248 @@ class TestGetJobStatus:
         assert status["job_id"] == "job-1"
         assert status["status"] == "running"
         assert status["workspace"] == str(Path("/tmp/wa"))
+
+
+# ─── Pause Job ─────────────────────────────────────────────────────────
+
+
+class TestPauseJob:
+    """Tests for JobManager.pause_job() at the manager level."""
+
+    @pytest.mark.asyncio
+    async def test_pause_unknown_job_raises(self, manager: JobManager):
+        """pause_job raises for unknown job IDs."""
+        with pytest.raises(JobSubmissionError, match="not found"):
+            await manager.pause_job("nonexistent")
+
+    @pytest.mark.asyncio
+    async def test_pause_non_running_job_raises(self, manager: JobManager):
+        """pause_job raises when job is not in running state."""
+        manager._job_meta["job-done"] = JobMeta(
+            job_id="job-done",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/tmp/workspace"),
+            status="completed",
+        )
+
+        with pytest.raises(JobSubmissionError, match="completed"):
+            await manager.pause_job("job-done")
+
+    @pytest.mark.asyncio
+    async def test_pause_running_job_delegates_to_service(self, manager: JobManager):
+        """pause_job calls service.pause_job for running jobs."""
+        manager._job_meta["job-1"] = JobMeta(
+            job_id="job-1",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/tmp/workspace"),
+            status="running",
+        )
+        manager._service.pause_job = AsyncMock(return_value=True)
+
+        result = await manager.pause_job("job-1", workspace=Path("/tmp/workspace"))
+
+        assert result is True
+        manager._service.pause_job.assert_awaited_once_with(
+            "job-1", Path("/tmp/workspace"),
+        )
+
+    @pytest.mark.asyncio
+    async def test_pause_uses_meta_workspace_as_fallback(self, manager: JobManager):
+        """pause_job uses meta.workspace when no workspace arg is given."""
+        manager._job_meta["job-1"] = JobMeta(
+            job_id="job-1",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/tmp/meta-workspace"),
+            status="running",
+        )
+        manager._service.pause_job = AsyncMock(return_value=True)
+
+        await manager.pause_job("job-1")
+
+        manager._service.pause_job.assert_awaited_once_with(
+            "job-1", Path("/tmp/meta-workspace"),
+        )
+
+
+# ─── Resume Job ────────────────────────────────────────────────────────
+
+
+class TestResumeJob:
+    """Tests for JobManager.resume_job() at the manager level."""
+
+    @pytest.mark.asyncio
+    async def test_resume_unknown_job_raises(self, manager: JobManager):
+        """resume_job raises for unknown job IDs."""
+        with pytest.raises(JobSubmissionError, match="not found"):
+            await manager.resume_job("nonexistent")
+
+    @pytest.mark.asyncio
+    async def test_resume_creates_task_and_returns_accepted(self, manager: JobManager):
+        """resume_job creates a task and returns accepted response."""
+        manager._job_meta["job-paused"] = JobMeta(
+            job_id="job-paused",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/tmp/workspace"),
+            status="paused",
+        )
+        manager._service.resume_job = AsyncMock()
+
+        response = await manager.resume_job("job-paused")
+
+        assert response.status == "accepted"
+        assert response.job_id == "job-paused"
+        assert "job-paused" in manager._jobs
+
+        # Cleanup the spawned task
+        manager._jobs["job-paused"].cancel()
+        try:
+            await manager._jobs["job-paused"]
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    @pytest.mark.asyncio
+    async def test_resume_sets_meta_status_to_queued(self, manager: JobManager):
+        """resume_job resets meta.status to queued."""
+        manager._job_meta["job-paused"] = JobMeta(
+            job_id="job-paused",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/tmp/workspace"),
+            status="paused",
+        )
+        manager._service.resume_job = AsyncMock()
+
+        await manager.resume_job("job-paused")
+
+        assert manager._job_meta["job-paused"].status == "queued"
+
+        # Cleanup
+        manager._jobs["job-paused"].cancel()
+        try:
+            await manager._jobs["job-paused"]
+        except (asyncio.CancelledError, Exception):
+            pass
+
+
+# ─── Job History Pruning ──────────────────────────────────────────────
+
+
+class TestJobHistoryPruning:
+    """Tests for _prune_job_history() eviction logic."""
+
+    @pytest.mark.asyncio
+    async def test_prune_removes_oldest_terminal_jobs(self):
+        """When terminal jobs exceed max_job_history, oldest are evicted."""
+        config = DaemonConfig(
+            max_concurrent_jobs=2,
+            max_job_history=10,
+        )
+        mgr = JobManager(config)
+        mgr._service = MagicMock()
+
+        # Add 13 completed jobs with increasing submit times
+        for i in range(13):
+            mgr._job_meta[f"job-{i}"] = JobMeta(
+                job_id=f"job-{i}",
+                config_path=Path(f"/tmp/{i}.yaml"),
+                workspace=Path(f"/tmp/ws-{i}"),
+                status="completed",
+                submitted_at=float(i),
+            )
+
+        mgr._prune_job_history()
+
+        # Should keep only the 10 newest (job-3 through job-12)
+        assert len(mgr._job_meta) == 10
+        assert "job-0" not in mgr._job_meta
+        assert "job-1" not in mgr._job_meta
+        assert "job-2" not in mgr._job_meta
+        assert "job-3" in mgr._job_meta
+        assert "job-12" in mgr._job_meta
+
+    @pytest.mark.asyncio
+    async def test_prune_preserves_running_jobs(self):
+        """Pruning never evicts running/queued jobs."""
+        config = DaemonConfig(
+            max_concurrent_jobs=2,
+            max_job_history=10,
+        )
+        mgr = JobManager(config)
+        mgr._service = MagicMock()
+
+        # 12 completed + 2 running
+        for i in range(12):
+            mgr._job_meta[f"done-{i}"] = JobMeta(
+                job_id=f"done-{i}",
+                config_path=Path(f"/tmp/{i}.yaml"),
+                workspace=Path(f"/tmp/ws-{i}"),
+                status="completed",
+                submitted_at=float(i),
+            )
+        for i in range(2):
+            mgr._job_meta[f"run-{i}"] = JobMeta(
+                job_id=f"run-{i}",
+                config_path=Path(f"/tmp/run-{i}.yaml"),
+                workspace=Path(f"/tmp/ws-run-{i}"),
+                status="running",
+                submitted_at=float(i),
+            )
+
+        mgr._prune_job_history()
+
+        # Running jobs must be preserved (not terminal, so not pruned)
+        assert "run-0" in mgr._job_meta
+        assert "run-1" in mgr._job_meta
+        # Only 10 terminal allowed, oldest 2 (done-0, done-1) evicted
+        assert "done-0" not in mgr._job_meta
+        assert "done-1" not in mgr._job_meta
+        assert "done-2" in mgr._job_meta
+        assert "done-11" in mgr._job_meta
+
+    @pytest.mark.asyncio
+    async def test_prune_noop_when_under_limit(self, manager: JobManager):
+        """No eviction when terminal count is under max_job_history."""
+        manager._job_meta["job-1"] = JobMeta(
+            job_id="job-1",
+            config_path=Path("/tmp/a.yaml"),
+            workspace=Path("/tmp/wa"),
+            status="completed",
+        )
+
+        manager._prune_job_history()
+
+        assert "job-1" in manager._job_meta
+
+    @pytest.mark.asyncio
+    async def test_on_task_done_triggers_pruning(self):
+        """_on_task_done calls _prune_job_history after status update."""
+        config = DaemonConfig(
+            max_concurrent_jobs=2,
+            max_job_history=10,
+        )
+        mgr = JobManager(config)
+        mgr._service = MagicMock()
+
+        # Pre-fill with 11 completed jobs so pruning kicks in
+        for i in range(11):
+            mgr._job_meta[f"old-{i}"] = JobMeta(
+                job_id=f"old-{i}",
+                config_path=Path(f"/tmp/old-{i}.yaml"),
+                workspace=Path(f"/tmp/ws-old-{i}"),
+                status="completed",
+                submitted_at=float(i),
+            )
+
+        # Simulate a task-done callback (the task itself doesn't matter —
+        # the pruning is triggered by the callback)
+        async def done():
+            pass
+
+        task = asyncio.create_task(done())
+        mgr._jobs["trigger"] = task
+        await task
+        mgr._on_task_done("trigger", task)
+
+        # 11 terminal jobs, max 10 → oldest (old-0) should be evicted
+        assert "old-0" not in mgr._job_meta
+        assert "old-1" in mgr._job_meta
+        assert "old-10" in mgr._job_meta

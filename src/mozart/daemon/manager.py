@@ -7,12 +7,14 @@ routes IPC requests to JobService, and cancels all tasks on shutdown.
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import mozart
 from mozart.core.logging import get_logger
 from mozart.daemon.config import DaemonConfig
 from mozart.daemon.exceptions import JobSubmissionError
@@ -193,10 +195,8 @@ class JobManager:
 
     async def get_daemon_status(self) -> dict[str, Any]:
         """Build daemon status summary."""
-        import mozart
-
         return {
-            "pid": __import__("os").getpid(),
+            "pid": os.getpid(),
             "running_jobs": self.running_count,
             "total_sheets_active": self.active_sheet_count,
             "version": getattr(mozart, "__version__", "0.1.0"),
@@ -334,6 +334,23 @@ class JobManager:
             meta = self._job_meta.get(job_id)
             if meta and meta.status == "running":
                 meta.status = "failed"
+
+        self._prune_job_history()
+
+    def _prune_job_history(self) -> None:
+        """Evict oldest terminal jobs when history exceeds max_job_history."""
+        max_history = self._config.max_job_history
+        terminal = sorted(
+            (
+                (jid, m) for jid, m in self._job_meta.items()
+                if m.status in ("completed", "failed", "cancelled")
+            ),
+            key=lambda x: x[1].submitted_at,
+        )
+        excess = len(terminal) - max_history
+        if excess > 0:
+            for jid, _ in terminal[:excess]:
+                self._job_meta.pop(jid, None)
 
 
 __all__ = ["JobManager", "JobMeta"]

@@ -172,14 +172,22 @@ class ProcessGroupManager:
                         )
                         continue
 
-                    # Detect orphaned MCP servers (reparented to init)
+                    # Detect orphaned MCP servers (reparented away from us).
+                    # On classic Unix, reparented children get ppid=1 (init).
+                    # On systemd user instances or WSL, the reparent target
+                    # may be a user-level init with a different PID.  We check
+                    # both ppid==1 AND ppid!=our_pid to catch both cases.
                     cmdline = " ".join(child.cmdline()).lower()
-                    if "mcp" in cmdline and child.ppid() == 1:
+                    my_pid = os.getpid()
+                    child_ppid = child.ppid()
+                    is_orphan = child_ppid != my_pid and child_ppid != 0
+                    if "mcp" in cmdline and is_orphan:
                         child.terminate()
                         orphans.append(child.pid)
                         _logger.warning(
                             "pgroup.killed_orphan_mcp",
                             pid=child.pid,
+                            ppid=child_ppid,
                             cmdline_snippet=cmdline[:120],
                         )
 

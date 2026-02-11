@@ -8,6 +8,7 @@ for starting, stopping, and checking daemon status.
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import os
 import signal
 import sys
@@ -39,11 +40,24 @@ def start(
     config = _load_config(config_file)
     config.log_level = log_level
 
-    # Check if already running
+    # Check if already running (PID alive check + advisory lock probe)
     pid = _read_pid(config.pid_file)
     if pid is not None and _pid_alive(pid):
         typer.echo(f"mozartd is already running (PID {pid})")
         raise typer.Exit(1)
+
+    # Detect concurrent start race via advisory lock
+    if config.pid_file.exists() and not config.pid_file.is_symlink():
+        try:
+            probe_fd = os.open(str(config.pid_file), os.O_RDONLY)
+            try:
+                fcntl.flock(probe_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(probe_fd, fcntl.LOCK_UN)
+            finally:
+                os.close(probe_fd)
+        except OSError:
+            typer.echo("mozartd is starting up (PID file locked)")
+            raise typer.Exit(1) from None
 
     # Configure logging
     from mozart.core.logging import configure_logging
@@ -108,7 +122,13 @@ def status(
 
     client = DaemonClient(socket_path)
 
-    async def _get_health() -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
+    HealthResult = tuple[
+        dict[str, Any] | None,
+        dict[str, Any] | None,
+        dict[str, Any] | None,
+    ]
+
+    async def _get_health() -> HealthResult:
         health = None
         ready = None
         daemon_info = None
@@ -172,81 +192,84 @@ class DaemonProcess:
         # 1. Write PID file
         _write_pid(self._config.pid_file)
 
-        # 2. Set up process group (fixes issue #38 — orphan prevention)
-        self._pgroup.setup()
+        try:
+            # 2. Set up process group (fixes issue #38 — orphan prevention)
+            self._pgroup.setup()
 
-        # 3. Create components
-        from mozart.daemon.ipc.handler import RequestHandler
-        from mozart.daemon.ipc.server import DaemonServer
-        from mozart.daemon.manager import JobManager
-        from mozart.daemon.monitor import ResourceMonitor
+            # 3. Create components
+            from mozart.daemon.ipc.handler import RequestHandler
+            from mozart.daemon.ipc.server import DaemonServer
+            from mozart.daemon.manager import JobManager
+            from mozart.daemon.monitor import ResourceMonitor
 
-        manager = JobManager(self._config)
-        monitor = ResourceMonitor(
-            self._config.resource_limits, manager, pgroup=self._pgroup,
-        )
-        handler = RequestHandler()
+            manager = JobManager(self._config)
+            monitor = ResourceMonitor(
+                self._config.resource_limits, manager, pgroup=self._pgroup,
+            )
+            handler = RequestHandler()
 
-        # 4. Create health checker
-        from mozart.daemon.health import HealthChecker
+            # 4. Create health checker
+            from mozart.daemon.health import HealthChecker
 
-        health = HealthChecker(manager, monitor, start_time=self._start_time)
+            health = HealthChecker(manager, monitor, start_time=self._start_time)
 
-        # 5. Register RPC methods (adapt JobManager to handler signature)
-        self._register_methods(handler, manager, health)
+            # 5. Register RPC methods (adapt JobManager to handler signature)
+            self._register_methods(handler, manager, health)
 
-        # 6. Start server
-        server = DaemonServer(
-            self._config.socket.path,
-            handler,
-            permissions=self._config.socket.permissions,
-            max_connections=self._config.socket.backlog,
-        )
-        await server.start()
+            # 6. Start server
+            server = DaemonServer(
+                self._config.socket.path,
+                handler,
+                permissions=self._config.socket.permissions,
+                max_connections=self._config.socket.backlog,
+            )
+            await server.start()
 
-        # 7. Install signal handlers
-        loop = asyncio.get_running_loop()
-        for sig in (signal.SIGTERM, signal.SIGINT):
+            # 7. Install signal handlers
+            loop = asyncio.get_running_loop()
+            for sig in (signal.SIGTERM, signal.SIGINT):
+                loop.add_signal_handler(
+                    sig,
+                    lambda s=sig: asyncio.create_task(
+                        self._handle_signal(s, manager, server),
+                    ),
+                )
             loop.add_signal_handler(
-                sig,
-                lambda s=sig: asyncio.create_task(
-                    self._handle_signal(s, manager, server),
-                ),
+                signal.SIGHUP,
+                lambda: asyncio.create_task(self._reload_config()),
             )
-        loop.add_signal_handler(
-            signal.SIGHUP,
-            lambda: asyncio.create_task(self._reload_config()),
-        )
 
-        # 8. Start resource monitor
-        interval = getattr(
-            self._config, "monitor_interval_seconds", 15.0,
-        )
-        await monitor.start(interval_seconds=interval)
+            # 8. Start resource monitor
+            interval = getattr(
+                self._config, "monitor_interval_seconds", 15.0,
+            )
+            await monitor.start(interval_seconds=interval)
 
-        # 9. Run until shutdown
-        _logger.info(
-            "daemon.started",
-            pid=os.getpid(),
-            socket=str(self._config.socket.path),
-        )
-        await manager.wait_for_shutdown()
-
-        # 10. Cleanup
-        await monitor.stop()
-        await server.stop()
-
-        # 11. Kill remaining children in process group (issue #38)
-        self._pgroup.kill_all_children()
-        orphans = self._pgroup.cleanup_orphans()
-        if orphans:
+            # 9. Run until shutdown
             _logger.info(
-                "daemon.shutdown_orphans_cleaned",
-                count=len(orphans),
+                "daemon.started",
+                pid=os.getpid(),
+                socket=str(self._config.socket.path),
             )
+            await manager.wait_for_shutdown()
 
-        self._config.pid_file.unlink(missing_ok=True)
-        _logger.info("daemon.stopped")
+            # 10. Cleanup
+            await monitor.stop()
+            await server.stop()
+
+            # 11. Kill remaining children in process group (issue #38)
+            self._pgroup.kill_all_children()
+            orphans = self._pgroup.cleanup_orphans()
+            if orphans:
+                _logger.info(
+                    "daemon.shutdown_orphans_cleaned",
+                    count=len(orphans),
+                )
+
+            _logger.info("daemon.stopped")
+        finally:
+            # Always remove PID file, even on crash
+            self._config.pid_file.unlink(missing_ok=True)
 
     def _register_methods(
         self,
@@ -350,11 +373,30 @@ def _load_config(config_file: Path | None) -> DaemonConfig:
 
 
 def _write_pid(pid_file: Path) -> None:
-    """Write current PID to file atomically."""
+    """Write current PID to file atomically with advisory lock.
+
+    Uses fcntl.flock() to prevent TOCTOU races when two ``mozartd start``
+    invocations run concurrently.  Also rejects symlinks to avoid a local
+    attacker redirecting the write to an arbitrary file.
+    """
     pid_file.parent.mkdir(parents=True, exist_ok=True)
+
+    # Reject symlinks (parity with socket symlink check in DaemonServer)
+    if pid_file.is_symlink():
+        raise OSError(f"PID file is a symlink (possible attack): {pid_file}")
+
     tmp = pid_file.with_suffix(".tmp")
     tmp.write_text(str(os.getpid()))
     tmp.rename(pid_file)
+
+    # Advisory lock — held for daemon lifetime (released on fd close / exit)
+    try:
+        fd = os.open(str(pid_file), os.O_RDONLY)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # Store fd so the lock persists until the process exits
+        _write_pid._lock_fd = fd  # type: ignore[attr-defined]
+    except OSError:
+        _logger.debug("pid_file.lock_failed", pid_file=str(pid_file))
 
 
 def _read_pid(pid_file: Path) -> int | None:

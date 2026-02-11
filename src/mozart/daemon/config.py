@@ -123,6 +123,12 @@ class DaemonConfig(BaseModel):
         ge=5.0,
         description="Interval between resource monitor checks",
     )
+    max_job_history: int = Field(
+        default=1000,
+        ge=10,
+        description="Maximum completed/failed/cancelled jobs to keep in memory. "
+        "Oldest terminal jobs are evicted when the limit is reached.",
+    )
     config_file: Path | None = Field(
         default=None,
         description="Path to daemon config file for SIGHUP reloading",
