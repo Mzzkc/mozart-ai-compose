@@ -46,24 +46,24 @@ class LearningHub:
     def __init__(self, db_path: Path | None = None) -> None:
         self._db_path = db_path or DEFAULT_GLOBAL_STORE_PATH
         self._store: GlobalLearningStore | None = None
-        self._persist_interval = 60.0  # Persist every 60 seconds
-        self._persist_task: asyncio.Task[None] | None = None
+        self._heartbeat_interval = 60.0  # Persist every 60 seconds
+        self._heartbeat_task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
         """Initialize store and start persistence loop."""
         self._store = GlobalLearningStore(self._db_path)
-        self._persist_task = asyncio.create_task(self._persist_loop())
+        self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
         _logger.info("learning_hub.started", db_path=str(self._db_path))
 
     async def stop(self) -> None:
         """Persist final state and stop."""
-        if self._persist_task:
-            self._persist_task.cancel()
+        if self._heartbeat_task:
+            self._heartbeat_task.cancel()
             try:
-                await self._persist_task
+                await self._heartbeat_task
             except asyncio.CancelledError:
                 pass
-            self._persist_task = None
+            self._heartbeat_task = None
         if self._store:
             # Final persist — the store commits on each _get_connection()
             # exit, so no explicit flush is needed, but we log for
@@ -89,7 +89,7 @@ class LearningHub:
         """Whether the hub has been started and has an active store."""
         return self._store is not None
 
-    async def _persist_loop(self) -> None:
+    async def _heartbeat_loop(self) -> None:
         """Periodically persist learning state.
 
         The GlobalLearningStore commits per-operation, so this loop
@@ -98,7 +98,7 @@ class LearningHub:
         """
         while True:
             try:
-                await asyncio.sleep(self._persist_interval)
+                await asyncio.sleep(self._heartbeat_interval)
                 _logger.debug("learning_hub.persist_heartbeat")
             except asyncio.CancelledError:
                 break

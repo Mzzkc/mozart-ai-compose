@@ -9,6 +9,7 @@ Extracted from global_store.py as part of the modularization effort.
 Mixins inherit from this base to add domain-specific functionality.
 """
 
+import contextvars
 import hashlib
 import sqlite3
 from collections.abc import Generator
@@ -137,7 +138,12 @@ class GlobalLearningStoreBase:
         """
         self.db_path = db_path or DEFAULT_GLOBAL_STORE_PATH
         self._logger = _logger
-        self._batch_conn: sqlite3.Connection | None = None
+        # ContextVar scopes the batch connection per-asyncio-task, preventing
+        # a race where Task A's batch_connection() leaks into Task B's
+        # _get_connection() calls.  Each task sees its own (or no) batch conn.
+        self._batch_conn: contextvars.ContextVar[sqlite3.Connection | None] = (
+            contextvars.ContextVar("_batch_conn", default=None)
+        )
         self._ensure_db_exists()
         self._migrate_if_needed()
 
@@ -164,9 +170,10 @@ class GlobalLearningStoreBase:
         Raises:
             sqlite3.Error: If connection or configuration fails.
         """
-        # Reuse batch connection if available
-        if self._batch_conn is not None:
-            yield self._batch_conn
+        # Reuse batch connection if available (scoped per asyncio task)
+        batch = self._batch_conn.get()
+        if batch is not None:
+            yield batch
             return
 
         conn = sqlite3.connect(str(self.db_path), timeout=30.0)
@@ -209,7 +216,7 @@ class GlobalLearningStoreBase:
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute("PRAGMA busy_timeout=30000")
         conn.row_factory = sqlite3.Row
-        self._batch_conn = conn
+        token = self._batch_conn.set(conn)
         try:
             yield conn
             conn.commit()
@@ -220,7 +227,7 @@ class GlobalLearningStoreBase:
             )
             raise
         finally:
-            self._batch_conn = None
+            self._batch_conn.reset(token)
             conn.close()
 
     def close(self) -> None:

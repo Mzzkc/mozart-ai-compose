@@ -49,26 +49,26 @@ class TestLifecycle:
             await hub.stop()
 
     @pytest.mark.asyncio
-    async def test_start_creates_persist_task(self, hub: LearningHub):
+    async def test_start_creates_heartbeat_task(self, hub: LearningHub):
         """start() creates a background persistence task."""
         await hub.start()
         try:
-            assert hub._persist_task is not None
-            assert not hub._persist_task.done()
+            assert hub._heartbeat_task is not None
+            assert not hub._heartbeat_task.done()
         finally:
             await hub.stop()
 
     @pytest.mark.asyncio
-    async def test_stop_cancels_persist_task(self, hub: LearningHub):
+    async def test_stop_cancels_heartbeat_task(self, hub: LearningHub):
         """stop() cancels the persistence task cleanly."""
         await hub.start()
-        task = hub._persist_task
+        task = hub._heartbeat_task
         assert task is not None
 
         await hub.stop()
 
         assert task.cancelled() or task.done()
-        assert hub._persist_task is None
+        assert hub._heartbeat_task is None
         assert hub._store is None
 
     @pytest.mark.asyncio
@@ -138,23 +138,23 @@ class TestPersistenceLoop:
     """Tests for the periodic persistence loop."""
 
     @pytest.mark.asyncio
-    async def test_persist_interval_default(self, hub: LearningHub):
+    async def test_heartbeat_interval_default(self, hub: LearningHub):
         """Default persist interval is 60 seconds."""
-        assert hub._persist_interval == 60.0
+        assert hub._heartbeat_interval == 60.0
 
     @pytest.mark.asyncio
     async def test_persist_loop_runs_periodically(self, db_path: Path):
         """Persistence loop sleeps for the configured interval."""
         hub = LearningHub(db_path=db_path)
-        hub._persist_interval = 0.05  # 50ms for fast testing
+        hub._heartbeat_interval = 0.05  # 50ms for fast testing
 
         await hub.start()
         try:
             # Let the loop run a couple of cycles
             await asyncio.sleep(0.15)
             # If the loop crashed, the task would be done with an exception
-            assert hub._persist_task is not None
-            assert not hub._persist_task.done()
+            assert hub._heartbeat_task is not None
+            assert not hub._heartbeat_task.done()
         finally:
             await hub.stop()
 
@@ -162,10 +162,10 @@ class TestPersistenceLoop:
     async def test_persist_loop_handles_cancellation(self, db_path: Path):
         """Persistence loop exits cleanly on CancelledError."""
         hub = LearningHub(db_path=db_path)
-        hub._persist_interval = 0.01
+        hub._heartbeat_interval = 0.01
 
         await hub.start()
-        task = hub._persist_task
+        task = hub._heartbeat_task
         assert task is not None
 
         # Let it run briefly, then stop (which cancels)
@@ -223,14 +223,14 @@ class TestEdgeCases:
     """Edge cases and boundary conditions."""
 
     @pytest.mark.asyncio
-    async def test_hub_with_custom_persist_interval(self, db_path: Path):
+    async def test_hub_with_custom_heartbeat_interval(self, db_path: Path):
         """Custom persist interval is respected."""
         hub = LearningHub(db_path=db_path)
-        hub._persist_interval = 0.02
+        hub._heartbeat_interval = 0.02
 
         await hub.start()
         try:
-            assert hub._persist_interval == 0.02
+            assert hub._heartbeat_interval == 0.02
         finally:
             await hub.stop()
 
@@ -244,3 +244,127 @@ class TestEdgeCases:
 
         await hub.stop()
         assert hub.is_running is False
+
+
+# ─── Concurrent Access ──────────────────────────────────────────────
+
+
+class TestConcurrentAccess:
+    """Tests verifying concurrent async tasks safely share the store."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_writes_through_shared_store(self, db_path: Path):
+        """Multiple async tasks can write patterns concurrently."""
+        hub = LearningHub(db_path=db_path)
+        await hub.start()
+
+        try:
+            store = hub.store
+
+            async def writer(job_id: str, count: int) -> None:
+                for i in range(count):
+                    store.record_pattern(
+                        pattern_type="test",
+                        pattern_name=f"{job_id}-pattern-{i}",
+                        description=f"Pattern from {job_id}",
+                    )
+                    # Yield to event loop to enable interleaving
+                    await asyncio.sleep(0)
+
+            await asyncio.gather(
+                writer("job-a", 20),
+                writer("job-b", 20),
+                writer("job-c", 20),
+            )
+
+            patterns = store.get_patterns(min_priority=0.0, limit=100)
+            assert len(patterns) == 60
+        finally:
+            await hub.stop()
+
+    @pytest.mark.asyncio
+    async def test_concurrent_reads_and_writes(self, db_path: Path):
+        """Reads and writes can be interleaved across async tasks."""
+        hub = LearningHub(db_path=db_path)
+        await hub.start()
+
+        try:
+            store = hub.store
+
+            # Seed some patterns first
+            for i in range(5):
+                store.record_pattern(
+                    pattern_type="seed",
+                    pattern_name=f"seed-{i}",
+                )
+
+            read_counts: list[int] = []
+
+            async def reader() -> None:
+                for _ in range(10):
+                    patterns = store.get_patterns(min_priority=0.0, limit=100)
+                    read_counts.append(len(patterns))
+                    await asyncio.sleep(0)
+
+            async def writer() -> None:
+                for i in range(10):
+                    store.record_pattern(
+                        pattern_type="concurrent",
+                        pattern_name=f"new-{i}",
+                    )
+                    await asyncio.sleep(0)
+
+            await asyncio.gather(reader(), writer())
+
+            # Reads should never see fewer than the seed count
+            assert all(c >= 5 for c in read_counts)
+            # Final count should include all patterns
+            final = store.get_patterns(min_priority=0.0, limit=100)
+            assert len(final) == 15  # 5 seed + 10 new
+        finally:
+            await hub.stop()
+
+    @pytest.mark.asyncio
+    async def test_batch_connection_isolated_per_task(self, db_path: Path):
+        """batch_connection() in one task doesn't leak to another.
+
+        Verifies that the ContextVar-based _batch_conn is scoped per
+        asyncio task: a task running inside batch_connection() sees the
+        batch conn, while a concurrent task sees None.
+        """
+        hub = LearningHub(db_path=db_path)
+        await hub.start()
+
+        try:
+            store = hub.store
+            batch_seen_by_task_a = False
+            batch_seen_by_task_b = False
+            task_b_ready = asyncio.Event()
+            task_b_checked = asyncio.Event()
+
+            async def batch_task() -> None:
+                nonlocal batch_seen_by_task_a
+                with store.batch_connection():
+                    # Inside batch: our task should see the batch conn
+                    batch_seen_by_task_a = store._batch_conn.get() is not None
+                    # Signal task B to check its own view
+                    task_b_ready.set()
+                    # Wait for task B to check before exiting batch
+                    await task_b_checked.wait()
+
+            async def check_task() -> None:
+                nonlocal batch_seen_by_task_b
+                # Wait until task A is inside batch_connection
+                await task_b_ready.wait()
+                # This task should NOT see task A's batch connection
+                batch_seen_by_task_b = store._batch_conn.get() is not None
+                task_b_checked.set()
+
+            await asyncio.gather(batch_task(), check_task())
+
+            # Task A (batch holder) should see the batch connection
+            assert batch_seen_by_task_a is True
+            # Task B should NOT see task A's batch connection
+            assert batch_seen_by_task_b is False
+        finally:
+            await hub.stop()

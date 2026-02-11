@@ -129,6 +129,7 @@ class TestConcurrencyLimit:
     async def test_concurrency_limits_parallel_execution(self, daemon_config: DaemonConfig):
         """Only max_concurrent_jobs tasks can run simultaneously."""
         mgr = JobManager(daemon_config)
+        mgr._service = MagicMock()
 
         # Track concurrent execution count
         max_concurrent = 0

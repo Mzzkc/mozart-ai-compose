@@ -56,6 +56,10 @@ class SheetInfo:
     job_id: str
     sheet_num: int
     backend_type: str = "claude_cli"
+    # Expected range 0-100 (relative units).  The priority formula applies
+    # a 0.1× weight, so a cost of 100 adds +10 priority — comparable to
+    # one priority tier.  Values >1000 may overwhelm the base priority
+    # range (10-100), causing cost to dominate scheduling order.
     estimated_cost: float = 0.0
     dag_depth: int = 0
     job_priority: int = 5  # 1=highest, 10=lowest; default 5

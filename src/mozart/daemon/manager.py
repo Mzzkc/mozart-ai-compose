@@ -58,7 +58,8 @@ class JobManager:
         # discoveries in Job A are instantly available to Job B.
         self._learning_hub = LearningHub()
 
-        self._service = JobService(output=StructuredOutput())
+        # Deferred to start() where the learning hub's store is available.
+        self._service: JobService | None = None
         self._jobs: dict[str, asyncio.Task[Any]] = {}
         self._job_meta: dict[str, JobMeta] = {}
         self._concurrency_semaphore = asyncio.Semaphore(
@@ -94,12 +95,19 @@ class JobManager:
     async def start(self) -> None:
         """Start daemon subsystems (learning hub, monitor, etc.)."""
         await self._learning_hub.start()
-        # Wire the shared store into the service so every job uses it
+        # Create service with shared store now that the hub is initialized
         self._service = JobService(
             output=StructuredOutput(),
             global_learning_store=self._learning_hub.store,
         )
         _logger.info("manager.started")
+
+    @property
+    def _svc(self) -> JobService:
+        """Get the job service, raising if not yet started."""
+        if self._service is None:
+            raise RuntimeError("JobManager not started — call start() first")
+        return self._service
 
     # ─── RPC Handlers ─────────────────────────────────────────────────
 
@@ -174,7 +182,7 @@ class JobManager:
 
         # If running, try to get deeper status from state backend
         if meta.status == "running" and workspace:
-            state = await self._service.get_status(meta.job_id, workspace)
+            state = await self._svc.get_status(meta.job_id, workspace)
             if state:
                 result["current_sheet"] = state.current_sheet
                 result["total_sheets"] = state.total_sheets
@@ -193,7 +201,7 @@ class JobManager:
             )
 
         ws = workspace or meta.workspace
-        return await self._service.pause_job(meta.job_id, ws)
+        return await self._svc.pause_job(meta.job_id, ws)
 
     async def resume_job(self, job_id: str, workspace: Path | None = None) -> JobResponse:
         """Resume a paused job by creating a new task."""
@@ -363,7 +371,7 @@ class JobManager:
                         update={"workspace": request.workspace},
                     )
 
-                await self._service.start_job(
+                await self._svc.start_job(
                     config,
                     fresh=request.fresh,
                     self_healing=request.self_healing,
@@ -391,7 +399,7 @@ class JobManager:
             _logger.info("job.resuming", job_id=job_id)
 
             try:
-                await self._service.resume_job(job_id, workspace)
+                await self._svc.resume_job(job_id, workspace)
                 meta.status = "completed"
                 _logger.info("job.completed", job_id=job_id)
 
