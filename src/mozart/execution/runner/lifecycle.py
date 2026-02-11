@@ -33,7 +33,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from mozart.execution.parallel import ParallelBatchResult
+    from mozart.backends.base import Backend
+    from mozart.core.config import JobConfig
+    from mozart.core.logging import MozartLogger
+    from mozart.execution.dag import DependencyDAG
+    from mozart.execution.parallel import ParallelBatchResult, ParallelExecutor
+    from mozart.learning.global_store import GlobalLearningStore
+    from mozart.state.base import StateBackend
+
+    from .models import RunSummary as _RunSummary
 
 from mozart.core.checkpoint import CheckpointState, JobStatus, SheetStatus
 from mozart.core.logging import ExecutionContext
@@ -74,6 +82,44 @@ class LifecycleMixin:
         - _cleanup_isolation(): from IsolationMixin
         - _execute_sheet_with_recovery(): from SheetMixin
     """
+
+    # Type declarations for attributes from JobRunnerBase
+    if TYPE_CHECKING:
+        config: JobConfig
+        backend: Backend
+        state_backend: StateBackend
+        console: Any  # rich.console.Console
+        _logger: MozartLogger
+        _parallel_executor: ParallelExecutor | None
+        _dependency_dag: DependencyDAG | None
+        _global_learning_store: GlobalLearningStore | None
+        _summary: _RunSummary | None
+        _run_start_time: float
+        _current_state: CheckpointState | None
+        _sheet_times: list[float]
+        _execution_context: ExecutionContext | None
+        _shutdown_requested: bool
+
+        # Methods from JobRunnerBase
+        def _install_signal_handlers(self) -> None: ...
+        def _remove_signal_handlers(self) -> None: ...
+        async def _handle_graceful_shutdown(self, state: CheckpointState) -> None: ...
+        def _check_pause_signal(self, state: CheckpointState) -> bool: ...
+        def _clear_pause_signal(self, state: CheckpointState) -> None: ...
+        async def _handle_pause_request(
+            self, state: CheckpointState, current_sheet: int
+        ) -> None: ...
+        def _update_progress(self, state: CheckpointState) -> None: ...
+        async def _interruptible_sleep(self, seconds: float) -> None: ...
+
+        # Methods from IsolationMixin
+        async def _setup_isolation(self, state: CheckpointState) -> Path | None: ...
+        async def _cleanup_isolation(self, state: CheckpointState) -> None: ...
+
+        # Methods from SheetExecutionMixin
+        async def _execute_sheet_with_recovery(
+            self, state: CheckpointState, sheet_num: int
+        ) -> None: ...
 
     async def run(
         self,
@@ -164,18 +210,20 @@ class LifecycleMixin:
 
             # Finalize summary
             self._finalize_summary(state)
+            summary = self._summary
+            assert summary is not None  # set on line 114
 
             # Log job completion with summary
             self._logger.info(
                 "job.completed",
                 job_id=state.job_id,
                 status=state.status.value,
-                duration_seconds=round(self._summary.total_duration_seconds, 2),
-                completed_sheets=self._summary.completed_sheets,
-                failed_sheets=self._summary.failed_sheets,
-                success_rate=round(self._summary.success_rate, 1),
-                validation_pass_rate=round(self._summary.validation_pass_rate, 1),
-                total_retries=self._summary.total_retries,
+                duration_seconds=round(summary.total_duration_seconds, 2),
+                completed_sheets=summary.completed_sheets,
+                failed_sheets=summary.failed_sheets,
+                success_rate=round(summary.success_rate, 1),
+                validation_pass_rate=round(summary.validation_pass_rate, 1),
+                total_retries=summary.total_retries,
             )
 
             # Execute post-success hooks if job completed successfully.
@@ -193,7 +241,7 @@ class LifecycleMixin:
                         reason="Job was already completed when loaded — no new sheets executed",
                     )
 
-            return state, self._summary
+            return state, summary
         finally:
             # Each cleanup step is independently protected so that a failure
             # in one (e.g. isolation cleanup) doesn't prevent subsequent steps

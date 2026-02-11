@@ -91,6 +91,16 @@ class RecoveryMixin:
     _healing_coordinator: SelfHealingCoordinator | None
     error_classifier: ErrorClassifier
 
+    def _get_effective_model(self) -> str | None:
+        """Resolve the effective model name from backend config.
+
+        Claude CLI uses ``cli_model``, other backends use ``model``.
+        Returns None when no model is configured.
+        """
+        if self.config.backend.type == "claude_cli":
+            return self.config.backend.cli_model
+        return self.config.backend.model
+
     # ─────────────────────────────────────────────────────────────────────
     # Self-Healing Coordination
     # ─────────────────────────────────────────────────────────────────────
@@ -378,19 +388,12 @@ class RecoveryMixin:
         if not cross_ws_enabled or self._global_learning_store is None:
             return
 
-        # Use the correct model field based on backend type
-        if self.config.backend.type == "claude_cli":
-            effective_model = self.config.backend.cli_model
-        else:
-            effective_model = self.config.backend.model
-
-        # Only record if we have a specific model (otherwise other jobs
-        # can't meaningfully filter by model)
+        effective_model = self._get_effective_model()
         if effective_model is None:
             self._logger.debug(
                 "rate_limit.cross_workspace_skip_record",
                 job_id=state.job_id,
-                reason="no model specified for CLI backend",
+                reason="no model specified for backend",
             )
             return
 
@@ -661,12 +664,7 @@ class RecoveryMixin:
         if not self.config.circuit_breaker.honor_other_jobs_rate_limits:
             return False, None
 
-        # Get the effective model for this job
-        if self.config.backend.type == "claude_cli":
-            effective_model = self.config.backend.cli_model
-        else:
-            effective_model = self.config.backend.model
-
+        effective_model = self._get_effective_model()
         if effective_model is None:
             return False, None
 

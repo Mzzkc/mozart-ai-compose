@@ -161,8 +161,9 @@ class PatternQuarantineMixin:
         Returns:
             List of quarantined PatternRecord objects.
         """
-        return self.get_patterns(
+        result: list[PatternRecord] = self.get_patterns(  # type: ignore[attr-defined]
             quarantine_status=QuarantineStatus.QUARANTINED,
             min_priority=0.0,
             limit=limit,
         )
+        return result

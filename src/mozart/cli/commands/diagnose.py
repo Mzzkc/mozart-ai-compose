@@ -631,16 +631,14 @@ async def _diagnose_job(
         _attach_log_contents(report)
 
     # Add execution history count if backend supports it
+    report["execution_history_count"] = None
     if hasattr(found_backend, 'get_execution_history_count'):
         try:
-            history_count = await found_backend.get_execution_history_count(  # type: ignore[attr-defined]
+            report["execution_history_count"] = await found_backend.get_execution_history_count(
                 job_id
             )
-            report["execution_history_count"] = history_count
         except Exception:
-            report["execution_history_count"] = None
-    else:
-        report["execution_history_count"] = None
+            pass
 
     if json_output:
         # soft_wrap, highlight=False, markup=False prevent Rich from inserting
@@ -675,10 +673,16 @@ def _discover_log_files(workspace: Path | None) -> list[dict[str, Any]]:
 
     discovered: list[dict[str, Any]] = []
 
-    # Scan {workspace}/logs/ for sheet log files
-    logs_dir = workspace / "logs"
-    if logs_dir.is_dir():
-        for log_file in sorted(logs_dir.iterdir()):
+    # Scan logs/ and hooks/ subdirectories for .log files
+    scan_dirs = [
+        ("logs", "sheet_log"),
+        ("hooks", "hook_log"),
+    ]
+    for subdir, category in scan_dirs:
+        target_dir = workspace / subdir
+        if not target_dir.is_dir():
+            continue
+        for log_file in sorted(target_dir.iterdir()):
             if log_file.is_file() and log_file.suffix == ".log":
                 stat = log_file.stat()
                 discovered.append({
@@ -686,21 +690,7 @@ def _discover_log_files(workspace: Path | None) -> list[dict[str, Any]]:
                     "name": log_file.name,
                     "size_bytes": stat.st_size,
                     "modified_at": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
-                    "category": "sheet_log",
-                })
-
-    # Scan {workspace}/hooks/ for hook log files
-    hooks_dir = workspace / "hooks"
-    if hooks_dir.is_dir():
-        for hook_file in sorted(hooks_dir.iterdir()):
-            if hook_file.is_file() and hook_file.suffix == ".log":
-                stat = hook_file.stat()
-                discovered.append({
-                    "path": str(hook_file),
-                    "name": hook_file.name,
-                    "size_bytes": stat.st_size,
-                    "modified_at": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
-                    "category": "hook_log",
+                    "category": category,
                 })
 
     return discovered
@@ -756,10 +746,7 @@ def _build_diagnostic_report(
         "generated_at": datetime.now(UTC).isoformat(),
     }
 
-    # Progress summary — use last_completed_sheet as ground truth for both
-    # count and percentage (the sheets dict can contain stale records from
-    # retried sheets, inflating or deflating the count relative to actual
-    # sequential progress)
+    # Use last_completed_sheet as ground truth (sheets dict may have stale retry records)
     failed_count = sum(
         1 for sheet in job.sheets.values() if sheet.status == SheetStatus.FAILED
     )
@@ -1004,8 +991,6 @@ def _display_diagnostic_report(job: CheckpointState, report: dict[str, Any]) -> 
         console.print(f"\n[bold red]Errors ({len(errors_list)})[/bold red]")
 
         error_table = create_errors_table(title="")
-        # Remove duplicate "Sheet" column header (already in table factory)
-        # Just add rows directly
         for err in errors_list[:15]:  # Limit display
             err_type = err.get("error_type", "unknown")
             type_style = StatusColors.get_error_color(err_type)
@@ -1065,12 +1050,9 @@ def _display_diagnostic_report(job: CheckpointState, report: dict[str, Any]) -> 
         console.print(log_table)
 
         # Log rotation hint when hook logs accumulate
-        hook_log_count = sum(1 for lf in log_files if lf.get("category") == "hook_log")
-        if hook_log_count > 20:
-            console.print(
-                f"\n[yellow]Hint:[/yellow] {hook_log_count} hook log files found. "
-                "Consider cleaning up old logs to save disk space."
-            )
+        rotation_hint = report.get("log_rotation_hint")
+        if rotation_hint:
+            console.print(f"\n[yellow]Hint:[/yellow] {rotation_hint}")
 
         console.print(
             f"\n[dim]Use 'mozart diagnose {job.job_id} --include-logs' "
@@ -1170,7 +1152,7 @@ async def _history_job(
         raise typer.Exit(1)
 
     # Query execution history
-    records = await found_backend.get_execution_history(  # type: ignore[attr-defined]
+    records = await found_backend.get_execution_history(
         job_id=job_id,
         sheet_num=sheet_filter,
         limit=limit,

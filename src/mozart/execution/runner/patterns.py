@@ -42,6 +42,16 @@ from mozart.core.logging import MozartLogger
 from mozart.learning.outcomes import OutcomeStore
 
 
+def _unknown_risk(factors: list[str]) -> dict[str, Any]:
+    """Build an 'unknown' risk assessment result."""
+    return {
+        "risk_level": "unknown",
+        "confidence": 0.0,
+        "factors": factors,
+        "recommended_adjustments": [],
+    }
+
+
 @dataclass
 class PatternFeedbackContext:
     """Context for recording pattern application feedback.
@@ -132,15 +142,11 @@ class PatternsMixin:
             return [], []
 
         try:
-            # Build context tags from execution context for filtering
-            # This enables selective pattern retrieval based on current job type
-            query_context_tags = context_tags or []
-            if not query_context_tags:
-                # Auto-generate tags from job context if not provided
-                query_context_tags = [
-                    f"sheet:{sheet_num}",
-                ]
-                # Add job name as tag for similar job matching
+            # Build context tags for filtering (auto-generate if not provided)
+            if context_tags:
+                query_context_tags = context_tags
+            else:
+                query_context_tags = [f"sheet:{sheet_num}"]
                 if job_id:
                     query_context_tags.append(f"job:{job_id}")
 
@@ -180,7 +186,7 @@ class PatternsMixin:
                     trust_threshold=auto_apply_config.trust_threshold,
                     require_validated=auto_apply_config.require_validated_status,
                     limit=auto_apply_config.max_patterns_per_sheet,
-                    context_tags=query_context_tags if query_context_tags else None,
+                    context_tags=query_context_tags,
                 )
                 if auto_apply_patterns and auto_apply_config.log_applications:
                     self._logger.info(
@@ -196,7 +202,7 @@ class PatternsMixin:
             patterns = self._global_learning_store.get_patterns(
                 min_priority=min_priority,
                 limit=5,
-                context_tags=query_context_tags if query_context_tags else None,
+                context_tags=query_context_tags,
             )
 
             # Merge auto-apply patterns with regular patterns, avoiding duplicates
@@ -228,46 +234,33 @@ class PatternsMixin:
             # Format patterns for prompt injection
             descriptions: list[str] = []
             pattern_ids: list[str] = []
-
-            # Track auto-applied pattern IDs for indicators
             auto_apply_ids = {p.id for p in auto_apply_patterns} if auto_apply_patterns else set()
 
             for pattern in patterns:
-                # v22: Check if this is an auto-applied pattern
-                is_auto_applied = pattern.id in auto_apply_ids
-
-                # Categorize as exploration vs exploitation for tracking
-                if is_auto_applied:
-                    # Auto-applied patterns are a special category
-                    self._exploitation_pattern_ids.append(pattern.id)
-                    mode_indicator = "⚡"  # Auto-apply indicator
-                elif pattern.priority_score < exploitation_threshold:
-                    # This pattern would not have been selected without exploration
+                # Categorize as exploration vs exploitation for feedback tracking
+                is_exploration = (
+                    pattern.id not in auto_apply_ids
+                    and pattern.priority_score < exploitation_threshold
+                )
+                if is_exploration:
                     self._exploration_pattern_ids.append(pattern.id)
-                    mode_indicator = "🔍"  # Exploration indicator
                 else:
                     self._exploitation_pattern_ids.append(pattern.id)
-                    mode_indicator = ""
 
-                # Build description with effectiveness indicator only (no
-                # duplicate percentage — pattern.description may already
-                # contain a success rate which would contradict effectiveness_score)
-                if pattern.effectiveness_score > 0.7:
-                    effectiveness_indicator = "✓"
-                elif pattern.effectiveness_score > 0.4:
-                    effectiveness_indicator = "○"
+                # Effectiveness indicator: ✓ high, ○ moderate, ⚠ low/untested
+                score = pattern.effectiveness_score
+                if score > 0.7:
+                    indicator = "✓"
+                elif score > 0.4:
+                    indicator = "○"
                 else:
-                    effectiveness_indicator = "⚠"
+                    indicator = "⚠"
 
-                # Format: [indicator] description (occurrence count, effectiveness)
-                # Single effectiveness metric avoids contradicting the description's
-                # own success rate. Drop mode/trust indicators that are only
-                # meaningful for internal tracking, not actionable for Claude.
                 desc = (
-                    f"{effectiveness_indicator} "
+                    f"{indicator} "
                     f"{pattern.description or pattern.pattern_name} "
                     f"(seen {pattern.occurrence_count}x, "
-                    f"{pattern.effectiveness_score:.0%} effective)"
+                    f"{score:.0%} effective)"
                 )
                 descriptions.append(desc)
                 pattern_ids.append(pattern.id)
@@ -330,12 +323,7 @@ class PatternsMixin:
             - recommended_adjustments: Suggested parameter changes
         """
         if self._global_learning_store is None:
-            return {
-                "risk_level": "unknown",
-                "confidence": 0.0,
-                "factors": ["no global store available"],
-                "recommended_adjustments": [],
-            }
+            return _unknown_risk(["no global store available"])
 
         try:
             stats = self._global_learning_store.get_execution_stats()
@@ -388,12 +376,7 @@ class PatternsMixin:
                 sheet_num=sheet_num,
                 error=str(e),
             )
-            return {
-                "risk_level": "unknown",
-                "confidence": 0.0,
-                "factors": [f"integrity error: {e}"],
-                "recommended_adjustments": [],
-            }
+            return _unknown_risk([f"integrity error: {e}"])
         except (sqlite3.Error, KeyError, ValueError, OSError) as e:
             self._logger.warning(
                 "risk_assessment.failed",
@@ -401,12 +384,7 @@ class PatternsMixin:
                 sheet_num=sheet_num,
                 error=str(e),
             )
-            return {
-                "risk_level": "unknown",
-                "confidence": 0.0,
-                "factors": [f"assessment failed: {e}"],
-                "recommended_adjustments": [],
-            }
+            return _unknown_risk([f"assessment failed: {e}"])
 
     async def _record_pattern_feedback(
         self,
@@ -441,12 +419,11 @@ class PatternsMixin:
 
         for pattern_id in pattern_ids:
             try:
-                # Determine application mode based on tracking
-                # Exploration patterns were selected via epsilon-greedy below threshold
-                if pattern_id in self._exploration_pattern_ids:
-                    application_mode = "exploration"
-                else:
-                    application_mode = "exploitation"
+                application_mode = (
+                    "exploration"
+                    if pattern_id in self._exploration_pattern_ids
+                    else "exploitation"
+                )
 
                 self._global_learning_store.record_pattern_application(
                     pattern_id=pattern_id,

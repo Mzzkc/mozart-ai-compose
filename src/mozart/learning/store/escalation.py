@@ -44,7 +44,7 @@ class EscalationMixin:
     # Annotations for attributes provided by the composed class (GlobalLearningStoreBase)
     _logger: MozartLogger
     _get_connection: Callable[[], AbstractContextManager[sqlite3.Connection]]
-    hash_job: staticmethod  # GlobalLearningStoreBase.hash_job(job_name, config_hash)
+    hash_job: Callable[..., str]  # GlobalLearningStoreBase.hash_job(job_name, config_hash)
 
     def record_escalation_decision(
         self,

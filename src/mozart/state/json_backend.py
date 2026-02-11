@@ -6,6 +6,7 @@ approach in the original bash script.
 
 import json
 from pathlib import Path
+from typing import Any
 
 from mozart.core.checkpoint import CheckpointState, SheetStatus
 from mozart.core.logging import get_logger
@@ -163,7 +164,7 @@ class JsonStateBackend(StateBackend):
         just to determine sort order.
         """
         # Phase 1: Read raw JSON and extract sort key (no Pydantic overhead)
-        raw_entries: list[tuple[str, dict]] = []  # (updated_at_str, data)
+        raw_entries: list[tuple[str, dict[str, Any]]] = []  # (updated_at_str, data)
         for state_file in self.state_dir.glob("*.json"):
             if state_file.suffix == ".json" and not state_file.name.endswith(".tmp"):
                 try:

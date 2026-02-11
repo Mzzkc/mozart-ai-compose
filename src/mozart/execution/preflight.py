@@ -113,7 +113,7 @@ class PromptMetrics:
 
     def to_dict(self) -> PromptMetricsDict:
         """Convert to serializable dictionary."""
-        # type: ignore needed because mypy/pyright cannot infer a dict literal
+        # Suppress return-value: mypy/pyright cannot infer a dict literal
         # as matching a total=False TypedDict — all keys verified via schema
         return {
             "character_count": self.character_count,
@@ -122,7 +122,7 @@ class PromptMetrics:
             "word_count": self.word_count,
             "has_file_references": self.has_file_references,
             "referenced_paths": self.referenced_paths,
-        }  # type: ignore[return-value]
+        }
 
 
 @dataclass

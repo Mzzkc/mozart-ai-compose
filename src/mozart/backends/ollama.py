@@ -606,7 +606,8 @@ class OllamaBackend(HttpxClientMixin, Backend):
         code_block = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
         if code_block:
             try:
-                return json.loads(code_block.group(1))
+                result: dict[str, Any] = json.loads(code_block.group(1))
+                return result
             except json.JSONDecodeError as e:
                 _logger.debug("json_code_block_parse_failed", error=str(e))
 
@@ -614,7 +615,8 @@ class OllamaBackend(HttpxClientMixin, Backend):
         json_match = re.search(r"\{[\s\S]*\}", text)
         if json_match:
             try:
-                return json.loads(json_match.group(0))
+                parsed: dict[str, Any] = json.loads(json_match.group(0))
+                return parsed
             except json.JSONDecodeError as e:
                 _logger.debug("json_direct_parse_failed", error=str(e))
 

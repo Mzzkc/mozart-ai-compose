@@ -1,7 +1,7 @@
 # Mozart AI Compose - Status
 
-**Overall:** Self-Chaining Fix + Quality Score Update (2026-02-06)
-**Tests:** 1897+ passing (+ 15 new)
+**Overall:** Observability Gaps Closed (2026-02-10)
+**Tests:** 3384+ passing (+ 249 observability tests)
 **Vision:** Mozart + Recursive Light = Federated AGI Architecture
 **GitHub:** https://github.com/Mzzkc/mozart-ai-compose
 **Dashboard:** Production-grade web UI with job control
@@ -9,7 +9,26 @@
 
 ---
 
-## Current: Self-Chaining Workspace Collision Fix (2026-02-06)
+## Current: Observability Gaps Closed (2026-02-10)
+
+### Fix: Every Mozart failure now diagnosable
+
+Commit 0e70812 closes all major visibility gaps identified during iteration 13.
+
+**Key changes:**
+- **Detached hook logging** — Hook output now written to `{workspace}/hooks/` instead of /dev/null
+- **API backend parity** — `anthropic_api.py` now writes stdout/stderr log files like CLI backend
+- **Execution history** — Every sheet attempt recorded in SQLite with prompt, output, exit code
+- **Enhanced diagnostics** — `mozart diagnose --include-logs` inlines log contents
+- **Status visibility** — Elapsed time, hook results, circuit breaker state, cost summary
+- **Circuit breaker persistence** — State changes saved to checkpoint for post-mortem analysis
+- **Ruff lint clean** — All 85 pre-existing lint errors fixed
+
+**Issues closed:** #6 (diagnose durations), #17 (elapsed time in status)
+
+---
+
+## Previous: Self-Chaining Workspace Collision Fix (2026-02-06)
 
 ### Bug Fix: Infinite Self-Chaining Loop
 

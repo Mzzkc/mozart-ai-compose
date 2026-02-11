@@ -58,8 +58,8 @@ class ExecutionMixin:
     # Type hints for attributes provided by GlobalLearningStoreBase
     _logger: MozartLogger
     _get_connection: Callable[[], AbstractContextManager[sqlite3.Connection]]
-    hash_workspace: staticmethod  # (Path) -> str
-    hash_job: staticmethod  # (str, str | None) -> str
+    hash_workspace: Callable[..., str]  # (Path) -> str
+    hash_job: Callable[..., str]  # (str, str | None) -> str
 
     def record_outcome(
         self,
@@ -704,7 +704,8 @@ class ExecutionMixin:
                 """,
                 (error_code,),
             )
-            return cursor.fetchone()["count"]
+            result: int = cursor.fetchone()["count"]
+            return result
 
 
 # Export public API

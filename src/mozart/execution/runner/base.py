@@ -305,7 +305,6 @@ class JobRunnerBase:
                 max_concurrent=config.parallel.max_concurrent,
                 fail_fast=config.parallel.fail_fast,
             )
-            # type: ignore[arg-type] - self is JobRunner at runtime via mixin composition
             self._parallel_executor = ParallelExecutor(self, parallel_config)  # type: ignore[arg-type]
             self._logger.info(
                 "parallel.initialized",
@@ -333,15 +332,23 @@ class JobRunnerBase:
     def _install_signal_handlers(self) -> None:
         """Install signal handlers for graceful shutdown.
 
-        On Unix, uses SIGINT handler. On Windows, we rely on KeyboardInterrupt.
+        On Unix, handles SIGINT, SIGTERM, and SIGHUP:
+        - SIGINT: User pressed Ctrl+C (interactive)
+        - SIGTERM: Standard termination request (kill, systemd, etc.)
+        - SIGHUP: Terminal disconnected (SSH drop, terminal close)
+
+        All three trigger the same graceful shutdown: finish the current sheet,
+        save state, and exit cleanly. Without SIGTERM/SIGHUP handlers, Mozart
+        dies immediately and the job is left in a stale RUNNING state that
+        requires manual ``mozart resume`` to recover.
+
+        On Windows, we rely on KeyboardInterrupt.
         """
         if sys.platform != "win32":
             try:
                 loop = asyncio.get_running_loop()
-                loop.add_signal_handler(
-                    signal.SIGINT,
-                    self._signal_handler,
-                )
+                for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+                    loop.add_signal_handler(sig, self._signal_handler)
             except (RuntimeError, NotImplementedError):
                 # Running in a thread or platform doesn't support signals
                 pass
@@ -351,17 +358,22 @@ class JobRunnerBase:
         if sys.platform != "win32":
             try:
                 loop = asyncio.get_running_loop()
-                loop.remove_signal_handler(signal.SIGINT)
+                for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+                    loop.remove_signal_handler(sig)
             except (RuntimeError, NotImplementedError, ValueError):
                 # Not running or no handler installed
                 pass
 
     def _signal_handler(self) -> None:
-        """Handle SIGINT by setting shutdown flag."""
+        """Handle termination signals by setting shutdown flag.
+
+        Works for SIGINT (Ctrl+C), SIGTERM (kill), and SIGHUP (terminal hangup).
+        Sets the shutdown flag so the current sheet finishes and state is saved.
+        """
         if not self._shutdown_requested:
             self._shutdown_requested = True
             self.console.print(
-                "\n[yellow]Ctrl+C received. Finishing current sheet and saving state...[/yellow]"
+                "\n[yellow]Signal received. Finishing current sheet and saving state...[/yellow]"
             )
 
     async def _handle_graceful_shutdown(self, state: CheckpointState) -> None:
@@ -545,11 +557,13 @@ class JobRunnerBase:
             > 1024  # At least 1KB of new data
         )
         if should_snapshot:
-            snapshot = {
+            snapshot: dict[str, Any] = {
                 **progress_with_sheet,
                 "snapshot_at": utc_now().isoformat(),
             }
-            self._execution_progress_snapshots.append(snapshot)
+            self._execution_progress_snapshots.append(
+                snapshot  # type: ignore[arg-type]  # dict → ProgressSnapshotDict
+            )
 
         # Forward to CLI callback if set
         if self.execution_progress_callback is not None:

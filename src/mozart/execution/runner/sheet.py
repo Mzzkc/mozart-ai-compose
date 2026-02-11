@@ -194,7 +194,7 @@ class SheetExecutionMixin:
             result: ExecutionResult,
             sheet_state: SheetState,
             state: CheckpointState,
-        ) -> None: ...
+        ) -> tuple[int, int, float, float]: ...
 
         def _check_cost_limits(
             self,
@@ -1062,7 +1062,7 @@ class SheetExecutionMixin:
             # Record execution in history (if sqlite backend supports it)
             if hasattr(self.state_backend, 'record_execution'):
                 try:
-                    await self.state_backend.record_execution(  # type: ignore[attr-defined]
+                    await self.state_backend.record_execution(
                         job_id=self.config.name,
                         sheet_num=sheet_num,
                         attempt_num=sheet_state.attempt_count,

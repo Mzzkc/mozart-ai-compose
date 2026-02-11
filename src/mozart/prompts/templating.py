@@ -4,6 +4,7 @@ Handles building sheet prompts from templates and generating
 auto-completion prompts for partial sheet recovery.
 """
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -271,6 +272,7 @@ class PromptBuilder:
 
         lines.append("")
         lines.append("Consider these patterns when executing this sheet.")
+        lines.append("Key: ✓ = high effectiveness, ○ = moderate, ⚠ = low/untested")
         lines.append("")
 
         return "\n".join(lines)
@@ -286,6 +288,10 @@ class PromptBuilder:
         understand exactly what success looks like. Expands template variables
         in paths/patterns to show actual expected values.
 
+        Separates rules into "new" (first applicable for this sheet) and
+        "inherited" (also applied to earlier sheets) to reduce token waste
+        and focus attention on sheet-specific requirements.
+
         Args:
             rules: List of validation rules to format.
             template_context: Template variables for path expansion.
@@ -296,6 +302,18 @@ class PromptBuilder:
         if not rules:
             return ""
 
+        sheet_num = template_context.get("sheet_num", 1)
+
+        # Separate new vs inherited rules: a rule is "new" if the previous
+        # sheet would NOT have matched its condition
+        new_rules: list[ValidationRule] = []
+        inherited_rules: list[ValidationRule] = []
+        for rule in rules:
+            if self._is_new_rule_for_sheet(rule.condition, sheet_num):
+                new_rules.append(rule)
+            else:
+                inherited_rules.append(rule)
+
         lines = ["---", "## Success Requirements (Validated Automatically)", ""]
         lines.append(
             "Your output will be validated against these requirements. "
@@ -303,44 +321,16 @@ class PromptBuilder:
         )
         lines.append("")
 
-        for i, rule in enumerate(rules, 1):
-            # Expand template variables in paths and patterns
-            expanded_path = self._expand_template(
-                rule.path or "", template_context
+        for i, rule in enumerate(new_rules, 1):
+            self._format_single_rule(rule, i, lines, template_context)
+
+        # Summarize inherited rules briefly to save tokens
+        if inherited_rules:
+            descs = [r.description or r.type for r in inherited_rules]
+            lines.append(
+                f"**Also still required** ({len(inherited_rules)} inherited): "
+                + "; ".join(descs)
             )
-            expanded_pattern = self._expand_template(
-                rule.pattern or "", template_context
-            )
-
-            desc = rule.description or f"Requirement {i}"
-
-            if rule.type == "file_exists":
-                lines.append(f"{i}. **{desc}**")
-                lines.append(f"   - Create file: `{expanded_path}`")
-
-            elif rule.type == "file_modified":
-                lines.append(f"{i}. **{desc}**")
-                lines.append(
-                    f"   - Modify file: `{expanded_path}`"
-                    f" (must update it during execution)"
-                )
-
-            elif rule.type == "content_contains":
-                lines.append(f"{i}. **{desc}**")
-                lines.append(f"   - File: `{expanded_path}`")
-                lines.append(f"   - Must contain exactly: `{expanded_pattern}`")
-
-            elif rule.type == "content_regex":
-                lines.append(f"{i}. **{desc}**")
-                lines.append(f"   - File: `{expanded_path}`")
-                lines.append(f"   - Must match pattern: `{expanded_pattern}`")
-
-            elif rule.type == "command_succeeds":
-                command = rule.command or ""
-                display_cmd = command[:60] + "..." if len(command) > 60 else command
-                lines.append(f"{i}. **{desc}**")
-                lines.append(f"   - Command must succeed: `{display_cmd}`")
-
             lines.append("")
 
         lines.append(
@@ -349,6 +339,75 @@ class PromptBuilder:
         )
 
         return "\n".join(lines)
+
+    @staticmethod
+    def _is_new_rule_for_sheet(condition: str | None, sheet_num: int) -> bool:
+        """Check if a rule is newly applicable for the given sheet number.
+
+        A rule is "new" if the previous sheet (sheet_num - 1) would NOT
+        have satisfied its condition. Rules with no condition are new
+        only on sheet 1.
+        """
+        if condition is None:
+            return sheet_num == 1
+
+        # Parse simple "sheet_num >= N" or "sheet_num == N" conditions
+        match = re.match(r"sheet_num\s*(>=|==|>)\s*(\d+)", condition.strip())
+        if not match:
+            return sheet_num == 1  # Unknown condition — treat as new on sheet 1
+
+        operator, value_str = match.groups()
+        threshold = int(value_str)
+
+        if operator == ">=":
+            return sheet_num == threshold
+        if operator == "==":
+            return True  # Exact match rules are always "new" for their sheet
+        if operator == ">":
+            return sheet_num == threshold + 1
+        return sheet_num == 1  # Fallback for unrecognized operator
+
+    def _format_single_rule(
+        self,
+        rule: ValidationRule,
+        index: int,
+        lines: list[str],
+        template_context: dict[str, Any],
+    ) -> None:
+        """Format a single validation rule and append to lines."""
+        expanded_path = self._expand_template(
+            rule.path or "", template_context
+        )
+        expanded_pattern = self._expand_template(
+            rule.pattern or "", template_context
+        )
+
+        desc = rule.description or f"Requirement {index}"
+        lines.append(f"{index}. **{desc}**")
+
+        if rule.type == "file_exists":
+            lines.append(f"   - Create file: `{expanded_path}`")
+
+        elif rule.type == "file_modified":
+            lines.append(
+                f"   - Modify file: `{expanded_path}`"
+                f" (must update it during execution)"
+            )
+
+        elif rule.type == "content_contains":
+            lines.append(f"   - File: `{expanded_path}`")
+            lines.append(f"   - Must contain exactly: `{expanded_pattern}`")
+
+        elif rule.type == "content_regex":
+            lines.append(f"   - File: `{expanded_path}`")
+            lines.append(f"   - Must match pattern: `{expanded_pattern}`")
+
+        elif rule.type == "command_succeeds":
+            command = rule.command or ""
+            display_cmd = command[:60] + "..." if len(command) > 60 else command
+            lines.append(f"   - Command must succeed: `{display_cmd}`")
+
+        lines.append("")
 
     def _expand_template(self, value: str, context: dict[str, Any]) -> str:
         """Expand template variables in a string.

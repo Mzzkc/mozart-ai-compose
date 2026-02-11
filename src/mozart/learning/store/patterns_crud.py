@@ -358,9 +358,9 @@ class PatternCrudMixin:
         Returns:
             Effectiveness score between 0.0 and 1.0.
         """
-        combined = alpha * recent + (1 - alpha) * historical
-        decay = 0.9 ** (days_since_confirmed / 30.0)
-        grounding_weight = 0.7 + 0.3 * avg_grounding
+        combined: float = alpha * recent + (1 - alpha) * historical
+        decay: float = 0.9 ** (days_since_confirmed / 30.0)
+        grounding_weight: float = 0.7 + 0.3 * avg_grounding
         return combined * decay * grounding_weight
 
     def _calculate_effectiveness(

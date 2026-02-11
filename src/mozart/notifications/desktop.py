@@ -23,7 +23,7 @@ _logger = get_logger("notifications.desktop")
 def _get_plyer_notification() -> tuple[bool, Any]:
     """Load plyer notification module if available."""
     try:
-        from plyer import notification  # type: ignore[import-untyped]
+        from plyer import notification
 
         return True, notification
     except ImportError:

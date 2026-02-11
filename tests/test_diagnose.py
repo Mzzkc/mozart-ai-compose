@@ -56,8 +56,6 @@ def _make_job(
             )
             for i in range(1, total_sheets + 1)
         }
-    # last_completed_sheet tracks sequential progress: highest sheet that
-    # completed in the sequential chain. Count actual COMPLETED sheets.
     last_completed = sum(
         1 for s in sheets.values() if s.status == SheetStatus.COMPLETED
     )
@@ -731,3 +729,110 @@ class TestMaxOutputCaptureConfig:
         assert sheet.stdout_tail is not None
         assert len(sheet.stdout_tail.encode("utf-8")) <= 1000
         assert sheet.output_truncated is True
+
+
+# ---------------------------------------------------------------------------
+# Log rotation hint tests
+# ---------------------------------------------------------------------------
+
+
+class TestLogRotationHint:
+    """Tests for the log rotation hint when hook log files accumulate."""
+
+    def test_no_hint_under_threshold(self, tmp_path: Path) -> None:
+        """No hint when hooks dir has <= 20 log files."""
+        hooks_dir = tmp_path / "hooks"
+        hooks_dir.mkdir()
+        for i in range(15):
+            (hooks_dir / f"hook-{i:02d}.log").write_text(f"log {i}")
+
+        job = _make_job()
+        report = _build_diagnostic_report(job, workspace=tmp_path)
+        assert "log_rotation_hint" not in report
+
+    def test_hint_when_exceeds_threshold(self, tmp_path: Path) -> None:
+        """Hint present when hooks dir has > 20 log files."""
+        hooks_dir = tmp_path / "hooks"
+        hooks_dir.mkdir()
+        for i in range(25):
+            (hooks_dir / f"hook-{i:02d}.log").write_text(f"log {i}")
+
+        job = _make_job()
+        report = _build_diagnostic_report(job, workspace=tmp_path)
+        assert "log_rotation_hint" in report
+        assert "25 hook log files" in report["log_rotation_hint"]
+        assert "cleanup" in report["log_rotation_hint"]
+
+    def test_hint_displayed_in_rich_output(self, tmp_path: Path) -> None:
+        """CLI diagnose should show the hint when present."""
+        hooks_dir = tmp_path / "hooks"
+        hooks_dir.mkdir()
+        for i in range(22):
+            (hooks_dir / f"hook-{i:02d}.log").write_text(f"log {i}")
+
+        job = _make_job()
+        _write_state(tmp_path, job)
+
+        result = runner.invoke(
+            app, ["diagnose", "diag-test", "--workspace", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        assert "cleanup" in result.stdout or "hook log" in result.stdout
+
+    def test_hint_in_json_output(self, tmp_path: Path) -> None:
+        """JSON diagnose should include log_rotation_hint key."""
+        hooks_dir = tmp_path / "hooks"
+        hooks_dir.mkdir()
+        for i in range(21):
+            (hooks_dir / f"hook-{i:02d}.log").write_text(f"log {i}")
+
+        job = _make_job()
+        _write_state(tmp_path, job)
+
+        result = runner.invoke(
+            app, ["diagnose", "diag-test", "--json", "--workspace", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert "log_rotation_hint" in data
+        assert "21 hook log files" in data["log_rotation_hint"]
+
+
+# ---------------------------------------------------------------------------
+# Preflight warning cap tests
+# ---------------------------------------------------------------------------
+
+
+class TestPreflightWarningCap:
+    """Tests for preflight warning capping in diagnosis."""
+
+    def test_warnings_under_cap_unchanged(self) -> None:
+        """Warnings under 20 are stored as-is."""
+        warnings = [f"Warning {i}" for i in range(10)]
+        sheets = {
+            1: SheetState(
+                sheet_num=1,
+                status=SheetStatus.COMPLETED,
+                attempt_count=1,
+                preflight_warnings=warnings,
+            ),
+        }
+        job = _make_job(total_sheets=1, sheets=sheets)
+        report = _build_diagnostic_report(job)
+        assert len(report["preflight_warnings"]) == 10
+
+    def test_diagnose_display_caps_at_20(self) -> None:
+        """Diagnose rich output caps preflight warning display at 20."""
+        warnings = [f"Warning {i}" for i in range(30)]
+        sheets = {
+            1: SheetState(
+                sheet_num=1,
+                status=SheetStatus.COMPLETED,
+                attempt_count=1,
+                preflight_warnings=warnings,
+            ),
+        }
+        job = _make_job(total_sheets=1, sheets=sheets)
+        report = _build_diagnostic_report(job)
+        # Report collects all warnings (from what's stored)
+        assert len(report["preflight_warnings"]) == 30

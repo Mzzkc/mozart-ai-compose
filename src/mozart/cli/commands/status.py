@@ -281,7 +281,7 @@ async def _list_jobs(
             raise typer.Exit(1) from None
 
     # Sort by updated_at descending and limit
-    def _sort_key(x: tuple) -> datetime:
+    def _sort_key(x: tuple[str, Any]) -> datetime:
         return x[1].updated_at or datetime.min.replace(tzinfo=UTC)
 
     unique_jobs.sort(key=_sort_key, reverse=True)

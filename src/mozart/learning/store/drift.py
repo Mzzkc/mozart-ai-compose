@@ -127,7 +127,7 @@ class DriftMixin:
 
             # Calculate effectiveness for each window
             # effectiveness = success_rate with Laplace smoothing
-            def calc_effectiveness(apps: list) -> tuple[float, list[float]]:
+            def calc_effectiveness(apps: list[dict[str, Any]]) -> tuple[float, list[float]]:
                 successes = sum(1 for a in apps if a["pattern_led_to_success"])
                 eff = (successes + 0.5) / (len(apps) + 1)  # Laplace smoothing
                 grounding_vals = [

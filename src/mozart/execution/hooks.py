@@ -338,13 +338,12 @@ class HookExecutor:
                 # This ensures chained job failures leave a diagnostic trace.
                 log_path = get_hook_log_path(self.workspace, "chain")
                 log_file = None
+                stdout_handle: Any = asyncio.subprocess.DEVNULL
+                stderr_handle: Any = asyncio.subprocess.DEVNULL
                 if log_path:
                     log_file = open(log_path, "w")  # noqa: SIM115
                     stdout_handle = log_file
                     stderr_handle = log_file
-                else:
-                    stdout_handle = asyncio.subprocess.DEVNULL
-                    stderr_handle = asyncio.subprocess.DEVNULL
 
                 try:
                     process = await asyncio.create_subprocess_exec(

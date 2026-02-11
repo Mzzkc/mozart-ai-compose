@@ -16,6 +16,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from mozart.core.checkpoint import ValidationDetailDict
     from mozart.learning.outcomes import SheetOutcome
 
 
@@ -457,7 +458,7 @@ class PatternDetector:
         patterns: list[DetectedPattern] = []
 
         # Analyze confidence factors from validation results
-        low_confidence_validations: list[dict[str, Any]] = []
+        low_confidence_validations: list[ValidationDetailDict] = []
 
         for outcome in self.outcomes:
             for val_result in outcome.validation_results:
@@ -524,13 +525,13 @@ class PatternDetector:
 
             # Also check validation_results for error_code fields
             for val_result in outcome.validation_results:
-                error_code = val_result.get("error_code")
-                if error_code:
-                    error_counts[error_code] = error_counts.get(error_code, 0) + 1
-                    if error_code not in error_evidence:
-                        error_evidence[error_code] = []
-                    if outcome.sheet_id not in error_evidence[error_code]:
-                        error_evidence[error_code].append(outcome.sheet_id)
+                ec = str(val_result.get("error_code", ""))
+                if ec:
+                    error_counts[ec] = error_counts.get(ec, 0) + 1
+                    if ec not in error_evidence:
+                        error_evidence[ec] = []
+                    if outcome.sheet_id not in error_evidence[ec]:
+                        error_evidence[ec].append(outcome.sheet_id)
 
         # Create patterns for recurring error codes (seen >= 2 times)
         for code, count in error_counts.items():

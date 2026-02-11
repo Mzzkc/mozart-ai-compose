@@ -61,7 +61,7 @@ class PatternSuccessFactorsMixin:
         Returns:
             Updated SuccessFactors, or None if pattern not found.
         """
-        pattern = self.get_pattern_by_id(pattern_id)
+        pattern = self.get_pattern_by_id(pattern_id)  # type: ignore[attr-defined]
         if not pattern:
             return None
 
@@ -69,7 +69,7 @@ class PatternSuccessFactorsMixin:
         time_bucket = SuccessFactors.get_time_bucket(now.hour)
 
         if pattern.success_factors:
-            factors = pattern.success_factors
+            factors: SuccessFactors = pattern.success_factors
             factors.occurrence_count += 1
 
             if validation_types:
@@ -133,10 +133,11 @@ class PatternSuccessFactorsMixin:
         Returns:
             SuccessFactors if the pattern has captured factors, None otherwise.
         """
-        pattern = self.get_pattern_by_id(pattern_id)
+        pattern = self.get_pattern_by_id(pattern_id)  # type: ignore[attr-defined]
         if not pattern:
             return None
-        return pattern.success_factors
+        result: SuccessFactors | None = pattern.success_factors
+        return result
 
     def analyze_pattern_why(self, pattern_id: str) -> dict[str, Any]:
         """Analyze WHY a pattern succeeds with structured explanation.
@@ -148,7 +149,7 @@ class PatternSuccessFactorsMixin:
             Dictionary with analysis results including factors_summary,
             key_conditions, confidence, and recommendations.
         """
-        pattern = self.get_pattern_by_id(pattern_id)
+        pattern = self.get_pattern_by_id(pattern_id)  # type: ignore[attr-defined]
         if not pattern:
             return {"error": f"Pattern {pattern_id} not found"}
 
@@ -246,7 +247,7 @@ class PatternSuccessFactorsMixin:
 
         results = []
         for row in rows:
-            pattern = self._row_to_pattern_record(row)
+            pattern = self._row_to_pattern_record(row)  # type: ignore[attr-defined]
             if (
                 pattern.success_factors
                 and pattern.success_factors.occurrence_count >= min_observations

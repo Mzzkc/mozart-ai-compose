@@ -36,7 +36,7 @@ class PatternTrustMixin:
         """Calculate and update trust score for a pattern.
 
         Trust score formula:
-            trust = 0.5 + (success_rate * 0.3) - (failure_rate * 0.4) + (age_factor * 0.2)
+            trust: float = 0.5 + (success_rate * 0.3) - (failure_rate * 0.4) + (age_factor * 0.2)
 
         Quarantined patterns get a -0.2 penalty.
         Validated patterns get a +0.1 bonus.
@@ -47,7 +47,7 @@ class PatternTrustMixin:
         Returns:
             New trust score (0.0-1.0), or None if pattern not found.
         """
-        pattern = self.get_pattern_by_id(pattern_id)
+        pattern = self.get_pattern_by_id(pattern_id)  # type: ignore[attr-defined]
         if not pattern:
             return None
 
@@ -62,7 +62,7 @@ class PatternTrustMixin:
         days_since_confirmed = (now - pattern.last_confirmed).days
         age_factor = 0.9 ** (days_since_confirmed / 30.0)
 
-        trust = 0.5 + (success_rate * 0.3) - (failure_rate * 0.4) + (age_factor * 0.2)
+        trust: float = 0.5 + (success_rate * 0.3) - (failure_rate * 0.4) + (age_factor * 0.2)
 
         if pattern.quarantine_status == QuarantineStatus.QUARANTINED:
             trust -= 0.2
@@ -96,11 +96,11 @@ class PatternTrustMixin:
         Returns:
             New trust score after update, or None if pattern not found.
         """
-        pattern = self.get_pattern_by_id(pattern_id)
+        pattern = self.get_pattern_by_id(pattern_id)  # type: ignore[attr-defined]
         if not pattern:
             return None
 
-        new_trust = max(0.0, min(1.0, pattern.trust_score + delta))
+        new_trust: float = max(0.0, min(1.0, float(pattern.trust_score) + delta))
 
         with self._get_connection() as conn:
             conn.execute(
@@ -132,11 +132,12 @@ class PatternTrustMixin:
         Returns:
             List of high-trust PatternRecord objects.
         """
-        return self.get_patterns(
+        result: list[PatternRecord] = self.get_patterns(  # type: ignore[attr-defined]
             min_priority=0.0,
             min_trust=threshold,
             limit=limit,
         )
+        return result
 
     def get_low_trust_patterns(
         self,
@@ -152,11 +153,12 @@ class PatternTrustMixin:
         Returns:
             List of low-trust PatternRecord objects.
         """
-        return self.get_patterns(
+        result: list[PatternRecord] = self.get_patterns(  # type: ignore[attr-defined]
             min_priority=0.0,
             max_trust=threshold,
             limit=limit,
         )
+        return result
 
     def get_patterns_for_auto_apply(
         self,
@@ -199,7 +201,7 @@ class PatternTrustMixin:
             cursor = conn.execute(query, params)
             rows = cursor.fetchall()
 
-        patterns = [self._row_to_pattern_record(row) for row in rows]
+        patterns = [self._row_to_pattern_record(row) for row in rows]  # type: ignore[attr-defined]
 
         if context_tags:
             tags_set = set(context_tags)

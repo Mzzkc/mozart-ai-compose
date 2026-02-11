@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
 from datetime import datetime
 
 import pytest
@@ -87,6 +88,58 @@ class TestSSEManager:
         """Create an SSE manager for testing."""
         return SSEManager()
 
+    # ── Deterministic helpers (replace asyncio.sleep timing) ──────────
+
+    @staticmethod
+    async def _wait_for_connections(
+        manager: SSEManager,
+        expected: int,
+        *,
+        job_id: str | None = None,
+        timeout: float = 2.0,
+    ) -> None:
+        """Poll until connection count reaches *expected* or timeout."""
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + timeout
+        while loop.time() < deadline:
+            if manager.get_connection_count(job_id) == expected:
+                return
+            await asyncio.sleep(0.01)
+        raise TimeoutError(
+            f"Expected {expected} connections (job_id={job_id}), "
+            f"got {manager.get_connection_count(job_id)} after {timeout}s"
+        )
+
+    @staticmethod
+    async def _wait_for_events(
+        events_list: list[str],
+        expected_count: int,
+        *,
+        timeout: float = 2.0,
+    ) -> None:
+        """Poll until events_list has at least *expected_count* entries."""
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + timeout
+        while loop.time() < deadline:
+            if len(events_list) >= expected_count:
+                return
+            await asyncio.sleep(0.01)
+        raise TimeoutError(
+            f"Expected {expected_count} events, got {len(events_list)} "
+            f"after {timeout}s: {events_list}"
+        )
+
+    @staticmethod
+    async def _cancel_task(task: asyncio.Task[None]) -> None:
+        """Cancel a task and suppress CancelledError."""
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    # ── Tests ─────────────────────────────────────────────────────────
+
     async def test_connection_count_empty(self, sse_manager):
         """Test connection count when no clients connected."""
         assert sse_manager.get_connection_count() == 0
@@ -106,144 +159,96 @@ class TestSSEManager:
 
     async def test_basic_connection_lifecycle(self, sse_manager):
         """Test basic connect/disconnect lifecycle."""
-        # Start connection in background
         connect_task = asyncio.create_task(
             self._consume_events(sse_manager.connect("job-123", "client-456"))
         )
 
-        # Allow connection to establish
-        await asyncio.sleep(0.1)
-
-        # Check connection is tracked
-        assert sse_manager.get_connection_count() == 1
+        await self._wait_for_connections(sse_manager, 1)
         assert sse_manager.get_connection_count("job-123") == 1
 
-        # Cancel connection
-        connect_task.cancel()
-        try:
-            await connect_task
-        except asyncio.CancelledError:
-            pass
-
-        # Allow cleanup to complete
-        await asyncio.sleep(0.1)
-
-        # Check connection is cleaned up
-        assert sse_manager.get_connection_count() == 0
+        await self._cancel_task(connect_task)
+        await self._wait_for_connections(sse_manager, 0)
 
     async def test_broadcast_to_single_client(self, sse_manager):
         """Test broadcasting to a single client."""
-        events_received = []
+        events_received: list[str] = []
 
-        # Start connection and collect events
         connect_task = asyncio.create_task(
-            self._collect_events(sse_manager.connect("job-123", "client-456"), events_received)
+            self._collect_events(
+                sse_manager.connect("job-123", "client-456"), events_received
+            )
         )
 
-        # Allow connection to establish
-        await asyncio.sleep(0.1)
+        await self._wait_for_connections(sse_manager, 1)
 
-        # Send a broadcast
         event = SSEEvent(event="test", data="hello world")
         sent_count = await sse_manager.broadcast("job-123", event)
         assert sent_count == 1
 
-        # Allow event to be processed
-        await asyncio.sleep(0.1)
+        # Wait for connection event + broadcast event
+        await self._wait_for_events(events_received, 2)
 
-        # Cancel connection
-        connect_task.cancel()
-        try:
-            await connect_task
-        except asyncio.CancelledError:
-            pass
+        await self._cancel_task(connect_task)
 
-        # Check we received connection event + broadcast event
-        assert len(events_received) >= 2
-
-        # First event should be connection event
         first_event = events_received[0]
         assert "event: connected" in first_event
         assert "client-456" in first_event
 
-        # Second event should be our broadcast
         second_event = events_received[1]
         assert "event: test" in second_event
         assert "data: hello world" in second_event
 
     async def test_broadcast_to_multiple_clients(self, sse_manager):
         """Test broadcasting to multiple clients."""
-        events_received_1 = []
-        events_received_2 = []
+        events_received_1: list[str] = []
+        events_received_2: list[str] = []
 
-        # Start two connections
         connect_task_1 = asyncio.create_task(
-            self._collect_events(sse_manager.connect("job-123", "client-1"), events_received_1)
+            self._collect_events(
+                sse_manager.connect("job-123", "client-1"), events_received_1
+            )
         )
         connect_task_2 = asyncio.create_task(
-            self._collect_events(sse_manager.connect("job-123", "client-2"), events_received_2)
+            self._collect_events(
+                sse_manager.connect("job-123", "client-2"), events_received_2
+            )
         )
 
-        # Allow connections to establish
-        await asyncio.sleep(0.1)
+        await self._wait_for_connections(sse_manager, 2, job_id="job-123")
 
-        # Check both connections are tracked
-        assert sse_manager.get_connection_count() == 2
-        assert sse_manager.get_connection_count("job-123") == 2
-
-        # Send a broadcast
         event = SSEEvent(event="test", data="broadcast to all")
         sent_count = await sse_manager.broadcast("job-123", event)
         assert sent_count == 2
 
-        # Allow events to be processed
-        await asyncio.sleep(0.1)
+        await self._wait_for_events(events_received_1, 2)
+        await self._wait_for_events(events_received_2, 2)
 
-        # Cancel connections
-        connect_task_1.cancel()
-        connect_task_2.cancel()
-        try:
-            await connect_task_1
-        except asyncio.CancelledError:
-            pass
-        try:
-            await connect_task_2
-        except asyncio.CancelledError:
-            pass
+        await self._cancel_task(connect_task_1)
+        await self._cancel_task(connect_task_2)
 
-        # Both clients should have received the broadcast
-        assert len(events_received_1) >= 2
-        assert len(events_received_2) >= 2
-
-        # Check both received the broadcast event
         assert any("broadcast to all" in event for event in events_received_1)
         assert any("broadcast to all" in event for event in events_received_2)
 
     async def test_send_job_update(self, sse_manager):
         """Test convenience method for job status updates."""
-        events_received = []
+        events_received: list[str] = []
 
         connect_task = asyncio.create_task(
-            self._collect_events(sse_manager.connect("job-123", "client-456"), events_received)
+            self._collect_events(
+                sse_manager.connect("job-123", "client-456"), events_received
+            )
         )
 
-        await asyncio.sleep(0.1)
+        await self._wait_for_connections(sse_manager, 1)
 
-        # Send job update
         data = {"sheet": 2, "progress": 50}
         sent_count = await sse_manager.send_job_update("job-123", "running", data)
         assert sent_count == 1
 
-        await asyncio.sleep(0.1)
+        await self._wait_for_events(events_received, 2)
 
-        connect_task.cancel()
-        try:
-            await connect_task
-        except asyncio.CancelledError:
-            pass
+        await self._cancel_task(connect_task)
 
-        # Check job update was received
-        assert len(events_received) >= 2
         job_update_event = None
         for event in events_received:
             if "event: job_status" in event:
@@ -257,28 +262,25 @@ class TestSSEManager:
 
     async def test_send_log_line(self, sse_manager):
         """Test convenience method for log streaming."""
-        events_received = []
+        events_received: list[str] = []
 
         connect_task = asyncio.create_task(
-            self._collect_events(sse_manager.connect("job-123", "client-456"), events_received)
+            self._collect_events(
+                sse_manager.connect("job-123", "client-456"), events_received
+            )
         )
 
-        await asyncio.sleep(0.1)
+        await self._wait_for_connections(sse_manager, 1)
 
-        # Send log line
-        sent_count = await sse_manager.send_log_line("job-123", "Processing sheet 2\n", "info")
+        sent_count = await sse_manager.send_log_line(
+            "job-123", "Processing sheet 2\n", "info"
+        )
         assert sent_count == 1
 
-        await asyncio.sleep(0.1)
+        await self._wait_for_events(events_received, 2)
 
-        connect_task.cancel()
-        try:
-            await connect_task
-        except asyncio.CancelledError:
-            pass
+        await self._cancel_task(connect_task)
 
-        # Check log line was received
-        assert len(events_received) >= 2
         log_event = None
         for event in events_received:
             if "event: log" in event:
@@ -291,48 +293,39 @@ class TestSSEManager:
 
     async def test_connection_isolation_by_job(self, sse_manager):
         """Test that broadcasts are isolated by job ID."""
-        events_job1 = []
-        events_job2 = []
+        events_job1: list[str] = []
+        events_job2: list[str] = []
 
-        # Start connections to different jobs
         connect_task_1 = asyncio.create_task(
-            self._collect_events(sse_manager.connect("job-1", "client-1"), events_job1)
+            self._collect_events(
+                sse_manager.connect("job-1", "client-1"), events_job1
+            )
         )
         connect_task_2 = asyncio.create_task(
-            self._collect_events(sse_manager.connect("job-2", "client-2"), events_job2)
+            self._collect_events(
+                sse_manager.connect("job-2", "client-2"), events_job2
+            )
         )
 
-        await asyncio.sleep(0.1)
+        await self._wait_for_connections(sse_manager, 2)
 
-        # Broadcast to job-1 only
         event = SSEEvent(event="test", data="only for job-1")
         sent_count = await sse_manager.broadcast("job-1", event)
         assert sent_count == 1
 
-        await asyncio.sleep(0.1)
+        await self._wait_for_events(events_job1, 2)
 
-        connect_task_1.cancel()
-        connect_task_2.cancel()
-        try:
-            await connect_task_1
-        except asyncio.CancelledError:
-            pass
-        try:
-            await connect_task_2
-        except asyncio.CancelledError:
-            pass
+        await self._cancel_task(connect_task_1)
+        await self._cancel_task(connect_task_2)
 
-        # Only job-1 client should have received the event
         assert any("only for job-1" in event for event in events_job1)
         assert not any("only for job-1" in event for event in events_job2)
 
     async def test_get_connected_jobs(self, sse_manager):
         """Test getting list of jobs with active connections."""
-        # No connections initially
         jobs = await sse_manager.get_connected_jobs()
         assert jobs == []
 
-        # Start connections to multiple jobs
         connect_task_1 = asyncio.create_task(
             self._consume_events(sse_manager.connect("job-1", "client-1"))
         )
@@ -340,60 +333,47 @@ class TestSSEManager:
             self._consume_events(sse_manager.connect("job-2", "client-2"))
         )
 
-        await asyncio.sleep(0.1)
+        await self._wait_for_connections(sse_manager, 2)
 
-        # Should have both jobs
         jobs = await sse_manager.get_connected_jobs()
         assert set(jobs) == {"job-1", "job-2"}
 
-        # Cancel connections
-        connect_task_1.cancel()
-        connect_task_2.cancel()
-        try:
-            await connect_task_1
-        except asyncio.CancelledError:
-            pass
-        try:
-            await connect_task_2
-        except asyncio.CancelledError:
-            pass
+        await self._cancel_task(connect_task_1)
+        await self._cancel_task(connect_task_2)
 
     async def test_close_all_connections(self, sse_manager):
         """Test closing all connections for shutdown."""
-        events_received = []
+        events_received: list[str] = []
 
         connect_task = asyncio.create_task(
-            self._collect_events(sse_manager.connect("job-123", "client-456"), events_received)
+            self._collect_events(
+                sse_manager.connect("job-123", "client-456"), events_received
+            )
         )
 
-        await asyncio.sleep(0.1)
-        assert sse_manager.get_connection_count() == 1
+        await self._wait_for_connections(sse_manager, 1)
 
-        # Close all connections
         await sse_manager.close_all_connections()
 
-        # Allow close events to be processed
-        await asyncio.sleep(0.1)
+        # Wait for the close event to propagate through the queue
+        await self._wait_for_events(events_received, 2)  # connected + close
 
-        # Connection count should be zero
         assert sse_manager.get_connection_count() == 0
 
-        # Cancel the task
-        connect_task.cancel()
-        try:
-            await connect_task
-        except asyncio.CancelledError:
-            pass
+        await self._cancel_task(connect_task)
 
-        # Should have received a close event
         assert any("event: close" in event for event in events_received)
 
-    async def _consume_events(self, event_stream):
-        """Helper to consume events from a stream without storing them."""
+    # ── Private helpers ───────────────────────────────────────────────
+
+    async def _consume_events(self, event_stream: AsyncIterator[str]) -> None:
+        """Consume events from a stream without storing them."""
         async for _ in event_stream:
             pass
 
-    async def _collect_events(self, event_stream, events_list):
-        """Helper to collect events from a stream into a list."""
+    async def _collect_events(
+        self, event_stream: AsyncIterator[str], events_list: list[str]
+    ) -> None:
+        """Collect events from a stream into a list."""
         async for event in event_stream:
             events_list.append(event)

@@ -44,8 +44,7 @@ from mozart.core.checkpoint import JobStatus, SheetStatus
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from mozart.core.checkpoint import CheckpointState
-    from mozart.execution.retry_strategy import ErrorRecord
+    from mozart.core.checkpoint import CheckpointErrorRecord, CheckpointState
     from mozart.execution.runner.models import RunSummary
 
 # =============================================================================
@@ -469,9 +468,10 @@ def create_run_summary_panel(
         f"Status: {status_text}",
         "",
         "[bold]Sheets[/bold]",
-        f"  Completed: {summary.sheets_completed}/{summary.total_sheets}",
-        f"  Failed: {summary.sheets_failed}",
-        f"  Remaining: {summary.sheets_remaining}",
+        f"  Completed: {summary.completed_sheets}/{summary.total_sheets}",
+        f"  Failed: {summary.failed_sheets}",
+        f"  Remaining: {summary.total_sheets - summary.completed_sheets
+                        - summary.failed_sheets - summary.skipped_sheets}",
     ]
 
     # Add validation info if available
@@ -601,7 +601,7 @@ def output_error(
             out.print(f"  - {hint}")
 
 
-def format_error_details(error: ErrorRecord) -> str:
+def format_error_details(error: CheckpointErrorRecord) -> str:
     """Format detailed error information for display.
 
     Args:

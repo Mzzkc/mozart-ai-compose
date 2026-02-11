@@ -65,7 +65,7 @@ class ValidationResult:
 
     def to_dict(self) -> ValidationDetailDict:
         """Convert to serializable dictionary."""
-        # type: ignore needed because mypy/pyright cannot infer a dict literal
+        # Suppress return-value: mypy/pyright cannot infer a dict literal
         # as matching a total=False TypedDict — all keys verified via schema
         return {
             "rule_type": self.rule.type,
@@ -83,7 +83,7 @@ class ValidationResult:
             "failure_reason": self.failure_reason,
             "failure_category": self.failure_category,
             "suggested_fix": self.suggested_fix,
-        }  # type: ignore[return-value]
+        }
 
     def format_failure_summary(self) -> str:
         """Format failure information for prompt injection.
@@ -386,10 +386,10 @@ class ValidationEngine:
 
         if not resolved.is_relative_to(self.workspace):
             _logger.warning(
-                "path_traversal_blocked",
-                template=path_template,
-                resolved=str(resolved),
-                workspace=str(self.workspace),
+                "path_traversal_blocked: template=%s resolved=%s workspace=%s",
+                path_template,
+                str(resolved),
+                str(self.workspace),
             )
             raise ValueError(
                 f"Path '{expanded}' resolves to '{resolved}' which is outside "
@@ -1341,7 +1341,7 @@ class FailureHistoryStore:
                 failure = HistoricalFailure(
                     sheet_num=sheet_num,
                     rule_type=rule_type,
-                    description=detail.get("description", ""),
+                    description=detail.get("description") or "",
                     failure_reason=detail.get("failure_reason"),
                     failure_category=failure_category,
                     suggested_fix=detail.get("suggested_fix"),
@@ -1390,8 +1390,8 @@ class FailureHistoryStore:
 
                 failure = HistoricalFailure(
                     sheet_num=sheet_num,
-                    rule_type=detail.get("rule_type", ""),
-                    description=detail.get("description", ""),
+                    rule_type=detail.get("rule_type") or "",
+                    description=detail.get("description") or "",
                     failure_reason=detail.get("failure_reason"),
                     failure_category=detail.get("failure_category"),
                     suggested_fix=detail.get("suggested_fix"),

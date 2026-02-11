@@ -133,7 +133,7 @@ class PatternBroadcastMixin:
             params.append(limit)
 
             cursor = conn.execute(query, params)
-            return [self._row_to_discovery_event(row) for row in cursor.fetchall()]
+            return [self._row_to_discovery_event(row) for row in cursor.fetchall()]  # type: ignore[attr-defined]
 
     def cleanup_expired_pattern_discoveries(self) -> int:
         """Remove expired pattern discovery events.
@@ -189,4 +189,4 @@ class PatternBroadcastMixin:
                     (now.isoformat(),),
                 )
 
-            return [self._row_to_discovery_event(row) for row in cursor.fetchall()]
+            return [self._row_to_discovery_event(row) for row in cursor.fetchall()]  # type: ignore[attr-defined]

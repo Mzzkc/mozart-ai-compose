@@ -313,8 +313,9 @@ class TestQueryRelevantPatterns:
 
         # Auto-apply pattern should be first
         assert pattern_ids[0] == "auto"
-        # Should have auto-apply indicator (⚡)
-        assert "⚡" in descriptions[0]
+        # 0.95 effectiveness -> "✓" indicator
+        assert "✓" in descriptions[0]
+        assert "effective" in descriptions[0]
 
 
 # =============================================================================

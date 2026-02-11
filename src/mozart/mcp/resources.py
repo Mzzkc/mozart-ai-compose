@@ -116,7 +116,8 @@ class ConfigResources:
         try:
             handler_name = self._URI_HANDLERS.get(uri)
             if handler_name:
-                return await getattr(self, handler_name)()
+                result: dict[str, Any] = await getattr(self, handler_name)()
+                return result
 
             if uri.startswith("mozart://jobs/"):
                 job_id = uri.replace("mozart://jobs/", "")

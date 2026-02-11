@@ -480,7 +480,8 @@ class MCPProxyService:
                 f"MCP error {error.get('code')}: {error.get('message')}"
             )
 
-        return response.get("result", {})
+        result: dict[str, Any] = response.get("result", {})
+        return result
 
     async def _send_notification(
         self,
@@ -527,7 +528,7 @@ class MCPProxyService:
                 raise RuntimeError("Connection closed unexpectedly")
 
             try:
-                data = json.loads(line.decode())
+                data: dict[str, Any] = json.loads(line.decode())
             except json.JSONDecodeError:
                 continue  # Skip malformed lines
 

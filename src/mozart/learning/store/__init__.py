@@ -65,7 +65,7 @@ from mozart.learning.store.patterns import PatternMixin
 from mozart.learning.store.rate_limits import RateLimitMixin
 
 
-class GlobalLearningStore(
+class GlobalLearningStore(  # type: ignore[misc]
     PatternMixin,
     ExecutionMixin,
     RateLimitMixin,

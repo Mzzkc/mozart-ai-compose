@@ -131,6 +131,17 @@ _DEFAULT_ENOENT_PATTERNS: list[str] = [
     r"not found in PATH",
 ]
 
+# Output substrings that indicate a non-transient (non-retriable) failure
+# for exit codes 1/2 in _classify_by_exit_code.
+_NON_TRANSIENT_INDICATORS: tuple[str, ...] = (
+    "permission denied",
+    "access denied",
+    "not permitted",
+    "validation failed",
+    "invalid argument",
+    "syntax error",
+)
+
 
 def _compile_patterns(strings: list[str]) -> list[re.Pattern[str]]:
     """Compile a list of regex strings into case-insensitive Pattern objects."""
@@ -225,7 +236,7 @@ class ErrorClassifier:
             ):
                 amount = int(groups[0])
                 unit = groups[1].lower()
-                seconds = amount * 3600 if unit in ("hour", "hr") else amount * 60
+                seconds: float = amount * 3600 if unit in ("hour", "hr") else amount * 60
                 return max(seconds, RESET_TIME_MINIMUM_WAIT_SECONDS)  # At least 5 minutes
 
             # Pattern: "resets at X:XX" (24-hour time)
@@ -599,14 +610,6 @@ class ErrorClassifier:
             # Check output for non-transient error indicators before defaulting
             # to TRANSIENT. Exit code 1 can mean permission denied, validation
             # failure, or other non-retriable errors.
-            _NON_TRANSIENT_INDICATORS = (
-                "permission denied",
-                "access denied",
-                "not permitted",
-                "validation failed",
-                "invalid argument",
-                "syntax error",
-            )
             combined_lower = combined.lower()
             is_non_transient = any(
                 ind in combined_lower for ind in _NON_TRANSIENT_INDICATORS

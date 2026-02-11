@@ -392,10 +392,11 @@ async def _run_job(
                 )
             except Exception as notify_err:
                 _logger.error(
-                    "notification_failed_during_error_handling",
-                    job_id=job_id,
-                    notification_error=str(notify_err),
-                    original_error=str(e),
+                    "notification_failed_during_error_handling: "
+                    "job_id=%s notification_error=%s original_error=%s",
+                    job_id,
+                    str(notify_err),
+                    str(e),
                 )
 
         raise typer.Exit(1) from None
