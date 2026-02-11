@@ -65,6 +65,7 @@ retry:
 on_success:
   - type: run_job
     job_path: "daemon-phase2-service.yaml"
+    job_workspace: ".daemon-workspace-p2"
     description: "Chain to Phase 2: Daemon Service"
     detached: true
 
