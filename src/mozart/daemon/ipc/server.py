@@ -67,12 +67,18 @@ class DaemonServer:
         """Bind the Unix socket and start accepting connections."""
         # Ensure parent directory exists
         self._socket_path.parent.mkdir(parents=True, exist_ok=True)
+        # Reject symlinks to prevent redirection attacks
+        if self._socket_path.is_symlink():
+            raise OSError(
+                f"Socket path is a symlink (possible attack): {self._socket_path}"
+            )
         # Remove stale socket from a previous unclean shutdown
         self._socket_path.unlink(missing_ok=True)
 
         self._server = await asyncio.start_unix_server(
             self._accept_connection,
             path=str(self._socket_path),
+            limit=MAX_MESSAGE_BYTES,
         )
         os.chmod(self._socket_path, self._permissions)
 
@@ -138,11 +144,23 @@ class DaemonServer:
 
         try:
             while True:
-                line = await reader.readline()
+                try:
+                    line = await reader.readline()
+                except asyncio.LimitOverrunError:
+                    # Message exceeded MAX_MESSAGE_BYTES; buffer is in an
+                    # indeterminate state so we must close the connection.
+                    _logger.warning("message_too_large", peer=str(peer))
+                    error_resp = parse_error()
+                    writer.write(
+                        error_resp.model_dump_json().encode() + b"\n"
+                    )
+                    await writer.drain()
+                    break
+
                 if not line:
                     break  # Client disconnected
 
-                # Enforce max message size
+                # Enforce max message size (belt-and-suspenders)
                 if len(line) > MAX_MESSAGE_BYTES:
                     error_resp = parse_error()
                     writer.write(

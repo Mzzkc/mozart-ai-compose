@@ -27,16 +27,6 @@ from mozart.daemon.types import DaemonStatus, JobRequest, JobResponse
 
 _logger = get_logger("daemon.ipc.client")
 
-# Counter for generating unique request IDs within a client session.
-_request_id_counter = 0
-
-
-def _next_request_id() -> int:
-    """Return a monotonically increasing request ID."""
-    global _request_id_counter  # noqa: PLW0603
-    _request_id_counter += 1
-    return _request_id_counter
-
 
 class DaemonClient:
     """Async client for the Mozart daemon Unix socket IPC.
@@ -57,6 +47,12 @@ class DaemonClient:
     ) -> None:
         self._socket_path = socket_path
         self._timeout = timeout
+        self._next_id = 0
+
+    def _next_request_id(self) -> int:
+        """Return a monotonically increasing request ID."""
+        self._next_id += 1
+        return self._next_id
 
     # ------------------------------------------------------------------
     # Connection management
@@ -113,7 +109,7 @@ class DaemonClient:
         request = JsonRpcRequest(
             method=method,
             params=params,
-            id=_next_request_id(),
+            id=self._next_request_id(),
         )
 
         async with self._connect() as (reader, writer):
@@ -151,7 +147,7 @@ class DaemonClient:
         request = JsonRpcRequest(
             method=method,
             params=params,
-            id=_next_request_id(),
+            id=self._next_request_id(),
         )
 
         async with self._connect() as (reader, writer):
@@ -194,7 +190,7 @@ class DaemonClient:
             writer.close()
             await writer.wait_closed()
             return True
-        except (ConnectionRefusedError, FileNotFoundError, asyncio.TimeoutError, OSError):
+        except (ConnectionRefusedError, FileNotFoundError, TimeoutError, OSError):
             return False
 
     async def status(self) -> DaemonStatus:
