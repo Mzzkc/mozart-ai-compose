@@ -1,0 +1,469 @@
+"""Tests for mozart.daemon.manager module.
+
+Covers JobManager submit/cancel/shutdown, concurrency limit enforcement,
+duplicate handling, and _on_task_done cleanup.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from mozart.daemon.config import DaemonConfig
+from mozart.daemon.exceptions import JobSubmissionError
+from mozart.daemon.manager import JobManager, JobMeta
+from mozart.daemon.types import JobRequest, JobResponse
+
+
+# ─── Fixtures ──────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def daemon_config(tmp_path: Path) -> DaemonConfig:
+    """Create a DaemonConfig with low limits for testing."""
+    return DaemonConfig(
+        max_concurrent_jobs=2,
+        pid_file=tmp_path / "test.pid",
+    )
+
+
+@pytest.fixture
+def manager(daemon_config: DaemonConfig) -> JobManager:
+    """Create a JobManager with mocked JobService."""
+    mgr = JobManager(daemon_config)
+    mgr._service = MagicMock()
+    return mgr
+
+
+@pytest.fixture
+def sample_config_file(tmp_path: Path) -> Path:
+    """Create a minimal config YAML file for submit tests."""
+    config = tmp_path / "test-job.yaml"
+    config.write_text("name: test-job\n")
+    return config
+
+
+# ─── Submit Job ────────────────────────────────────────────────────────
+
+
+class TestSubmitJob:
+    """Tests for JobManager.submit_job()."""
+
+    @pytest.mark.asyncio
+    async def test_submit_returns_accepted(
+        self, manager: JobManager, sample_config_file: Path,
+    ):
+        """Submitting a valid job returns accepted response."""
+        request = JobRequest(config_path=sample_config_file)
+        response = await manager.submit_job(request)
+
+        assert response.status == "accepted"
+        assert response.job_id != ""
+        assert "test-job" in response.job_id
+
+    @pytest.mark.asyncio
+    async def test_submit_creates_task(
+        self, manager: JobManager, sample_config_file: Path,
+    ):
+        """submit_job creates an asyncio.Task tracked in _jobs."""
+        request = JobRequest(config_path=sample_config_file)
+        response = await manager.submit_job(request)
+
+        # Task was created (may have already completed/failed due to mock)
+        assert response.job_id in manager._job_meta
+
+    @pytest.mark.asyncio
+    async def test_submit_nonexistent_config_rejected(
+        self, manager: JobManager, tmp_path: Path,
+    ):
+        """Submitting a job with nonexistent config is rejected."""
+        request = JobRequest(config_path=tmp_path / "nonexistent.yaml")
+        response = await manager.submit_job(request)
+
+        assert response.status == "rejected"
+        assert "not found" in (response.message or "")
+
+    @pytest.mark.asyncio
+    async def test_submit_during_shutdown_rejected(
+        self, manager: JobManager, sample_config_file: Path,
+    ):
+        """Jobs submitted during shutdown are rejected."""
+        manager._shutting_down = True
+        request = JobRequest(config_path=sample_config_file)
+        response = await manager.submit_job(request)
+
+        assert response.status == "rejected"
+        assert "shutting down" in (response.message or "").lower()
+
+    @pytest.mark.asyncio
+    async def test_submit_generates_unique_ids(
+        self, manager: JobManager, sample_config_file: Path,
+    ):
+        """Each submission gets a unique job ID."""
+        r1 = JobRequest(config_path=sample_config_file)
+        r2 = JobRequest(config_path=sample_config_file)
+
+        resp1 = await manager.submit_job(r1)
+        resp2 = await manager.submit_job(r2)
+
+        assert resp1.job_id != resp2.job_id
+
+
+# ─── Concurrency ──────────────────────────────────────────────────────
+
+
+class TestConcurrencyLimit:
+    """Tests for semaphore-based concurrency enforcement."""
+
+    @pytest.mark.asyncio
+    async def test_semaphore_initial_value(self, manager: JobManager):
+        """Semaphore is initialized with max_concurrent_jobs."""
+        # DaemonConfig has max_concurrent_jobs=2
+        assert manager._concurrency_semaphore._value == 2
+
+    @pytest.mark.asyncio
+    async def test_concurrency_limits_parallel_execution(self, daemon_config: DaemonConfig):
+        """Only max_concurrent_jobs tasks can run simultaneously."""
+        mgr = JobManager(daemon_config)
+
+        # Track concurrent execution count
+        max_concurrent = 0
+        current_concurrent = 0
+        execution_started = asyncio.Event()
+
+        async def slow_start_job(config, **kwargs):
+            nonlocal max_concurrent, current_concurrent
+            current_concurrent += 1
+            max_concurrent = max(max_concurrent, current_concurrent)
+            execution_started.set()
+            await asyncio.sleep(0.05)
+            current_concurrent -= 1
+
+        mgr._service.start_job = slow_start_job
+
+        # Submit 4 jobs (limit is 2)
+        tasks = []
+        for i in range(4):
+            config_file = Path(f"/tmp/test-concurrency-{i}.yaml")
+            with patch.object(Path, "exists", return_value=True):
+                request = JobRequest(config_path=config_file)
+                response = await mgr.submit_job(request)
+                tasks.append(response.job_id)
+
+        # Wait for all tasks to complete
+        await asyncio.sleep(0.3)
+
+        # Max concurrent should not exceed the limit of 2
+        assert max_concurrent <= 2
+
+
+# ─── Cancel Job ────────────────────────────────────────────────────────
+
+
+class TestCancelJob:
+    """Tests for JobManager.cancel_job()."""
+
+    @pytest.mark.asyncio
+    async def test_cancel_nonexistent_returns_false(self, manager: JobManager):
+        """Cancelling a nonexistent job returns False."""
+        result = await manager.cancel_job("nonexistent-job")
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_cancel_existing_job(self, manager: JobManager):
+        """Cancelling an existing job cancels the task and updates meta."""
+        # Create a long-running task manually
+        async def long_running():
+            await asyncio.sleep(100)
+
+        task = asyncio.create_task(long_running())
+        manager._jobs["test-job-1"] = task
+        manager._job_meta["test-job-1"] = JobMeta(
+            job_id="test-job-1",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/tmp/workspace"),
+            status="running",
+        )
+
+        result = await manager.cancel_job("test-job-1")
+        assert result is True
+        assert manager._job_meta["test-job-1"].status == "cancelled"
+
+        # Give event loop a chance to process the cancellation
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        assert task.cancelled()
+
+
+# ─── Shutdown ──────────────────────────────────────────────────────────
+
+
+class TestShutdown:
+    """Tests for JobManager graceful/forceful shutdown."""
+
+    @pytest.mark.asyncio
+    async def test_graceful_shutdown_waits_for_jobs(self, manager: JobManager):
+        """Graceful shutdown waits for running tasks before completing."""
+        completed = False
+
+        async def short_task():
+            nonlocal completed
+            await asyncio.sleep(0.05)
+            completed = True
+
+        task = asyncio.create_task(short_task())
+        manager._jobs["job-1"] = task
+        manager._job_meta["job-1"] = JobMeta(
+            job_id="job-1",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/tmp/workspace"),
+            status="running",
+        )
+
+        await manager.shutdown(graceful=True)
+
+        assert manager._shutdown_event.is_set()
+        assert completed is True
+
+    @pytest.mark.asyncio
+    async def test_forceful_shutdown_cancels_tasks(self, manager: JobManager):
+        """Forceful shutdown cancels all running tasks."""
+        async def long_task():
+            await asyncio.sleep(100)
+
+        task = asyncio.create_task(long_task())
+        manager._jobs["job-1"] = task
+        manager._job_meta["job-1"] = JobMeta(
+            job_id="job-1",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/tmp/workspace"),
+            status="running",
+        )
+
+        await manager.shutdown(graceful=False)
+
+        assert manager._shutdown_event.is_set()
+        assert task.cancelled() or task.done()
+        assert len(manager._jobs) == 0
+
+    @pytest.mark.asyncio
+    async def test_shutdown_sets_event(self, manager: JobManager):
+        """Shutdown sets the shutdown_event so wait_for_shutdown unblocks."""
+        await manager.shutdown(graceful=True)
+        assert manager._shutdown_event.is_set()
+
+    @pytest.mark.asyncio
+    async def test_graceful_shutdown_timeout_then_cancels(self, daemon_config: DaemonConfig):
+        """Graceful shutdown cancels tasks that exceed timeout."""
+        daemon_config.shutdown_timeout_seconds = 0.05
+        mgr = JobManager(daemon_config)
+        mgr._service = MagicMock()
+
+        async def stuck_task():
+            await asyncio.sleep(100)
+
+        task = asyncio.create_task(stuck_task())
+        mgr._jobs["stuck-job"] = task
+        mgr._job_meta["stuck-job"] = JobMeta(
+            job_id="stuck-job",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/tmp/workspace"),
+            status="running",
+        )
+
+        await mgr.shutdown(graceful=True)
+
+        assert mgr._shutdown_event.is_set()
+        assert task.cancelled() or task.done()
+
+
+# ─── On Task Done ─────────────────────────────────────────────────────
+
+
+class TestOnTaskDone:
+    """Tests for JobManager._on_task_done cleanup callback."""
+
+    @pytest.mark.asyncio
+    async def test_on_task_done_removes_from_jobs(self, manager: JobManager):
+        """_on_task_done removes the job from the _jobs dict."""
+        async def quick():
+            pass
+
+        task = asyncio.create_task(quick())
+        manager._jobs["job-done"] = task
+        manager._job_meta["job-done"] = JobMeta(
+            job_id="job-done",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/tmp/workspace"),
+            status="running",
+        )
+
+        await task  # Let it finish
+        manager._on_task_done("job-done", task)
+
+        assert "job-done" not in manager._jobs
+
+    @pytest.mark.asyncio
+    async def test_on_task_done_sets_failed_on_exception(self, manager: JobManager):
+        """_on_task_done marks status as failed when task has an exception."""
+        async def failing():
+            raise RuntimeError("boom")
+
+        task = asyncio.create_task(failing())
+        manager._jobs["job-fail"] = task
+        manager._job_meta["job-fail"] = JobMeta(
+            job_id="job-fail",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/tmp/workspace"),
+            status="running",
+        )
+
+        # Wait for task to fail (suppress the exception)
+        try:
+            await task
+        except RuntimeError:
+            pass
+
+        manager._on_task_done("job-fail", task)
+
+        assert "job-fail" not in manager._jobs
+        assert manager._job_meta["job-fail"].status == "failed"
+
+    @pytest.mark.asyncio
+    async def test_on_task_done_cancelled_does_not_set_failed(self, manager: JobManager):
+        """_on_task_done does not mark cancelled tasks as failed."""
+        async def cancellable():
+            await asyncio.sleep(100)
+
+        task = asyncio.create_task(cancellable())
+        manager._jobs["job-cancel"] = task
+        manager._job_meta["job-cancel"] = JobMeta(
+            job_id="job-cancel",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/tmp/workspace"),
+            status="cancelled",
+        )
+
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+        manager._on_task_done("job-cancel", task)
+
+        assert "job-cancel" not in manager._jobs
+        # Status should remain "cancelled", not "failed"
+        assert manager._job_meta["job-cancel"].status == "cancelled"
+
+
+# ─── Get Daemon Status ────────────────────────────────────────────────
+
+
+class TestGetDaemonStatus:
+    """Tests for JobManager.get_daemon_status()."""
+
+    @pytest.mark.asyncio
+    async def test_get_daemon_status_returns_correct_metrics(self, manager: JobManager):
+        """get_daemon_status returns pid, running_jobs, version."""
+        status = await manager.get_daemon_status()
+
+        assert "pid" in status
+        assert status["pid"] == __import__("os").getpid()
+        assert "running_jobs" in status
+        assert status["running_jobs"] == 0
+        assert "version" in status
+        assert "total_sheets_active" in status
+
+    @pytest.mark.asyncio
+    async def test_get_daemon_status_counts_running_jobs(self, manager: JobManager):
+        """get_daemon_status reflects running_count correctly."""
+        # Add some job meta with various statuses
+        manager._job_meta["job-a"] = JobMeta(
+            job_id="job-a",
+            config_path=Path("/tmp/a.yaml"),
+            workspace=Path("/tmp/wa"),
+            status="running",
+        )
+        manager._job_meta["job-b"] = JobMeta(
+            job_id="job-b",
+            config_path=Path("/tmp/b.yaml"),
+            workspace=Path("/tmp/wb"),
+            status="completed",
+        )
+        manager._job_meta["job-c"] = JobMeta(
+            job_id="job-c",
+            config_path=Path("/tmp/c.yaml"),
+            workspace=Path("/tmp/wc"),
+            status="running",
+        )
+
+        status = await manager.get_daemon_status()
+        assert status["running_jobs"] == 2
+
+
+# ─── List Jobs ─────────────────────────────────────────────────────────
+
+
+class TestListJobs:
+    """Tests for JobManager.list_jobs()."""
+
+    @pytest.mark.asyncio
+    async def test_list_empty(self, manager: JobManager):
+        """list_jobs returns empty when no jobs submitted."""
+        result = await manager.list_jobs()
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_list_returns_all_tracked_jobs(self, manager: JobManager):
+        """list_jobs returns metadata for all tracked jobs."""
+        manager._job_meta["job-1"] = JobMeta(
+            job_id="job-1",
+            config_path=Path("/tmp/a.yaml"),
+            workspace=Path("/tmp/wa"),
+            status="running",
+        )
+        manager._job_meta["job-2"] = JobMeta(
+            job_id="job-2",
+            config_path=Path("/tmp/b.yaml"),
+            workspace=Path("/tmp/wb"),
+            status="completed",
+        )
+
+        result = await manager.list_jobs()
+        assert len(result) == 2
+        job_ids = {j["job_id"] for j in result}
+        assert job_ids == {"job-1", "job-2"}
+
+
+# ─── Get Job Status ───────────────────────────────────────────────────
+
+
+class TestGetJobStatus:
+    """Tests for JobManager.get_job_status()."""
+
+    @pytest.mark.asyncio
+    async def test_get_status_unknown_job_raises(self, manager: JobManager):
+        """get_job_status raises for unknown job IDs."""
+        with pytest.raises(JobSubmissionError, match="not found"):
+            await manager.get_job_status("nonexistent")
+
+    @pytest.mark.asyncio
+    async def test_get_status_returns_meta(self, manager: JobManager):
+        """get_job_status returns metadata for a known job."""
+        manager._job_meta["job-1"] = JobMeta(
+            job_id="job-1",
+            config_path=Path("/tmp/a.yaml"),
+            workspace=Path("/tmp/wa"),
+            status="running",
+        )
+
+        status = await manager.get_job_status("job-1")
+        assert status["job_id"] == "job-1"
+        assert status["status"] == "running"
+        assert status["workspace"] == str(Path("/tmp/wa"))
