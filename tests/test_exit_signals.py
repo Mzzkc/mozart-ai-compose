@@ -151,9 +151,12 @@ class TestClaudeCliBackendSignalDetection:
         """Test normal successful exit."""
         mock_process = AsyncMock()
         mock_process.returncode = 0
-        mock_process.communicate = AsyncMock(return_value=(b"output", b""))
+        mock_process.pid = 12345
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=mock_process),
+            patch.object(backend, "_stream_with_progress", return_value=(b"output", b"")),
+        ):
             result = await backend.execute("test")
 
         assert result.success is True
@@ -166,9 +169,12 @@ class TestClaudeCliBackendSignalDetection:
         """Test normal exit with non-zero code."""
         mock_process = AsyncMock()
         mock_process.returncode = 1
-        mock_process.communicate = AsyncMock(return_value=(b"", b"error"))
+        mock_process.pid = 12345
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=mock_process),
+            patch.object(backend, "_stream_with_progress", return_value=(b"", b"error")),
+        ):
             result = await backend.execute("test")
 
         assert result.success is False
@@ -182,9 +188,12 @@ class TestClaudeCliBackendSignalDetection:
         mock_process = AsyncMock()
         # Negative returncode means signal: -15 = SIGTERM
         mock_process.returncode = -signal.SIGTERM
-        mock_process.communicate = AsyncMock(return_value=(b"partial", b""))
+        mock_process.pid = 12345
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=mock_process),
+            patch.object(backend, "_stream_with_progress", return_value=(b"partial", b"")),
+        ):
             result = await backend.execute("test")
 
         assert result.success is False
@@ -198,9 +207,12 @@ class TestClaudeCliBackendSignalDetection:
         """Test detection of segmentation fault."""
         mock_process = AsyncMock()
         mock_process.returncode = -signal.SIGSEGV
-        mock_process.communicate = AsyncMock(return_value=(b"", b""))
+        mock_process.pid = 12345
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=mock_process),
+            patch.object(backend, "_stream_with_progress", return_value=(b"", b"")),
+        ):
             result = await backend.execute("test")
 
         assert result.exit_signal == signal.SIGSEGV
@@ -216,10 +228,16 @@ class TestClaudeCliBackendSignalDetection:
         mock_process.terminate = MagicMock()
         mock_process.kill = MagicMock()
         mock_process.wait = AsyncMock()
-        # Simulate timeout
-        mock_process.communicate = AsyncMock(side_effect=TimeoutError())
+        mock_process.pid = 12345
+        mock_process.returncode = None
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+        async def _raise_timeout(*args, **kwargs):
+            raise TimeoutError("timeout")
+
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=mock_process),
+            patch.object(backend, "_stream_with_progress", side_effect=_raise_timeout),
+        ):
             result = await backend.execute("test")
 
         assert result.success is False

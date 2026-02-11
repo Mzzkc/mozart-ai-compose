@@ -16,6 +16,7 @@ import httpx
 import pytest
 
 from mozart.backends.anthropic_api import AnthropicApiBackend
+from mozart.backends.base import ExecutionResult
 from mozart.backends.claude_cli import ClaudeCliBackend
 from mozart.core.config import BackendConfig
 
@@ -448,25 +449,90 @@ class TestClaudeCliBackendTimeoutOverride:
         # Mock subprocess to avoid real CLI calls
         mock_process = AsyncMock()
         mock_process.pid = 12345
-        mock_process.communicate = AsyncMock(return_value=(b"output", b""))
         mock_process.returncode = 0
+
+        captured_timeout: list[float | None] = []
+
+        async def _capture_stream(_proc, _start, _notify, *, effective_timeout=None):
+            captured_timeout.append(effective_timeout)
+            return (b"output", b"")
 
         with (
             patch("asyncio.create_subprocess_exec", return_value=mock_process),
             patch.object(backend, "_build_command", return_value=["claude", "-p", "test"]),
             patch.object(backend, "_prepare_log_files"),
-            patch.object(backend, "_write_output_logs"),
-            patch("asyncio.wait_for", new_callable=AsyncMock) as mock_wait,
+            patch.object(backend, "_stream_with_progress", side_effect=_capture_stream),
         ):
-            mock_wait.return_value = (b"output", b"")
             try:
                 await backend._execute_impl("test", timeout_seconds=60.0)
             except Exception:
-                pass  # We only care about wait_for args
-            # Check that wait_for was called with timeout=60.0
-            if mock_wait.called:
-                _, kwargs = mock_wait.call_args
-                assert kwargs.get("timeout") == 60.0
+                pass  # We only care about the timeout passed to stream
+            assert captured_timeout == [60.0]
+
+
+class TestClaudeCliBackendTimeoutOutputPreservation:
+    """Test that partial output survives timeout (Q013 / GH#8)."""
+
+    @pytest.fixture
+    def backend(self) -> ClaudeCliBackend:
+        return ClaudeCliBackend(timeout_seconds=5.0)
+
+    @pytest.mark.asyncio
+    async def test_partial_output_preserved_on_timeout(self, backend: ClaudeCliBackend) -> None:
+        """When execution times out, any output collected before timeout is preserved."""
+        mock_process = AsyncMock()
+        mock_process.pid = 12345
+        mock_process.returncode = None
+
+        # Simulate streaming that collects partial output then times out
+        async def _timeout_stream(_proc, _start, _notify, *, effective_timeout=None):
+            # Simulate partial output accumulated before timeout
+            backend._partial_stdout_chunks = [b"partial ", b"output here"]
+            backend._partial_stderr_chunks = [b"some error"]
+            raise TimeoutError("Execution timeout exceeded")
+
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=mock_process),
+            patch.object(backend, "_build_command", return_value=["claude", "-p", "test"]),
+            patch.object(backend, "_prepare_log_files"),
+            patch.object(backend, "_stream_with_progress", side_effect=_timeout_stream),
+            patch.object(backend, "_handle_execution_timeout") as mock_timeout,
+        ):
+            mock_timeout.return_value = ExecutionResult(
+                success=False, exit_code=None, exit_signal=None,
+                exit_reason="timeout", stdout="partial output here",
+                stderr="some error\nCommand timed out after 5.0s",
+                duration_seconds=5.0, error_type="timeout",
+                error_message="Timed out after 5.0s",
+            )
+            result = await backend._execute_impl("test")
+            assert result.stdout == "partial output here"
+            assert "some error" in result.stderr
+
+    @pytest.mark.asyncio
+    async def test_no_progress_callback_still_streams(self, backend: ClaudeCliBackend) -> None:
+        """Without progress_callback, streaming path is still used (not communicate())."""
+        assert backend.progress_callback is None  # No callback set
+
+        mock_process = AsyncMock()
+        mock_process.pid = 12345
+        mock_process.returncode = 0
+
+        stream_called = False
+
+        async def _track_stream(_proc, _start, _notify, *, effective_timeout=None):
+            nonlocal stream_called
+            stream_called = True
+            return (b"output", b"")
+
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=mock_process),
+            patch.object(backend, "_build_command", return_value=["claude", "-p", "test"]),
+            patch.object(backend, "_prepare_log_files"),
+            patch.object(backend, "_stream_with_progress", side_effect=_track_stream),
+        ):
+            await backend._execute_impl("test")
+            assert stream_called, "Streaming path must be used even without progress_callback"
 
 
 class TestClaudeCliBackendRateLimitDetection:
@@ -1074,6 +1140,24 @@ class TestBuildCommand:
 # ============================================================================
 
 
+def _make_stream_reader(data: bytes) -> AsyncMock:
+    """Create a mock StreamReader that yields data then EOF."""
+    reader = AsyncMock()
+    chunks = [data] if data else []
+    call_count = 0
+
+    async def _read(n: int = -1) -> bytes:
+        nonlocal call_count
+        if call_count < len(chunks):
+            chunk = chunks[call_count]
+            call_count += 1
+            return chunk
+        return b""
+
+    reader.read = _read
+    return reader
+
+
 def _make_mock_process(
     returncode: int | None = 0,
     stdout: bytes = b"output text",
@@ -1088,6 +1172,9 @@ def _make_mock_process(
     proc.wait = AsyncMock(return_value=returncode)
     proc.kill = MagicMock()
     proc.terminate = MagicMock()
+    # Stream readers for the streaming path (always used after Q013 fix)
+    proc.stdout = _make_stream_reader(stdout)
+    proc.stderr = _make_stream_reader(stderr)
     return proc
 
 
@@ -1189,10 +1276,13 @@ class TestExecuteImpl:
         proc = _make_mock_process()
         proc.returncode = None  # Process still running
 
-        async def _failing_communicate() -> None:
+        # Make the stdout stream raise during read — this triggers the
+        # outer Exception handler in _execute_impl which kills orphans.
+        async def _failing_read(_n: int = -1) -> bytes:
             raise RuntimeError("unexpected")
 
-        proc.communicate = _failing_communicate
+        proc.stdout.read = _failing_read
+        proc.stdout.readline = _failing_read
 
         with (
             patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)),

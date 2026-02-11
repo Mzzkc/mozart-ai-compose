@@ -309,11 +309,13 @@ class ParallelExecutor:
 
             # Log any ungrouped exceptions that couldn't be mapped to tasks
             # Use object identity (id) instead of str() to avoid collisions
-            # when different exceptions have identical string representations
+            # when different exceptions have identical string representations.
+            # Must check `not t.cancelled()` before `t.exception()` — calling
+            # .exception() on a cancelled task re-raises CancelledError.
             mapped_error_ids = {
                 id(t.exception())
                 for t in tasks.values()
-                if t.done() and t.exception() is not None
+                if t.done() and not t.cancelled() and t.exception() is not None
             }
             for exc in eg.exceptions:
                 if id(exc) not in mapped_error_ids:

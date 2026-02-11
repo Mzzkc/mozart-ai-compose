@@ -467,10 +467,13 @@ class TestClaudeCliBackendProgress:
 
         mock_process = AsyncMock()
         mock_process.returncode = 0
-        mock_process.communicate = AsyncMock(return_value=(b"output", b""))
+        mock_process.pid = 12345
         mock_process.wait = AsyncMock()
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=mock_process),
+            patch.object(backend, "_stream_with_progress", return_value=(b"output", b"")),
+        ):
             result = await backend.execute("test prompt")
 
         assert result.success

@@ -571,17 +571,14 @@ class ClaudeCliBackend(Backend):
                 })
 
             try:
-                if self.progress_callback:
-                    stdout_bytes, stderr_bytes = await self._stream_with_progress(
-                        process, start_time, _notify_progress,
-                        effective_timeout=effective_timeout,
-                    )
-                else:
-                    stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                        process.communicate(),
-                        timeout=effective_timeout,
-                    )
-                    self._write_output_logs(stdout_bytes, stderr_bytes)
+                # Always use streaming to accumulate partial output in
+                # _partial_stdout_chunks/_partial_stderr_chunks.  This ensures
+                # output collected before a timeout is preserved — the old
+                # communicate() path was atomic and lost all output on timeout.
+                stdout_bytes, stderr_bytes = await self._stream_with_progress(
+                    process, start_time, _notify_progress,
+                    effective_timeout=effective_timeout,
+                )
 
                 bytes_received = len(stdout_bytes) + len(stderr_bytes)
                 lines_received = stdout_bytes.count(b"\n") + stderr_bytes.count(b"\n")
@@ -865,6 +862,6 @@ class ClaudeCliBackend(Backend):
             # Simple test prompt
             result = await self._execute_impl("Say 'ready' and nothing else.")
             return result.success and "ready" in result.stdout.lower()
-        except (asyncio.TimeoutError, OSError, RuntimeError) as e:
+        except (TimeoutError, OSError, RuntimeError) as e:
             _logger.warning("health_check_failed", error_type=type(e).__name__, error=str(e))
             return False

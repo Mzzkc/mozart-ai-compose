@@ -156,6 +156,57 @@ class TestGracefulShutdownError:
         assert runner._shutdown_requested is True
 
     @pytest.mark.asyncio
+    async def test_install_signal_handlers_registers_sigterm_and_sighup(
+        self,
+        sample_config: JobConfig,
+        mock_backend: MagicMock,
+        mock_state_backend: MagicMock,
+    ) -> None:
+        """Test that SIGTERM and SIGHUP are registered alongside SIGINT."""
+        import signal as sig_mod
+
+        runner = JobRunner(
+            config=sample_config,
+            backend=mock_backend,
+            state_backend=mock_state_backend,
+        )
+
+        loop = asyncio.get_running_loop()
+        with patch.object(loop, "add_signal_handler") as mock_add:
+            runner._install_signal_handlers()
+
+            registered_signals = {call.args[0] for call in mock_add.call_args_list}
+            assert sig_mod.SIGINT in registered_signals
+            assert sig_mod.SIGTERM in registered_signals
+            assert sig_mod.SIGHUP in registered_signals
+            assert len(registered_signals) == 3
+
+    @pytest.mark.asyncio
+    async def test_remove_signal_handlers_removes_all_three(
+        self,
+        sample_config: JobConfig,
+        mock_backend: MagicMock,
+        mock_state_backend: MagicMock,
+    ) -> None:
+        """Test that all three signal handlers are removed on cleanup."""
+        import signal as sig_mod
+
+        runner = JobRunner(
+            config=sample_config,
+            backend=mock_backend,
+            state_backend=mock_state_backend,
+        )
+
+        loop = asyncio.get_running_loop()
+        with patch.object(loop, "remove_signal_handler") as mock_remove:
+            runner._remove_signal_handlers()
+
+            removed_signals = {call.args[0] for call in mock_remove.call_args_list}
+            assert sig_mod.SIGINT in removed_signals
+            assert sig_mod.SIGTERM in removed_signals
+            assert sig_mod.SIGHUP in removed_signals
+
+    @pytest.mark.asyncio
     async def test_graceful_shutdown_saves_state_as_paused(
         self,
         sample_config: JobConfig,
