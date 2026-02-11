@@ -123,14 +123,19 @@ class TestStructuredOutput:
 
     @patch("mozart.core.logging.get_logger")
     def test_log_unknown_level_falls_back_to_info(self, mock_get_logger: MagicMock):
-        """Test log() with unknown level falls back to info."""
-        mock_logger = MagicMock()
+        """Test log() with unknown level falls back to info.
+
+        Uses spec=structlog.stdlib.BoundLogger so unknown attributes
+        (e.g. 'exotic_level') raise AttributeError, triggering the
+        getattr fallback to self._logger.info.
+        """
+        import structlog
+
+        mock_logger = MagicMock(spec=structlog.stdlib.BoundLogger)
         mock_get_logger.return_value = mock_logger
 
         output = StructuredOutput()
-        # MagicMock auto-creates attributes, so getattr will find a mock.
-        # The fallback to info only triggers if the attribute truly doesn't exist.
-        output.log("info", "fallback test")
+        output.log("exotic_level", "fallback test")
         mock_logger.info.assert_called_with("fallback test")
 
     @patch("mozart.core.logging.get_logger")

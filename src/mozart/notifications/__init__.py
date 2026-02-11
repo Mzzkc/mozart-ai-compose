@@ -49,6 +49,7 @@ from mozart.notifications.webhook import (
     MockWebhookNotifier,
     WebhookNotifier,
 )
+from mozart.notifications.factory import create_notifiers_from_config
 
 __all__ = [
     # Base types
@@ -66,4 +67,6 @@ __all__ = [
     # Webhook implementation
     "WebhookNotifier",
     "MockWebhookNotifier",
+    # Factory
+    "create_notifiers_from_config",
 ]

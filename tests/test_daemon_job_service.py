@@ -479,3 +479,347 @@ class TestReconstructConfig:
         result = job_service._reconstruct_config(mock_state)
         assert isinstance(result, JobConfig)
         assert result.name == "test-job"
+
+
+# ─── start_job full execution ────────────────────────────────────────────
+
+
+class TestStartJobExecution:
+    """Tests for start_job() full execution paths (non-dry-run)."""
+
+    @pytest.mark.asyncio
+    async def test_start_job_runs_and_returns_summary(
+        self, job_service: JobService, sample_job_config: MagicMock
+    ):
+        """Test start_job runs the runner and returns a RunSummary."""
+        from mozart.execution.runner.models import RunSummary
+
+        expected_state = CheckpointState(
+            job_id="test-job",
+            job_name="test-job",
+            total_sheets=5,
+            status=JobStatus.COMPLETED,
+        )
+        expected_summary = RunSummary(
+            job_id="test-job",
+            job_name="test-job",
+            total_sheets=5,
+            completed_sheets=5,
+            final_status=JobStatus.COMPLETED,
+        )
+
+        mock_runner = MagicMock()
+        mock_runner.run = AsyncMock(return_value=(expected_state, expected_summary))
+
+        with (
+            patch.object(Path, "mkdir"),
+            patch.object(JobService, "_create_state_backend", return_value=MagicMock()),
+            patch.object(JobService, "_setup_components", return_value={
+                "backend": MagicMock(),
+                "outcome_store": None,
+                "global_learning_store": None,
+                "notification_manager": None,
+                "escalation_handler": None,
+                "grounding_engine": None,
+            }),
+            patch.object(JobService, "_create_runner", return_value=mock_runner),
+        ):
+            summary = await job_service.start_job(sample_job_config)
+
+        assert summary.job_id == "test-job"
+        assert summary.final_status == JobStatus.COMPLETED
+        assert summary.completed_sheets == 5
+
+    @pytest.mark.asyncio
+    async def test_start_job_graceful_shutdown_returns_paused(
+        self, job_service: JobService, sample_job_config: MagicMock
+    ):
+        """Test start_job returns PAUSED summary on GracefulShutdownError."""
+        from mozart.execution.runner import GracefulShutdownError
+        from mozart.execution.runner.models import RunSummary
+
+        mock_runner = MagicMock()
+        mock_runner.run = AsyncMock(side_effect=GracefulShutdownError())
+        partial_summary = RunSummary(
+            job_id="test-job",
+            job_name="test-job",
+            total_sheets=5,
+            completed_sheets=3,
+        )
+        mock_runner.get_summary.return_value = partial_summary
+
+        with (
+            patch.object(Path, "mkdir"),
+            patch.object(JobService, "_create_state_backend", return_value=MagicMock()),
+            patch.object(JobService, "_setup_components", return_value={
+                "backend": MagicMock(),
+                "outcome_store": None,
+                "global_learning_store": None,
+                "notification_manager": None,
+                "escalation_handler": None,
+                "grounding_engine": None,
+            }),
+            patch.object(JobService, "_create_runner", return_value=mock_runner),
+        ):
+            summary = await job_service.start_job(sample_job_config)
+
+        assert summary.final_status == JobStatus.PAUSED
+        assert summary.completed_sheets == 3
+
+    @pytest.mark.asyncio
+    async def test_start_job_fatal_error_returns_failed(
+        self, job_service: JobService, sample_job_config: MagicMock
+    ):
+        """Test start_job returns FAILED summary on FatalError."""
+        from mozart.execution.runner import FatalError
+
+        mock_runner = MagicMock()
+        mock_runner.run = AsyncMock(side_effect=FatalError("bad thing"))
+        mock_runner.get_summary.return_value = None
+
+        with (
+            patch.object(Path, "mkdir"),
+            patch.object(JobService, "_create_state_backend", return_value=MagicMock()),
+            patch.object(JobService, "_setup_components", return_value={
+                "backend": MagicMock(),
+                "outcome_store": None,
+                "global_learning_store": None,
+                "notification_manager": None,
+                "escalation_handler": None,
+                "grounding_engine": None,
+            }),
+            patch.object(JobService, "_create_runner", return_value=mock_runner),
+        ):
+            summary = await job_service.start_job(sample_job_config)
+
+        assert summary.final_status == JobStatus.FAILED
+        assert summary.total_sheets == 5
+
+    @pytest.mark.asyncio
+    async def test_start_job_notifications_lifecycle(
+        self, job_service: JobService, sample_job_config: MagicMock
+    ):
+        """Test start_job calls notification manager start, complete, and close."""
+        from mozart.execution.runner.models import RunSummary
+
+        expected_state = CheckpointState(
+            job_id="test-job",
+            job_name="test-job",
+            total_sheets=5,
+            status=JobStatus.COMPLETED,
+        )
+        expected_summary = RunSummary(
+            job_id="test-job",
+            job_name="test-job",
+            total_sheets=5,
+            completed_sheets=5,
+            final_status=JobStatus.COMPLETED,
+        )
+
+        mock_runner = MagicMock()
+        mock_runner.run = AsyncMock(return_value=(expected_state, expected_summary))
+
+        mock_notification_mgr = AsyncMock()
+
+        with (
+            patch.object(Path, "mkdir"),
+            patch.object(JobService, "_create_state_backend", return_value=MagicMock()),
+            patch.object(JobService, "_setup_components", return_value={
+                "backend": MagicMock(),
+                "outcome_store": None,
+                "global_learning_store": None,
+                "notification_manager": mock_notification_mgr,
+                "escalation_handler": None,
+                "grounding_engine": None,
+            }),
+            patch.object(JobService, "_create_runner", return_value=mock_runner),
+        ):
+            await job_service.start_job(sample_job_config)
+
+        mock_notification_mgr.notify_job_start.assert_called_once()
+        mock_notification_mgr.notify_job_complete.assert_called_once()
+        mock_notification_mgr.close.assert_called_once()
+
+
+# ─── resume_job full execution ───────────────────────────────────────────
+
+
+class TestResumeJobExecution:
+    """Tests for resume_job() full execution paths."""
+
+    @pytest.mark.asyncio
+    async def test_resume_job_happy_path(
+        self, job_service: JobService, tmp_path: Path
+    ):
+        """Test resume_job runs from paused state and returns COMPLETED."""
+        from mozart.execution.runner.models import RunSummary
+
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        paused_state = CheckpointState(
+            job_id="test-job",
+            job_name="test-job",
+            total_sheets=5,
+            last_completed_sheet=2,
+            status=JobStatus.PAUSED,
+            config_snapshot={
+                "name": "test-job",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 5, "total_items": 10},
+                "prompt": {"template": "{{ sheet_num }}"},
+            },
+        )
+
+        mock_backend = AsyncMock()
+        completed_state = CheckpointState(
+            job_id="test-job",
+            job_name="test-job",
+            total_sheets=5,
+            status=JobStatus.COMPLETED,
+        )
+        expected_summary = RunSummary(
+            job_id="test-job",
+            job_name="test-job",
+            total_sheets=5,
+            completed_sheets=5,
+            final_status=JobStatus.COMPLETED,
+        )
+
+        mock_runner = MagicMock()
+        mock_runner.run = AsyncMock(return_value=(completed_state, expected_summary))
+
+        with (
+            patch.object(
+                JobService, "_find_job_state", new_callable=AsyncMock,
+                return_value=(paused_state, mock_backend),
+            ),
+            patch.object(JobService, "_setup_components", return_value={
+                "backend": MagicMock(),
+                "outcome_store": None,
+                "global_learning_store": None,
+                "notification_manager": None,
+                "escalation_handler": None,
+                "grounding_engine": None,
+            }),
+            patch.object(JobService, "_create_runner", return_value=mock_runner),
+        ):
+            summary = await job_service.resume_job("test-job", workspace)
+
+        assert summary.final_status == JobStatus.COMPLETED
+        assert summary.completed_sheets == 5
+        # Verify state was reset to RUNNING before execution
+        mock_backend.save.assert_called_once()
+        saved_state = mock_backend.save.call_args[0][0]
+        assert saved_state.status == JobStatus.RUNNING
+
+    @pytest.mark.asyncio
+    async def test_resume_failed_job_runs(
+        self, job_service: JobService, tmp_path: Path
+    ):
+        """Test resume_job can resume a FAILED job."""
+        from mozart.execution.runner.models import RunSummary
+
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        failed_state = CheckpointState(
+            job_id="test-job",
+            job_name="test-job",
+            total_sheets=5,
+            last_completed_sheet=3,
+            status=JobStatus.FAILED,
+            config_snapshot={
+                "name": "test-job",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 5, "total_items": 10},
+                "prompt": {"template": "{{ sheet_num }}"},
+            },
+        )
+
+        mock_backend = AsyncMock()
+        completed_state = CheckpointState(
+            job_id="test-job",
+            job_name="test-job",
+            total_sheets=5,
+            status=JobStatus.COMPLETED,
+        )
+        expected_summary = RunSummary(
+            job_id="test-job",
+            job_name="test-job",
+            total_sheets=5,
+            completed_sheets=5,
+            final_status=JobStatus.COMPLETED,
+        )
+
+        mock_runner = MagicMock()
+        mock_runner.run = AsyncMock(return_value=(completed_state, expected_summary))
+
+        with (
+            patch.object(
+                JobService, "_find_job_state", new_callable=AsyncMock,
+                return_value=(failed_state, mock_backend),
+            ),
+            patch.object(JobService, "_setup_components", return_value={
+                "backend": MagicMock(),
+                "outcome_store": None,
+                "global_learning_store": None,
+                "notification_manager": None,
+                "escalation_handler": None,
+                "grounding_engine": None,
+            }),
+            patch.object(JobService, "_create_runner", return_value=mock_runner),
+        ):
+            summary = await job_service.resume_job("test-job", workspace)
+
+        assert summary.final_status == JobStatus.COMPLETED
+        # Runner should be called with start_sheet=4 (last_completed+1)
+        # config_path is None (not in state), so it's omitted from run_kwargs
+        mock_runner.run.assert_called_once_with(start_sheet=4)
+
+
+# ─── _setup_components ───────────────────────────────────────────────────
+
+
+class TestSetupComponents:
+    """Tests for JobService._setup_components()."""
+
+    def test_basic_setup_no_learning_no_notifications(
+        self, job_service: JobService, sample_job_config: MagicMock,
+    ):
+        """Test _setup_components with learning/notifications/grounding disabled."""
+        with patch(
+            "mozart.backends.claude_cli.ClaudeCliBackend.from_config"
+        ) as mock_from_config:
+            mock_from_config.return_value = MagicMock()
+            components = job_service._setup_components(sample_job_config)
+
+        assert components["backend"] is not None
+        assert components["outcome_store"] is None
+        assert components["global_learning_store"] is None
+        assert components["notification_manager"] is None
+        assert components["escalation_handler"] is None
+        assert components["grounding_engine"] is None
+
+    def test_setup_with_learning_enabled(
+        self, job_service: JobService, sample_job_config: MagicMock,
+    ):
+        """Test _setup_components creates learning stores when enabled."""
+        sample_job_config.learning.enabled = True
+        sample_job_config.learning.outcome_store_type = "json"
+        sample_job_config.get_outcome_store_path.return_value = Path("/tmp/outcomes")
+
+        with (
+            patch(
+                "mozart.backends.claude_cli.ClaudeCliBackend.from_config",
+                return_value=MagicMock(),
+            ),
+            patch("mozart.learning.outcomes.JsonOutcomeStore") as mock_store_cls,
+            patch("mozart.learning.global_store.get_global_store") as mock_global,
+        ):
+            mock_store_cls.return_value = MagicMock()
+            mock_global.return_value = MagicMock()
+            components = job_service._setup_components(sample_job_config)
+
+        assert components["outcome_store"] is not None
+        assert components["global_learning_store"] is not None

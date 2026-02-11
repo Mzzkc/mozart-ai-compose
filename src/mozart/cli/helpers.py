@@ -34,14 +34,8 @@ import typer
 from rich.console import Console
 
 from mozart.core.checkpoint import CheckpointState, JobStatus
-from mozart.core.config import JobConfig, NotificationConfig
+from mozart.core.config import JobConfig
 from mozart.core.logging import configure_logging, get_logger
-from mozart.notifications import (
-    DesktopNotifier,
-    Notifier,
-    SlackNotifier,
-    WebhookNotifier,
-)
 from mozart.state import JsonStateBackend, SQLiteStateBackend, StateBackend
 
 if TYPE_CHECKING:
@@ -266,47 +260,9 @@ def get_default_state_backend() -> StateBackend:
     return SQLiteStateBackend(DEFAULT_STATE_DIR / "mozart.db")
 
 
-def create_notifiers_from_config(
-    notification_configs: list[NotificationConfig],
-) -> list[Notifier]:
-    """Create Notifier instances from notification configuration.
-
-    Args:
-        notification_configs: List of NotificationConfig from job config.
-
-    Returns:
-        List of configured Notifier instances.
-    """
-    notifiers: list[Notifier] = []
-
-    for config in notification_configs:
-        notifier: Notifier | None = None
-        # Cast Literal list to str list for from_config methods
-        events: list[str] = list(config.on_events)
-
-        if config.type == "desktop":
-            notifier = DesktopNotifier.from_config(
-                on_events=events,
-                config=config.config,
-            )
-        elif config.type == "slack":
-            notifier = SlackNotifier.from_config(
-                on_events=events,
-                config=config.config,
-            )
-        elif config.type == "webhook":
-            notifier = WebhookNotifier.from_config(
-                on_events=events,
-                config=config.config,
-            )
-        else:
-            _logger.warning("unknown_notification_type", type=config.type)
-            continue
-
-        if notifier:
-            notifiers.append(notifier)
-
-    return notifiers
+# Re-exported from notifications module for backwards compatibility.
+# The canonical implementation lives in mozart.notifications.factory.
+from mozart.notifications.factory import create_notifiers_from_config as create_notifiers_from_config  # noqa: F401, E501
 
 
 # =============================================================================

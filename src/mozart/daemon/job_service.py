@@ -11,7 +11,7 @@ All user-facing output goes through OutputProtocol.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from mozart.core.checkpoint import CheckpointState, JobStatus
 from mozart.core.logging import get_logger
@@ -21,12 +21,26 @@ from mozart.daemon.output import NullOutput, OutputProtocol
 if TYPE_CHECKING:
     from mozart.backends.base import Backend
     from mozart.core.config import JobConfig
+    from mozart.execution.grounding import GroundingEngine
+    from mozart.execution.runner import JobRunner
     from mozart.execution.runner.models import RunSummary
     from mozart.learning.global_store import GlobalLearningStore
+    from mozart.learning.outcomes import OutcomeStore
     from mozart.notifications.base import NotificationManager
     from mozart.state.base import StateBackend
 
 _logger = get_logger("daemon.job_service")
+
+
+class _JobComponents(TypedDict):
+    """Typed container for execution components created by _setup_components."""
+
+    backend: Backend
+    outcome_store: OutcomeStore | None
+    global_learning_store: GlobalLearningStore | None
+    notification_manager: NotificationManager | None
+    escalation_handler: None
+    grounding_engine: GroundingEngine | None
 
 
 class JobService:
@@ -84,8 +98,6 @@ class JobService:
             JobSubmissionError: If config is invalid or workspace setup fails.
             DaemonError: For unexpected daemon-level failures.
         """
-        from mozart.execution.runner import FatalError, GracefulShutdownError, JobRunner
-
         job_id = config.name
 
         self._output.job_event(job_id, "starting", {
@@ -130,123 +142,20 @@ class JobService:
         # Setup all execution components (backend, learning, notifications, etc.)
         components = self._setup_components(config)
 
-        # Build progress callback through OutputProtocol
-        def _progress_callback(completed: int, total: int, eta_seconds: float | None) -> None:
-            self._output.progress(job_id, completed, total, eta_seconds)
-
-        # Create runner context with all optional components
-        from mozart.execution.runner import RunnerContext
-
-        runner_context = RunnerContext(
-            outcome_store=components["outcome_store"],
-            escalation_handler=None,  # Escalation is interactive-only (CLI)
-            progress_callback=_progress_callback,
-            global_learning_store=components["global_learning_store"] or self._learning_store,
-            grounding_engine=components["grounding_engine"],
-            self_healing_enabled=self_healing,
+        runner = self._create_runner(
+            config, components, state_backend,
+            job_id=job_id,
+            self_healing=self_healing,
             self_healing_auto_confirm=self_healing_auto_confirm,
         )
 
-        runner = JobRunner(
-            config=config,
-            backend=components["backend"],
-            state_backend=state_backend,
-            context=runner_context,
+        return await self._execute_runner(
+            runner=runner,
+            job_id=job_id,
+            job_name=config.name,
+            total_sheets=config.sheet.total_sheets,
+            notification_manager=components["notification_manager"],
         )
-
-        notification_manager: NotificationManager | None = components["notification_manager"]
-
-        try:
-            # Send job start notification
-            if notification_manager:
-                await notification_manager.notify_job_start(
-                    job_id=job_id,
-                    job_name=config.name,
-                    total_sheets=config.sheet.total_sheets,
-                )
-
-            state, summary = await runner.run()
-
-            # Send completion notification
-            if notification_manager:
-                if state.status == JobStatus.COMPLETED:
-                    await notification_manager.notify_job_complete(
-                        job_id=job_id,
-                        job_name=config.name,
-                        success_count=summary.completed_sheets,
-                        failure_count=summary.failed_sheets,
-                        duration_seconds=summary.total_duration_seconds,
-                    )
-                elif state.status == JobStatus.FAILED:
-                    await notification_manager.notify_job_failed(
-                        job_id=job_id,
-                        job_name=config.name,
-                        error_message=f"Job failed with status: {state.status.value}",
-                        sheet_num=state.current_sheet,
-                    )
-
-            self._output.job_event(job_id, "completed", {
-                "status": state.status.value,
-                "completed_sheets": summary.completed_sheets,
-                "total_sheets": summary.total_sheets,
-            })
-
-            return summary
-
-        except GracefulShutdownError:
-            self._output.job_event(job_id, "paused")
-            summary = runner.get_summary()
-            if summary:
-                summary.final_status = JobStatus.PAUSED
-                return summary
-            # Construct minimal summary if runner didn't have one yet
-            from mozart.execution.runner.models import RunSummary
-
-            return RunSummary(
-                job_id=job_id,
-                job_name=config.name,
-                total_sheets=config.sheet.total_sheets,
-                final_status=JobStatus.PAUSED,
-            )
-
-        except FatalError as e:
-            self._output.log("error", f"Fatal error: {e}", job_id=job_id)
-
-            if notification_manager:
-                try:
-                    await notification_manager.notify_job_failed(
-                        job_id=job_id,
-                        job_name=config.name,
-                        error_message=str(e),
-                    )
-                except Exception as notify_err:
-                    _logger.error(
-                        "notification_failed_during_error_handling",
-                        job_id=job_id,
-                        notification_error=str(notify_err),
-                        original_error=str(e),
-                    )
-
-            summary = runner.get_summary()
-            if summary:
-                summary.final_status = JobStatus.FAILED
-                return summary
-
-            from mozart.execution.runner.models import RunSummary
-
-            return RunSummary(
-                job_id=job_id,
-                job_name=config.name,
-                total_sheets=config.sheet.total_sheets,
-                final_status=JobStatus.FAILED,
-            )
-
-        finally:
-            if notification_manager:
-                try:
-                    await notification_manager.close()
-                except Exception:
-                    _logger.debug("notification_cleanup_failed", exc_info=True)
 
     async def resume_job(
         self,
@@ -284,8 +193,6 @@ class JobService:
             JobSubmissionError: If job state not found or not resumable.
             DaemonError: For unexpected failures.
         """
-        from mozart.execution.runner import FatalError, GracefulShutdownError, JobRunner
-
         # Phase 1: Find job state
         found_state, found_backend = await self._find_job_state(job_id, workspace)
 
@@ -331,119 +238,28 @@ class JobService:
         # Phase 3: Setup components and run
         components = self._setup_components(resolved_config)
 
-        def _progress_callback(completed: int, total: int, eta_seconds: float | None) -> None:
-            self._output.progress(job_id, completed, total, eta_seconds)
-
-        from mozart.execution.runner import RunnerContext
-
-        runner_context = RunnerContext(
-            outcome_store=components["outcome_store"],
-            escalation_handler=None,
-            progress_callback=_progress_callback,
-            global_learning_store=components["global_learning_store"] or self._learning_store,
-            grounding_engine=components["grounding_engine"],
-            self_healing_enabled=self_healing,
+        runner = self._create_runner(
+            resolved_config, components, found_backend,
+            job_id=job_id,
+            self_healing=self_healing,
             self_healing_auto_confirm=self_healing_auto_confirm,
         )
 
-        runner = JobRunner(
-            config=resolved_config,
-            backend=components["backend"],
-            state_backend=found_backend,
-            context=runner_context,
+        remaining = found_state.total_sheets - found_state.last_completed_sheet
+        stored_config_path = (
+            str(config_path) if config_path else found_state.config_path
         )
 
-        notification_manager: NotificationManager | None = components["notification_manager"]
-
-        try:
-            if notification_manager:
-                remaining = found_state.total_sheets - found_state.last_completed_sheet
-                await notification_manager.notify_job_start(
-                    job_id=job_id,
-                    job_name=resolved_config.name,
-                    total_sheets=remaining,
-                )
-
-            stored_config_path = (
-                str(config_path) if config_path else found_state.config_path
-            )
-            state, summary = await runner.run(
-                start_sheet=resume_sheet,
-                config_path=stored_config_path,
-            )
-
-            if notification_manager:
-                if state.status == JobStatus.COMPLETED:
-                    await notification_manager.notify_job_complete(
-                        job_id=job_id,
-                        job_name=resolved_config.name,
-                        success_count=summary.completed_sheets,
-                        failure_count=summary.failed_sheets,
-                        duration_seconds=summary.total_duration_seconds,
-                    )
-                elif state.status == JobStatus.FAILED:
-                    await notification_manager.notify_job_failed(
-                        job_id=job_id,
-                        job_name=resolved_config.name,
-                        error_message=f"Job failed: {state.status.value}",
-                        sheet_num=state.current_sheet,
-                    )
-
-            self._output.job_event(job_id, "completed", {
-                "status": state.status.value,
-                "completed_sheets": summary.completed_sheets,
-            })
-
-            return summary
-
-        except GracefulShutdownError:
-            self._output.job_event(job_id, "paused")
-            summary = runner.get_summary()
-            if summary:
-                summary.final_status = JobStatus.PAUSED
-                return summary
-            from mozart.execution.runner.models import RunSummary
-
-            return RunSummary(
-                job_id=job_id,
-                job_name=resolved_config.name,
-                total_sheets=resolved_config.sheet.total_sheets,
-                final_status=JobStatus.PAUSED,
-            )
-
-        except FatalError as e:
-            self._output.log("error", f"Fatal error during resume: {e}", job_id=job_id)
-
-            if notification_manager:
-                try:
-                    await notification_manager.notify_job_failed(
-                        job_id=job_id,
-                        job_name=resolved_config.name,
-                        error_message=str(e),
-                    )
-                except Exception:
-                    _logger.debug("notification_failed_during_error_handling", exc_info=True)
-
-            summary = runner.get_summary()
-            if summary:
-                summary.final_status = JobStatus.FAILED
-                return summary
-
-            from mozart.execution.runner.models import RunSummary
-
-            return RunSummary(
-                job_id=job_id,
-                job_name=resolved_config.name,
-                total_sheets=resolved_config.sheet.total_sheets,
-                final_status=JobStatus.FAILED,
-            )
-
-        finally:
-            if notification_manager:
-                try:
-                    await notification_manager.close()
-                except Exception:
-                    pass
+        return await self._execute_runner(
+            runner=runner,
+            job_id=job_id,
+            job_name=resolved_config.name,
+            total_sheets=resolved_config.sheet.total_sheets,
+            notification_manager=components["notification_manager"],
+            notify_total_sheets=remaining,
+            start_sheet=resume_sheet,
+            config_path=stored_config_path,
+        )
 
     async def pause_job(self, job_id: str, workspace: Path) -> bool:
         """Pause a running job via signal file.
@@ -498,6 +314,143 @@ class JobService:
 
     # ─── Internal Helpers ────────────────────────────────────────────────
 
+    def _create_runner(
+        self,
+        config: JobConfig,
+        components: _JobComponents,
+        state_backend: StateBackend,
+        *,
+        job_id: str,
+        self_healing: bool = False,
+        self_healing_auto_confirm: bool = False,
+    ) -> JobRunner:
+        """Create a configured JobRunner from components."""
+        from mozart.execution.runner import JobRunner as JR
+        from mozart.execution.runner import RunnerContext
+
+        def _progress_callback(completed: int, total: int, eta_seconds: float | None) -> None:
+            self._output.progress(job_id, completed, total, eta_seconds)
+
+        runner_context = RunnerContext(
+            outcome_store=components["outcome_store"],
+            escalation_handler=None,
+            progress_callback=_progress_callback,
+            global_learning_store=components["global_learning_store"] or self._learning_store,
+            grounding_engine=components["grounding_engine"],
+            self_healing_enabled=self_healing,
+            self_healing_auto_confirm=self_healing_auto_confirm,
+        )
+
+        return JR(
+            config=config,
+            backend=components["backend"],
+            state_backend=state_backend,
+            context=runner_context,
+        )
+
+    async def _execute_runner(
+        self,
+        runner: JobRunner,
+        job_id: str,
+        job_name: str,
+        total_sheets: int,
+        notification_manager: NotificationManager | None,
+        notify_total_sheets: int | None = None,
+        start_sheet: int | None = None,
+        config_path: str | None = None,
+    ) -> RunSummary:
+        """Execute a runner with unified error handling.
+
+        Handles GracefulShutdownError (→ PAUSED), FatalError (→ FAILED),
+        and notification lifecycle (start, complete/fail, close).
+        """
+        from mozart.execution.runner import FatalError, GracefulShutdownError
+        from mozart.execution.runner.models import RunSummary
+
+        try:
+            if notification_manager:
+                await notification_manager.notify_job_start(
+                    job_id=job_id,
+                    job_name=job_name,
+                    total_sheets=notify_total_sheets or total_sheets,
+                )
+
+            run_kwargs: dict[str, Any] = {}
+            if start_sheet is not None:
+                run_kwargs["start_sheet"] = start_sheet
+            if config_path is not None:
+                run_kwargs["config_path"] = config_path
+
+            state, summary = await runner.run(**run_kwargs)
+
+            if notification_manager:
+                if state.status == JobStatus.COMPLETED:
+                    await notification_manager.notify_job_complete(
+                        job_id=job_id,
+                        job_name=job_name,
+                        success_count=summary.completed_sheets,
+                        failure_count=summary.failed_sheets,
+                        duration_seconds=summary.total_duration_seconds,
+                    )
+                elif state.status == JobStatus.FAILED:
+                    await notification_manager.notify_job_failed(
+                        job_id=job_id,
+                        job_name=job_name,
+                        error_message=f"Job failed with status: {state.status.value}",
+                        sheet_num=state.current_sheet,
+                    )
+
+            self._output.job_event(job_id, "completed", {
+                "status": state.status.value,
+                "completed_sheets": summary.completed_sheets,
+            })
+
+            return summary
+
+        except GracefulShutdownError:
+            self._output.job_event(job_id, "paused")
+            summary = runner.get_summary()
+            if summary:
+                summary.final_status = JobStatus.PAUSED
+                return summary
+            return RunSummary(
+                job_id=job_id,
+                job_name=job_name,
+                total_sheets=total_sheets,
+                final_status=JobStatus.PAUSED,
+            )
+
+        except FatalError as e:
+            self._output.log("error", f"Fatal error: {e}", job_id=job_id)
+
+            if notification_manager:
+                try:
+                    await notification_manager.notify_job_failed(
+                        job_id=job_id,
+                        job_name=job_name,
+                        error_message=str(e),
+                    )
+                except Exception:
+                    _logger.debug("notification_failed_during_error_handling", exc_info=True)
+
+            summary = runner.get_summary()
+            if summary:
+                summary.final_status = JobStatus.FAILED
+                return summary
+            return RunSummary(
+                job_id=job_id,
+                job_name=job_name,
+                total_sheets=total_sheets,
+                final_status=JobStatus.FAILED,
+            )
+
+        finally:
+            if notification_manager:
+                try:
+                    await notification_manager.close()
+                except Exception:
+                    _logger.debug("notification_cleanup_failed", exc_info=True)
+
     def _create_backend(self, config: JobConfig) -> Backend:
         """Create execution backend from config.
 
@@ -531,15 +484,11 @@ class JobService:
         else:
             return JsonStateBackend(workspace)
 
-    def _setup_components(self, config: JobConfig) -> dict[str, Any]:
+    def _setup_components(self, config: JobConfig) -> _JobComponents:
         """Setup all execution components for a job.
 
         Mirrors cli/commands/_shared.py::setup_all() but without
         Rich console dependencies or CLI-level verbosity checks.
-
-        Returns dict with keys: backend, outcome_store,
-        global_learning_store, notification_manager,
-        escalation_handler, grounding_engine.
         """
         backend = self._create_backend(config)
 
@@ -558,8 +507,8 @@ class JobService:
         # Notification setup (mirrors _shared.py::setup_notifications)
         notification_manager = None
         if config.notifications:
-            from mozart.cli.helpers import create_notifiers_from_config
             from mozart.notifications import NotificationManager
+            from mozart.notifications.factory import create_notifiers_from_config
 
             notifiers = create_notifiers_from_config(config.notifications)
             if notifiers:
