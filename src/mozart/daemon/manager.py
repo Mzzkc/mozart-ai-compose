@@ -20,6 +20,7 @@ from mozart.daemon.backpressure import BackpressureController
 from mozart.daemon.config import DaemonConfig
 from mozart.daemon.exceptions import JobSubmissionError
 from mozart.daemon.job_service import JobService
+from mozart.daemon.learning_hub import LearningHub
 from mozart.daemon.monitor import ResourceMonitor
 from mozart.daemon.output import StructuredOutput
 from mozart.daemon.rate_coordinator import RateLimitCoordinator
@@ -51,6 +52,12 @@ class JobManager:
 
     def __init__(self, config: DaemonConfig) -> None:
         self._config = config
+
+        # Phase 3: Centralized learning hub.
+        # Single GlobalLearningStore shared across all jobs — pattern
+        # discoveries in Job A are instantly available to Job B.
+        self._learning_hub = LearningHub()
+
         self._service = JobService(output=StructuredOutput())
         self._jobs: dict[str, asyncio.Task[Any]] = {}
         self._job_meta: dict[str, JobMeta] = {}
@@ -81,6 +88,18 @@ class JobManager:
             self._monitor, self._rate_coordinator,
         )
         self._scheduler.set_backpressure(self._backpressure)
+
+    # ─── Lifecycle ────────────────────────────────────────────────────
+
+    async def start(self) -> None:
+        """Start daemon subsystems (learning hub, monitor, etc.)."""
+        await self._learning_hub.start()
+        # Wire the shared store into the service so every job uses it
+        self._service = JobService(
+            output=StructuredOutput(),
+            global_learning_store=self._learning_hub.store,
+        )
+        _logger.info("manager.started")
 
     # ─── RPC Handlers ─────────────────────────────────────────────────
 
@@ -273,6 +292,10 @@ class JobManager:
                 )
 
         self._jobs.clear()
+
+        # Stop centralized learning hub (final persist + cleanup)
+        await self._learning_hub.stop()
+
         self._shutdown_event.set()
         _logger.info("manager.shutdown_complete")
 
@@ -314,6 +337,11 @@ class JobManager:
     def backpressure(self) -> BackpressureController:
         """Access the backpressure controller for load management."""
         return self._backpressure
+
+    @property
+    def learning_hub(self) -> LearningHub:
+        """Access the centralized learning hub."""
+        return self._learning_hub
 
     # ─── Internal ─────────────────────────────────────────────────────
 

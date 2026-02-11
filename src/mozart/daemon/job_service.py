@@ -496,13 +496,21 @@ class JobService:
         outcome_store = None
         global_learning_store = None
         if config.learning.enabled:
-            from mozart.learning.global_store import get_global_store
             from mozart.learning.outcomes import JsonOutcomeStore
 
             outcome_store_path = config.get_outcome_store_path()
             if config.learning.outcome_store_type == "json":
                 outcome_store = JsonOutcomeStore(outcome_store_path)
-            global_learning_store = get_global_store()
+
+            # Prefer the injected store (from daemon LearningHub) over
+            # the module-level singleton.  This avoids opening a second
+            # SQLite connection when the daemon already owns one.
+            if self._learning_store is not None:
+                global_learning_store = self._learning_store
+            else:
+                from mozart.learning.global_store import get_global_store
+
+                global_learning_store = get_global_store()
 
         # Notification setup (mirrors _shared.py::setup_notifications)
         notification_manager = None

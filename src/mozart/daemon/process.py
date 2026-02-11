@@ -203,6 +203,7 @@ class DaemonProcess:
             from mozart.daemon.monitor import ResourceMonitor
 
             manager = JobManager(self._config)
+            await manager.start()
             monitor = ResourceMonitor(
                 self._config.resource_limits, manager, pgroup=self._pgroup,
             )
