@@ -113,3 +113,17 @@ class DaemonConfig(BaseModel):
         default=None,
         description="Log file path. None means log to stderr only.",
     )
+    shutdown_timeout_seconds: float = Field(
+        default=300.0,
+        ge=10.0,
+        description="Max seconds to wait for running jobs during graceful shutdown",
+    )
+    monitor_interval_seconds: float = Field(
+        default=15.0,
+        ge=5.0,
+        description="Interval between resource monitor checks",
+    )
+    config_file: Path | None = Field(
+        default=None,
+        description="Path to daemon config file for SIGHUP reloading",
+    )

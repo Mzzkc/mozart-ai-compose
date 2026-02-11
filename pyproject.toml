@@ -56,6 +56,7 @@ dev = [
 
 [project.scripts]
 mozart = "mozart.cli:app"
+mozartd = "mozart.daemon.process:daemon_app"
 
 [build-system]
 requires = ["hatchling"]
