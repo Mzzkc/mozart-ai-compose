@@ -1,0 +1,246 @@
+"""Tests for mozart.daemon.learning_hub module.
+
+Covers LearningHub: start/stop lifecycle, store property access,
+persistence loop behavior, and multi-job shared store semantics.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+
+import pytest
+
+from mozart.daemon.learning_hub import LearningHub
+from mozart.learning.global_store import GlobalLearningStore
+
+
+# ─── Fixtures ──────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def db_path(tmp_path: Path) -> Path:
+    """Isolated database path for each test."""
+    return tmp_path / "test-learning.db"
+
+
+@pytest.fixture
+def hub(db_path: Path) -> LearningHub:
+    """Fresh LearningHub instance (not started)."""
+    return LearningHub(db_path=db_path)
+
+
+# ─── Lifecycle ─────────────────────────────────────────────────────────
+
+
+class TestLifecycle:
+    """Tests for LearningHub start/stop lifecycle."""
+
+    @pytest.mark.asyncio
+    async def test_start_creates_store(self, hub: LearningHub):
+        """After start(), the store is available."""
+        assert hub.is_running is False
+
+        await hub.start()
+        try:
+            assert hub.is_running is True
+            assert hub._store is not None
+        finally:
+            await hub.stop()
+
+    @pytest.mark.asyncio
+    async def test_start_creates_persist_task(self, hub: LearningHub):
+        """start() creates a background persistence task."""
+        await hub.start()
+        try:
+            assert hub._persist_task is not None
+            assert not hub._persist_task.done()
+        finally:
+            await hub.stop()
+
+    @pytest.mark.asyncio
+    async def test_stop_cancels_persist_task(self, hub: LearningHub):
+        """stop() cancels the persistence task cleanly."""
+        await hub.start()
+        task = hub._persist_task
+        assert task is not None
+
+        await hub.stop()
+
+        assert task.cancelled() or task.done()
+        assert hub._persist_task is None
+        assert hub._store is None
+
+    @pytest.mark.asyncio
+    async def test_stop_sets_not_running(self, hub: LearningHub):
+        """After stop(), is_running is False."""
+        await hub.start()
+        await hub.stop()
+
+        assert hub.is_running is False
+
+    @pytest.mark.asyncio
+    async def test_stop_without_start(self, hub: LearningHub):
+        """stop() on an unstarted hub is a safe no-op."""
+        await hub.stop()
+        assert hub.is_running is False
+
+    @pytest.mark.asyncio
+    async def test_start_stop_start(self, hub: LearningHub):
+        """Hub can be restarted after stopping."""
+        await hub.start()
+        await hub.stop()
+        assert hub.is_running is False
+
+        await hub.start()
+        try:
+            assert hub.is_running is True
+            assert hub._store is not None
+        finally:
+            await hub.stop()
+
+
+# ─── Store Property ──────────────────────────────────────────────────
+
+
+class TestStoreProperty:
+    """Tests for the store property."""
+
+    @pytest.mark.asyncio
+    async def test_store_returns_global_learning_store(self, hub: LearningHub):
+        """The store property returns a GlobalLearningStore instance."""
+        await hub.start()
+        try:
+            store = hub.store
+            assert isinstance(store, GlobalLearningStore)
+        finally:
+            await hub.stop()
+
+    def test_store_raises_when_not_started(self, hub: LearningHub):
+        """Accessing store before start() raises RuntimeError."""
+        with pytest.raises(RuntimeError, match="LearningHub not started"):
+            hub.store
+
+    @pytest.mark.asyncio
+    async def test_store_raises_after_stop(self, hub: LearningHub):
+        """Accessing store after stop() raises RuntimeError."""
+        await hub.start()
+        await hub.stop()
+
+        with pytest.raises(RuntimeError, match="LearningHub not started"):
+            hub.store
+
+
+# ─── Persistence Loop ────────────────────────────────────────────────
+
+
+class TestPersistenceLoop:
+    """Tests for the periodic persistence loop."""
+
+    @pytest.mark.asyncio
+    async def test_persist_interval_default(self, hub: LearningHub):
+        """Default persist interval is 60 seconds."""
+        assert hub._persist_interval == 60.0
+
+    @pytest.mark.asyncio
+    async def test_persist_loop_runs_periodically(self, db_path: Path):
+        """Persistence loop sleeps for the configured interval."""
+        hub = LearningHub(db_path=db_path)
+        hub._persist_interval = 0.05  # 50ms for fast testing
+
+        await hub.start()
+        try:
+            # Let the loop run a couple of cycles
+            await asyncio.sleep(0.15)
+            # If the loop crashed, the task would be done with an exception
+            assert hub._persist_task is not None
+            assert not hub._persist_task.done()
+        finally:
+            await hub.stop()
+
+    @pytest.mark.asyncio
+    async def test_persist_loop_handles_cancellation(self, db_path: Path):
+        """Persistence loop exits cleanly on CancelledError."""
+        hub = LearningHub(db_path=db_path)
+        hub._persist_interval = 0.01
+
+        await hub.start()
+        task = hub._persist_task
+        assert task is not None
+
+        # Let it run briefly, then stop (which cancels)
+        await asyncio.sleep(0.03)
+        await hub.stop()
+
+        # Task should complete without raising
+        assert task.done()
+        # Verify no unexpected exception (cancelled is expected)
+        exc = task.exception() if not task.cancelled() else None
+        assert exc is None
+
+
+# ─── Shared Store Semantics ──────────────────────────────────────────
+
+
+class TestSharedStoreSemantics:
+    """Tests verifying multiple jobs share the same store instance."""
+
+    @pytest.mark.asyncio
+    async def test_same_store_instance_across_accesses(self, hub: LearningHub):
+        """Multiple accesses to .store return the same object."""
+        await hub.start()
+        try:
+            store_1 = hub.store
+            store_2 = hub.store
+            assert store_1 is store_2
+        finally:
+            await hub.stop()
+
+    @pytest.mark.asyncio
+    async def test_store_uses_specified_db_path(self, db_path: Path):
+        """The store is created at the configured db_path."""
+        hub = LearningHub(db_path=db_path)
+        await hub.start()
+        try:
+            store = hub.store
+            assert store.db_path == db_path
+        finally:
+            await hub.stop()
+
+    @pytest.mark.asyncio
+    async def test_default_db_path_when_none(self):
+        """When no db_path is given, DEFAULT_GLOBAL_STORE_PATH is used."""
+        from mozart.learning.store.base import DEFAULT_GLOBAL_STORE_PATH
+
+        hub = LearningHub(db_path=None)
+        assert hub._db_path == DEFAULT_GLOBAL_STORE_PATH
+
+
+# ─── Edge Cases ──────────────────────────────────────────────────────
+
+
+class TestEdgeCases:
+    """Edge cases and boundary conditions."""
+
+    @pytest.mark.asyncio
+    async def test_hub_with_custom_persist_interval(self, db_path: Path):
+        """Custom persist interval is respected."""
+        hub = LearningHub(db_path=db_path)
+        hub._persist_interval = 0.02
+
+        await hub.start()
+        try:
+            assert hub._persist_interval == 0.02
+        finally:
+            await hub.stop()
+
+    @pytest.mark.asyncio
+    async def test_is_running_property_tracks_state(self, hub: LearningHub):
+        """is_running accurately reflects hub lifecycle."""
+        assert hub.is_running is False
+
+        await hub.start()
+        assert hub.is_running is True
+
+        await hub.stop()
+        assert hub.is_running is False
