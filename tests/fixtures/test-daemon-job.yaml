@@ -1,0 +1,32 @@
+# Minimal 1-sheet job config for daemon E2E tests.
+#
+# Uses claude_cli backend with a very short timeout.
+# The prompt is intentionally trivial so the test doesn't depend on
+# a real Claude CLI being available — tests mock the backend layer.
+
+name: "test-daemon-job"
+description: "Minimal fixture for daemon E2E integration tests"
+
+workspace: "./test-daemon-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  timeout_seconds: 30
+  disable_mcp: true
+  output_format: json
+
+sheet:
+  size: 1
+  total_items: 1
+
+prompt:
+  template: |
+    Echo "hello from sheet {{ sheet_num }}" and create
+    {{ workspace }}/sheet{{ sheet_num }}.md with that content.
+
+retry:
+  max_retries: 0
+  base_delay_seconds: 1
+
+state_backend: json
