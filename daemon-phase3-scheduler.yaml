@@ -65,6 +65,7 @@ retry:
 on_success:
   - type: run_job
     job_path: "daemon-phase4-integration.yaml"
+    job_workspace: ".daemon-workspace-p4"
     description: "Chain to Phase 4: Integration & Polish"
     detached: true
 

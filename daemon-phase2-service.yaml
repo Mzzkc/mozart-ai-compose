@@ -67,6 +67,7 @@ retry:
 on_success:
   - type: run_job
     job_path: "daemon-phase3-scheduler.yaml"
+    job_workspace: ".daemon-workspace-p3"
     description: "Chain to Phase 3: Cross-Job Scheduler"
     detached: true
 
