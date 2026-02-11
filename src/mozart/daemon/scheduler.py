@@ -446,8 +446,12 @@ class GlobalSheetScheduler:
                 )
 
 
+# Alias for external consumers that reference the shorter name.
+GlobalScheduler = GlobalSheetScheduler
+
 __all__ = [
     "BackpressureChecker",
+    "GlobalScheduler",
     "GlobalSheetScheduler",
     "RateLimitChecker",
     "SchedulerStats",
