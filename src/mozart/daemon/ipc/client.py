@@ -215,5 +215,13 @@ class DaemonClient:
         """List all jobs known to the daemon."""
         return await self.call("job.list")
 
+    async def health(self) -> dict[str, Any]:
+        """Liveness probe — is the daemon process alive?"""
+        return await self.call("daemon.health")
+
+    async def readiness(self) -> dict[str, Any]:
+        """Readiness probe — is the daemon accepting new jobs?"""
+        return await self.call("daemon.ready")
+
 
 __all__ = ["DaemonClient"]

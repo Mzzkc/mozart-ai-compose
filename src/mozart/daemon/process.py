@@ -11,6 +11,7 @@ import asyncio
 import os
 import signal
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -93,7 +94,7 @@ def status(
         Path("/tmp/mozartd.sock"), "--socket",
     ),
 ) -> None:
-    """Check daemon status."""
+    """Check daemon status via health probes."""
     pid = _read_pid(pid_file)
     if pid is None or not _pid_alive(pid):
         typer.echo("mozartd is not running")
@@ -102,21 +103,52 @@ def status(
 
     typer.echo(f"mozartd is running (PID {pid})")
 
-    # Try to get detailed status via IPC
+    # Query health probes via IPC
+    from mozart.daemon.ipc.client import DaemonClient
+
+    client = DaemonClient(socket_path)
+
+    async def _get_health() -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
+        health = None
+        ready = None
+        daemon_info = None
+        try:
+            health = await client.call("daemon.health")
+        except Exception:
+            pass
+        try:
+            ready = await client.call("daemon.ready")
+        except Exception:
+            pass
+        try:
+            daemon_info = await client.call("daemon.status")
+        except Exception:
+            pass
+        return health, ready, daemon_info
+
     try:
-        from mozart.daemon.ipc.client import DaemonClient
-
-        async def _get_status() -> dict[str, Any]:
-            client = DaemonClient(socket_path)
-            return await client.call("daemon.status")
-
-        info = asyncio.run(_get_status())
-        if info:
-            typer.echo(f"  Running jobs: {info.get('running_jobs', '?')}")
-            typer.echo(f"  Active sheets: {info.get('total_sheets_active', '?')}")
-            typer.echo(f"  Version: {info.get('version', '?')}")
+        health, ready, daemon_info = asyncio.run(_get_health())
     except Exception:
         typer.echo("  (Could not connect to daemon socket for details)")
+        return
+
+    if health:
+        uptime = health.get("uptime_seconds", 0)
+        hours, remainder = divmod(int(uptime), 3600)
+        minutes, seconds = divmod(remainder, 60)
+        typer.echo(f"  Uptime: {hours}h {minutes}m {seconds}s")
+
+    if ready:
+        status_str = ready.get("status", "unknown")
+        symbol = "+" if status_str == "ready" else "-"
+        typer.echo(f"  [{symbol}] Readiness: {status_str}")
+        typer.echo(f"  Running jobs: {ready.get('running_jobs', '?')}")
+        typer.echo(f"  Memory: {ready.get('memory_mb', '?')} MB")
+        typer.echo(f"  Child processes: {ready.get('child_processes', '?')}")
+        typer.echo(f"  Accepting work: {ready.get('accepting_work', '?')}")
+
+    if daemon_info:
+        typer.echo(f"  Version: {daemon_info.get('version', '?')}")
 
 
 # ─── DaemonProcess ────────────────────────────────────────────────────
@@ -133,6 +165,7 @@ class DaemonProcess:
         self._config = config
         self._shutdown_event = asyncio.Event()
         self._pgroup = ProcessGroupManager()
+        self._start_time = time.monotonic()
 
     async def run(self) -> None:
         """Main daemon lifecycle: boot, serve, shutdown."""
@@ -154,10 +187,15 @@ class DaemonProcess:
         )
         handler = RequestHandler()
 
-        # 4. Register RPC methods (adapt JobManager to handler signature)
-        self._register_methods(handler, manager)
+        # 4. Create health checker
+        from mozart.daemon.health import HealthChecker
 
-        # 5. Start server
+        health = HealthChecker(manager, monitor, start_time=self._start_time)
+
+        # 5. Register RPC methods (adapt JobManager to handler signature)
+        self._register_methods(handler, manager, health)
+
+        # 6. Start server
         server = DaemonServer(
             self._config.socket.path,
             handler,
@@ -166,7 +204,7 @@ class DaemonProcess:
         )
         await server.start()
 
-        # 6. Install signal handlers
+        # 7. Install signal handlers
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(
@@ -180,13 +218,13 @@ class DaemonProcess:
             lambda: asyncio.create_task(self._reload_config()),
         )
 
-        # 7. Start resource monitor
+        # 8. Start resource monitor
         interval = getattr(
             self._config, "monitor_interval_seconds", 15.0,
         )
         await monitor.start(interval_seconds=interval)
 
-        # 8. Run until shutdown
+        # 9. Run until shutdown
         _logger.info(
             "daemon.started",
             pid=os.getpid(),
@@ -194,11 +232,11 @@ class DaemonProcess:
         )
         await manager.wait_for_shutdown()
 
-        # 9. Cleanup
+        # 10. Cleanup
         await monitor.stop()
         await server.stop()
 
-        # 10. Kill remaining children in process group (issue #38)
+        # 11. Kill remaining children in process group (issue #38)
         self._pgroup.kill_all_children()
         orphans = self._pgroup.cleanup_orphans()
         if orphans:
@@ -214,8 +252,9 @@ class DaemonProcess:
         self,
         handler: Any,
         manager: Any,
+        health: Any = None,
     ) -> None:
-        """Wire JSON-RPC methods to JobManager operations."""
+        """Wire JSON-RPC methods to JobManager and HealthChecker."""
         from mozart.daemon.types import JobRequest
 
         async def handle_submit(params: dict[str, Any], _w: Any) -> dict[str, Any]:
@@ -263,6 +302,17 @@ class DaemonProcess:
         handler.register("job.list", handle_list)
         handler.register("daemon.status", handle_daemon_status)
         handler.register("daemon.shutdown", handle_shutdown)
+
+        # Health check probes
+        if health is not None:
+            async def handle_health(_p: dict[str, Any], _w: Any) -> dict[str, Any]:
+                return await health.liveness()
+
+            async def handle_ready(_p: dict[str, Any], _w: Any) -> dict[str, Any]:
+                return await health.readiness()
+
+            handler.register("daemon.health", handle_health)
+            handler.register("daemon.ready", handle_ready)
 
     async def _handle_signal(
         self,

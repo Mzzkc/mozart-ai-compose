@@ -117,6 +117,21 @@ class ResourceMonitor:
         )
         return snapshot
 
+    def is_accepting_work(self) -> bool:
+        """Check if resource usage is below warning thresholds.
+
+        Returns True when both memory and process counts are below
+        ``WARN_THRESHOLD`` percent of their configured limits.  Used by
+        ``HealthChecker.readiness()`` to signal backpressure.
+        """
+        mem_pct = _compute_percent(
+            self._get_memory_usage_mb(), self._config.max_memory_mb,
+        )
+        proc_pct = _compute_percent(
+            self._get_child_process_count(), self._config.max_processes,
+        )
+        return mem_pct < self.WARN_THRESHOLD and proc_pct < self.WARN_THRESHOLD
+
     # ─── Internal ─────────────────────────────────────────────────────
 
     async def _loop(self, interval: float) -> None:

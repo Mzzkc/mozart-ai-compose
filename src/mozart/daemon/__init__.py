@@ -1,6 +1,7 @@
 """Mozart daemon service — long-running orchestration (mozartd)."""
 
 from mozart.daemon.config import DaemonConfig
+from mozart.daemon.health import HealthChecker
 from mozart.daemon.job_service import JobService
 from mozart.daemon.manager import JobManager, JobMeta
 from mozart.daemon.monitor import ResourceMonitor, ResourceSnapshot
@@ -14,6 +15,7 @@ __all__ = [
     "DaemonConfig",
     "DaemonProcess",
     "DaemonStatus",
+    "HealthChecker",
     "JobManager",
     "JobMeta",
     "JobRequest",
