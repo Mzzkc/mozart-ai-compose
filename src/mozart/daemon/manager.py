@@ -20,6 +20,7 @@ from mozart.daemon.config import DaemonConfig
 from mozart.daemon.exceptions import JobSubmissionError
 from mozart.daemon.job_service import JobService
 from mozart.daemon.output import StructuredOutput
+from mozart.daemon.rate_coordinator import RateLimitCoordinator
 from mozart.daemon.scheduler import GlobalSheetScheduler
 from mozart.daemon.types import JobRequest, JobResponse
 
@@ -62,6 +63,13 @@ class JobManager:
         # The semaphore above gates job-level entry; the scheduler gates
         # sheet-level concurrency across all jobs.
         self._scheduler = GlobalSheetScheduler(config)
+
+        # Phase 3: Cross-job rate limit coordination.
+        # When any job hits a rate limit, all jobs using that backend
+        # back off. Wired into the scheduler so next_sheet() skips
+        # rate-limited backends.
+        self._rate_coordinator = RateLimitCoordinator()
+        self._scheduler.set_rate_limiter(self._rate_coordinator)
 
     # ─── RPC Handlers ─────────────────────────────────────────────────
 
@@ -278,6 +286,11 @@ class JobManager:
     def scheduler(self) -> GlobalSheetScheduler:
         """Access the global sheet scheduler for cross-job coordination."""
         return self._scheduler
+
+    @property
+    def rate_coordinator(self) -> RateLimitCoordinator:
+        """Access the rate limit coordinator for cross-job rate limiting."""
+        return self._rate_coordinator
 
     # ─── Internal ─────────────────────────────────────────────────────
 
