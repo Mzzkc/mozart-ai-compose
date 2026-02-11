@@ -20,6 +20,7 @@ from mozart.daemon.config import ResourceLimitConfig
 
 if TYPE_CHECKING:
     from mozart.daemon.manager import JobManager
+    from mozart.daemon.pgroup import ProcessGroupManager
 
 _logger = get_logger("daemon.monitor")
 
@@ -70,9 +71,11 @@ class ResourceMonitor:
         self,
         config: ResourceLimitConfig,
         manager: JobManager | None = None,
+        pgroup: ProcessGroupManager | None = None,
     ) -> None:
         self._config = config
         self._manager = manager
+        self._pgroup = pgroup
         self._task: asyncio.Task[None] | None = None
         self._running = False
 
@@ -178,6 +181,10 @@ class ResourceMonitor:
                 zombie_pids=snapshot.zombie_pids,
                 count=len(snapshot.zombie_pids),
             )
+
+        # Periodic orphan cleanup via process group manager
+        if self._pgroup is not None:
+            self._pgroup.cleanup_orphans()
 
     async def _enforce_memory_limit(self) -> None:
         """Cancel the oldest running job when memory exceeds hard limit."""

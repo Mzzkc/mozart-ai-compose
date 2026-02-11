@@ -18,6 +18,7 @@ import typer
 
 from mozart.core.logging import get_logger
 from mozart.daemon.config import DaemonConfig
+from mozart.daemon.pgroup import ProcessGroupManager
 
 _logger = get_logger("mozartd")
 
@@ -131,6 +132,7 @@ class DaemonProcess:
     def __init__(self, config: DaemonConfig) -> None:
         self._config = config
         self._shutdown_event = asyncio.Event()
+        self._pgroup = ProcessGroupManager()
 
     async def run(self) -> None:
         """Main daemon lifecycle: boot, serve, shutdown."""
@@ -138,10 +140,7 @@ class DaemonProcess:
         _write_pid(self._config.pid_file)
 
         # 2. Set up process group (fixes issue #38 — orphan prevention)
-        try:
-            os.setpgrp()
-        except OSError:
-            pass  # May fail if already group leader
+        self._pgroup.setup()
 
         # 3. Create components
         from mozart.daemon.ipc.handler import RequestHandler
@@ -150,7 +149,9 @@ class DaemonProcess:
         from mozart.daemon.monitor import ResourceMonitor
 
         manager = JobManager(self._config)
-        monitor = ResourceMonitor(self._config.resource_limits, manager)
+        monitor = ResourceMonitor(
+            self._config.resource_limits, manager, pgroup=self._pgroup,
+        )
         handler = RequestHandler()
 
         # 4. Register RPC methods (adapt JobManager to handler signature)
@@ -196,6 +197,16 @@ class DaemonProcess:
         # 9. Cleanup
         await monitor.stop()
         await server.stop()
+
+        # 10. Kill remaining children in process group (issue #38)
+        self._pgroup.kill_all_children()
+        orphans = self._pgroup.cleanup_orphans()
+        if orphans:
+            _logger.info(
+                "daemon.shutdown_orphans_cleaned",
+                count=len(orphans),
+            )
+
         self._config.pid_file.unlink(missing_ok=True)
         _logger.info("daemon.stopped")
 
