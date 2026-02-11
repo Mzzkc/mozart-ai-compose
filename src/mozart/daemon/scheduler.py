@@ -7,8 +7,8 @@ backpressure controllers.
 
 Lock ordering (daemon-wide):
   1. GlobalSheetScheduler._lock
-  2. RateLimitCoordinator._lock   (future — Stage 3)
-  3. BackpressureController._lock  (future — Stage 4)
+  2. RateLimitCoordinator._lock
+  3. BackpressureController  (lock-free — reads are atomic)
   4. CentralLearningStore._lock    (future — Stage 5)
 """
 

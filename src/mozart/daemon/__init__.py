@@ -1,5 +1,6 @@
 """Mozart daemon service — long-running orchestration (mozartd)."""
 
+from mozart.daemon.backpressure import BackpressureController, PressureLevel
 from mozart.daemon.config import DaemonConfig
 from mozart.daemon.health import HealthChecker
 from mozart.daemon.job_service import JobService
@@ -12,6 +13,7 @@ from mozart.daemon.scheduler import GlobalSheetScheduler, SchedulerStats, SheetE
 from mozart.daemon.types import DaemonStatus, JobRequest, JobResponse
 
 __all__ = [
+    "BackpressureController",
     "ConsoleOutput",
     "DaemonConfig",
     "DaemonProcess",
@@ -25,6 +27,7 @@ __all__ = [
     "JobService",
     "NullOutput",
     "OutputProtocol",
+    "PressureLevel",
     "ProcessGroupManager",
     "ResourceMonitor",
     "ResourceSnapshot",

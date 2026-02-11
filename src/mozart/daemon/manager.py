@@ -16,9 +16,11 @@ from typing import Any
 
 import mozart
 from mozart.core.logging import get_logger
+from mozart.daemon.backpressure import BackpressureController
 from mozart.daemon.config import DaemonConfig
 from mozart.daemon.exceptions import JobSubmissionError
 from mozart.daemon.job_service import JobService
+from mozart.daemon.monitor import ResourceMonitor
 from mozart.daemon.output import StructuredOutput
 from mozart.daemon.rate_coordinator import RateLimitCoordinator
 from mozart.daemon.scheduler import GlobalSheetScheduler
@@ -71,6 +73,15 @@ class JobManager:
         self._rate_coordinator = RateLimitCoordinator()
         self._scheduler.set_rate_limiter(self._rate_coordinator)
 
+        # Phase 3: Backpressure controller.
+        # Monitors memory/rate-limit pressure and throttles or rejects
+        # sheet dispatch and job submissions when the system is stressed.
+        self._monitor = ResourceMonitor(config.resource_limits, manager=self)
+        self._backpressure = BackpressureController(
+            self._monitor, self._rate_coordinator,
+        )
+        self._scheduler.set_backpressure(self._backpressure)
+
     # ─── RPC Handlers ─────────────────────────────────────────────────
 
     async def submit_job(self, request: JobRequest) -> JobResponse:
@@ -80,6 +91,13 @@ class JobManager:
                 job_id="",
                 status="rejected",
                 message="Daemon is shutting down",
+            )
+
+        if not self._backpressure.should_accept_job():
+            return JobResponse(
+                job_id="",
+                status="rejected",
+                message="System under high pressure — try again later",
             )
 
         job_id = f"{request.config_path.stem}-{uuid.uuid4().hex[:8]}"
@@ -291,6 +309,11 @@ class JobManager:
     def rate_coordinator(self) -> RateLimitCoordinator:
         """Access the rate limit coordinator for cross-job rate limiting."""
         return self._rate_coordinator
+
+    @property
+    def backpressure(self) -> BackpressureController:
+        """Access the backpressure controller for load management."""
+        return self._backpressure
 
     # ─── Internal ─────────────────────────────────────────────────────
 
