@@ -99,12 +99,14 @@ class DaemonConfig(BaseModel):
     )
     state_backend_type: Literal["json", "sqlite"] = Field(
         default="sqlite",
-        description="Backend for daemon-level state persistence. "
+        description="Reserved for future use; not yet implemented. "
+        "Will select the backend for daemon-level state persistence. "
         "SQLite is preferred for concurrent writes from the daemon.",
     )
     state_db_path: Path = Field(
         default=Path("~/.mozart/daemon-state.db"),
-        description="Path for daemon state database. "
+        description="Reserved for future use; not yet implemented. "
+        "Will be the path for daemon state database. "
         "Tilde is expanded at runtime. Stores job registry and metrics.",
     )
     log_level: str = Field(

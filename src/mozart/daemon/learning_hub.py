@@ -100,16 +100,20 @@ class LearningHub:
         return self._store is not None
 
     async def _heartbeat_loop(self) -> None:
-        """Periodically persist learning state.
+        """Periodically log learning store health.
 
         The GlobalLearningStore commits per-operation, so this loop
-        primarily serves as a heartbeat for observability.  Future
-        enhancements could batch writes here for throughput.
+        primarily serves as a heartbeat for observability.
         """
         while True:
             try:
                 await asyncio.sleep(self._heartbeat_interval)
-                _logger.debug("learning_hub.persist_heartbeat")
+                if self._store is not None:
+                    _logger.debug(
+                        "learning_hub.heartbeat",
+                        store_active=True,
+                        db_path=str(self._db_path),
+                    )
             except asyncio.CancelledError:
                 break
 

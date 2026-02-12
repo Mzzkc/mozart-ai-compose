@@ -20,10 +20,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from mozart.daemon.config import DaemonConfig, SocketConfig
+from mozart.daemon.config import DaemonConfig, ResourceLimitConfig, SocketConfig
 from mozart.daemon.exceptions import DaemonNotRunningError, JobSubmissionError
 from mozart.daemon.ipc.client import DaemonClient
 from mozart.daemon.process import DaemonProcess
+from mozart.daemon.system_probe import SystemProbe
 from mozart.daemon.types import JobRequest, JobResponse
 
 
@@ -466,6 +467,73 @@ class TestConcurrentJobs:
             gate.set()
             await asyncio.sleep(1.0)
 
+    async def test_concurrent_job_crash_isolation(
+        self, daemon: tuple[DaemonClient, DaemonConfig],
+    ):
+        """One crashing job does not affect concurrently running jobs.
+
+        Submits 3 jobs where job #2 raises RuntimeError mid-execution.
+        Jobs #1 and #3 must still complete successfully with COMPLETED status.
+        This verifies crash isolation — the daemon's core safety property.
+        """
+        client, config = daemon
+
+        call_index = 0
+        gate = asyncio.Event()
+
+        async def _per_job_start(*args: Any, **kwargs: Any) -> Any:
+            nonlocal call_index
+            idx = call_index
+            call_index += 1
+
+            # All jobs wait at the gate so they run concurrently
+            await gate.wait()
+
+            if idx == 1:
+                # Job #2 crashes
+                raise RuntimeError("Simulated crash in job #2")
+
+            # Jobs #1 and #3 succeed
+            await asyncio.sleep(0.05)
+            from mozart.core.checkpoint import JobStatus
+            from mozart.execution.runner.models import RunSummary
+
+            return RunSummary(
+                job_id="test", job_name="test", total_sheets=1,
+                final_status=JobStatus.COMPLETED, completed_sheets=1,
+            )
+
+        with patch(
+            "mozart.daemon.job_service.JobService.start_job",
+            side_effect=_per_job_start,
+        ):
+            # Submit 3 jobs
+            responses = []
+            for _ in range(3):
+                req = JobRequest(config_path=FIXTURE_CONFIG)
+                r = await client.submit_job(req)
+                assert r.status == "accepted"
+                responses.append(r)
+
+            # Give tasks time to start and reach the gate
+            await asyncio.sleep(0.5)
+
+            # Release all jobs simultaneously
+            gate.set()
+
+            # Wait for all to settle
+            await asyncio.sleep(2.0)
+
+            jobs = await client.list_jobs()
+            status_map = {j["job_id"]: j["status"] for j in jobs}
+
+            # Verify: job #2 failed, jobs #1 and #3 completed
+            failed_count = sum(1 for s in status_map.values() if s == "failed")
+            completed_count = sum(1 for s in status_map.values() if s == "completed")
+
+            assert failed_count == 1, f"Expected 1 failed job, got {failed_count}: {status_map}"
+            assert completed_count == 2, f"Expected 2 completed jobs, got {completed_count}: {status_map}"
+
     async def test_multiple_jobs_complete_independently(
         self, daemon: tuple[DaemonClient, DaemonConfig],
     ):
@@ -658,3 +726,114 @@ class TestClientWithoutDaemon:
         req = JobRequest(config_path=FIXTURE_CONFIG)
         with pytest.raises(DaemonNotRunningError):
             await client.submit_job(req)
+
+
+# ---------------------------------------------------------------------------
+# Tests: Backpressure Integration
+# ---------------------------------------------------------------------------
+
+
+class TestBackpressureIntegration:
+    """Test that backpressure rejection flows through the real daemon stack.
+
+    These tests start a real daemon and simulate high memory pressure
+    by patching SystemProbe.get_memory_mb() to return values above the
+    critical threshold.  The full path is exercised: IPC → handler →
+    JobManager.submit_job → BackpressureController.should_accept_job →
+    rejection response back to the client.
+    """
+
+    @pytest.fixture
+    async def pressured_daemon(self, tmp_path: Path):
+        """Start a real daemon with low memory limit and high simulated usage.
+
+        Configures max_memory_mb=1000 and patches SystemProbe to report
+        960MB usage (96% = CRITICAL level).  The backpressure controller
+        should reject all job submissions.
+        """
+        config = DaemonConfig(
+            socket=SocketConfig(path=tmp_path / "test-bp.sock"),
+            pid_file=tmp_path / "test-bp.pid",
+            max_concurrent_jobs=2,
+            max_concurrent_sheets=3,
+            monitor_interval_seconds=5.0,
+            shutdown_timeout_seconds=10.0,
+            resource_limits=ResourceLimitConfig(
+                max_memory_mb=1000,
+                max_processes=20,
+            ),
+        )
+        dp = DaemonProcess(config)
+
+        with (
+            patch.object(dp._pgroup, "setup"),
+            patch.object(dp._pgroup, "kill_all_children"),
+            patch.object(dp._pgroup, "cleanup_orphans", return_value=[]),
+            # Simulate critical memory pressure: 960MB of 1000MB = 96%
+            patch.object(
+                SystemProbe, "get_memory_mb", return_value=960.0,
+            ),
+            # Keep child count low so only memory triggers backpressure
+            patch.object(
+                SystemProbe, "get_child_count", return_value=2,
+            ),
+        ):
+            original_run = dp.run
+
+            async def _patched_run() -> None:
+                loop = asyncio.get_running_loop()
+                original_add = loop.add_signal_handler
+
+                def _safe_add(sig: Any, cb: Any) -> None:
+                    try:
+                        original_add(sig, cb)
+                    except (ValueError, RuntimeError):
+                        pass
+
+                with patch.object(loop, "add_signal_handler", _safe_add):
+                    await original_run()
+
+            daemon_task = asyncio.create_task(_patched_run())
+            await _wait_for_socket(config.socket.path)
+
+            client = DaemonClient(config.socket.path, timeout=10.0)
+            yield client, config
+
+            try:
+                await client.call("daemon.shutdown", {"graceful": False})
+            except (DaemonNotRunningError, ConnectionResetError, OSError):
+                pass
+
+            try:
+                await asyncio.wait_for(daemon_task, timeout=15.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                daemon_task.cancel()
+                try:
+                    await daemon_task
+                except asyncio.CancelledError:
+                    pass
+
+    async def test_backpressure_rejects_job(
+        self, pressured_daemon: tuple[DaemonClient, DaemonConfig],
+    ):
+        """Job submitted under critical memory pressure is rejected.
+
+        Full integration path: client → IPC → handler → JobManager →
+        BackpressureController → rejection response.
+        """
+        client, config = pressured_daemon
+
+        req = JobRequest(config_path=FIXTURE_CONFIG)
+        resp = await client.submit_job(req)
+
+        assert resp.status == "rejected"
+        assert "pressure" in (resp.message or "").lower()
+
+    async def test_backpressure_readiness_not_ready(
+        self, pressured_daemon: tuple[DaemonClient, DaemonConfig],
+    ):
+        """Readiness probe reports not-ready under critical pressure."""
+        client, config = pressured_daemon
+
+        ready = await client.readiness()
+        assert ready["accepting_work"] is False

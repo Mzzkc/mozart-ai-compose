@@ -213,43 +213,13 @@ class ProcessGroupManager:
     def _count_group_members(pgid: int, exclude_pid: int) -> int:
         """Count processes in the given process group (excluding one PID).
 
-        Uses psutil if available, falls back to /proc on Linux.
+        Delegates to ``SystemProbe.count_group_members()``.
+        Uses a lazy import to avoid import-time side effects that can
+        interfere with pytest's exit cleanup.
         """
-        try:
-            import psutil
+        from mozart.daemon.system_probe import SystemProbe
 
-            count = 0
-            for proc in psutil.process_iter(["pid", "pgid"]):
-                try:
-                    info = proc.info
-                    if info["pgid"] == pgid and info["pid"] != exclude_pid:
-                        count += 1
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    continue
-            return count
-        except ImportError:
-            pass
-
-        # Fallback: /proc (Linux only)
-        count = 0
-        try:
-            for entry in os.listdir("/proc"):
-                if not entry.isdigit():
-                    continue
-                pid = int(entry)
-                if pid == exclude_pid:
-                    continue
-                try:
-                    with open(f"/proc/{pid}/stat") as f:
-                        parts = f.read().split()
-                        # Field 5 (0-indexed 4) is pgid
-                        if len(parts) > 4 and int(parts[4]) == pgid:
-                            count += 1
-                except (OSError, ValueError, IndexError):
-                    continue
-        except OSError:
-            pass
-        return count
+        return SystemProbe.count_group_members(pgid, exclude_pid=exclude_pid)
 
     @staticmethod
     def _cleanup_orphans_proc() -> list[int]:

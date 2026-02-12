@@ -128,10 +128,23 @@ class DaemonServer:
         task = asyncio.current_task()
         if task is not None:
             self._connections.add(task)
-            task.add_done_callback(self._connections.discard)
+            task.add_done_callback(self._on_connection_done)
 
         async with self._connection_semaphore:
             await self._handle_connection(reader, writer)
+
+    def _on_connection_done(self, task: asyncio.Task[None]) -> None:
+        """Log exceptions from connection tasks before discarding."""
+        self._connections.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            _logger.warning(
+                "connection_task_failed",
+                error=str(exc),
+                task_name=task.get_name(),
+            )
 
     async def _handle_connection(
         self,

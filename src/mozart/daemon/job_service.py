@@ -445,7 +445,7 @@ class JobService:
                         error_message=str(e),
                     )
                 except Exception:
-                    _logger.debug("notification_failed_during_error_handling", exc_info=True)
+                    _logger.warning("notification_failed_during_error_handling", exc_info=True)
 
             return self._get_or_create_summary(
                 runner, job_id, job_name, total_sheets, JobStatus.FAILED,
@@ -456,7 +456,7 @@ class JobService:
                 try:
                     await notification_manager.close()
                 except Exception:
-                    _logger.debug("notification_cleanup_failed", exc_info=True)
+                    _logger.warning("notification_cleanup_failed", exc_info=True)
 
     def _create_backend(self, config: JobConfig) -> Backend:
         """Create execution backend from config.
@@ -588,7 +588,7 @@ class JobService:
                 if state is not None:
                     return state, backend
             except Exception as e:
-                _logger.debug("error_querying_backend", job_id=job_id, error=str(e))
+                _logger.warning("error_querying_backend", job_id=job_id, error=str(e))
                 continue
 
         raise JobSubmissionError(

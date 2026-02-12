@@ -25,7 +25,10 @@ class TestSetup:
         """setup() calls os.setpgrp() to become group leader."""
         pgm = ProcessGroupManager()
 
-        with patch("mozart.daemon.pgroup.os.setpgrp") as mock_setpgrp:
+        with (
+            patch("mozart.daemon.pgroup.os.setpgrp") as mock_setpgrp,
+            patch("mozart.daemon.pgroup.atexit.register"),
+        ):
             pgm.setup()
 
         mock_setpgrp.assert_called_once()
@@ -35,7 +38,10 @@ class TestSetup:
         """Calling setup() twice doesn't call setpgrp again."""
         pgm = ProcessGroupManager()
 
-        with patch("mozart.daemon.pgroup.os.setpgrp") as mock_setpgrp:
+        with (
+            patch("mozart.daemon.pgroup.os.setpgrp") as mock_setpgrp,
+            patch("mozart.daemon.pgroup.atexit.register"),
+        ):
             pgm.setup()
             pgm.setup()
 
@@ -376,17 +382,23 @@ class TestCountGroupMembers:
         mock_psutil = MagicMock()
 
         proc1 = MagicMock()
-        proc1.info = {"pid": 100, "pgid": 1234}
+        proc1.info = {"pid": 100}
         proc2 = MagicMock()
-        proc2.info = {"pid": 200, "pgid": 1234}
+        proc2.info = {"pid": 200}
         proc3 = MagicMock()
-        proc3.info = {"pid": 300, "pgid": 9999}  # Different group
+        proc3.info = {"pid": 300}
 
         mock_psutil.process_iter.return_value = [proc1, proc2, proc3]
         mock_psutil.NoSuchProcess = type("NoSuchProcess", (Exception,), {})
         mock_psutil.AccessDenied = type("AccessDenied", (Exception,), {})
 
-        with patch.dict("sys.modules", {"psutil": mock_psutil}):
+        def fake_getpgid(pid: int) -> int:
+            return {100: 1234, 200: 1234, 300: 9999}[pid]
+
+        with (
+            patch.dict("sys.modules", {"psutil": mock_psutil}),
+            patch("mozart.daemon.system_probe.os.getpgid", side_effect=fake_getpgid),
+        ):
             count = ProcessGroupManager._count_group_members(
                 pgid=1234, exclude_pid=100,
             )

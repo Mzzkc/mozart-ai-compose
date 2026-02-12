@@ -34,14 +34,20 @@ class TestProcessGroupSetup:
 
     def test_setup_calls_setpgrp(self) -> None:
         mgr = ProcessGroupManager()
-        with patch("mozart.daemon.pgroup.os.setpgrp") as mock_setpgrp:
+        with (
+            patch("mozart.daemon.pgroup.os.setpgrp") as mock_setpgrp,
+            patch("mozart.daemon.pgroup.atexit.register"),
+        ):
             mgr.setup()
             mock_setpgrp.assert_called_once()
         assert mgr.is_leader is True
 
     def test_setup_idempotent(self) -> None:
         mgr = ProcessGroupManager()
-        with patch("mozart.daemon.pgroup.os.setpgrp") as mock_setpgrp:
+        with (
+            patch("mozart.daemon.pgroup.os.setpgrp") as mock_setpgrp,
+            patch("mozart.daemon.pgroup.atexit.register"),
+        ):
             mgr.setup()
             mgr.setup()  # Second call should be no-op
             mock_setpgrp.assert_called_once()
@@ -52,6 +58,7 @@ class TestProcessGroupSetup:
             patch("mozart.daemon.pgroup.os.setpgrp", side_effect=OSError("already leader")),
             patch("mozart.daemon.pgroup.os.getpid", return_value=42),
             patch("mozart.daemon.pgroup.os.getpgrp", return_value=42),
+            patch("mozart.daemon.pgroup.atexit.register"),
         ):
             mgr.setup()  # Should not raise
             assert mgr.is_leader is True

@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING
 from mozart.core.checkpoint import CheckpointState, JobStatus
 from mozart.core.config import JobConfig
 from mozart.core.logging import get_logger
-from mozart.daemon.config import DaemonConfig
 from mozart.daemon.exceptions import DaemonNotRunningError
 from mozart.daemon.ipc.client import DaemonClient
 from mozart.daemon.types import JobRequest
@@ -75,6 +74,8 @@ class JobControlService:
         self._workspace_root = workspace_root or Path.cwd()
         self._running_processes: dict[str, asyncio.subprocess.Process] = {}
         self._process_start_times: dict[str, float] = {}  # Track when processes started
+        from mozart.daemon.config import DaemonConfig
+
         self._daemon_client = DaemonClient(DaemonConfig().socket.path)
 
     async def is_daemon_available(self) -> bool:

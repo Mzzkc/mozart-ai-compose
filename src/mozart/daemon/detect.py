@@ -35,7 +35,8 @@ async def is_daemon_available(socket_path: Path | None = None) -> bool:
 
         client = DaemonClient(_resolve_socket_path(socket_path))
         return await client.is_daemon_running()
-    except Exception:
+    except Exception as e:
+        _logger.debug("daemon_detection_failed", error=str(e))
         return False
 
 

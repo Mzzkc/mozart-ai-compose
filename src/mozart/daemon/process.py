@@ -14,7 +14,7 @@ import signal
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import typer
 
@@ -22,7 +22,17 @@ from mozart.core.logging import get_logger
 from mozart.daemon.config import DaemonConfig
 from mozart.daemon.pgroup import ProcessGroupManager
 
+if TYPE_CHECKING:
+    from mozart.daemon.health import HealthChecker
+    from mozart.daemon.ipc.handler import RequestHandler
+    from mozart.daemon.ipc.server import DaemonServer
+    from mozart.daemon.manager import JobManager
+
 _logger = get_logger("mozartd")
+
+# Advisory lock file descriptor — held for daemon lifetime to prevent
+# concurrent starts.  Set by _write_pid(), released on process exit.
+_pid_lock_fd: int | None = None
 
 daemon_app = typer.Typer(name="mozartd", help="Mozart daemon service")
 
@@ -134,16 +144,16 @@ def status(
         daemon_info = None
         try:
             health = await client.call("daemon.health")
-        except Exception:
-            pass
+        except Exception as e:
+            _logger.debug("probe.health_failed", error=str(e))
         try:
             ready = await client.call("daemon.ready")
-        except Exception:
-            pass
+        except Exception as e:
+            _logger.debug("probe.ready_failed", error=str(e))
         try:
             daemon_info = await client.call("daemon.status")
-        except Exception:
-            pass
+        except Exception as e:
+            _logger.debug("probe.status_failed", error=str(e))
         return health, ready, daemon_info
 
     try:
@@ -215,7 +225,7 @@ class DaemonProcess:
                 monitor=monitor,
             )
             # Now wire the manager back into the monitor for job counts.
-            monitor._manager = manager
+            monitor.set_manager(manager)
             await manager.start()
             handler = RequestHandler()
 
@@ -286,9 +296,9 @@ class DaemonProcess:
 
     def _register_methods(
         self,
-        handler: Any,
-        manager: Any,
-        health: Any = None,
+        handler: RequestHandler,
+        manager: JobManager,
+        health: HealthChecker | None = None,
     ) -> None:
         """Wire JSON-RPC methods to JobManager and HealthChecker."""
         from mozart.daemon.types import JobRequest
@@ -375,22 +385,20 @@ class DaemonProcess:
     async def _handle_signal(
         self,
         sig: signal.Signals,
-        manager: Any,
-        server: Any,
+        manager: JobManager,
+        server: DaemonServer,
     ) -> None:
         """Handle shutdown signals (SIGTERM, SIGINT)."""
         _logger.info("daemon.signal_received", signal=sig.name)
         await manager.shutdown(graceful=True)
 
     async def _reload_config(self) -> None:
-        """Hot-reload daemon config on SIGHUP."""
-        config_file = self._config.config_file
-        if config_file and Path(config_file).exists():
-            _logger.info("daemon.reloading_config", path=str(config_file))
-            # Reload would update self._config in place
-            # For now, just log the reload attempt
-        else:
-            _logger.debug("daemon.sighup_no_config_file")
+        """Handle SIGHUP — config reload not yet implemented."""
+        _logger.warning(
+            "daemon.sighup_received",
+            message="SIGHUP received but config reload is not yet implemented; "
+            "restart the daemon to apply configuration changes",
+        )
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────
@@ -429,9 +437,10 @@ def _write_pid(pid_file: Path) -> None:
         fd = os.open(str(pid_file), os.O_RDONLY)
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         # Store fd so the lock persists until the process exits
-        _write_pid._lock_fd = fd  # type: ignore[attr-defined]
+        global _pid_lock_fd
+        _pid_lock_fd = fd
     except OSError:
-        _logger.debug("pid_file.lock_failed", pid_file=str(pid_file))
+        _logger.warning("pid_file.lock_failed", pid_file=str(pid_file))
 
 
 def _read_pid(pid_file: Path) -> int | None:

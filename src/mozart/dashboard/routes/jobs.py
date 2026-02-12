@@ -7,7 +7,6 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from mozart.daemon.config import DaemonConfig
 from mozart.daemon.exceptions import DaemonNotRunningError
 from mozart.daemon.ipc.client import DaemonClient
 from mozart.dashboard.app import get_state_backend
@@ -358,6 +357,8 @@ async def daemon_status() -> dict[str, Any]:
     Returns a "Daemon Connected" indicator and status details when mozartd
     is available, or a disconnected status when it's not.
     """
+    from mozart.daemon.config import DaemonConfig
+
     client = DaemonClient(DaemonConfig().socket.path)
     try:
         status = await client.status()

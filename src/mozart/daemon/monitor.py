@@ -4,19 +4,20 @@ Periodic background checks on memory, child process count, and zombie
 detection.  Emits structured log warnings when limits are approached and
 triggers backpressure (e.g. job cancellation) when hard limits are exceeded.
 
-Uses psutil when available; falls back to /proc on Linux.
+Delegates system probing to ``SystemProbe`` (system_probe.py) which
+consolidates the psutil / /proc fallback pattern in one place.
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from mozart.core.logging import get_logger
 from mozart.daemon.config import ResourceLimitConfig
+from mozart.daemon.system_probe import SystemProbe
 
 if TYPE_CHECKING:
     from mozart.daemon.manager import JobManager
@@ -78,6 +79,7 @@ class ResourceMonitor:
             return
         self._running = True
         self._task = asyncio.create_task(self._loop(interval_seconds))
+        self._task.add_done_callback(self._on_loop_done)
         _logger.info("monitor.started", interval=interval_seconds)
 
     async def stop(self) -> None:
@@ -110,7 +112,6 @@ class ResourceMonitor:
             child_process_count=procs if procs is not None else 0,
             running_jobs=running_jobs,
             active_sheets=active_sheets,
-            zombie_pids=self._check_for_zombies(),
             probe_failed=probe_failed,
         )
         return snapshot
@@ -149,6 +150,28 @@ class ResourceMonitor:
     def is_degraded(self) -> bool:
         """Whether the monitor has entered degraded mode due to repeated failures."""
         return self._degraded
+
+    def set_manager(self, manager: JobManager) -> None:
+        """Wire up the job manager reference after construction.
+
+        Called by DaemonProcess after both the monitor and manager are
+        created, avoiding the circular dependency of needing both at init.
+        """
+        self._manager = manager
+
+    def _on_loop_done(self, task: asyncio.Task[None]) -> None:
+        """Log errors if the monitoring loop dies unexpectedly."""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            self._degraded = True
+            _logger.error(
+                "monitor.loop_died_unexpectedly",
+                error=str(exc),
+                message="Monitor entering degraded mode — "
+                "health checks will report not-ready",
+            )
 
     # ─── Internal ─────────────────────────────────────────────────────
 
@@ -271,95 +294,22 @@ class ResourceMonitor:
                 )
                 await self._manager.cancel_job(job_id)
 
-    # ─── System Probes ────────────────────────────────────────────────
+    # ─── System Probes (delegated to SystemProbe) ──────────────────────
 
     @staticmethod
     def _get_memory_usage_mb() -> float | None:
-        """Get current RSS memory in MB.
-
-        Uses psutil if available, falls back to /proc/self/status.
-        Returns None when all probes fail (callers should treat as critical).
-        """
-        try:
-            import psutil
-
-            return psutil.Process().memory_info().rss / (1024 * 1024)
-        except (ImportError, Exception):
-            pass
-        # Fallback: /proc/self/status (Linux only)
-        try:
-            with open("/proc/self/status") as f:
-                for line in f:
-                    if line.startswith("VmRSS:"):
-                        return int(line.split()[1]) / 1024  # kB -> MB
-        except (OSError, ValueError):
-            pass
-        return None
+        """Get current RSS memory in MB.  Delegates to SystemProbe."""
+        return SystemProbe.get_memory_mb()
 
     @staticmethod
     def _get_child_process_count() -> int | None:
-        """Count child processes in our process group.
-
-        Uses psutil if available, falls back to /proc iteration.
-        Returns None when all probes fail (callers should treat as critical).
-        """
-        try:
-            import psutil
-
-            current = psutil.Process()
-            return len(current.children(recursive=True))
-        except (ImportError, Exception):
-            pass
-        # Fallback: /proc iteration (Linux only)
-        my_pid = os.getpid()
-        count = 0
-        try:
-            for entry in os.listdir("/proc"):
-                if not entry.isdigit():
-                    continue
-                try:
-                    with open(f"/proc/{entry}/status") as f:
-                        for line in f:
-                            if line.startswith("PPid:"):
-                                ppid = int(line.split()[1])
-                                if ppid == my_pid:
-                                    count += 1
-                                break
-                except (OSError, ValueError):
-                    continue
-        except OSError:
-            pass
-        return count
+        """Count child processes.  Delegates to SystemProbe."""
+        return SystemProbe.get_child_count()
 
     @staticmethod
     def _check_for_zombies() -> list[int]:
-        """Detect and reap zombie child processes."""
-        zombies: list[int] = []
-        try:
-            import psutil
-
-            current = psutil.Process()
-            for child in current.children(recursive=True):
-                try:
-                    if child.status() == psutil.STATUS_ZOMBIE:
-                        zombies.append(child.pid)
-                        os.waitpid(child.pid, os.WNOHANG)
-                except (psutil.NoSuchProcess, ChildProcessError):
-                    continue
-        except ImportError:
-            # Fallback: try waitpid for any child
-            while True:
-                try:
-                    pid, status = os.waitpid(-1, os.WNOHANG)
-                    if pid == 0:
-                        break
-                    if os.WIFSIGNALED(status) or os.WIFEXITED(status):
-                        zombies.append(pid)
-                except ChildProcessError:
-                    break
-        except Exception:
-            pass
-        return zombies
+        """Detect and reap zombie child processes.  Delegates to SystemProbe."""
+        return SystemProbe.reap_zombies()
 
 
 __all__ = ["ResourceMonitor", "ResourceSnapshot"]

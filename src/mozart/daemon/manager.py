@@ -41,6 +41,7 @@ class DaemonJobStatus(str, Enum):
     QUEUED = "queued"
     RUNNING = "running"
     COMPLETED = "completed"
+    PAUSED = "paused"
     FAILED = "failed"
     CANCELLED = "cancelled"
 
@@ -52,10 +53,21 @@ class JobMeta:
     job_id: str
     config_path: Path
     workspace: Path
-    submitted_at: float = field(default_factory=time.monotonic)
+    submitted_at: float = field(default_factory=time.time)
     started_at: float | None = None
     status: DaemonJobStatus = DaemonJobStatus.QUEUED
     error_message: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a dict suitable for JSON-RPC responses."""
+        return {
+            "job_id": self.job_id,
+            "status": self.status,
+            "config_path": str(self.config_path),
+            "workspace": str(self.workspace),
+            "submitted_at": self.submitted_at,
+            "started_at": self.started_at,
+        }
 
 
 class JobManager:
@@ -200,14 +212,7 @@ class JobManager:
         if meta is None:
             raise JobSubmissionError(f"Job '{job_id}' not found")
 
-        result: dict[str, Any] = {
-            "job_id": meta.job_id,
-            "status": meta.status,
-            "config_path": str(meta.config_path),
-            "workspace": str(meta.workspace),
-            "submitted_at": meta.submitted_at,
-            "started_at": meta.started_at,
-        }
+        result = meta.to_dict()
 
         # If running, try to get deeper status from state backend
         if meta.status == DaemonJobStatus.RUNNING and workspace:
@@ -277,14 +282,7 @@ class JobManager:
         """List all tracked jobs and their states."""
         result: list[dict[str, Any]] = []
         for meta in self._job_meta.values():
-            result.append({
-                "job_id": meta.job_id,
-                "status": meta.status,
-                "config_path": str(meta.config_path),
-                "workspace": str(meta.workspace),
-                "submitted_at": meta.submitted_at,
-                "started_at": meta.started_at,
-            })
+            result.append(meta.to_dict())
         return result
 
     async def get_daemon_status(self) -> dict[str, Any]:
@@ -310,9 +308,7 @@ class JobManager:
         self._shutting_down = True
 
         if graceful:
-            timeout = getattr(
-                self._config, "shutdown_timeout_seconds", 300.0,
-            )
+            timeout = self._config.shutdown_timeout_seconds
             _logger.info(
                 "manager.shutting_down",
                 graceful=True,
@@ -418,6 +414,7 @@ class JobManager:
             _logger.info("job.started", job_id=job_id)
 
             try:
+                from mozart.core.checkpoint import JobStatus
                 from mozart.core.config import JobConfig
 
                 config = JobConfig.from_yaml(request.config_path)
@@ -426,15 +423,20 @@ class JobManager:
                         update={"workspace": request.workspace},
                     )
 
-                await self._svc.start_job(
+                summary = await self._svc.start_job(
                     config,
                     fresh=request.fresh,
                     self_healing=request.self_healing,
                     self_healing_auto_confirm=request.self_healing_auto_confirm,
                     dry_run=request.dry_run,
                 )
-                meta.status = DaemonJobStatus.COMPLETED
-                _logger.info("job.completed", job_id=job_id)
+
+                if summary.final_status == JobStatus.PAUSED:
+                    meta.status = DaemonJobStatus.PAUSED
+                    _logger.info("job.paused", job_id=job_id)
+                else:
+                    meta.status = DaemonJobStatus.COMPLETED
+                    _logger.info("job.completed", job_id=job_id)
 
             except asyncio.CancelledError:
                 meta.status = DaemonJobStatus.CANCELLED
@@ -488,7 +490,11 @@ class JobManager:
         terminal = sorted(
             (
                 (jid, m) for jid, m in self._job_meta.items()
-                if m.status in (DaemonJobStatus.COMPLETED, DaemonJobStatus.FAILED, DaemonJobStatus.CANCELLED)
+                if m.status in (
+                    DaemonJobStatus.COMPLETED,
+                    DaemonJobStatus.FAILED,
+                    DaemonJobStatus.CANCELLED,
+                )
             ),
             key=lambda x: x[1].submitted_at,
         )
