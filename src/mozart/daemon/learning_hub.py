@@ -23,6 +23,7 @@ import asyncio
 from pathlib import Path
 
 from mozart.core.logging import get_logger
+from mozart.daemon.task_utils import log_task_exception
 from mozart.learning.global_store import GlobalLearningStore
 from mozart.learning.store.base import DEFAULT_GLOBAL_STORE_PATH
 
@@ -59,11 +60,7 @@ class LearningHub:
     @staticmethod
     def _on_heartbeat_done(task: asyncio.Task[None]) -> None:
         """Log errors from the heartbeat task instead of losing them."""
-        if task.cancelled():
-            return
-        exc = task.exception()
-        if exc:
-            _logger.error("learning_hub.heartbeat_failed", error=str(exc))
+        log_task_exception(task, _logger, "learning_hub.heartbeat_failed")
 
     async def stop(self) -> None:
         """Persist final state and stop."""
@@ -116,6 +113,8 @@ class LearningHub:
                     )
             except asyncio.CancelledError:
                 break
+            except Exception:
+                _logger.warning("learning_hub.heartbeat_error", exc_info=True)
 
 
 __all__ = ["LearningHub"]

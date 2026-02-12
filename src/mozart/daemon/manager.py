@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+import traceback
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
@@ -57,10 +58,11 @@ class JobMeta:
     started_at: float | None = None
     status: DaemonJobStatus = DaemonJobStatus.QUEUED
     error_message: str | None = None
+    error_traceback: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dict suitable for JSON-RPC responses."""
-        return {
+        result: dict[str, Any] = {
             "job_id": self.job_id,
             "status": self.status,
             "config_path": str(self.config_path),
@@ -68,6 +70,9 @@ class JobMeta:
             "submitted_at": self.submitted_at,
             "started_at": self.started_at,
         }
+        if self.error_traceback:
+            result["error_traceback"] = self.error_traceback
+        return result
 
 
 class JobManager:
@@ -141,7 +146,13 @@ class JobManager:
             output=StructuredOutput(),
             global_learning_store=self._learning_hub.store,
         )
-        _logger.info("manager.started")
+        _logger.info(
+            "manager.started",
+            scheduler_status="instantiated_not_wired",
+            scheduler_note="Phase 3 scheduler and rate coordinator are built "
+            "and tested but not yet driving execution. Jobs run "
+            "monolithically via JobService.",
+        )
 
     @property
     def _svc(self) -> JobService:
@@ -291,7 +302,7 @@ class JobManager:
         Returns all fields required by the ``DaemonStatus`` Pydantic model
         so ``DaemonClient.status()`` can deserialize without crashing.
         """
-        mem = ResourceMonitor._get_memory_usage_mb()
+        mem = self._monitor.current_memory_mb()
         return {
             "pid": os.getpid(),
             "uptime_seconds": round(time.monotonic() - self._start_time, 1),
@@ -351,6 +362,11 @@ class JobManager:
     # ─── Properties ───────────────────────────────────────────────────
 
     @property
+    def shutting_down(self) -> bool:
+        """Whether the manager is in the process of shutting down."""
+        return self._shutting_down
+
+    @property
     def running_count(self) -> int:
         """Number of currently running jobs."""
         return sum(
@@ -361,13 +377,12 @@ class JobManager:
     def active_sheet_count(self) -> int:
         """Total active sheets across all jobs.
 
-        Currently returns ``running_count`` as a proxy since the
-        scheduler is not yet wired (Phase 3).  When the scheduler
-        drives per-sheet dispatch, this will return the scheduler's
-        ``active_count`` instead.
+        Returns ``running_count`` as a proxy since the scheduler is
+        not yet wired into the execution path (Phase 3).  When the
+        scheduler drives per-sheet dispatch, this will return
+        ``self._scheduler.active_count`` instead.
         """
-        if self._scheduler.active_count > 0:
-            return self._scheduler.active_count
+        # TODO(Phase 3): return self._scheduler.active_count when wired
         return self.running_count
 
     @property
@@ -392,6 +407,57 @@ class JobManager:
 
     # ─── Internal ─────────────────────────────────────────────────────
 
+    async def _run_managed_task(
+        self,
+        job_id: str,
+        coro: Any,
+        *,
+        start_event: str = "job.started",
+        fail_event: str = "job.failed",
+    ) -> None:
+        """Shared lifecycle wrapper for job tasks.
+
+        Acquires the concurrency semaphore, tracks status transitions,
+        and handles CancelledError / Exception uniformly.
+
+        Args:
+            job_id: The job being executed.
+            coro: Awaitable that performs the actual work. May return a
+                ``DaemonJobStatus`` to override the default COMPLETED
+                status on success (e.g. PAUSED).
+            start_event: Structlog event name for the start log.
+            fail_event: Structlog event name for the failure log.
+        """
+        meta = self._job_meta[job_id]
+
+        async with self._concurrency_semaphore:
+            meta.status = DaemonJobStatus.RUNNING
+            meta.started_at = time.monotonic()
+            _logger.info(start_event, job_id=job_id)
+
+            try:
+                result_status = await coro
+                if isinstance(result_status, DaemonJobStatus):
+                    meta.status = result_status
+                else:
+                    meta.status = DaemonJobStatus.COMPLETED
+                _logger.info(
+                    "job.paused" if meta.status == DaemonJobStatus.PAUSED
+                    else "job.completed",
+                    job_id=job_id,
+                )
+
+            except asyncio.CancelledError:
+                meta.status = DaemonJobStatus.CANCELLED
+                _logger.info("job.cancelled_during_execution", job_id=job_id)
+                raise
+
+            except Exception as exc:
+                meta.status = DaemonJobStatus.FAILED
+                meta.error_message = str(exc)
+                meta.error_traceback = traceback.format_exc()
+                _logger.exception(fail_event, job_id=job_id)
+
     async def _run_job_task(self, job_id: str, request: JobRequest) -> None:
         """Task coroutine that runs a single job.
 
@@ -406,70 +472,42 @@ class JobManager:
           5. Spawn per-sheet tasks, call ``mark_complete()`` on finish
           6. On error/cancel: ``await self._scheduler.deregister_job(job_id)``
         """
-        meta = self._job_meta[job_id]
 
-        async with self._concurrency_semaphore:
-            meta.status = DaemonJobStatus.RUNNING
-            meta.started_at = time.monotonic()
-            _logger.info("job.started", job_id=job_id)
+        async def _execute() -> DaemonJobStatus:
+            from mozart.core.checkpoint import JobStatus
+            from mozart.core.config import JobConfig
 
-            try:
-                from mozart.core.checkpoint import JobStatus
-                from mozart.core.config import JobConfig
-
-                config = JobConfig.from_yaml(request.config_path)
-                if request.workspace:
-                    config = config.model_copy(
-                        update={"workspace": request.workspace},
-                    )
-
-                summary = await self._svc.start_job(
-                    config,
-                    fresh=request.fresh,
-                    self_healing=request.self_healing,
-                    self_healing_auto_confirm=request.self_healing_auto_confirm,
-                    dry_run=request.dry_run,
+            config = JobConfig.from_yaml(request.config_path)
+            if request.workspace:
+                config = config.model_copy(
+                    update={"workspace": request.workspace},
                 )
 
-                if summary.final_status == JobStatus.PAUSED:
-                    meta.status = DaemonJobStatus.PAUSED
-                    _logger.info("job.paused", job_id=job_id)
-                else:
-                    meta.status = DaemonJobStatus.COMPLETED
-                    _logger.info("job.completed", job_id=job_id)
+            summary = await self._svc.start_job(
+                config,
+                fresh=request.fresh,
+                self_healing=request.self_healing,
+                self_healing_auto_confirm=request.self_healing_auto_confirm,
+                dry_run=request.dry_run,
+            )
 
-            except asyncio.CancelledError:
-                meta.status = DaemonJobStatus.CANCELLED
-                _logger.info("job.cancelled_during_execution", job_id=job_id)
-                raise
+            if summary.final_status == JobStatus.PAUSED:
+                return DaemonJobStatus.PAUSED
+            return DaemonJobStatus.COMPLETED
 
-            except Exception as exc:
-                meta.status = DaemonJobStatus.FAILED
-                meta.error_message = str(exc)
-                _logger.exception("job.failed", job_id=job_id)
+        await self._run_managed_task(job_id, _execute())
 
     async def _resume_job_task(self, job_id: str, workspace: Path) -> None:
         """Task coroutine that resumes a paused job."""
-        meta = self._job_meta[job_id]
 
-        async with self._concurrency_semaphore:
-            meta.status = DaemonJobStatus.RUNNING
-            meta.started_at = time.monotonic()
-            _logger.info("job.resuming", job_id=job_id)
+        async def _execute() -> None:
+            await self._svc.resume_job(job_id, workspace)
 
-            try:
-                await self._svc.resume_job(job_id, workspace)
-                meta.status = DaemonJobStatus.COMPLETED
-                _logger.info("job.completed", job_id=job_id)
-
-            except asyncio.CancelledError:
-                meta.status = DaemonJobStatus.CANCELLED
-                raise
-
-            except Exception as exc:
-                meta.status = DaemonJobStatus.FAILED
-                meta.error_message = str(exc)
-                _logger.exception("job.resume_failed", job_id=job_id)
+        await self._run_managed_task(
+            job_id, _execute(),
+            start_event="job.resuming",
+            fail_event="job.resume_failed",
+        )
 
     def _on_task_done(self, job_id: str, task: asyncio.Task[Any]) -> None:
         """Callback when a job task completes (success, error, or cancel)."""

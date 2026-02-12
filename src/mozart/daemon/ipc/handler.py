@@ -76,7 +76,8 @@ class RequestHandler:
         handler = self._methods.get(request.method)
         if handler is None:
             if request.id is None:
-                return None  # Notification for unknown method — silently ignore
+                _logger.debug("rpc_unknown_notification", method=request.method)
+                return None  # Notification for unknown method — ignore
             return method_not_found(request.id, request.method)
 
         try:

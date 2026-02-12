@@ -345,21 +345,6 @@ class GlobalSheetScheduler:
             # Enqueue newly-ready dependent sheets
             self._enqueue_ready_dependents(job_id)
 
-    async def mark_rate_limited(
-        self, backend_type: str, wait_seconds: float,
-    ) -> None:
-        """Notification that a backend is rate-limited.
-
-        Currently a no-op log — the actual pausing happens in
-        ``next_sheet()`` via the ``RateLimitChecker`` protocol call.
-        Future: could proactively re-prioritize queued sheets.
-        """
-        _logger.info(
-            "scheduler.backend_rate_limited",
-            backend_type=backend_type,
-            wait_seconds=round(wait_seconds, 1),
-        )
-
     async def get_stats(self) -> SchedulerStats:
         """Return a snapshot of scheduler state."""
         async with self._lock:

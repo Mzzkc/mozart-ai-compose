@@ -17,6 +17,10 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import psutil
 
 _logger = logging.getLogger("daemon.system_probe")
 
@@ -42,9 +46,13 @@ class SystemProbe:
         try:
             import psutil
 
-            return psutil.Process().memory_info().rss / (1024 * 1024)
-        except (ImportError, Exception):
+            proc: psutil.Process = psutil.Process()
+            rss_bytes: int = proc.memory_info().rss
+            return rss_bytes / (1024 * 1024)
+        except ImportError:
             pass
+        except Exception:
+            _logger.debug("psutil_memory_probe_failed", exc_info=True)
         # Fallback: /proc/self/status (Linux only)
         try:
             with open("/proc/self/status") as f:
@@ -71,28 +79,11 @@ class SystemProbe:
 
             current = psutil.Process()
             return len(current.children(recursive=True))
-        except (ImportError, Exception):
+        except ImportError:
             pass
-        # Fallback: /proc iteration (Linux only)
-        my_pid = os.getpid()
-        count = 0
-        try:
-            for entry in os.listdir("/proc"):
-                if not entry.isdigit():
-                    continue
-                try:
-                    with open(f"/proc/{entry}/status") as f:
-                        for line in f:
-                            if line.startswith("PPid:"):
-                                ppid = int(line.split()[1])
-                                if ppid == my_pid:
-                                    count += 1
-                                break
-                except (OSError, ValueError):
-                    continue
-        except OSError:
-            _logger.debug("child_process_probe_failed", exc_info=True)
-        return count
+        except Exception:
+            _logger.debug("psutil_child_count_probe_failed", exc_info=True)
+        return SystemProbe._proc_child_count()
 
     @staticmethod
     def get_zombies() -> list[int]:
@@ -121,17 +112,7 @@ class SystemProbe:
         except Exception:
             _logger.debug("zombie_probe_failed", exc_info=True)
             return zombies
-        # Fallback: waitpid reaping (also detects + reaps)
-        while True:
-            try:
-                pid, status = os.waitpid(-1, os.WNOHANG)
-                if pid == 0:
-                    break
-                if os.WIFSIGNALED(status) or os.WIFEXITED(status):
-                    zombies.append(pid)
-            except ChildProcessError:
-                break
-        return zombies
+        return SystemProbe._waitpid_reap_loop()
 
     @staticmethod
     def reap_zombies() -> list[int]:
@@ -164,17 +145,7 @@ class SystemProbe:
         except Exception:
             _logger.debug("zombie_reap_failed", exc_info=True)
             return reaped
-        # Fallback: waitpid loop
-        while True:
-            try:
-                pid, status = os.waitpid(-1, os.WNOHANG)
-                if pid == 0:
-                    break
-                if os.WIFSIGNALED(status) or os.WIFEXITED(status):
-                    reaped.append(pid)
-            except ChildProcessError:
-                break
-        return reaped
+        return SystemProbe._waitpid_reap_loop()
 
     @staticmethod
     def count_group_members(pgid: int, exclude_pid: int = 0) -> int:
@@ -210,8 +181,65 @@ class SystemProbe:
             return count
         except ImportError:
             pass
+        return SystemProbe._proc_group_count(pgid, exclude_pid)
 
-        # Fallback: /proc (Linux only)
+    # ─── /proc fallback helpers ───────────────────────────────────
+
+    @staticmethod
+    def _proc_child_count() -> int:
+        """Count child processes by scanning /proc/*/status for PPid.
+
+        Linux-only fallback when psutil is unavailable.
+        """
+        my_pid = os.getpid()
+        count = 0
+        try:
+            for entry in os.listdir("/proc"):
+                if not entry.isdigit():
+                    continue
+                ppid = SystemProbe._read_proc_ppid(entry)
+                if ppid == my_pid:
+                    count += 1
+        except OSError:
+            _logger.debug("child_process_probe_failed", exc_info=True)
+        return count
+
+    @staticmethod
+    def _read_proc_ppid(pid_str: str) -> int | None:
+        """Read the PPid field from /proc/{pid}/status."""
+        try:
+            with open(f"/proc/{pid_str}/status") as f:
+                for line in f:
+                    if line.startswith("PPid:"):
+                        return int(line.split()[1])
+        except (OSError, ValueError):
+            pass
+        return None
+
+    @staticmethod
+    def _waitpid_reap_loop() -> list[int]:
+        """Reap zombie children via waitpid loop.
+
+        Fallback when psutil is unavailable. Also detects + reaps.
+        """
+        reaped: list[int] = []
+        while True:
+            try:
+                pid, status = os.waitpid(-1, os.WNOHANG)
+                if pid == 0:
+                    break
+                if os.WIFSIGNALED(status) or os.WIFEXITED(status):
+                    reaped.append(pid)
+            except ChildProcessError:
+                break
+        return reaped
+
+    @staticmethod
+    def _proc_group_count(pgid: int, exclude_pid: int = 0) -> int:
+        """Count process group members by scanning /proc/*/stat.
+
+        Linux-only fallback when psutil is unavailable.
+        """
         count = 0
         try:
             for entry in os.listdir("/proc"):

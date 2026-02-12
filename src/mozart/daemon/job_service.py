@@ -451,6 +451,21 @@ class JobService:
                 runner, job_id, job_name, total_sheets, JobStatus.FAILED,
             )
 
+        except Exception as e:
+            self._output.log("error", f"Unexpected error: {e}", job_id=job_id)
+
+            if notification_manager:
+                try:
+                    await notification_manager.notify_job_failed(
+                        job_id=job_id,
+                        job_name=job_name,
+                        error_message=f"Unexpected error: {e}",
+                    )
+                except Exception:
+                    _logger.warning("notification_failed_during_error_handling", exc_info=True)
+
+            raise
+
         finally:
             if notification_manager:
                 try:

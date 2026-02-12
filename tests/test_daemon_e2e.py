@@ -837,3 +837,209 @@ class TestBackpressureIntegration:
 
         ready = await client.readiness()
         assert ready["accepting_work"] is False
+
+
+# ---------------------------------------------------------------------------
+# Tests: Real E2E Execution with Mock Backend (D019)
+# ---------------------------------------------------------------------------
+
+
+class TestRealE2EExecution:
+    """D019: Real E2E job lifecycle with a mock backend at the lowest level.
+
+    Unlike TestRealExecution (which uses dry_run=True, skipping all execution),
+    these tests submit jobs that run through the FULL execution path:
+
+        IPC client → daemon socket → JSON-RPC dispatch → JobManager →
+        JobService.start_job() → _setup_components() (real backend creation) →
+        _create_runner() (real JobRunner) → runner.run() → sheet execution →
+        ClaudeCliBackend.execute() → [PATCHED HERE] → ExecutionResult →
+        validation → checkpoint save → completion → IPC status queryable
+
+    Only ClaudeCliBackend.execute() is patched — everything above and below
+    runs for real.  This verifies the entire daemon stack is wired together
+    and produces real workspace artifacts (state files, checkpoints).
+    """
+
+    @pytest.fixture
+    async def real_execution_daemon(self, tmp_path: Path):
+        """Start a real daemon with ClaudeCliBackend.execute() patched.
+
+        The patch returns a synthetic ExecutionResult that simulates a
+        successful 1-sheet Claude CLI execution.  The daemon, IPC, manager,
+        service, runner, state backend, and checkpoint all run for real.
+        """
+        from mozart.backends.base import ExecutionResult
+
+        config = _make_daemon_config(tmp_path)
+        dp = DaemonProcess(config)
+
+        # Simulated backend response for 1-sheet execution
+        mock_result = ExecutionResult(
+            success=True,
+            stdout="Sheet completed successfully.\nAll tasks done.",
+            stderr="",
+            duration_seconds=0.5,
+            exit_code=0,
+        )
+
+        with (
+            patch.object(dp._pgroup, "setup"),
+            patch.object(dp._pgroup, "kill_all_children"),
+            patch.object(dp._pgroup, "cleanup_orphans", return_value=[]),
+            # Patch at the lowest possible level — the actual CLI execution
+            patch(
+                "mozart.backends.claude_cli.ClaudeCliBackend.execute",
+                new_callable=AsyncMock,
+                return_value=mock_result,
+            ),
+        ):
+            original_run = dp.run
+
+            async def _patched_run() -> None:
+                loop = asyncio.get_running_loop()
+                original_add = loop.add_signal_handler
+
+                def _safe_add(sig: Any, cb: Any) -> None:
+                    try:
+                        original_add(sig, cb)
+                    except (ValueError, RuntimeError):
+                        pass
+
+                with patch.object(loop, "add_signal_handler", _safe_add):
+                    await original_run()
+
+            daemon_task = asyncio.create_task(_patched_run())
+            await _wait_for_socket(config.socket.path)
+
+            client = DaemonClient(config.socket.path, timeout=10.0)
+            yield client, config, tmp_path
+
+            try:
+                await client.call("daemon.shutdown", {"graceful": False})
+            except (DaemonNotRunningError, ConnectionResetError, OSError):
+                pass
+
+            try:
+                await asyncio.wait_for(daemon_task, timeout=15.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                daemon_task.cancel()
+                try:
+                    await daemon_task
+                except asyncio.CancelledError:
+                    pass
+
+    async def test_full_lifecycle_config_to_completion(
+        self, real_execution_daemon: tuple[DaemonClient, DaemonConfig, Path],
+    ):
+        """Full job lifecycle: submit → execute → complete → queryable via IPC.
+
+        The entire execution stack runs for real except ClaudeCliBackend.execute().
+        Verifies:
+        - Config is parsed from YAML
+        - Workspace is created on disk
+        - Backend is selected and instantiated
+        - Runner executes sheets through the state machine
+        - Checkpoint state is persisted to disk
+        - Job completion status is queryable via IPC
+        """
+        client, config, tmp_path = real_execution_daemon
+
+        workspace = tmp_path / "e2e-workspace"
+        req = JobRequest(config_path=FIXTURE_CONFIG, workspace=workspace)
+        resp = await client.submit_job(req)
+
+        assert resp.status == "accepted"
+        assert resp.job_id
+
+        # Wait for job to complete (real execution with mock backend)
+        final_status = None
+        for _ in range(40):
+            jobs = await client.list_jobs()
+            job = next((j for j in jobs if j["job_id"] == resp.job_id), None)
+            if job and job["status"] in ("completed", "failed"):
+                final_status = job["status"]
+                break
+            await asyncio.sleep(0.25)
+
+        assert final_status == "completed", (
+            f"Expected completed, got {final_status}. "
+            f"Jobs: {await client.list_jobs()}"
+        )
+
+        # Verify workspace was created on disk
+        assert workspace.exists(), "Workspace directory should exist"
+
+        # Verify checkpoint state file was written
+        state_file = workspace / "test-daemon-job.json"
+        assert state_file.exists(), (
+            f"State file should exist at {state_file}. "
+            f"Workspace contents: {list(workspace.iterdir())}"
+        )
+
+    async def test_full_lifecycle_state_file_content(
+        self, real_execution_daemon: tuple[DaemonClient, DaemonConfig, Path],
+    ):
+        """Verify the checkpoint state file contains correct execution data.
+
+        After a successful execution through the full stack, the JSON state
+        file should reflect COMPLETED status with all sheets done.
+        """
+        import json
+
+        client, config, tmp_path = real_execution_daemon
+
+        workspace = tmp_path / "e2e-state-check"
+        req = JobRequest(config_path=FIXTURE_CONFIG, workspace=workspace)
+        resp = await client.submit_job(req)
+        assert resp.status == "accepted"
+
+        # Wait for completion
+        for _ in range(40):
+            jobs = await client.list_jobs()
+            job = next((j for j in jobs if j["job_id"] == resp.job_id), None)
+            if job and job["status"] in ("completed", "failed"):
+                break
+            await asyncio.sleep(0.25)
+
+        assert job is not None and job["status"] == "completed"
+
+        # Read and verify checkpoint state
+        state_file = workspace / "test-daemon-job.json"
+        assert state_file.exists()
+
+        state_data = json.loads(state_file.read_text())
+        assert state_data["job_id"] == "test-daemon-job"
+        assert state_data["status"] == "completed"
+        assert state_data["total_sheets"] == 1
+        assert state_data["last_completed_sheet"] >= 1
+
+    async def test_full_lifecycle_job_appears_in_history(
+        self, real_execution_daemon: tuple[DaemonClient, DaemonConfig, Path],
+    ):
+        """After completion, the job remains in the daemon's history.
+
+        Verifies the manager retains job metadata after task cleanup,
+        including started_at timestamp and config_path.
+        """
+        client, config, tmp_path = real_execution_daemon
+
+        workspace = tmp_path / "e2e-history"
+        req = JobRequest(config_path=FIXTURE_CONFIG, workspace=workspace)
+        resp = await client.submit_job(req)
+        assert resp.status == "accepted"
+
+        # Wait for completion
+        for _ in range(40):
+            jobs = await client.list_jobs()
+            job = next((j for j in jobs if j["job_id"] == resp.job_id), None)
+            if job and job["status"] in ("completed", "failed"):
+                break
+            await asyncio.sleep(0.25)
+
+        # Verify job history entry has full metadata
+        assert job is not None
+        assert job["status"] == "completed"
+        assert job["started_at"] is not None
+        assert str(FIXTURE_CONFIG) in job["config_path"]
+        assert str(workspace) in job["workspace"]

@@ -56,22 +56,9 @@ class JsonRpcError(BaseModel):
     id: int | str | None
 
 
-class JsonRpcNotification(BaseModel):
-    """Server-initiated notification (no ``id``, no response expected).
-
-    Used for streaming log lines (``log.line``) and heartbeats
-    (``log.heartbeat``) pushed over the same connection.
-    """
-
-    jsonrpc: Literal["2.0"] = "2.0"
-    method: str
-    params: dict[str, Any] | None = None
-
-
 __all__ = [
     "ErrorDetail",
     "JsonRpcError",
-    "JsonRpcNotification",
     "JsonRpcRequest",
     "JsonRpcResponse",
 ]

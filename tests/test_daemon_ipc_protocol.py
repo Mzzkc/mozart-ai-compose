@@ -37,7 +37,6 @@ from mozart.daemon.ipc.errors import (
 from mozart.daemon.ipc.protocol import (
     ErrorDetail,
     JsonRpcError,
-    JsonRpcNotification,
     JsonRpcRequest,
     JsonRpcResponse,
 )
@@ -204,36 +203,6 @@ class TestErrorDetail:
             data={"field": "config_path", "reason": "missing"},
         )
         assert detail.data["field"] == "config_path"
-
-
-class TestJsonRpcNotification:
-    """Tests for JsonRpcNotification model."""
-
-    def test_notification(self):
-        """Server-sent notification has method but no id."""
-        notif = JsonRpcNotification(
-            method="log.line",
-            params={"line": "Processing sheet 3..."},
-        )
-        assert notif.jsonrpc == "2.0"
-        assert notif.method == "log.line"
-        assert notif.params == {"line": "Processing sheet 3..."}
-
-    def test_notification_no_params(self):
-        """Heartbeat notification with no params."""
-        notif = JsonRpcNotification(method="log.heartbeat")
-        assert notif.params is None
-
-    def test_serialization_roundtrip(self):
-        """Notification survives JSON roundtrip."""
-        original = JsonRpcNotification(
-            method="log.line",
-            params={"line": "done", "sheet": 5},
-        )
-        json_bytes = original.model_dump_json()
-        restored = JsonRpcNotification.model_validate_json(json_bytes)
-        assert restored.method == original.method
-        assert restored.params == original.params
 
 
 # ---------------------------------------------------------------------------

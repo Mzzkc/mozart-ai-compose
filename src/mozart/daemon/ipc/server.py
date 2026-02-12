@@ -17,6 +17,7 @@ from mozart.core.logging import get_logger
 from mozart.daemon.ipc.errors import invalid_request, parse_error
 from mozart.daemon.ipc.handler import RequestHandler
 from mozart.daemon.ipc.protocol import JsonRpcRequest
+from mozart.daemon.task_utils import log_task_exception
 
 _logger = get_logger("daemon.ipc.server")
 
@@ -136,15 +137,7 @@ class DaemonServer:
     def _on_connection_done(self, task: asyncio.Task[None]) -> None:
         """Log exceptions from connection tasks before discarding."""
         self._connections.discard(task)
-        if task.cancelled():
-            return
-        exc = task.exception()
-        if exc:
-            _logger.warning(
-                "connection_task_failed",
-                error=str(exc),
-                task_name=task.get_name(),
-            )
+        log_task_exception(task, _logger, "connection_task_failed", level="warning")
 
     async def _handle_connection(
         self,

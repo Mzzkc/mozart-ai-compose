@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from mozart.core.checkpoint import CheckpointState, JobStatus
+from mozart.core.config import JobConfig
 from mozart.daemon.exceptions import JobSubmissionError
 from mozart.daemon.job_service import JobService
 from mozart.daemon.output import NullOutput
@@ -823,3 +824,204 @@ class TestSetupComponents:
 
         assert components["outcome_store"] is not None
         assert components["global_learning_store"] is not None
+
+
+# ─── Real Component Wiring (D020) ────────────────────────────────────────
+
+
+# Path to the fixture config (same one used by E2E tests)
+FIXTURE_CONFIG = Path(__file__).parent / "fixtures" / "test-daemon-job.yaml"
+
+
+class TestRealComponentWiring:
+    """D020: Verify _setup_components() with real imports, not mocks.
+
+    Unlike TestSetupComponents which mocks ClaudeCliBackend.from_config(),
+    these tests let the real import chain run: JobConfig → _create_backend() →
+    ClaudeCliBackend.from_config() → real ClaudeCliBackend instance.
+
+    Only runner.run() is mocked at the execution boundary — everything before
+    that (config parsing, backend factory, state backend, learning store
+    injection, runner creation) runs for real.
+    """
+
+    @pytest.fixture
+    def real_config(self, tmp_path: Path) -> JobConfig:
+        """Parse the fixture YAML into a real JobConfig with tmp_path workspace."""
+        config = JobConfig.from_yaml(FIXTURE_CONFIG)
+        return config.model_copy(update={"workspace": tmp_path / "workspace"})
+
+    def test_setup_components_creates_real_backend(
+        self, job_service: JobService, real_config: JobConfig,
+    ):
+        """_setup_components creates a real ClaudeCliBackend, not a mock."""
+        from mozart.backends.claude_cli import ClaudeCliBackend
+
+        components = job_service._setup_components(real_config)
+
+        assert isinstance(components["backend"], ClaudeCliBackend)
+        # Verify the backend picked up config values
+        assert components["backend"].skip_permissions is True
+        assert components["backend"].disable_mcp is True
+
+    def test_setup_components_learning_disabled_returns_none(
+        self, job_service: JobService, real_config: JobConfig,
+    ):
+        """When learning is disabled in config, stores are None."""
+        config = real_config.model_copy(
+            update={"learning": real_config.learning.model_copy(update={"enabled": False})},
+        )
+        components = job_service._setup_components(config)
+
+        assert components["outcome_store"] is None
+        assert components["global_learning_store"] is None
+
+    def test_setup_components_learning_enabled_creates_real_stores(
+        self, real_config: JobConfig, tmp_path: Path,
+    ):
+        """When learning is enabled, real outcome store and global store are created."""
+        from mozart.learning.global_store import GlobalLearningStore
+        from mozart.learning.outcomes import JsonOutcomeStore
+
+        config = real_config.model_copy(
+            update={"learning": real_config.learning.model_copy(update={"enabled": True})},
+        )
+
+        # Inject a real global learning store (like the daemon does)
+        db_path = tmp_path / "test-learning.db"
+        global_store = GlobalLearningStore(db_path=db_path)
+        service = JobService(global_learning_store=global_store)
+
+        components = service._setup_components(config)
+
+        assert isinstance(components["outcome_store"], JsonOutcomeStore)
+        # The injected store should be used (daemon path), not a new singleton
+        assert components["global_learning_store"] is global_store
+
+    def test_create_runner_wires_real_components(
+        self, job_service: JobService, real_config: JobConfig,
+    ):
+        """_create_runner creates a real JobRunner with real components."""
+        from mozart.execution.runner import JobRunner
+        from mozart.state import JsonStateBackend
+
+        config = real_config
+        config.workspace.mkdir(parents=True, exist_ok=True)
+
+        components = job_service._setup_components(config)
+        state_backend = job_service._create_state_backend(config.workspace, config.state_backend)
+
+        runner = job_service._create_runner(
+            config, components, state_backend, job_id="test-wiring",
+        )
+
+        assert isinstance(runner, JobRunner)
+        assert isinstance(state_backend, JsonStateBackend)
+        # Runner has the real backend attached
+        assert runner.backend is components["backend"]
+
+    @pytest.mark.asyncio
+    async def test_start_job_real_wiring_with_mocked_run(
+        self, real_config: JobConfig,
+    ):
+        """Full start_job path with real components, only runner.run() mocked.
+
+        This is the key D020 test: the entire wiring chain runs for real —
+        config parsing, workspace creation, backend factory, state backend,
+        component setup, runner creation. Only runner.run() is patched so
+        we don't need a real Claude CLI.
+        """
+        from mozart.execution.runner.models import RunSummary
+
+        service = JobService()
+        config = real_config
+
+        # Create a mock that simulates successful execution
+        expected_state = CheckpointState(
+            job_id=config.name,
+            job_name=config.name,
+            total_sheets=config.sheet.total_sheets,
+            status=JobStatus.COMPLETED,
+        )
+        expected_summary = RunSummary(
+            job_id=config.name,
+            job_name=config.name,
+            total_sheets=config.sheet.total_sheets,
+            completed_sheets=config.sheet.total_sheets,
+            final_status=JobStatus.COMPLETED,
+        )
+
+        # Patch only runner.run() — everything before this runs for real
+        with patch(
+            "mozart.execution.runner.LifecycleMixin.run",
+            new_callable=AsyncMock,
+            return_value=(expected_state, expected_summary),
+        ):
+            summary = await service.start_job(config)
+
+        assert summary.job_id == config.name
+        assert summary.final_status == JobStatus.COMPLETED
+        assert summary.completed_sheets == config.sheet.total_sheets
+
+        # Verify workspace was actually created on disk
+        assert config.workspace.exists()
+
+    @pytest.mark.asyncio
+    async def test_start_job_real_wiring_with_injected_learning_store(
+        self, real_config: JobConfig, tmp_path: Path,
+    ):
+        """Full start_job with daemon-injected learning store flows through to runner.
+
+        When the daemon's LearningHub injects its store into JobService, that
+        store should be passed through _setup_components → _create_runner →
+        RunnerContext.global_learning_store. This test verifies that chain.
+        """
+        from mozart.execution.runner.models import RunSummary
+        from mozart.learning.global_store import GlobalLearningStore
+
+        db_path = tmp_path / "test-learning.db"
+        global_store = GlobalLearningStore(db_path=db_path)
+        service = JobService(global_learning_store=global_store)
+
+        config = real_config.model_copy(
+            update={"learning": real_config.learning.model_copy(update={"enabled": True})},
+        )
+
+        expected_state = CheckpointState(
+            job_id=config.name,
+            job_name=config.name,
+            total_sheets=config.sheet.total_sheets,
+            status=JobStatus.COMPLETED,
+        )
+        expected_summary = RunSummary(
+            job_id=config.name,
+            job_name=config.name,
+            total_sheets=config.sheet.total_sheets,
+            completed_sheets=config.sheet.total_sheets,
+            final_status=JobStatus.COMPLETED,
+        )
+
+        # Capture the runner that's created to inspect its context
+        created_runners: list = []
+        original_create_runner = service._create_runner
+
+        def _spy_create_runner(*args, **kwargs):
+            runner = original_create_runner(*args, **kwargs)
+            created_runners.append(runner)
+            return runner
+
+        with (
+            patch.object(service, "_create_runner", side_effect=_spy_create_runner),
+            patch(
+                "mozart.execution.runner.LifecycleMixin.run",
+                new_callable=AsyncMock,
+                return_value=(expected_state, expected_summary),
+            ),
+        ):
+            summary = await service.start_job(config)
+
+        assert summary.final_status == JobStatus.COMPLETED
+        # Verify the runner received the injected store
+        assert len(created_runners) == 1
+        runner = created_runners[0]
+        assert runner._global_learning_store is global_store

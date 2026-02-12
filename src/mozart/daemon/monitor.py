@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 from mozart.core.logging import get_logger
 from mozart.daemon.config import ResourceLimitConfig
 from mozart.daemon.system_probe import SystemProbe
+from mozart.daemon.task_utils import log_task_exception
 
 if TYPE_CHECKING:
     from mozart.daemon.manager import JobManager
@@ -104,6 +105,7 @@ class ResourceMonitor:
 
         mem = self._get_memory_usage_mb()
         procs = self._get_child_process_count()
+        zombie_pids = self._check_for_zombies()
         probe_failed = mem is None or procs is None
 
         snapshot = ResourceSnapshot(
@@ -112,6 +114,7 @@ class ResourceMonitor:
             child_process_count=procs if procs is not None else 0,
             running_jobs=running_jobs,
             active_sheets=active_sheets,
+            zombie_pids=zombie_pids,
             probe_failed=probe_failed,
         )
         return snapshot
@@ -161,17 +164,9 @@ class ResourceMonitor:
 
     def _on_loop_done(self, task: asyncio.Task[None]) -> None:
         """Log errors if the monitoring loop dies unexpectedly."""
-        if task.cancelled():
-            return
-        exc = task.exception()
-        if exc:
+        exc = log_task_exception(task, _logger, "monitor.loop_died_unexpectedly")
+        if exc is not None:
             self._degraded = True
-            _logger.error(
-                "monitor.loop_died_unexpectedly",
-                error=str(exc),
-                message="Monitor entering degraded mode — "
-                "health checks will report not-ready",
-            )
 
     # ─── Internal ─────────────────────────────────────────────────────
 

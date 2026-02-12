@@ -17,7 +17,7 @@ import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from mozart.core.logging import get_logger
 from mozart.daemon.exceptions import DaemonNotRunningError
@@ -73,9 +73,14 @@ class DaemonClient:
             )
 
         try:
-            reader, writer = await asyncio.open_unix_connection(
-                str(self._socket_path)
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_unix_connection(str(self._socket_path)),
+                timeout=5.0,
             )
+        except TimeoutError as exc:
+            raise DaemonNotRunningError(
+                f"Timeout connecting to daemon at {self._socket_path}"
+            ) from exc
         except (ConnectionRefusedError, FileNotFoundError, OSError) as exc:
             raise DaemonNotRunningError(
                 f"Cannot connect to daemon at {self._socket_path}: {exc}"
@@ -205,31 +210,32 @@ class DaemonClient:
 
     async def get_job_status(self, job_id: str, workspace: str) -> dict[str, Any]:
         """Get status of a specific job."""
-        return await self.call("job.status", {"job_id": job_id, "workspace": workspace})
+        result = await self.call("job.status", {"job_id": job_id, "workspace": workspace})
+        return cast(dict[str, Any], result)
 
     async def pause_job(self, job_id: str, workspace: str) -> bool:
         """Pause a running job."""
-        return await self.call("job.pause", {"job_id": job_id, "workspace": workspace})
+        return cast(bool, await self.call("job.pause", {"job_id": job_id, "workspace": workspace}))
 
     async def resume_job(self, job_id: str, workspace: str) -> bool:
         """Resume a paused job."""
-        return await self.call("job.resume", {"job_id": job_id, "workspace": workspace})
+        return cast(bool, await self.call("job.resume", {"job_id": job_id, "workspace": workspace}))
 
     async def cancel_job(self, job_id: str, workspace: str) -> bool:
         """Cancel a running or paused job."""
-        return await self.call("job.cancel", {"job_id": job_id, "workspace": workspace})
+        return cast(bool, await self.call("job.cancel", {"job_id": job_id, "workspace": workspace}))
 
     async def list_jobs(self) -> list[dict[str, Any]]:
         """List all jobs known to the daemon."""
-        return await self.call("job.list")
+        return cast(list[dict[str, Any]], await self.call("job.list"))
 
     async def health(self) -> dict[str, Any]:
         """Liveness probe — is the daemon process alive?"""
-        return await self.call("daemon.health")
+        return cast(dict[str, Any], await self.call("daemon.health"))
 
     async def readiness(self) -> dict[str, Any]:
         """Readiness probe — is the daemon accepting new jobs?"""
-        return await self.call("daemon.ready")
+        return cast(dict[str, Any], await self.call("daemon.ready"))
 
 
 __all__ = ["DaemonClient"]

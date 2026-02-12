@@ -22,6 +22,7 @@ def mock_manager():
     m = MagicMock()
     m.running_count = 2
     m.active_sheet_count = 3
+    m.shutting_down = False
     return m
 
 

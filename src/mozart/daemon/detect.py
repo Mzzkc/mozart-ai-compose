@@ -33,10 +33,15 @@ async def is_daemon_available(socket_path: Path | None = None) -> bool:
     try:
         from mozart.daemon.ipc.client import DaemonClient
 
-        client = DaemonClient(_resolve_socket_path(socket_path))
+        resolved = _resolve_socket_path(socket_path)
+        client = DaemonClient(resolved)
         return await client.is_daemon_running()
     except Exception as e:
-        _logger.debug("daemon_detection_failed", error=str(e))
+        # Log at INFO when socket exists (connection failure is noteworthy),
+        # DEBUG when socket is absent (daemon simply not running).
+        resolved = _resolve_socket_path(socket_path)
+        level = "info" if resolved.exists() else "debug"
+        getattr(_logger, level)("daemon_detection_failed", error=str(e))
         return False
 
 

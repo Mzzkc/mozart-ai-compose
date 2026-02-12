@@ -59,6 +59,7 @@ class HealthChecker:
             "status": "ok",
             "pid": os.getpid(),
             "uptime_seconds": round(time.monotonic() - self._start_time, 1),
+            "shutting_down": self._manager.shutting_down,
         }
 
     async def readiness(self) -> dict[str, Any]:
@@ -71,12 +72,14 @@ class HealthChecker:
         snapshot = await self._monitor.check_now()
         accepting = self._monitor.is_accepting_work()
 
+        shutting_down = self._manager.shutting_down
         return {
-            "status": "ready" if accepting else "not_ready",
+            "status": "ready" if (accepting and not shutting_down) else "not_ready",
             "running_jobs": self._manager.running_count,
             "memory_mb": round(snapshot.memory_usage_mb, 1),
             "child_processes": snapshot.child_process_count,
-            "accepting_work": accepting,
+            "accepting_work": accepting and not shutting_down,
+            "shutting_down": shutting_down,
             "uptime_seconds": round(time.monotonic() - self._start_time, 1),
         }
 

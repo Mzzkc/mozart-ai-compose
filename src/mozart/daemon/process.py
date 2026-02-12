@@ -21,6 +21,7 @@ import typer
 from mozart.core.logging import get_logger
 from mozart.daemon.config import DaemonConfig
 from mozart.daemon.pgroup import ProcessGroupManager
+from mozart.daemon.task_utils import log_task_exception
 
 if TYPE_CHECKING:
     from mozart.daemon.health import HealthChecker
@@ -227,6 +228,36 @@ class DaemonProcess:
             # Now wire the manager back into the monitor for job counts.
             monitor.set_manager(manager)
             await manager.start()
+
+            # Warn about unenforced config fields
+            rl = self._config.resource_limits
+            if rl.max_api_calls_per_minute != 60:
+                _logger.warning(
+                    "config.unenforced_rate_limit",
+                    max_api_calls_per_minute=rl.max_api_calls_per_minute,
+                    message="max_api_calls_per_minute is set but NOT YET "
+                    "ENFORCED. Rate limiting currently works through "
+                    "externally-reported events via RateLimitCoordinator.",
+                )
+            if self._config.state_backend_type != "sqlite":
+                _logger.warning(
+                    "config.reserved_field_ignored",
+                    field="state_backend_type",
+                    value=self._config.state_backend_type,
+                    message="state_backend_type is reserved for future use "
+                    "and has no effect. Daemon state persistence is not "
+                    "yet implemented.",
+                )
+            if str(self._config.state_db_path) != "~/.mozart/daemon-state.db":
+                _logger.warning(
+                    "config.reserved_field_ignored",
+                    field="state_db_path",
+                    value=str(self._config.state_db_path),
+                    message="state_db_path is reserved for future use "
+                    "and has no effect. Daemon state persistence is not "
+                    "yet implemented.",
+                )
+
             handler = RequestHandler()
 
             # 4. Create health checker
@@ -372,15 +403,7 @@ class DaemonProcess:
     def _on_signal_task_done(self, task: asyncio.Task[Any]) -> None:
         """Log errors from signal handler tasks instead of losing them."""
         self._signal_tasks = [t for t in self._signal_tasks if not t.done()]
-        if task.cancelled():
-            return
-        exc = task.exception()
-        if exc:
-            _logger.error(
-                "daemon.signal_task_failed",
-                error=str(exc),
-                task_name=task.get_name(),
-            )
+        log_task_exception(task, _logger, "daemon.signal_task_failed")
 
     async def _handle_signal(
         self,
@@ -388,7 +411,16 @@ class DaemonProcess:
         manager: JobManager,
         server: DaemonServer,
     ) -> None:
-        """Handle shutdown signals (SIGTERM, SIGINT)."""
+        """Handle shutdown signals (SIGTERM, SIGINT).
+
+        Guards against duplicate signals — a second SIGTERM/SIGINT while
+        shutdown is already in progress is logged but does not re-enter
+        ``manager.shutdown()``.
+        """
+        if self._shutdown_event.is_set():
+            _logger.info("daemon.signal_ignored_already_shutting_down", signal=sig.name)
+            return
+        self._shutdown_event.set()
         _logger.info("daemon.signal_received", signal=sig.name)
         await manager.shutdown(graceful=True)
 

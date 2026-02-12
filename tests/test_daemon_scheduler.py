@@ -432,6 +432,47 @@ class TestRateLimitIntegration:
         assert scheduler.queued_count == 1
 
     @pytest.mark.asyncio
+    async def test_rate_limited_skip_preserves_scheduler_state(
+        self, scheduler: GlobalSheetScheduler,
+    ):
+        """When all queued sheets are rate-limited, scheduler state is unchanged.
+
+        Verifies that skipping rate-limited sheets does not corrupt
+        active_count, queued_count, or per-job tracking.
+        """
+
+        class AllLimitedRateLimiter:
+            async def is_rate_limited(
+                self, backend_type: str, model: str | None = None,
+            ) -> tuple[bool, float]:
+                return (True, 60.0)
+
+        scheduler.set_rate_limiter(AllLimitedRateLimiter())
+
+        sheets = [_sheet("job-a", i, backend="claude_cli") for i in range(1, 4)]
+        await scheduler.register_job("job-a", sheets)
+
+        # Capture state before dispatch attempt
+        queued_before = scheduler.queued_count
+        active_before = scheduler.active_count
+
+        # All sheets are rate-limited — nothing should dispatch
+        entry = await scheduler.next_sheet()
+        assert entry is None
+
+        # State must be unchanged
+        assert scheduler.queued_count == queued_before
+        assert scheduler.active_count == active_before
+        assert scheduler.active_count == 0
+
+        # Stats should also reflect the unchanged state
+        stats = await scheduler.get_stats()
+        assert stats.queued == 3
+        assert stats.active == 0
+        assert stats.per_job_queued == {"job-a": 3}
+        assert stats.per_job_running == {"job-a": 0}
+
+    @pytest.mark.asyncio
     async def test_no_rate_limiter_dispatches_normally(
         self, scheduler: GlobalSheetScheduler,
     ):
@@ -575,13 +616,6 @@ class TestEdgeCases:
         """Registering a job with no sheets is valid."""
         await scheduler.register_job("empty-job", [])
         assert scheduler.queued_count == 0
-
-    @pytest.mark.asyncio
-    async def test_mark_rate_limited_logs(
-        self, scheduler: GlobalSheetScheduler,
-    ):
-        """mark_rate_limited doesn't crash (it's currently a log-only op)."""
-        await scheduler.mark_rate_limited("claude_cli", 30.0)
 
     @pytest.mark.asyncio
     async def test_properties_match_stats(
