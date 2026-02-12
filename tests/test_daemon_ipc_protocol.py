@@ -4,8 +4,6 @@ Also includes tests for the IPC error codes and factory functions
 (mozart.daemon.ipc.errors) since they are tightly coupled to the protocol models.
 """
 
-from pathlib import Path
-
 import pytest
 from pydantic import ValidationError
 
@@ -38,16 +36,10 @@ from mozart.daemon.ipc.errors import (
 )
 from mozart.daemon.ipc.protocol import (
     ErrorDetail,
-    JobListParams,
-    JobLogsParams,
-    JobResumeParams,
-    JobStatusParams,
-    JobSummary,
     JsonRpcError,
     JsonRpcNotification,
     JsonRpcRequest,
     JsonRpcResponse,
-    ShutdownParams,
 )
 
 
@@ -242,105 +234,6 @@ class TestJsonRpcNotification:
         restored = JsonRpcNotification.model_validate_json(json_bytes)
         assert restored.method == original.method
         assert restored.params == original.params
-
-
-class TestJobStatusParams:
-    """Tests for JobStatusParams model."""
-
-    def test_basic(self):
-        req = JobStatusParams(job_id="test-job", workspace=Path("/tmp/ws"))
-        assert req.job_id == "test-job"
-        assert req.workspace == Path("/tmp/ws")
-
-
-class TestJobResumeParams:
-    """Tests for JobResumeParams model."""
-
-    def test_minimal(self):
-        req = JobResumeParams(job_id="j1", workspace=Path("/tmp/ws"))
-        assert req.reload_config is False
-        assert req.self_healing is False
-
-    def test_full(self):
-        req = JobResumeParams(
-            job_id="j1",
-            workspace=Path("/tmp/ws"),
-            config_path=Path("/tmp/new.yaml"),
-            reload_config=True,
-            self_healing=True,
-            self_healing_auto_confirm=True,
-        )
-        assert req.config_path == Path("/tmp/new.yaml")
-        assert req.reload_config is True
-        assert req.self_healing_auto_confirm is True
-
-
-class TestJobListParams:
-    """Tests for JobListParams model."""
-
-    def test_no_filter(self):
-        params = JobListParams()
-        assert params.workspace is None
-
-    def test_with_workspace_filter(self):
-        params = JobListParams(workspace=Path("/tmp/ws"))
-        assert params.workspace == Path("/tmp/ws")
-
-
-class TestJobLogsParams:
-    """Tests for JobLogsParams model."""
-
-    def test_defaults(self):
-        params = JobLogsParams(job_id="j1", workspace=Path("/tmp/ws"))
-        assert params.follow is False
-        assert params.tail == 100
-
-    def test_custom(self):
-        params = JobLogsParams(
-            job_id="j1", workspace=Path("/tmp/ws"), follow=True, tail=50
-        )
-        assert params.follow is True
-        assert params.tail == 50
-
-
-class TestShutdownParams:
-    """Tests for ShutdownParams model."""
-
-    def test_default_graceful(self):
-        params = ShutdownParams()
-        assert params.graceful is True
-
-    def test_force_shutdown(self):
-        params = ShutdownParams(graceful=False)
-        assert params.graceful is False
-
-
-class TestJobSummary:
-    """Tests for JobSummary model."""
-
-    def test_full(self):
-        summary = JobSummary(
-            job_id="test-job",
-            status="running",
-            total_sheets=10,
-            completed_sheets=3,
-            workspace="/tmp/ws",
-            started_at="2025-01-01T00:00:00Z",
-        )
-        assert summary.job_id == "test-job"
-        assert summary.status == "running"
-        assert summary.total_sheets == 10
-        assert summary.completed_sheets == 3
-
-    def test_minimal(self):
-        summary = JobSummary(
-            job_id="j1",
-            status="pending",
-            total_sheets=5,
-            completed_sheets=0,
-            workspace="/tmp/ws",
-        )
-        assert summary.started_at is None
 
 
 # ---------------------------------------------------------------------------

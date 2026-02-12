@@ -29,13 +29,10 @@ import asyncio
 import heapq
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
 from mozart.core.logging import get_logger
 from mozart.daemon.config import DaemonConfig
-
-if TYPE_CHECKING:
-    pass
 
 _logger = get_logger("daemon.scheduler")
 

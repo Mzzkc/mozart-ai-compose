@@ -186,6 +186,7 @@ class DaemonProcess:
         self._shutdown_event = asyncio.Event()
         self._pgroup = ProcessGroupManager()
         self._start_time = time.monotonic()
+        self._signal_tasks: list[asyncio.Task[Any]] = []
 
     async def run(self) -> None:
         """Main daemon lifecycle: boot, serve, shutdown."""
@@ -235,24 +236,26 @@ class DaemonProcess:
             )
             await server.start()
 
-            # 7. Install signal handlers
+            # 7. Install signal handlers (tracked to surface exceptions)
             loop = asyncio.get_running_loop()
             for sig in (signal.SIGTERM, signal.SIGINT):
                 loop.add_signal_handler(
                     sig,
-                    lambda s=sig: asyncio.create_task(
-                        self._handle_signal(s, manager, server),
+                    lambda s=sig: self._track_signal_task(
+                        asyncio.create_task(
+                            self._handle_signal(s, manager, server),
+                        ),
                     ),
                 )
             loop.add_signal_handler(
                 signal.SIGHUP,
-                lambda: asyncio.create_task(self._reload_config()),
+                lambda: self._track_signal_task(
+                    asyncio.create_task(self._reload_config()),
+                ),
             )
 
             # 8. Start resource monitor
-            interval = getattr(
-                self._config, "monitor_interval_seconds", 15.0,
-            )
+            interval = self._config.monitor_interval_seconds
             await monitor.start(interval_seconds=interval)
 
             # 9. Run until shutdown
@@ -324,7 +327,11 @@ class DaemonProcess:
 
         async def handle_shutdown(params: dict[str, Any], _w: Any) -> dict[str, Any]:
             graceful = params.get("graceful", True)
-            asyncio.create_task(manager.shutdown(graceful=graceful))
+            task = asyncio.create_task(
+                manager.shutdown(graceful=graceful),
+                name="daemon-shutdown",
+            )
+            self._track_signal_task(task)
             return {"shutting_down": True}
 
         handler.register("job.submit", handle_submit)
@@ -347,6 +354,24 @@ class DaemonProcess:
             handler.register("daemon.health", handle_health)
             handler.register("daemon.ready", handle_ready)
 
+    def _track_signal_task(self, task: asyncio.Task[Any]) -> None:
+        """Store a signal-spawned task and attach an error callback."""
+        self._signal_tasks.append(task)
+        task.add_done_callback(self._on_signal_task_done)
+
+    def _on_signal_task_done(self, task: asyncio.Task[Any]) -> None:
+        """Log errors from signal handler tasks instead of losing them."""
+        self._signal_tasks = [t for t in self._signal_tasks if not t.done()]
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            _logger.error(
+                "daemon.signal_task_failed",
+                error=str(exc),
+                task_name=task.get_name(),
+            )
+
     async def _handle_signal(
         self,
         sig: signal.Signals,
@@ -359,7 +384,7 @@ class DaemonProcess:
 
     async def _reload_config(self) -> None:
         """Hot-reload daemon config on SIGHUP."""
-        config_file = getattr(self._config, "config_file", None)
+        config_file = self._config.config_file
         if config_file and Path(config_file).exists():
             _logger.info("daemon.reloading_config", path=str(config_file))
             # Reload would update self._config in place

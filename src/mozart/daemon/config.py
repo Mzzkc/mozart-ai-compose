@@ -33,8 +33,9 @@ class ResourceLimitConfig(BaseModel):
         default=60,
         ge=1,
         description="Global rate limit for API calls across all jobs. "
-        "TODO: Not yet enforced via token bucket — rate limiting currently "
-        "works through externally-reported events via RateLimitCoordinator.",
+        "NOT YET ENFORCED — rate limiting currently works through "
+        "externally-reported events via RateLimitCoordinator. "
+        "Setting a non-default value will log a warning at startup.",
     )
 
 

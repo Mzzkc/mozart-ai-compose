@@ -55,6 +55,7 @@ class JobMeta:
     submitted_at: float = field(default_factory=time.monotonic)
     started_at: float | None = None
     status: DaemonJobStatus = DaemonJobStatus.QUEUED
+    error_message: str | None = None
 
 
 class JobManager:
@@ -440,8 +441,9 @@ class JobManager:
                 _logger.info("job.cancelled_during_execution", job_id=job_id)
                 raise
 
-            except Exception:
+            except Exception as exc:
                 meta.status = DaemonJobStatus.FAILED
+                meta.error_message = str(exc)
                 _logger.exception("job.failed", job_id=job_id)
 
     async def _resume_job_task(self, job_id: str, workspace: Path) -> None:
@@ -462,8 +464,9 @@ class JobManager:
                 meta.status = DaemonJobStatus.CANCELLED
                 raise
 
-            except Exception:
+            except Exception as exc:
                 meta.status = DaemonJobStatus.FAILED
+                meta.error_message = str(exc)
                 _logger.exception("job.resume_failed", job_id=job_id)
 
     def _on_task_done(self, job_id: str, task: asyncio.Task[Any]) -> None:
@@ -475,6 +478,7 @@ class JobManager:
             meta = self._job_meta.get(job_id)
             if meta and meta.status == DaemonJobStatus.RUNNING:
                 meta.status = DaemonJobStatus.FAILED
+                meta.error_message = str(exc)
 
         self._prune_job_history()
 

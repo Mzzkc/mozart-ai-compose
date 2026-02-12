@@ -348,6 +348,28 @@ class JobService:
             context=runner_context,
         )
 
+    @staticmethod
+    def _get_or_create_summary(
+        runner: JobRunner,
+        job_id: str,
+        job_name: str,
+        total_sheets: int,
+        status: JobStatus,
+    ) -> RunSummary:
+        """Get summary from runner or create a minimal fallback."""
+        from mozart.execution.runner.models import RunSummary
+
+        summary = runner.get_summary()
+        if summary:
+            summary.final_status = status
+            return summary
+        return RunSummary(
+            job_id=job_id,
+            job_name=job_name,
+            total_sheets=total_sheets,
+            final_status=status,
+        )
+
     async def _execute_runner(
         self,
         runner: JobRunner,
@@ -365,7 +387,6 @@ class JobService:
         and notification lifecycle (start, complete/fail, close).
         """
         from mozart.execution.runner import FatalError, GracefulShutdownError
-        from mozart.execution.runner.models import RunSummary
 
         try:
             if notification_manager:
@@ -409,15 +430,8 @@ class JobService:
 
         except GracefulShutdownError:
             self._output.job_event(job_id, "paused")
-            summary = runner.get_summary()
-            if summary:
-                summary.final_status = JobStatus.PAUSED
-                return summary
-            return RunSummary(
-                job_id=job_id,
-                job_name=job_name,
-                total_sheets=total_sheets,
-                final_status=JobStatus.PAUSED,
+            return self._get_or_create_summary(
+                runner, job_id, job_name, total_sheets, JobStatus.PAUSED,
             )
 
         except FatalError as e:
@@ -433,15 +447,8 @@ class JobService:
                 except Exception:
                     _logger.debug("notification_failed_during_error_handling", exc_info=True)
 
-            summary = runner.get_summary()
-            if summary:
-                summary.final_status = JobStatus.FAILED
-                return summary
-            return RunSummary(
-                job_id=job_id,
-                job_name=job_name,
-                total_sheets=total_sheets,
-                final_status=JobStatus.FAILED,
+            return self._get_or_create_summary(
+                runner, job_id, job_name, total_sheets, JobStatus.FAILED,
             )
 
         finally:

@@ -53,7 +53,17 @@ class LearningHub:
         """Initialize store and start persistence loop."""
         self._store = GlobalLearningStore(self._db_path)
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+        self._heartbeat_task.add_done_callback(self._on_heartbeat_done)
         _logger.info("learning_hub.started", db_path=str(self._db_path))
+
+    @staticmethod
+    def _on_heartbeat_done(task: asyncio.Task[None]) -> None:
+        """Log errors from the heartbeat task instead of losing them."""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            _logger.error("learning_hub.heartbeat_failed", error=str(exc))
 
     async def stop(self) -> None:
         """Persist final state and stop."""
