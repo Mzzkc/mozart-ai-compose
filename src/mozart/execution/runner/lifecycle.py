@@ -26,7 +26,6 @@ Architecture:
 
 from __future__ import annotations
 
-import asyncio
 import sqlite3
 import time
 from pathlib import Path
@@ -278,14 +277,6 @@ class LifecycleMixin:
                     job_id=state.job_id,
                     exc_info=True,
                 )
-
-            # If detached hooks were spawned, wait briefly before cleanup
-            # to allow child processes to initialize and load their own state.
-            # Without this, parent worktree cleanup can race with child startup.
-            if self.config.on_success and any(
-                h.detached for h in self.config.on_success
-            ):
-                await asyncio.sleep(0.5)
 
             # Clean up worktree isolation if configured (v2 evolution)
             try:

@@ -144,22 +144,23 @@ class TestHookExecutorFreshFlag:
 
         executor = HookExecutor(config=config, workspace=tmp_path)
 
-        # Patch subprocess to capture the command
+        # Patch subprocess.Popen to capture the command
+        # (detached hooks now use subprocess.Popen, not asyncio.create_subprocess_exec)
         captured_cmd: list[str] = []
 
-        async def mock_create_subprocess(*args, **kwargs):
-            captured_cmd.extend(args)
+        def mock_popen(cmd, **kwargs):
+            captured_cmd.extend(cmd)
             proc = MagicMock()
             proc.pid = 12345
+            proc.poll.return_value = None  # Child still alive for liveness check
             return proc
 
-        with patch("asyncio.create_subprocess_exec", side_effect=mock_create_subprocess):
+        with patch("mozart.execution.hooks._subprocess.Popen", side_effect=mock_popen):
             results = await executor.execute_hooks()
 
         assert len(results) == 1
         assert results[0].success is True
         # The command should include --fresh
-        # For detached: ["setsid", "mozart", "run", "<path>", "--fresh"]
         assert "--fresh" in captured_cmd
 
     @pytest.mark.asyncio
@@ -192,13 +193,14 @@ class TestHookExecutorFreshFlag:
 
         captured_cmd: list[str] = []
 
-        async def mock_create_subprocess(*args, **kwargs):
-            captured_cmd.extend(args)
+        def mock_popen(cmd, **kwargs):
+            captured_cmd.extend(cmd)
             proc = MagicMock()
             proc.pid = 12345
+            proc.poll.return_value = None  # Child still alive for liveness check
             return proc
 
-        with patch("asyncio.create_subprocess_exec", side_effect=mock_create_subprocess):
+        with patch("mozart.execution.hooks._subprocess.Popen", side_effect=mock_popen):
             results = await executor.execute_hooks()
 
         assert len(results) == 1
