@@ -84,6 +84,10 @@ class JobManager:
         # Phase 3: Backpressure controller.
         # Monitors memory/rate-limit pressure and throttles or rejects
         # sheet dispatch and job submissions when the system is stressed.
+        # NOTE: This ResourceMonitor is used only for point-in-time checks
+        # by BackpressureController (e.g. current memory usage). It does NOT
+        # run a periodic monitoring loop. The separate monitor created in
+        # DaemonProcess.run() handles periodic monitoring + orphan cleanup.
         self._monitor = ResourceMonitor(config.resource_limits, manager=self)
         self._backpressure = BackpressureController(
             self._monitor, self._rate_coordinator,

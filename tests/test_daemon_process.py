@@ -246,9 +246,14 @@ class TestDaemonStatusCommand:
         pid_file = tmp_path / "mozartd.pid"
         pid_file.write_text("12345")
 
+        def _mock_asyncio_run(coro):
+            """Close the coroutine to avoid 'unawaited coroutine' warning."""
+            coro.close()
+            raise Exception("no socket")
+
         with (
             patch("mozart.daemon.process._pid_alive", return_value=True),
-            patch("mozart.daemon.process.asyncio.run", side_effect=Exception("no socket")),
+            patch("mozart.daemon.process.asyncio.run", side_effect=_mock_asyncio_run),
         ):
             result = runner.invoke(
                 daemon_app,

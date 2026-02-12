@@ -105,6 +105,10 @@ def internal_error(
 # Exception → JSON-RPC error mapping
 # ---------------------------------------------------------------------------
 
+# Maps daemon exceptions to JSON-RPC error codes for the wire format.
+# JobSubmissionError covers several job-related failures (not found, invalid
+# config, workspace conflicts) — the error *message* carries the specifics,
+# while the code identifies the exception class for client-side reconstruction.
 _EXCEPTION_CODE_MAP: dict[type[DaemonError], int] = {
     JobSubmissionError: JOB_NOT_FOUND,
     ResourceExhaustedError: RESOURCE_EXHAUSTED,

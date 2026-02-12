@@ -32,7 +32,9 @@ class ResourceLimitConfig(BaseModel):
     max_api_calls_per_minute: int = Field(
         default=60,
         ge=1,
-        description="Global rate limit for API calls across all jobs",
+        description="Global rate limit for API calls across all jobs. "
+        "TODO: Not yet enforced via token bucket — rate limiting currently "
+        "works through externally-reported events via RateLimitCoordinator.",
     )
 
 
