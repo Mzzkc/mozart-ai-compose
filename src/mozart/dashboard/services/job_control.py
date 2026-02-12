@@ -15,6 +15,10 @@ from typing import TYPE_CHECKING
 from mozart.core.checkpoint import CheckpointState, JobStatus
 from mozart.core.config import JobConfig
 from mozart.core.logging import get_logger
+from mozart.daemon.config import DaemonConfig
+from mozart.daemon.exceptions import DaemonNotRunningError
+from mozart.daemon.ipc.client import DaemonClient
+from mozart.daemon.types import JobRequest
 
 if TYPE_CHECKING:
     from mozart.state.base import StateBackend
@@ -31,6 +35,7 @@ class JobStartResult:
     workspace: Path
     total_sheets: int
     pid: int | None = None
+    via_daemon: bool = False
 
 
 @dataclass
@@ -40,6 +45,7 @@ class JobActionResult:
     job_id: str
     status: str
     message: str
+    via_daemon: bool = False
 
 
 @dataclass
@@ -55,13 +61,28 @@ class ProcessHealth:
 
 
 class JobControlService:
-    """Service for controlling job lifecycle."""
+    """Service for controlling job lifecycle.
+
+    Supports two execution modes:
+    - **Daemon mode**: When mozartd is running, routes operations through
+      the daemon via DaemonClient IPC for centralized management.
+    - **Subprocess mode**: Falls back to direct subprocess execution
+      when the daemon is not available (original behavior).
+    """
 
     def __init__(self, state_backend: StateBackend, workspace_root: Path | None = None):
         self._state_backend = state_backend
         self._workspace_root = workspace_root or Path.cwd()
         self._running_processes: dict[str, asyncio.subprocess.Process] = {}
         self._process_start_times: dict[str, float] = {}  # Track when processes started
+        self._daemon_client = DaemonClient(DaemonConfig().socket.path)
+
+    async def is_daemon_available(self) -> bool:
+        """Check if the Mozart daemon (mozartd) is running and reachable."""
+        try:
+            return await self._daemon_client.is_daemon_running()
+        except Exception:
+            return False
 
     async def start_job(
         self,
@@ -72,6 +93,8 @@ class JobControlService:
         self_healing: bool = False,
     ) -> JobStartResult:
         """Start a new Mozart job execution.
+
+        Tries the daemon first if available, then falls back to subprocess.
 
         Args:
             config_path: Path to YAML config file.
@@ -108,6 +131,15 @@ class JobControlService:
                 )
             if not resolved.exists():
                 raise FileNotFoundError(f"Config file not found: {config_path}")
+
+        # Try daemon first (only for file-based configs — daemon doesn't support inline)
+        if config_path and await self.is_daemon_available():
+            try:
+                return await self._start_job_via_daemon(
+                    config_path, workspace, self_healing,
+                )
+            except DaemonNotRunningError:
+                logger.debug("daemon_unavailable_during_start", fallback="subprocess")
 
         # Generate unique job ID
         job_id = str(uuid.uuid4())[:8]  # Short ID for readability
@@ -243,6 +275,86 @@ class JobControlService:
             )
             raise RuntimeError(f"Failed to start job: {e}") from e
 
+    # ------------------------------------------------------------------
+    # Daemon-routed operations
+    # ------------------------------------------------------------------
+
+    async def _start_job_via_daemon(
+        self,
+        config_path: Path,
+        workspace: Path | None,
+        self_healing: bool,
+    ) -> JobStartResult:
+        """Submit a job to the daemon and return a JobStartResult."""
+        request = JobRequest(
+            config_path=config_path.resolve(),
+            workspace=workspace.resolve() if workspace else None,
+            self_healing=self_healing,
+        )
+        response = await self._daemon_client.submit_job(request)
+
+        # Parse the config to get job metadata for the result
+        config = JobConfig.from_yaml(config_path)
+        if workspace:
+            ws = workspace
+        elif config.workspace:
+            ws = Path(config.workspace)
+        else:
+            ws = self._workspace_root
+
+        logger.info(
+            "job_started_via_daemon",
+            job_id=response.job_id,
+            job_name=config.name,
+            status=response.status,
+        )
+
+        return JobStartResult(
+            job_id=response.job_id,
+            job_name=config.name,
+            status=response.status,
+            workspace=ws,
+            total_sheets=config.sheet.total_sheets,
+            via_daemon=True,
+        )
+
+    async def _pause_job_via_daemon(self, job_id: str, workspace: Path) -> JobActionResult:
+        """Pause a job via the daemon."""
+        await self._daemon_client.pause_job(job_id, str(workspace))
+        return JobActionResult(
+            success=True,
+            job_id=job_id,
+            status=JobStatus.RUNNING.value,
+            message=f"Pause request sent to daemon for job {job_id}",
+            via_daemon=True,
+        )
+
+    async def _resume_job_via_daemon(self, job_id: str, workspace: Path) -> JobActionResult:
+        """Resume a job via the daemon."""
+        await self._daemon_client.resume_job(job_id, str(workspace))
+        return JobActionResult(
+            success=True,
+            job_id=job_id,
+            status=JobStatus.RUNNING.value,
+            message=f"Resume request sent to daemon for job {job_id}",
+            via_daemon=True,
+        )
+
+    async def _cancel_job_via_daemon(self, job_id: str, workspace: Path) -> JobActionResult:
+        """Cancel a job via the daemon."""
+        await self._daemon_client.cancel_job(job_id, str(workspace))
+        return JobActionResult(
+            success=True,
+            job_id=job_id,
+            status=JobStatus.CANCELLED.value,
+            message=f"Cancel request sent to daemon for job {job_id}",
+            via_daemon=True,
+        )
+
+    # ------------------------------------------------------------------
+    # Workspace resolution
+    # ------------------------------------------------------------------
+
     def _get_job_workspace(self, state: CheckpointState) -> Path:
         """Get the workspace path for a job state.
 
@@ -268,8 +380,7 @@ class JobControlService:
     async def pause_job(self, job_id: str) -> JobActionResult:
         """Pause a running job gracefully using signal files.
 
-        Creates a pause signal file that the runner checks between sheet executions.
-        This provides graceful pause at sheet boundaries rather than SIGSTOP.
+        Routes through daemon if available, otherwise uses local signal files.
 
         Args:
             job_id: Job identifier.
@@ -277,7 +388,15 @@ class JobControlService:
         Returns:
             JobActionResult with operation status.
         """
+        # Try daemon first
         state = await self._state_backend.load(job_id)
+        if state and await self.is_daemon_available():
+            try:
+                workspace = self._get_job_workspace(state)
+                return await self._pause_job_via_daemon(job_id, workspace)
+            except DaemonNotRunningError:
+                logger.debug("daemon_unavailable_during_pause", fallback="local")
+
         if not state:
             return JobActionResult(
                 success=False,
@@ -334,8 +453,7 @@ class JobControlService:
     async def resume_job(self, job_id: str) -> JobActionResult:
         """Resume a paused job and clean up pause signals.
 
-        For paused jobs with living processes, we don't need SIGCONT since the new
-        pause mechanism is file-based. We just update state and clean up signals.
+        Routes through daemon if available, otherwise uses local process management.
 
         Args:
             job_id: Job identifier.
@@ -343,7 +461,15 @@ class JobControlService:
         Returns:
             JobActionResult with operation status.
         """
+        # Try daemon first
         state = await self._state_backend.load(job_id)
+        if state and await self.is_daemon_available():
+            try:
+                workspace = self._get_job_workspace(state)
+                return await self._resume_job_via_daemon(job_id, workspace)
+            except DaemonNotRunningError:
+                logger.debug("daemon_unavailable_during_resume", fallback="local")
+
         if not state:
             return JobActionResult(
                 success=False,
@@ -436,13 +562,23 @@ class JobControlService:
     async def cancel_job(self, job_id: str) -> JobActionResult:
         """Cancel a job by sending SIGTERM.
 
+        Routes through daemon if available, otherwise uses local SIGTERM.
+
         Args:
             job_id: Job identifier.
 
         Returns:
             JobActionResult with operation status.
         """
+        # Try daemon first
         state = await self._state_backend.load(job_id)
+        if state and await self.is_daemon_available():
+            try:
+                workspace = self._get_job_workspace(state)
+                return await self._cancel_job_via_daemon(job_id, workspace)
+            except DaemonNotRunningError:
+                logger.debug("daemon_unavailable_during_cancel", fallback="local")
+
         if not state:
             return JobActionResult(
                 success=False,

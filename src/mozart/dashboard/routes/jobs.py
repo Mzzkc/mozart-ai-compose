@@ -7,6 +7,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from mozart.daemon.config import DaemonConfig
+from mozart.daemon.exceptions import DaemonNotRunningError
+from mozart.daemon.ipc.client import DaemonClient
 from mozart.dashboard.app import get_state_backend
 from mozart.dashboard.services.job_control import JobActionResult, JobControlService, JobStartResult
 from mozart.state.base import StateBackend
@@ -41,6 +44,7 @@ class JobActionResponse(BaseModel):
     job_id: str
     status: str
     message: str
+    via_daemon: bool = False
 
     @classmethod
     def from_action_result(cls, result: JobActionResult) -> JobActionResponse:
@@ -49,7 +53,8 @@ class JobActionResponse(BaseModel):
             success=result.success,
             job_id=result.job_id,
             status=result.status,
-            message=result.message
+            message=result.message,
+            via_daemon=result.via_daemon,
         )
 
 
@@ -63,6 +68,7 @@ class StartJobResponse(BaseModel):
     total_sheets: int
     pid: int | None
     message: str
+    via_daemon: bool = False
 
     @classmethod
     def from_start_result(cls, result: JobStartResult) -> StartJobResponse:
@@ -75,7 +81,8 @@ class StartJobResponse(BaseModel):
             workspace=str(result.workspace),
             total_sheets=result.total_sheets,
             pid=result.pid,
-            message=f"Job {result.job_name} started successfully"
+            message=f"Job {result.job_name} started successfully",
+            via_daemon=result.via_daemon,
         )
 
 
@@ -337,3 +344,34 @@ async def get_sheet_details(
     }
 
     return sheet_details
+
+
+# ============================================================================
+# Daemon status endpoint
+# ============================================================================
+
+
+@router.get("/daemon/status", tags=["Daemon"])
+async def daemon_status() -> dict[str, Any]:
+    """Check if the Mozart daemon (mozartd) is running and get its status.
+
+    Returns a "Daemon Connected" indicator and status details when mozartd
+    is available, or a disconnected status when it's not.
+    """
+    client = DaemonClient(DaemonConfig().socket.path)
+    try:
+        status = await client.status()
+        return {
+            "connected": True,
+            "pid": status.pid,
+            "uptime_seconds": status.uptime_seconds,
+            "running_jobs": status.running_jobs,
+            "total_sheets_active": status.total_sheets_active,
+            "memory_usage_mb": status.memory_usage_mb,
+            "version": status.version,
+        }
+    except DaemonNotRunningError:
+        return {
+            "connected": False,
+            "message": "Daemon not running",
+        }

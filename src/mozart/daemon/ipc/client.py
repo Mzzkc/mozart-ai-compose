@@ -211,6 +211,14 @@ class DaemonClient:
         """Pause a running job."""
         return await self.call("job.pause", {"job_id": job_id, "workspace": workspace})
 
+    async def resume_job(self, job_id: str, workspace: str) -> bool:
+        """Resume a paused job."""
+        return await self.call("job.resume", {"job_id": job_id, "workspace": workspace})
+
+    async def cancel_job(self, job_id: str, workspace: str) -> bool:
+        """Cancel a running or paused job."""
+        return await self.call("job.cancel", {"job_id": job_id, "workspace": workspace})
+
     async def list_jobs(self) -> list[dict[str, Any]]:
         """List all jobs known to the daemon."""
         return await self.call("job.list")
