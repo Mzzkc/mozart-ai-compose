@@ -68,6 +68,7 @@ from .commands import (
     # validate.py
     validate,
 )
+from .commands.config_cmd import config_app
 from .commands.dashboard import dashboard, mcp
 from .commands.learning import (
     entropy_status,
@@ -249,6 +250,9 @@ app.command()(history)
 # Server commands
 app.command()(dashboard)
 app.command()(mcp)
+
+# Daemon configuration
+app.add_typer(config_app)
 
 # =============================================================================
 # Learning system commands
