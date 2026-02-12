@@ -17,11 +17,11 @@
 
 | Phase | Sheets | Creates | Status |
 |-------|--------|---------|--------|
-| P0: Scaffold | 11 | DaemonConfig, OutputProtocol, JobService | RUNNING |
-| P1: IPC | 11 | Unix socket, JSON-RPC 2.0, DaemonClient | Pending |
-| P2: Service | 12 | mozartd, JobManager, ResourceMonitor | Pending |
-| P3: Scheduler | 11 | GlobalScheduler, RateLimitCoordinator | Pending |
-| P4: Integration | 12 | E2E tests, dashboard/MCP wiring, PR | Pending |
+| P0: Scaffold | 11 | DaemonConfig, OutputProtocol, JobService | COMPLETE |
+| P1: IPC | 11 | Unix socket, JSON-RPC 2.0, DaemonClient | COMPLETE |
+| P2: Service | 12 | mozartd, JobManager, ResourceMonitor | COMPLETE |
+| P3: Scheduler | 11 | GlobalScheduler, RateLimitCoordinator | COMPLETE |
+| P4: Integration | 12 | E2E tests, dashboard/MCP wiring, PR | RUNNING |
 
 **Branch:** `daemon-symphony` (main stays clean)
 **Monitor:** `mozart status daemon-phase0-scaffold -w .daemon-workspace-p0 --watch`
@@ -206,6 +206,7 @@ setsid mozart run mozart-opus-evolution-v25.yaml > evolution-workspace-v25/mozar
 | Automatic Entropy Response | DONE | `EntropyResponseConfig`, response triggers (v23) |
 | **Validation-Informed Retry** | **DONE** | `ValidationRetryStrategy`, `get_retry_strategy_for_failure()` (v24) |
 | **Pattern Effectiveness Dashboard** | **DONE** | `patterns-effectiveness` CLI command (v24) |
+| **Daemon Mode (mozartd)** | **RUNNING** | P0-P3 complete, P4 integration in progress (Issue #39) |
 
 ---
 
