@@ -18,6 +18,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ..daemon.config import DaemonConfig
+from ..daemon.exceptions import DaemonNotRunningError
+from ..daemon.ipc.client import DaemonClient
 from ..dashboard.services.job_control import JobControlService
 from ..state.json_backend import JsonStateBackend
 
@@ -37,11 +40,16 @@ class JobTools:
 
     Provides MCP tools for running, monitoring, and querying Mozart jobs.
     Tools require explicit user consent due to file system and process execution.
+
+    Routes through the daemon (mozartd) when available, falling back to
+    subprocess execution. Job start/get operations delegate to JobControlService
+    which handles daemon routing. List operations use DaemonClient directly.
     """
 
     def __init__(self, state_backend: JsonStateBackend, workspace_root: Path):
         self.state_backend = state_backend
         self.job_control = JobControlService(state_backend, workspace_root)
+        self._daemon_client = DaemonClient(DaemonConfig().socket.path)
 
     async def list_tools(self) -> list[dict[str, Any]]:
         """List all job management tools."""
@@ -133,23 +141,63 @@ class JobTools:
             return _make_error_response(e)
 
     async def _list_jobs(self, args: dict[str, Any]) -> dict[str, Any]:
-        """List all jobs with status information."""
-        # Note: This requires a method to list all jobs from state backend
-        # For now, we'll return a placeholder message explaining the limitation
+        """List all jobs with status information.
+
+        Routes through daemon when available for a complete job listing.
+        Falls back to a limited response when daemon is not running.
+        """
         status_filter = args.get("status_filter")
         limit = args.get("limit", 50)
 
+        # Try daemon for comprehensive job listing
+        try:
+            if await self._daemon_client.is_daemon_running():
+                jobs = await self._daemon_client.list_jobs()
+
+                # Apply status filter
+                if status_filter:
+                    jobs = [j for j in jobs if j.get("status") == status_filter]
+
+                # Apply limit
+                jobs = jobs[:limit]
+
+                result = "Mozart MCP Job Listing (via daemon)\n"
+                result += "=" * 40 + "\n\n"
+
+                if not jobs:
+                    result += "No jobs found"
+                    if status_filter:
+                        result += f" with status '{status_filter}'"
+                    result += ".\n"
+                else:
+                    result += f"Showing {len(jobs)} job(s):\n\n"
+                    for job in jobs:
+                        job_id = job.get("job_id", "unknown")
+                        status = job.get("status", "unknown")
+                        name = job.get("job_name", job_id)
+                        result += f"  [{status}] {name} (id: {job_id})\n"
+
+                return {
+                    "content": [{"type": "text", "text": result}]
+                }
+        except DaemonNotRunningError:
+            pass
+        except Exception:
+            logger.debug("daemon_list_jobs_failed", exc_info=True)
+
+        # Fallback: daemon not available
         result = "Mozart MCP Job Listing\n"
-        result += "========================\n\n"
+        result += "=" * 40 + "\n\n"
 
         if status_filter:
-            result += f"Filter: {status_filter} status\n"
-        result += f"Limit: {limit} jobs\n\n"
+            result += f"Filter: {status_filter}\n"
+        result += f"Limit: {limit}\n\n"
 
-        result += "Note: Full job listing requires extension of the state backend interface.\n"
-        result += "Current implementation supports get_job for specific job IDs.\n\n"
-        result += "To list jobs, use the Mozart CLI:\n"
-        result += "  mozart list [--status running]\n"
+        result += "Note: Full job listing requires the Mozart daemon (mozartd).\n"
+        result += "Start the daemon for comprehensive job tracking:\n"
+        result += "  mozartd start\n\n"
+        result += "Without daemon, use get_job with a specific job ID,\n"
+        result += "or the Mozart CLI: mozart list [--status running]\n"
 
         return {
             "content": [{"type": "text", "text": result}]
@@ -234,12 +282,14 @@ class JobTools:
                 self_healing=self_healing
             )
 
+            via = "daemon" if result.via_daemon else "subprocess"
             response_text = "✓ Mozart job started successfully!\n\n"
             response_text += f"Job ID: {result.job_id}\n"
             response_text += f"Job Name: {result.job_name}\n"
             response_text += f"Status: {result.status}\n"
             response_text += f"Workspace: {result.workspace}\n"
             response_text += f"Total Sheets: {result.total_sheets}\n"
+            response_text += f"Via: {via}\n"
 
             if result.pid:
                 response_text += f"Process ID: {result.pid}\n"
@@ -257,7 +307,7 @@ class JobTools:
             }
 
         except Exception as e:
-            logger.exception(f"Failed to start job from {config_path}")
+            logger.exception("Failed to start job from %s", config_path)
             raise RuntimeError(f"Failed to start job: {e}") from e
 
     async def shutdown(self) -> None:
@@ -270,6 +320,9 @@ class ControlTools:
 
     Provides MCP tools for controlling running Mozart jobs (pause, resume, cancel).
     These tools interact with job processes and require user consent.
+
+    Routes through the daemon (mozartd) when available via JobControlService,
+    falling back to local signal-based control.
     """
 
     def __init__(self, state_backend: JsonStateBackend, workspace_root: Path):
@@ -345,11 +398,13 @@ class ControlTools:
 
         try:
             result = await self.job_control.pause_job(job_id)
+            via = "daemon" if result.via_daemon else "local"
 
             if result.success:
                 response_text = f"✓ Pause request sent to job: {job_id}\n\n"
                 response_text += f"Status: {result.status}\n"
-                response_text += f"Message: {result.message}\n\n"
+                response_text += f"Message: {result.message}\n"
+                response_text += f"Via: {via}\n\n"
                 response_text += "The job will pause gracefully at the next sheet boundary."
             else:
                 response_text = f"✗ Failed to pause job: {job_id}\n\n"
@@ -361,7 +416,7 @@ class ControlTools:
             }
 
         except Exception as e:
-            logger.exception(f"Error pausing job {job_id}")
+            logger.exception("Error pausing job %s", job_id)
             raise RuntimeError(f"Failed to pause job: {e}") from e
 
     async def _resume_job(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -370,11 +425,13 @@ class ControlTools:
 
         try:
             result = await self.job_control.resume_job(job_id)
+            via = "daemon" if result.via_daemon else "local"
 
             if result.success:
                 response_text = f"✓ Job resumed successfully: {job_id}\n\n"
                 response_text += f"Status: {result.status}\n"
-                response_text += f"Message: {result.message}"
+                response_text += f"Message: {result.message}\n"
+                response_text += f"Via: {via}"
             else:
                 response_text = f"✗ Failed to resume job: {job_id}\n\n"
                 response_text += f"Status: {result.status}\n"
@@ -385,7 +442,7 @@ class ControlTools:
             }
 
         except Exception as e:
-            logger.exception(f"Error resuming job {job_id}")
+            logger.exception("Error resuming job %s", job_id)
             raise RuntimeError(f"Failed to resume job: {e}") from e
 
     async def _cancel_job(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -394,11 +451,13 @@ class ControlTools:
 
         try:
             result = await self.job_control.cancel_job(job_id)
+            via = "daemon" if result.via_daemon else "local"
 
             if result.success:
                 response_text = f"✓ Job cancelled successfully: {job_id}\n\n"
                 response_text += f"Status: {result.status}\n"
-                response_text += f"Message: {result.message}\n\n"
+                response_text += f"Message: {result.message}\n"
+                response_text += f"Via: {via}\n\n"
                 response_text += "Note: This action is permanent and cannot be undone."
             else:
                 response_text = f"✗ Failed to cancel job: {job_id}\n\n"
@@ -410,7 +469,7 @@ class ControlTools:
             }
 
         except Exception as e:
-            logger.exception(f"Error cancelling job {job_id}")
+            logger.exception("Error cancelling job %s", job_id)
             raise RuntimeError(f"Failed to cancel job: {e}") from e
 
     async def shutdown(self) -> None:
