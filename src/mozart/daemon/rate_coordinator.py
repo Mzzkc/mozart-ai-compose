@@ -1,5 +1,16 @@
 """Cross-job rate limit coordination.
 
+Phase 3 infrastructure — fully built and tested, not yet receiving
+data from job execution.
+
+The coordinator is wired into the ``GlobalSheetScheduler`` (which
+queries ``is_rate_limited()`` before dispatching sheets), but no
+caller invokes ``report_rate_limit()`` yet.  When the scheduler is
+integrated into the execution path (see ``scheduler.py`` module
+docstring), job runners or backends will call ``report_rate_limit()``
+whenever they detect a rate limit, feeding the coordinator with live
+data.
+
 When any job hits a rate limit, ALL jobs using that backend are notified
 to back off.  Much faster than the SQLite cross-process approach in
 ``mozart.learning.store.rate_limits`` since everything is in-process.

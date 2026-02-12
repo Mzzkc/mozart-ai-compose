@@ -162,10 +162,69 @@ def run(
             }, indent=2))
         return
 
-    # Actually run the job
+    # Try routing through daemon if available (zero-impact fallback)
+    if not escalation and not dry_run:
+        routed = asyncio.run(
+            _try_daemon_submit(config_file, workspace, fresh, self_healing, yes, json_output),
+        )
+        if routed:
+            return
+
+    # Direct execution — no daemon or daemon routing failed
     if not is_quiet() and not json_output:
         console.print("\n[green]Starting job...[/green]")
     asyncio.run(_run_job(config, start_sheet, json_output, escalation, self_healing, yes, fresh))
+
+
+async def _try_daemon_submit(
+    config_file: Path,
+    workspace: Path | None,
+    fresh: bool,
+    self_healing: bool,
+    auto_confirm: bool,
+    json_output: bool,
+) -> bool:
+    """Attempt to route the job through a running daemon.
+
+    Returns True if the daemon handled the submission, False to fall back
+    to direct execution. Never raises — all errors return False.
+    """
+    try:
+        from mozart.daemon.detect import is_daemon_available, try_daemon_route
+
+        if not await is_daemon_available():
+            return False
+
+        params: dict[str, Any] = {
+            "config_path": str(config_file.resolve()),
+            "fresh": fresh,
+            "self_healing": self_healing,
+            "self_healing_auto_confirm": auto_confirm,
+        }
+        if workspace is not None:
+            params["workspace"] = str(Path(workspace).resolve())
+
+        routed, result = await try_daemon_route("job.submit", params)
+        if not routed:
+            return False
+
+        if json_output:
+            console.print(json.dumps(result, indent=2))
+        else:
+            status = result.get("status", "unknown") if isinstance(result, dict) else "unknown"
+            job_id = result.get("job_id", "?") if isinstance(result, dict) else "?"
+            msg = result.get("message", "") if isinstance(result, dict) else ""
+            if status == "accepted":
+                console.print(f"[green]Job submitted to daemon:[/green] {job_id}")
+                if msg:
+                    console.print(f"  {msg}")
+            else:
+                console.print(f"[yellow]Daemon rejected job:[/yellow] {msg}")
+                return False  # Fall back to direct execution
+
+        return True
+    except Exception:
+        return False
 
 
 async def _run_job(

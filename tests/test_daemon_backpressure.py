@@ -381,3 +381,48 @@ class TestSchedulerIntegration:
         # This should not raise — type is compatible
         scheduler.set_backpressure(bp)
         assert scheduler._backpressure is bp
+
+
+# ─── Probe Failure → CRITICAL (D006) ──────────────────────────────
+
+
+class TestProbeFailureBackpressure:
+    """Tests that probe failure causes CRITICAL backpressure (fail-closed)."""
+
+    def test_probe_failure_returns_critical(self, controller: BackpressureController):
+        """When memory probe returns None, pressure is CRITICAL."""
+        with patch.object(
+            ResourceMonitor, "current_memory_mb", return_value=None,
+        ):
+            assert controller.current_level() == PressureLevel.CRITICAL
+
+    def test_degraded_monitor_returns_critical(
+        self, controller: BackpressureController, monitor: ResourceMonitor,
+    ):
+        """When monitor is degraded, pressure is CRITICAL."""
+        monitor._degraded = True
+        with patch.object(
+            ResourceMonitor, "current_memory_mb", return_value=100.0,
+        ):
+            assert controller.current_level() == PressureLevel.CRITICAL
+        monitor._degraded = False  # cleanup
+
+    @pytest.mark.asyncio
+    async def test_probe_failure_rejects_sheets(
+        self, controller: BackpressureController,
+    ):
+        """Probe failure causes can_start_sheet to reject."""
+        with patch.object(
+            ResourceMonitor, "current_memory_mb", return_value=None,
+        ):
+            allowed, delay = await controller.can_start_sheet()
+            assert allowed is False
+
+    def test_probe_failure_rejects_jobs(
+        self, controller: BackpressureController,
+    ):
+        """Probe failure causes should_accept_job to reject."""
+        with patch.object(
+            ResourceMonitor, "current_memory_mb", return_value=None,
+        ):
+            assert controller.should_accept_job() is False

@@ -196,17 +196,26 @@ class DaemonProcess:
             # 2. Set up process group (fixes issue #38 — orphan prevention)
             self._pgroup.setup()
 
-            # 3. Create components
+            # 3. Create components — single ResourceMonitor shared
+            #    between periodic monitoring and backpressure checks.
             from mozart.daemon.ipc.handler import RequestHandler
             from mozart.daemon.ipc.server import DaemonServer
             from mozart.daemon.manager import JobManager
             from mozart.daemon.monitor import ResourceMonitor
 
-            manager = JobManager(self._config)
-            await manager.start()
+            # Create monitor first (without manager ref — set after).
             monitor = ResourceMonitor(
-                self._config.resource_limits, manager, pgroup=self._pgroup,
+                self._config.resource_limits, pgroup=self._pgroup,
             )
+            # Pass the single monitor into JobManager for backpressure.
+            manager = JobManager(
+                self._config,
+                start_time=self._start_time,
+                monitor=monitor,
+            )
+            # Now wire the manager back into the monitor for job counts.
+            monitor._manager = manager
+            await manager.start()
             handler = RequestHandler()
 
             # 4. Create health checker

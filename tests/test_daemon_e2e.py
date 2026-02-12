@@ -137,13 +137,29 @@ class TestDaemonLifecycle:
         """Daemon starts, binds socket, and responds to daemon.status RPC."""
         client, config = daemon
 
-        # Use raw call() because DaemonStatus model requires fields
-        # (uptime_seconds, memory_usage_mb) that get_daemon_status()
-        # does not currently return.  This tests the actual daemon RPC.
         result = await client.call("daemon.status")
         assert result["pid"] == os.getpid()  # Foreground mode — same process
         assert result["running_jobs"] == 0
         assert "version" in result
+
+    async def test_daemon_status_round_trip(self, daemon: tuple[DaemonClient, DaemonConfig]):
+        """DaemonClient.status() returns a typed DaemonStatus with all fields.
+
+        This is the D022 regression test — ensures get_daemon_status() returns
+        every field that DaemonStatus requires, so deserialization succeeds.
+        """
+        from mozart.daemon.types import DaemonStatus
+
+        client, config = daemon
+        status = await client.status()
+
+        assert isinstance(status, DaemonStatus)
+        assert status.pid == os.getpid()
+        assert status.uptime_seconds >= 0
+        assert status.running_jobs == 0
+        assert status.total_sheets_active >= 0
+        assert status.memory_usage_mb >= 0.0
+        assert isinstance(status.version, str)
 
     async def test_daemon_pid_file_written(self, daemon: tuple[DaemonClient, DaemonConfig]):
         """PID file is created during daemon startup."""
@@ -562,6 +578,59 @@ class TestErrorHandling:
             assert "shutting down" in (resp.message or "").lower()
         except (DaemonNotRunningError, ConnectionResetError, OSError):
             pass  # Also acceptable — daemon socket already gone
+
+
+# ---------------------------------------------------------------------------
+# Tests: Real Execution (no mocking)
+# ---------------------------------------------------------------------------
+
+
+class TestRealExecution:
+    """Tests that exercise real JobService execution through the daemon.
+
+    These tests do NOT mock JobService — they submit real jobs with
+    dry_run=True so the full code path (config parsing, workspace
+    creation, state backend setup) runs without needing a Claude CLI.
+    """
+
+    async def test_dry_run_job_completes(self, daemon: tuple[DaemonClient, DaemonConfig]):
+        """A dry_run job goes through the real path and completes."""
+        client, config = daemon
+
+        req = JobRequest(config_path=FIXTURE_CONFIG, dry_run=True)
+        resp = await client.submit_job(req)
+        assert resp.status == "accepted"
+        assert resp.job_id
+
+        # dry_run jobs complete almost instantly
+        await asyncio.sleep(1.5)
+
+        jobs = await client.list_jobs()
+        job = next((j for j in jobs if j["job_id"] == resp.job_id), None)
+        assert job is not None
+        assert job["status"] == "completed"
+
+    async def test_dry_run_state_transitions(self, daemon: tuple[DaemonClient, DaemonConfig]):
+        """Verify the full lifecycle: queued → running → completed."""
+        client, config = daemon
+
+        req = JobRequest(config_path=FIXTURE_CONFIG, dry_run=True)
+        resp = await client.submit_job(req)
+        assert resp.status == "accepted"
+
+        # Wait for completion
+        for _ in range(20):
+            jobs = await client.list_jobs()
+            job = next((j for j in jobs if j["job_id"] == resp.job_id), None)
+            if job and job["status"] == "completed":
+                break
+            await asyncio.sleep(0.2)
+        else:
+            pytest.fail("Job did not complete within timeout")
+
+        assert job is not None
+        assert job["status"] == "completed"
+        assert job["started_at"] is not None
 
 
 # ---------------------------------------------------------------------------

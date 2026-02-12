@@ -11,6 +11,7 @@ import os
 import time
 import uuid
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,20 @@ from mozart.daemon.types import JobRequest, JobResponse
 _logger = get_logger("daemon.manager")
 
 
+class DaemonJobStatus(str, Enum):
+    """Status values for daemon-managed jobs.
+
+    Inherits from ``str`` so ``meta.status`` serializes directly as
+    a plain string in JSON/dict output — no ``.value`` calls needed.
+    """
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
 @dataclass
 class JobMeta:
     """Metadata tracked per job in the manager."""
@@ -39,7 +54,7 @@ class JobMeta:
     workspace: Path
     submitted_at: float = field(default_factory=time.monotonic)
     started_at: float | None = None
-    status: str = "queued"  # queued, running, completed, failed, cancelled
+    status: DaemonJobStatus = DaemonJobStatus.QUEUED
 
 
 class JobManager:
@@ -50,8 +65,15 @@ class JobManager:
     tracks from start to completion/cancellation.
     """
 
-    def __init__(self, config: DaemonConfig) -> None:
+    def __init__(
+        self,
+        config: DaemonConfig,
+        *,
+        start_time: float | None = None,
+        monitor: ResourceMonitor | None = None,
+    ) -> None:
         self._config = config
+        self._start_time = start_time or time.monotonic()
 
         # Phase 3: Centralized learning hub.
         # Single GlobalLearningStore shared across all jobs — pattern
@@ -69,26 +91,28 @@ class JobManager:
         self._shutdown_event = asyncio.Event()
 
         # Phase 3: Global sheet scheduler for cross-job coordination.
-        # Routes sheet execution through priority queue with fair-share.
-        # The semaphore above gates job-level entry; the scheduler gates
-        # sheet-level concurrency across all jobs.
+        # Infrastructure is built and tested but not yet wired into the
+        # execution path.  Currently, jobs run monolithically via
+        # JobService.start_job().  When wired, _run_job_task() will
+        # decompose jobs into sheets, register them via register_job(),
+        # and use next_sheet()/mark_complete() for per-sheet dispatch.
         self._scheduler = GlobalSheetScheduler(config)
 
         # Phase 3: Cross-job rate limit coordination.
-        # When any job hits a rate limit, all jobs using that backend
-        # back off. Wired into the scheduler so next_sheet() skips
-        # rate-limited backends.
+        # Built and tested; wired into the scheduler so next_sheet()
+        # skips rate-limited backends.  Not yet active because the
+        # scheduler itself is not yet driving execution.  When wired,
+        # job runners or backends will call report_rate_limit() to
+        # feed data into the coordinator.
         self._rate_coordinator = RateLimitCoordinator()
         self._scheduler.set_rate_limiter(self._rate_coordinator)
 
         # Phase 3: Backpressure controller.
-        # Monitors memory/rate-limit pressure and throttles or rejects
-        # sheet dispatch and job submissions when the system is stressed.
-        # NOTE: This ResourceMonitor is used only for point-in-time checks
-        # by BackpressureController (e.g. current memory usage). It does NOT
-        # run a periodic monitoring loop. The separate monitor created in
-        # DaemonProcess.run() handles periodic monitoring + orphan cleanup.
-        self._monitor = ResourceMonitor(config.resource_limits, manager=self)
+        # Uses a single ResourceMonitor instance shared with DaemonProcess
+        # for both periodic monitoring and point-in-time backpressure checks.
+        # When no monitor is injected (e.g. unit tests), a standalone one
+        # is created that only does point-in-time reads.
+        self._monitor = monitor or ResourceMonitor(config.resource_limits, manager=self)
         self._backpressure = BackpressureController(
             self._monitor, self._rate_coordinator,
         )
@@ -185,7 +209,7 @@ class JobManager:
         }
 
         # If running, try to get deeper status from state backend
-        if meta.status == "running" and workspace:
+        if meta.status == DaemonJobStatus.RUNNING and workspace:
             state = await self._svc.get_status(meta.job_id, workspace)
             if state:
                 result["current_sheet"] = state.current_sheet
@@ -199,7 +223,7 @@ class JobManager:
         meta = self._job_meta.get(job_id)
         if meta is None:
             raise JobSubmissionError(f"Job '{job_id}' not found")
-        if meta.status != "running":
+        if meta.status != DaemonJobStatus.RUNNING:
             raise JobSubmissionError(
                 f"Job '{job_id}' is {meta.status}, not running"
             )
@@ -214,7 +238,7 @@ class JobManager:
             raise JobSubmissionError(f"Job '{job_id}' not found")
 
         ws = workspace or meta.workspace
-        meta.status = "queued"
+        meta.status = DaemonJobStatus.QUEUED
 
         task = asyncio.create_task(
             self._resume_job_task(job_id, ws),
@@ -230,7 +254,12 @@ class JobManager:
         )
 
     async def cancel_job(self, job_id: str) -> bool:
-        """Cancel a running job task."""
+        """Cancel a running job task.
+
+        TODO(Phase 3 — scheduler integration): Call
+        ``await self._scheduler.deregister_job(job_id)`` here to remove
+        any pending sheets from the global queue on cancellation.
+        """
         task = self._jobs.get(job_id)
         if task is None:
             return False
@@ -238,7 +267,7 @@ class JobManager:
         task.cancel()
         meta = self._job_meta.get(job_id)
         if meta:
-            meta.status = "cancelled"
+            meta.status = DaemonJobStatus.CANCELLED
 
         _logger.info("job.cancelled", job_id=job_id)
         return True
@@ -258,11 +287,18 @@ class JobManager:
         return result
 
     async def get_daemon_status(self) -> dict[str, Any]:
-        """Build daemon status summary."""
+        """Build daemon status summary.
+
+        Returns all fields required by the ``DaemonStatus`` Pydantic model
+        so ``DaemonClient.status()`` can deserialize without crashing.
+        """
+        mem = ResourceMonitor._get_memory_usage_mb()
         return {
             "pid": os.getpid(),
+            "uptime_seconds": round(time.monotonic() - self._start_time, 1),
             "running_jobs": self.running_count,
             "total_sheets_active": self.active_sheet_count,
+            "memory_usage_mb": round(mem, 1) if mem is not None else 0.0,
             "version": getattr(mozart, "__version__", "0.1.0"),
         }
 
@@ -321,15 +357,17 @@ class JobManager:
     def running_count(self) -> int:
         """Number of currently running jobs."""
         return sum(
-            1 for m in self._job_meta.values() if m.status == "running"
+            1 for m in self._job_meta.values() if m.status == DaemonJobStatus.RUNNING
         )
 
     @property
     def active_sheet_count(self) -> int:
         """Total active sheets across all jobs.
 
-        Uses the GlobalSheetScheduler's active count when available,
-        falling back to running_count as a proxy.
+        Currently returns ``running_count`` as a proxy since the
+        scheduler is not yet wired (Phase 3).  When the scheduler
+        drives per-sheet dispatch, this will return the scheduler's
+        ``active_count`` instead.
         """
         if self._scheduler.active_count > 0:
             return self._scheduler.active_count
@@ -358,11 +396,23 @@ class JobManager:
     # ─── Internal ─────────────────────────────────────────────────────
 
     async def _run_job_task(self, job_id: str, request: JobRequest) -> None:
-        """Task coroutine that runs a single job."""
+        """Task coroutine that runs a single job.
+
+        Currently runs jobs monolithically via ``JobService.start_job()``.
+
+        TODO(Phase 3 — scheduler integration): Replace monolithic execution
+        with per-sheet dispatch through ``self._scheduler``:
+          1. Parse sheets from config: ``config.sheets``
+          2. Build SheetInfo list + dependency DAG
+          3. ``await self._scheduler.register_job(job_id, sheets, deps)``
+          4. Dispatch loop: ``entry = await self._scheduler.next_sheet()``
+          5. Spawn per-sheet tasks, call ``mark_complete()`` on finish
+          6. On error/cancel: ``await self._scheduler.deregister_job(job_id)``
+        """
         meta = self._job_meta[job_id]
 
         async with self._concurrency_semaphore:
-            meta.status = "running"
+            meta.status = DaemonJobStatus.RUNNING
             meta.started_at = time.monotonic()
             _logger.info("job.started", job_id=job_id)
 
@@ -380,17 +430,18 @@ class JobManager:
                     fresh=request.fresh,
                     self_healing=request.self_healing,
                     self_healing_auto_confirm=request.self_healing_auto_confirm,
+                    dry_run=request.dry_run,
                 )
-                meta.status = "completed"
+                meta.status = DaemonJobStatus.COMPLETED
                 _logger.info("job.completed", job_id=job_id)
 
             except asyncio.CancelledError:
-                meta.status = "cancelled"
+                meta.status = DaemonJobStatus.CANCELLED
                 _logger.info("job.cancelled_during_execution", job_id=job_id)
                 raise
 
             except Exception:
-                meta.status = "failed"
+                meta.status = DaemonJobStatus.FAILED
                 _logger.exception("job.failed", job_id=job_id)
 
     async def _resume_job_task(self, job_id: str, workspace: Path) -> None:
@@ -398,21 +449,21 @@ class JobManager:
         meta = self._job_meta[job_id]
 
         async with self._concurrency_semaphore:
-            meta.status = "running"
+            meta.status = DaemonJobStatus.RUNNING
             meta.started_at = time.monotonic()
             _logger.info("job.resuming", job_id=job_id)
 
             try:
                 await self._svc.resume_job(job_id, workspace)
-                meta.status = "completed"
+                meta.status = DaemonJobStatus.COMPLETED
                 _logger.info("job.completed", job_id=job_id)
 
             except asyncio.CancelledError:
-                meta.status = "cancelled"
+                meta.status = DaemonJobStatus.CANCELLED
                 raise
 
             except Exception:
-                meta.status = "failed"
+                meta.status = DaemonJobStatus.FAILED
                 _logger.exception("job.resume_failed", job_id=job_id)
 
     def _on_task_done(self, job_id: str, task: asyncio.Task[Any]) -> None:
@@ -422,8 +473,8 @@ class JobManager:
         exc = task.exception() if not task.cancelled() else None
         if exc:
             meta = self._job_meta.get(job_id)
-            if meta and meta.status == "running":
-                meta.status = "failed"
+            if meta and meta.status == DaemonJobStatus.RUNNING:
+                meta.status = DaemonJobStatus.FAILED
 
         self._prune_job_history()
 
@@ -433,7 +484,7 @@ class JobManager:
         terminal = sorted(
             (
                 (jid, m) for jid, m in self._job_meta.items()
-                if m.status in ("completed", "failed", "cancelled")
+                if m.status in (DaemonJobStatus.COMPLETED, DaemonJobStatus.FAILED, DaemonJobStatus.CANCELLED)
             ),
             key=lambda x: x[1].submitted_at,
         )
@@ -443,4 +494,4 @@ class JobManager:
                 self._job_meta.pop(jid, None)
 
 
-__all__ = ["JobManager", "JobMeta"]
+__all__ = ["DaemonJobStatus", "JobManager", "JobMeta"]

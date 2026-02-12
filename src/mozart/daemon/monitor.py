@@ -35,16 +35,7 @@ class ResourceSnapshot:
     running_jobs: int
     active_sheets: int
     zombie_pids: list[int] = field(default_factory=list)
-
-    @property
-    def memory_percent(self) -> float:
-        """Memory usage as percentage of limit (requires limit from caller)."""
-        return 0.0  # Computed externally via _compute_percent
-
-    @property
-    def processes_percent(self) -> float:
-        """Process count as percentage of limit (requires limit from caller)."""
-        return 0.0  # Computed externally via _compute_percent
+    probe_failed: bool = False
 
 
 def _compute_percent(current: float, limit: float) -> float:
@@ -78,6 +69,8 @@ class ResourceMonitor:
         self._pgroup = pgroup
         self._task: asyncio.Task[None] | None = None
         self._running = False
+        self._consecutive_failures = 0
+        self._degraded = False
 
     async def start(self, interval_seconds: float = 15.0) -> None:
         """Start the periodic monitoring loop."""
@@ -107,13 +100,18 @@ class ResourceMonitor:
             running_jobs = self._manager.running_count
             active_sheets = self._manager.active_sheet_count
 
+        mem = self._get_memory_usage_mb()
+        procs = self._get_child_process_count()
+        probe_failed = mem is None or procs is None
+
         snapshot = ResourceSnapshot(
             timestamp=time.monotonic(),
-            memory_usage_mb=self._get_memory_usage_mb(),
-            child_process_count=self._get_child_process_count(),
+            memory_usage_mb=mem if mem is not None else 0.0,
+            child_process_count=procs if procs is not None else 0,
             running_jobs=running_jobs,
             active_sheets=active_sheets,
             zombie_pids=self._check_for_zombies(),
+            probe_failed=probe_failed,
         )
         return snapshot
 
@@ -123,28 +121,74 @@ class ResourceMonitor:
         Returns True when both memory and process counts are below
         ``WARN_THRESHOLD`` percent of their configured limits.  Used by
         ``HealthChecker.readiness()`` to signal backpressure.
+
+        Fail-closed: returns False when probes fail or monitor is degraded.
         """
-        mem_pct = _compute_percent(
-            self._get_memory_usage_mb(), self._config.max_memory_mb,
-        )
-        proc_pct = _compute_percent(
-            self._get_child_process_count(), self._config.max_processes,
-        )
+        if self._degraded:
+            return False
+        mem = self._get_memory_usage_mb()
+        procs = self._get_child_process_count()
+        if mem is None or procs is None:
+            return False
+        mem_pct = _compute_percent(mem, self._config.max_memory_mb)
+        proc_pct = _compute_percent(procs, self._config.max_processes)
         return mem_pct < self.WARN_THRESHOLD and proc_pct < self.WARN_THRESHOLD
+
+    # ─── Public API for BackpressureController ──────────────────────
+
+    @property
+    def max_memory_mb(self) -> int:
+        """Configured maximum memory in MB."""
+        return self._config.max_memory_mb
+
+    def current_memory_mb(self) -> float | None:
+        """Current RSS memory in MB, or None if probes fail."""
+        return self._get_memory_usage_mb()
+
+    @property
+    def is_degraded(self) -> bool:
+        """Whether the monitor has entered degraded mode due to repeated failures."""
+        return self._degraded
 
     # ─── Internal ─────────────────────────────────────────────────────
 
+    _CIRCUIT_BREAKER_THRESHOLD = 5
+
     async def _loop(self, interval: float) -> None:
-        """Periodic monitoring loop."""
+        """Periodic monitoring loop with circuit breaker."""
         while self._running:
             try:
                 snapshot = await self.check_now()
                 await self._evaluate(snapshot)
+                if self._consecutive_failures > 0:
+                    _logger.info(
+                        "monitor.recovered",
+                        after_failures=self._consecutive_failures,
+                    )
+                self._consecutive_failures = 0
+                if self._degraded:
+                    self._degraded = False
+                    _logger.info("monitor.degraded_cleared")
                 await asyncio.sleep(interval)
             except asyncio.CancelledError:
                 break
             except Exception:
-                _logger.exception("monitor.check_failed")
+                self._consecutive_failures += 1
+                _logger.exception(
+                    "monitor.check_failed",
+                    consecutive_failures=self._consecutive_failures,
+                )
+                if (
+                    self._consecutive_failures >= self._CIRCUIT_BREAKER_THRESHOLD
+                    and not self._degraded
+                ):
+                    self._degraded = True
+                    _logger.error(
+                        "monitor.degraded",
+                        consecutive_failures=self._consecutive_failures,
+                        message="Monitor entering degraded mode — "
+                        "health checks will report not-ready",
+                    )
                 await asyncio.sleep(interval)
 
     async def _evaluate(self, snapshot: ResourceSnapshot) -> None:
@@ -181,6 +225,7 @@ class ResourceMonitor:
                 limit=self._config.max_processes,
                 percent=round(proc_pct, 1),
             )
+            await self._enforce_process_limit()
         elif proc_pct >= self.WARN_THRESHOLD:
             _logger.warning(
                 "monitor.processes_warning",
@@ -203,25 +248,37 @@ class ResourceMonitor:
 
     async def _enforce_memory_limit(self) -> None:
         """Cancel the oldest running job when memory exceeds hard limit."""
+        await self._cancel_oldest_job("memory")
+
+    async def _enforce_process_limit(self) -> None:
+        """Cancel the oldest running job when process count exceeds hard limit."""
+        await self._cancel_oldest_job("processes")
+
+    async def _cancel_oldest_job(self, reason: str) -> None:
+        """Cancel the oldest running job for the given resource reason."""
         if self._manager is None:
             return
-        # Find oldest running job and cancel it
         jobs = await self._manager.list_jobs()
         running = [j for j in jobs if j.get("status") == "running"]
         if running:
             oldest = min(running, key=lambda j: j.get("submitted_at", 0))
             job_id = oldest.get("job_id")
             if job_id:
-                _logger.warning("monitor.cancelling_oldest_job", job_id=job_id)
+                _logger.warning(
+                    "monitor.cancelling_oldest_job",
+                    job_id=job_id,
+                    reason=reason,
+                )
                 await self._manager.cancel_job(job_id)
 
     # ─── System Probes ────────────────────────────────────────────────
 
     @staticmethod
-    def _get_memory_usage_mb() -> float:
+    def _get_memory_usage_mb() -> float | None:
         """Get current RSS memory in MB.
 
         Uses psutil if available, falls back to /proc/self/status.
+        Returns None when all probes fail (callers should treat as critical).
         """
         try:
             import psutil
@@ -237,13 +294,14 @@ class ResourceMonitor:
                         return int(line.split()[1]) / 1024  # kB -> MB
         except (OSError, ValueError):
             pass
-        return 0.0
+        return None
 
     @staticmethod
-    def _get_child_process_count() -> int:
+    def _get_child_process_count() -> int | None:
         """Count child processes in our process group.
 
         Uses psutil if available, falls back to /proc iteration.
+        Returns None when all probes fail (callers should treat as critical).
         """
         try:
             import psutil

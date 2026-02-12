@@ -1,5 +1,16 @@
 """Global sheet scheduler — cross-job concurrency control.
 
+Phase 3 infrastructure — fully built and tested, not yet wired into
+the execution path.
+
+Currently, ``JobManager._run_job_task()`` delegates to
+``JobService.start_job()`` which runs jobs monolithically (all sheets
+sequentially within one task).  When this scheduler is wired in, the
+manager will instead decompose jobs into individual sheets, register
+them via ``register_job()``, and use ``next_sheet()`` /
+``mark_complete()`` to drive per-sheet dispatch with cross-job
+fair-share, DAG ordering, and rate-limit awareness.
+
 Manages a priority min-heap of sheets from ALL active daemon jobs.
 Enforces global concurrency limits, per-job fair-share scheduling,
 DAG dependency awareness, and integrates with rate limiting and
@@ -97,6 +108,9 @@ class SchedulerStats:
 class GlobalSheetScheduler:
     """Cross-job sheet-level scheduler using a priority min-heap.
 
+    **Status: Phase 3 infrastructure — built and tested, not yet
+    wired into the execution path.**
+
     Manages a global priority queue of sheets from all active jobs.
     Enforces:
     - ``max_concurrent_sheets`` from DaemonConfig
@@ -107,6 +121,14 @@ class GlobalSheetScheduler:
     The scheduler does NOT own sheet execution — it decides *which*
     sheet should run next and the ``JobManager`` performs the actual
     execution.
+
+    Integration plan (future):
+        1. ``JobManager._run_job_task()`` calls ``register_job()`` with
+           all sheets parsed from the ``JobConfig``.
+        2. A dispatch loop calls ``next_sheet()`` and spawns per-sheet
+           tasks instead of calling ``JobService.start_job()`` monolithically.
+        3. Each per-sheet task calls ``mark_complete()`` on finish.
+        4. ``cancel_job()`` / shutdown calls ``deregister_job()`` for cleanup.
     """
 
     def __init__(self, config: DaemonConfig) -> None:

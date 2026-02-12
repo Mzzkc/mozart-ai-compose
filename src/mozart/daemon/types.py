@@ -40,6 +40,10 @@ class JobRequest(BaseModel):
         default=False,
         description="Auto-confirm suggested fixes in self-healing mode",
     )
+    dry_run: bool = Field(
+        default=False,
+        description="Validate config and return without executing sheets",
+    )
 
 
 class JobResponse(BaseModel):

@@ -74,14 +74,18 @@ class BackpressureController:
         """Assess current pressure level from resource metrics.
 
         Thresholds (memory as % of ``ResourceLimitConfig.max_memory_mb``):
+          - probe failure or monitor degraded  → CRITICAL (fail-closed)
           - >95% or monitor not accepting work → CRITICAL
           - >85% or any active rate limit      → HIGH
           - >70%                               → MEDIUM
           - >50%                               → LOW
           - otherwise                          → NONE
         """
-        max_mem = max(self._monitor._config.max_memory_mb, 1)
-        current_mem = self._monitor._get_memory_usage_mb()
+        current_mem = self._monitor.current_memory_mb()
+        if current_mem is None or self._monitor.is_degraded:
+            return PressureLevel.CRITICAL
+
+        max_mem = max(self._monitor.max_memory_mb, 1)
         memory_pct = current_mem / max_mem
 
         if memory_pct > 0.95 or not self._monitor.is_accepting_work():
