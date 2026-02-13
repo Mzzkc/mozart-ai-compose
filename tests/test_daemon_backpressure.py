@@ -620,3 +620,258 @@ class TestRateLimitExpiryTransitions:
             await asyncio.sleep(0.03)
 
             assert controller.should_accept_job() is True
+
+
+# ─── P011: Rate-Limited Rejection + Delay Parametrization ──────────
+
+
+class TestRateLimitedRejection:
+    """Test rejection driven by rate limits (not just memory) with
+    parametrized delay expectations (P011).
+
+    Validates that active rate limits cause backpressure to escalate
+    to HIGH (which rejects job submissions) independently of memory
+    pressure, and that the delay matches _LEVEL_DELAYS[HIGH].
+    """
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_causes_high_delay(
+        self, controller: BackpressureController,
+        coordinator: RateLimitCoordinator,
+    ):
+        """Active rate limit → HIGH → can_start_sheet returns HIGH delay."""
+        with patch.object(
+            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
+        ), patch.object(
+            ResourceMonitor, "is_accepting_work", return_value=True,
+        ):
+            # Report rate limit
+            await coordinator.report_rate_limit(
+                backend_type="claude_cli",
+                wait_seconds=60.0,
+                job_id="job-a",
+                sheet_num=1,
+            )
+
+            allowed, delay = await controller.can_start_sheet()
+            assert allowed is True  # HIGH allows dispatch with delay
+            assert delay == _LEVEL_DELAYS[PressureLevel.HIGH]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("memory_mb,expected_level", [
+        (100.0, PressureLevel.HIGH),     # Low memory + rate limit → HIGH
+        (550.0, PressureLevel.HIGH),     # LOW memory + rate limit → HIGH
+        (750.0, PressureLevel.HIGH),     # MEDIUM memory + rate limit → still HIGH
+        (900.0, PressureLevel.HIGH),     # HIGH memory + rate limit → HIGH
+        (960.0, PressureLevel.CRITICAL), # CRITICAL memory + rate limit → CRITICAL
+    ])
+    async def test_rate_limit_with_various_memory_levels(
+        self, controller: BackpressureController,
+        coordinator: RateLimitCoordinator,
+        memory_mb: float,
+        expected_level: PressureLevel,
+    ):
+        """Rate limit + various memory levels produce correct pressure."""
+        with patch.object(
+            ResourceMonitor, "_get_memory_usage_mb", return_value=memory_mb,
+        ), patch.object(
+            ResourceMonitor, "is_accepting_work", return_value=True,
+        ):
+            await coordinator.report_rate_limit(
+                backend_type="claude_cli",
+                wait_seconds=60.0,
+                job_id="job-a",
+                sheet_num=1,
+            )
+            assert controller.current_level() == expected_level
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_rejection_blocks_job_not_sheet(
+        self, controller: BackpressureController,
+        coordinator: RateLimitCoordinator,
+    ):
+        """At HIGH (rate-limited), sheets are allowed but new jobs are rejected."""
+        with patch.object(
+            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
+        ), patch.object(
+            ResourceMonitor, "is_accepting_work", return_value=True,
+        ):
+            await coordinator.report_rate_limit(
+                backend_type="claude_cli",
+                wait_seconds=60.0,
+                job_id="job-a",
+                sheet_num=1,
+            )
+
+            # Sheets allowed (with delay)
+            allowed, _ = await controller.can_start_sheet()
+            assert allowed is True
+
+            # Jobs rejected
+            assert controller.should_accept_job() is False
+
+
+# ─── P012: Combined Memory + Rate Limit Conditions ──────────────────
+
+
+class TestCombinedConditions:
+    """Combined conditions: memory + rate limits → correct level (P012).
+
+    Tests that when both memory pressure and rate limits are active,
+    the resulting pressure level is the maximum of the two individual
+    contributions.
+    """
+
+    @pytest.mark.asyncio
+    async def test_low_memory_plus_rate_limit_is_high(
+        self, controller: BackpressureController,
+        coordinator: RateLimitCoordinator,
+    ):
+        """LOW memory (550MB) + active rate limit → HIGH (rate limit dominates)."""
+        with patch.object(
+            ResourceMonitor, "_get_memory_usage_mb", return_value=550.0,
+        ), patch.object(
+            ResourceMonitor, "is_accepting_work", return_value=True,
+        ):
+            # Without rate limit: LOW
+            assert controller.current_level() == PressureLevel.LOW
+
+            # Add rate limit
+            await coordinator.report_rate_limit(
+                backend_type="openai",
+                wait_seconds=60.0,
+                job_id="job-a",
+                sheet_num=1,
+            )
+
+            # With rate limit: HIGH (escalated from LOW)
+            assert controller.current_level() == PressureLevel.HIGH
+
+    @pytest.mark.asyncio
+    async def test_medium_memory_plus_rate_limit_is_high(
+        self, controller: BackpressureController,
+        coordinator: RateLimitCoordinator,
+    ):
+        """MEDIUM memory (750MB) + active rate limit → HIGH (rate limit escalates)."""
+        with patch.object(
+            ResourceMonitor, "_get_memory_usage_mb", return_value=750.0,
+        ), patch.object(
+            ResourceMonitor, "is_accepting_work", return_value=True,
+        ):
+            # Without rate limit: MEDIUM
+            assert controller.current_level() == PressureLevel.MEDIUM
+
+            await coordinator.report_rate_limit(
+                backend_type="claude_cli",
+                wait_seconds=30.0,
+                job_id="job-a",
+                sheet_num=1,
+            )
+
+            # With rate limit: HIGH
+            assert controller.current_level() == PressureLevel.HIGH
+
+    @pytest.mark.asyncio
+    async def test_high_memory_plus_rate_limit_stays_high(
+        self, controller: BackpressureController,
+        coordinator: RateLimitCoordinator,
+    ):
+        """HIGH memory (900MB) + active rate limit → still HIGH (both contribute)."""
+        with patch.object(
+            ResourceMonitor, "_get_memory_usage_mb", return_value=900.0,
+        ), patch.object(
+            ResourceMonitor, "is_accepting_work", return_value=True,
+        ):
+            # Without rate limit: already HIGH from memory
+            assert controller.current_level() == PressureLevel.HIGH
+
+            await coordinator.report_rate_limit(
+                backend_type="claude_cli",
+                wait_seconds=30.0,
+                job_id="job-a",
+                sheet_num=1,
+            )
+
+            # With rate limit: still HIGH (no escalation since memory was already there)
+            assert controller.current_level() == PressureLevel.HIGH
+
+    @pytest.mark.asyncio
+    async def test_critical_memory_overrides_rate_limit(
+        self, controller: BackpressureController,
+        coordinator: RateLimitCoordinator,
+    ):
+        """CRITICAL memory (960MB) + active rate limit → CRITICAL (memory wins)."""
+        with patch.object(
+            ResourceMonitor, "_get_memory_usage_mb", return_value=960.0,
+        ), patch.object(
+            ResourceMonitor, "is_accepting_work", return_value=True,
+        ):
+            await coordinator.report_rate_limit(
+                backend_type="claude_cli",
+                wait_seconds=30.0,
+                job_id="job-a",
+                sheet_num=1,
+            )
+
+            # CRITICAL from memory, rate limit irrelevant (checked earlier)
+            assert controller.current_level() == PressureLevel.CRITICAL
+
+
+# ─── P017: Memory > 100% of Max → CRITICAL ──────────────────────────
+
+
+class TestMemoryOverflow:
+    """Test memory exceeding 100% of max_memory_mb → CRITICAL (P017).
+
+    The system may report memory usage above the configured limit
+    (especially when processes grow beyond expectations).  The
+    backpressure controller must correctly escalate to CRITICAL
+    for any memory usage above 95% of max, including >100%.
+    """
+
+    def test_110_percent_memory_is_critical(
+        self, controller: BackpressureController,
+    ):
+        """1100MB / 1000MB max (110%) → CRITICAL."""
+        with patch.object(
+            ResourceMonitor, "_get_memory_usage_mb", return_value=1100.0,
+        ), patch.object(
+            ResourceMonitor, "is_accepting_work", return_value=True,
+        ):
+            assert controller.current_level() == PressureLevel.CRITICAL
+
+    def test_200_percent_memory_is_critical(
+        self, controller: BackpressureController,
+    ):
+        """2000MB / 1000MB max (200%) → CRITICAL."""
+        with patch.object(
+            ResourceMonitor, "_get_memory_usage_mb", return_value=2000.0,
+        ), patch.object(
+            ResourceMonitor, "is_accepting_work", return_value=True,
+        ):
+            assert controller.current_level() == PressureLevel.CRITICAL
+
+    @pytest.mark.asyncio
+    async def test_overflow_rejects_sheets(
+        self, controller: BackpressureController,
+    ):
+        """Memory overflow → can_start_sheet rejects."""
+        with patch.object(
+            ResourceMonitor, "_get_memory_usage_mb", return_value=1500.0,
+        ), patch.object(
+            ResourceMonitor, "is_accepting_work", return_value=True,
+        ):
+            allowed, delay = await controller.can_start_sheet()
+            assert allowed is False
+            assert delay == _LEVEL_DELAYS[PressureLevel.CRITICAL]
+
+    def test_overflow_rejects_jobs(
+        self, controller: BackpressureController,
+    ):
+        """Memory overflow → should_accept_job rejects."""
+        with patch.object(
+            ResourceMonitor, "_get_memory_usage_mb", return_value=1500.0,
+        ), patch.object(
+            ResourceMonitor, "is_accepting_work", return_value=True,
+        ):
+            assert controller.should_accept_job() is False

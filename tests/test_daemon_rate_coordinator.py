@@ -656,6 +656,123 @@ class TestConcurrentRateLimitStress:
         assert isinstance(events, list)
 
 
+# ─── P016: Report → Expire → Re-report Cycle ───────────────────────
+
+
+class TestReportExpireReportCycle:
+    """Test report → expire → re-report cycle on the same backend (P016).
+
+    Validates that a backend can transition through:
+    1. Limited (after report)
+    2. Not limited (after expiry)
+    3. Limited again (after re-report)
+    without stale state leaking between cycles.
+    """
+
+    @pytest.mark.asyncio
+    async def test_full_cycle_single_backend(
+        self, coordinator: RateLimitCoordinator,
+    ):
+        """Report → wait for expiry → verify clear → re-report → verify active."""
+        # Phase 1: Report a short limit
+        await coordinator.report_rate_limit(
+            backend_type="claude_cli",
+            wait_seconds=0.03,
+            job_id="job-a",
+            sheet_num=1,
+        )
+        is_limited, remaining = await coordinator.is_rate_limited("claude_cli")
+        assert is_limited is True
+        assert remaining > 0
+
+        # Phase 2: Wait for expiry
+        await asyncio.sleep(0.05)
+        is_limited, remaining = await coordinator.is_rate_limited("claude_cli")
+        assert is_limited is False
+        assert remaining == 0.0
+
+        # Phase 3: Re-report on the same backend
+        await coordinator.report_rate_limit(
+            backend_type="claude_cli",
+            wait_seconds=0.03,
+            job_id="job-b",
+            sheet_num=2,
+        )
+        is_limited, remaining = await coordinator.is_rate_limited("claude_cli")
+        assert is_limited is True
+        assert remaining > 0
+
+        # Events should contain both reports
+        events = coordinator.recent_events
+        assert len(events) == 2
+        assert events[0].job_id == "job-b"  # most recent first
+        assert events[1].job_id == "job-a"
+
+    @pytest.mark.asyncio
+    async def test_cycle_multiple_backends_independent(
+        self, coordinator: RateLimitCoordinator,
+    ):
+        """Expire/re-report on one backend doesn't affect another."""
+        # Report on both backends
+        await coordinator.report_rate_limit(
+            backend_type="claude_cli",
+            wait_seconds=0.03,
+            job_id="job-a",
+            sheet_num=1,
+        )
+        await coordinator.report_rate_limit(
+            backend_type="openai",
+            wait_seconds=60.0,
+            job_id="job-b",
+            sheet_num=1,
+        )
+
+        # Wait for claude_cli to expire
+        await asyncio.sleep(0.05)
+
+        # claude_cli expired, openai still active
+        is_limited_cli, _ = await coordinator.is_rate_limited("claude_cli")
+        is_limited_oai, _ = await coordinator.is_rate_limited("openai")
+        assert is_limited_cli is False
+        assert is_limited_oai is True
+
+        # Re-report claude_cli — openai unchanged
+        await coordinator.report_rate_limit(
+            backend_type="claude_cli",
+            wait_seconds=30.0,
+            job_id="job-a",
+            sheet_num=2,
+        )
+        is_limited_cli, _ = await coordinator.is_rate_limited("claude_cli")
+        is_limited_oai, _ = await coordinator.is_rate_limited("openai")
+        assert is_limited_cli is True
+        assert is_limited_oai is True
+
+    @pytest.mark.asyncio
+    async def test_rapid_report_expire_cycles(
+        self, coordinator: RateLimitCoordinator,
+    ):
+        """Multiple rapid report/expire cycles don't accumulate stale state."""
+        for i in range(10):
+            await coordinator.report_rate_limit(
+                backend_type="claude_cli",
+                wait_seconds=0.01,
+                job_id=f"job-{i}",
+                sheet_num=i,
+            )
+            await asyncio.sleep(0.02)
+
+            is_limited, _ = await coordinator.is_rate_limited("claude_cli")
+            assert is_limited is False, f"Cycle {i}: should have expired"
+
+        # All 10 events should be recorded
+        events = coordinator.recent_events
+        assert len(events) == 10
+
+        # No active limits remain
+        assert len(coordinator.active_limits) == 0
+
+
 class TestSchedulerIntegration:
     """Test that RateLimitCoordinator works with GlobalSheetScheduler."""
 
