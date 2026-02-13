@@ -171,63 +171,11 @@ class TestProtocolCompliance:
         assert result == (False, 0.0)
 
 
-# ─── Waiting ──────────────────────────────────────────────────────────
+# ─── Properties ──────────────────────────────────────────────────────
 
 
-class TestWaiting:
-    """Tests for wait_if_limited."""
-
-    @pytest.mark.asyncio
-    async def test_returns_zero_when_not_limited(
-        self, coordinator: RateLimitCoordinator,
-    ):
-        """No wait when backend is clear."""
-        waited = await coordinator.wait_if_limited("claude_cli")
-        assert waited == 0.0
-
-    @pytest.mark.asyncio
-    async def test_waits_for_limit_to_clear(
-        self, coordinator: RateLimitCoordinator,
-    ):
-        """Waits approximately the right duration."""
-        await coordinator.report_rate_limit(
-            backend_type="claude_cli",
-            wait_seconds=0.1,  # 100ms — fast for tests
-            job_id="job-a",
-            sheet_num=1,
-        )
-
-        start = time.monotonic()
-        waited = await coordinator.wait_if_limited("claude_cli")
-        elapsed = time.monotonic() - start
-
-        assert waited > 0
-        assert elapsed >= 0.05  # At least half the wait
-        assert elapsed < 1.0  # Sanity bound
-
-
-# ─── Sync Helpers ─────────────────────────────────────────────────────
-
-
-class TestSyncHelpers:
-    """Tests for sync helpers and properties."""
-
-    @pytest.mark.asyncio
-    async def test_is_limited_sync(
-        self, coordinator: RateLimitCoordinator,
-    ):
-        """Sync check matches async check."""
-        assert coordinator.is_limited_sync("claude_cli") is False
-
-        await coordinator.report_rate_limit(
-            backend_type="claude_cli",
-            wait_seconds=30.0,
-            job_id="job-a",
-            sheet_num=1,
-        )
-
-        assert coordinator.is_limited_sync("claude_cli") is True
-        assert coordinator.is_limited_sync("openai") is False
+class TestProperties:
+    """Tests for public properties."""
 
     @pytest.mark.asyncio
     async def test_active_limits_property(
@@ -420,69 +368,6 @@ class TestPruneStale:
         """prune_stale() on empty state is a no-op."""
         removed = await coordinator.prune_stale()
         assert removed == 0
-
-
-# ─── P014: wait_if_limited() Cancellation ─────────────────────────────
-
-
-class TestWaitCancellation:
-    """Tests for wait_if_limited() cancellation behavior."""
-
-    @pytest.mark.asyncio
-    async def test_cancellation_propagates(
-        self, coordinator: RateLimitCoordinator,
-    ):
-        """Cancelling the task during wait raises CancelledError."""
-        await coordinator.report_rate_limit(
-            backend_type="claude_cli",
-            wait_seconds=60.0,
-            job_id="job-a",
-            sheet_num=1,
-        )
-
-        async def wait_task():
-            return await coordinator.wait_if_limited("claude_cli")
-
-        task = asyncio.create_task(wait_task())
-        await asyncio.sleep(0.05)  # Let it enter the sleep
-        task.cancel()
-
-        with pytest.raises(asyncio.CancelledError):
-            await task
-
-    @pytest.mark.asyncio
-    async def test_re_check_after_extended_limit(
-        self, coordinator: RateLimitCoordinator,
-    ):
-        """wait_if_limited re-checks after sleep if limit was extended."""
-        # Report a short limit
-        await coordinator.report_rate_limit(
-            backend_type="claude_cli",
-            wait_seconds=0.05,
-            job_id="job-a",
-            sheet_num=1,
-        )
-
-        # Extend the limit after a short delay
-        async def extend_limit():
-            await asyncio.sleep(0.03)
-            await coordinator.report_rate_limit(
-                backend_type="claude_cli",
-                wait_seconds=0.08,
-                job_id="job-a",
-                sheet_num=2,
-            )
-
-        # Run both concurrently
-        ext_task = asyncio.create_task(extend_limit())
-        start = time.monotonic()
-        waited = await coordinator.wait_if_limited("claude_cli")
-        elapsed = time.monotonic() - start
-        await ext_task
-
-        # Total wait should be longer than the initial 0.05s due to re-check
-        assert waited > 0
-        assert elapsed >= 0.05
 
 
 # ─── P004/P005: Input Validation Tests ────────────────────────────────

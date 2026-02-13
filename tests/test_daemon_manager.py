@@ -762,3 +762,82 @@ class TestFailureRate:
         assert manager.failure_rate_elevated is False
         # Verify pruning occurred
         assert len(manager._recent_failures) == 0
+
+
+# ─── Job Timeout ──────────────────────────────────────────────────────
+
+
+class TestJobTimeout:
+    """Tests for per-job task timeout (D007)."""
+
+    @pytest.mark.asyncio
+    async def test_job_exceeding_timeout_is_failed(self):
+        """A job that exceeds job_timeout_seconds is marked FAILED."""
+        config = DaemonConfig(max_concurrent_jobs=2)
+        mgr = JobManager(config)
+        # Override for test speed (Pydantic ge=60 prevents construction with low values)
+        mgr._config = config.model_copy(update={"job_timeout_seconds": 0.2})
+
+        from mozart.daemon.manager import DaemonJobStatus, JobMeta
+
+        meta = JobMeta(
+            job_id="timeout-test",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/tmp/workspace"),
+        )
+        mgr._job_meta["timeout-test"] = meta
+
+        async def _slow():
+            await asyncio.sleep(5.0)
+
+        await mgr._run_managed_task("timeout-test", _slow())
+
+        assert meta.status == DaemonJobStatus.FAILED
+        assert "exceeded timeout" in (meta.error_message or "").lower()
+
+    @pytest.mark.asyncio
+    async def test_job_within_timeout_completes(self):
+        """A job that finishes before job_timeout_seconds completes normally."""
+        config = DaemonConfig(max_concurrent_jobs=2)
+        mgr = JobManager(config)
+
+        from mozart.daemon.manager import DaemonJobStatus, JobMeta
+
+        meta = JobMeta(
+            job_id="fast-test",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/tmp/workspace"),
+        )
+        mgr._job_meta["fast-test"] = meta
+
+        async def _fast():
+            await asyncio.sleep(0.01)
+            return None  # Default → COMPLETED
+
+        await mgr._run_managed_task("fast-test", _fast())
+
+        assert meta.status == DaemonJobStatus.COMPLETED
+
+    @pytest.mark.asyncio
+    async def test_timeout_records_failure(self):
+        """Timeout adds to the recent_failures deque (affects failure_rate_elevated)."""
+        config = DaemonConfig(max_concurrent_jobs=2)
+        mgr = JobManager(config)
+        mgr._config = config.model_copy(update={"job_timeout_seconds": 0.1})
+
+        from mozart.daemon.manager import JobMeta
+
+        meta = JobMeta(
+            job_id="fail-rate-test",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/tmp/workspace"),
+        )
+        mgr._job_meta["fail-rate-test"] = meta
+
+        async def _slow():
+            await asyncio.sleep(5.0)
+
+        initial_failures = len(mgr._recent_failures)
+        await mgr._run_managed_task("fail-rate-test", _slow())
+
+        assert len(mgr._recent_failures) == initial_failures + 1

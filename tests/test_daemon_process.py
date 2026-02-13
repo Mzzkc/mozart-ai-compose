@@ -277,7 +277,7 @@ class TestDaemonProcess:
         config = DaemonConfig()
         dp = DaemonProcess(config)
         assert dp._config is config
-        assert not dp._shutdown_event.is_set()
+        assert not dp._signal_received.is_set()
 
     @pytest.mark.asyncio
     async def test_daemon_process_signal_handler_registration(self):

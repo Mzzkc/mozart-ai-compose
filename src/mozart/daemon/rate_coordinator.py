@@ -55,17 +55,21 @@ class RateLimitEvent:
 class RateLimitCoordinator:
     """In-memory rate limit coordination across all daemon jobs.
 
+    **Status: Write path active, read path partially active.**
+
+    The write side (``report_rate_limit()``) is wired into the daemon
+    via ``JobManager._on_rate_limit`` → ``JobService`` →
+    ``RunnerContext.rate_limit_callback``.  The read side
+    (``is_rate_limited()``) is consumed by ``GlobalSheetScheduler``
+    which is built and tested but not yet driving execution (Phase 3).
+
     When any job hits a rate limit, ALL jobs using that backend
     are notified to back off.  The coordinator tracks per-backend
-    resume times and exposes both sync and async query methods.
+    resume times.
 
     The async ``is_rate_limited`` method satisfies the
     ``RateLimitChecker`` protocol so the scheduler can consult
     limits before dispatching sheets.
-
-    The ``wait_if_limited`` method blocks the caller until the
-    backend is clear — useful for runners that want to wait
-    inline rather than re-queue.
     """
 
     def __init__(self) -> None:
@@ -153,42 +157,6 @@ class RateLimitCoordinator:
         if remaining > 0:
             return True, remaining
         return False, 0.0
-
-    # ─── Waiting ───────────────────────────────────────────────────
-
-    async def wait_if_limited(self, backend_type: str) -> float:
-        """Block until the backend is no longer rate-limited.
-
-        Re-checks the limit after each sleep to handle cases where a
-        new rate limit was reported while waiting.
-
-        Returns the number of seconds actually waited (``0.0`` if the
-        backend was not limited).
-        """
-        total_waited = 0.0
-        while True:
-            async with self._lock:
-                resume_at = self._active_limits.get(backend_type, 0.0)
-
-            wait_time = resume_at - time.monotonic()
-            if wait_time <= 0:
-                break
-
-            _logger.info(
-                "rate_limit.waiting",
-                backend=backend_type,
-                seconds=round(wait_time, 1),
-            )
-            await asyncio.sleep(wait_time)
-            total_waited += wait_time
-
-        return total_waited
-
-    # ─── Sync helpers ──────────────────────────────────────────────
-
-    def is_limited_sync(self, backend_type: str) -> bool:
-        """Non-async check — usable outside the event loop."""
-        return self._active_limits.get(backend_type, 0.0) > time.monotonic()
 
     @property
     def active_limits(self) -> dict[str, float]:

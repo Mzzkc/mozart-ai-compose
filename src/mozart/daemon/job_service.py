@@ -10,7 +10,7 @@ All user-facing output goes through OutputProtocol.
 
 from __future__ import annotations
 
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 
@@ -32,9 +32,9 @@ if TYPE_CHECKING:
 
 _logger = get_logger("daemon.job_service")
 
-
-async def _noop_coro() -> None:
-    """No-op coroutine used as a placeholder when notification_manager is None."""
+# Type alias for rate-limit callbacks: (backend_type, wait_seconds, job_id, sheet_num)
+# Matches RunnerContext.rate_limit_callback signature.
+RateLimitCallback = Callable[[str, float, str, int], Any]
 
 
 class _JobComponents(TypedDict):
@@ -60,16 +60,30 @@ class JobService:
     to receive execution events without code changes.
     """
 
+    _NOTIFICATION_DEGRADED_THRESHOLD = 3
+
     def __init__(
         self,
         *,
         output: OutputProtocol | None = None,
         global_learning_store: GlobalLearningStore | None = None,
-        rate_limit_callback: Any | None = None,
+        rate_limit_callback: RateLimitCallback | None = None,
     ) -> None:
         self._output = output or NullOutput()
         self._learning_store = global_learning_store
         self._rate_limit_callback = rate_limit_callback
+        self._notification_consecutive_failures = 0
+        self._notifications_degraded = False
+
+    @property
+    def notifications_degraded(self) -> bool:
+        """Whether notification delivery is degraded.
+
+        Returns True after ``_NOTIFICATION_DEGRADED_THRESHOLD`` consecutive
+        notification failures.  Readable by ``HealthChecker.readiness()``
+        to signal degraded notification capability to operators.
+        """
+        return self._notifications_degraded
 
     # ─── Job Lifecycle ───────────────────────────────────────────────────
 
@@ -200,8 +214,10 @@ class JobService:
             JobSubmissionError: If job state not found or not resumable.
             DaemonError: For unexpected failures.
         """
-        # Phase 1: Find job state
-        found_state, found_backend = await self._find_job_state(job_id, workspace)
+        # Phase 1: Find job state (ERROR severity if fallback used during resume)
+        found_state, found_backend = await self._find_job_state(
+            job_id, workspace, for_resume=True,
+        )
 
         # Validate resumable state
         resumable_statuses = {JobStatus.PAUSED, JobStatus.FAILED, JobStatus.RUNNING}
@@ -378,25 +394,49 @@ class JobService:
             final_status=status,
         )
 
-    @staticmethod
     async def _safe_notify(
+        self,
         manager: NotificationManager | None,
         coro: Coroutine[Any, Any, Any],
         context: str,
     ) -> None:
-        """Call a notification coroutine with safe error handling.
+        """Await a notification coroutine, logging exceptions as warnings.
 
-        If ``manager`` is None the coroutine is closed (to avoid
-        RuntimeWarning) and the call is a no-op.  Exceptions from the
-        notification are logged as warnings — never propagated.
+        Tracks consecutive failures and sets ``notifications_degraded``
+        after ``_NOTIFICATION_DEGRADED_THRESHOLD`` consecutive failures.
+        Resets the counter on any success.
+
+        Callers must guard with ``if manager:`` before constructing the
+        coroutine.  The None check here is a defensive fallback only.
         """
         if manager is None:
             coro.close()
             return
         try:
             await coro
+            if self._notification_consecutive_failures > 0:
+                _logger.info(
+                    "notification_recovered",
+                    after_failures=self._notification_consecutive_failures,
+                )
+                self._notification_consecutive_failures = 0
+                self._notifications_degraded = False
         except Exception:
-            _logger.warning(context, exc_info=True)
+            self._notification_consecutive_failures += 1
+            if (
+                self._notification_consecutive_failures
+                >= self._NOTIFICATION_DEGRADED_THRESHOLD
+                and not self._notifications_degraded
+            ):
+                self._notifications_degraded = True
+                _logger.error(
+                    "notifications_degraded",
+                    consecutive_failures=self._notification_consecutive_failures,
+                    message="Notification delivery degraded — "
+                    "health probes will report this condition.",
+                )
+            else:
+                _logger.warning(context, exc_info=True)
 
     async def _execute_runner(
         self,
@@ -419,15 +459,16 @@ class JobService:
         _notify = self._safe_notify
 
         try:
-            await _notify(
-                notification_manager,
-                notification_manager.notify_job_start(
-                    job_id=job_id,
-                    job_name=job_name,
-                    total_sheets=notify_total_sheets or total_sheets,
-                ) if notification_manager else _noop_coro(),
-                "notification_failed_during_start",
-            )
+            if notification_manager:
+                await _notify(
+                    notification_manager,
+                    notification_manager.notify_job_start(
+                        job_id=job_id,
+                        job_name=job_name,
+                        total_sheets=notify_total_sheets or total_sheets,
+                    ),
+                    "notification_failed_during_start",
+                )
 
             run_kwargs: dict[str, Any] = {}
             if start_sheet is not None:
@@ -477,15 +518,16 @@ class JobService:
 
         except FatalError as e:
             self._output.log("error", f"Fatal error: {e}", job_id=job_id)
-            await _notify(
-                notification_manager,
-                notification_manager.notify_job_failed(
-                    job_id=job_id,
-                    job_name=job_name,
-                    error_message=str(e),
-                ) if notification_manager else _noop_coro(),
-                "notification_failed_during_fatal_error",
-            )
+            if notification_manager:
+                await _notify(
+                    notification_manager,
+                    notification_manager.notify_job_failed(
+                        job_id=job_id,
+                        job_name=job_name,
+                        error_message=str(e),
+                    ),
+                    "notification_failed_during_fatal_error",
+                )
             return self._get_or_create_summary(
                 runner, job_id, job_name, total_sheets, JobStatus.FAILED,
             )
@@ -495,23 +537,25 @@ class JobService:
                 self._output.log("error", f"Unexpected error: {e}", job_id=job_id)
             except Exception:
                 _logger.warning("output_log_failed_during_error", exc_info=True)
-            await _notify(
-                notification_manager,
-                notification_manager.notify_job_failed(
-                    job_id=job_id,
-                    job_name=job_name,
-                    error_message=f"Unexpected error: {e}",
-                ) if notification_manager else _noop_coro(),
-                "notification_failed_during_unexpected_error",
-            )
+            if notification_manager:
+                await _notify(
+                    notification_manager,
+                    notification_manager.notify_job_failed(
+                        job_id=job_id,
+                        job_name=job_name,
+                        error_message=f"Unexpected error: {e}",
+                    ),
+                    "notification_failed_during_unexpected_error",
+                )
             raise
 
         finally:
-            await _notify(
-                notification_manager,
-                notification_manager.close() if notification_manager else _noop_coro(),
-                "notification_cleanup_failed",
-            )
+            if notification_manager:
+                await _notify(
+                    notification_manager,
+                    notification_manager.close(),
+                    "notification_cleanup_failed",
+                )
 
     @staticmethod
     def _create_state_backend(
@@ -564,11 +608,20 @@ class JobService:
         self,
         job_id: str,
         workspace: Path,
+        *,
+        for_resume: bool = False,
     ) -> tuple[CheckpointState, StateBackend]:
         """Find and return job state from workspace.
 
         Mirrors cli/helpers.py::find_job_state() and require_job_state()
         but raises DaemonError instead of calling typer.Exit().
+
+        Args:
+            job_id: Job identifier.
+            workspace: Workspace directory containing job state.
+            for_resume: If True, fallback recovery is logged at ERROR
+                level because stale state during resume risks replaying
+                already-completed sheets.  Status queries use WARNING.
 
         Returns:
             Tuple of (CheckpointState, StateBackend).
@@ -599,14 +652,25 @@ class JobService:
                 state = await backend.load(job_id)
                 if state is not None:
                     if failed_backends:
-                        _logger.warning(
+                        # Resume operations risk replaying completed sheets
+                        # if the fallback state is stale → ERROR severity.
+                        # Status queries are read-only → WARNING suffices.
+                        log_fn = _logger.error if for_resume else _logger.warning
+                        log_fn(
                             "state_recovered_from_fallback_backend",
                             job_id=job_id,
                             preferred_backend=preferred_name,
                             failed_backends=failed_backends,
                             recovered_from=name,
+                            operation="resume" if for_resume else "status",
                             message="Preferred backend failed — state loaded from "
-                            "fallback. Verify state is current.",
+                            "fallback. "
+                            + (
+                                "RESUME RISK: fallback state may be stale, "
+                                "risking replay of completed sheets."
+                                if for_resume
+                                else "Verify state is current."
+                            ),
                         )
                     return state, backend
             except Exception as e:

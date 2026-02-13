@@ -24,6 +24,7 @@ def mock_manager():
     m.active_job_count = 3
     m.shutting_down = False
     m.failure_rate_elevated = False
+    m.notifications_degraded = False
     return m
 
 
@@ -154,6 +155,32 @@ class TestReadiness:
             result = await health_checker.readiness()
             assert "failure_rate_elevated" in result
             assert result["failure_rate_elevated"] is False
+
+    @pytest.mark.asyncio
+    async def test_readiness_not_ready_when_notifications_degraded(
+        self, health_checker, monitor, mock_manager,
+    ):
+        """When notifications are degraded, readiness reports not_ready."""
+        mock_manager.notifications_degraded = True
+        with patch.object(monitor, "_get_memory_usage_mb", return_value=100.0), \
+             patch.object(monitor, "_get_child_process_count", return_value=5), \
+             patch.object(monitor, "_check_for_zombies", return_value=[]):
+            result = await health_checker.readiness()
+            assert result["status"] == "not_ready"
+            assert result["accepting_work"] is False
+            assert result["notifications_degraded"] is True
+
+    @pytest.mark.asyncio
+    async def test_readiness_includes_notifications_degraded_field(
+        self, health_checker, monitor,
+    ):
+        """Readiness response includes notifications_degraded field."""
+        with patch.object(monitor, "_get_memory_usage_mb", return_value=100.0), \
+             patch.object(monitor, "_get_child_process_count", return_value=5), \
+             patch.object(monitor, "_check_for_zombies", return_value=[]):
+            result = await health_checker.readiness()
+            assert "notifications_degraded" in result
+            assert result["notifications_degraded"] is False
 
 
 # ─── ResourceMonitor.is_accepting_work ────────────────────────────────

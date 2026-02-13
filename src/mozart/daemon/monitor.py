@@ -73,6 +73,8 @@ class ResourceMonitor:
         self._running = False
         self._consecutive_failures = 0
         self._degraded = False
+        self._prune_consecutive_failures = 0
+        self._prune_disabled = False
 
     async def start(self, interval_seconds: float = 15.0) -> None:
         """Start the periodic monitoring loop."""
@@ -274,12 +276,33 @@ class ResourceMonitor:
         if self._pgroup is not None:
             self._pgroup.cleanup_orphans()
 
-        # Prune stale rate limit events to prevent unbounded memory growth
-        if self._manager is not None:
+        # Prune stale rate limit events to prevent unbounded memory growth.
+        # Circuit breaker: after 3 consecutive failures, disable pruning
+        # to avoid log spam and wasted cycles.
+        if self._manager is not None and not self._prune_disabled:
             try:
                 await self._manager.rate_coordinator.prune_stale()
+                if self._prune_consecutive_failures > 0:
+                    _logger.info(
+                        "monitor.prune_recovered",
+                        after_failures=self._prune_consecutive_failures,
+                    )
+                    self._prune_consecutive_failures = 0
             except Exception:
-                _logger.warning("monitor.prune_stale_failed", exc_info=True)
+                self._prune_consecutive_failures += 1
+                _logger.warning(
+                    "monitor.prune_stale_failed",
+                    consecutive_failures=self._prune_consecutive_failures,
+                    exc_info=True,
+                )
+                if self._prune_consecutive_failures >= 3:
+                    self._prune_disabled = True
+                    _logger.error(
+                        "monitor.prune_disabled",
+                        consecutive_failures=self._prune_consecutive_failures,
+                        message="Pruning disabled after repeated failures. "
+                        "Rate limit event list may grow unbounded.",
+                    )
 
     async def _enforce_memory_limit(self) -> None:
         """Cancel the oldest running job when memory exceeds hard limit."""

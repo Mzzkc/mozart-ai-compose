@@ -146,15 +146,15 @@ def status(
         try:
             health = await client.call("daemon.health")
         except Exception as e:
-            _logger.debug("probe.health_failed", error=str(e))
+            _logger.info("probe.health_failed", error=str(e))
         try:
             ready = await client.call("daemon.ready")
         except Exception as e:
-            _logger.debug("probe.ready_failed", error=str(e))
+            _logger.info("probe.ready_failed", error=str(e))
         try:
             daemon_info = await client.call("daemon.status")
         except Exception as e:
-            _logger.debug("probe.status_failed", error=str(e))
+            _logger.info("probe.status_failed", error=str(e))
         return health, ready, daemon_info
 
     try:
@@ -194,7 +194,7 @@ class DaemonProcess:
 
     def __init__(self, config: DaemonConfig) -> None:
         self._config = config
-        self._shutdown_event = asyncio.Event()
+        self._signal_received = asyncio.Event()
         self._pgroup = ProcessGroupManager()
         self._start_time = time.monotonic()
         self._signal_tasks: list[asyncio.Task[Any]] = []
@@ -229,43 +229,43 @@ class DaemonProcess:
             monitor.set_manager(manager)
             await manager.start()
 
-            # Warn about unenforced config fields
-            rl = self._config.resource_limits
-            if rl.max_api_calls_per_minute != 60:
-                _logger.warning(
+            # Warn about unenforced / reserved config fields.
+            # Each entry: (field, current_value, default, event, message)
+            _unenforced_fields: list[tuple[str, object, object, str, str]] = [
+                (
+                    "max_api_calls_per_minute",
+                    self._config.resource_limits.max_api_calls_per_minute, 60,
                     "config.unenforced_rate_limit",
-                    max_api_calls_per_minute=rl.max_api_calls_per_minute,
-                    message="max_api_calls_per_minute is set but NOT YET "
-                    "ENFORCED. Rate limiting currently works through "
-                    "externally-reported events via RateLimitCoordinator.",
-                )
-            if self._config.state_backend_type != "sqlite":
-                _logger.warning(
+                    "max_api_calls_per_minute is set but NOT YET ENFORCED. "
+                    "Rate limiting currently works through externally-reported "
+                    "events via RateLimitCoordinator.",
+                ),
+                (
+                    "state_backend_type",
+                    self._config.state_backend_type, "sqlite",
                     "config.reserved_field_ignored",
-                    field="state_backend_type",
-                    value=self._config.state_backend_type,
-                    message="state_backend_type is reserved for future use "
-                    "and has no effect. Daemon state persistence is not "
-                    "yet implemented.",
-                )
-            if str(self._config.state_db_path) != "~/.mozart/daemon-state.db":
-                _logger.warning(
+                    "state_backend_type is reserved for future use and has no "
+                    "effect. Daemon state persistence is not yet implemented.",
+                ),
+                (
+                    "state_db_path",
+                    str(self._config.state_db_path), "~/.mozart/daemon-state.db",
                     "config.reserved_field_ignored",
-                    field="state_db_path",
-                    value=str(self._config.state_db_path),
-                    message="state_db_path is reserved for future use "
-                    "and has no effect. Daemon state persistence is not "
-                    "yet implemented.",
-                )
-            if self._config.max_concurrent_sheets != 10:
-                _logger.warning(
+                    "state_db_path is reserved for future use and has no "
+                    "effect. Daemon state persistence is not yet implemented.",
+                ),
+                (
+                    "max_concurrent_sheets",
+                    self._config.max_concurrent_sheets, 10,
                     "config.reserved_field_ignored",
-                    field="max_concurrent_sheets",
-                    value=self._config.max_concurrent_sheets,
-                    message="max_concurrent_sheets is reserved for Phase 3 "
-                    "scheduler and has no effect. Jobs currently run "
-                    "monolithically via JobService.",
-                )
+                    "max_concurrent_sheets is reserved for Phase 3 scheduler "
+                    "and has no effect. Jobs currently run monolithically "
+                    "via JobService.",
+                ),
+            ]
+            for field_name, current, default, event, msg in _unenforced_fields:
+                if current != default:
+                    _logger.warning(event, field=field_name, value=current, message=msg)
 
             handler = RequestHandler()
 
@@ -307,8 +307,7 @@ class DaemonProcess:
                 loop.add_signal_handler(sig, _make_signal_callback(sig))
             # SIGHUP handler intentionally NOT registered — config reload
             # is not yet implemented.  Registering a no-op handler would
-            # create false expectations for ops teams.  The _reload_config()
-            # method is retained for future Phase 3 use.
+            # create false expectations for ops teams.
 
             # 8. Start resource monitor
             interval = self._config.monitor_interval_seconds
@@ -432,20 +431,12 @@ class DaemonProcess:
         shutdown is already in progress is logged but does not re-enter
         ``manager.shutdown()``.
         """
-        if self._shutdown_event.is_set():
+        if self._signal_received.is_set():
             _logger.info("daemon.signal_ignored_already_shutting_down", signal=sig.name)
             return
-        self._shutdown_event.set()
+        self._signal_received.set()
         _logger.info("daemon.signal_received", signal=sig.name)
         await manager.shutdown(graceful=True)
-
-    async def _reload_config(self) -> None:
-        """Handle SIGHUP — config reload not yet implemented."""
-        _logger.warning(
-            "daemon.sighup_received",
-            message="SIGHUP received but config reload is not yet implemented; "
-            "restart the daemon to apply configuration changes",
-        )
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────

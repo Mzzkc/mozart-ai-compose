@@ -119,6 +119,13 @@ class DaemonConfig(BaseModel):
         default=None,
         description="Log file path. None means log to stderr only.",
     )
+    job_timeout_seconds: float = Field(
+        default=21600.0,
+        ge=60.0,
+        description="Maximum wall-clock time for a single job task. "
+        "Jobs exceeding this limit are cancelled with FAILED status. "
+        "Default is 6 hours (21600s). Set higher for known long-running jobs.",
+    )
     shutdown_timeout_seconds: float = Field(
         default=300.0,
         ge=10.0,

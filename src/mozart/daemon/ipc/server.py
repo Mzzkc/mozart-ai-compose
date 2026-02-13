@@ -13,6 +13,8 @@ import json
 import os
 from pathlib import Path
 
+from pydantic import BaseModel
+
 from mozart.core.logging import get_logger
 from mozart.daemon.ipc.errors import invalid_request, parse_error
 from mozart.daemon.ipc.handler import RequestHandler
@@ -126,6 +128,18 @@ class DaemonServer:
         return self._server is not None and self._server.is_serving()
 
     # ------------------------------------------------------------------
+    # Wire format
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _write_response(
+        writer: asyncio.StreamWriter, response: BaseModel,
+    ) -> None:
+        """Serialize a JSON-RPC response and write it to the stream."""
+        writer.write(response.model_dump_json().encode() + b"\n")
+        await writer.drain()
+
+    # ------------------------------------------------------------------
     # Connection handling
     # ------------------------------------------------------------------
 
@@ -165,11 +179,7 @@ class DaemonServer:
                     # Message exceeded MAX_MESSAGE_BYTES; buffer is in an
                     # indeterminate state so we must close the connection.
                     _logger.warning("message_too_large", peer=str(peer))
-                    error_resp = parse_error()
-                    writer.write(
-                        error_resp.model_dump_json().encode() + b"\n"
-                    )
-                    await writer.drain()
+                    await self._write_response(writer, parse_error())
                     break
 
                 if not line:
@@ -177,11 +187,7 @@ class DaemonServer:
 
                 # Enforce max message size (belt-and-suspenders)
                 if len(line) > MAX_MESSAGE_BYTES:
-                    error_resp = parse_error()
-                    writer.write(
-                        error_resp.model_dump_json().encode() + b"\n"
-                    )
-                    await writer.drain()
+                    await self._write_response(writer, parse_error())
                     continue
 
                 await self._process_message(line, writer)
@@ -213,9 +219,7 @@ class DaemonServer:
         try:
             raw = json.loads(line)
         except json.JSONDecodeError:
-            error_resp = parse_error()
-            writer.write(error_resp.model_dump_json().encode() + b"\n")
-            await writer.drain()
+            await self._write_response(writer, parse_error())
             return
 
         # Validate JSON-RPC structure
@@ -224,17 +228,16 @@ class DaemonServer:
                 raw.get("id") if isinstance(raw, dict) else None,
                 "missing 'method' field",
             )
-            writer.write(error_resp.model_dump_json().encode() + b"\n")
-            await writer.drain()
+            await self._write_response(writer, error_resp)
             return
 
         # Build typed request
         try:
             request = JsonRpcRequest.model_validate(raw)
         except Exception as exc:
-            error_resp = invalid_request(raw.get("id"), str(exc))
-            writer.write(error_resp.model_dump_json().encode() + b"\n")
-            await writer.drain()
+            await self._write_response(
+                writer, invalid_request(raw.get("id"), str(exc)),
+            )
             return
 
         # Dispatch to handler
@@ -242,8 +245,7 @@ class DaemonServer:
 
         # Handler returns None for notifications or streaming methods
         if response is not None:
-            writer.write(response.model_dump_json().encode() + b"\n")
-            await writer.drain()
+            await self._write_response(writer, response)
 
 
 __all__ = ["DaemonServer"]

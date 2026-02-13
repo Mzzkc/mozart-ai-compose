@@ -65,17 +65,24 @@ class HealthChecker:
     async def readiness(self) -> dict[str, Any]:
         """Is the daemon ready to accept new jobs?
 
-        Checks resource thresholds via the monitor and job failure rate
-        via the manager.  Returns ``"ready"`` when resources are within
-        limits and the failure rate is not elevated, ``"not_ready"``
+        Checks resource thresholds via the monitor, job failure rate
+        via the manager, and notification health.  Returns ``"ready"``
+        when resources are within limits, the failure rate is not
+        elevated, and notifications are functional; ``"not_ready"``
         otherwise.
         """
         snapshot = await self._monitor.check_now()
         accepting = self._monitor.is_accepting_work()
         failure_elevated = self._manager.failure_rate_elevated
+        notif_degraded = self._manager.notifications_degraded
 
         shutting_down = self._manager.shutting_down
-        is_ready = accepting and not shutting_down and not failure_elevated
+        is_ready = (
+            accepting
+            and not shutting_down
+            and not failure_elevated
+            and not notif_degraded
+        )
         return {
             "status": "ready" if is_ready else "not_ready",
             "running_jobs": self._manager.running_count,
@@ -84,6 +91,7 @@ class HealthChecker:
             "accepting_work": is_ready,
             "shutting_down": shutting_down,
             "failure_rate_elevated": failure_elevated,
+            "notifications_degraded": notif_degraded,
             "uptime_seconds": round(time.monotonic() - self._start_time, 1),
         }
 

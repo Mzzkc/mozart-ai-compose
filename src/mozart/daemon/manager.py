@@ -160,7 +160,7 @@ class JobManager:
         )
 
     @property
-    def _svc(self) -> JobService:
+    def _checked_service(self) -> JobService:
         """Get the job service, raising if not yet started."""
         if self._service is None:
             raise RuntimeError("JobManager not started — call start() first")
@@ -232,7 +232,7 @@ class JobManager:
 
         # If running, try to get deeper status from state backend
         if meta.status == DaemonJobStatus.RUNNING and workspace:
-            state = await self._svc.get_status(meta.job_id, workspace)
+            state = await self._checked_service.get_status(meta.job_id, workspace)
             if state:
                 result["current_sheet"] = state.current_sheet
                 result["total_sheets"] = state.total_sheets
@@ -251,13 +251,24 @@ class JobManager:
             )
 
         ws = workspace or meta.workspace
-        return await self._svc.pause_job(meta.job_id, ws)
+        return await self._checked_service.pause_job(meta.job_id, ws)
 
     async def resume_job(self, job_id: str, workspace: Path | None = None) -> JobResponse:
-        """Resume a paused job by creating a new task."""
+        """Resume a paused job by creating a new task.
+
+        If an old task for this job is still running (e.g., not yet fully
+        paused), it is cancelled before the new resume task is created to
+        prevent detached/duplicate execution.
+        """
         meta = self._job_meta.get(job_id)
         if meta is None:
             raise JobSubmissionError(f"Job '{job_id}' not found")
+
+        # Cancel stale task to prevent detached execution
+        old_task = self._jobs.pop(job_id, None)
+        if old_task is not None and not old_task.done():
+            old_task.cancel()
+            _logger.info("job.resume_cancelled_stale_task", job_id=job_id)
 
         ws = workspace or meta.workspace
         meta.status = DaemonJobStatus.QUEUED
@@ -436,6 +447,13 @@ class JobManager:
         return len(self._recent_failures) > self._FAILURE_RATE_THRESHOLD
 
     @property
+    def notifications_degraded(self) -> bool:
+        """Whether notification delivery is degraded (forwarded from JobService)."""
+        if self._service is None:
+            return False
+        return self._service.notifications_degraded
+
+    @property
     def scheduler(self) -> GlobalSheetScheduler:
         """Access the global sheet scheduler for cross-job coordination."""
         return self._scheduler
@@ -490,7 +508,11 @@ class JobManager:
         """Shared lifecycle wrapper for job tasks.
 
         Acquires the concurrency semaphore, tracks status transitions,
-        and handles CancelledError / Exception uniformly.
+        and handles CancelledError / TimeoutError / Exception uniformly.
+
+        Jobs are guarded by ``job_timeout_seconds`` — if a job exceeds
+        this wall-clock limit, it is cancelled with FAILED status and a
+        descriptive error message.
 
         Args:
             job_id: The job being executed.
@@ -501,14 +523,15 @@ class JobManager:
             fail_event: Structlog event name for the failure log.
         """
         meta = self._job_meta[job_id]
+        timeout = self._config.job_timeout_seconds
 
         async with self._concurrency_semaphore:
             meta.status = DaemonJobStatus.RUNNING
             meta.started_at = time.monotonic()
-            _logger.info(start_event, job_id=job_id)
+            _logger.info(start_event, job_id=job_id, timeout_seconds=timeout)
 
             try:
-                result_status = await coro
+                result_status = await asyncio.wait_for(coro, timeout=timeout)
                 if isinstance(result_status, DaemonJobStatus):
                     meta.status = result_status
                 else:
@@ -517,6 +540,21 @@ class JobManager:
                     "job.paused" if meta.status == DaemonJobStatus.PAUSED
                     else "job.completed",
                     job_id=job_id,
+                )
+
+            except asyncio.TimeoutError:
+                meta.status = DaemonJobStatus.FAILED
+                elapsed = time.monotonic() - (meta.started_at or 0)
+                meta.error_message = (
+                    f"Job exceeded timeout of {timeout:.0f}s "
+                    f"(ran for {elapsed:.0f}s)"
+                )
+                self._recent_failures.append(time.monotonic())
+                _logger.error(
+                    "job.timeout",
+                    job_id=job_id,
+                    timeout_seconds=timeout,
+                    elapsed_seconds=round(elapsed, 1),
                 )
 
             except asyncio.CancelledError:
@@ -556,7 +594,7 @@ class JobManager:
                     update={"workspace": request.workspace},
                 )
 
-            summary = await self._svc.start_job(
+            summary = await self._checked_service.start_job(
                 config,
                 fresh=request.fresh,
                 self_healing=request.self_healing,
@@ -574,7 +612,7 @@ class JobManager:
         """Task coroutine that resumes a paused job."""
 
         async def _execute() -> None:
-            await self._svc.resume_job(job_id, workspace)
+            await self._checked_service.resume_job(job_id, workspace)
 
         await self._run_managed_task(
             job_id, _execute(),
