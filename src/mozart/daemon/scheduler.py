@@ -484,8 +484,8 @@ class GlobalSheetScheduler:
             all_nodes.update(dep_set)
 
         WHITE, GRAY, BLACK = 0, 1, 2
-        color: dict[int, int] = {n: WHITE for n in all_nodes}
-        parent: dict[int, int | None] = {n: None for n in all_nodes}
+        color: dict[int, int] = dict.fromkeys(all_nodes, WHITE)
+        parent: dict[int, int | None] = dict.fromkeys(all_nodes)
 
         def dfs(node: int) -> list[int] | None:
             color[node] = GRAY
