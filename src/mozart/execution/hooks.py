@@ -20,6 +20,8 @@ import asyncio
 import os
 import re
 import shlex
+import subprocess as _subprocess
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -338,19 +340,25 @@ class HookExecutor:
                 # This ensures chained job failures leave a diagnostic trace.
                 log_path = get_hook_log_path(self.workspace, "chain")
                 log_file = None
-                stdout_handle: Any = asyncio.subprocess.DEVNULL
-                stderr_handle: Any = asyncio.subprocess.DEVNULL
+                stdout_handle: Any = _subprocess.DEVNULL
+                stderr_handle: Any = _subprocess.DEVNULL
                 if log_path:
                     log_file = open(log_path, "w")  # noqa: SIM115
                     stdout_handle = log_file
                     stderr_handle = log_file
 
                 try:
-                    process = await asyncio.create_subprocess_exec(
-                        *cmd,
+                    # Use subprocess.Popen (NOT asyncio.create_subprocess_exec)
+                    # for detached children. asyncio wraps children in a
+                    # BaseSubprocessTransport whose __del__ sends SIGKILL to the
+                    # child PID when the parent's event loop closes — even with
+                    # start_new_session=True. Popen.__del__ only warns, so the
+                    # child survives the parent's exit.
+                    process = _subprocess.Popen(
+                        cmd,
                         stdout=stdout_handle,
                         stderr=stderr_handle,
-                        stdin=asyncio.subprocess.DEVNULL,
+                        stdin=_subprocess.DEVNULL,
                         env=os.environ.copy(),
                         start_new_session=True,
                     )
@@ -359,6 +367,34 @@ class HookExecutor:
                     # Using finally ensures no fd leak if subprocess creation raises.
                     if log_file is not None:
                         log_file.close()
+
+                # Post-spawn liveness check: wait briefly, then verify the
+                # child is still alive. Catches immediate death (e.g. exec
+                # failure, missing binary) and guards against future regressions.
+                # Use Popen.poll() instead of os.kill(pid, 0) because kill()
+                # succeeds on zombie processes (exited but not reaped), while
+                # poll() calls waitpid(WNOHANG) which correctly detects exit.
+                time.sleep(0.2)
+                exit_code = process.poll()
+                if exit_code is not None:
+                    _logger.error(
+                        "hook.detached_job_died_immediately",
+                        pid=process.pid,
+                        exit_code=exit_code,
+                        job_path=str(job_path),
+                    )
+                    return HookResult(
+                        hook_type="run_job",
+                        description=hook.description,
+                        success=False,
+                        error_message=(
+                            f"Detached child (PID {process.pid}) exited immediately"
+                            f" (exit_code={exit_code})"
+                        ),
+                        chained_job_path=job_path,
+                        chained_job_workspace=chained_workspace,
+                        log_path=log_path,
+                    )
 
                 _logger.info(
                     "hook.detached_job_spawned",

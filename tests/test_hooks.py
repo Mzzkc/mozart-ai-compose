@@ -6,8 +6,11 @@ Covers:
 - HookExecutor template expansion
 - Hook type dispatch
 - Basic hook execution flow
+- Detached child process survival (Popen vs asyncio transport)
 """
 
+import os
+import signal
 from pathlib import Path
 
 import pytest
@@ -694,3 +697,142 @@ class TestHookErrorPaths:
 
         assert len(results) == 1
         assert results[0].duration_seconds >= 0.0
+
+
+class TestDetachedChildSurvival:
+    """Tests that detached hook children survive parent event loop closure.
+
+    Verifies the fix for the asyncio BaseSubprocessTransport SIGKILL bug:
+    asyncio.create_subprocess_exec wraps children in a transport whose
+    __del__ kills the child PID when the event loop closes. Using
+    subprocess.Popen instead avoids this because Popen.__del__ only warns.
+    """
+
+    @pytest.mark.asyncio
+    async def test_detached_child_survives_parent(self, tmp_path: Path) -> None:
+        """A detached hook child should still be alive after the hook returns.
+
+        This verifies subprocess.Popen is used (not asyncio.create_subprocess_exec),
+        since the asyncio transport would SIGKILL the child on event loop close.
+        """
+        # Create a real job config so _execute_run_job passes existence check
+        job_config = tmp_path / "sleep-job.yaml"
+        job_config.write_text(
+            "name: sleep-job\n"
+            "backend:\n  type: claude_cli\n"
+            "sheet:\n  size: 1\n  total_items: 1\n"
+            "prompt:\n  template: Test\n"
+        )
+
+        config = JobConfig.model_validate({
+            "name": "detach-survival-test",
+            "description": "Test",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 1, "total_items": 1},
+            "prompt": {"template": "Test"},
+            "concert": {
+                "enabled": True,
+                "cooldown_between_jobs_seconds": 0,
+            },
+            "on_success": [
+                {
+                    "type": "run_job",
+                    "job_path": str(job_config),
+                    "description": "Detached chain test",
+                    "detached": True,
+                },
+            ],
+        })
+
+        import subprocess as _subprocess
+        from unittest.mock import patch
+
+        # Patch Popen to spawn a real `sleep 30` instead of `mozart run ...`
+        # (mozart may not be in PATH in test environments). We capture the
+        # real Popen object to check liveness afterward.
+        spawned_pids: list[int] = []
+        original_popen = _subprocess.Popen
+
+        def capturing_popen(cmd, **kwargs):
+            # Replace the mozart command with sleep
+            proc = original_popen(["sleep", "30"], **kwargs)
+            spawned_pids.append(proc.pid)
+            return proc
+
+        executor = HookExecutor(config=config, workspace=tmp_path)
+
+        try:
+            with patch("mozart.execution.hooks._subprocess.Popen", side_effect=capturing_popen):
+                results = await executor.execute_hooks()
+
+            # Hook should report success
+            assert len(results) == 1
+            assert results[0].success is True
+            assert len(spawned_pids) == 1
+
+            pid = spawned_pids[0]
+
+            # The child should still be alive after the hook returned
+            # (os.kill with signal 0 checks existence without sending a signal)
+            os.kill(pid, 0)  # Should NOT raise ProcessLookupError
+
+        finally:
+            # Clean up: kill any spawned children
+            for pid in spawned_pids:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                    os.waitpid(pid, 0)
+                except (ProcessLookupError, ChildProcessError):
+                    pass
+
+    @pytest.mark.asyncio
+    async def test_detached_liveness_check_catches_dead_child(self, tmp_path: Path) -> None:
+        """If the detached child dies immediately, the hook should report failure."""
+        job_config = tmp_path / "fail-job.yaml"
+        job_config.write_text(
+            "name: fail-job\n"
+            "backend:\n  type: claude_cli\n"
+            "sheet:\n  size: 1\n  total_items: 1\n"
+            "prompt:\n  template: Test\n"
+        )
+
+        config = JobConfig.model_validate({
+            "name": "detach-dead-test",
+            "description": "Test",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 1, "total_items": 1},
+            "prompt": {"template": "Test"},
+            "concert": {
+                "enabled": True,
+                "cooldown_between_jobs_seconds": 0,
+            },
+            "on_success": [
+                {
+                    "type": "run_job",
+                    "job_path": str(job_config),
+                    "description": "Detached dead child test",
+                    "detached": True,
+                },
+            ],
+        })
+
+        import subprocess as _subprocess
+        from unittest.mock import patch
+
+        # Spawn a child that exits immediately (exit 0 completes before
+        # the 200ms liveness check)
+        original_popen = _subprocess.Popen
+
+        def dying_popen(cmd, **kwargs):
+            proc = original_popen(["true"], **kwargs)  # exits immediately
+            return proc
+
+        executor = HookExecutor(config=config, workspace=tmp_path)
+
+        with patch("mozart.execution.hooks._subprocess.Popen", side_effect=dying_popen):
+            results = await executor.execute_hooks()
+
+        assert len(results) == 1
+        assert results[0].success is False
+        assert results[0].error_message is not None
+        assert "exited immediately" in results[0].error_message
