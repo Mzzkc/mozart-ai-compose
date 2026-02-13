@@ -514,6 +514,34 @@ class GitWorktreeManager:
                     error=str(e),
                 )
 
+        # Check if locking PID is still alive — detached hooks may outlive the job
+        try:
+            _, lock_reason, _ = await self._run_git(
+                "worktree", "list", "--porcelain", check=False,
+            )
+            # Parse lock reason to extract PID
+            import re
+            for block in lock_reason.split("\n\n"):
+                if str(worktree_path) in block and "locked" in block:
+                    pid_match = re.search(r"pid=(\d+)", block)
+                    if pid_match:
+                        lock_pid = int(pid_match.group(1))
+                        try:
+                            os.kill(lock_pid, 0)  # Check if process exists
+                            _logger.warning(
+                                "worktree.lock_process_still_alive",
+                                path=str(worktree_path),
+                                pid=lock_pid,
+                            )
+                        except OSError:
+                            _logger.debug(
+                                "worktree.lock_process_dead",
+                                path=str(worktree_path),
+                                pid=lock_pid,
+                            )
+        except (WorktreeError, ValueError):
+            pass  # Can't check — proceed with cleanup
+
         # Unlock first (ignore errors - may already be unlocked)
         await self.unlock_worktree(worktree_path)
 

@@ -332,6 +332,92 @@ class TestCompletionPrompt:
         assert "Verify directory exists" in prompt
 
 
+class TestNewRuleDetection:
+    """Tests for _is_new_rule_for_sheet (Q012 inherited vs new separation)."""
+
+    def test_no_condition_new_on_sheet_1(self) -> None:
+        """Rule with no condition is new only on sheet 1."""
+        assert PromptBuilder._is_new_rule_for_sheet(None, 1) is True
+        assert PromptBuilder._is_new_rule_for_sheet(None, 2) is False
+        assert PromptBuilder._is_new_rule_for_sheet(None, 5) is False
+
+    def test_gte_condition_new_at_threshold(self) -> None:
+        """'sheet_num >= N' is new exactly when sheet_num == N."""
+        assert PromptBuilder._is_new_rule_for_sheet("sheet_num >= 3", 2) is False
+        assert PromptBuilder._is_new_rule_for_sheet("sheet_num >= 3", 3) is True
+        assert PromptBuilder._is_new_rule_for_sheet("sheet_num >= 3", 4) is False
+
+    def test_eq_condition_always_new(self) -> None:
+        """'sheet_num == N' is always new for that specific sheet."""
+        assert PromptBuilder._is_new_rule_for_sheet("sheet_num == 5", 4) is False
+        assert PromptBuilder._is_new_rule_for_sheet("sheet_num == 5", 5) is True
+        assert PromptBuilder._is_new_rule_for_sheet("sheet_num == 5", 6) is False
+
+    def test_gt_condition_new_at_threshold_plus_one(self) -> None:
+        """'sheet_num > N' is new when sheet_num == N+1."""
+        assert PromptBuilder._is_new_rule_for_sheet("sheet_num > 2", 2) is False
+        assert PromptBuilder._is_new_rule_for_sheet("sheet_num > 2", 3) is True
+        assert PromptBuilder._is_new_rule_for_sheet("sheet_num > 2", 4) is False
+
+    def test_unknown_condition_defaults_to_sheet_1(self) -> None:
+        """Unknown conditions are treated as new on sheet 1 only."""
+        assert PromptBuilder._is_new_rule_for_sheet("some_random_thing", 1) is True
+        assert PromptBuilder._is_new_rule_for_sheet("some_random_thing", 2) is False
+
+
+class TestInheritedNewRuleSeparation:
+    """Tests for inherited vs new rule separation in prompt formatting (Q012)."""
+
+    @pytest.fixture
+    def builder(self) -> PromptBuilder:
+        return PromptBuilder(PromptConfig(template="Test."))
+
+    def test_sheet1_all_rules_are_new(self, builder: PromptBuilder) -> None:
+        """On sheet 1, all unconditional rules are new."""
+        rules = [
+            ValidationRule(type="file_exists", path="a.txt", description="File A"),
+            ValidationRule(type="file_exists", path="b.txt", description="File B"),
+        ]
+        result = builder._format_validation_requirements(rules, {"sheet_num": 1})
+        # No inherited section should appear
+        assert "inherited" not in result
+
+    def test_sheet2_unconditional_rules_become_inherited(self, builder: PromptBuilder) -> None:
+        """On sheet 2, unconditional rules are inherited (they were new on sheet 1)."""
+        rules = [
+            ValidationRule(type="file_exists", path="a.txt", description="File A"),
+            ValidationRule(type="file_exists", path="b.txt", description="File B"),
+        ]
+        result = builder._format_validation_requirements(rules, {"sheet_num": 2})
+        assert "inherited" in result
+        assert "File A" in result
+        assert "File B" in result
+
+    def test_mixed_new_and_inherited(self, builder: PromptBuilder) -> None:
+        """Rules with 'sheet_num >= N' are new at N, inherited after."""
+        rules = [
+            ValidationRule(type="file_exists", path="a.txt", description="Always required"),
+            ValidationRule(
+                type="file_exists", path="b.txt",
+                description="New at sheet 3", condition="sheet_num >= 3",
+            ),
+        ]
+        # At sheet 3: first rule inherited, second rule new
+        result = builder._format_validation_requirements(rules, {"sheet_num": 3})
+        assert "1 inherited" in result
+        assert "New at sheet 3" in result
+
+    def test_inherited_count_is_accurate(self, builder: PromptBuilder) -> None:
+        """Inherited count reflects the actual number of inherited rules."""
+        rules = [
+            ValidationRule(type="file_exists", path="a.txt", description="Rule A"),
+            ValidationRule(type="file_exists", path="b.txt", description="Rule B"),
+            ValidationRule(type="file_exists", path="c.txt", description="Rule C"),
+        ]
+        result = builder._format_validation_requirements(rules, {"sheet_num": 5})
+        assert "3 inherited" in result
+
+
 class TestConvenienceFunction:
     """Tests for build_sheet_prompt_simple function."""
 

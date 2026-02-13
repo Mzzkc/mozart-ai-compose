@@ -492,7 +492,9 @@ class TestValidationTypeCheck:
         assert len(issues) == 0
 
     def test_catches_missing_path(self, tmp_path: Path) -> None:
-        """Error when file_exists validation missing path."""
+        """Error when file_exists validation missing path — caught by model validator."""
+        from pydantic import ValidationError
+
         yaml_content = dedent("""
             name: test-job
             sheet:
@@ -507,14 +509,9 @@ class TestValidationTypeCheck:
 
         config_path = tmp_path / "test.yaml"
         config_path.write_text(yaml_content)
-        config = JobConfig.from_yaml(config_path)
 
-        check = ValidationTypeCheck()
-        issues = check.check(config, config_path, yaml_content)
-
-        assert len(issues) == 1
-        assert issues[0].check_id == "V008"
-        assert "path" in issues[0].message.lower()
+        with pytest.raises(ValidationError, match="requires 'path' field"):
+            JobConfig.from_yaml(config_path)
 
 
 class TestTimeoutRangeCheck:

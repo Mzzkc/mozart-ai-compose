@@ -29,6 +29,7 @@ Architecture:
 
 from __future__ import annotations
 
+import re
 import random
 import sqlite3
 from dataclasses import dataclass
@@ -40,6 +41,40 @@ if TYPE_CHECKING:
 from mozart.core.config import JobConfig
 from mozart.core.logging import MozartLogger
 from mozart.learning.outcomes import OutcomeStore
+
+# Pattern used to strip noise words for dedup grouping
+_DEDUP_STRIP_RE = re.compile(r"\b(error|issue|problem|failed|failure|the|a|an)\b", re.I)
+_DEDUP_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def _normalize_for_dedup(text: str) -> str:
+    """Normalize a pattern description for deduplication grouping.
+
+    Lowercases, strips common noise words, and collapses whitespace so that
+    'File not created', 'file_not_created', and 'File Not Created Error' all
+    map to the same group key.
+    """
+    key = text.lower().replace("_", " ")
+    key = _DEDUP_STRIP_RE.sub("", key)
+    key = _DEDUP_WHITESPACE_RE.sub(" ", key).strip()
+    # Use first 30 chars as the group key for fuzzy grouping
+    return key[:30]
+
+
+def _deduplicate_patterns(patterns: list[Any]) -> list[Any]:
+    """Remove near-duplicate patterns, keeping the highest-scored per group.
+
+    Groups patterns by normalized description text and retains only the one
+    with the highest effectiveness_score from each group.
+    """
+    groups: dict[str, Any] = {}
+    for pattern in patterns:
+        desc = pattern.description or pattern.pattern_name
+        key = _normalize_for_dedup(desc)
+        existing = groups.get(key)
+        if existing is None or pattern.effectiveness_score > existing.effectiveness_score:
+            groups[key] = pattern
+    return list(groups.values())
 
 
 def _unknown_risk(factors: list[str]) -> dict[str, Any]:
@@ -231,6 +266,10 @@ class PatternsMixin:
             if not patterns:
                 return [], []
 
+            # Deduplicate near-similar patterns to avoid contradictory advice.
+            # Group by normalized description; keep highest-scored per group.
+            patterns = _deduplicate_patterns(patterns)
+
             # Format patterns for prompt injection
             descriptions: list[str] = []
             pattern_ids: list[str] = []
@@ -282,12 +321,16 @@ class PatternsMixin:
 
         except sqlite3.IntegrityError as e:
             # Data consistency bug: FK/UNIQUE constraint violation
-            # Log at error level so it's visible — don't silently swallow
+            # Log at error level AND warn on console so operator sees degradation
             self._logger.error(
                 "patterns.query_integrity_error",
                 job_id=job_id,
                 sheet_num=sheet_num,
                 error=str(e),
+            )
+            self.console.print(
+                f"[yellow]Warning: Learning store integrity error on sheet {sheet_num} "
+                f"— patterns degraded (FK constraint: {e})[/yellow]"
             )
             return [], []
         except (sqlite3.Error, KeyError, ValueError, OSError) as e:
@@ -468,12 +511,17 @@ class PatternsMixin:
                 )
             except sqlite3.IntegrityError as e:
                 # FK/UNIQUE constraint violation — data consistency bug
-                # Log at error level; don't silently lose feedback data
+                # Log at error level AND warn on console for operator visibility
                 self._logger.error(
                     "learning.pattern_feedback_integrity_error",
                     pattern_id=pattern_id,
                     sheet_num=ctx.sheet_num,
                     error=str(e),
+                )
+                self.console.print(
+                    f"[yellow]Warning: Pattern feedback integrity error on sheet "
+                    f"{ctx.sheet_num} — feedback for pattern {pattern_id[:8]} "
+                    f"not recorded (FK constraint: {e})[/yellow]"
                 )
             except (sqlite3.Error, KeyError, ValueError, OSError) as e:
                 # Transient failures should not block execution

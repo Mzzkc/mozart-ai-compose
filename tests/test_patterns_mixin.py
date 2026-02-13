@@ -689,3 +689,80 @@ class TestAssessFailureRisk:
 
         assert assessment["risk_level"] == "unknown"
         assert "failed" in assessment["factors"][0]
+
+
+# =============================================================================
+# Pattern Deduplication Tests (Q011)
+# =============================================================================
+
+
+class TestPatternDeduplication:
+    """Test near-duplicate pattern filtering in _query_relevant_patterns."""
+
+    def test_normalize_for_dedup_case_insensitive(self) -> None:
+        """Normalization lowercases text."""
+        from mozart.execution.runner.patterns import _normalize_for_dedup
+
+        assert _normalize_for_dedup("File Not Created") == _normalize_for_dedup("file not created")
+
+    def test_normalize_for_dedup_strips_noise_words(self) -> None:
+        """Normalization strips common noise words like 'error', 'issue'."""
+        from mozart.execution.runner.patterns import _normalize_for_dedup
+
+        assert _normalize_for_dedup("file error") == _normalize_for_dedup("file")
+
+    def test_normalize_for_dedup_underscores_to_spaces(self) -> None:
+        """Normalization converts underscores to spaces."""
+        from mozart.execution.runner.patterns import _normalize_for_dedup
+
+        assert _normalize_for_dedup("file_not_created") == _normalize_for_dedup("file not created")
+
+    def test_deduplicate_keeps_highest_scored(self) -> None:
+        """Deduplication keeps pattern with highest effectiveness_score."""
+        from mozart.execution.runner.patterns import _deduplicate_patterns
+
+        p1 = MagicMock(
+            description="File not created",
+            pattern_name="file_not_created",
+            effectiveness_score=0.4,
+        )
+        p2 = MagicMock(
+            description="file not created error",
+            pattern_name="file_not_created_error",
+            effectiveness_score=0.8,
+        )
+        p3 = MagicMock(
+            description="Rate limit exceeded",
+            pattern_name="rate_limit",
+            effectiveness_score=0.6,
+        )
+
+        result = _deduplicate_patterns([p1, p2, p3])
+
+        assert len(result) == 2
+        # The file-related pattern kept should be p2 (highest score)
+        descs = [p.description for p in result]
+        assert "file not created error" in descs
+        assert "Rate limit exceeded" in descs
+
+    def test_deduplicate_preserves_distinct_patterns(self) -> None:
+        """Distinct patterns are all preserved."""
+        from mozart.execution.runner.patterns import _deduplicate_patterns
+
+        p1 = MagicMock(description="Rate limit exceeded", pattern_name="rate_limit", effectiveness_score=0.7)
+        p2 = MagicMock(description="File permissions denied", pattern_name="permissions", effectiveness_score=0.5)
+        p3 = MagicMock(description="Timeout waiting for response", pattern_name="timeout", effectiveness_score=0.6)
+
+        result = _deduplicate_patterns([p1, p2, p3])
+        assert len(result) == 3
+
+    def test_deduplicate_uses_pattern_name_if_no_description(self) -> None:
+        """Falls back to pattern_name when description is None."""
+        from mozart.execution.runner.patterns import _deduplicate_patterns
+
+        p1 = MagicMock(description=None, pattern_name="rate limit", effectiveness_score=0.6)
+        p2 = MagicMock(description=None, pattern_name="Rate Limit", effectiveness_score=0.8)
+
+        result = _deduplicate_patterns([p1, p2])
+        assert len(result) == 1
+        assert result[0].effectiveness_score == 0.8

@@ -5,6 +5,7 @@ Defines Pydantic models for loading and validating YAML job configurations.
 
 from __future__ import annotations
 
+import warnings
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -475,6 +476,18 @@ class LearningConfig(BaseModel):
         "without human confirmation. Opt-in only.",
     )
 
+    @model_validator(mode="after")
+    def _sync_auto_apply_fields(self) -> "LearningConfig":
+        """Sync flat auto_apply_enabled/threshold with structured auto_apply config.
+
+        When auto_apply is set, its values take precedence over the flat fields.
+        This eliminates the two-sources-of-truth problem (D07).
+        """
+        if self.auto_apply is not None:
+            self.auto_apply_enabled = self.auto_apply.enabled
+            self.auto_apply_trust_threshold = self.auto_apply.trust_threshold
+        return self
+
 
 class CheckpointTriggerConfig(BaseModel):
     """Configuration for a proactive checkpoint trigger.
@@ -902,6 +915,26 @@ class ValidationRule(BaseModel):
         "Default 200ms provides filesystem sync time without excessive waiting.",
     )
 
+    @model_validator(mode="after")
+    def _check_type_specific_fields(self) -> "ValidationRule":
+        """Validate that type-specific required fields are present."""
+        if self.type in ("file_exists", "file_modified", "content_contains", "content_regex"):
+            if self.path is None:
+                raise ValueError(
+                    f"Validation type '{self.type}' requires 'path' field"
+                )
+        if self.type in ("content_contains", "content_regex"):
+            if self.pattern is None:
+                raise ValueError(
+                    f"Validation type '{self.type}' requires 'pattern' field"
+                )
+        if self.type == "command_succeeds":
+            if self.command is None:
+                raise ValueError(
+                    "Validation type 'command_succeeds' requires 'command' field"
+                )
+        return self
+
 
 class NotificationConfig(BaseModel):
     """Configuration for a notification channel."""
@@ -1000,6 +1033,17 @@ class PostSuccessHookConfig(BaseModel):
         "starts with clean state instead of resuming from previous state. "
         "Required for self-chaining jobs that reuse the same workspace.",
     )
+
+    @model_validator(mode="after")
+    def _check_type_specific_fields(self) -> "PostSuccessHookConfig":
+        """Validate that type-specific required fields are present."""
+        if self.type == "run_job" and self.job_path is None:
+            raise ValueError("Hook type 'run_job' requires 'job_path' field")
+        if self.type in ("run_command", "run_script") and self.command is None:
+            raise ValueError(
+                f"Hook type '{self.type}' requires 'command' field"
+            )
+        return self
 
 
 class ConcertConfig(BaseModel):
@@ -1795,6 +1839,24 @@ class JobConfig(BaseModel):
         ge=0,
         description="Seconds to wait between sheets",
     )
+
+    @model_validator(mode="after")
+    def _warn_parallel_isolation(self) -> JobConfig:
+        """Warn when parallel execution and worktree isolation are both enabled (#29).
+
+        Worktree isolation creates a single worktree for the job, but parallel
+        sheets share it.  This combination is safe for read-only parallel sheets
+        but risky when parallel sheets both write to the worktree.
+        """
+        if self.parallel.enabled and self.isolation.enabled:
+            warnings.warn(
+                "parallel.enabled and isolation.enabled are both set. "
+                "Parallel sheets will share the same worktree — ensure "
+                "they don't write to overlapping paths.",
+                UserWarning,
+                stacklevel=2,
+            )
+        return self
 
     @classmethod
     def from_yaml(cls, path: Path) -> JobConfig:

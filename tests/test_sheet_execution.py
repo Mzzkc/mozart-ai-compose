@@ -187,10 +187,11 @@ class _MockMixin:
 
 
 # Dynamically compose the mixin for testing
+from mozart.execution.runner.recovery import RecoveryMixin
 from mozart.execution.runner.sheet import SheetExecutionMixin
 
 
-class _TestableSheetMixin(_MockMixin, SheetExecutionMixin):
+class _TestableSheetMixin(_MockMixin, SheetExecutionMixin, RecoveryMixin):
     """Concrete class that combines the mixin with mock infrastructure."""
     pass
 

@@ -1,58 +1,29 @@
 """Run command for Mozart CLI.
 
-This module implements the `mozart run` command which executes jobs
-from YAML configuration files.
+This module implements the ``mozart run`` command which routes jobs
+through a running mozartd daemon.  Direct execution is not supported —
+a running daemon is required (like docker requires dockerd).
 
-★ Insight ─────────────────────────────────────
-1. **Callback injection pattern**: Progress callbacks are injected into
-   backends at runtime to decouple display logic from execution logic.
-   This allows the same backend to work with or without progress display.
-
-2. **Context object pattern**: RunnerContext bundles all optional
-   components (outcome store, escalation handler, grounding engine)
-   to avoid parameter explosion in JobRunner.__init__.
-
-3. **Graceful shutdown handling**: GracefulShutdownError is caught
-   separately from FatalError to allow clean exit with state preserved.
-─────────────────────────────────────────────────
+The only exception is ``--dry-run``, which validates and displays the
+job plan without executing anything (no daemon needed).
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import typer
-from rich.console import Console
 from rich.panel import Panel
-from rich.progress import (
-    Progress,
-    TaskID,
-)
 from rich.table import Table
 
-from mozart.core.checkpoint import JobStatus
-
-from ..helpers import (
-    create_state_backend_from_config,
-    is_quiet,
-    is_verbose,
-)
-from ..output import console, format_duration
-from ._shared import (
-    create_progress_bar,
-    handle_job_completion,
-    setup_all,
-)
+from ..helpers import is_quiet
+from ..output import console
 
 if TYPE_CHECKING:
     from mozart.core.config import JobConfig
-    from mozart.execution.runner import RunSummary
-
-_logger = logging.getLogger(__name__)
 
 
 def run(
@@ -142,11 +113,16 @@ def run(
         ))
 
     # Validate flag compatibility
-    if json_output and escalation:
-        console.print(json.dumps({
-            "error": "--escalation is incompatible with --json output mode. "
-            "Escalation requires interactive console prompts."
-        }, indent=2))
+    if escalation:
+        _msg = (
+            "--escalation requires interactive console prompts which are "
+            "not available in daemon mode. Escalation is not currently "
+            "supported."
+        )
+        if json_output:
+            console.print(json.dumps({"error": _msg}, indent=2))
+        else:
+            console.print(f"[red]Error:[/red] {_msg}")
         raise typer.Exit(1)
 
     if dry_run:
@@ -162,18 +138,25 @@ def run(
             }, indent=2))
         return
 
-    # Try routing through daemon if available (zero-impact fallback)
-    if not escalation and not dry_run:
-        routed = asyncio.run(
-            _try_daemon_submit(config_file, workspace, fresh, self_healing, yes, json_output),
-        )
-        if routed:
-            return
+    # Route through daemon (required)
+    routed = asyncio.run(
+        _try_daemon_submit(
+            config_file, workspace, fresh, self_healing, yes, json_output,
+            start_sheet=start_sheet,
+        ),
+    )
+    if routed:
+        return
 
-    # Direct execution — no daemon or daemon routing failed
-    if not is_quiet() and not json_output:
-        console.print("\n[green]Starting job...[/green]")
-    asyncio.run(_run_job(config, start_sheet, json_output, escalation, self_healing, yes, fresh))
+    # Daemon not available or submission failed
+    if json_output:
+        console.print(json.dumps({
+            "error": "Mozart daemon is not running. Start with: mozartd start",
+        }))
+    else:
+        console.print("[red]Error:[/red] Mozart daemon is not running.")
+        console.print("Start it with: [bold]mozartd start[/bold]")
+    raise typer.Exit(1)
 
 
 async def _try_daemon_submit(
@@ -183,11 +166,14 @@ async def _try_daemon_submit(
     self_healing: bool,
     auto_confirm: bool,
     json_output: bool,
+    *,
+    start_sheet: int | None = None,
 ) -> bool:
-    """Attempt to route the job through a running daemon.
+    """Submit a job to the running mozartd daemon.
 
-    Returns True if the daemon handled the submission, False to fall back
-    to direct execution. Never raises — all errors return False.
+    Returns True if the daemon accepted the submission, False if the
+    daemon is not reachable or rejected the job.  Never raises — all
+    errors return False so the caller can emit an appropriate error.
     """
     try:
         from mozart.daemon.detect import is_daemon_available, try_daemon_route
@@ -203,6 +189,8 @@ async def _try_daemon_submit(
         }
         if workspace is not None:
             params["workspace"] = str(Path(workspace).resolve())
+        if start_sheet is not None:
+            params["start_sheet"] = start_sheet
 
         routed, result = await try_daemon_route("job.submit", params)
         if not routed:
@@ -218,259 +206,18 @@ async def _try_daemon_submit(
                 console.print(f"[green]Job submitted to daemon:[/green] {job_id}")
                 if msg:
                     console.print(f"  {msg}")
+                # Monitoring guidance
+                ws = workspace or config_file.parent / "workspace"
+                console.print(
+                    f"\n[dim]Monitor with:[/dim] mozart status {job_id} -w {ws} --watch"
+                )
             else:
                 console.print(f"[yellow]Daemon rejected job:[/yellow] {msg}")
-                return False  # Fall back to direct execution
+                return False
 
         return True
     except Exception:
         return False
-
-
-async def _run_job(
-    config: JobConfig,
-    start_sheet: int | None,
-    json_output: bool = False,
-    escalation: bool = False,
-    self_healing: bool = False,
-    auto_confirm: bool = False,
-    fresh: bool = False,
-) -> None:
-    """Run the job asynchronously using the JobRunner with progress display."""
-    from mozart.backends.claude_cli import ClaudeCliBackend
-    from mozart.execution.runner import FatalError, GracefulShutdownError, JobRunner
-
-    # Ensure workspace exists
-    config.workspace.mkdir(parents=True, exist_ok=True)
-
-    # Setup backends based on config
-    state_backend = create_state_backend_from_config(config)
-
-    # Delete existing state if --fresh flag is set (clean start)
-    if fresh:
-        was_deleted = await state_backend.delete(config.name)
-        if was_deleted and not is_quiet() and not json_output:
-            console.print(
-                f"[yellow]--fresh: Deleted existing state for '{config.name}'[/yellow]"
-            )
-        elif not was_deleted and is_verbose() and not json_output:
-            console.print(
-                f"[dim]--fresh: No existing state found for '{config.name}'[/dim]"
-            )
-
-        # Archive workspace files if configured
-        if config.workspace_lifecycle.archive_on_fresh:
-            from mozart.workspace.lifecycle import WorkspaceArchiver
-
-            archiver = WorkspaceArchiver(config.workspace, config.workspace_lifecycle)
-            archive_path = archiver.archive()
-            if archive_path and not is_quiet() and not json_output:
-                console.print(
-                    f"[yellow]--fresh: Archived workspace to {archive_path.name}[/yellow]"
-                )
-
-    quiet = json_output
-    components = setup_all(
-        config, escalation=escalation, quiet=quiet, console=console,
-    )
-    backend = components.backend
-    outcome_store = components.outcome_store
-    global_learning_store = components.global_learning_store
-    notification_manager = components.notification_manager
-    escalation_handler = components.escalation_handler
-    grounding_engine = components.grounding_engine
-
-    # Execution progress state for CLI display (Task 4)
-    execution_status: dict[str, Any] = {
-        "sheet_num": None,
-        "bytes_received": 0,
-        "lines_received": 0,
-        "elapsed_seconds": 0.0,
-        "phase": "idle",
-    }
-
-    # Create progress bar for sheet tracking (skip in quiet/json mode)
-    progress: Progress | None = None
-    progress_task_id: TaskID | None = None
-
-    if not is_quiet() and not json_output:
-        progress = create_progress_bar(
-            console=console,
-            include_exec_status=True,
-        )
-
-    def _format_exec_status() -> str:
-        """Format execution status for progress display."""
-        if execution_status["phase"] == "idle":
-            return ""
-        if execution_status["phase"] == "starting":
-            return "starting..."
-        if execution_status["phase"] == "completed":
-            return ""
-
-        # Format bytes received
-        bytes_recv = execution_status.get("bytes_received", 0)
-        if bytes_recv < 1024:
-            bytes_str = f"{bytes_recv}B"
-        elif bytes_recv < 1024 * 1024:
-            bytes_str = f"{bytes_recv / 1024:.1f}KB"
-        else:
-            bytes_str = f"{bytes_recv / (1024 * 1024):.1f}MB"
-
-        return f"{bytes_str} received"
-
-    def update_progress(completed: int, total: int, eta_seconds: float | None) -> None:
-        """Update progress bar with current sheet progress."""
-        nonlocal progress_task_id
-        if progress is not None and progress_task_id is not None:
-            eta_str = format_duration(eta_seconds) if eta_seconds else "calculating..."
-            exec_status = _format_exec_status()
-            progress.update(
-                progress_task_id,
-                completed=completed,
-                total=total,
-                eta=eta_str,
-                exec_status=exec_status,
-            )
-
-    def update_execution_display(progress_info: dict[str, Any]) -> None:
-        """Update progress bar with execution status (called by backend)."""
-        execution_status.update(progress_info)
-        # Refresh the progress bar with new execution status
-        if progress is not None and progress_task_id is not None:
-            exec_status = _format_exec_status()
-            progress.update(progress_task_id, exec_status=exec_status)
-
-    # Override the execution progress callback to update display
-    if isinstance(backend, ClaudeCliBackend) and not is_quiet() and not json_output:
-        backend.progress_callback = update_execution_display
-
-    # Create runner context with all optional components
-    from mozart.execution.runner import RunnerContext
-    runner_context = RunnerContext(
-        console=console if not json_output else Console(quiet=True),
-        outcome_store=outcome_store,
-        escalation_handler=escalation_handler,
-        progress_callback=update_progress if progress else None,
-        global_learning_store=global_learning_store,
-        grounding_engine=grounding_engine,
-        self_healing_enabled=self_healing,
-        self_healing_auto_confirm=auto_confirm,
-    )
-
-    # Create runner with progress callback
-    runner = JobRunner(
-        config=config,
-        backend=backend,
-        state_backend=state_backend,
-        context=runner_context,
-    )
-
-    job_id = config.name  # Use job name as ID for now
-    summary: RunSummary | None = None
-
-    try:
-        # Send job start notification
-        if notification_manager:
-            await notification_manager.notify_job_start(
-                job_id=job_id,
-                job_name=config.name,
-                total_sheets=config.sheet.total_sheets,
-            )
-
-        # Start progress display
-        if progress:
-            progress.start()
-            starting_sheet = start_sheet or 1
-            initial_completed = starting_sheet - 1
-            progress_task_id = progress.add_task(
-                f"[cyan]{config.name}[/cyan]",
-                total=config.sheet.total_sheets,
-                completed=initial_completed,
-                eta="calculating...",
-                exec_status="",  # Initial empty execution status
-            )
-
-        # Run job with validation and completion recovery
-        state, summary = await runner.run(start_sheet=start_sheet)
-
-        # Stop progress and show final state
-        if progress:
-            progress.stop()
-
-        if json_output:
-            # Output summary as JSON
-            console.print(json.dumps(summary.to_dict(), indent=2))
-        else:
-            await handle_job_completion(
-                state=state,
-                summary=summary,
-                notification_manager=notification_manager,
-                job_id=job_id,
-                job_name=config.name,
-                console=console,
-            )
-
-    except GracefulShutdownError:
-        # Graceful shutdown already saved state and printed resume hint
-        if progress:
-            progress.stop()
-        if not json_output:
-            console.print("[yellow]Job paused. Exiting gracefully.[/yellow]")
-        else:
-            # Get summary from runner even on shutdown
-            summary = runner.get_summary()
-            if summary:
-                summary.final_status = JobStatus.PAUSED
-                console.print(json.dumps(summary.to_dict(), indent=2))
-        raise typer.Exit(0) from None
-
-    except FatalError as e:
-        if progress:
-            progress.stop()
-
-        if json_output:
-            summary = runner.get_summary()
-            if summary:
-                summary.final_status = JobStatus.FAILED
-                output = summary.to_dict()
-                output["error"] = str(e)
-                console.print(json.dumps(output, indent=2))
-            else:
-                console.print(json.dumps({"error": str(e)}, indent=2))
-        else:
-            console.print(f"[red]Fatal error: {e}[/red]")
-
-        # Send failure notification (must not mask the original error)
-        if notification_manager:
-            try:
-                await notification_manager.notify_job_failed(
-                    job_id=job_id,
-                    job_name=config.name,
-                    error_message=str(e),
-                )
-            except Exception as notify_err:
-                _logger.error(
-                    "notification_failed_during_error_handling: "
-                    "job_id=%s notification_error=%s original_error=%s",
-                    job_id,
-                    str(notify_err),
-                    str(e),
-                )
-
-        raise typer.Exit(1) from None
-
-    finally:
-        # Ensure progress is stopped
-        if progress and progress.live.is_started:
-            progress.stop()
-
-        # Clean up notification resources
-        if notification_manager:
-            try:
-                await notification_manager.close()
-            except Exception:
-                _logger.debug("Notification cleanup failed", exc_info=True)
 
 
 def _show_dry_run(config: JobConfig) -> None:

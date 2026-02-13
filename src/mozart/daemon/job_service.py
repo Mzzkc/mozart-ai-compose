@@ -92,6 +92,7 @@ class JobService:
         config: JobConfig,
         *,
         fresh: bool = False,
+        start_sheet: int | None = None,
         self_healing: bool = False,
         self_healing_auto_confirm: bool = False,
         dry_run: bool = False,
@@ -176,6 +177,7 @@ class JobService:
             job_name=config.name,
             total_sheets=config.sheet.total_sheets,
             notification_manager=components["notification_manager"],
+            start_sheet=start_sheet,
         )
 
     async def resume_job(

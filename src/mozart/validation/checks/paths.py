@@ -7,6 +7,7 @@ from pathlib import Path
 
 from mozart.core.config import JobConfig
 from mozart.validation.base import ValidationIssue, ValidationSeverity
+from mozart.validation.checks._helpers import find_line_in_yaml, resolve_path
 
 
 class WorkspaceParentExistsCheck:
@@ -37,7 +38,7 @@ class WorkspaceParentExistsCheck:
         """Check workspace parent exists."""
         issues: list[ValidationIssue] = []
 
-        workspace = self._resolve_path(config.workspace, config_path)
+        workspace = resolve_path(config.workspace, config_path)
         parent = workspace.parent
 
         if not parent.exists():
@@ -46,7 +47,7 @@ class WorkspaceParentExistsCheck:
                     check_id=self.check_id,
                     severity=self.severity,
                     message=f"Workspace parent directory does not exist: {parent}",
-                    line=self._find_line_in_yaml(raw_yaml, "workspace:"),
+                    line=find_line_in_yaml(raw_yaml, "workspace:"),
                     suggestion=f"Create parent directory: mkdir -p {parent}",
                     auto_fixable=True,
                     metadata={
@@ -57,19 +58,6 @@ class WorkspaceParentExistsCheck:
             )
 
         return issues
-
-    def _resolve_path(self, path: Path, config_path: Path) -> Path:
-        """Resolve a potentially relative path against config location."""
-        if path.is_absolute():
-            return path
-        return config_path.parent / path
-
-    def _find_line_in_yaml(self, yaml_str: str, marker: str) -> int | None:
-        """Find the line number of a marker in the YAML."""
-        for i, line in enumerate(yaml_str.split("\n"), 1):
-            if marker in line:
-                return i
-        return None
 
 
 class TemplateFileExistsCheck:
@@ -97,7 +85,7 @@ class TemplateFileExistsCheck:
         issues: list[ValidationIssue] = []
 
         if config.prompt.template_file:
-            template_path = self._resolve_path(config.prompt.template_file, config_path)
+            template_path = resolve_path(config.prompt.template_file, config_path)
 
             if not template_path.exists():
                 issues.append(
@@ -105,7 +93,7 @@ class TemplateFileExistsCheck:
                         check_id=self.check_id,
                         severity=self.severity,
                         message=f"Template file not found: {template_path}",
-                        line=self._find_line_in_yaml(raw_yaml, "template_file:"),
+                        line=find_line_in_yaml(raw_yaml, "template_file:"),
                         suggestion="Create the template file or fix the path",
                         metadata={
                             "expected_path": str(template_path),
@@ -118,25 +106,12 @@ class TemplateFileExistsCheck:
                         check_id=self.check_id,
                         severity=self.severity,
                         message=f"Template path is not a file: {template_path}",
-                        line=self._find_line_in_yaml(raw_yaml, "template_file:"),
+                        line=find_line_in_yaml(raw_yaml, "template_file:"),
                         suggestion="Ensure template_file points to a file, not a directory",
                     )
                 )
 
         return issues
-
-    def _resolve_path(self, path: Path, config_path: Path) -> Path:
-        """Resolve a potentially relative path against config location."""
-        if path.is_absolute():
-            return path
-        return config_path.parent / path
-
-    def _find_line_in_yaml(self, yaml_str: str, marker: str) -> int | None:
-        """Find the line number of a marker in the YAML."""
-        for i, line in enumerate(yaml_str.split("\n"), 1):
-            if marker in line:
-                return i
-        return None
 
 
 class SystemPromptFileCheck:
@@ -164,7 +139,7 @@ class SystemPromptFileCheck:
         issues: list[ValidationIssue] = []
 
         if config.backend.system_prompt_file:
-            sys_prompt_path = self._resolve_path(
+            sys_prompt_path = resolve_path(
                 config.backend.system_prompt_file, config_path
             )
 
@@ -174,7 +149,7 @@ class SystemPromptFileCheck:
                         check_id=self.check_id,
                         severity=self.severity,
                         message=f"System prompt file not found: {sys_prompt_path}",
-                        line=self._find_line_in_yaml(raw_yaml, "system_prompt_file:"),
+                        line=find_line_in_yaml(raw_yaml, "system_prompt_file:"),
                         suggestion="Create the system prompt file or fix the path",
                         metadata={
                             "expected_path": str(sys_prompt_path),
@@ -183,19 +158,6 @@ class SystemPromptFileCheck:
                 )
 
         return issues
-
-    def _resolve_path(self, path: Path, config_path: Path) -> Path:
-        """Resolve a potentially relative path against config location."""
-        if path.is_absolute():
-            return path
-        return config_path.parent / path
-
-    def _find_line_in_yaml(self, yaml_str: str, marker: str) -> int | None:
-        """Find the line number of a marker in the YAML."""
-        for i, line in enumerate(yaml_str.split("\n"), 1):
-            if marker in line:
-                return i
-        return None
 
 
 class WorkingDirectoryCheck:
@@ -223,7 +185,7 @@ class WorkingDirectoryCheck:
         issues: list[ValidationIssue] = []
 
         if config.backend.working_directory:
-            working_dir = self._resolve_path(
+            working_dir = resolve_path(
                 config.backend.working_directory, config_path
             )
 
@@ -233,7 +195,7 @@ class WorkingDirectoryCheck:
                         check_id=self.check_id,
                         severity=self.severity,
                         message=f"Working directory does not exist: {working_dir}",
-                        line=self._find_line_in_yaml(raw_yaml, "working_directory:"),
+                        line=find_line_in_yaml(raw_yaml, "working_directory:"),
                         suggestion=f"Create directory: mkdir -p {working_dir}",
                         auto_fixable=True,
                         metadata={
@@ -247,25 +209,12 @@ class WorkingDirectoryCheck:
                         check_id=self.check_id,
                         severity=self.severity,
                         message=f"Working directory path is not a directory: {working_dir}",
-                        line=self._find_line_in_yaml(raw_yaml, "working_directory:"),
+                        line=find_line_in_yaml(raw_yaml, "working_directory:"),
                         suggestion="Ensure path points to a directory, not a file",
                     )
                 )
 
         return issues
-
-    def _resolve_path(self, path: Path, config_path: Path) -> Path:
-        """Resolve a potentially relative path against config location."""
-        if path.is_absolute():
-            return path
-        return config_path.parent / path
-
-    def _find_line_in_yaml(self, yaml_str: str, marker: str) -> int | None:
-        """Find the line number of a marker in the YAML."""
-        for i, line in enumerate(yaml_str.split("\n"), 1):
-            if marker in line:
-                return i
-        return None
 
 
 class SkillFilesExistCheck:
@@ -304,7 +253,7 @@ class SkillFilesExistCheck:
                 and "{" not in validation.path
                 and validation.type in ("content_contains", "content_regex")
             ):
-                file_path = self._resolve_path(Path(validation.path), config_path)
+                file_path = resolve_path(Path(validation.path), config_path)
 
                 # Only warn if it's an absolute path that doesn't exist
                 # Relative paths might be created during execution
@@ -326,9 +275,3 @@ class SkillFilesExistCheck:
                     )
 
         return issues
-
-    def _resolve_path(self, path: Path, config_path: Path) -> Path:
-        """Resolve a potentially relative path against config location."""
-        if path.is_absolute():
-            return path
-        return config_path.parent / path

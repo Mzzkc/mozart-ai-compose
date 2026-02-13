@@ -75,8 +75,13 @@ if TYPE_CHECKING:
     from .models import RunSummary
 
 from mozart.backends.base import ExecutionResult
-from mozart.core.checkpoint import CheckpointState, ProgressSnapshotDict, SheetStatus
-from mozart.core.errors import ClassificationResult, ClassifiedError
+from mozart.core.checkpoint import (
+    CheckpointState,
+    OutcomeCategory,
+    ProgressSnapshotDict,
+    SheetStatus,
+)
+from mozart.core.errors import ClassifiedError
 from mozart.execution.escalation import (
     CheckpointContext,
     CheckpointResponse,
@@ -541,7 +546,7 @@ class SheetExecutionMixin:
                     actual_wait=pending_recovery["actual_wait"],
                     recovery_success=True,
                 )
-            except Exception as e:
+            except (sqlite3.Error, OSError) as e:
                 self._logger.warning(
                     "learning.recovery_record_failed",
                     sheet_num=sheet_num,
@@ -703,7 +708,7 @@ class SheetExecutionMixin:
                     actual_wait=pending_recovery["actual_wait"],
                     recovery_success=False,
                 )
-            except Exception as e:
+            except (sqlite3.Error, OSError) as e:
                 self._logger.warning(
                     "learning.recovery_record_failed",
                     sheet_num=ctx.sheet_num,
@@ -1125,6 +1130,8 @@ class SheetExecutionMixin:
             ]
             if failed_descs:
                 sheet_state.error_message = "; ".join(failed_descs[:3])
+            else:
+                sheet_state.error_message = None
 
             # ===== RATE LIMIT CHECK (before completion threshold) =====
             if result.rate_limited:
@@ -1789,9 +1796,11 @@ class SheetExecutionMixin:
         failed_count = len(validation_result.get_failed_results())
         pass_pct = validation_result.executed_pass_percentage
 
+        total = passed_count + failed_count
         self.console.print(
-            f"[yellow]Sheet {sheet_num}: Validations {passed_count}/{passed_count + failed_count} "
-            f"passed ({pass_pct:.0f}%)[/yellow]"
+            f"[yellow]Sheet {sheet_num}: Validations — "
+            f"{failed_count} failed (of {total}), "
+            f"{passed_count} passed ({pass_pct:.0f}%)[/yellow]"
         )
         for failed in validation_result.get_failed_results():
             self.console.print(
@@ -1893,57 +1902,13 @@ class SheetExecutionMixin:
         # A first-attempt success means exactly 1 normal attempt and 0 completion attempts.
         first_attempt_success = normal_attempts <= 1 and completion_attempts == 0
         if first_attempt_success:
-            return "success_first_try", True
+            return OutcomeCategory.SUCCESS_FIRST_TRY.value, True
         elif completion_attempts > 0:
-            return "success_completion", False
+            return OutcomeCategory.SUCCESS_COMPLETION.value, False
         else:
-            return "success_retry", False
+            return OutcomeCategory.SUCCESS_RETRY.value, False
 
-    def _classify_execution(self, result: ExecutionResult) -> ClassificationResult:
-        """Classify execution errors using multi-error root cause analysis.
-
-        Uses classify_execution() to detect all errors and identify the root cause.
-        Passes output_format so text-mode exit code 1 is classified as E209
-        (validation) instead of E009 (unknown).
-
-        Args:
-            result: Execution result with error details.
-
-        Returns:
-            ClassificationResult with primary (root cause), secondary errors,
-            and confidence in root cause identification.
-        """
-        # Pass output_format to distinguish text-mode exit code 1 from errors
-        output_format = getattr(self.config.backend, "output_format", None)
-        classification = self.error_classifier.classify_execution(
-            stdout=result.stdout,
-            stderr=result.stderr,
-            exit_code=result.exit_code,
-            exit_signal=result.exit_signal,
-            exit_reason=result.exit_reason,
-            output_format=output_format,
-        )
-
-        if classification.secondary:
-            self._logger.debug(
-                "runner.secondary_errors_detected",
-                primary_code=classification.primary.error_code.value,
-                secondary_codes=[e.error_code.value for e in classification.secondary],
-                confidence=round(classification.confidence, 3),
-            )
-
-        return classification
-
-    def _classify_error(self, result: ExecutionResult) -> ClassifiedError:
-        """Classify execution error (backward compatible wrapper).
-
-        Args:
-            result: Execution result with error details.
-
-        Returns:
-            ClassifiedError (primary error from classification result).
-        """
-        return self._classify_execution(result).primary
+    # _classify_execution() and _classify_error() are provided by RecoveryMixin
 
     def _get_retry_delay(self, attempt: int) -> float:
         """Calculate retry delay with exponential backoff and jitter.

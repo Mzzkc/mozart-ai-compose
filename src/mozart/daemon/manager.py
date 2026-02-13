@@ -597,6 +597,7 @@ class JobManager:
             summary = await self._checked_service.start_job(
                 config,
                 fresh=request.fresh,
+                start_sheet=request.start_sheet,
                 self_healing=request.self_healing,
                 self_healing_auto_confirm=request.self_healing_auto_confirm,
                 dry_run=request.dry_run,

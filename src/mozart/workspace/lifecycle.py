@@ -91,8 +91,8 @@ class WorkspaceArchiver:
             # Clean up empty archive directory
             try:
                 shutil.rmtree(archive_path)
-            except Exception:
-                pass
+            except OSError as e:
+                _logger.debug("empty_archive_cleanup_failed", path=str(archive_path), error=str(e))
             return None
 
         _logger.info(

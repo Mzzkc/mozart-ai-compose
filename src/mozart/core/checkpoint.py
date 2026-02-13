@@ -131,6 +131,16 @@ class SheetStatus(str, Enum):
     SKIPPED = "skipped"
 
 
+class OutcomeCategory(str, Enum):
+    """Classification of sheet execution outcome (#7)."""
+
+    SUCCESS_FIRST_TRY = "success_first_try"
+    SUCCESS_RETRY = "success_retry"
+    SUCCESS_COMPLETION = "success_completion"
+    FAILED_EXHAUSTED = "failed_exhausted"
+    FAILED_FATAL = "failed_fatal"
+
+
 class JobStatus(str, Enum):
     """Status of an entire job run."""
 
@@ -411,7 +421,6 @@ class SheetState(BaseModel):
             self.error_history = self.error_history[-MAX_ERROR_HISTORY:]
 
 
-
 class CheckpointState(BaseModel):
     """Complete checkpoint state for a job run.
 
@@ -655,6 +664,10 @@ class CheckpointState(BaseModel):
         sheet.status = SheetStatus.IN_PROGRESS
         sheet.started_at = utc_now()
         sheet.attempt_count += 1
+        # Clear stale fields from previous attempts so retry starts clean.
+        sheet.error_message = None
+        sheet.exit_code = None
+        sheet.execution_mode = None
 
         _logger.debug(
             "sheet_started",

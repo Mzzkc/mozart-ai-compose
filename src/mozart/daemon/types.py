@@ -40,6 +40,11 @@ class JobRequest(BaseModel):
         default=False,
         description="Auto-confirm suggested fixes in self-healing mode",
     )
+    start_sheet: int | None = Field(
+        default=None,
+        description="Override starting sheet number. "
+        "If None, resumes from last checkpoint or starts from 1.",
+    )
     dry_run: bool = Field(
         default=False,
         description="Validate config and return without executing sheets",

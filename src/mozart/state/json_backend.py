@@ -137,7 +137,7 @@ class JsonStateBackend(StateBackend):
                 indent=2,
                 default=str,  # Handle datetime serialization
             )
-        temp_file.rename(state_file)
+        temp_file.replace(state_file)
 
         _logger.info(
             "checkpoint_saved",

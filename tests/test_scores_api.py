@@ -31,7 +31,7 @@ prompt:
     Complete task {{ sheet_num }} of {{ total_sheets }}
 validations:
   - type: file_exists
-    pattern: "result.txt"
+    path: "result.txt"
     description: "Result file exists"
 notifications: []
 """
@@ -359,7 +359,7 @@ prompt:
 
 validations:
   - type: file_exists
-    pattern: "output-{{ sheet_num }}.txt"
+    path: "output-{{ sheet_num }}.txt"
     description: "Sheet {{ sheet_num }} output file"
 
 notifications:
@@ -592,7 +592,7 @@ sheet:
     2: [1]
 validations:
   - type: file_exists
-    pattern: output.txt
+    path: output.txt
 notifications:
   - type: email
     to: test@test.com

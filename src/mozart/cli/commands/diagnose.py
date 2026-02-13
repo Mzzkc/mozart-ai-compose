@@ -637,8 +637,8 @@ async def _diagnose_job(
             report["execution_history_count"] = await found_backend.get_execution_history_count(
                 job_id
             )
-        except Exception:
-            pass
+        except (OSError, ValueError, KeyError):
+            report["execution_history_count"] = -1
 
     if json_output:
         # soft_wrap, highlight=False, markup=False prevent Rich from inserting
@@ -746,17 +746,21 @@ def _build_diagnostic_report(
         "generated_at": datetime.now(UTC).isoformat(),
     }
 
-    # Use last_completed_sheet as ground truth (sheets dict may have stale retry records)
+    # Count actual COMPLETED sheets (accurate for both sequential and parallel
+    # modes, unlike last_completed_sheet which is sequential-only).
+    completed_count = sum(
+        1 for sheet in job.sheets.values() if sheet.status == SheetStatus.COMPLETED
+    )
     failed_count = sum(
         1 for sheet in job.sheets.values() if sheet.status == SheetStatus.FAILED
     )
     report["progress"] = {
         "total_sheets": job.total_sheets,
-        "completed": job.last_completed_sheet,
+        "completed": completed_count,
         "failed": failed_count,
         "last_completed": job.last_completed_sheet,
         "percent": (
-            round(job.last_completed_sheet / job.total_sheets * 100, 1)
+            round(completed_count / job.total_sheets * 100, 1)
             if job.total_sheets > 0 else 0
         ),
     }

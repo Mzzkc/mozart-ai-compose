@@ -604,11 +604,9 @@ prompt:
 
     {% if previous_outputs %}
     ## Expert Reviews Summary
-    {{ previous_outputs[2][:600] if 2 in previous_outputs else "" }}
-    {{ previous_outputs[3][:600] if 3 in previous_outputs else "" }}
-    {{ previous_outputs[4][:600] if 4 in previous_outputs else "" }}
-    {{ previous_outputs[5][:600] if 5 in previous_outputs else "" }}
-    {{ previous_outputs[6][:600] if 6 in previous_outputs else "" }}
+    {% for sheet_key, output in previous_outputs.items() %}
+    {{ output[:600] }}
+    {% endfor %}
     {% endif %}
 
     **CRITICAL: Read {{ workspace }}/00-known-issues.md FIRST.** This is

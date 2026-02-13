@@ -12,6 +12,7 @@ from jinja2 import meta as jinja2_meta
 
 from mozart.core.config import JobConfig
 from mozart.validation.base import ValidationIssue, ValidationSeverity
+from mozart.validation.checks._helpers import find_line_in_yaml, resolve_path
 
 
 class JinjaSyntaxCheck:
@@ -51,14 +52,14 @@ class JinjaSyntaxCheck:
             template_issues = self._check_template(
                 config.prompt.template,
                 "prompt.template",
-                self._find_line_in_yaml(raw_yaml, "template:"),
+                find_line_in_yaml(raw_yaml, "template:"),
                 env,
             )
             issues.extend(template_issues)
 
         # Check external template file
         if config.prompt.template_file:
-            template_path = self._resolve_path(config.prompt.template_file, config_path)
+            template_path = resolve_path(config.prompt.template_file, config_path)
             if template_path.exists():
                 try:
                     template_content = template_path.read_text()
@@ -144,19 +145,6 @@ class JinjaSyntaxCheck:
 
         return "Check Jinja2 template syntax"
 
-    def _find_line_in_yaml(self, yaml_str: str, marker: str) -> int | None:
-        """Find the line number of a marker in the YAML."""
-        for i, line in enumerate(yaml_str.split("\n"), 1):
-            if marker in line:
-                return i
-        return None
-
-    def _resolve_path(self, path: Path, config_path: Path) -> Path:
-        """Resolve a potentially relative path against config location."""
-        if path.is_absolute():
-            return path
-        return config_path.parent / path
-
 
 class JinjaUndefinedVariableCheck:
     """Check for undefined template variables (V101).
@@ -224,7 +212,7 @@ class JinjaUndefinedVariableCheck:
 
         # Check external template file
         if config.prompt.template_file:
-            template_path = self._resolve_path(config.prompt.template_file, config_path)
+            template_path = resolve_path(config.prompt.template_file, config_path)
             if template_path.exists():
                 try:
                     template_content = template_path.read_text()
@@ -295,9 +283,3 @@ class JinjaUndefinedVariableCheck:
             return f"Define '{var}' in prompt.variables section"
 
         return f"Define '{var}' in prompt.variables section"
-
-    def _resolve_path(self, path: Path, config_path: Path) -> Path:
-        """Resolve a potentially relative path against config location."""
-        if path.is_absolute():
-            return path
-        return config_path.parent / path

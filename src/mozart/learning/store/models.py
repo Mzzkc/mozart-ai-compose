@@ -8,7 +8,7 @@ Extracted from global_store.py as part of the modularization effort.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
@@ -203,6 +203,13 @@ class PatternRecord:
     success_factors_updated_at: datetime | None = None
     """When success_factors were last updated."""
 
+    def __post_init__(self) -> None:
+        """Clamp trust_score to valid range [0.0, 1.0]."""
+        if self.trust_score < 0.0:
+            self.trust_score = 0.0
+        elif self.trust_score > 1.0:
+            self.trust_score = 1.0
+
 
 @dataclass
 class ErrorRecoveryRecord:
@@ -271,7 +278,7 @@ class EscalationDecisionRecord:
     outcome_after_action: str | None = None
     """What happened after the action: success, failed, aborted, skipped."""
 
-    recorded_at: datetime = field(default_factory=datetime.now)
+    recorded_at: datetime = field(default_factory=lambda: datetime.now(tz=timezone.utc))
     """When the escalation decision was recorded."""
 
     model: str | None = None

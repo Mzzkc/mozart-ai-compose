@@ -9,6 +9,7 @@ from pathlib import Path
 
 from mozart.core.config import JobConfig
 from mozart.validation.base import ValidationIssue, ValidationSeverity
+from mozart.validation.checks._helpers import find_line_in_yaml
 
 
 class RegexPatternCheck:
@@ -230,7 +231,7 @@ class TimeoutRangeCheck:
                     check_id="V103",
                     severity=ValidationSeverity.WARNING,
                     message=f"Very short timeout ({timeout}s) may cause premature failures",
-                    line=self._find_line_in_yaml(raw_yaml, "timeout_seconds:"),
+                    line=find_line_in_yaml(raw_yaml, "timeout_seconds:"),
                     suggestion=(
                         f"Consider timeout_seconds >="
                         f" {self.MIN_REASONABLE_TIMEOUT}"
@@ -252,7 +253,7 @@ class TimeoutRangeCheck:
                         f"Very long timeout ({timeout}s = {timeout / 3600:.1f}h)"
                         f" - consider if this is necessary"
                     ),
-                    line=self._find_line_in_yaml(raw_yaml, "timeout_seconds:"),
+                    line=find_line_in_yaml(raw_yaml, "timeout_seconds:"),
                     suggestion=(
                         "Long timeouts can tie up resources;"
                         " consider breaking into smaller tasks"
@@ -265,13 +266,6 @@ class TimeoutRangeCheck:
             )
 
         return issues
-
-    def _find_line_in_yaml(self, yaml_str: str, marker: str) -> int | None:
-        """Find the line number of a marker in the YAML."""
-        for i, line in enumerate(yaml_str.split("\n"), 1):
-            if marker in line:
-                return i
-        return None
 
 
 class VersionReferenceCheck:
@@ -334,7 +328,7 @@ class VersionReferenceCheck:
                         f"Job name '{config.name}' references"
                         f" v{previous_version} but file is v{current_version}"
                     ),
-                    line=self._find_line_in_yaml(raw_yaml, "name:"),
+                    line=find_line_in_yaml(raw_yaml, "name:"),
                     suggestion=f"Update name to use v{current_version}",
                     metadata={
                         "field": "name",
@@ -355,7 +349,7 @@ class VersionReferenceCheck:
                         f"Workspace path references v{previous_version}"
                         f" but file is v{current_version}"
                     ),
-                    line=self._find_line_in_yaml(raw_yaml, "workspace:"),
+                    line=find_line_in_yaml(raw_yaml, "workspace:"),
                     context=workspace_str,
                     suggestion=f"Update workspace to use v{current_version}",
                     metadata={
@@ -414,13 +408,6 @@ class VersionReferenceCheck:
                     break  # Only one issue per line
 
         return issues
-
-    def _find_line_in_yaml(self, yaml_str: str, marker: str) -> int | None:
-        """Find the line number of a marker in the YAML."""
-        for i, line in enumerate(yaml_str.split("\n"), 1):
-            if marker in line:
-                return i
-        return None
 
 
 class EmptyPatternCheck:

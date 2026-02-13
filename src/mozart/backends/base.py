@@ -212,10 +212,13 @@ class Backend(ABC):
         if not hasattr(self, "_error_classifier"):
             self._error_classifier = ErrorClassifier()
 
+        # Pass output_format to avoid false E009 for text-mode exit code 1
+        output_format = getattr(self, "output_format", None)
         classified = self._error_classifier.classify(
             stdout=stdout,
             stderr=stderr,
             exit_code=exit_code,
+            output_format=output_format,
         )
         return classified.category == ErrorCategory.RATE_LIMIT
 

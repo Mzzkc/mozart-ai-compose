@@ -6,6 +6,7 @@ on execution decisions, plus LocalJudgmentClient fallback for offline operation.
 Phase 4 of AGI Evolution: Judgment Integration
 """
 
+import logging
 import types
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -13,6 +14,8 @@ from typing import Any, Literal
 import httpx
 
 from mozart.core.checkpoint import ValidationDetailDict
+
+_logger = logging.getLogger("mozart.learning.judgment")
 
 
 @dataclass
@@ -43,7 +46,6 @@ class JudgmentQuery:
 
     confidence: float
     """Current aggregate confidence score (0.0-1.0)."""
-
 
 
 @dataclass
@@ -80,7 +82,6 @@ class JudgmentResponse:
 
     patterns_learned: list[str] = field(default_factory=list)
     """New patterns identified by RL from this execution."""
-
 
 
 class JudgmentClient:
@@ -180,7 +181,11 @@ class JudgmentClient:
         except httpx.HTTPStatusError as e:
             return self._default_retry_response(f"HTTP error: {e}")
 
+        except (ValueError, KeyError, TypeError) as e:
+            return self._default_retry_response(f"Response parsing error: {e}")
+
         except Exception as e:
+            _logger.warning("judgment_unexpected_error: %s", e, exc_info=True)
             return self._default_retry_response(f"Unexpected error: {e}")
 
     def _parse_judgment_response(self, data: dict[str, Any]) -> JudgmentResponse:

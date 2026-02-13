@@ -1,6 +1,6 @@
 """Tests for CLI run and resume command internals.
 
-Covers _run_job, _resume_job, _find_job_state, _reconstruct_config, and
+Covers daemon-routed run, _find_job_state, _reconstruct_config, and
 the _shared.py helper functions that both commands depend on.
 """
 
@@ -112,13 +112,26 @@ class TestRunCommandExecution:
         result = runner.invoke(app, ["run", str(bad_config), "--json"])
         assert result.exit_code != 0
 
-    def test_run_escalation_json_incompatible(self, sample_yaml_config: Path) -> None:
-        """--escalation and --json flags should be rejected together."""
+    def test_run_escalation_rejected_in_daemon_mode(self, sample_yaml_config: Path) -> None:
+        """--escalation should be rejected since daemon is non-interactive."""
+        result = runner.invoke(
+            app,
+            ["run", str(sample_yaml_config), "--escalation"],
+        )
+        assert result.exit_code == 1
+        assert "not available in daemon mode" in result.stdout or "not currently supported" in result.stdout
+
+    def test_run_escalation_json_error(self, sample_yaml_config: Path) -> None:
+        """--escalation with --json should produce JSON-shaped error."""
         result = runner.invoke(
             app,
             ["run", str(sample_yaml_config), "--json", "--escalation"],
         )
         assert result.exit_code == 1
+        # Rich console.print may wrap long JSON lines, so we don't
+        # parse strictly — just verify the error content is present.
+        assert '"error"' in result.stdout
+        assert "daemon mode" in result.stdout
 
     def test_run_shows_config_panel(self, sample_yaml_config: Path) -> None:
         """Run command should display configuration panel."""
@@ -152,48 +165,105 @@ class TestRunCommandExecution:
         assert data["workspace"] == str(custom_ws.resolve())
 
 
-class TestRunJobAsync:
-    """Tests for _run_job async function via mocking."""
+class TestRunDaemonRequired:
+    """Tests for daemon-required run command behavior."""
 
-    def test_run_fresh_flag_deletes_state(self, sample_yaml_config: Path) -> None:
-        """--fresh flag should call state_backend.delete before running."""
-        mock_state = AsyncMock()
-        mock_state.delete = AsyncMock(return_value=True)
-        mock_runner_instance = MagicMock()
-        mock_summary = MagicMock()
-        mock_summary.to_dict.return_value = {"status": "completed"}
-        mock_state_result = MagicMock(status=JobStatus.COMPLETED)
-        mock_runner_instance.run = AsyncMock(return_value=(mock_state_result, mock_summary))
-
-        with (
-            patch(
-                "mozart.cli.commands.run.create_state_backend_from_config",
-                return_value=mock_state,
-            ),
-            patch(
-                "mozart.cli.commands.run.setup_all",
-                return_value=MagicMock(
-                    backend=MagicMock(),
-                    outcome_store=None,
-                    global_learning_store=None,
-                    notification_manager=None,
-                    escalation_handler=None,
-                    grounding_engine=None,
-                ),
-            ),
-            patch(
-                "mozart.execution.runner.JobRunner",
-                return_value=mock_runner_instance,
-            ),
+    def test_run_without_daemon_shows_error(self, sample_yaml_config: Path) -> None:
+        """Running without a daemon should show a clear error message."""
+        with patch(
+            "mozart.daemon.detect.is_daemon_available",
+            new_callable=AsyncMock,
+            return_value=False,
         ):
             result = runner.invoke(
                 app,
-                ["run", str(sample_yaml_config), "--fresh", "--json"],
+                ["run", str(sample_yaml_config)],
             )
+        assert result.exit_code == 1
+        assert "daemon is not running" in result.stdout.lower()
 
-        # Fresh flag should trigger delete call
-        assert result.exit_code == 0, f"Expected success but got exit_code={result.exit_code}"
-        mock_state.delete.assert_called_once_with("test-job")
+    def test_run_without_daemon_json_error(self, sample_yaml_config: Path) -> None:
+        """Running without daemon + --json should produce JSON error."""
+        with patch(
+            "mozart.daemon.detect.is_daemon_available",
+            new_callable=AsyncMock,
+            return_value=False,
+        ):
+            result = runner.invoke(
+                app,
+                ["run", str(sample_yaml_config), "--json"],
+            )
+        assert result.exit_code == 1
+        data = json.loads(result.stdout)
+        assert "daemon" in data["error"].lower()
+
+    def test_run_routes_through_daemon(self, sample_yaml_config: Path) -> None:
+        """Successful daemon submission should report acceptance."""
+        with patch(
+            "mozart.daemon.detect.is_daemon_available",
+            new_callable=AsyncMock,
+            return_value=True,
+        ), patch(
+            "mozart.daemon.detect.try_daemon_route",
+            new_callable=AsyncMock,
+            return_value=(True, {
+                "job_id": "test-job-abc123",
+                "status": "accepted",
+                "message": "Job queued",
+            }),
+        ):
+            result = runner.invoke(
+                app,
+                ["run", str(sample_yaml_config)],
+            )
+        assert result.exit_code == 0
+        assert "test-job-abc123" in result.stdout
+
+    def test_run_passes_start_sheet_to_daemon(self, sample_yaml_config: Path) -> None:
+        """--start-sheet should be forwarded to the daemon submission."""
+        captured_params: dict = {}
+
+        async def _mock_route(_method: str, params: dict, **_kw: object) -> object:
+            captured_params.update(params)
+            return (True, {"job_id": "x", "status": "accepted", "message": ""})
+
+        with patch(
+            "mozart.daemon.detect.is_daemon_available",
+            new_callable=AsyncMock,
+            return_value=True,
+        ), patch(
+            "mozart.daemon.detect.try_daemon_route",
+            side_effect=_mock_route,
+        ):
+            result = runner.invoke(
+                app,
+                ["run", str(sample_yaml_config), "--start-sheet", "5"],
+            )
+        assert result.exit_code == 0
+        assert captured_params.get("start_sheet") == 5
+
+    def test_run_passes_fresh_to_daemon(self, sample_yaml_config: Path) -> None:
+        """--fresh should be forwarded to the daemon submission."""
+        captured_params: dict = {}
+
+        async def _mock_route(_method: str, params: dict, **_kw: object) -> object:
+            captured_params.update(params)
+            return (True, {"job_id": "x", "status": "accepted", "message": ""})
+
+        with patch(
+            "mozart.daemon.detect.is_daemon_available",
+            new_callable=AsyncMock,
+            return_value=True,
+        ), patch(
+            "mozart.daemon.detect.try_daemon_route",
+            side_effect=_mock_route,
+        ):
+            result = runner.invoke(
+                app,
+                ["run", str(sample_yaml_config), "--fresh"],
+            )
+        assert result.exit_code == 0
+        assert captured_params.get("fresh") is True
 
 
 # =============================================================================

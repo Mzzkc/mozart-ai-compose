@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 
     from .models import RunSummary as _RunSummary
 
-from mozart.core.checkpoint import CheckpointState, JobStatus, SheetStatus
+from mozart.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
 from mozart.core.logging import ExecutionContext
 from mozart.execution.hooks import HookExecutor
 from mozart.utils.time import utc_now
@@ -380,6 +380,12 @@ class LifecycleMixin:
         # Override starting sheet if specified
         if start_sheet is not None:
             state.last_completed_sheet = start_sheet - 1
+            # Mark sheets 1..start_sheet-1 as COMPLETED in state.sheets so
+            # parallel mode's DAG sees their dependencies as satisfied (#42).
+            for skipped in range(1, start_sheet):
+                if skipped not in state.sheets:
+                    state.sheets[skipped] = SheetState(sheet_num=skipped)
+                state.sheets[skipped].status = SheetStatus.COMPLETED
 
         return state
 
@@ -669,18 +675,21 @@ class LifecycleMixin:
             # Update progress callback
             self._update_progress(state)
 
-            # Pause between sheets
+            # Pause between sheets (#22: emit visible status event)
             if next_sheet < state.total_sheets:
                 pause_secs = self.config.pause_between_sheets_seconds
                 if pause_secs > 0:
                     self._logger.info(
                         "lifecycle.inter_sheet_pause",
                         pause_seconds=pause_secs,
-                        next_sheet=next_sheet,
+                        completed_sheet=next_sheet,
+                        job_id=state.job_id,
                     )
                     self.console.print(
-                        f"[dim]Pausing {pause_secs}s before sheet {next_sheet}...[/dim]"
+                        f"[dim]Pausing {pause_secs}s after sheet"
+                        f" {next_sheet} (rate limit cooldown)...[/dim]"
                     )
+                    self._update_progress(state)
                 await self._interruptible_sleep(pause_secs)
 
             # Use DAG-aware sheet selection (v17 evolution)

@@ -1,7 +1,7 @@
 """Outcome recording and pattern detection for learning."""
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
@@ -29,7 +29,7 @@ class SheetOutcome:
     validation_pass_rate: float
     first_attempt_success: bool
     patterns_detected: list[str] = field(default_factory=list)
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(tz=timezone.utc))
 
     # Semantic validation fields (Evolution: Deep Validation-Learning)
     failure_category_counts: dict[str, int] = field(default_factory=dict)

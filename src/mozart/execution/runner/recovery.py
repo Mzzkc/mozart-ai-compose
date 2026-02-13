@@ -246,11 +246,11 @@ class RecoveryMixin:
                 await self.rate_limit_callback(
                     backend_type, wait_seconds, state.job_id, sheet_num,
                 )
-            except Exception:
+            except (OSError, ConnectionError, TimeoutError) as e:
                 self._logger.warning(
                     "rate_limit.daemon_callback_failed",
                     job_id=state.job_id,
-                    exc_info=True,
+                    error=str(e),
                 )
 
         # Poll for pattern discoveries during the wait window

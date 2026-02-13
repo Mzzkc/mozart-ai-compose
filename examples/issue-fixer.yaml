@@ -1021,6 +1021,25 @@ validations:
     description: "Recent commit should exist (skipped when no issues to fix)"
     condition: "sheet_num == 8"
 
+  # Verify commit was pushed to remote (#31)
+  - type: command_succeeds
+    command: |
+      VERDICT=$(grep -oE 'VERDICT: (SIMPLE|COMPLEX|NONE)' "{workspace}/03-decision.md" 2>/dev/null | head -1)
+      if echo "$VERDICT" | grep -q 'NONE'; then
+        echo "No work this iteration — push not required"
+      else
+        LOCAL=$(git rev-parse HEAD 2>/dev/null)
+        REMOTE=$(git rev-parse origin/main 2>/dev/null || echo "unknown")
+        if [ "$LOCAL" = "$REMOTE" ]; then
+          echo "Local and remote are in sync — push verified"
+        else
+          echo "WARNING: local HEAD ($LOCAL) != origin/main ($REMOTE) — push may have failed"
+          exit 1
+        fi
+      fi
+    description: "Commit must be pushed to remote (skipped when no issues to fix)"
+    condition: "sheet_num == 8"
+
   # Prevent self-chain when there are no issues left
   - type: command_succeeds
     command: |

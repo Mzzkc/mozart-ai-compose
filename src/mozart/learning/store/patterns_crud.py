@@ -87,8 +87,12 @@ class PatternCrudMixin:
             sheet_num = provenance_sheet_num
 
         now = datetime.now().isoformat()
+        # Normalize pattern_name for consistent deduplication:
+        # lowercase and collapse whitespace so "File Not Created" and
+        # "file not created" hash to the same ID.
+        normalized_name = " ".join(pattern_name.lower().split())
         pattern_id = hashlib.sha256(
-            f"{pattern_type}:{pattern_name}".encode()
+            f"{pattern_type}:{normalized_name}".encode()
         ).hexdigest()[:16]
 
         with self._get_connection() as conn:

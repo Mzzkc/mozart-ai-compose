@@ -1,8 +1,9 @@
 """Tests for mozart.daemon.detect — CLI daemon detection and routing.
 
-The detect module provides a safe fallback layer: if the daemon is not
-running, or any error occurs, the CLI falls back to direct execution.
-These tests verify that contract.
+The detect module provides daemon availability checks and RPC routing.
+``mozart run`` requires a running daemon — if unavailable, the CLI
+prints an error and exits.  ``is_daemon_available()`` and
+``try_daemon_route()`` never raise; callers inspect return values.
 """
 
 from __future__ import annotations
@@ -176,18 +177,18 @@ class TestTryDaemonRoute:
 
 
 class TestCliNonDaemonRegression:
-    """Verify that Mozart CLI works correctly without a running daemon.
+    """Verify that Mozart CLI's non-execution paths work without a daemon.
 
-    Uses subprocess execution to test the real CLI entry point with
-    no daemon socket present — the detect.py auto-routing must fall
-    back to direct execution without error.
+    Uses subprocess execution to test the real CLI entry point.
+    ``--dry-run`` and ``validate`` don't need a daemon.  Actual
+    ``run`` (without ``--dry-run``) will error if no daemon is running.
     """
 
     def test_dry_run_without_daemon(self):
         """mozart run --dry-run succeeds without a daemon socket.
 
-        This is the critical regression test: if detect.py's fallback
-        breaks, every CLI invocation fails.
+        Dry-run mode validates and displays the job plan without
+        executing, so it doesn't require a running daemon.
         """
         result = subprocess.run(
             [
