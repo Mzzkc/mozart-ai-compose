@@ -145,6 +145,7 @@ class JobRunnerBase:
         execution_progress_callback: Callable[[dict[str, Any]], None] | None = None
         global_learning_store: GlobalLearningStore | None = None
         grounding_engine: GroundingEngine | None = None
+        rate_limit_callback: Callable[[str, float, str, int], Any] | None = None
         self_healing_enabled = False
         self_healing_auto_confirm = False
         if context is not None:
@@ -156,6 +157,7 @@ class JobRunnerBase:
             execution_progress_callback = context.execution_progress_callback
             global_learning_store = context.global_learning_store
             grounding_engine = context.grounding_engine
+            rate_limit_callback = context.rate_limit_callback
             self_healing_enabled = context.self_healing_enabled
             self_healing_auto_confirm = context.self_healing_auto_confirm
 
@@ -174,6 +176,9 @@ class JobRunnerBase:
         # Progress callbacks
         self.progress_callback = progress_callback
         self.execution_progress_callback = execution_progress_callback
+
+        # Daemon integration
+        self.rate_limit_callback = rate_limit_callback
 
         # Prompt building and error classification
         self.prompt_builder = PromptBuilder(config.prompt)

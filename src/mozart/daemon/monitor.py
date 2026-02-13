@@ -276,7 +276,10 @@ class ResourceMonitor:
 
         # Prune stale rate limit events to prevent unbounded memory growth
         if self._manager is not None:
-            await self._manager.rate_coordinator.prune_stale()
+            try:
+                await self._manager.rate_coordinator.prune_stale()
+            except Exception:
+                _logger.warning("monitor.prune_stale_failed", exc_info=True)
 
     async def _enforce_memory_limit(self) -> None:
         """Cancel the oldest running job when memory exceeds hard limit."""

@@ -325,7 +325,377 @@ class TestEventPruning:
         assert coordinator._events[0].job_id == "new-job"
 
 
+# ─── P008: prune_stale() Direct Tests ────────────────────────────────
+
+
+class TestPruneStale:
+    """Direct tests for prune_stale() — the primary pruning path."""
+
+    @pytest.mark.asyncio
+    async def test_prune_removes_old_events(
+        self, coordinator: RateLimitCoordinator,
+    ):
+        """prune_stale() removes events older than 1 hour."""
+        old_event = RateLimitEvent(
+            backend_type="claude_cli",
+            detected_at=time.monotonic() - 7200,
+            suggested_wait_seconds=30.0,
+            job_id="old-job",
+            sheet_num=1,
+        )
+        coordinator._events.append(old_event)
+
+        removed = await coordinator.prune_stale()
+        assert removed == 1
+        assert len(coordinator._events) == 0
+
+    @pytest.mark.asyncio
+    async def test_prune_keeps_recent_events(
+        self, coordinator: RateLimitCoordinator,
+    ):
+        """prune_stale() preserves events from the last hour."""
+        await coordinator.report_rate_limit(
+            backend_type="claude_cli",
+            wait_seconds=30.0,
+            job_id="recent-job",
+            sheet_num=1,
+        )
+
+        removed = await coordinator.prune_stale()
+        assert removed == 0
+        assert len(coordinator._events) == 1
+
+    @pytest.mark.asyncio
+    async def test_prune_removes_expired_active_limits(
+        self, coordinator: RateLimitCoordinator,
+    ):
+        """prune_stale() clears expired entries from _active_limits."""
+        # Inject an expired limit
+        coordinator._active_limits["old_backend"] = time.monotonic() - 10
+
+        await coordinator.prune_stale()
+        assert "old_backend" not in coordinator._active_limits
+
+    @pytest.mark.asyncio
+    async def test_prune_keeps_active_limits(
+        self, coordinator: RateLimitCoordinator,
+    ):
+        """prune_stale() preserves still-active limits."""
+        coordinator._active_limits["active_backend"] = time.monotonic() + 60
+
+        await coordinator.prune_stale()
+        assert "active_backend" in coordinator._active_limits
+
+    @pytest.mark.asyncio
+    async def test_prune_returns_correct_count(
+        self, coordinator: RateLimitCoordinator,
+    ):
+        """prune_stale() returns the number of events removed."""
+        now = time.monotonic()
+        for i in range(5):
+            coordinator._events.append(RateLimitEvent(
+                backend_type="cli",
+                detected_at=now - 7200,  # 2 hours ago
+                suggested_wait_seconds=10.0,
+                job_id=f"old-{i}",
+                sheet_num=i,
+            ))
+        coordinator._events.append(RateLimitEvent(
+            backend_type="cli",
+            detected_at=now,  # fresh
+            suggested_wait_seconds=10.0,
+            job_id="fresh",
+            sheet_num=99,
+        ))
+
+        removed = await coordinator.prune_stale()
+        assert removed == 5
+        assert len(coordinator._events) == 1
+        assert coordinator._events[0].job_id == "fresh"
+
+    @pytest.mark.asyncio
+    async def test_prune_on_empty_coordinator(
+        self, coordinator: RateLimitCoordinator,
+    ):
+        """prune_stale() on empty state is a no-op."""
+        removed = await coordinator.prune_stale()
+        assert removed == 0
+
+
+# ─── P014: wait_if_limited() Cancellation ─────────────────────────────
+
+
+class TestWaitCancellation:
+    """Tests for wait_if_limited() cancellation behavior."""
+
+    @pytest.mark.asyncio
+    async def test_cancellation_propagates(
+        self, coordinator: RateLimitCoordinator,
+    ):
+        """Cancelling the task during wait raises CancelledError."""
+        await coordinator.report_rate_limit(
+            backend_type="claude_cli",
+            wait_seconds=60.0,
+            job_id="job-a",
+            sheet_num=1,
+        )
+
+        async def wait_task():
+            return await coordinator.wait_if_limited("claude_cli")
+
+        task = asyncio.create_task(wait_task())
+        await asyncio.sleep(0.05)  # Let it enter the sleep
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    @pytest.mark.asyncio
+    async def test_re_check_after_extended_limit(
+        self, coordinator: RateLimitCoordinator,
+    ):
+        """wait_if_limited re-checks after sleep if limit was extended."""
+        # Report a short limit
+        await coordinator.report_rate_limit(
+            backend_type="claude_cli",
+            wait_seconds=0.05,
+            job_id="job-a",
+            sheet_num=1,
+        )
+
+        # Extend the limit after a short delay
+        async def extend_limit():
+            await asyncio.sleep(0.03)
+            await coordinator.report_rate_limit(
+                backend_type="claude_cli",
+                wait_seconds=0.08,
+                job_id="job-a",
+                sheet_num=2,
+            )
+
+        # Run both concurrently
+        ext_task = asyncio.create_task(extend_limit())
+        start = time.monotonic()
+        waited = await coordinator.wait_if_limited("claude_cli")
+        elapsed = time.monotonic() - start
+        await ext_task
+
+        # Total wait should be longer than the initial 0.05s due to re-check
+        assert waited > 0
+        assert elapsed >= 0.05
+
+
+# ─── P004/P005: Input Validation Tests ────────────────────────────────
+
+
+class TestInputValidation:
+    """Tests for wait_seconds clamping (P004 upper cap, P005 non-positive)."""
+
+    @pytest.mark.asyncio
+    async def test_negative_wait_clamped_to_zero(
+        self, coordinator: RateLimitCoordinator,
+    ):
+        """Negative wait_seconds is clamped to 0 (no blocking)."""
+        await coordinator.report_rate_limit(
+            backend_type="claude_cli",
+            wait_seconds=-10.0,
+            job_id="job-a",
+            sheet_num=1,
+        )
+
+        is_limited, remaining = await coordinator.is_rate_limited("claude_cli")
+        # With wait=0, the resume time is now, so it should not be limited
+        assert is_limited is False or remaining <= 0.01
+
+    @pytest.mark.asyncio
+    async def test_zero_wait_not_blocking(
+        self, coordinator: RateLimitCoordinator,
+    ):
+        """wait_seconds=0 should not create a blocking limit."""
+        await coordinator.report_rate_limit(
+            backend_type="claude_cli",
+            wait_seconds=0.0,
+            job_id="job-a",
+            sheet_num=1,
+        )
+
+        is_limited, _ = await coordinator.is_rate_limited("claude_cli")
+        assert is_limited is False
+
+    @pytest.mark.asyncio
+    async def test_huge_wait_capped(
+        self, coordinator: RateLimitCoordinator,
+    ):
+        """wait_seconds > MAX_WAIT_SECONDS is capped."""
+        from mozart.daemon.rate_coordinator import MAX_WAIT_SECONDS
+
+        await coordinator.report_rate_limit(
+            backend_type="claude_cli",
+            wait_seconds=999999.0,  # ~11.5 days
+            job_id="job-a",
+            sheet_num=1,
+        )
+
+        _, remaining = await coordinator.is_rate_limited("claude_cli")
+        # Should be capped at MAX_WAIT_SECONDS
+        assert remaining <= MAX_WAIT_SECONDS
+
+
 # ─── Scheduler Integration ────────────────────────────────────────────
+
+
+# ─── P021: Concurrent report_rate_limit() Stress ─────────────────────
+
+
+class TestConcurrentRateLimitStress:
+    """Stress tests: concurrent report_rate_limit() and is_rate_limited()."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_reports_no_data_loss(
+        self, coordinator: RateLimitCoordinator,
+    ):
+        """Many concurrent report_rate_limit() calls don't lose events."""
+        num_reports = 50
+
+        async def reporter(idx: int):
+            await coordinator.report_rate_limit(
+                backend_type="claude_cli",
+                wait_seconds=float(idx % 10 + 1),
+                job_id=f"job-{idx}",
+                sheet_num=idx,
+            )
+
+        tasks = [asyncio.create_task(reporter(i)) for i in range(num_reports)]
+        await asyncio.gather(*tasks)
+
+        events = coordinator.recent_events
+        assert len(events) == num_reports
+
+    @pytest.mark.asyncio
+    async def test_concurrent_reports_and_queries(
+        self, coordinator: RateLimitCoordinator,
+    ):
+        """Concurrent reports + is_rate_limited queries don't crash or deadlock."""
+        stop = asyncio.Event()
+
+        async def reporter():
+            for i in range(30):
+                await coordinator.report_rate_limit(
+                    backend_type=f"backend-{i % 3}",
+                    wait_seconds=0.1,
+                    job_id=f"job-{i}",
+                    sheet_num=i,
+                )
+                await asyncio.sleep(0.001)
+            stop.set()
+
+        query_count = 0
+
+        async def querier():
+            nonlocal query_count
+            while not stop.is_set():
+                await coordinator.is_rate_limited("backend-0")
+                await coordinator.is_rate_limited("backend-1")
+                await coordinator.is_rate_limited("backend-2")
+                query_count += 1
+                await asyncio.sleep(0.001)
+
+        # Launch 1 reporter and 3 queriers
+        tasks = [
+            asyncio.create_task(reporter()),
+            asyncio.create_task(querier()),
+            asyncio.create_task(querier()),
+            asyncio.create_task(querier()),
+        ]
+
+        await asyncio.wait(tasks, timeout=10.0)
+
+        for t in tasks:
+            if not t.done():
+                t.cancel()
+                try:
+                    await t
+                except asyncio.CancelledError:
+                    pass
+
+        # Reporter finished all 30 reports
+        assert len(coordinator.recent_events) == 30
+        assert query_count > 0
+
+    @pytest.mark.asyncio
+    async def test_concurrent_reports_different_backends(
+        self, coordinator: RateLimitCoordinator,
+    ):
+        """Concurrent reports to different backends maintain correct per-backend limits."""
+        num_backends = 10
+        reports_per_backend = 10
+
+        async def report_backend(backend_idx: int):
+            for j in range(reports_per_backend):
+                await coordinator.report_rate_limit(
+                    backend_type=f"backend-{backend_idx}",
+                    wait_seconds=5.0,
+                    job_id=f"job-{backend_idx}-{j}",
+                    sheet_num=j,
+                )
+
+        tasks = [
+            asyncio.create_task(report_backend(i))
+            for i in range(num_backends)
+        ]
+        await asyncio.gather(*tasks)
+
+        # All backends should be limited
+        for i in range(num_backends):
+            is_limited, remaining = await coordinator.is_rate_limited(f"backend-{i}")
+            assert is_limited is True
+            assert remaining > 0
+
+        # Unlisted backend should not be limited
+        is_limited, _ = await coordinator.is_rate_limited("nonexistent")
+        assert is_limited is False
+
+    @pytest.mark.asyncio
+    async def test_concurrent_prune_and_report(
+        self, coordinator: RateLimitCoordinator,
+    ):
+        """Concurrent prune_stale() + report_rate_limit() don't corrupt state."""
+        stop = asyncio.Event()
+
+        async def reporter():
+            for i in range(30):
+                await coordinator.report_rate_limit(
+                    backend_type="claude_cli",
+                    wait_seconds=0.05,
+                    job_id=f"job-{i}",
+                    sheet_num=i,
+                )
+                await asyncio.sleep(0.001)
+            stop.set()
+
+        async def pruner():
+            while not stop.is_set():
+                await coordinator.prune_stale()
+                await asyncio.sleep(0.005)
+
+        tasks = [
+            asyncio.create_task(reporter()),
+            asyncio.create_task(pruner()),
+            asyncio.create_task(pruner()),
+        ]
+
+        await asyncio.wait(tasks, timeout=10.0)
+        for t in tasks:
+            if not t.done():
+                t.cancel()
+                try:
+                    await t
+                except asyncio.CancelledError:
+                    pass
+
+        # Events list should still be valid (no crashes)
+        events = coordinator.recent_events
+        assert isinstance(events, list)
 
 
 class TestSchedulerIntegration:

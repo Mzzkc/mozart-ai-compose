@@ -388,3 +388,110 @@ class TestProbeFailureBackpressure:
             ResourceMonitor, "current_memory_mb", return_value=None,
         ):
             assert controller.should_accept_job() is False
+
+
+# ─── P013: Exact Boundary Value Tests ─────────────────────────────────
+
+
+class TestBoundaryValues:
+    """Exact boundary tests for current_level() thresholds.
+
+    With max_memory_mb=1000:
+      - 50% = 500MB: boundary between NONE and LOW (>50% → LOW)
+      - 70% = 700MB: boundary between LOW and MEDIUM (>70% → MEDIUM)
+      - 85% = 850MB: boundary between MEDIUM and HIGH (>85% → HIGH)
+      - 95% = 950MB: boundary between HIGH and CRITICAL (>95% → CRITICAL)
+
+    All thresholds use strict `>`, so exact boundary values belong
+    to the LOWER level.
+    """
+
+    def test_exactly_50_pct_is_none(self, controller: BackpressureController):
+        """500MB is exactly 50% — should be NONE (threshold is >50%)."""
+        with patch.object(
+            ResourceMonitor, "_get_memory_usage_mb", return_value=500.0,
+        ), patch.object(
+            ResourceMonitor, "is_accepting_work", return_value=True,
+        ):
+            assert controller.current_level() == PressureLevel.NONE
+
+    def test_just_above_50_pct_is_low(self, controller: BackpressureController):
+        """501MB is >50% — should be LOW."""
+        with patch.object(
+            ResourceMonitor, "_get_memory_usage_mb", return_value=501.0,
+        ), patch.object(
+            ResourceMonitor, "is_accepting_work", return_value=True,
+        ):
+            assert controller.current_level() == PressureLevel.LOW
+
+    def test_exactly_70_pct_is_low(self, controller: BackpressureController):
+        """700MB is exactly 70% — should be LOW (threshold is >70%)."""
+        with patch.object(
+            ResourceMonitor, "_get_memory_usage_mb", return_value=700.0,
+        ), patch.object(
+            ResourceMonitor, "is_accepting_work", return_value=True,
+        ):
+            assert controller.current_level() == PressureLevel.LOW
+
+    def test_just_above_70_pct_is_medium(self, controller: BackpressureController):
+        """701MB is >70% — should be MEDIUM."""
+        with patch.object(
+            ResourceMonitor, "_get_memory_usage_mb", return_value=701.0,
+        ), patch.object(
+            ResourceMonitor, "is_accepting_work", return_value=True,
+        ):
+            assert controller.current_level() == PressureLevel.MEDIUM
+
+    def test_exactly_85_pct_is_medium(self, controller: BackpressureController):
+        """850MB is exactly 85% — should be MEDIUM (threshold is >85%)."""
+        with patch.object(
+            ResourceMonitor, "_get_memory_usage_mb", return_value=850.0,
+        ), patch.object(
+            ResourceMonitor, "is_accepting_work", return_value=True,
+        ):
+            assert controller.current_level() == PressureLevel.MEDIUM
+
+    def test_just_above_85_pct_is_high(self, controller: BackpressureController):
+        """851MB is >85% — should be HIGH."""
+        with patch.object(
+            ResourceMonitor, "_get_memory_usage_mb", return_value=851.0,
+        ), patch.object(
+            ResourceMonitor, "is_accepting_work", return_value=True,
+        ):
+            assert controller.current_level() == PressureLevel.HIGH
+
+    def test_exactly_95_pct_is_high(self, controller: BackpressureController):
+        """950MB is exactly 95% — should be HIGH (threshold is >95%)."""
+        with patch.object(
+            ResourceMonitor, "_get_memory_usage_mb", return_value=950.0,
+        ), patch.object(
+            ResourceMonitor, "is_accepting_work", return_value=True,
+        ):
+            assert controller.current_level() == PressureLevel.HIGH
+
+    def test_just_above_95_pct_is_critical(self, controller: BackpressureController):
+        """951MB is >95% — should be CRITICAL."""
+        with patch.object(
+            ResourceMonitor, "_get_memory_usage_mb", return_value=951.0,
+        ), patch.object(
+            ResourceMonitor, "is_accepting_work", return_value=True,
+        ):
+            assert controller.current_level() == PressureLevel.CRITICAL
+
+    def test_zero_memory_is_none(self, controller: BackpressureController):
+        """0MB usage — should be NONE."""
+        with patch.object(
+            ResourceMonitor, "_get_memory_usage_mb", return_value=0.0,
+        ), patch.object(
+            ResourceMonitor, "is_accepting_work", return_value=True,
+        ):
+            assert controller.current_level() == PressureLevel.NONE
+
+    def test_exactly_at_limit_is_critical(self, controller: BackpressureController):
+        """1000MB (100%) — should be CRITICAL."""
+        with patch.object(
+            ResourceMonitor, "_get_memory_usage_mb", return_value=1000.0,
+        ), patch.object(
+            ResourceMonitor, "is_accepting_work", return_value=True,
+        ):
+            assert controller.current_level() == PressureLevel.CRITICAL

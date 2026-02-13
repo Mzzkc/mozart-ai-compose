@@ -447,6 +447,15 @@ class RunnerContext:
     execution_progress_callback: Callable[[dict[str, Any]], None] | None = None
     """Callback for real-time execution progress during sheet runs."""
 
+    # Daemon integration callbacks
+    rate_limit_callback: Callable[[str, float, str, int], Any] | None = None
+    """Async callback to notify daemon rate coordinator on rate limit hits.
+
+    Signature: (backend_type, wait_seconds, job_id, sheet_num) → Awaitable[None].
+    When set, called from _handle_rate_limit() so the daemon's
+    RateLimitCoordinator receives live data for cross-job coordination.
+    """
+
     # Self-healing configuration (v11 Evolution: Self-Healing)
     self_healing_enabled: bool = False
     """Enable automatic diagnosis and remediation when retries are exhausted."""

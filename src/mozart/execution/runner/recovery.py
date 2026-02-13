@@ -238,6 +238,21 @@ class RecoveryMixin:
             state=state, error_code=error_code, wait_seconds=wait_seconds,
         )
 
+        # Daemon rate coordinator notification (Phase 3 wiring prereq P025)
+        if self.rate_limit_callback is not None:
+            try:
+                backend_type = getattr(self.backend, "backend_type", "claude_cli")
+                sheet_num = state.last_completed_sheet + 1 if state.last_completed_sheet else 1
+                await self.rate_limit_callback(
+                    backend_type, wait_seconds, state.job_id, sheet_num,
+                )
+            except Exception:
+                self._logger.warning(
+                    "rate_limit.daemon_callback_failed",
+                    job_id=state.job_id,
+                    exc_info=True,
+                )
+
         # Poll for pattern discoveries during the wait window
         await self._poll_broadcast_discoveries(
             job_id=state.job_id,

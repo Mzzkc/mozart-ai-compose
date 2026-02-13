@@ -35,6 +35,11 @@ from mozart.core.logging import get_logger
 
 _logger = get_logger("daemon.rate_coordinator")
 
+# Maximum wait that report_rate_limit() will accept.  Anything above
+# this is clamped — prevents misparsed backend responses from blocking
+# all jobs on a backend for unreasonable durations.
+MAX_WAIT_SECONDS: float = 3600.0  # 1 hour
+
 
 @dataclass
 class RateLimitEvent:
@@ -88,6 +93,10 @@ class RateLimitCoordinator:
             job_id: Job that encountered the limit.
             sheet_num: Sheet that triggered the limit.
         """
+        # Clamp to [0, MAX_WAIT_SECONDS] — negative or zero values are
+        # no-ops for the resume time, and huge values are capped.
+        wait_seconds = max(0.0, min(wait_seconds, MAX_WAIT_SECONDS))
+
         now = time.monotonic()
         async with self._lock:
             resume_at = now + wait_seconds
@@ -150,22 +159,30 @@ class RateLimitCoordinator:
     async def wait_if_limited(self, backend_type: str) -> float:
         """Block until the backend is no longer rate-limited.
 
+        Re-checks the limit after each sleep to handle cases where a
+        new rate limit was reported while waiting.
+
         Returns the number of seconds actually waited (``0.0`` if the
         backend was not limited).
         """
-        async with self._lock:
-            resume_at = self._active_limits.get(backend_type, 0.0)
+        total_waited = 0.0
+        while True:
+            async with self._lock:
+                resume_at = self._active_limits.get(backend_type, 0.0)
 
-        wait_time = resume_at - time.monotonic()
-        if wait_time > 0:
+            wait_time = resume_at - time.monotonic()
+            if wait_time <= 0:
+                break
+
             _logger.info(
                 "rate_limit.waiting",
                 backend=backend_type,
                 seconds=round(wait_time, 1),
             )
             await asyncio.sleep(wait_time)
-            return wait_time
-        return 0.0
+            total_waited += wait_time
+
+        return total_waited
 
     # ─── Sync helpers ──────────────────────────────────────────────
 

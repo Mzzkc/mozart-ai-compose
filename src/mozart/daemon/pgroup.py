@@ -266,7 +266,7 @@ class ProcessGroupManager:
                 )
         except Exception:
             # atexit handlers must not raise — but log for post-mortem debugging
-            _logger.debug("atexit_cleanup_failed", exc_info=True)
+            _logger.warning("atexit_cleanup_failed", exc_info=True)
 
 
 __all__ = ["ProcessGroupManager"]

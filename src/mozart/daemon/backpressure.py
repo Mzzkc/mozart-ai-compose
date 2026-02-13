@@ -79,7 +79,21 @@ class BackpressureController:
           - >70%                               → MEDIUM
           - >50%                               → LOW
           - otherwise                          → NONE
+
+        Note: ``is_accepting_work()`` also checks child process count
+        against ``ResourceLimitConfig.max_processes``.  When process
+        count exceeds 80% of the configured limit, ``is_accepting_work()``
+        returns ``False``, which triggers the CRITICAL path here.  This
+        means high process counts indirectly escalate backpressure to
+        CRITICAL even when memory usage is low.
+
+        TOCTOU fix (P007): memory is read once and reused for all
+        threshold checks.  ``is_accepting_work()`` is still called for
+        its process-count check, but the memory percentage used in
+        threshold comparisons comes from the single snapshot above.
         """
+        # Single snapshot of memory — avoids TOCTOU where memory changes
+        # between our percentage check and is_accepting_work()'s check.
         current_mem = self._monitor.current_memory_mb()
         if current_mem is None or self._monitor.is_degraded:
             return PressureLevel.CRITICAL
@@ -87,7 +101,12 @@ class BackpressureController:
         max_mem = max(self._monitor.max_memory_mb, 1)
         memory_pct = current_mem / max_mem
 
-        if memory_pct > 0.95 or not self._monitor.is_accepting_work():
+        # is_accepting_work() re-reads memory internally, but we use our
+        # snapshot for threshold decisions; it's only called for its
+        # process-count gate (returns False when procs > 80% of limit).
+        accepting_work = self._monitor.is_accepting_work()
+
+        if memory_pct > 0.95 or not accepting_work:
             return PressureLevel.CRITICAL
         # NOTE: active_limits is always empty until Phase 3 wires
         # report_rate_limit() from backends — this branch is currently dead.

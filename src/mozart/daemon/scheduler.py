@@ -184,8 +184,35 @@ class GlobalSheetScheduler:
             sheets: All sheets for this job.
             dependencies: Optional DAG — ``{sheet_num: {dependency_sheet_nums}}``.
                           If None, all sheets are independent.
+
+        Raises:
+            ValueError: If dependencies contain a cycle (would deadlock).
         """
+        if dependencies:
+            cycle = self._detect_cycle(dependencies)
+            if cycle:
+                raise ValueError(
+                    f"Circular dependency detected in job {job_id}: "
+                    f"{' → '.join(str(n) for n in cycle)}"
+                )
+
         async with self._lock:
+            # Guard against duplicate registration: remove stale heap
+            # entries from any prior registration of this job_id.
+            if job_id in self._job_all_sheets:
+                self._queue = [
+                    e for e in self._queue if e.info.job_id != job_id
+                ]
+                heapq.heapify(self._queue)
+                # Adjust active count for any running sheets being discarded
+                old_running = self._running.pop(job_id, set())
+                self._active_count = max(0, self._active_count - len(old_running))
+                _logger.warning(
+                    "scheduler.duplicate_register",
+                    job_id=job_id,
+                    msg="Re-registering job; previous entries purged",
+                )
+
             deps = dependencies or {}
             self._job_deps[job_id] = deps
             self._job_completed[job_id] = set()
@@ -283,9 +310,20 @@ class GlobalSheetScheduler:
                 # but rate_limiter._lock is #2, scheduler._lock is #1 — OK
                 # to call while holding #1)
                 if self._rate_limiter is not None:
-                    is_limited, _ = await self._rate_limiter.is_rate_limited(
-                        entry.info.backend_type,
-                    )
+                    try:
+                        is_limited, _ = await self._rate_limiter.is_rate_limited(
+                            entry.info.backend_type,
+                        )
+                    except Exception:
+                        # Fail-safe: treat rate limiter errors as "skip" to
+                        # avoid leaking the popped entry.
+                        _logger.warning(
+                            "scheduler.rate_limiter_error",
+                            job_id=job_id,
+                            sheet_num=entry.info.sheet_num,
+                        )
+                        skipped.append(entry)
+                        continue
                     if is_limited:
                         skipped.append(entry)
                         continue
@@ -326,10 +364,24 @@ class GlobalSheetScheduler:
             success: Whether execution succeeded.
         """
         async with self._lock:
+            # Early-return for unknown job_id to prevent memory leaks
+            # from stale or misrouted completion messages.
+            if job_id not in self._job_all_sheets:
+                _logger.debug(
+                    "scheduler.mark_complete_unknown_job",
+                    job_id=job_id,
+                    sheet_num=sheet_num,
+                )
+                return
+
             running = self._running.get(job_id)
-            if running is not None:
+            actually_was_running = False
+            if running is not None and sheet_num in running:
                 running.discard(sheet_num)
-            self._active_count = max(0, self._active_count - 1)
+                actually_was_running = True
+
+            if actually_was_running:
+                self._active_count = max(0, self._active_count - 1)
 
             completed = self._job_completed.setdefault(job_id, set())
             completed.add(sheet_num)
@@ -418,6 +470,66 @@ class GlobalSheetScheduler:
         if active_job_count <= 0:
             return float(self._max_concurrent)
         return max(1.0, self._max_concurrent / active_job_count)
+
+    @staticmethod
+    def _detect_cycle(deps: dict[int, set[int]]) -> list[int] | None:
+        """Detect a cycle in the dependency graph using DFS.
+
+        Returns the cycle as a list of sheet numbers (e.g. [1, 2, 3, 1])
+        if found, or None if the graph is acyclic.
+        """
+        # Build full node set from both keys and values
+        all_nodes: set[int] = set(deps.keys())
+        for dep_set in deps.values():
+            all_nodes.update(dep_set)
+
+        WHITE, GRAY, BLACK = 0, 1, 2
+        color: dict[int, int] = {n: WHITE for n in all_nodes}
+        parent: dict[int, int | None] = {n: None for n in all_nodes}
+
+        def dfs(node: int) -> list[int] | None:
+            color[node] = GRAY
+            # Edges: node depends on deps, but cycle detection needs
+            # forward edges. deps[node] = {prerequisites of node}.
+            # The graph edge is prerequisite → node (prerequisite must
+            # finish before node).  For cycle detection we traverse
+            # "node → its dependents" which is the reverse direction.
+            # Actually, we want to detect cycles in the "must-come-before"
+            # relation.  If A depends on B, B must come before A, so
+            # edge B→A.  A cycle in this graph means deadlock.
+            # Let's build adjacency as: for each node, its successors
+            # are nodes that depend on it.
+            for successor in adjacency.get(node, []):
+                if color[successor] == GRAY:
+                    # Found cycle — reconstruct
+                    cycle = [successor, node]
+                    n = parent[node]
+                    while n is not None and n != successor:
+                        cycle.append(n)
+                        n = parent[n]
+                    cycle.reverse()
+                    cycle.append(successor)  # close the cycle
+                    return cycle
+                if color[successor] == WHITE:
+                    parent[successor] = node
+                    result = dfs(successor)
+                    if result is not None:
+                        return result
+            color[node] = BLACK
+            return None
+
+        # Build forward adjacency: prerequisite → [dependents]
+        adjacency: dict[int, list[int]] = {}
+        for node, prerequisites in deps.items():
+            for prereq in prerequisites:
+                adjacency.setdefault(prereq, []).append(node)
+
+        for node in all_nodes:
+            if color[node] == WHITE:
+                result = dfs(node)
+                if result is not None:
+                    return result
+        return None
 
     def _enqueue_ready_dependents(self, job_id: str) -> None:
         """Enqueue sheets whose dependencies are now satisfied.

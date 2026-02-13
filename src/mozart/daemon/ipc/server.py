@@ -102,7 +102,16 @@ class DaemonServer:
         for task in self._connections:
             task.cancel()
         if self._connections:
-            await asyncio.gather(*self._connections, return_exceptions=True)
+            results = await asyncio.gather(*self._connections, return_exceptions=True)
+            for result in results:
+                if isinstance(result, BaseException) and not isinstance(
+                    result, asyncio.CancelledError
+                ):
+                    _logger.warning(
+                        "ipc_server.connection_exception_during_stop",
+                        error=str(result),
+                        error_type=type(result).__name__,
+                    )
         self._connections.clear()
 
         # Clean up socket file

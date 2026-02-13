@@ -65,9 +65,11 @@ class JobService:
         *,
         output: OutputProtocol | None = None,
         global_learning_store: GlobalLearningStore | None = None,
+        rate_limit_callback: Any | None = None,
     ) -> None:
         self._output = output or NullOutput()
         self._learning_store = global_learning_store
+        self._rate_limit_callback = rate_limit_callback
 
     # ─── Job Lifecycle ───────────────────────────────────────────────────
 
@@ -342,6 +344,7 @@ class JobService:
             progress_callback=_progress_callback,
             global_learning_store=components["global_learning_store"] or self._learning_store,
             grounding_engine=components["grounding_engine"],
+            rate_limit_callback=self._rate_limit_callback,
             self_healing_enabled=self_healing,
             self_healing_auto_confirm=self_healing_auto_confirm,
         )
@@ -488,7 +491,10 @@ class JobService:
             )
 
         except Exception as e:
-            self._output.log("error", f"Unexpected error: {e}", job_id=job_id)
+            try:
+                self._output.log("error", f"Unexpected error: {e}", job_id=job_id)
+            except Exception:
+                _logger.warning("output_log_failed_during_error", exc_info=True)
             await _notify(
                 notification_manager,
                 notification_manager.notify_job_failed(

@@ -15,6 +15,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from collections.abc import Coroutine
 from typing import Any
 
 import mozart
@@ -28,6 +29,7 @@ from mozart.daemon.monitor import ResourceMonitor
 from mozart.daemon.output import StructuredOutput
 from mozart.daemon.rate_coordinator import RateLimitCoordinator
 from mozart.daemon.scheduler import GlobalSheetScheduler
+from mozart.daemon.task_utils import log_task_exception
 from mozart.daemon.types import JobRequest, JobResponse
 
 _logger = get_logger("daemon.manager")
@@ -147,6 +149,7 @@ class JobManager:
         self._service = JobService(
             output=StructuredOutput(),
             global_learning_store=self._learning_hub.store,
+            rate_limit_callback=self._on_rate_limit,
         )
         _logger.info(
             "manager.started",
@@ -275,8 +278,7 @@ class JobManager:
     async def cancel_job(self, job_id: str) -> bool:
         """Cancel a running job task.
 
-        TODO(Phase 3 — scheduler integration): Call
-        ``await self._scheduler.deregister_job(job_id)`` here to remove
+        Deregisters the job from the global sheet scheduler to remove
         any pending sheets from the global queue on cancellation.
         """
         task = self._jobs.get(job_id)
@@ -288,6 +290,7 @@ class JobManager:
         if meta:
             meta.status = DaemonJobStatus.CANCELLED
 
+        await self._scheduler.deregister_job(job_id)
         _logger.info("job.cancelled", job_id=job_id)
         return True
 
@@ -317,7 +320,12 @@ class JobManager:
     # ─── Shutdown ─────────────────────────────────────────────────────
 
     async def shutdown(self, graceful: bool = True) -> None:
-        """Cancel all running jobs, optionally waiting for sheets."""
+        """Cancel all running jobs, optionally waiting for sheets.
+
+        Deregisters all active jobs from the global sheet scheduler
+        to clean up any pending sheets, running-sheet tracking, and
+        dependency data before the daemon exits.
+        """
         self._shutting_down = True
 
         if graceful:
@@ -338,16 +346,37 @@ class JobManager:
                 for task in pending:
                     task.cancel()
                 if pending:
-                    await asyncio.gather(*pending, return_exceptions=True)
+                    results = await asyncio.gather(*pending, return_exceptions=True)
+                    for result in results:
+                        if isinstance(result, BaseException):
+                            _logger.warning(
+                                "manager.shutdown_task_exception",
+                                error=str(result),
+                                error_type=type(result).__name__,
+                            )
         else:
             _logger.info("manager.shutting_down", graceful=False)
             for task in self._jobs.values():
                 if not task.done():
                     task.cancel()
             if self._jobs:
-                await asyncio.gather(
+                results = await asyncio.gather(
                     *self._jobs.values(), return_exceptions=True,
                 )
+                for result in results:
+                    if isinstance(result, BaseException):
+                        _logger.warning(
+                            "manager.shutdown_task_exception",
+                            error=str(result),
+                            error_type=type(result).__name__,
+                        )
+
+        # Deregister all known jobs from the scheduler to clean up
+        # heap entries, running-sheet tracking, and dependency data.
+        # Uses _job_meta (not _jobs) because task done-callbacks may
+        # have already cleared entries from _jobs during cancellation.
+        for job_id in list(self._job_meta.keys()):
+            await self._scheduler.deregister_job(job_id)
 
         self._jobs.clear()
 
@@ -428,10 +457,32 @@ class JobManager:
 
     # ─── Internal ─────────────────────────────────────────────────────
 
+    async def _on_rate_limit(
+        self,
+        backend_type: str,
+        wait_seconds: float,
+        job_id: str,
+        sheet_num: int,
+    ) -> None:
+        """Forward rate limit events from runners to the coordinator.
+
+        Wiring prerequisite (P025): This callback is passed through
+        JobService → RunnerContext → RecoveryMixin._handle_rate_limit()
+        so that rate limit detections from any running job feed into the
+        daemon's centralized RateLimitCoordinator.  The coordinator
+        then informs the scheduler to skip the limited backend.
+        """
+        await self._rate_coordinator.report_rate_limit(
+            backend_type=backend_type,
+            wait_seconds=wait_seconds,
+            job_id=job_id,
+            sheet_num=sheet_num,
+        )
+
     async def _run_managed_task(
         self,
         job_id: str,
-        coro: Any,
+        coro: Coroutine[Any, Any, DaemonJobStatus | None],
         *,
         start_event: str = "job.started",
         fail_event: str = "job.failed",
@@ -534,6 +585,7 @@ class JobManager:
     def _on_task_done(self, job_id: str, task: asyncio.Task[Any]) -> None:
         """Callback when a job task completes (success, error, or cancel)."""
         self._jobs.pop(job_id, None)
+        log_task_exception(task, _logger, "job.task_failed")
 
         exc = task.exception() if not task.cancelled() else None
         if exc:
@@ -560,8 +612,14 @@ class JobManager:
         )
         excess = len(terminal) - max_history
         if excess > 0:
-            for jid, _ in terminal[:excess]:
+            pruned_ids = [jid for jid, _ in terminal[:excess]]
+            for jid in pruned_ids:
                 self._job_meta.pop(jid, None)
+            _logger.debug(
+                "manager.job_history_pruned",
+                pruned_count=excess,
+                oldest_pruned=pruned_ids[0],
+            )
 
 
 __all__ = ["DaemonJobStatus", "JobManager", "JobMeta"]

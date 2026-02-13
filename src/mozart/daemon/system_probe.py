@@ -61,7 +61,7 @@ class SystemProbe:
                         return int(line.split()[1]) / 1024  # kB -> MB
         except (OSError, ValueError):
             pass
-        _logger.debug("memory_probe_failed", exc_info=True)
+        _logger.warning("memory_probe_failed_all_methods", exc_info=True)
         return None
 
     @staticmethod
@@ -134,7 +134,7 @@ class SystemProbe:
         except ImportError:
             pass
         except Exception:
-            _logger.debug("zombie_scan_failed", exc_info=True)
+            _logger.warning("zombie_scan_failed", exc_info=True)
             return found
         return SystemProbe._waitpid_reap_loop()
 
@@ -192,7 +192,7 @@ class SystemProbe:
                 if ppid == my_pid:
                     count += 1
         except OSError:
-            _logger.debug("child_process_probe_failed", exc_info=True)
+            _logger.warning("child_process_probe_failed", exc_info=True)
         return count
 
     @staticmethod
