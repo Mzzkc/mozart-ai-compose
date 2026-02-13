@@ -634,6 +634,57 @@ class JobManager:
 
         self._prune_job_history()
 
+    # ─── Wiring Adapters (Phase 3 prep) ─────────────────────────────
+
+    @staticmethod
+    def _build_sheet_infos(
+        job_id: str,
+        config: Any,
+    ) -> list[Any]:
+        """Build a list of ``SheetInfo`` objects from a ``JobConfig``.
+
+        Translates config-layer sheet definitions into scheduler-layer
+        ``SheetInfo`` dataclasses.  Each sheet gets the backend type and
+        model from the job config, so the scheduler can forward them to
+        the rate limiter for per-model tracking.
+
+        Stub — returns an empty list until Phase 3 wires per-sheet dispatch.
+
+        Args:
+            job_id: The daemon's job identifier.
+            config: A ``JobConfig`` instance (typed as Any to avoid import
+                    in this stub phase).
+
+        Returns:
+            A list of ``SheetInfo`` objects, one per concrete sheet.
+        """
+        # TODO(Phase 3 wiring): Implement translation from
+        # config.sheet → SheetInfo list, using config.backend.type
+        # and config.backend.model / config.backend.cli_model.
+        return []
+
+    @staticmethod
+    def _build_dependency_map(
+        config: Any,
+    ) -> dict[int, set[int]]:
+        """Build a sheet dependency DAG from a ``JobConfig``.
+
+        Translates ``config.sheet.dependencies`` (``dict[int, list[int]]``)
+        into the scheduler's format (``dict[int, set[int]]``).
+
+        Stub — returns an empty dict until Phase 3 wires per-sheet dispatch.
+
+        Args:
+            config: A ``JobConfig`` instance.
+
+        Returns:
+            Dependency map: ``{sheet_num: {prerequisite_sheet_nums}}``.
+        """
+        # TODO(Phase 3 wiring): return {
+        #     sn: set(deps) for sn, deps in config.sheet.dependencies.items()
+        # }
+        return {}
+
     def _prune_job_history(self) -> None:
         """Evict oldest terminal jobs when history exceeds max_job_history."""
         max_history = self._config.max_job_history

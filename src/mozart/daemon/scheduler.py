@@ -64,6 +64,11 @@ class SheetInfo:
     job_id: str
     sheet_num: int
     backend_type: str = "claude_cli"
+    # Optional model identifier for per-model rate limit tracking.
+    # When set, the scheduler forwards it to ``RateLimitChecker.is_rate_limited()``
+    # so rate limits can be tracked per model (e.g. claude-sonnet vs claude-haiku)
+    # rather than per backend type only.
+    model: str | None = None
     # Expected range 0-100 (relative units).  The priority formula applies
     # a 0.1× weight, so a cost of 100 adds +10 priority — comparable to
     # one priority tier.  Values >1000 may overwhelm the base priority
@@ -361,6 +366,7 @@ class GlobalSheetScheduler:
                     try:
                         is_limited, _ = await self._rate_limiter.is_rate_limited(
                             entry.info.backend_type,
+                            model=entry.info.model,
                         )
                     except Exception:
                         # Fail-safe: treat rate limiter errors as "skip" to

@@ -31,7 +31,7 @@ class PressureLevel(Enum):
 
     NONE = "none"          # All systems go
     LOW = "low"            # Slight delay between sheets
-    MEDIUM = "medium"      # Significant delay, warn on new jobs
+    MEDIUM = "medium"      # Significant delay between sheets
     HIGH = "high"          # Reject new jobs, wait for relief
     CRITICAL = "critical"  # Emergency: cancel lowest-priority jobs
 
@@ -108,8 +108,9 @@ class BackpressureController:
 
         if memory_pct > 0.95 or not accepting_work:
             return PressureLevel.CRITICAL
-        # NOTE: active_limits is always empty until Phase 3 wires
-        # report_rate_limit() from backends — this branch is currently dead.
+        # Rate limit escalation: when any backend is actively rate-limited,
+        # escalate to HIGH even if memory is below the 85% threshold.
+        # Data flows via JobManager._on_rate_limit → RateLimitCoordinator.
         if memory_pct > 0.85 or self._rate_coordinator.active_limits:
             return PressureLevel.HIGH
         if memory_pct > 0.70:

@@ -1,8 +1,9 @@
 """Tests for mozart.daemon.rate_coordinator module.
 
 Covers RateLimitCoordinator: reporting, querying via the RateLimitChecker
-protocol, waiting, sync helpers, event pruning, and integration with
-the GlobalSheetScheduler.
+protocol, event pruning, input validation (NaN/inf/negative/huge waits),
+concurrent stress (parallel reports, queries, and prune), report-expire-
+re-report cycles, and integration with the GlobalSheetScheduler.
 """
 
 from __future__ import annotations
