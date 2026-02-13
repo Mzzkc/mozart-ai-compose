@@ -191,7 +191,7 @@ class DaemonServer:
                 writer.close()
                 await writer.wait_closed()
             except Exception:
-                pass  # Best-effort cleanup
+                _logger.debug("writer_close_failed", peer=str(peer), exc_info=True)
             _logger.debug("client_disconnected", peer=str(peer))
 
     async def _process_message(

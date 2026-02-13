@@ -24,7 +24,6 @@ from mozart.core.checkpoint import CheckpointState, JobStatus
 from mozart.notifications import NotificationManager
 
 from ..helpers import (
-    create_notifiers_from_config,
     is_quiet,
     is_verbose,
 )
@@ -48,6 +47,9 @@ def create_backend(
 ) -> Backend:
     """Create the appropriate execution backend from job config.
 
+    Delegates to ``execution.setup.create_backend()`` for core logic,
+    then adds verbose CLI console output.
+
     Args:
         config: Job configuration with backend settings.
         quiet: If True, suppress verbose logging.
@@ -56,25 +58,20 @@ def create_backend(
     Returns:
         Configured Backend instance.
     """
-    from mozart.backends.anthropic_api import AnthropicApiBackend
-    from mozart.backends.claude_cli import ClaudeCliBackend
-    from mozart.backends.recursive_light import RecursiveLightBackend
+    from mozart.execution.setup import create_backend as _create_backend
 
-    if config.backend.type == "recursive_light":
-        rl_config = config.backend.recursive_light
-        backend: Backend = RecursiveLightBackend.from_config(config.backend)
-        if not quiet and is_verbose() and console:
+    backend = _create_backend(config)
+
+    if not quiet and is_verbose() and console:
+        if config.backend.type == "recursive_light":
+            rl_config = config.backend.recursive_light
             console.print(
                 f"[dim]Using Recursive Light backend at {rl_config.endpoint}[/dim]"
             )
-    elif config.backend.type == "anthropic_api":
-        backend = AnthropicApiBackend.from_config(config.backend)
-        if not quiet and is_verbose() and console:
+        elif config.backend.type == "anthropic_api":
             console.print(
                 f"[dim]Using Anthropic API backend with model {config.backend.model}[/dim]"
             )
-    else:
-        backend = ClaudeCliBackend.from_config(config.backend)
 
     return backend
 
@@ -87,6 +84,9 @@ def setup_learning(
 ) -> tuple[OutcomeStore | None, GlobalLearningStore | None]:
     """Setup outcome store and global learning store if learning is enabled.
 
+    Delegates to ``execution.setup.setup_learning()`` for core logic,
+    then adds verbose CLI console output.
+
     Args:
         config: Job configuration with learning settings.
         quiet: If True, suppress verbose logging.
@@ -95,26 +95,18 @@ def setup_learning(
     Returns:
         Tuple of (outcome_store, global_learning_store), either may be None.
     """
-    outcome_store: OutcomeStore | None = None
-    global_learning_store: GlobalLearningStore | None = None
+    from mozart.execution.setup import setup_learning as _setup_learning
 
-    if config.learning.enabled:
-        from mozart.learning.global_store import get_global_store
-        from mozart.learning.outcomes import JsonOutcomeStore
+    outcome_store, global_learning_store = _setup_learning(config)
 
+    if outcome_store is not None and not quiet and is_verbose() and console:
         outcome_store_path = config.get_outcome_store_path()
-        if config.learning.outcome_store_type == "json":
-            outcome_store = JsonOutcomeStore(outcome_store_path)
-
-        global_learning_store = get_global_store()
-
-        if not quiet and is_verbose() and console:
-            console.print(
-                f"[dim]Learning enabled: outcomes at {outcome_store_path}[/dim]"
-            )
-            console.print(
-                "[dim]Global learning enabled: cross-workspace patterns active[/dim]"
-            )
+        console.print(
+            f"[dim]Learning enabled: outcomes at {outcome_store_path}[/dim]"
+        )
+        console.print(
+            "[dim]Global learning enabled: cross-workspace patterns active[/dim]"
+        )
 
     return outcome_store, global_learning_store
 
@@ -127,6 +119,9 @@ def setup_notifications(
 ) -> NotificationManager | None:
     """Setup notification manager from config.
 
+    Delegates to ``execution.setup.setup_notifications()`` for core logic,
+    then adds verbose CLI console output.
+
     Args:
         config: Job configuration with notification settings.
         quiet: If True, suppress verbose logging.
@@ -135,17 +130,13 @@ def setup_notifications(
     Returns:
         NotificationManager if notifications configured, else None.
     """
-    if not config.notifications:
-        return None
+    from mozart.execution.setup import setup_notifications as _setup_notifications
 
-    notifiers = create_notifiers_from_config(config.notifications)
-    if not notifiers:
-        return None
+    notification_manager = _setup_notifications(config)
 
-    notification_manager = NotificationManager(notifiers)
-    if not quiet and is_verbose() and console:
+    if notification_manager is not None and not quiet and is_verbose() and console:
         console.print(
-            f"[dim]Notifications enabled: {len(notifiers)} channel(s) configured[/dim]"
+            f"[dim]Notifications enabled[/dim]"
         )
     return notification_manager
 
@@ -193,6 +184,9 @@ def setup_grounding(
 ) -> GroundingEngine | None:
     """Setup grounding engine with hooks from config.
 
+    Delegates to ``execution.setup.setup_grounding()`` for core logic,
+    then adds verbose CLI console output.
+
     Args:
         config: Job configuration with grounding settings.
         quiet: If True, suppress verbose logging.
@@ -201,24 +195,11 @@ def setup_grounding(
     Returns:
         GroundingEngine if grounding enabled, else None.
     """
-    if not config.grounding.enabled:
-        return None
+    from mozart.execution.setup import setup_grounding as _setup_grounding
 
-    from mozart.execution.grounding import GroundingEngine, create_hook_from_config
+    engine = _setup_grounding(config)
 
-    engine = GroundingEngine(hooks=[], config=config.grounding)
-
-    for hook_config in config.grounding.hooks:
-        try:
-            hook = create_hook_from_config(hook_config)
-            engine.add_hook(hook)
-            if not quiet and is_verbose() and console:
-                console.print(f"[dim]  Registered hook: {hook.name}[/dim]")
-        except ValueError as e:
-            if console:
-                console.print(f"[yellow]Warning: Failed to create hook: {e}[/yellow]")
-
-    if not quiet and is_verbose() and console:
+    if engine is not None and not quiet and is_verbose() and console:
         hook_count = engine.get_hook_count()
         console.print(
             f"[dim]Grounding enabled: {hook_count} hook(s) registered[/dim]"

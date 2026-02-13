@@ -87,44 +87,34 @@ class SystemProbe:
 
     @staticmethod
     def get_zombies() -> list[int]:
-        """Detect zombie child processes.
-
-        Uses psutil to iterate children and check status, falls back
-        to ``os.waitpid(-1, WNOHANG)`` to reap any zombie children.
+        """Detect zombie child processes (without reaping).
 
         Returns:
             List of zombie PIDs that were detected (not necessarily reaped).
         """
-        zombies: list[int] = []
-        try:
-            import psutil
-
-            current = psutil.Process()
-            for child in current.children(recursive=True):
-                try:
-                    if child.status() == psutil.STATUS_ZOMBIE:
-                        zombies.append(child.pid)
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    continue
-            return zombies
-        except ImportError:
-            pass
-        except Exception:
-            _logger.debug("zombie_probe_failed", exc_info=True)
-            return zombies
-        return SystemProbe._waitpid_reap_loop()
+        return SystemProbe._scan_zombies(reap=False)
 
     @staticmethod
     def reap_zombies() -> list[int]:
         """Detect and reap zombie child processes.
 
-        Similar to ``get_zombies()`` but also calls ``os.waitpid()``
-        for each detected zombie (psutil path) to actually reap them.
-
         Returns:
             List of PIDs that were reaped.
         """
-        reaped: list[int] = []
+        return SystemProbe._scan_zombies(reap=True)
+
+    @staticmethod
+    def _scan_zombies(*, reap: bool) -> list[int]:
+        """Shared implementation for zombie detection and reaping.
+
+        Uses psutil to iterate children and check status, falls back
+        to ``os.waitpid(-1, WNOHANG)`` which inherently reaps.
+
+        Args:
+            reap: If True, call ``os.waitpid()`` on each zombie found
+                  via psutil to actually reap it.
+        """
+        found: list[int] = []
         try:
             import psutil
 
@@ -132,19 +122,20 @@ class SystemProbe:
             for child in current.children(recursive=True):
                 try:
                     if child.status() == psutil.STATUS_ZOMBIE:
-                        try:
-                            os.waitpid(child.pid, os.WNOHANG)
-                        except ChildProcessError:
-                            pass
-                        reaped.append(child.pid)
+                        if reap:
+                            try:
+                                os.waitpid(child.pid, os.WNOHANG)
+                            except ChildProcessError:
+                                pass
+                        found.append(child.pid)
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
-            return reaped
+            return found
         except ImportError:
             pass
         except Exception:
-            _logger.debug("zombie_reap_failed", exc_info=True)
-            return reaped
+            _logger.debug("zombie_scan_failed", exc_info=True)
+            return found
         return SystemProbe._waitpid_reap_loop()
 
     @staticmethod

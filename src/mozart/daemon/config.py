@@ -90,18 +90,19 @@ class DaemonConfig(BaseModel):
         default=10,
         ge=1,
         le=100,
-        description="Global limit on parallel sheet executions across all jobs. "
-        "Prevents resource exhaustion when multiple parallel-mode jobs run.",
+        description="Reserved for Phase 3 scheduler — NOT YET ENFORCED. "
+        "Will set the global limit on parallel sheet executions across all jobs. "
+        "Setting a non-default value will log a warning at startup.",
     )
     resource_limits: ResourceLimitConfig = Field(
         default_factory=ResourceLimitConfig,
         description="Resource constraints for the daemon process",
     )
-    state_backend_type: Literal["json", "sqlite"] = Field(
+    state_backend_type: Literal["sqlite"] = Field(
         default="sqlite",
-        description="Reserved for future use; not yet implemented. "
-        "Will select the backend for daemon-level state persistence. "
-        "SQLite is preferred for concurrent writes from the daemon.",
+        description="Reserved — will enable persistent daemon state in a future "
+        "release. Currently frozen to 'sqlite'; changing has no effect. "
+        "Setting a non-default value will log a warning at startup.",
     )
     state_db_path: Path = Field(
         default=Path("~/.mozart/daemon-state.db"),
@@ -136,5 +137,6 @@ class DaemonConfig(BaseModel):
     )
     config_file: Path | None = Field(
         default=None,
-        description="Path to daemon config file for SIGHUP reloading",
+        description="Reserved for future config reload support. "
+        "Not yet functional — SIGHUP reload is not implemented.",
     )

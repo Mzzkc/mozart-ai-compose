@@ -380,7 +380,7 @@ class TestGetDaemonStatus:
         assert "running_jobs" in status
         assert status["running_jobs"] == 0
         assert "version" in status
-        assert "total_sheets_active" in status
+        assert "total_jobs_active" in status
 
     @pytest.mark.asyncio
     async def test_get_daemon_status_counts_running_jobs(self, manager: JobManager):
@@ -714,3 +714,51 @@ class TestJobHistoryPruning:
         assert "old-0" not in mgr._job_meta
         assert "old-1" in mgr._job_meta
         assert "old-10" in mgr._job_meta
+
+
+# ─── Failure Rate ────────────────────────────────────────────────────
+
+
+class TestFailureRate:
+    """Tests for failure_rate_elevated property."""
+
+    @pytest.mark.asyncio
+    async def test_not_elevated_initially(self, manager: JobManager):
+        """failure_rate_elevated is False with no failures."""
+        assert manager.failure_rate_elevated is False
+
+    @pytest.mark.asyncio
+    async def test_not_elevated_with_few_failures(self, manager: JobManager):
+        """failure_rate_elevated is False with <= threshold failures."""
+        import time as _time
+
+        now = _time.monotonic()
+        for _ in range(3):
+            manager._recent_failures.append(now)
+
+        assert manager.failure_rate_elevated is False
+
+    @pytest.mark.asyncio
+    async def test_elevated_above_threshold(self, manager: JobManager):
+        """failure_rate_elevated is True with > threshold recent failures."""
+        import time as _time
+
+        now = _time.monotonic()
+        for _ in range(4):
+            manager._recent_failures.append(now)
+
+        assert manager.failure_rate_elevated is True
+
+    @pytest.mark.asyncio
+    async def test_old_failures_pruned(self, manager: JobManager):
+        """Failures older than the window are pruned and don't count."""
+        import time as _time
+
+        now = _time.monotonic()
+        # Add 5 failures that are 120 seconds old (well outside 60s window)
+        for _ in range(5):
+            manager._recent_failures.append(now - 120.0)
+
+        assert manager.failure_rate_elevated is False
+        # Verify pruning occurred
+        assert len(manager._recent_failures) == 0

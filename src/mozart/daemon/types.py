@@ -82,8 +82,8 @@ class DaemonStatus(BaseModel):
     running_jobs: int = Field(
         description="Number of currently executing jobs",
     )
-    total_sheets_active: int = Field(
-        description="Total sheet executions in progress across all jobs",
+    total_jobs_active: int = Field(
+        description="Total active jobs (proxy for sheet count until Phase 3 scheduler is wired)",
     )
     memory_usage_mb: float = Field(
         description="Current RSS memory usage in MB",

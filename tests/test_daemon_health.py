@@ -21,8 +21,9 @@ def mock_manager():
     """Create a mock JobManager with controllable counts."""
     m = MagicMock()
     m.running_count = 2
-    m.active_sheet_count = 3
+    m.active_job_count = 3
     m.shutting_down = False
+    m.failure_rate_elevated = False
     return m
 
 
@@ -127,6 +128,32 @@ class TestReadiness:
              patch.object(monitor, "_check_for_zombies", return_value=[]):
             result = await health_checker.readiness()
             assert result["uptime_seconds"] >= 120.0
+
+    @pytest.mark.asyncio
+    async def test_readiness_not_ready_when_failure_rate_elevated(
+        self, health_checker, monitor, mock_manager,
+    ):
+        """When failure rate is elevated, readiness degrades to not_ready."""
+        mock_manager.failure_rate_elevated = True
+        with patch.object(monitor, "_get_memory_usage_mb", return_value=100.0), \
+             patch.object(monitor, "_get_child_process_count", return_value=5), \
+             patch.object(monitor, "_check_for_zombies", return_value=[]):
+            result = await health_checker.readiness()
+            assert result["status"] == "not_ready"
+            assert result["accepting_work"] is False
+            assert result["failure_rate_elevated"] is True
+
+    @pytest.mark.asyncio
+    async def test_readiness_includes_failure_rate_field(
+        self, health_checker, monitor,
+    ):
+        """Readiness response includes failure_rate_elevated field."""
+        with patch.object(monitor, "_get_memory_usage_mb", return_value=100.0), \
+             patch.object(monitor, "_get_child_process_count", return_value=5), \
+             patch.object(monitor, "_check_for_zombies", return_value=[]):
+            result = await health_checker.readiness()
+            assert "failure_rate_elevated" in result
+            assert result["failure_rate_elevated"] is False
 
 
 # ─── ResourceMonitor.is_accepting_work ────────────────────────────────

@@ -6,7 +6,7 @@ process count tracking, is_accepting_work(), and psutil fallback.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -76,7 +76,8 @@ def mock_manager() -> MagicMock:
     """Mock JobManager for monitor tests."""
     mgr = MagicMock()
     mgr.running_count = 0
-    mgr.active_sheet_count = 0
+    mgr.active_job_count = 0
+    mgr.rate_coordinator.prune_stale = AsyncMock(return_value=0)
     return mgr
 
 
@@ -113,7 +114,7 @@ class TestCheckNow:
     ):
         """check_now pulls running_jobs and active_sheets from manager."""
         mock_manager.running_count = 3
-        mock_manager.active_sheet_count = 7
+        mock_manager.active_job_count = 7
 
         with (
             patch.object(ResourceMonitor, "_get_memory_usage_mb", return_value=100.0),

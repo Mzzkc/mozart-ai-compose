@@ -194,5 +194,30 @@ class RateLimitCoordinator:
             reverse=True,
         )
 
+    # ─── Maintenance ──────────────────────────────────────────────
+
+    async def prune_stale(self) -> int:
+        """Remove expired events and limits.
+
+        Called periodically by ``ResourceMonitor._loop()`` to prevent
+        unbounded memory growth.  Currently ``report_rate_limit()``
+        also prunes on each call, but since it has zero callers
+        (Phase 3 not yet wired), this method is the only active
+        pruning path.
+
+        Returns:
+            Number of stale events removed.
+        """
+        now = time.monotonic()
+        async with self._lock:
+            before = len(self._events)
+            cutoff = now - 3600
+            self._events = [e for e in self._events if e.detected_at > cutoff]
+            # Remove expired limits
+            self._active_limits = {
+                k: v for k, v in self._active_limits.items() if v > now
+            }
+            return before - len(self._events)
+
 
 __all__ = ["RateLimitCoordinator", "RateLimitEvent"]

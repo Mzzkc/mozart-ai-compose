@@ -367,7 +367,7 @@ async def daemon_status() -> dict[str, Any]:
             "pid": status.pid,
             "uptime_seconds": status.uptime_seconds,
             "running_jobs": status.running_jobs,
-            "total_sheets_active": status.total_sheets_active,
+            "total_jobs_active": status.total_jobs_active,
             "memory_usage_mb": status.memory_usage_mb,
             "version": status.version,
         }

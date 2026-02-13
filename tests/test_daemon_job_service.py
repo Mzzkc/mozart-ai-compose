@@ -234,14 +234,19 @@ class TestGetStatus:
         assert result is None
 
 
-# ─── _create_backend ──────────────────────────────────────────────────────
+# ─── create_backend (execution.setup) ─────────────────────────────────────
 
 
 class TestCreateBackend:
-    """Tests for JobService._create_backend()."""
+    """Tests for execution.setup.create_backend().
 
-    def test_claude_cli_backend(self, job_service: JobService):
-        """Test _create_backend creates ClaudeCliBackend for claude_cli."""
+    These test the shared setup module that both CLI and daemon use.
+    """
+
+    def test_claude_cli_backend(self):
+        """Test create_backend creates ClaudeCliBackend for claude_cli."""
+        from mozart.execution.setup import create_backend
+
         mock_config = MagicMock()
         mock_config.backend.type = "claude_cli"
 
@@ -249,11 +254,13 @@ class TestCreateBackend:
             "mozart.backends.claude_cli.ClaudeCliBackend.from_config"
         ) as mock_from_config:
             mock_from_config.return_value = MagicMock()
-            job_service._create_backend(mock_config)
+            create_backend(mock_config)
             mock_from_config.assert_called_once_with(mock_config.backend)
 
-    def test_anthropic_api_backend(self, job_service: JobService):
-        """Test _create_backend creates AnthropicApiBackend for anthropic_api."""
+    def test_anthropic_api_backend(self):
+        """Test create_backend creates AnthropicApiBackend for anthropic_api."""
+        from mozart.execution.setup import create_backend
+
         mock_config = MagicMock()
         mock_config.backend.type = "anthropic_api"
 
@@ -261,11 +268,13 @@ class TestCreateBackend:
             "mozart.backends.anthropic_api.AnthropicApiBackend.from_config"
         ) as mock_from_config:
             mock_from_config.return_value = MagicMock()
-            job_service._create_backend(mock_config)
+            create_backend(mock_config)
             mock_from_config.assert_called_once_with(mock_config.backend)
 
-    def test_recursive_light_backend(self, job_service: JobService):
-        """Test _create_backend creates RecursiveLightBackend for recursive_light."""
+    def test_recursive_light_backend(self):
+        """Test create_backend creates RecursiveLightBackend for recursive_light."""
+        from mozart.execution.setup import create_backend
+
         mock_config = MagicMock()
         mock_config.backend.type = "recursive_light"
 
@@ -273,13 +282,13 @@ class TestCreateBackend:
             "mozart.backends.recursive_light.RecursiveLightBackend.from_config"
         ) as mock_from_config:
             mock_from_config.return_value = MagicMock()
-            job_service._create_backend(mock_config)
+            create_backend(mock_config)
             mock_from_config.assert_called_once_with(mock_config.backend)
 
-    def test_unknown_backend_falls_back_to_claude_cli(
-        self, job_service: JobService
-    ):
-        """Test _create_backend defaults to ClaudeCliBackend for unknown types."""
+    def test_unknown_backend_falls_back_to_claude_cli(self):
+        """Test create_backend defaults to ClaudeCliBackend for unknown types."""
+        from mozart.execution.setup import create_backend
+
         mock_config = MagicMock()
         mock_config.backend.type = "unknown_type"
 
@@ -287,7 +296,7 @@ class TestCreateBackend:
             "mozart.backends.claude_cli.ClaudeCliBackend.from_config"
         ) as mock_from_config:
             mock_from_config.return_value = MagicMock()
-            job_service._create_backend(mock_config)
+            create_backend(mock_config)
             mock_from_config.assert_called_once_with(mock_config.backend)
 
 

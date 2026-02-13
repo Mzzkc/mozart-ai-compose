@@ -93,7 +93,7 @@ class DaemonClient:
                 writer.close()
                 await writer.wait_closed()
             except Exception:
-                pass  # Best-effort cleanup
+                _logger.debug("writer_close_failed", exc_info=True)
 
     # ------------------------------------------------------------------
     # RPC call (single request → single response)
@@ -213,17 +213,20 @@ class DaemonClient:
         result = await self.call("job.status", {"job_id": job_id, "workspace": workspace})
         return cast(dict[str, Any], result)
 
-    async def pause_job(self, job_id: str, workspace: str) -> bool:
-        """Pause a running job."""
-        return cast(bool, await self.call("job.pause", {"job_id": job_id, "workspace": workspace}))
+    async def pause_job(self, job_id: str, workspace: str) -> dict[str, Any]:
+        """Pause a running job. Returns ``{"paused": bool}``."""
+        result = await self.call("job.pause", {"job_id": job_id, "workspace": workspace})
+        return cast(dict[str, Any], result)
 
-    async def resume_job(self, job_id: str, workspace: str) -> bool:
-        """Resume a paused job."""
-        return cast(bool, await self.call("job.resume", {"job_id": job_id, "workspace": workspace}))
+    async def resume_job(self, job_id: str, workspace: str) -> dict[str, Any]:
+        """Resume a paused job. Returns a JobResponse dict."""
+        result = await self.call("job.resume", {"job_id": job_id, "workspace": workspace})
+        return cast(dict[str, Any], result)
 
-    async def cancel_job(self, job_id: str, workspace: str) -> bool:
-        """Cancel a running or paused job."""
-        return cast(bool, await self.call("job.cancel", {"job_id": job_id, "workspace": workspace}))
+    async def cancel_job(self, job_id: str, workspace: str) -> dict[str, Any]:
+        """Cancel a running or paused job. Returns ``{"cancelled": bool}``."""
+        result = await self.call("job.cancel", {"job_id": job_id, "workspace": workspace})
+        return cast(dict[str, Any], result)
 
     async def list_jobs(self) -> list[dict[str, Any]]:
         """List all jobs known to the daemon."""

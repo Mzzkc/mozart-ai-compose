@@ -11,6 +11,7 @@ import os
 import time
 import traceback
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -107,6 +108,7 @@ class JobManager:
         )
         self._shutting_down = False
         self._shutdown_event = asyncio.Event()
+        self._recent_failures: deque[float] = deque()
 
         # Phase 3: Global sheet scheduler for cross-job coordination.
         # Infrastructure is built and tested but not yet wired into the
@@ -307,7 +309,7 @@ class JobManager:
             "pid": os.getpid(),
             "uptime_seconds": round(time.monotonic() - self._start_time, 1),
             "running_jobs": self.running_count,
-            "total_sheets_active": self.active_sheet_count,
+            "total_jobs_active": self.active_job_count,
             "memory_usage_mb": round(mem, 1) if mem is not None else 0.0,
             "version": getattr(mozart, "__version__", "0.1.0"),
         }
@@ -374,16 +376,35 @@ class JobManager:
         )
 
     @property
-    def active_sheet_count(self) -> int:
-        """Total active sheets across all jobs.
+    def active_job_count(self) -> int:
+        """Number of active jobs (proxy for sheet count until Phase 3).
 
-        Returns ``running_count`` as a proxy since the scheduler is
-        not yet wired into the execution path (Phase 3).  When the
-        scheduler drives per-sheet dispatch, this will return
-        ``self._scheduler.active_count`` instead.
+        Returns ``running_count`` since the scheduler is not yet wired
+        into the execution path.  When Phase 3 wires per-sheet dispatch,
+        this should be replaced with a true sheet-level count from
+        ``self._scheduler.active_count``.
         """
         # TODO(Phase 3): return self._scheduler.active_count when wired
         return self.running_count
+
+    _FAILURE_RATE_WINDOW = 60.0  # seconds
+    _FAILURE_RATE_THRESHOLD = 3
+
+    @property
+    def failure_rate_elevated(self) -> bool:
+        """Whether the recent job failure rate is elevated.
+
+        Returns True if more than ``_FAILURE_RATE_THRESHOLD`` unexpected
+        exceptions have occurred within the last ``_FAILURE_RATE_WINDOW``
+        seconds.  Used by ``HealthChecker.readiness()`` to degrade the
+        health signal when systemic failures are occurring.
+        """
+        now = time.monotonic()
+        cutoff = now - self._FAILURE_RATE_WINDOW
+        # Prune expired entries from the left
+        while self._recent_failures and self._recent_failures[0] < cutoff:
+            self._recent_failures.popleft()
+        return len(self._recent_failures) > self._FAILURE_RATE_THRESHOLD
 
     @property
     def scheduler(self) -> GlobalSheetScheduler:
@@ -456,6 +477,7 @@ class JobManager:
                 meta.status = DaemonJobStatus.FAILED
                 meta.error_message = str(exc)
                 meta.error_traceback = traceback.format_exc()
+                self._recent_failures.append(time.monotonic())
                 _logger.exception(fail_event, job_id=job_id)
 
     async def _run_job_task(self, job_id: str, request: JobRequest) -> None:

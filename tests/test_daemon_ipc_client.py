@@ -33,7 +33,7 @@ def _make_test_handler() -> RequestHandler:
             "pid": 12345,
             "uptime_seconds": 100.5,
             "running_jobs": 2,
-            "total_sheets_active": 5,
+            "total_jobs_active": 5,
             "memory_usage_mb": 256.0,
             "version": "0.1.0-test",
         }
@@ -54,7 +54,7 @@ def _make_test_handler() -> RequestHandler:
         }
 
     async def _job_pause(params: dict[str, Any], _writer: asyncio.StreamWriter) -> Any:
-        return True
+        return {"paused": True}
 
     async def _job_list(_params: dict[str, Any], _writer: asyncio.StreamWriter) -> Any:
         return [
@@ -212,7 +212,7 @@ class TestDaemonClientWithServer:
         try:
             client = DaemonClient(sock)
             result = await client.pause_job("my-job", "/tmp/ws")
-            assert result is True
+            assert result == {"paused": True}
         finally:
             await server.stop()
 

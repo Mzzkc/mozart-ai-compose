@@ -17,7 +17,6 @@ Lock ordering (daemon-wide):
 
 from __future__ import annotations
 
-import asyncio
 from enum import Enum
 
 from mozart.core.logging import get_logger
@@ -90,6 +89,8 @@ class BackpressureController:
 
         if memory_pct > 0.95 or not self._monitor.is_accepting_work():
             return PressureLevel.CRITICAL
+        # NOTE: active_limits is always empty until Phase 3 wires
+        # report_rate_limit() from backends — this branch is currently dead.
         if memory_pct > 0.85 or self._rate_coordinator.active_limits:
             return PressureLevel.HIGH
         if memory_pct > 0.70:
@@ -147,23 +148,6 @@ class BackpressureController:
             return False
         return True
 
-    # ─── Sheet-level gate (convenience) ────────────────────────────
-
-    async def gate(self) -> None:
-        """Adaptive delay based on current pressure.
-
-        Convenience method — call before starting each sheet when
-        not using the scheduler's built-in backpressure integration.
-        """
-        level = self.current_level()
-        delay = _LEVEL_DELAYS[level]
-        if delay > 0:
-            _logger.info(
-                "backpressure.delay",
-                level=level.value,
-                delay_seconds=delay,
-            )
-            await asyncio.sleep(delay)
 
 
 __all__ = ["BackpressureController", "PressureLevel"]

@@ -307,44 +307,6 @@ class TestShouldAcceptJob:
             assert controller.should_accept_job() is False
 
 
-# ─── gate() convenience method ───────────────────────────────────────
-
-
-class TestGate:
-    """Tests for the gate() convenience method."""
-
-    @pytest.mark.asyncio
-    async def test_gate_no_delay_at_none(
-        self, controller: BackpressureController,
-    ):
-        """At NONE pressure, gate returns immediately."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
-        ), patch("asyncio.sleep", new_callable=lambda: MagicMock(
-            side_effect=lambda _: asyncio.sleep(0),
-        )) as mock_sleep:
-            await controller.gate()
-            mock_sleep.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_gate_sleeps_at_low(
-        self, controller: BackpressureController,
-    ):
-        """At LOW pressure, gate sleeps for the configured delay."""
-        with patch.object(
-            ResourceMonitor, "_get_memory_usage_mb", return_value=550.0,
-        ), patch.object(
-            ResourceMonitor, "is_accepting_work", return_value=True,
-        ), patch(
-            "mozart.daemon.backpressure.asyncio.sleep",
-            return_value=None,
-        ) as mock_sleep:
-            await controller.gate()
-            mock_sleep.assert_awaited_once_with(_LEVEL_DELAYS[PressureLevel.LOW])
-
-
 # ─── Scheduler integration ───────────────────────────────────────────
 
 

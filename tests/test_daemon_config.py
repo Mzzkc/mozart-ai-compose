@@ -166,15 +166,15 @@ class TestDaemonConfig:
         with pytest.raises(ValidationError):
             DaemonConfig(max_concurrent_sheets=101)
 
-    def test_state_backend_type_json(self):
-        """Test state_backend_type accepts json."""
-        config = DaemonConfig(state_backend_type="json")
-        assert config.state_backend_type == "json"
-
     def test_state_backend_type_sqlite(self):
-        """Test state_backend_type accepts sqlite."""
+        """Test state_backend_type accepts sqlite (the only valid value)."""
         config = DaemonConfig(state_backend_type="sqlite")
         assert config.state_backend_type == "sqlite"
+
+    def test_state_backend_type_json_rejected(self):
+        """Test state_backend_type='json' is rejected (reserved, frozen to sqlite)."""
+        with pytest.raises(ValidationError):
+            DaemonConfig(state_backend_type="json")
 
     def test_state_backend_type_invalid_rejected(self):
         """Test invalid state_backend_type is rejected."""
@@ -217,7 +217,7 @@ class TestDaemonConfig:
                 max_processes=25,
                 max_api_calls_per_minute=120,
             ),
-            state_backend_type="json",
+            state_backend_type="sqlite",
             state_db_path=Path("/data/mozart.db"),
             log_level="debug",
             log_file=Path("/var/log/mozartd.log"),
@@ -231,7 +231,7 @@ class TestDaemonConfig:
         assert config.resource_limits.max_memory_mb == 4096
         assert config.resource_limits.max_processes == 25
         assert config.resource_limits.max_api_calls_per_minute == 120
-        assert config.state_backend_type == "json"
+        assert config.state_backend_type == "sqlite"
         assert config.state_db_path == Path("/data/mozart.db")
         assert config.log_level == "debug"
         assert config.log_file == Path("/var/log/mozartd.log")
@@ -241,7 +241,7 @@ class TestDaemonConfig:
         original = DaemonConfig(
             max_concurrent_jobs=8,
             log_level="warning",
-            state_backend_type="json",
+            state_backend_type="sqlite",
         )
         dumped = original.model_dump()
         restored = DaemonConfig.model_validate(dumped)

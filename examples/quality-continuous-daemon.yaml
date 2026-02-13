@@ -1381,7 +1381,7 @@ on_success:
     job_workspace: ".quality-daemon-workspace"
 
 concert:
-  enabled: true
+  enabled: false
   max_chain_depth: 10
   cooldown_between_jobs_seconds: 120
   inherit_workspace: false

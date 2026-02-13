@@ -257,6 +257,15 @@ class DaemonProcess:
                     "and has no effect. Daemon state persistence is not "
                     "yet implemented.",
                 )
+            if self._config.max_concurrent_sheets != 10:
+                _logger.warning(
+                    "config.reserved_field_ignored",
+                    field="max_concurrent_sheets",
+                    value=self._config.max_concurrent_sheets,
+                    message="max_concurrent_sheets is reserved for Phase 3 "
+                    "scheduler and has no effect. Jobs currently run "
+                    "monolithically via JobService.",
+                )
 
             handler = RequestHandler()
 
@@ -279,21 +288,27 @@ class DaemonProcess:
 
             # 7. Install signal handlers (tracked to surface exceptions)
             loop = asyncio.get_running_loop()
-            for sig in (signal.SIGTERM, signal.SIGINT):
-                loop.add_signal_handler(
-                    sig,
-                    lambda s=sig: self._track_signal_task(
+
+            from collections.abc import Callable
+
+            def _make_signal_callback(
+                s: signal.Signals,
+            ) -> Callable[[], None]:
+                """Create a signal callback that captures ``s`` by value."""
+                def _cb() -> None:
+                    self._track_signal_task(
                         asyncio.create_task(
                             self._handle_signal(s, manager, server),
                         ),
-                    ),
-                )
-            loop.add_signal_handler(
-                signal.SIGHUP,
-                lambda: self._track_signal_task(
-                    asyncio.create_task(self._reload_config()),
-                ),
-            )
+                    )
+                return _cb
+
+            for sig in (signal.SIGTERM, signal.SIGINT):
+                loop.add_signal_handler(sig, _make_signal_callback(sig))
+            # SIGHUP handler intentionally NOT registered — config reload
+            # is not yet implemented.  Registering a no-op handler would
+            # create false expectations for ops teams.  The _reload_config()
+            # method is retained for future Phase 3 use.
 
             # 8. Start resource monitor
             interval = self._config.monitor_interval_seconds
@@ -465,14 +480,21 @@ def _write_pid(pid_file: Path) -> None:
     tmp.rename(pid_file)
 
     # Advisory lock — held for daemon lifetime (released on fd close / exit)
+    # If locking fails, another daemon may already hold the lock, so we
+    # MUST abort to prevent two daemons corrupting the same socket.
     try:
         fd = os.open(str(pid_file), os.O_RDONLY)
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         # Store fd so the lock persists until the process exits
         global _pid_lock_fd
         _pid_lock_fd = fd
-    except OSError:
-        _logger.warning("pid_file.lock_failed", pid_file=str(pid_file))
+    except OSError as exc:
+        from mozart.daemon.exceptions import DaemonError
+
+        raise DaemonError(
+            f"Cannot acquire PID file lock ({pid_file}): {exc}. "
+            "Another daemon instance may be starting."
+        ) from exc
 
 
 def _read_pid(pid_file: Path) -> int | None:

@@ -281,7 +281,7 @@ class TestDaemonProcess:
 
     @pytest.mark.asyncio
     async def test_daemon_process_signal_handler_registration(self):
-        """DaemonProcess.run() installs signal handlers for SIGTERM, SIGINT, SIGHUP."""
+        """DaemonProcess.run() installs signal handlers for SIGTERM and SIGINT."""
         from mozart.daemon.config import DaemonConfig, SocketConfig
 
         config = DaemonConfig(
@@ -315,7 +315,7 @@ class TestDaemonProcess:
 
             mock_mgr = MagicMock()
             mock_mgr.running_count = 0
-            mock_mgr.active_sheet_count = 0
+            mock_mgr.active_job_count = 0
             mock_mgr.start = AsyncMock()
             mock_mgr.wait_for_shutdown = AsyncMock()
             mock_mgr_cls.return_value = mock_mgr
@@ -327,7 +327,7 @@ class TestDaemonProcess:
 
         assert signal.SIGTERM in handlers_added
         assert signal.SIGINT in handlers_added
-        assert signal.SIGHUP in handlers_added
+        # SIGHUP intentionally not registered — config reload not yet implemented
 
     @pytest.mark.asyncio
     async def test_run_cleans_pid_file_on_crash(self):

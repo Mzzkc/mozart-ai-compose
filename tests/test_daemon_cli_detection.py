@@ -8,6 +8,8 @@ These tests verify that contract.
 from __future__ import annotations
 
 import asyncio
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +34,7 @@ def _make_detect_handler() -> RequestHandler:
             "pid": 9999,
             "uptime_seconds": 42.0,
             "running_jobs": 1,
-            "total_sheets_active": 3,
+            "total_jobs_active": 3,
             "memory_usage_mb": 128.0,
             "version": "0.1.0",
         }
@@ -166,3 +168,64 @@ class TestTryDaemonRoute:
             assert result["version"] == "0.1.0"
         finally:
             await server.stop()
+
+
+# ---------------------------------------------------------------------------
+# Tests: CLI non-daemon regression (subprocess-based)
+# ---------------------------------------------------------------------------
+
+
+class TestCliNonDaemonRegression:
+    """Verify that Mozart CLI works correctly without a running daemon.
+
+    Uses subprocess execution to test the real CLI entry point with
+    no daemon socket present — the detect.py auto-routing must fall
+    back to direct execution without error.
+    """
+
+    def test_dry_run_without_daemon(self):
+        """mozart run --dry-run succeeds without a daemon socket.
+
+        This is the critical regression test: if detect.py's fallback
+        breaks, every CLI invocation fails.
+        """
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "mozart", "run",
+                "examples/simple-sheet.yaml", "--dry-run",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={
+                **__import__("os").environ,
+                # Ensure no daemon socket is found
+                "MOZART_SOCKET_PATH": "/tmp/nonexistent-mozart-test.sock",
+            },
+        )
+        assert result.returncode == 0, (
+            f"CLI dry-run failed (rc={result.returncode}):\n"
+            f"stdout: {result.stdout[:500]}\n"
+            f"stderr: {result.stderr[:500]}"
+        )
+        # Verify expected output markers
+        assert "simple-sheet" in result.stdout.lower() or "dry run" in result.stdout.lower(), (
+            f"Expected output markers not found:\n{result.stdout[:500]}"
+        )
+
+    def test_validate_without_daemon(self):
+        """mozart validate succeeds without a daemon socket."""
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "mozart", "validate",
+                "examples/simple-sheet.yaml",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0, (
+            f"CLI validate failed (rc={result.returncode}):\n"
+            f"stdout: {result.stdout[:500]}\n"
+            f"stderr: {result.stderr[:500]}"
+        )

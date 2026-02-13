@@ -101,7 +101,7 @@ class ResourceMonitor:
         active_sheets = 0
         if self._manager is not None:
             running_jobs = self._manager.running_count
-            active_sheets = self._manager.active_sheet_count
+            active_sheets = self._manager.active_job_count
 
         mem = self._get_memory_usage_mb()
         procs = self._get_child_process_count()
@@ -171,9 +171,10 @@ class ResourceMonitor:
     # ─── Internal ─────────────────────────────────────────────────────
 
     _CIRCUIT_BREAKER_THRESHOLD = 5
+    _MAX_BACKOFF_SECONDS = 300.0
 
     async def _loop(self, interval: float) -> None:
-        """Periodic monitoring loop with circuit breaker."""
+        """Periodic monitoring loop with circuit breaker and backoff."""
         while self._running:
             try:
                 snapshot = await self.check_now()
@@ -207,7 +208,16 @@ class ResourceMonitor:
                         message="Monitor entering degraded mode — "
                         "health checks will report not-ready",
                     )
-                await asyncio.sleep(interval)
+                # Exponential backoff once degraded to avoid log spam
+                if self._degraded:
+                    exponent = self._consecutive_failures - self._CIRCUIT_BREAKER_THRESHOLD
+                    backoff = min(
+                        interval * (2 ** max(exponent, 0)),
+                        self._MAX_BACKOFF_SECONDS,
+                    )
+                    await asyncio.sleep(backoff)
+                else:
+                    await asyncio.sleep(interval)
 
     async def _evaluate(self, snapshot: ResourceSnapshot) -> None:
         """Log warnings and enforce hard limits based on snapshot."""
@@ -263,6 +273,10 @@ class ResourceMonitor:
         # Periodic orphan cleanup via process group manager
         if self._pgroup is not None:
             self._pgroup.cleanup_orphans()
+
+        # Prune stale rate limit events to prevent unbounded memory growth
+        if self._manager is not None:
+            await self._manager.rate_coordinator.prune_stale()
 
     async def _enforce_memory_limit(self) -> None:
         """Cancel the oldest running job when memory exceeds hard limit."""

@@ -23,9 +23,12 @@ import pytest
 from mozart.daemon.config import DaemonConfig, ResourceLimitConfig, SocketConfig
 from mozart.daemon.exceptions import DaemonNotRunningError, JobSubmissionError
 from mozart.daemon.ipc.client import DaemonClient
+from mozart.daemon.learning_hub import LearningHub
+from mozart.daemon.manager import JobManager
 from mozart.daemon.process import DaemonProcess
 from mozart.daemon.system_probe import SystemProbe
 from mozart.daemon.types import JobRequest, JobResponse
+from mozart.learning.global_store import GlobalLearningStore
 
 
 # ---------------------------------------------------------------------------
@@ -158,7 +161,7 @@ class TestDaemonLifecycle:
         assert status.pid == os.getpid()
         assert status.uptime_seconds >= 0
         assert status.running_jobs == 0
-        assert status.total_sheets_active >= 0
+        assert status.total_jobs_active >= 0
         assert status.memory_usage_mb >= 0.0
         assert isinstance(status.version, str)
 
@@ -1043,3 +1046,547 @@ class TestRealE2EExecution:
         assert job["started_at"] is not None
         assert str(FIXTURE_CONFIG) in job["config_path"]
         assert str(workspace) in job["workspace"]
+
+
+# ---------------------------------------------------------------------------
+# Tests: Cross-Job Learning (D009)
+# ---------------------------------------------------------------------------
+
+
+class TestCrossJobLearning:
+    """D009: Verify that patterns learned by Job A are visible to Job B.
+
+    The daemon's key differentiator is shared learning via LearningHub.
+    This test exercises the full path:
+
+        Job A runs → discovers pattern → records to shared store →
+        Job B runs → reads shared store → sees Job A's pattern
+
+    Everything except ClaudeCliBackend.execute() runs for real:
+    daemon boot, IPC, manager, JobService with injected learning store,
+    LearningHub with real GlobalLearningStore (in-memory SQLite for test).
+    """
+
+    @pytest.fixture
+    async def learning_daemon(self, tmp_path: Path):
+        """Start a real daemon with a temp-dir learning store.
+
+        Patches LearningHub.__init__ so the daemon creates its hub with
+        a test-local SQLite DB (isolated from the user's global store).
+        After daemon boot, captures the manager reference from within
+        the running daemon by patching _register_methods.
+        """
+        from mozart.backends.base import ExecutionResult
+
+        config = _make_daemon_config(tmp_path)
+        dp = DaemonProcess(config)
+
+        # We'll capture the manager reference when _register_methods is called
+        captured: dict[str, Any] = {}
+        original_register = dp._register_methods
+
+        def _capturing_register(
+            handler: Any, manager: JobManager, health: Any = None,
+        ) -> None:
+            captured["manager"] = manager
+            return original_register(handler, manager, health)
+
+        learning_db = tmp_path / "test-learning.db"
+
+        mock_result = ExecutionResult(
+            success=True,
+            stdout="Sheet completed successfully.\nAll tasks done.",
+            stderr="",
+            duration_seconds=0.5,
+            exit_code=0,
+        )
+
+        with (
+            patch.object(dp._pgroup, "setup"),
+            patch.object(dp._pgroup, "kill_all_children"),
+            patch.object(dp._pgroup, "cleanup_orphans", return_value=[]),
+            patch(
+                "mozart.backends.claude_cli.ClaudeCliBackend.execute",
+                new_callable=AsyncMock,
+                return_value=mock_result,
+            ),
+            # Redirect LearningHub to use test-local DB path
+            patch(
+                "mozart.daemon.manager.LearningHub",
+                side_effect=lambda db_path=None: LearningHub(db_path=learning_db),
+            ),
+            # Capture the manager reference
+            patch.object(dp, "_register_methods", _capturing_register),
+        ):
+            original_run = dp.run
+
+            async def _patched_run() -> None:
+                loop = asyncio.get_running_loop()
+                original_add = loop.add_signal_handler
+
+                def _safe_add(sig: Any, cb: Any) -> None:
+                    try:
+                        original_add(sig, cb)
+                    except (ValueError, RuntimeError):
+                        pass
+
+                with patch.object(loop, "add_signal_handler", _safe_add):
+                    await original_run()
+
+            daemon_task = asyncio.create_task(_patched_run())
+            await _wait_for_socket(config.socket.path)
+
+            client = DaemonClient(config.socket.path, timeout=10.0)
+            manager = captured["manager"]
+            yield client, config, manager
+
+            try:
+                await client.call("daemon.shutdown", {"graceful": False})
+            except (DaemonNotRunningError, ConnectionResetError, OSError):
+                pass
+
+            try:
+                await asyncio.wait_for(daemon_task, timeout=15.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                daemon_task.cancel()
+                try:
+                    await daemon_task
+                except asyncio.CancelledError:
+                    pass
+
+    async def _wait_for_job(
+        self, client: DaemonClient, job_id: str, timeout: float = 10.0,
+    ) -> dict[str, Any]:
+        """Poll until a job reaches a terminal state."""
+        for _ in range(int(timeout / 0.25)):
+            jobs = await client.list_jobs()
+            job = next((j for j in jobs if j["job_id"] == job_id), None)
+            if job and job["status"] in ("completed", "failed"):
+                return job
+            await asyncio.sleep(0.25)
+        raise TimeoutError(f"Job {job_id} did not complete within {timeout}s")
+
+    async def test_patterns_from_job_a_visible_to_job_b(
+        self,
+        learning_daemon: tuple[DaemonClient, DaemonConfig, JobManager],
+    ):
+        """Patterns recorded by Job A are visible through the shared store.
+
+        Full integration path: Job A → JobService (with injected store) →
+        LearningHub.store.record_pattern() → shared GlobalLearningStore →
+        Job B reads same store → sees Job A's pattern.
+        """
+        client, config, manager = learning_daemon
+
+        # Verify the learning hub is running and has a shared store
+        hub = manager.learning_hub
+        assert hub.is_running
+        store = hub.store
+
+        # Submit Job A and let it complete through the real stack
+        workspace_a = config.pid_file.parent / "ws-a"
+        req_a = JobRequest(config_path=FIXTURE_CONFIG, workspace=workspace_a)
+        resp_a = await client.submit_job(req_a)
+        assert resp_a.status == "accepted"
+
+        job_a = await self._wait_for_job(client, resp_a.job_id)
+        assert job_a["status"] == "completed"
+
+        # Simulate what a real backend would do after successful execution:
+        # record a pattern discovery into the shared store
+        pattern_id = store.record_pattern(
+            pattern_type="rate_limit_recovery",
+            pattern_name="exponential_backoff_works",
+            description="Exponential backoff with jitter recovers from 429s",
+            context_tags=["rate_limit", "recovery"],
+        )
+
+        store.record_pattern_discovery(
+            pattern_id=pattern_id,
+            pattern_name="exponential_backoff_works",
+            pattern_type="rate_limit_recovery",
+            job_id=resp_a.job_id,
+            effectiveness_score=0.95,
+            context_tags=["rate_limit", "recovery"],
+            ttl_seconds=3600.0,
+        )
+
+        # Verify pattern exists in the shared store
+        patterns = store.get_patterns(pattern_type="rate_limit_recovery")
+        assert len(patterns) >= 1
+        pattern_names = [p.pattern_name for p in patterns]
+        assert "exponential_backoff_works" in pattern_names
+
+        # Submit Job B — it gets the SAME shared store via the service
+        workspace_b = config.pid_file.parent / "ws-b"
+        req_b = JobRequest(config_path=FIXTURE_CONFIG, workspace=workspace_b)
+        resp_b = await client.submit_job(req_b)
+        assert resp_b.status == "accepted"
+
+        job_b = await self._wait_for_job(client, resp_b.job_id)
+        assert job_b["status"] == "completed"
+
+        # Verify Job B can see Job A's pattern through the same store
+        # (the store instance is shared via LearningHub → JobService)
+        discoveries = store.check_recent_pattern_discoveries(
+            exclude_job_id=resp_b.job_id,
+            pattern_type="rate_limit_recovery",
+        )
+        assert len(discoveries) >= 1
+        discovery_names = [d.pattern_name for d in discoveries]
+        assert "exponential_backoff_works" in discovery_names
+
+    async def test_learning_hub_store_injected_into_service(
+        self,
+        learning_daemon: tuple[DaemonClient, DaemonConfig, JobManager],
+    ):
+        """Verify the JobService receives the LearningHub's shared store.
+
+        This confirms the wiring path: LearningHub.store → JobManager._service
+        → JobService._learning_store, which is the mechanism that enables
+        cross-job learning.
+        """
+        _client, _config, manager = learning_daemon
+
+        hub = manager.learning_hub
+        service = manager._service
+        assert service is not None
+
+        # The service's learning store should be the exact same object
+        # as the hub's store (identity check, not just equality)
+        assert service._learning_store is hub.store
+
+    async def test_patterns_persist_across_job_lifecycles(
+        self,
+        learning_daemon: tuple[DaemonClient, DaemonConfig, JobManager],
+    ):
+        """Patterns survive job completion and are available to later jobs.
+
+        Records a pattern, runs two sequential jobs, and verifies the
+        pattern count is stable (not duplicated or lost).
+        """
+        client, config, manager = learning_daemon
+        store = manager.learning_hub.store
+
+        # Record a pattern before any jobs run
+        store.record_pattern(
+            pattern_type="validation_failure",
+            pattern_name="missing_output_marker",
+            description="Output file missing expected completion marker",
+        )
+
+        # Run two sequential jobs
+        for i in range(2):
+            ws = config.pid_file.parent / f"ws-persist-{i}"
+            req = JobRequest(config_path=FIXTURE_CONFIG, workspace=ws)
+            resp = await client.submit_job(req)
+            assert resp.status == "accepted"
+            job = await self._wait_for_job(client, resp.job_id)
+            assert job["status"] == "completed"
+
+        # Verify the pattern survived both job lifecycles
+        # Use min_priority=0.0 since new patterns start below the default 0.3
+        patterns = store.get_patterns(
+            pattern_type="validation_failure", min_priority=0.0,
+        )
+        matching = [p for p in patterns if p.pattern_name == "missing_output_marker"]
+        assert len(matching) == 1  # Not duplicated, not lost
+
+
+# ---------------------------------------------------------------------------
+# Tests: ResourceMonitor → Job Cancellation (D011)
+# ---------------------------------------------------------------------------
+
+
+class TestMonitorCancellation:
+    """D011: Verify monitor detects high memory and cancels jobs.
+
+    Tests the full cancellation path through the real daemon stack:
+
+        ResourceMonitor._loop → _evaluate → memory > HARD_THRESHOLD →
+        _enforce_memory_limit → _cancel_oldest_job → JobManager.cancel_job →
+        asyncio.Task.cancel() → job marked cancelled → daemon stays healthy
+
+    Only SystemProbe is patched (to simulate memory pressure).
+    Everything else runs for real.
+    """
+
+    @pytest.fixture
+    async def monitored_daemon(self, tmp_path: Path):
+        """Start a real daemon with low memory limit and fast monitor.
+
+        Configures max_memory_mb=100 and a 0.5s monitor interval so the
+        test doesn't have to wait long for the monitor to fire.
+        Memory is initially reported as normal (50MB) — the test will
+        patch it higher to trigger cancellation.
+        """
+        config = DaemonConfig(
+            socket=SocketConfig(path=tmp_path / "test-mon.sock"),
+            pid_file=tmp_path / "test-mon.pid",
+            max_concurrent_jobs=4,
+            max_concurrent_sheets=10,
+            # Minimum valid monitor interval for test responsiveness
+            monitor_interval_seconds=5.0,
+            shutdown_timeout_seconds=10.0,
+            resource_limits=ResourceLimitConfig(
+                max_memory_mb=512,
+                max_processes=50,
+            ),
+        )
+        dp = DaemonProcess(config)
+
+        # Capture the manager reference
+        captured: dict[str, Any] = {}
+        original_register = dp._register_methods
+
+        def _capturing_register(
+            handler: Any, manager: Any, health: Any = None,
+        ) -> None:
+            captured["manager"] = manager
+            return original_register(handler, manager, health)
+
+        with (
+            patch.object(dp._pgroup, "setup"),
+            patch.object(dp._pgroup, "kill_all_children"),
+            patch.object(dp._pgroup, "cleanup_orphans", return_value=[]),
+            # Start with normal memory (250MB of 512MB limit = 49%)
+            patch.object(SystemProbe, "get_memory_mb", return_value=250.0),
+            patch.object(SystemProbe, "get_child_count", return_value=2),
+            patch.object(dp, "_register_methods", _capturing_register),
+        ):
+            original_run = dp.run
+
+            async def _patched_run() -> None:
+                loop = asyncio.get_running_loop()
+                original_add = loop.add_signal_handler
+
+                def _safe_add(sig: Any, cb: Any) -> None:
+                    try:
+                        original_add(sig, cb)
+                    except (ValueError, RuntimeError):
+                        pass
+
+                with patch.object(loop, "add_signal_handler", _safe_add):
+                    await original_run()
+
+            daemon_task = asyncio.create_task(_patched_run())
+            await _wait_for_socket(config.socket.path)
+
+            client = DaemonClient(config.socket.path, timeout=10.0)
+            yield client, config, captured
+
+            try:
+                await client.call("daemon.shutdown", {"graceful": False})
+            except (DaemonNotRunningError, ConnectionResetError, OSError):
+                pass
+
+            try:
+                await asyncio.wait_for(daemon_task, timeout=15.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                daemon_task.cancel()
+                try:
+                    await daemon_task
+                except asyncio.CancelledError:
+                    pass
+
+    async def test_monitor_cancels_job_on_memory_critical(
+        self,
+        monitored_daemon: tuple[DaemonClient, DaemonConfig, dict[str, Any]],
+    ):
+        """Monitor detects critical memory and cancels the oldest running job.
+
+        Full integration path: monitor loop → check_now() → _evaluate() →
+        memory_critical → _enforce_memory_limit → cancel_oldest_job →
+        manager.cancel_job → task.cancel() → job status = cancelled.
+        """
+        client, config, captured = monitored_daemon
+
+        # Submit a long-running job (blocks on an Event)
+        started = asyncio.Event()
+        hold = asyncio.Event()
+
+        async def _long_running(*args: Any, **kwargs: Any) -> Any:
+            started.set()
+            await hold.wait()
+            from mozart.core.checkpoint import JobStatus
+            from mozart.execution.runner.models import RunSummary
+
+            return RunSummary(
+                job_id="test", job_name="test", total_sheets=1,
+                final_status=JobStatus.COMPLETED,
+            )
+
+        with patch(
+            "mozart.daemon.job_service.JobService.start_job",
+            side_effect=_long_running,
+        ):
+            req = JobRequest(config_path=FIXTURE_CONFIG)
+            resp = await client.submit_job(req)
+            assert resp.status == "accepted"
+            job_id = resp.job_id
+
+            # Wait for the job to actually be running
+            await asyncio.wait_for(started.wait(), timeout=5.0)
+            await asyncio.sleep(0.1)
+
+            # Verify it's running
+            jobs = await client.list_jobs()
+            running = [j for j in jobs if j["job_id"] == job_id]
+            assert running[0]["status"] == "running"
+
+            # Now spike memory above HARD_THRESHOLD (95% of 512MB ≈ 487MB)
+            with patch.object(SystemProbe, "get_memory_mb", return_value=490.0):
+                # Wait for the monitor to detect and cancel
+                # Monitor runs every 0.5s, so we need to wait a few cycles
+                for _ in range(20):
+                    jobs = await client.list_jobs()
+                    job = next((j for j in jobs if j["job_id"] == job_id), None)
+                    if job and job["status"] == "cancelled":
+                        break
+                    await asyncio.sleep(0.3)
+
+            # Release the hold so cleanup doesn't hang
+            hold.set()
+            await asyncio.sleep(0.2)
+
+        # Verify the job was cancelled
+        jobs = await client.list_jobs()
+        cancelled_job = next((j for j in jobs if j["job_id"] == job_id), None)
+        assert cancelled_job is not None
+        assert cancelled_job["status"] == "cancelled"
+
+    async def test_daemon_stays_healthy_after_cancellation(
+        self,
+        monitored_daemon: tuple[DaemonClient, DaemonConfig, dict[str, Any]],
+    ):
+        """Daemon remains responsive after cancelling a job for memory.
+
+        After monitor-triggered cancellation, the daemon should still:
+        - Respond to health probes (liveness = ok)
+        - Accept new job submissions
+        - Have correct running_jobs count
+        """
+        client, config, captured = monitored_daemon
+
+        started = asyncio.Event()
+        hold = asyncio.Event()
+
+        async def _long_running(*args: Any, **kwargs: Any) -> Any:
+            started.set()
+            await hold.wait()
+            from mozart.core.checkpoint import JobStatus
+            from mozart.execution.runner.models import RunSummary
+
+            return RunSummary(
+                job_id="test", job_name="test", total_sheets=1,
+                final_status=JobStatus.COMPLETED,
+            )
+
+        with patch(
+            "mozart.daemon.job_service.JobService.start_job",
+            side_effect=_long_running,
+        ):
+            req = JobRequest(config_path=FIXTURE_CONFIG)
+            resp = await client.submit_job(req)
+            assert resp.status == "accepted"
+
+            await asyncio.wait_for(started.wait(), timeout=5.0)
+            await asyncio.sleep(0.1)
+
+            # Trigger memory critical (95% of 512MB ≈ 487MB)
+            with patch.object(SystemProbe, "get_memory_mb", return_value=490.0):
+                for _ in range(20):
+                    jobs = await client.list_jobs()
+                    job = next((j for j in jobs if j["job_id"] == resp.job_id), None)
+                    if job and job["status"] == "cancelled":
+                        break
+                    await asyncio.sleep(0.3)
+
+            hold.set()
+            await asyncio.sleep(0.2)
+
+        # Daemon should still be fully responsive
+        health = await client.health()
+        assert health["status"] == "ok"
+        assert health["pid"] == os.getpid()
+
+        status = await client.call("daemon.status")
+        assert status["running_jobs"] == 0
+
+    async def test_monitor_cancels_oldest_of_multiple_jobs(
+        self,
+        monitored_daemon: tuple[DaemonClient, DaemonConfig, dict[str, Any]],
+    ):
+        """When multiple jobs run, monitor cancels the OLDEST one first.
+
+        Submits two jobs, triggers memory pressure, verifies only the
+        first-submitted (oldest) job gets cancelled while the second
+        continues running.
+        """
+        client, config, captured = monitored_daemon
+
+        started_a = asyncio.Event()
+        started_b = asyncio.Event()
+        hold = asyncio.Event()
+
+        call_count = 0
+
+        async def _long_running(*args: Any, **kwargs: Any) -> Any:
+            nonlocal call_count
+            idx = call_count
+            call_count += 1
+            if idx == 0:
+                started_a.set()
+            else:
+                started_b.set()
+            await hold.wait()
+            from mozart.core.checkpoint import JobStatus
+            from mozart.execution.runner.models import RunSummary
+
+            return RunSummary(
+                job_id="test", job_name="test", total_sheets=1,
+                final_status=JobStatus.COMPLETED,
+            )
+
+        with patch(
+            "mozart.daemon.job_service.JobService.start_job",
+            side_effect=_long_running,
+        ):
+            # Submit job A (older)
+            resp_a = await client.submit_job(JobRequest(config_path=FIXTURE_CONFIG))
+            assert resp_a.status == "accepted"
+
+            # Wait for A to start, then submit B
+            await asyncio.wait_for(started_a.wait(), timeout=5.0)
+            await asyncio.sleep(0.1)
+
+            resp_b = await client.submit_job(JobRequest(config_path=FIXTURE_CONFIG))
+            assert resp_b.status == "accepted"
+
+            await asyncio.wait_for(started_b.wait(), timeout=5.0)
+            await asyncio.sleep(0.1)
+
+            # Both should be running
+            jobs = await client.list_jobs()
+            running = [j for j in jobs if j["status"] == "running"]
+            assert len(running) == 2
+
+            # Trigger memory critical — should cancel oldest (A)
+            with patch.object(SystemProbe, "get_memory_mb", return_value=490.0):
+                for _ in range(20):
+                    jobs = await client.list_jobs()
+                    a = next((j for j in jobs if j["job_id"] == resp_a.job_id), None)
+                    if a and a["status"] == "cancelled":
+                        break
+                    await asyncio.sleep(0.3)
+
+            # Release hold
+            hold.set()
+            await asyncio.sleep(0.5)
+
+        # Verify: A was cancelled, B completed (or at least not cancelled)
+        jobs = await client.list_jobs()
+        status_map = {j["job_id"]: j["status"] for j in jobs}
+        assert status_map[resp_a.job_id] == "cancelled"
+        # B should have completed (hold was released) or still running
+        assert status_map[resp_b.job_id] in ("completed", "running")

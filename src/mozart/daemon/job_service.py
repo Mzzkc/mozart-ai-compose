@@ -10,6 +10,7 @@ All user-facing output goes through OutputProtocol.
 
 from __future__ import annotations
 
+from collections.abc import Coroutine
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 
@@ -30,6 +31,10 @@ if TYPE_CHECKING:
     from mozart.state.base import StateBackend
 
 _logger = get_logger("daemon.job_service")
+
+
+async def _noop_coro() -> None:
+    """No-op coroutine used as a placeholder when notification_manager is None."""
 
 
 class _JobComponents(TypedDict):
@@ -370,6 +375,26 @@ class JobService:
             final_status=status,
         )
 
+    @staticmethod
+    async def _safe_notify(
+        manager: NotificationManager | None,
+        coro: Coroutine[Any, Any, Any],
+        context: str,
+    ) -> None:
+        """Call a notification coroutine with safe error handling.
+
+        If ``manager`` is None the coroutine is closed (to avoid
+        RuntimeWarning) and the call is a no-op.  Exceptions from the
+        notification are logged as warnings — never propagated.
+        """
+        if manager is None:
+            coro.close()
+            return
+        try:
+            await coro
+        except Exception:
+            _logger.warning(context, exc_info=True)
+
     async def _execute_runner(
         self,
         runner: JobRunner,
@@ -388,13 +413,18 @@ class JobService:
         """
         from mozart.execution.runner import FatalError, GracefulShutdownError
 
+        _notify = self._safe_notify
+
         try:
-            if notification_manager:
-                await notification_manager.notify_job_start(
+            await _notify(
+                notification_manager,
+                notification_manager.notify_job_start(
                     job_id=job_id,
                     job_name=job_name,
                     total_sheets=notify_total_sheets or total_sheets,
-                )
+                ) if notification_manager else _noop_coro(),
+                "notification_failed_during_start",
+            )
 
             run_kwargs: dict[str, Any] = {}
             if start_sheet is not None:
@@ -406,19 +436,27 @@ class JobService:
 
             if notification_manager:
                 if state.status == JobStatus.COMPLETED:
-                    await notification_manager.notify_job_complete(
-                        job_id=job_id,
-                        job_name=job_name,
-                        success_count=summary.completed_sheets,
-                        failure_count=summary.failed_sheets,
-                        duration_seconds=summary.total_duration_seconds,
+                    await _notify(
+                        notification_manager,
+                        notification_manager.notify_job_complete(
+                            job_id=job_id,
+                            job_name=job_name,
+                            success_count=summary.completed_sheets,
+                            failure_count=summary.failed_sheets,
+                            duration_seconds=summary.total_duration_seconds,
+                        ),
+                        "notification_failed_during_completion",
                     )
                 elif state.status == JobStatus.FAILED:
-                    await notification_manager.notify_job_failed(
-                        job_id=job_id,
-                        job_name=job_name,
-                        error_message=f"Job failed with status: {state.status.value}",
-                        sheet_num=state.current_sheet,
+                    await _notify(
+                        notification_manager,
+                        notification_manager.notify_job_failed(
+                            job_id=job_id,
+                            job_name=job_name,
+                            error_message=f"Job failed with status: {state.status.value}",
+                            sheet_num=state.current_sheet,
+                        ),
+                        "notification_failed_during_job_failure",
                     )
 
             self._output.job_event(job_id, "completed", {
@@ -436,126 +474,76 @@ class JobService:
 
         except FatalError as e:
             self._output.log("error", f"Fatal error: {e}", job_id=job_id)
-
-            if notification_manager:
-                try:
-                    await notification_manager.notify_job_failed(
-                        job_id=job_id,
-                        job_name=job_name,
-                        error_message=str(e),
-                    )
-                except Exception:
-                    _logger.warning("notification_failed_during_error_handling", exc_info=True)
-
+            await _notify(
+                notification_manager,
+                notification_manager.notify_job_failed(
+                    job_id=job_id,
+                    job_name=job_name,
+                    error_message=str(e),
+                ) if notification_manager else _noop_coro(),
+                "notification_failed_during_fatal_error",
+            )
             return self._get_or_create_summary(
                 runner, job_id, job_name, total_sheets, JobStatus.FAILED,
             )
 
         except Exception as e:
             self._output.log("error", f"Unexpected error: {e}", job_id=job_id)
-
-            if notification_manager:
-                try:
-                    await notification_manager.notify_job_failed(
-                        job_id=job_id,
-                        job_name=job_name,
-                        error_message=f"Unexpected error: {e}",
-                    )
-                except Exception:
-                    _logger.warning("notification_failed_during_error_handling", exc_info=True)
-
+            await _notify(
+                notification_manager,
+                notification_manager.notify_job_failed(
+                    job_id=job_id,
+                    job_name=job_name,
+                    error_message=f"Unexpected error: {e}",
+                ) if notification_manager else _noop_coro(),
+                "notification_failed_during_unexpected_error",
+            )
             raise
 
         finally:
-            if notification_manager:
-                try:
-                    await notification_manager.close()
-                except Exception:
-                    _logger.warning("notification_cleanup_failed", exc_info=True)
+            await _notify(
+                notification_manager,
+                notification_manager.close() if notification_manager else _noop_coro(),
+                "notification_cleanup_failed",
+            )
 
-    def _create_backend(self, config: JobConfig) -> Backend:
-        """Create execution backend from config.
-
-        Extracted from cli/commands/_shared.py::create_backend().
-        Supports: claude_cli, anthropic_api, recursive_light.
-        """
-        from mozart.backends.anthropic_api import AnthropicApiBackend
-        from mozart.backends.claude_cli import ClaudeCliBackend
-        from mozart.backends.recursive_light import RecursiveLightBackend
-
-        if config.backend.type == "recursive_light":
-            return RecursiveLightBackend.from_config(config.backend)
-        elif config.backend.type == "anthropic_api":
-            return AnthropicApiBackend.from_config(config.backend)
-        else:
-            return ClaudeCliBackend.from_config(config.backend)
-
+    @staticmethod
     def _create_state_backend(
-        self,
         workspace: Path,
         backend_type: str = "json",
     ) -> StateBackend:
         """Create state persistence backend.
 
-        Extracted from cli/helpers.py::create_state_backend_from_config().
+        Delegates to ``execution.setup.create_state_backend()``.
         """
-        from mozart.state import JsonStateBackend, SQLiteStateBackend
+        from mozart.execution.setup import create_state_backend
 
-        if backend_type == "sqlite":
-            return SQLiteStateBackend(workspace / ".mozart-state.db")
-        else:
-            return JsonStateBackend(workspace)
+        return create_state_backend(workspace, backend_type)
 
     def _setup_components(self, config: JobConfig) -> _JobComponents:
         """Setup all execution components for a job.
 
-        Mirrors cli/commands/_shared.py::setup_all() but without
-        Rich console dependencies or CLI-level verbosity checks.
+        Delegates to shared ``execution.setup`` functions, which are also
+        used by the CLI (``cli/commands/_shared.py``).  This eliminates
+        the duplicated "mirrors _shared.py" setup logic.
         """
-        backend = self._create_backend(config)
+        from mozart.execution.setup import (
+            create_backend,
+            setup_grounding,
+            setup_learning,
+            setup_notifications,
+        )
 
-        # Learning setup (mirrors _shared.py::setup_learning)
-        outcome_store = None
-        global_learning_store = None
-        if config.learning.enabled:
-            from mozart.learning.outcomes import JsonOutcomeStore
+        backend = create_backend(config)
 
-            outcome_store_path = config.get_outcome_store_path()
-            if config.learning.outcome_store_type == "json":
-                outcome_store = JsonOutcomeStore(outcome_store_path)
+        outcome_store, global_learning_store = setup_learning(
+            config,
+            global_learning_store_override=self._learning_store,
+        )
 
-            # Prefer the injected store (from daemon LearningHub) over
-            # the module-level singleton.  This avoids opening a second
-            # SQLite connection when the daemon already owns one.
-            if self._learning_store is not None:
-                global_learning_store = self._learning_store
-            else:
-                from mozart.learning.global_store import get_global_store
+        notification_manager = setup_notifications(config)
 
-                global_learning_store = get_global_store()
-
-        # Notification setup (mirrors _shared.py::setup_notifications)
-        notification_manager = None
-        if config.notifications:
-            from mozart.notifications import NotificationManager
-            from mozart.notifications.factory import create_notifiers_from_config
-
-            notifiers = create_notifiers_from_config(config.notifications)
-            if notifiers:
-                notification_manager = NotificationManager(notifiers)
-
-        # Grounding setup (mirrors _shared.py::setup_grounding)
-        grounding_engine = None
-        if config.grounding.enabled:
-            from mozart.execution.grounding import GroundingEngine, create_hook_from_config
-
-            grounding_engine = GroundingEngine(hooks=[], config=config.grounding)
-            for hook_config in config.grounding.hooks:
-                try:
-                    hook = create_hook_from_config(hook_config)
-                    grounding_engine.add_hook(hook)
-                except ValueError as e:
-                    _logger.warning("failed_to_create_hook", error=str(e))
+        grounding_engine = setup_grounding(config)
 
         return {
             "backend": backend,
@@ -587,23 +575,42 @@ class JobService:
         if not workspace.exists():
             raise JobSubmissionError(f"Workspace not found: {workspace}")
 
-        backends: list[StateBackend] = []
+        backends: list[tuple[str, StateBackend]] = []
 
         # Check for SQLite first (preferred for concurrent access)
         sqlite_path = workspace / ".mozart-state.db"
         if sqlite_path.exists():
-            backends.append(SQLiteStateBackend(sqlite_path))
+            backends.append(("sqlite", SQLiteStateBackend(sqlite_path)))
 
         # JSON backend as fallback
-        backends.append(JsonStateBackend(workspace))
+        backends.append(("json", JsonStateBackend(workspace)))
 
-        for backend in backends:
+        preferred_name = backends[0][0] if backends else None
+        failed_backends: list[str] = []
+
+        for name, backend in backends:
             try:
                 state = await backend.load(job_id)
                 if state is not None:
+                    if failed_backends:
+                        _logger.warning(
+                            "state_recovered_from_fallback_backend",
+                            job_id=job_id,
+                            preferred_backend=preferred_name,
+                            failed_backends=failed_backends,
+                            recovered_from=name,
+                            message="Preferred backend failed — state loaded from "
+                            "fallback. Verify state is current.",
+                        )
                     return state, backend
             except Exception as e:
-                _logger.warning("error_querying_backend", job_id=job_id, error=str(e))
+                failed_backends.append(name)
+                _logger.warning(
+                    "error_querying_backend",
+                    job_id=job_id,
+                    backend=name,
+                    error=str(e),
+                )
                 continue
 
         raise JobSubmissionError(
