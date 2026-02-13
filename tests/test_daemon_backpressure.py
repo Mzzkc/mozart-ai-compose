@@ -495,3 +495,128 @@ class TestBoundaryValues:
             ResourceMonitor, "is_accepting_work", return_value=True,
         ):
             assert controller.current_level() == PressureLevel.CRITICAL
+
+
+# ─── P010: Rate Coordinator via Public API ─────────────────────────────
+
+
+class TestRateCoordinatorPublicAPI:
+    """Tests that backpressure reads rate limits through the public API.
+
+    Validates P010: previous tests injected rate limits via private
+    ``_active_limits`` dict.  These tests use ``report_rate_limit()``
+    (the public write path) to prove the full
+    report → active_limits → current_level() chain.
+    """
+
+    @pytest.mark.asyncio
+    async def test_reported_limit_escalates_pressure(
+        self, controller: BackpressureController,
+        coordinator: RateLimitCoordinator,
+    ):
+        """A rate limit reported via public API escalates pressure to HIGH."""
+        with patch.object(
+            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
+        ), patch.object(
+            ResourceMonitor, "is_accepting_work", return_value=True,
+        ):
+            # Before: no limits, low memory → NONE
+            assert controller.current_level() == PressureLevel.NONE
+
+            # Report via public API
+            await coordinator.report_rate_limit(
+                backend_type="claude_cli",
+                wait_seconds=60.0,
+                job_id="job-a",
+                sheet_num=1,
+            )
+
+            # After: active limit → HIGH
+            assert controller.current_level() == PressureLevel.HIGH
+
+    @pytest.mark.asyncio
+    async def test_public_api_limit_blocks_job_submission(
+        self, controller: BackpressureController,
+        coordinator: RateLimitCoordinator,
+    ):
+        """Rate limit via public API causes should_accept_job() to return False."""
+        with patch.object(
+            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
+        ), patch.object(
+            ResourceMonitor, "is_accepting_work", return_value=True,
+        ):
+            assert controller.should_accept_job() is True
+
+            await coordinator.report_rate_limit(
+                backend_type="openai",
+                wait_seconds=30.0,
+                job_id="job-b",
+                sheet_num=2,
+            )
+
+            # HIGH pressure → reject new jobs
+            assert controller.should_accept_job() is False
+
+
+# ─── P013: Rate Limit Expiry Transitions ───────────────────────────────
+
+
+class TestRateLimitExpiryTransitions:
+    """Tests that pressure level transitions back down after rate limits expire.
+
+    Validates P013: once a rate limit expires, active_limits becomes
+    empty, and current_level() should return to the level determined
+    solely by memory pressure (not remain stuck at HIGH).
+    """
+
+    @pytest.mark.asyncio
+    async def test_pressure_drops_after_limit_expires(
+        self, controller: BackpressureController,
+        coordinator: RateLimitCoordinator,
+    ):
+        """After rate limit expires, pressure returns to NONE (low memory)."""
+        with patch.object(
+            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
+        ), patch.object(
+            ResourceMonitor, "is_accepting_work", return_value=True,
+        ):
+            # Report a very short limit
+            await coordinator.report_rate_limit(
+                backend_type="claude_cli",
+                wait_seconds=0.02,
+                job_id="job-a",
+                sheet_num=1,
+            )
+
+            # Immediately: HIGH
+            assert controller.current_level() == PressureLevel.HIGH
+
+            # Wait for expiry
+            await asyncio.sleep(0.03)
+
+            # After expiry: back to NONE
+            assert controller.current_level() == PressureLevel.NONE
+
+    @pytest.mark.asyncio
+    async def test_job_accepted_after_limit_expires(
+        self, controller: BackpressureController,
+        coordinator: RateLimitCoordinator,
+    ):
+        """Job submission resumes after rate limit expires."""
+        with patch.object(
+            ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
+        ), patch.object(
+            ResourceMonitor, "is_accepting_work", return_value=True,
+        ):
+            await coordinator.report_rate_limit(
+                backend_type="claude_cli",
+                wait_seconds=0.02,
+                job_id="job-a",
+                sheet_num=1,
+            )
+
+            assert controller.should_accept_job() is False
+
+            await asyncio.sleep(0.03)
+
+            assert controller.should_accept_job() is True

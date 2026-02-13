@@ -633,6 +633,27 @@ class TestEdgeCases:
         assert scheduler.active_count == stats.active
         assert scheduler.queued_count == stats.queued
 
+    @pytest.mark.asyncio
+    async def test_duplicate_sheet_num_raises(
+        self, scheduler: GlobalSheetScheduler,
+    ):
+        """Registering sheets with duplicate sheet_nums raises ValueError.
+
+        Validates P002: duplicate sheet_nums would corrupt DAG tracking
+        and completion-set logic, so they are rejected upfront.
+        """
+        sheets = [
+            _sheet(sheet_num=1),
+            _sheet(sheet_num=2),
+            _sheet(sheet_num=1),  # duplicate
+        ]
+        with pytest.raises(ValueError, match="Duplicate sheet_num 1"):
+            await scheduler.register_job("job-a", sheets)
+
+        # Scheduler state should be clean — nothing was registered
+        assert scheduler.queued_count == 0
+        assert scheduler.active_count == 0
+
 
 # ─── P009: mark_complete() Edge Cases ──────────────────────────────────
 

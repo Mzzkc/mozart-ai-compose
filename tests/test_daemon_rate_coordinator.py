@@ -426,6 +426,79 @@ class TestInputValidation:
         assert remaining <= MAX_WAIT_SECONDS
 
 
+# ─── P009: NaN/Inf wait_seconds Handling ─────────────────────────────
+
+
+class TestNonFiniteWaitSeconds:
+    """Tests for NaN and inf wait_seconds handling (validates P001).
+
+    Backend response parsing can produce NaN or inf values.  The
+    coordinator must not propagate these into the resume-time
+    calculation, which would cause permanent or undefined blocking.
+    """
+
+    @pytest.mark.asyncio
+    async def test_nan_wait_treated_as_zero(
+        self, coordinator: RateLimitCoordinator,
+    ):
+        """NaN wait_seconds is clamped to 0 — no blocking."""
+        await coordinator.report_rate_limit(
+            backend_type="claude_cli",
+            wait_seconds=float("nan"),
+            job_id="job-a",
+            sheet_num=1,
+        )
+
+        is_limited, remaining = await coordinator.is_rate_limited("claude_cli")
+        assert is_limited is False or remaining <= 0.01
+
+    @pytest.mark.asyncio
+    async def test_inf_wait_treated_as_zero(
+        self, coordinator: RateLimitCoordinator,
+    ):
+        """Positive inf wait_seconds is clamped to 0 — no permanent blocking."""
+        await coordinator.report_rate_limit(
+            backend_type="claude_cli",
+            wait_seconds=float("inf"),
+            job_id="job-a",
+            sheet_num=1,
+        )
+
+        is_limited, remaining = await coordinator.is_rate_limited("claude_cli")
+        assert is_limited is False or remaining <= 0.01
+
+    @pytest.mark.asyncio
+    async def test_negative_inf_wait_treated_as_zero(
+        self, coordinator: RateLimitCoordinator,
+    ):
+        """Negative inf wait_seconds is clamped to 0."""
+        await coordinator.report_rate_limit(
+            backend_type="claude_cli",
+            wait_seconds=float("-inf"),
+            job_id="job-a",
+            sheet_num=1,
+        )
+
+        is_limited, remaining = await coordinator.is_rate_limited("claude_cli")
+        assert is_limited is False or remaining <= 0.01
+
+    @pytest.mark.asyncio
+    async def test_nan_event_still_recorded(
+        self, coordinator: RateLimitCoordinator,
+    ):
+        """NaN wait results in an event recorded with wait=0."""
+        await coordinator.report_rate_limit(
+            backend_type="claude_cli",
+            wait_seconds=float("nan"),
+            job_id="job-a",
+            sheet_num=1,
+        )
+
+        events = coordinator.recent_events
+        assert len(events) == 1
+        assert events[0].suggested_wait_seconds == 0.0
+
+
 # ─── Scheduler Integration ────────────────────────────────────────────
 
 

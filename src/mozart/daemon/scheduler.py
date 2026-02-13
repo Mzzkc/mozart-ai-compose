@@ -196,6 +196,32 @@ class GlobalSheetScheduler:
                     f"{' → '.join(str(n) for n in cycle)}"
                 )
 
+        # Validate sheet_num uniqueness — duplicates would silently corrupt
+        # DAG tracking and completion-set logic.
+        seen_nums: set[int] = set()
+        for info in sheets:
+            if info.sheet_num in seen_nums:
+                raise ValueError(
+                    f"Duplicate sheet_num {info.sheet_num} in job {job_id}"
+                )
+            seen_nums.add(info.sheet_num)
+
+        # Warn on dependencies referencing sheet_nums not in the sheets list.
+        # These deps can never be satisfied, so affected sheets will stay
+        # blocked forever.  This is a config error, not a hard failure.
+        if dependencies:
+            for sheet_num, dep_set in dependencies.items():
+                phantom_deps = dep_set - seen_nums
+                if phantom_deps:
+                    _logger.warning(
+                        "scheduler.phantom_dependencies",
+                        job_id=job_id,
+                        sheet_num=sheet_num,
+                        missing_deps=sorted(phantom_deps),
+                        msg="Dependencies reference non-existent sheet_nums; "
+                            "affected sheet will never become ready",
+                    )
+
         async with self._lock:
             # Guard against duplicate registration: remove stale heap
             # entries from any prior registration of this job_id.
@@ -220,22 +246,33 @@ class GlobalSheetScheduler:
             self._job_all_sheets[job_id] = list(sheets)
 
             # Enqueue sheets whose deps are already met
+            enqueued = 0
             for info in sheets:
                 sheet_deps = deps.get(info.sheet_num, set())
                 if not sheet_deps:
                     entry = self._make_entry(info)
                     heapq.heappush(self._queue, entry)
+                    enqueued += 1
 
             _logger.info(
                 "scheduler.job_registered",
                 job_id=job_id,
                 total_sheets=len(sheets),
-                immediately_ready=len(self._queue),
+                immediately_ready=enqueued,
             )
 
     async def deregister_job(self, job_id: str) -> None:
         """Remove all pending sheets for a cancelled/completed job."""
         async with self._lock:
+            # Early return for unknown job_ids — avoids needless O(n) queue
+            # rebuild and ensures the log message reflects real deregistrations.
+            if job_id not in self._job_all_sheets:
+                _logger.debug(
+                    "scheduler.deregister_unknown_job",
+                    job_id=job_id,
+                )
+                return
+
             # Rebuild queue without this job's sheets
             self._queue = [
                 e for e in self._queue if e.info.job_id != job_id
@@ -259,8 +296,19 @@ class GlobalSheetScheduler:
 
         Returns None if no sheet can run (concurrency full, backpressure
         active, queue empty, or all queued sheets are rate-limited).
+
+        **Single-caller constraint:** The backpressure delay (``asyncio.sleep``)
+        runs *outside* the scheduler lock.  If multiple coroutines call
+        ``next_sheet()`` concurrently, they may all pass the backpressure
+        check before any acquires the lock, effectively bypassing the delay
+        for concurrent callers.  The intended usage is a single dispatch
+        loop calling ``next_sheet()`` sequentially — the ``JobManager``
+        dispatch loop satisfies this constraint.
         """
-        # Check backpressure first (outside scheduler lock per lock ordering)
+        # Check backpressure first (outside scheduler lock per lock ordering).
+        # TOCTOU note: backpressure state may change between this check and
+        # the lock acquisition below, but this is acceptable — backpressure
+        # is advisory and the delay is best-effort.
         if self._backpressure is not None:
             allowed, delay = await self._backpressure.can_start_sheet()
             if not allowed:
@@ -439,19 +487,24 @@ class GlobalSheetScheduler:
             info=info,
         )
 
+    # Maximum retry boost: 10 retries × 5.0 = -50 priority.  Beyond this,
+    # additional retries don't further boost priority — prevents sheets
+    # with extreme retry counts from starving all other sheets.
+    _MAX_RETRY_BOOST: float = 50.0
+
     def _calculate_priority(self, info: SheetInfo) -> float:
         """Compute priority score (lower = more urgent).
 
         Formula:
           base = job_priority * 10.0  (user-specified, default 5 → 50)
           + dag_depth * 1.0           (prefer shallow/early sheets)
-          - retries_so_far * 5.0      (boost retried sheets)
+          - min(retries_so_far * 5.0, 50.0)  (boost retried sheets, capped)
           + estimated_cost * 0.1      (slightly deprioritize expensive)
           + fair_share_penalty         (penalize jobs hogging slots)
         """
         base = info.job_priority * 10.0
         base += info.dag_depth * 1.0
-        base -= info.retries_so_far * 5.0
+        base -= min(info.retries_so_far * 5.0, self._MAX_RETRY_BOOST)
         base += info.estimated_cost * 0.1
 
         # Fair-share penalty (use registered jobs, not just running)

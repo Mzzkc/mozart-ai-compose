@@ -28,6 +28,7 @@ Lock ordering (daemon-wide):
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 from dataclasses import dataclass
 
@@ -97,6 +98,18 @@ class RateLimitCoordinator:
             job_id: Job that encountered the limit.
             sheet_num: Sheet that triggered the limit.
         """
+        # Guard against NaN/inf from misparsed backend responses.
+        # math.isfinite returns False for NaN, inf, and -inf.
+        if not math.isfinite(wait_seconds):
+            _logger.warning(
+                "rate_limit.invalid_wait_seconds",
+                wait_seconds=wait_seconds,
+                job_id=job_id,
+                sheet_num=sheet_num,
+                msg="Clamping non-finite wait_seconds to 0",
+            )
+            wait_seconds = 0.0
+
         # Clamp to [0, MAX_WAIT_SECONDS] — negative or zero values are
         # no-ops for the resume time, and huge values are capped.
         wait_seconds = max(0.0, min(wait_seconds, MAX_WAIT_SECONDS))
