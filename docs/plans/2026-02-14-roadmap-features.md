@@ -1,7 +1,7 @@
 # Mozart Roadmap Features — Discussion Tracker
 
 **Started:** 2026-02-14
-**Status:** Complete — all 22 features discussed and filed as GitHub issues #49–#70
+**Status:** Active — 23 features tracked as GitHub issues #49–#70, #74
 
 ---
 
@@ -9,6 +9,7 @@
 
 | # | Issue | Feature | Tier |
 |---|-------|---------|------|
+| **23** | **[#74](https://github.com/Mzzkc/mozart-ai-compose/issues/74)** | **Fix: Chained jobs route through daemon** | **tier-1-foundation (TOP PRIORITY)** |
 | 1 | [#49](https://github.com/Mzzkc/mozart-ai-compose/issues/49) | Live Job Progress + Observability | tier-1-foundation |
 | 2+6b | [#50](https://github.com/Mzzkc/mozart-ai-compose/issues/50) | Conductor-First Architecture | tier-1-foundation |
 | 3 | [#51](https://github.com/Mzzkc/mozart-ai-compose/issues/51) | Conductor Configuration (ClamAV-style) | tier-1-foundation |
@@ -35,6 +36,20 @@
 ---
 
 ## Feature Details
+
+### Feature 23: Fix Chained Jobs Route Through Daemon (#74) — TOP PRIORITY
+
+**Summary:** `on_success` hooks with `detached: true` spawn chained jobs via `subprocess.Popen`, completely bypassing the daemon. Every self-chaining score (quality-continuous, issue-solver) creates invisible orphan processes after the first chain iteration.
+
+**Fix:** When spawning a chained job, check if a daemon is running and submit through IPC instead of raw subprocess. Fall back to subprocess.Popen if no daemon is available (fail-open).
+
+**Files:** `src/mozart/execution/hooks.py`, `src/mozart/daemon/ipc/client.py`, `src/mozart/daemon/ipc/handler.py`
+
+**Dependencies:** None — targeted fix that works with existing daemon infrastructure.
+
+**Priority:** TOP — This undermines the core value proposition of the daemon. Chained jobs are the most common source of concurrent execution, and they all bypass the daemon.
+
+---
 
 ### Feature 1: Live Job Progress + Observability (#49)
 
@@ -572,6 +587,8 @@ scheduler:
 ## Dependency Graph
 
 ```
+★ Feature 23 (Daemon Chain Fix) ── TOP PRIORITY, no dependencies, do FIRST
+    ↓
 Feature 6a (Musical Theming) ─── should happen FIRST or LAST (rename everything)
                                   ↓
 Feature 2+6b (Conductor-First) ── foundational architecture
@@ -606,6 +623,11 @@ Feature 22 (Email) ── after 9, 16, 17
 ```
 
 ## Suggested Priority Tiers
+
+### Tier 0: Critical Bugs (do immediately)
+| Feature | Why First |
+|---------|-----------|
+| **23: Daemon Chain Fix (#74)** | Self-chaining scores bypass daemon entirely — no tracking, no rate coordination, no visibility. Blocks reliable use of issue-solver and quality-continuous. No dependencies. |
 
 ### Tier 1: Foundation (do first)
 | Feature | Why First |
@@ -671,9 +693,10 @@ Feature 22 (Email) ── after 9, 16, 17
 
 1. ~~Create GH issues for each feature~~ — Done (#49–#70)
 2. ~~Decide whether to do Feature 6a (musical rename) first or last~~ — Last (one big sweep after all features land)
-3. Start implementation with Tier 1 foundation work
-4. Design detailed implementation plans for individual features as work begins
+3. **Fix #74 (daemon chain fix) FIRST** — No dependencies, critical bug, blocks reliable self-chaining
+4. Start implementation with Tier 1 foundation work
+5. Design detailed implementation plans for individual features as work begins
 
 ---
 
-*Last updated: 2026-02-14 — All 22 features discussed, captured, and filed as GitHub issues #49–#70*
+*Last updated: 2026-02-14 — 23 features tracked (#49–#70, #74). #74 (daemon chain fix) is top priority.*
