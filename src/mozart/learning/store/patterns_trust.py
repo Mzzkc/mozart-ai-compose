@@ -13,13 +13,21 @@ import sqlite3
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from mozart.core.logging import MozartLogger
 from mozart.learning.store.base import SQLParam, _logger
 from mozart.learning.store.models import PatternRecord, QuarantineStatus
 
+if TYPE_CHECKING:
+    from mozart.learning.store.patterns_query import PatternQueryProtocol
 
-class PatternTrustMixin:
+    _TrustBase = PatternQueryProtocol
+else:
+    _TrustBase = object
+
+
+class PatternTrustMixin(_TrustBase):
     """Mixin providing pattern trust scoring methods.
 
     This mixin requires that the composed class provides:
@@ -47,7 +55,7 @@ class PatternTrustMixin:
         Returns:
             New trust score (0.0-1.0), or None if pattern not found.
         """
-        pattern = self.get_pattern_by_id(pattern_id)  # type: ignore[attr-defined]
+        pattern = self.get_pattern_by_id(pattern_id)
         if not pattern:
             return None
 
@@ -96,7 +104,7 @@ class PatternTrustMixin:
         Returns:
             New trust score after update, or None if pattern not found.
         """
-        pattern = self.get_pattern_by_id(pattern_id)  # type: ignore[attr-defined]
+        pattern = self.get_pattern_by_id(pattern_id)
         if not pattern:
             return None
 
@@ -113,7 +121,12 @@ class PatternTrustMixin:
                 (new_trust, datetime.now().isoformat(), pattern_id),
             )
 
-        _logger.debug("trust_score_updated", pattern_id=pattern_id, old_trust=round(float(pattern.trust_score), 3), new_trust=round(new_trust, 3))
+        _logger.debug(
+            "trust_score_updated",
+            pattern_id=pattern_id,
+            old_trust=round(float(pattern.trust_score), 3),
+            new_trust=round(new_trust, 3),
+        )
         return new_trust
 
     def get_high_trust_patterns(
@@ -130,12 +143,11 @@ class PatternTrustMixin:
         Returns:
             List of high-trust PatternRecord objects.
         """
-        result: list[PatternRecord] = self.get_patterns(  # type: ignore[attr-defined]
+        return self.get_patterns(
             min_priority=0.0,
             min_trust=threshold,
             limit=limit,
         )
-        return result
 
     def get_low_trust_patterns(
         self,
@@ -151,12 +163,11 @@ class PatternTrustMixin:
         Returns:
             List of low-trust PatternRecord objects.
         """
-        result: list[PatternRecord] = self.get_patterns(  # type: ignore[attr-defined]
+        return self.get_patterns(
             min_priority=0.0,
             max_trust=threshold,
             limit=limit,
         )
-        return result
 
     def get_patterns_for_auto_apply(
         self,
@@ -199,8 +210,7 @@ class PatternTrustMixin:
             cursor = conn.execute(query, params)
             rows = cursor.fetchall()
 
-        patterns = [self._row_to_pattern_record(row) for row in rows]  # type: ignore[attr-defined]
-
+        patterns = [self._row_to_pattern_record(row) for row in rows]
         if context_tags:
             tags_set = set(context_tags)
             patterns = [
@@ -210,7 +220,12 @@ class PatternTrustMixin:
 
         patterns = patterns[:limit]
 
-        _logger.debug("auto_apply_patterns_found", count=len(patterns), threshold=trust_threshold, require_validated=require_validated)
+        _logger.debug(
+            "auto_apply_patterns_found",
+            count=len(patterns),
+            threshold=trust_threshold,
+            require_validated=require_validated,
+        )
         return patterns
 
     def recalculate_all_trust_scores(self) -> int:

@@ -11,13 +11,21 @@ import sqlite3
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from mozart.core.logging import MozartLogger
 from mozart.learning.store.base import _logger
 from mozart.learning.store.models import PatternRecord, QuarantineStatus
 
+if TYPE_CHECKING:
+    from mozart.learning.store.patterns_query import PatternQueryProtocol
 
-class PatternQuarantineMixin:
+    _QuarantineBase = PatternQueryProtocol
+else:
+    _QuarantineBase = object
+
+
+class PatternQuarantineMixin(_QuarantineBase):
     """Mixin providing pattern quarantine lifecycle methods.
 
     This mixin requires that the composed class provides:
@@ -72,7 +80,11 @@ class PatternQuarantineMixin:
                 ),
             )
 
-        _logger.info("pattern_quarantined", pattern_id=pattern_id, reason=reason or "no reason given")
+        _logger.info(
+            "pattern_quarantined",
+            pattern_id=pattern_id,
+            reason=reason or "no reason given",
+        )
         return True
 
     def validate_pattern(self, pattern_id: str) -> bool:
@@ -161,9 +173,8 @@ class PatternQuarantineMixin:
         Returns:
             List of quarantined PatternRecord objects.
         """
-        result: list[PatternRecord] = self.get_patterns(  # type: ignore[attr-defined]
+        return self.get_patterns(
             quarantine_status=QuarantineStatus.QUARANTINED,
             min_priority=0.0,
             limit=limit,
         )
-        return result

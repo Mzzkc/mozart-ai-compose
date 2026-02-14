@@ -8,7 +8,7 @@ Extracted from global_store.py as part of the modularization effort.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -278,7 +278,7 @@ class EscalationDecisionRecord:
     outcome_after_action: str | None = None
     """What happened after the action: success, failed, aborted, skipped."""
 
-    recorded_at: datetime = field(default_factory=lambda: datetime.now(tz=timezone.utc))
+    recorded_at: datetime = field(default_factory=lambda: datetime.now(tz=UTC))
     """When the escalation decision was recorded."""
 
     model: str | None = None

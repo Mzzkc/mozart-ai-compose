@@ -205,7 +205,7 @@ prompt:
             patch("asyncio.sleep"),
         ):
             # Process survives SIGTERM, needs SIGKILL
-            def kill_side_effect(pid, sig):
+            def kill_side_effect(_pid, sig):
                 if sig == 0:  # Check if alive after SIGTERM
                     return  # Process still exists
                 elif sig == 9:  # SIGKILL
@@ -242,15 +242,15 @@ prompt:
             patch("asyncio.create_subprocess_exec") as mock_subprocess,
             patch("mozart.core.config.JobConfig.from_yaml_string") as mock_config,
         ):
-                # Make subprocess succeed but config parsing fail
-                mock_subprocess.return_value = mock_process
-                mock_config.side_effect = ValueError("Invalid config")
+            # Make subprocess succeed but config parsing fail
+            mock_subprocess.return_value = mock_process
+            mock_config.side_effect = ValueError("Invalid config")
 
-                with pytest.raises(RuntimeError, match="Failed to start job"):
-                    await job_control_service.start_job(config_content=valid_yaml)
+            with pytest.raises(RuntimeError, match="Failed to start job"):
+                await job_control_service.start_job(config_content=valid_yaml)
 
-                # Note: Process cleanup happens in the actual service implementation
-                # The cleanup logic is tested by verifying the exception is raised
+            # Note: Process cleanup happens in the actual service implementation
+            # The cleanup logic is tested by verifying the exception is raised
 
 
 @pytest.mark.asyncio
@@ -262,23 +262,45 @@ class TestSSEManagerEdgeCases:
         """Create an SSE manager for testing."""
         return SSEManager()
 
+    @staticmethod
+    async def _wait_for_connections(
+        manager: SSEManager,
+        expected: int,
+        *,
+        job_id: str | None = None,
+        timeout: float = 2.0,
+    ) -> None:
+        """Poll until connection count reaches expected or timeout.
+
+        Replaces fragile asyncio.sleep() calls with deterministic polling.
+        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while loop.time() < deadline:
+            count = manager.get_connection_count(job_id) if job_id else sum(
+                len(clients) for clients in manager._connections.values()
+            )
+            if count >= expected:
+                return
+            await asyncio.sleep(0.01)
+        raise TimeoutError(
+            f"Expected {expected} connections (job_id={job_id}) but timed out"
+        )
+
     async def test_queue_full_handling(self, sse_manager):
         """Test behavior when client queue is full."""
-        # Create a connection with a tiny queue
         events_received = []
 
-        # Start connection
         connect_task = asyncio.create_task(
             self._collect_events(sse_manager.connect("job-123", "client-456"), events_received)
         )
 
-        await asyncio.sleep(0.1)  # Let connection establish
+        await self._wait_for_connections(sse_manager, 1, job_id="job-123")
 
         # Get the connection and fill its queue
         async with sse_manager._lock:
             connection = sse_manager._connections["job-123"]["client-456"]
-            # Fill the queue to capacity
-            for i in range(100):  # Queue max size is 100
+            for i in range(100):
                 try:
                     connection.queue.put_nowait(SSEEvent(event="spam", data=f"message {i}"))
                 except asyncio.QueueFull:
@@ -288,10 +310,8 @@ class TestSSEManagerEdgeCases:
         event = SSEEvent(event="test", data="should be skipped")
         sent_count = await sse_manager.broadcast("job-123", event)
 
-        # Should report 0 sent due to full queue
         assert sent_count == 0
 
-        # Cleanup
         connect_task.cancel()
         try:
             await connect_task
@@ -306,9 +326,8 @@ class TestSSEManagerEdgeCases:
             self._collect_events(sse_manager.connect("job-123", "client-456"), events_received)
         )
 
-        await asyncio.sleep(0.1)
+        await self._wait_for_connections(sse_manager, 1, job_id="job-123")
 
-        # Test event formatting with complex JSON data
         complex_data = {
             "nested": {
                 "arrays": [1, 2, {"key": "value"}],
@@ -317,8 +336,6 @@ class TestSSEManagerEdgeCases:
             }
         }
 
-        # Test the actual format method with JSON string data
-        # Use ensure_ascii=False to preserve unicode characters in output
         event_with_str_data = SSEEvent(
             event="complex",
             data=json.dumps(complex_data, ensure_ascii=False),
@@ -330,10 +347,9 @@ class TestSSEManagerEdgeCases:
         assert "id: complex-123" in formatted
         assert "retry: 15000" in formatted
         assert "event: complex" in formatted
-        assert "Hello" in formatted  # Unicode should be preserved
+        assert "Hello" in formatted
         assert "世界" in formatted
 
-        # Cleanup
         connect_task.cancel()
         try:
             await connect_task
@@ -346,7 +362,6 @@ class TestSSEManagerEdgeCases:
         events_job2 = []
         events_job3 = []
 
-        # Connect to three different jobs
         task1 = asyncio.create_task(
             self._collect_events(sse_manager.connect("job-1", "client-1"), events_job1)
         )
@@ -357,16 +372,30 @@ class TestSSEManagerEdgeCases:
             self._collect_events(sse_manager.connect("job-3", "client-3"), events_job3)
         )
 
-        await asyncio.sleep(0.1)
+        await self._wait_for_connections(sse_manager, 3)
+
+        # Record how many events each list has before broadcast (connected events)
+        baseline1 = len(events_job1)
+        baseline2 = len(events_job2)
+        baseline3 = len(events_job3)
 
         # Broadcast to each job separately
         await sse_manager.broadcast("job-1", SSEEvent(event="test", data="for job 1"))
         await sse_manager.broadcast("job-2", SSEEvent(event="test", data="for job 2"))
         await sse_manager.broadcast("job-3", SSEEvent(event="test", data="for job 3"))
 
-        await asyncio.sleep(0.1)
+        # Poll until all lists receive at least one new event beyond baseline
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 2.0
+        while loop.time() < deadline:
+            if (
+                len(events_job1) > baseline1
+                and len(events_job2) > baseline2
+                and len(events_job3) > baseline3
+            ):
+                break
+            await asyncio.sleep(0.01)
 
-        # Cleanup
         for task in [task1, task2, task3]:
             task.cancel()
             try:
@@ -387,7 +416,7 @@ class TestSSEManagerEdgeCases:
         assert "for job 2" not in job1_messages
         assert "for job 2" not in job3_messages
 
-    async def _collect_events(self, event_stream, events_list):
+    async def _collect_events(self, event_stream, events_list) -> None:
         """Helper to collect events from a stream into a list."""
         try:
             async for event in event_stream:

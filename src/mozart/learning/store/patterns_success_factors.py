@@ -14,14 +14,21 @@ import sqlite3
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from mozart.core.logging import MozartLogger
 from mozart.learning.store.base import _logger
 from mozart.learning.store.models import PatternRecord, SuccessFactors
 
+if TYPE_CHECKING:
+    from mozart.learning.store.patterns_query import PatternQueryProtocol
 
-class PatternSuccessFactorsMixin:
+    _SuccessFactorsBase = PatternQueryProtocol
+else:
+    _SuccessFactorsBase = object
+
+
+class PatternSuccessFactorsMixin(_SuccessFactorsBase):
     """Mixin providing pattern success factor analysis methods.
 
     This mixin requires that the composed class provides:
@@ -61,7 +68,7 @@ class PatternSuccessFactorsMixin:
         Returns:
             Updated SuccessFactors, or None if pattern not found.
         """
-        pattern = self.get_pattern_by_id(pattern_id)  # type: ignore[attr-defined]
+        pattern = self.get_pattern_by_id(pattern_id)
         if not pattern:
             return None
 
@@ -133,11 +140,10 @@ class PatternSuccessFactorsMixin:
         Returns:
             SuccessFactors if the pattern has captured factors, None otherwise.
         """
-        pattern = self.get_pattern_by_id(pattern_id)  # type: ignore[attr-defined]
+        pattern = self.get_pattern_by_id(pattern_id)
         if not pattern:
             return None
-        result: SuccessFactors | None = pattern.success_factors
-        return result
+        return pattern.success_factors
 
     def analyze_pattern_why(self, pattern_id: str) -> dict[str, Any]:
         """Analyze WHY a pattern succeeds with structured explanation.
@@ -149,7 +155,7 @@ class PatternSuccessFactorsMixin:
             Dictionary with analysis results including factors_summary,
             key_conditions, confidence, and recommendations.
         """
-        pattern = self.get_pattern_by_id(pattern_id)  # type: ignore[attr-defined]
+        pattern = self.get_pattern_by_id(pattern_id)
         if not pattern:
             return {"error": f"Pattern {pattern_id} not found"}
 
@@ -247,7 +253,7 @@ class PatternSuccessFactorsMixin:
 
         results = []
         for row in rows:
-            pattern = self._row_to_pattern_record(row)  # type: ignore[attr-defined]
+            pattern = self._row_to_pattern_record(row)
             if (
                 pattern.success_factors
                 and pattern.success_factors.occurrence_count >= min_observations

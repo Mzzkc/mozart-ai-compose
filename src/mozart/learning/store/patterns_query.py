@@ -15,7 +15,7 @@ import sqlite3
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from datetime import datetime
-from typing import Any
+from typing import Any, Protocol
 
 from mozart.core.logging import MozartLogger
 from mozart.learning.store.base import WhereBuilder
@@ -25,6 +25,36 @@ from mozart.learning.store.models import (
     QuarantineStatus,
     SuccessFactors,
 )
+
+
+class PatternQueryProtocol(Protocol):
+    """Protocol declaring the query methods provided by PatternQueryMixin.
+
+    Dependent mixins (TrustMixin, SuccessFactorsMixin, QuarantineMixin,
+    BroadcastMixin) inherit from this under TYPE_CHECKING so mypy knows
+    these methods will exist at runtime through mixin composition.
+    """
+
+    _logger: MozartLogger
+    _get_connection: Callable[[], AbstractContextManager[sqlite3.Connection]]
+
+    def get_patterns(
+        self,
+        pattern_type: str | None = ...,
+        min_priority: float = ...,
+        limit: int = ...,
+        context_tags: list[str] | None = ...,
+        quarantine_status: QuarantineStatus | None = ...,
+        exclude_quarantined: bool = ...,
+        min_trust: float | None = ...,
+        max_trust: float | None = ...,
+    ) -> list[PatternRecord]: ...
+
+    def get_pattern_by_id(self, pattern_id: str) -> PatternRecord | None: ...
+
+    def _row_to_pattern_record(self, row: sqlite3.Row) -> PatternRecord: ...
+
+    def _row_to_discovery_event(self, row: sqlite3.Row) -> PatternDiscoveryEvent: ...
 
 
 class PatternQueryMixin:
@@ -109,11 +139,7 @@ class PatternQueryMixin:
                 (*params, limit),
             )
 
-            records = []
-            for row in cursor.fetchall():
-                records.append(self._row_to_pattern_record(row))
-
-            return records
+            return [self._row_to_pattern_record(row) for row in cursor.fetchall()]
 
     def _row_to_discovery_event(self, row: sqlite3.Row) -> PatternDiscoveryEvent:
         """Convert a database row to a PatternDiscoveryEvent.

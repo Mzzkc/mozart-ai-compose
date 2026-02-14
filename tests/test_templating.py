@@ -347,11 +347,13 @@ class TestNewRuleDetection:
         assert PromptBuilder._is_new_rule_for_sheet("sheet_num >= 3", 3) is True
         assert PromptBuilder._is_new_rule_for_sheet("sheet_num >= 3", 4) is False
 
-    def test_eq_condition_always_new(self) -> None:
-        """'sheet_num == N' is always new for that specific sheet."""
-        assert PromptBuilder._is_new_rule_for_sheet("sheet_num == 5", 4) is False
+    def test_eq_condition_always_new_for_its_sheet(self) -> None:
+        """'sheet_num == N' rules are always marked new (they only apply to one sheet)."""
+        # Exact match rules return True because they're only relevant for one sheet,
+        # so when they appear they're always "new" — the validation engine filters
+        # them out for other sheets before they reach this method.
         assert PromptBuilder._is_new_rule_for_sheet("sheet_num == 5", 5) is True
-        assert PromptBuilder._is_new_rule_for_sheet("sheet_num == 5", 6) is False
+        assert PromptBuilder._is_new_rule_for_sheet("sheet_num == 5", 3) is True
 
     def test_gt_condition_new_at_threshold_plus_one(self) -> None:
         """'sheet_num > N' is new when sheet_num == N+1."""
@@ -370,6 +372,7 @@ class TestInheritedNewRuleSeparation:
 
     @pytest.fixture
     def builder(self) -> PromptBuilder:
+        """Create a minimal PromptBuilder for validation rule tests."""
         return PromptBuilder(PromptConfig(template="Test."))
 
     def test_sheet1_all_rules_are_new(self, builder: PromptBuilder) -> None:

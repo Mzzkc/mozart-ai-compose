@@ -477,7 +477,7 @@ class LearningConfig(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _sync_auto_apply_fields(self) -> "LearningConfig":
+    def _sync_auto_apply_fields(self) -> LearningConfig:
         """Sync flat auto_apply_enabled/threshold with structured auto_apply config.
 
         When auto_apply is set, its values take precedence over the flat fields.
@@ -916,7 +916,7 @@ class ValidationRule(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _check_type_specific_fields(self) -> "ValidationRule":
+    def _check_type_specific_fields(self) -> ValidationRule:
         """Validate that type-specific required fields are present."""
         if self.type in ("file_exists", "file_modified", "content_contains", "content_regex"):
             if self.path is None:
@@ -1035,7 +1035,7 @@ class PostSuccessHookConfig(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _check_type_specific_fields(self) -> "PostSuccessHookConfig":
+    def _check_type_specific_fields(self) -> PostSuccessHookConfig:
         """Validate that type-specific required fields are present."""
         if self.type == "run_job" and self.job_path is None:
             raise ValueError("Hook type 'run_job' requires 'job_path' field")

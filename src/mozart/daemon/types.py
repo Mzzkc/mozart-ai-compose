@@ -8,9 +8,48 @@ serialization over IPC.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Required, TypedDict
 
 from pydantic import BaseModel, Field
+
+# ─── IPC Handler Parameter TypedDicts ─────────────────────────────
+# These define the expected parameter shapes for each daemon IPC method.
+# Used by _register_methods() in process.py for type-safe parameter access.
+#
+# total=False makes all keys optional by default (IPC params come from
+# JSON-RPC where any key might be absent). Keys that must be present
+# use Required[] to restore type-safe direct access.
+
+
+class JobSubmitParams(TypedDict, total=False):
+    """Parameters for the job.submit IPC method."""
+
+    config_path: Required[str]
+    workspace: str | None
+    fresh: bool
+    self_healing: bool
+    self_healing_auto_confirm: bool
+    start_sheet: int | None
+    dry_run: bool
+
+
+class JobIdentifyParams(TypedDict, total=False):
+    """Parameters for IPC methods that identify a job (status, pause, resume)."""
+
+    job_id: Required[str]
+    workspace: str | None
+
+
+class JobCancelParams(TypedDict, total=False):
+    """Parameters for the job.cancel IPC method."""
+
+    job_id: Required[str]
+
+
+class DaemonShutdownParams(TypedDict, total=False):
+    """Parameters for the daemon.shutdown IPC method."""
+
+    graceful: bool  # Defaults to True if not provided
 
 
 class JobRequest(BaseModel):

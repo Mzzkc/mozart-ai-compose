@@ -15,13 +15,21 @@ import uuid
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 
 from mozart.core.logging import MozartLogger
 from mozart.learning.store.base import GlobalLearningStoreBase, _logger
 from mozart.learning.store.models import PatternDiscoveryEvent
 
+if TYPE_CHECKING:
+    from mozart.learning.store.patterns_query import PatternQueryProtocol
 
-class PatternBroadcastMixin:
+    _BroadcastBase = PatternQueryProtocol
+else:
+    _BroadcastBase = object
+
+
+class PatternBroadcastMixin(_BroadcastBase):
     """Mixin providing pattern discovery broadcasting methods.
 
     This mixin requires that the composed class provides:
@@ -133,7 +141,7 @@ class PatternBroadcastMixin:
             params.append(limit)
 
             cursor = conn.execute(query, params)
-            return [self._row_to_discovery_event(row) for row in cursor.fetchall()]  # type: ignore[attr-defined]
+            return [self._row_to_discovery_event(row) for row in cursor.fetchall()]
 
     def cleanup_expired_pattern_discoveries(self) -> int:
         """Remove expired pattern discovery events.
@@ -189,4 +197,4 @@ class PatternBroadcastMixin:
                     (now.isoformat(),),
                 )
 
-            return [self._row_to_discovery_event(row) for row in cursor.fetchall()]  # type: ignore[attr-defined]
+            return [self._row_to_discovery_event(row) for row in cursor.fetchall()]

@@ -133,13 +133,11 @@ def status(
 
     client = DaemonClient(socket_path)
 
-    HealthResult = tuple[
+    async def _get_health() -> tuple[
         dict[str, Any] | None,
         dict[str, Any] | None,
         dict[str, Any] | None,
-    ]
-
-    async def _get_health() -> HealthResult:
+    ]:
         health = None
         ready = None
         daemon_info = None
@@ -345,8 +343,17 @@ class DaemonProcess:
         manager: JobManager,
         health: HealthChecker | None = None,
     ) -> None:
-        """Wire JSON-RPC methods to JobManager and HealthChecker."""
+        """Wire JSON-RPC methods to JobManager and HealthChecker.
+
+        Handler params arrive as ``dict[str, Any]`` from JSON-RPC.
+        See ``daemon/types.py`` for the expected parameter shapes:
+        JobSubmitParams, JobIdentifyParams, JobCancelParams,
+        DaemonShutdownParams.
+        """
         from mozart.daemon.types import JobRequest
+
+        def _workspace_path(raw: str | None) -> Path | None:
+            return Path(raw) if raw else None
 
         async def handle_submit(params: dict[str, Any], _w: Any) -> dict[str, Any]:
             request = JobRequest(**params)
@@ -355,18 +362,18 @@ class DaemonProcess:
 
         async def handle_job_status(params: dict[str, Any], _w: Any) -> dict[str, Any]:
             return await manager.get_job_status(
-                params["job_id"], params.get("workspace"),
+                params["job_id"], _workspace_path(params.get("workspace")),
             )
 
         async def handle_pause(params: dict[str, Any], _w: Any) -> dict[str, Any]:
             ok = await manager.pause_job(
-                params["job_id"], params.get("workspace"),
+                params["job_id"], _workspace_path(params.get("workspace")),
             )
             return {"paused": ok}
 
         async def handle_resume(params: dict[str, Any], _w: Any) -> dict[str, Any]:
             response = await manager.resume_job(
-                params["job_id"], params.get("workspace"),
+                params["job_id"], _workspace_path(params.get("workspace")),
             )
             return response.model_dump()
 

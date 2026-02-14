@@ -29,8 +29,8 @@ Architecture:
 
 from __future__ import annotations
 
-import re
 import random
+import re
 import sqlite3
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -266,8 +266,7 @@ class PatternsMixin:
             if not patterns:
                 return [], []
 
-            # Deduplicate near-similar patterns to avoid contradictory advice.
-            # Group by normalized description; keep highest-scored per group.
+            # Deduplicate near-similar patterns to avoid contradictory advice
             patterns = _deduplicate_patterns(patterns)
 
             # Format patterns for prompt injection

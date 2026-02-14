@@ -201,10 +201,28 @@ class LifecycleMixin:
             else:
                 await self._execute_sequential_mode(state)
 
-            # Mark job complete if we processed all sheets
+            # Mark job complete if we processed all sheets.
+            # If any sheets were skipped (blocked by failed dependencies) or
+            # failed, the job should be FAILED, not COMPLETED.
             if state.status == JobStatus.RUNNING:
-                state.status = JobStatus.COMPLETED
+                has_failures = any(
+                    s.status in (SheetStatus.FAILED, SheetStatus.SKIPPED)
+                    for s in state.sheets.values()
+                )
+                state.status = JobStatus.FAILED if has_failures else JobStatus.COMPLETED
                 state.pid = None  # Clear PID on completion
+                if has_failures:
+                    skipped = [
+                        n for n, s in state.sheets.items()
+                        if s.status == SheetStatus.SKIPPED
+                    ]
+                    failed = [n for n, s in state.sheets.items() if s.status == SheetStatus.FAILED]
+                    parts = []
+                    if failed:
+                        parts.append(f"sheets {failed} failed")
+                    if skipped:
+                        parts.append(f"sheets {skipped} blocked by failed dependencies")
+                    state.error_message = "; ".join(parts)
                 await self.state_backend.save(state)
 
             # Finalize summary
@@ -591,8 +609,14 @@ class LifecycleMixin:
             # All sheets completed or failed — job is done
             return None
 
-        # Some sheets remain but none are ready: blocked by failed dependencies
+        # Some sheets remain but none are ready: blocked by failed dependencies.
+        # Mark them as SKIPPED so the summary and job status reflect reality.
         blocked_sheets = sorted(remaining)
+        for sheet_num in blocked_sheets:
+            state.mark_sheet_skipped(
+                sheet_num,
+                reason=f"Blocked by failed dependencies: {sorted(failed)}",
+            )
         self._logger.warning(
             "dag.sheets_blocked",
             blocked_sheets=blocked_sheets,
