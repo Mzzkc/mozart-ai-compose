@@ -1,15 +1,18 @@
 """Cross-job rate limit coordination.
 
-Phase 3 infrastructure — fully built and tested, not yet receiving
-data from job execution.
+Phase 3 infrastructure — write path active, read path not yet driving
+execution.
 
-The coordinator is wired into the ``GlobalSheetScheduler`` (which
-queries ``is_rate_limited()`` before dispatching sheets), but no
-caller invokes ``report_rate_limit()`` yet.  When the scheduler is
-integrated into the execution path (see ``scheduler.py`` module
-docstring), job runners or backends will call ``report_rate_limit()``
-whenever they detect a rate limit, feeding the coordinator with live
-data.
+The write side (``report_rate_limit()``) is wired into the daemon via
+``JobManager._on_rate_limit`` → ``JobService`` →
+``RunnerContext.rate_limit_callback``.  Rate limit events from job
+runners flow into the coordinator in real time.
+
+The read side (``is_rate_limited()``) is consumed by
+``GlobalSheetScheduler``, which is built and tested but not yet
+driving execution (Phase 3).  When the scheduler is integrated into
+the execution path (see ``scheduler.py`` module docstring), the
+collected rate limit data will inform cross-job scheduling decisions.
 
 When any job hits a rate limit, ALL jobs using that backend are notified
 to back off.  Much faster than the SQLite cross-process approach in
@@ -198,10 +201,9 @@ class RateLimitCoordinator:
         """Remove expired events and limits.
 
         Called periodically by ``ResourceMonitor._loop()`` to prevent
-        unbounded memory growth.  Currently ``report_rate_limit()``
-        also prunes on each call, but since it has zero callers
-        (Phase 3 not yet wired), this method is the only active
-        pruning path.
+        unbounded memory growth.  ``report_rate_limit()`` also prunes
+        on each call via the active write path, but this periodic
+        prune ensures cleanup even during quiet periods.
 
         Returns:
             Number of stale events removed.

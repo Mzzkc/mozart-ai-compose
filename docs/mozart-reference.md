@@ -41,7 +41,7 @@ The musical metaphor runs deep. Jobs are "scores" (sheet music), units of work a
          │
 ┌────────▼────────────────────────────────────────────────────────┐
 │                    Execution Engine (Runner)                     │
-│  JobRunner: 8 mixins via multiple inheritance                   │
+│  JobRunner: 6 mixins + base class via multiple inheritance                   │
 │  ┌──────────┬───────────┬──────────┬──────────┬──────────┐     │
 │  │Lifecycle │  Sheet    │ Recovery │ Patterns │   Cost   │     │
 │  │ run()    │ execute() │ healing  │ query()  │ track()  │     │

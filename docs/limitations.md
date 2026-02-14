@@ -77,7 +77,7 @@ Two major daemon subsystems are fully built, tested, and present in the codebase
 | `GlobalSheetScheduler` | `src/mozart/daemon/scheduler.py` | Cross-job sheet scheduling with priority, fair-share, and DAG awareness |
 | `RateLimitCoordinator` | `src/mozart/daemon/rate_coordinator.py` | Shares rate-limit state across concurrent jobs |
 
-**What this means:** Jobs currently run monolithically via `JobService.start_job()`. The scheduler and rate coordinator are instantiated (lazily) but never drive execution. The manager logs `scheduler_status="lazy_not_wired"` at startup.
+**What this means:** Jobs currently run monolithically via `JobService.start_job()`. The scheduler is instantiated lazily but doesn't drive execution. The rate coordinator's write path IS active (rate limit events flow from runners through `RunnerContext.rate_limit_callback` to the coordinator via `JobManager._on_rate_limit`), but its read path is not wired — the scheduler doesn't consume the collected data yet.
 
 **Why:** These were built as Phase 3 infrastructure. Integration requires replacing the monolithic job execution path with per-sheet dispatch through the scheduler — a significant change that hasn't been prioritized.
 
@@ -138,17 +138,17 @@ Mozart was designed around the Claude CLI and Anthropic API. While the backend i
 
 ### Runner Mixin Architecture
 
-The `JobRunner` class is composed of 6 mixins via multiple inheritance:
+The `JobRunner` class is composed of 6 mixins plus a base class (7 classes total) via multiple inheritance:
 
 ```
 JobRunner(
-    SheetMixin,       # Sheet execution (2200+ lines)
-    LifecycleMixin,   # run() orchestration
-    RecoveryMixin,    # Error classification and retry
-    PatternsMixin,    # Pattern management
-    CostMixin,        # Cost tracking
-    IsolationMixin,   # Worktree isolation
-    JobRunnerBase,    # Core initialization
+    SheetExecutionMixin,  # Sheet execution (~3,000 lines)
+    LifecycleMixin,       # run() orchestration
+    RecoveryMixin,        # Error classification and retry
+    PatternsMixin,        # Pattern management
+    CostMixin,            # Cost tracking
+    IsolationMixin,       # Worktree isolation
+    JobRunnerBase,        # Core initialization
 )
 ```
 
@@ -157,7 +157,7 @@ JobRunner(
 - Debugging requires tracing method calls across multiple files in `src/mozart/execution/runner/`
 - MRO (Method Resolution Order) determines which mixin's method wins
 - State is shared across mixins via `self`, with no encapsulation between them
-- `SheetMixin` alone (`sheet.py`) is over 2,200 lines
+- `SheetExecutionMixin` alone (`sheet.py`) is ~3,000 lines
 
 **Why:** The runner grew organically. Each concern (cost, isolation, recovery) was added as a mixin to avoid a single 5,000+ line file.
 
@@ -169,7 +169,7 @@ JobRunner(
 
 ### Learning System Complexity
 
-The learning store has 16 modules in `src/mozart/learning/store/`:
+The learning store has 14 modules in `src/mozart/learning/store/`:
 
 ```
 base.py                   budget.py
@@ -222,30 +222,32 @@ The dashboard UI is functional but has limited coverage:
 
 ### Validation Condition Expressions
 
-Validation `condition` fields support only simple comparison expressions:
+Validation `condition` fields support comparison expressions with any context variable and boolean AND:
 
 ```yaml
 validations:
   - type: file_exists
     path: "output.md"
-    condition: "sheet_num >= 3"   # Supported
-    condition: "sheet_num == 5"   # Supported
-    condition: "sheet_num > 2"    # Supported
+    condition: "sheet_num >= 3"                        # Simple comparison
+    condition: "stage == 2 and instance == 1"          # Boolean AND with fan-out variables
+    condition: "sheet_num >= 3 and sheet_num <= 5"     # Range check
 ```
+
+**Supported operators:** `>=`, `<=`, `==`, `!=`, `>`, `<`
+
+**Supported variables:** Any variable from the sheet context — `sheet_num`, `stage`, `instance`, `fan_count`, `total_stages`, and any user-defined `prompt.variables`.
 
 **What's NOT supported:**
 
-- Boolean combinations: `sheet_num >= 3 and sheet_num <= 5`
-- Fan-out-aware conditions: `stage == 2 and instance == 1`
 - Complex expressions: `sheet_num in [1, 3, 5]`
+- Boolean OR: `sheet_num == 3 or sheet_num == 5`
+- Nested expressions: `(sheet_num > 2) and (stage < 3)`
 
-**Why:** The condition parser in `templating.py` uses a simple regex (`sheet_num\s*(>=|==|>)\s*(\d+)`) for safety and predictability. Unrecognized conditions silently fall back to "always apply" behavior.
+**Why:** The condition evaluator in `engine.py` splits on `" and "` and evaluates each clause as a `variable operator value` triple. Unrecognized conditions silently fall back to "always apply" behavior.
 
-**Note:** The `skip_when` feature (per-sheet skip conditions) uses restricted expression evaluation with a safe builtins set and *does* support more complex expressions — but `skip_when` is for skipping sheets, not for conditional validation.
+**Workaround:** For OR logic, use multiple validation entries, each with a simple condition.
 
-**Workaround:** Use multiple validation entries, each with a simple condition, instead of one entry with a complex boolean.
-
-**Status:** Sufficient for current use cases. Could be extended if needed.
+**Status:** Sufficient for current use cases.
 
 ---
 
@@ -261,15 +263,15 @@ Validation stages are capped at 1-10. You cannot define more than 10 sequential 
 
 ### Process Timeout Default
 
-The default subprocess timeout is 300 seconds (5 minutes). For AI-powered sheets that may run longer, you must explicitly set a higher timeout in the job config.
+The default backend timeout is **1800 seconds** (30 minutes), set via `BackendConfig.timeout_seconds`. This is the timeout users should be aware of.
 
-**Relevant constant:** `PROCESS_DEFAULT_TIMEOUT_SECONDS = 300.0`
+There is also an internal constant `PROCESS_DEFAULT_TIMEOUT_SECONDS = 300` used as a fallback when no config is loaded, but this is never reached in normal operation — the Pydantic model always provides the 1800s default.
 
-**Workaround:** Set `timeout_seconds` in your sheet config:
+**Workaround:** Override the timeout in your job config:
 
 ```yaml
-sheet:
-  timeout_seconds: 1800  # 30 minutes
+backend:
+  timeout_seconds: 3600  # 60 minutes for long-running sheets
 ```
 
 **Status:** Permanent. Explicit timeouts are safer than high defaults.

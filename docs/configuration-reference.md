@@ -16,6 +16,7 @@ and constraints are extracted directly from the Pydantic v2 config models in
 - [bridge](#bridge)
   - [MCP Server Sub-Config](#mcp-server-sub-config)
 - [sheet](#sheet)
+  - [SkipWhenCommand Sub-Config](#skipwhencommand-sub-config)
 - [prompt](#prompt)
 - [parallel](#parallel)
 - [retry](#retry)
@@ -217,8 +218,9 @@ Defines how the work is divided into sheets (execution units).
 | `start_item` | `int` | `1` | `>= 1` | First item number (1-indexed) |
 | `dependencies` | `dict[int, list[int]]` | `{}` | No self-references | Sheet dependency declarations. Map of `sheet_num -> [prerequisites]`. Sheets without entries are independent. |
 | `skip_when` | `dict[int, str]` | `{}` | | Conditional skip rules. Map of `sheet_num -> condition`. Expression accesses `sheets` dict and `job` state. If truthy, sheet is skipped. |
+| `skip_when_command` | `dict[int, SkipWhenCommand]` | `{}` | | Command-based conditional skip rules. Map of `sheet_num -> SkipWhenCommand`. The command runs via shell; exit 0 = skip the sheet, non-zero = run it. Fail-open on timeout or error. |
 | `fan_out` | `dict[int, int]` | `{}` | Requires `size=1`, `start_item=1` | Fan-out declarations. Map of `stage_num -> instance_count`. Creates parallel instances of stages. Cleared after expansion. |
-| `fan_out_stage_map` | `dict[int, dict] \| None` | `None` | | Per-sheet fan-out metadata, populated by expansion. Survives serialization for resume support. |
+| `fan_out_stage_map` | `dict[int, dict[str, int]] \| None` | `None` | | Per-sheet fan-out metadata, populated by expansion. Survives serialization for resume support. |
 
 ```yaml
 sheet:
@@ -230,6 +232,11 @@ sheet:
     4: [2, 3]
   skip_when:
     5: "sheets.get(3) and sheets[3].validation_passed"
+  skip_when_command:
+    8:
+      command: 'grep -q "PHASES: 1" {workspace}/plan.md'
+      description: "Skip phase 2 if plan only has 1 phase"
+      timeout_seconds: 5
   fan_out:
     2: 3    # 3 parallel instances of stage 2
 ```
@@ -237,6 +244,34 @@ sheet:
 **Computed properties** (not configurable):
 - `total_sheets` — calculated as `ceil((total_items - start_item + 1) / size)`
 - `total_stages` — original stage count before fan-out expansion
+
+### SkipWhenCommand Sub-Config
+
+*Source: `src/mozart/core/config/execution.py` — `SkipWhenCommand`*
+
+Defines a command-based conditional skip rule for sheet execution. When the command exits 0, the sheet is **skipped**. When the command exits non-zero, the sheet **runs**. On timeout or error, the sheet runs (fail-open for safety).
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `command` | `str` | **required** | | Shell command to evaluate. Exit 0 = skip the sheet. Supports `{workspace}` template expansion. |
+| `description` | `str \| None` | `None` | | Human-readable reason for the skip condition |
+| `timeout_seconds` | `float` | `10.0` | `> 0`, `<= 60` | Maximum seconds to wait for command. Fail-open on timeout. |
+
+```yaml
+sheet:
+  size: 1
+  total_items: 10
+  skip_when_command:
+    # Skip sheet 4 if tests already pass
+    4:
+      command: "cd {workspace} && pytest tests/ -x --tb=no -q"
+      description: "Skip if tests already pass"
+      timeout_seconds: 30
+    # Skip sheet 8 if a marker file exists
+    8:
+      command: "test -f {workspace}/phase2-complete.marker"
+      description: "Skip phase 2 cleanup if already done"
+```
 
 ---
 
@@ -455,7 +490,7 @@ A list of validation rules applied after each sheet execution. Supports staged e
 | `working_directory` | `str \| None` | `None` | | Working directory for command (defaults to workspace) |
 | `description` | `str \| None` | `None` | | Human-readable description |
 | `stage` | `int` | `1` | `1–10` | Validation stage. Lower stages run first; fail-fast on failure. |
-| `condition` | `str \| None` | `None` | | Condition for when this validation applies. Supports: `sheet_num >= N`, `sheet_num == N`, `sheet_num <= N`. |
+| `condition` | `str \| None` | `None` | | Condition for when this validation applies. See **Condition syntax** below. |
 | `retry_count` | `int` | `3` | `0–10` | Retry attempts for file-based validations (helps with filesystem race conditions) |
 | `retry_delay_ms` | `int` | `200` | `0–5000` | Delay between retries in milliseconds |
 
@@ -468,6 +503,41 @@ A list of validation rules applied after each sheet execution. Supports staged e
 | `content_contains` | `path`, `pattern` | File contains the literal pattern string |
 | `content_regex` | `path`, `pattern` | File content matches the regex pattern |
 | `command_succeeds` | `command` | Shell command exits with code 0 |
+
+**Condition syntax:**
+
+Conditions control when a validation rule applies. Each condition compares a context variable against an integer value.
+
+| Operator | Example | Meaning |
+|----------|---------|---------|
+| `>=` | `sheet_num >= 3` | Greater than or equal |
+| `<=` | `stage <= 2` | Less than or equal |
+| `==` | `instance == 1` | Equal |
+| `!=` | `fan_count != 1` | Not equal |
+| `>` | `sheet_num > 5` | Greater than |
+| `<` | `total_stages < 4` | Less than |
+
+**Boolean AND:** Combine multiple conditions with `" and "` (space-delimited). All conditions must be true.
+
+```
+"sheet_num >= 3 and stage == 2"
+"fan_count > 1 and instance == 1"
+```
+
+**Available context variables:**
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `sheet_num` | `int` | Current sheet number (1-indexed) |
+| `total_sheets` | `int` | Total number of sheets |
+| `start_item` | `int` | First item number for this sheet |
+| `end_item` | `int` | Last item number for this sheet |
+| `stage` | `int` | Logical stage number (equals `sheet_num` when no fan-out) |
+| `instance` | `int` | Instance within fan-out group (1-indexed, default 1) |
+| `fan_count` | `int` | Total instances in this stage's fan-out group (default 1) |
+| `total_stages` | `int` | Original stage count before fan-out expansion |
+
+Any variable that is missing or non-integer is treated as "condition satisfied" (fail-open). An unrecognized condition format also passes (fail-open).
 
 ```yaml
 validations:
@@ -483,12 +553,19 @@ validations:
     stage: 2
     description: "Tests pass"
 
-  # Stage 3: Code quality
+  # Stage 3: Code quality (only from sheet 3 onward)
   - type: command_succeeds
     command: "ruff check src/"
     stage: 3
     condition: "sheet_num >= 3"
     description: "Lint clean"
+
+  # Only for fan-out primary instances
+  - type: command_succeeds
+    command: "python merge_results.py"
+    stage: 3
+    condition: "fan_count > 1 and instance == 1"
+    description: "Merge fan-out results (primary instance only)"
 ```
 
 ---

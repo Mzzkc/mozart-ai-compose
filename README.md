@@ -198,7 +198,7 @@ mozart resume hello-world --workspace ./workspace/hello-world
 | Learning system | Outcome recording, pattern detection, cross-workspace learning |
 | Parallel execution | DAG-based sheet dependencies for concurrent execution |
 | Web dashboard | Real-time monitoring with job control and log streaming |
-| Job chaining | Chain jobs via on_success hooks with depth limits |
+| Job chaining | Chain jobs via on_success hooks (hooks fire; concert depth tracking is a known TODO) |
 | Worktree isolation | Git worktree isolation for parallel-safe execution |
 | Cost tracking | Per-sheet and per-job cost limits |
 | Circuit breaker | Cross-workspace coordination, rate limit sharing |
@@ -394,8 +394,13 @@ Mozart includes examples demonstrating various use cases:
 | [worktree-isolation.yaml](examples/worktree-isolation.yaml) | Parallel-safe execution using git worktrees |
 | [observability-demo.yaml](examples/observability-demo.yaml) | Demonstration of Mozart's observability features |
 | [issue-fixer.yaml](examples/issue-fixer.yaml) | GitHub issue fixing |
+| [issue-solver.yaml](examples/issue-solver.yaml) | Roadmap-driven, dependency-aware issue solver |
+| [fix-deferred-issues.yaml](examples/fix-deferred-issues.yaml) | Resolve long-deferred issues with zero failing tests |
+| [fix-observability.yaml](examples/fix-observability.yaml) | Fix observability gaps — no silent failures |
+| [cross-sheet-test.yaml](examples/cross-sheet-test.yaml) | Demonstrates cross-sheet context passing |
 | [agent-spike.yaml](examples/agent-spike.yaml) | Agent experimentation |
 | [docs-generator.yaml](examples/docs-generator.yaml) | Documentation generation orchestration |
+| [phase3-wiring.yaml](examples/phase3-wiring.yaml) | Wires GlobalSheetScheduler into execution path |
 
 ### Quality & Continuous Improvement
 
@@ -470,6 +475,7 @@ See [examples/README.md](examples/README.md) for detailed documentation of each 
 - [Score Writing Guide](docs/score-writing-guide.md) - How to author Mozart scores
 - [Configuration Reference](docs/configuration-reference.md) - Every config field documented
 - [Known Limitations](docs/limitations.md) - What doesn't work and workarounds
+- [MCP Integration](docs/MCP-INTEGRATION.md) - Model Context Protocol server for tool integration
 - [Examples](examples/) - Working configurations for various use cases
 
 To browse documentation locally:

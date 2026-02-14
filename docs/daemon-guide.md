@@ -125,7 +125,7 @@ The `BackpressureController` assesses system pressure based on memory usage (as 
 | LOW | 50–70% | 2s delay between sheet dispatches |
 | MEDIUM | 70–85% | 10s delay between sheet dispatches |
 | HIGH | > 85% or active rate limit | New job submissions rejected |
-| CRITICAL | > 95% or monitor degraded | Emergency: lowest-priority jobs may be cancelled |
+| CRITICAL | > 95% memory, > 80% process count, or monitor degraded | Emergency: oldest job (by submission time) may be cancelled |
 
 When `should_accept_job()` returns `False` (HIGH or CRITICAL pressure), the JobManager rejects new submissions with "System under high pressure — try again later."
 
@@ -203,7 +203,7 @@ mozartd is running (PID 12345)
   Version: 0.1.0
 ```
 
-Readiness shows `[+] ready` when the daemon is accepting jobs, or `[-] not_ready` when under pressure, shutting down, or experiencing elevated failure rates.
+Readiness shows `[+] ready` when the daemon is accepting jobs, or `[-] not_ready` when under pressure, shutting down, experiencing elevated failure rates, or notification delivery is degraded.
 
 ### Daemon Logs
 

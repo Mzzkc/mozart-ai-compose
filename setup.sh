@@ -277,22 +277,20 @@ echo "  mozart validate examples/simple-sheet.yaml"
 echo ""
 
 if [[ "$DAEMON_MODE" == true ]]; then
-    echo "To run your first job (daemon mode):"
+    echo "To run your first job (daemon required):"
     echo "  mozartd start              # Start the daemon"
     echo "  mozartd status             # Verify daemon is running"
     echo "  mozart run examples/simple-sheet.yaml --dry-run"
+    echo ""
+    echo "Daemon commands:"
+    echo "  mozartd stop               # Stop the daemon"
     echo ""
 else
     echo "To run your first job:"
     echo "  mozart run examples/simple-sheet.yaml --dry-run"
     echo ""
-fi
-
-if [[ "$DAEMON_MODE" == true ]]; then
-    echo "Daemon commands:"
-    echo "  mozartd start              # Start the daemon"
-    echo "  mozartd status             # Check daemon status"
-    echo "  mozartd stop               # Stop the daemon"
+    echo "Note: mozart run requires a running daemon."
+    echo "  Install with --daemon flag for mozartd support."
     echo ""
 fi
 

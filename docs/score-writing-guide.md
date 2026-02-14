@@ -298,7 +298,7 @@ Defines how work is divided into sheets.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `size` | int | **(required)** | Items per sheet. Must be ≥1. |
-| `total_items` | int | **(required)** | Total items to process. `total_sheets = ceil(total_items / size)`. |
+| `total_items` | int | **(required)** | Total items to process. `total_sheets = ceil((total_items - start_item + 1) / size)`. |
 | `start_item` | int | `1` | First item number (1-indexed). |
 | `dependencies` | dict[int, list[int]] | `{}` | Sheet/stage dependency DAG. See [Fan-Out and Dependencies](#fan-out-and-dependencies). |
 | `fan_out` | dict[int, int] | `{}` | Stage → instance count. See [Fan-Out and Dependencies](#fan-out-and-dependencies). |
@@ -454,7 +454,11 @@ prompt:
 
 ### User-Defined Variables
 
-Defined in `prompt.variables` and available in templates by name:
+Defined in `prompt.variables` and available in templates by name.
+
+> **Warning:** User variables are merged directly into the template context and can
+> silently shadow core variables like `sheet_num`, `workspace`, or `stage`. Avoid
+> naming your variables with the same names as core variables listed above.
 
 ```yaml
 prompt:
@@ -976,9 +980,10 @@ done
    review sheet and an 8-hour timeout for a monitoring sheet are very
    different needs. Use `backend.timeout_overrides` for per-sheet control.
 
-3. **Enable parallel execution only with dependencies.** Without a dependency
-   DAG, `parallel.enabled: true` has no effect — all sheets already run
-   sequentially.
+3. **Always declare dependencies when using parallel execution.** Without
+   a dependency DAG, `parallel.enabled: true` makes ALL sheets immediately
+   eligible for concurrent execution (up to `max_concurrent`). If your sheets
+   must run in order, add explicit dependencies to control the sequence.
 
 ### Prompts
 

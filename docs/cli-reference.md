@@ -1142,12 +1142,19 @@ Job configurations are defined in YAML files. Here are the key sections:
 
 ```yaml
 name: "my-job"
-sheets:
-  - prompt:
-      template: "Process item {{ sheet_num }} of {{ total_sheets }}"
-    validations:
-      - type: file_exists
-        path: "{{ workspace }}/output-{{ sheet_num }}.md"
+workspace: "./workspace"
+backend:
+  type: claude_cli
+  timeout_seconds: 1800
+sheet:
+  size: 1
+  total_items: 5
+prompt:
+  template: |
+    Stage {{ sheet_num }}: Process item {{ sheet_num }} of {{ total_sheets }}.
+validations:
+  - type: file_exists
+    path: "{{ workspace }}/output-{{ sheet_num }}.md"
 ```
 
 ### Full Example
@@ -1155,38 +1162,44 @@ sheets:
 ```yaml
 name: "full-example"
 description: "Comprehensive job example"
+workspace: "./my-workspace"
 
 backend:
-  type: claude_cli          # claude_cli | anthropic_api | ollama
+  type: claude_cli          # claude_cli | anthropic_api | ollama | recursive_light
   skip_permissions: true
-  working_directory: ./workspace
+  working_directory: ./my-workspace
   timeout_seconds: 1800
 
-sheets:
-  - prompt:
-      template: |
-        Process sheet {{ sheet_num }} of {{ total_sheets }}.
-        {{ stakes }}
-      stakes: "Be thorough and precise."
-    retry:
-      max_retries: 3
-      base_delay_seconds: 30
-      exponential_base: 2.0
-    rate_limit:
-      wait_minutes: 60
-      max_waits: 24
-    validations:
-      - type: file_exists
-        path: "{{ workspace }}/output-{{ sheet_num }}.md"
-      - type: content_contains
-        path: "{{ workspace }}/output-{{ sheet_num }}.md"
-        pattern: "## Summary"
-      - type: file_modified
-        path: "{{ workspace }}/output-{{ sheet_num }}.md"
-      - type: command_succeeds
-        command: "wc -w {{ workspace }}/output-{{ sheet_num }}.md | awk '$1 >= 500'"
+sheet:
+  size: 1
+  total_items: 10
 
-workspace: "./my-workspace"
+prompt:
+  template: |
+    Stage {{ sheet_num }} of {{ total_sheets }}: Process the next batch.
+    Items {{ start_item }} through {{ end_item }}.
+    {{ stakes }}
+  stakes: "Be thorough and precise."
+
+retry:
+  max_retries: 3
+  base_delay_seconds: 30
+  exponential_base: 2.0
+
+rate_limit:
+  wait_minutes: 60
+  max_waits: 24
+
+validations:
+  - type: file_exists
+    path: "{{ workspace }}/output-{{ sheet_num }}.md"
+  - type: content_contains
+    path: "{{ workspace }}/output-{{ sheet_num }}.md"
+    pattern: "## Summary"
+  - type: file_modified
+    path: "{{ workspace }}/output-{{ sheet_num }}.md"
+  - type: command_succeeds
+    command: "wc -w {{ workspace }}/output-{{ sheet_num }}.md | awk '$1 >= 500'"
 
 notifications:
   - type: desktop
@@ -1195,20 +1208,29 @@ notifications:
 
 ### Template Variables
 
+Core variables available in all prompt templates (from `SheetContext.to_dict()`):
+
 | Variable | Description |
 |----------|-------------|
 | `{{ sheet_num }}` | Current sheet number (1-based) |
 | `{{ total_sheets }}` | Total number of sheets |
 | `{{ workspace }}` | Workspace directory path |
-| `{{ job_name }}` | Name of the job |
+| `{{ previous_outputs }}` | Dict of previous sheet outputs (when `cross_sheet` is configured) |
+| `{{ start_item }}` | First item number for this sheet |
+| `{{ end_item }}` | Last item number for this sheet |
+| `{{ stage }}` | Current stage number (in fan-out, same as `sheet_num` without fan-out) |
+| `{{ instance }}` | Fan-out instance number (1 for non-fan-out) |
+| `{{ fan_count }}` | Total fan-out instances for this stage (1 for non-fan-out) |
+| `{{ total_stages }}` | Total logical stages (may differ from `total_sheets` with fan-out) |
 
 ### Backend Types
 
 | Type | Description |
 |------|-------------|
-| `claude_cli` | Execute via Claude CLI (default) |
-| `anthropic_api` | Direct Anthropic API with model selection |
-| `ollama` | Local models via Ollama |
+| `claude_cli` | Primary backend, uses Claude CLI subprocess (default) |
+| `anthropic_api` | Uses Anthropic Python SDK directly with model selection |
+| `ollama` | Community-contributed Ollama integration for local models |
+| `recursive_light` | Experimental recursive backend |
 
 ### Validation Types
 
