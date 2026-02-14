@@ -649,18 +649,20 @@ class LifecycleMixin:
     # Execution Modes
     # =========================================================================
 
-    def _should_skip_sheet(self, sheet_num: int, state: CheckpointState) -> str | None:
+    async def _should_skip_sheet(self, sheet_num: int, state: CheckpointState) -> str | None:
         """Evaluate conditional skip rules for a sheet.
 
-        Checks the skip_when config for a condition expression tied to this
-        sheet number. Conditions use a restricted expression syntax:
-        - ``sheets[N].status.value == "completed"``
-        - ``sheets[N].validation_passed``
-        - ``sheets[N].attempt_count > 2``
+        Checks two types of skip conditions in order:
+        1. ``skip_when`` — Python expression conditions (instant, no I/O)
+        2. ``skip_when_command`` — Shell command conditions (subprocess with timeout)
 
-        The expression is evaluated with a restricted builtins set for safety.
-        Condition expressions come from the operator's YAML config file, not
-        from untrusted user input.
+        Expression conditions are checked first. If a sheet is already skipped
+        by expression, the command is not run.
+
+        For command conditions:
+        - Exit 0 -> skip the sheet (with description as reason)
+        - Non-zero -> run the sheet
+        - Timeout/error -> run the sheet (fail-open for safety)
 
         Args:
             sheet_num: Sheet number to evaluate.
@@ -669,33 +671,80 @@ class LifecycleMixin:
         Returns:
             Skip reason string if the sheet should be skipped, None otherwise.
         """
+        import asyncio as _asyncio
+
+        # --- Phase 1: Check expression-based skip_when (existing behavior) ---
         skip_conditions = self.config.sheet.skip_when
-        if not skip_conditions or sheet_num not in skip_conditions:
+        if skip_conditions and sheet_num in skip_conditions:
+            condition = skip_conditions[sheet_num]
+            # Restricted builtins -- only allow safe comparison operations
+            safe_builtins = {
+                "True": True, "False": False, "None": None,
+                "len": len, "bool": bool, "int": int, "str": str,
+                "any": any, "all": all, "max": max, "min": min,
+            }
+            try:
+                result = eval(  # noqa: S307 -- operator-controlled config, not user input
+                    condition,
+                    {"__builtins__": safe_builtins},
+                    {"sheets": state.sheets, "job": state},
+                )
+                if result:
+                    return f"Condition met: {condition}"
+            except Exception as e:
+                self._logger.warning(
+                    "skip_condition_eval_failed",
+                    sheet_num=sheet_num,
+                    condition=condition,
+                    error=str(e),
+                )
+                return f"Condition evaluation failed (fail-closed): {condition}"
+
+        # --- Phase 2: Check command-based skip_when_command ---
+        cmd_conditions = self.config.sheet.skip_when_command
+        if not cmd_conditions or sheet_num not in cmd_conditions:
             return None
 
-        condition = skip_conditions[sheet_num]
-        # Restricted builtins — only allow safe comparison operations
-        safe_builtins = {
-            "True": True, "False": False, "None": None,
-            "len": len, "bool": bool, "int": int, "str": str,
-            "any": any, "all": all, "max": max, "min": min,
-        }
+        skip_cmd = cmd_conditions[sheet_num]
+        command = skip_cmd.command.replace("{workspace}", str(self.config.workspace))
+
+        proc = None
         try:
-            result = eval(  # noqa: S307 — operator-controlled config, not user input
-                condition,
-                {"__builtins__": safe_builtins},
-                {"sheets": state.sheets, "job": state},
+            proc = await _asyncio.create_subprocess_shell(
+                command,
+                stdout=_asyncio.subprocess.DEVNULL,
+                stderr=_asyncio.subprocess.DEVNULL,
+                cwd=str(self.config.workspace),
             )
-            if result:
-                return f"Condition met: {condition}"
+            returncode = await _asyncio.wait_for(
+                proc.wait(), timeout=skip_cmd.timeout_seconds
+            )
+        except _asyncio.TimeoutError:
+            self._logger.warning(
+                "skip_when_command_timeout",
+                sheet_num=sheet_num,
+                command=command,
+                timeout=skip_cmd.timeout_seconds,
+            )
+            if proc is not None:
+                try:
+                    proc.kill()
+                    await proc.wait()
+                except ProcessLookupError:
+                    pass
+            return None
         except Exception as e:
             self._logger.warning(
-                "skip_condition_eval_failed",
+                "skip_when_command_error",
                 sheet_num=sheet_num,
-                condition=condition,
+                command=command,
                 error=str(e),
             )
-            return f"Condition evaluation failed (fail-closed): {condition}"
+            return None
+
+        if returncode == 0:
+            reason = skip_cmd.description or f"Command succeeded: {skip_cmd.command}"
+            return reason
 
         return None
 
@@ -721,7 +770,7 @@ class LifecycleMixin:
                 await self._handle_pause_request(state, next_sheet)
 
             # Evaluate conditional skip rules (GH#13)
-            skip_reason = self._should_skip_sheet(next_sheet, state)
+            skip_reason = await self._should_skip_sheet(next_sheet, state)
             if skip_reason:
                 state.mark_sheet_skipped(next_sheet, reason=skip_reason)
                 await self.state_backend.save(state)
