@@ -1,0 +1,1889 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║              DAEMON QUALITY IMPROVEMENT                                      ║
+# ║                                                                              ║
+# ║  Daemon-focused variant of quality-continuous. Same 14-stage pipeline but   ║
+# ║  with priority selection heavily biased toward daemon subsystem files        ║
+# ║  (IPC, job management, scheduler, registry, backpressure, monitoring).      ║
+# ║                                                                              ║
+# ║  See quality-continuous.yaml for full pipeline documentation.               ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+name: "quality-daemon"
+description: "Daemon-focused quality review — prioritizes daemon subsystem investigation"
+
+workspace: "./.quality-daemon-workspace"
+
+workspace_lifecycle:
+  archive_on_fresh: true
+  max_archives: 10
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  timeout_seconds: 3000  # 50 min per sheet — extra time for subagent invocations
+
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 3000
+  lookback_sheets: 5  # Needed so Stage 3 (Sheet 7) can read all 5 fan-out outputs
+  capture_files:
+    - "{{ workspace }}/*.md"
+    - "{{ workspace }}/*.yaml"
+
+sheet:
+  size: 1
+  total_items: 14  # 14 stages → 18 concrete sheets after fan-out expansion
+
+  # Stage 2 runs 5 parallel instances (Arch, Test, Debt, Silent Failures, Types)
+  fan_out:
+    2: 5
+
+  # Dependency DAG (stage-level, auto-expanded for fan-out)
+  dependencies:
+    2: [1]     # Expert reviews depend on setup
+    3: [2]     # Category discovery depends on all reviews (fan-in)
+    4: [3]     # Synthesis depends on category discovery
+    5: [4]     # Batch 1 depends on synthesis
+    6: [5]     # Batch 1 completion depends on batch 1
+    7: [6]     # Batch 2 depends on batch 1 completion
+    8: [7]     # Batch 2 completion depends on batch 2
+    9: [8]     # Batch 3 depends on batch 2 completion
+    10: [9]    # Batch 3 completion depends on batch 3
+    11: [10]   # Verification depends on batch 3 completion
+    12: [11]   # Commit depends on verification
+    13: [12]   # Merge resolution depends on commit
+    14: [13]   # GitHub issues depends on merge resolution
+
+parallel:
+  enabled: true
+  max_concurrent: 5  # All 5 expert reviews can run simultaneously
+
+retry:
+  max_retries: 2
+
+prompt:
+  template: |
+    {{ preamble }}
+
+    {% if stage == 1 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 1: SETUP                                                              ║
+    ║  "Preparation precedes performance"                                          ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Step 1: Track iteration**
+    ```bash
+    mkdir -p {{ workspace }}
+    if [ -f {{ workspace }}/.iteration ]; then
+      ITER=$(cat {{ workspace }}/.iteration)
+      ITER=$((ITER + 1))
+    else
+      ITER=1
+    fi
+    echo $ITER > {{ workspace }}/.iteration
+    echo "=== QUALITY ITERATION $ITER ==="
+    ```
+
+    **Step 2: Build the issue backlog (PRIMARY WORK SOURCE)**
+
+    Fetch ALL open issues — these are the primary source of work items
+    for this iteration. Expert reviews supplement, but the backlog drives.
+
+    ```bash
+    # Fetch ALL open issues (not just bugs) — this is the work queue
+    gh issue list --state open \
+      --json number,title,body,labels,assignees,createdAt \
+      --limit 50 2>/dev/null || echo "gh not available"
+    ```
+
+    If `gh` is not available, note "No GitHub access — will rely entirely
+    on expert review discoveries" and continue. The score still works, but
+    the 70% backlog requirement in Stage 3 is waived.
+
+    Save a comprehensive backlog to {{ workspace }}/00-known-issues.md:
+    ```markdown
+    # Issue Backlog (Iteration N)
+
+    **GitHub access:** yes/no
+    **Total open issues:** N
+
+    ## Actionable Issues (can be fixed this iteration)
+    | # | Title | Labels | Relevant Modules | Estimated Effort |
+    |---|-------|--------|------------------|-----------------|
+
+    ## Tracking/Meta Issues (not directly fixable)
+    | # | Title | Why Not Actionable |
+    |---|-------|--------------------|
+    ```
+
+    For each issue:
+    1. Read the issue body to understand what's actually needed
+    2. Identify which source files or modules it relates to
+    3. Classify as **actionable** (code change can fix it) or **tracking**
+       (meta-issue, umbrella, or needs external input)
+    4. Estimate effort: quick / medium / significant
+
+    This backlog is the **primary input** for Stage 3's issue selection.
+    Expert reviews in Stage 2 provide supplementary analysis, but at least
+    70% of the work items in Stage 3 MUST come from this backlog.
+
+    **Output to:** {{ workspace }}/00-known-issues.md
+
+    {% elif stage == 2 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 2: EXPERT REVIEW — {{ review_types[instance] | upper }}               ║
+    ║  Instance {{ instance }} of {{ fan_count }} (running in PARALLEL)             ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Known issues context:** Read {{ workspace }}/00-known-issues.md (from stage 1).
+    If your analysis rediscovers a known issue, reference its GitHub issue number
+    rather than reporting it as new.
+
+    {% if instance == 1 %}
+    {# ═══════════════ ARCHITECTURE REVIEW ═══════════════ #}
+
+    You are the **Architecture Analyst**. Your job is to find structural issues
+    that cause bugs, maintenance burden, and incomplete implementations.
+
+    **Use the open issues list as a lens:** modules mentioned in open bugs
+    deserve deeper scrutiny. If you find a structural problem that explains
+    a known bug, call out the connection explicitly.
+
+    **1. Module Cohesion & Correctness**
+    - Do modules have single responsibilities?
+    - Are there methods that belong elsewhere (feature envy)?
+    - Are return types consistent? Do functions return what they claim?
+    - Are edge cases handled or silently ignored?
+    - Do functions do what their names suggest?
+
+    **2. Import Graph & Dependencies**
+    ```bash
+    # Check for circular imports
+    find . -name "*.py" -type f | head -20 | xargs grep -l "^from\|^import" | head -10
+
+    # Look for tight coupling
+    grep -r "from.*import \*" --include="*.py" | head -10
+    ```
+    - Circular dependencies?
+    - Wildcard imports hiding dependencies?
+    - Modules importing from implementation details instead of interfaces?
+
+    **3. Code Flow & Control**
+    - Are there unreachable code paths?
+    - Do early returns leave resources uncleaned?
+    - Are async/await patterns consistent?
+    - Do loops have proper termination conditions?
+    - Are there infinite loop risks?
+
+    **4. Cleanup & Resource Management**
+    - Are files/connections/locks properly closed?
+    - Do context managers cover all resource acquisition?
+    - Are there finally blocks that should exist but don't?
+    - Do destructors/cleanup methods actually get called?
+
+    **5. Interface Consistency**
+    - Are public APIs clearly defined?
+    - Do similar functions have similar signatures?
+    - Are optional parameters actually optional in usage?
+    - Do exceptions match documentation?
+
+    **Output to:** {{ workspace }}/01-architecture-review.md
+
+    Format:
+    ```markdown
+    # Architecture Review (Iteration N)
+
+    ## Open Issues Cross-Reference
+    | GitHub # | Title | Modules Affected | Findings This Review |
+    |----------|-------|------------------|---------------------|
+
+    ## Correctness Issues
+    | Location | Issue | Severity | Fix |
+    |----------|-------|----------|-----|
+
+    ## Code Flow Problems
+    | Location | Issue | Risk |
+    |----------|-------|------|
+
+    ## Cleanup Gaps
+    | Resource | Location | Missing Cleanup |
+    |----------|----------|-----------------|
+
+    ## Structural Issues
+    | Module | Cohesion | Problems |
+    |--------|----------|----------|
+
+    ## Top 5 Architecture Fixes Needed
+    1. [Most critical]
+    ...
+    ```
+
+    {% elif instance == 2 %}
+    {# ═══════════════ TEST COVERAGE REVIEW ═══════════════ #}
+
+    You are the **Test Coverage Analyst**. Find gaps that let bugs slip through.
+
+    **1. Unit Test Gaps**
+    ```bash
+    # List test files
+    find . -name "test_*.py" -o -name "*_test.py" | head -20
+
+    # Count tests
+    grep -r "def test_" --include="*.py" | wc -l
+
+    # Find source files without corresponding tests
+    for f in $(find src -name "*.py" -type f 2>/dev/null | head -20); do
+      base=$(basename "$f" .py)
+      if ! find . -name "test_${base}.py" -o -name "${base}_test.py" 2>/dev/null | grep -q .; then
+        echo "No test for: $f"
+      fi
+    done
+    ```
+
+    **2. Functional Test Gaps**
+    - Are there end-to-end tests for critical user flows?
+    - Do integration tests cover module boundaries?
+    - Are error paths tested, not just happy paths?
+    - Do tests verify actual behavior or just call functions?
+
+    **3. Smoke Test Coverage**
+    - Can the app start without crashing?
+    - Do basic commands work (--help, --version)?
+    - Does import of main modules succeed?
+    - Are config files validated on load?
+    ```bash
+    # Check for smoke tests
+    grep -r "smoke\|sanity\|basic" --include="test_*.py" | head -10
+
+    # Check if main entry points are tested
+    grep -r "def test.*main\|def test.*cli\|def test.*app" --include="*.py" | head -10
+    ```
+
+    **4. Edge Case Coverage**
+    - Empty inputs
+    - None/null values
+    - Boundary values (0, -1, max_int)
+    - Unicode/special characters
+    - Concurrent access
+    - Network failures
+    - Disk full scenarios
+
+    **5. Test Quality Issues**
+    - Tests that always pass (no assertions)
+    - Tests that test implementation, not behavior
+    - Flaky tests (timing-dependent)
+    - Tests with shared mutable state
+    - Missing cleanup in test fixtures
+
+    **Output to:** {{ workspace }}/02-test-coverage-review.md
+
+    Format:
+    ```markdown
+    # Test Coverage Review (Iteration N)
+
+    ## Missing Unit Tests
+    | Module | Functions Untested | Priority |
+    |--------|-------------------|----------|
+
+    ## Functional Test Gaps
+    | User Flow | Current Coverage | Gap |
+    |-----------|-----------------|-----|
+
+    ## Missing Smoke Tests
+    | Entry Point | Test Exists? | Impact if Broken |
+    |-------------|--------------|------------------|
+
+    ## Edge Cases Not Covered
+    | Scenario | Files Affected | Risk |
+    |----------|---------------|------|
+
+    ## Test Quality Issues
+    | Test File | Issue | Fix |
+    |-----------|-------|-----|
+
+    ## Top 5 Test Gaps to Fix
+    1. [Most critical gap]
+    ...
+    ```
+
+    {% elif instance == 3 %}
+    {# ═══════════════ CODE DEBT & SIMPLICITY REVIEW ═══════════════ #}
+
+    You are the **Code Debt & Simplicity Analyst**. Find complexity that hides bugs.
+
+    **1. Dead Code & Cruft**
+    ```bash
+    # Find TODO/FIXME comments
+    grep -rn "TODO\|FIXME\|HACK\|XXX" --include="*.py" | head -20
+
+    # Find commented-out code blocks
+    grep -rn "^#.*def \|^#.*class \|^#.*import " --include="*.py" | head -10
+
+    # Find unused imports (basic check)
+    for f in $(find . -name "*.py" -type f | head -20); do
+      unused=$(python3 -c "
+    import ast, sys
+    try:
+      tree = ast.parse(open('$f').read())
+      imports = [n.names[0].name if hasattr(n, 'names') else n.module for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom))]
+      print(' '.join(imports[:5]))
+    except: pass
+    " 2>/dev/null)
+      [ -n "$unused" ] && echo "$f: $unused"
+    done | head -10
+    ```
+
+    **2. Complexity Hotspots**
+    - Functions over 50 lines
+    - Nesting deeper than 4 levels
+    - Functions with more than 5 parameters
+    - Classes with more than 10 methods
+    - Files over 500 lines
+    ```bash
+    # Find large files
+    find . -name "*.py" -type f -exec wc -l {} \; | sort -rn | head -10
+
+    # Find deeply nested code
+    grep -rn "        if\|        for\|        while" --include="*.py" | head -10
+    ```
+
+    **3. Code Simplicity Issues**
+    - Overly clever one-liners that should be expanded
+    - Premature abstractions (interfaces with one implementation)
+    - Over-engineering (factory factories, abstract abstract classes)
+    - Magic numbers without constants
+    - Boolean parameters that should be enums
+    - Long parameter lists that should be config objects
+
+    **4. Naming & Clarity**
+    - Single-letter variables (except loop counters)
+    - Misleading names (is_valid that doesn't validate)
+    - Inconsistent naming (mixedCase vs snake_case)
+    - Abbreviations that aren't obvious
+    - Names that don't match behavior
+
+    **5. Type Hint Completeness**
+    ```bash
+    # Find functions without type hints
+    grep -rn "def .*:" --include="*.py" | grep -v "def .*->.*:" | head -10
+
+    # Find Any usage
+    grep -rn ": Any\|-> Any" --include="*.py" | head -10
+    ```
+
+    **Output to:** {{ workspace }}/03-code-debt-review.md
+
+    Format:
+    ```markdown
+    # Code Debt & Simplicity Review (Iteration N)
+
+    ## Dead Code to Remove
+    | Location | Type | Lines | Safe to Delete? |
+    |----------|------|-------|-----------------|
+
+    ## Complexity Hotspots
+    | File | Function | LOC | Nesting | Params | Recommendation |
+    |------|----------|-----|---------|--------|----------------|
+
+    ## Over-Engineering
+    | Location | Pattern | Simpler Alternative |
+    |----------|---------|---------------------|
+
+    ## Naming Issues
+    | Location | Current Name | Problem | Suggested |
+    |----------|--------------|---------|-----------|
+
+    ## Type Hint Gaps
+    | File | Functions Missing Hints | Priority |
+    |------|------------------------|----------|
+
+    ## Top 5 Simplification Opportunities
+    1. [Most impactful simplification]
+    ...
+    ```
+
+    {% elif instance == 4 %}
+    {# ═══════════════ SILENT FAILURE AUDIT ═══════════════ #}
+
+    You are the **Silent Failure Auditor**. Find error handling patterns
+    that hide failures, swallow exceptions, or mask real problems.
+
+    **Use the open issues list as a lens:** modules mentioned in open bugs
+    deserve deeper scrutiny for error-swallowing patterns that may explain
+    why those bugs went undetected.
+
+    **PRIMARY: Use Task tool to launch specialized agent**
+
+    Use the Task tool with:
+    - subagent_type: "pr-review-toolkit:silent-failure-hunter"
+    - prompt: "Audit all Python files under src/ for silent failure patterns.
+      Find: bare except blocks, catch-and-continue, empty except handlers,
+      fallback logic that masks errors, functions returning None/default
+      without logging on failure. Report each finding with Location, Severity,
+      Issue, Hidden Errors, User Impact, and Recommendation."
+    - description: "Audit src/ for silent failures"
+
+    If the Task tool or agent type is not available, perform the analysis manually:
+
+    **FALLBACK: Manual analysis**
+    ```bash
+    # Find bare except blocks
+    grep -rn "except:" --include="*.py" src/ | head -20
+
+    # Find broad exception catches
+    grep -rn "except Exception" --include="*.py" src/ | head -20
+
+    # Find except + pass (swallowed errors)
+    grep -rn -A1 "except" --include="*.py" src/ | grep -B1 "pass$" | head -20
+
+    # Find except blocks that only log (may mask failures)
+    grep -rn -A2 "except" --include="*.py" src/ | grep -B2 "log\.\(debug\|info\)" | head -20
+
+    # Find functions with broad try/except around return
+    grep -rn -B2 "return None" --include="*.py" src/ | grep -A2 "except" | head -20
+    ```
+
+    For each finding, analyze:
+    - Is the exception handling specific enough?
+    - Is there adequate logging when errors are caught?
+    - Does fallback behavior mask the root cause?
+    - Could this pattern hide a bug that users would never discover?
+
+    **Output to:** {{ workspace }}/03b-silent-failure-review.md
+
+    Format:
+    ```markdown
+    # Silent Failure Review (Iteration N)
+
+    ## Open Issues Cross-Reference
+    | GitHub # | Title | Error-Swallowing Connection |
+    |----------|-------|---------------------------|
+
+    ## Critical Silent Failures
+    | Location | Pattern | Hidden Errors | User Impact | Fix |
+    |----------|---------|---------------|-------------|-----|
+
+    ## Broad Exception Catching
+    | Location | Catch Scope | Should Catch | Risk |
+    |----------|-------------|-------------|------|
+
+    ## Fallback Masking
+    | Location | Fallback | What It Hides | Severity |
+    |----------|----------|---------------|----------|
+
+    ## Missing Error Context
+    | Location | Caught Exception | Missing Info | Fix |
+    |----------|-----------------|--------------|-----|
+
+    ## Top 5 Fixes Needed
+    1. [Most critical silent failure]
+    ...
+    ```
+
+    {% elif instance == 5 %}
+    {# ═══════════════ TYPE DESIGN AUDIT ═══════════════ #}
+
+    You are the **Type Design Analyst**. Audit type definitions for weak
+    invariants, poor encapsulation, and types that allow invalid states.
+
+    **Use the open issues list as a lens:** bugs often trace back to types
+    that fail to enforce constraints — look for that connection.
+
+    **PRIMARY: Use Task tool to launch specialized agent**
+
+    Use the Task tool with:
+    - subagent_type: "pr-review-toolkit:type-design-analyzer"
+    - prompt: "Analyze all Pydantic models, dataclasses, TypedDicts, and
+      Protocols under src/. For each type: identify invariants, rate
+      encapsulation (1-10), invariant expression (1-10), usefulness (1-10),
+      enforcement (1-10). Flag types that allow invalid states."
+    - description: "Analyze type design quality in src/"
+
+    If the Task tool or agent type is not available, perform the analysis manually:
+
+    **FALLBACK: Manual analysis**
+    ```bash
+    # Find Pydantic models
+    grep -rn "class.*BaseModel" --include="*.py" src/ | head -20
+
+    # Find dataclasses
+    grep -rn "@dataclass" --include="*.py" src/ | head -20
+
+    # Find TypedDicts
+    grep -rn "TypedDict" --include="*.py" src/ | head -20
+
+    # Find Protocols
+    grep -rn "class.*Protocol" --include="*.py" src/ | head -20
+
+    # Find Optional fields (potential weak invariants)
+    grep -rn "Optional\[" --include="*.py" src/ | head -20
+
+    # Find Any usage (type safety holes)
+    grep -rn ": Any\|-> Any" --include="*.py" src/ | head -20
+
+    # Find validators
+    grep -rn "@validator\|@field_validator\|@model_validator" --include="*.py" src/ | head -20
+    ```
+
+    For each type, evaluate:
+    - **Encapsulation:** Can external code create invalid instances?
+    - **Invariant expression:** Do field types/validators prevent bad states?
+    - **Usefulness:** Does this type carry its weight or is it boilerplate?
+    - **Enforcement:** Are invariants checked at construction time?
+
+    **Output to:** {{ workspace }}/03c-type-design-review.md
+
+    Format:
+    ```markdown
+    # Type Design Review (Iteration N)
+
+    ## Open Issues Cross-Reference
+    | GitHub # | Title | Type Design Connection |
+    |----------|-------|----------------------|
+
+    ## Type Inventory
+    | Type | Kind | Encapsulation | Invariants | Usefulness | Enforcement | Notes |
+    |------|------|---------------|------------|------------|-------------|-------|
+
+    ## Weak Invariants
+    | Type | Field | Problem | Allows Invalid State | Fix |
+    |------|-------|---------|---------------------|-----|
+
+    ## Invalid State Risks
+    | Type | Scenario | How It Happens | Severity |
+    |------|----------|----------------|----------|
+
+    ## Encapsulation Issues
+    | Type | Exposure | Risk | Fix |
+    |------|----------|------|-----|
+
+    ## Top 5 Fixes Needed
+    1. [Most critical type design issue]
+    ...
+    ```
+
+    {% endif %}
+
+    {% elif stage == 3 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 3: ISSUE SELECTION (30 Work Items, ≥70% from GitHub Backlog)          ║
+    ║  "Work the backlog first, discover second"                                  ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    {% if previous_outputs %}
+    ## Expert Reviews Summary
+    {% for sheet_key, output in previous_outputs.items() %}
+    {{ output[:600] }}
+    {% endfor %}
+    {% endif %}
+
+    **CRITICAL: Read {{ workspace }}/00-known-issues.md FIRST.** This is
+    your primary work source — the GitHub issue backlog.
+
+    Select **30 specific, actionable work items** using this priority:
+
+    **DAEMON PRIORITY BIAS:** This score is focused on daemon subsystem quality.
+    When selecting issues, **strongly prefer** items touching daemon-related files:
+    - `src/mozart/daemon/` (all files — IPC, manager, scheduler, registry, etc.)
+    - `src/mozart/daemon/ipc/` (server, client, protocol, handler)
+    - `tests/test_daemon*.py`
+    - Any code that interacts with the daemon (detection, job submission, CLI routing)
+
+    Issues in daemon files get a **+2 severity boost** during selection. If the
+    backlog has daemon-related issues, select ALL of them before non-daemon items.
+    For expert-review discoveries, prioritize findings in daemon code above all else.
+
+    **MANDATORY: At least 70% (≥21 of 30) MUST come from the GitHub issue
+    backlog.** The remaining ≤30% can be newly discovered issues from expert
+    reviews. If there are fewer than 21 actionable GitHub issues, select ALL
+    of them and fill the remainder with expert-review discoveries.
+
+    **Selection process:**
+
+    **Step 1: Select from GitHub backlog (≥21 items)**
+    - Read the "Actionable Issues" table from {{ workspace }}/00-known-issues.md
+    - For each actionable GitHub issue, read its body to understand the fix needed
+    - **Prioritize daemon-related issues first** — anything touching daemon/,
+      IPC, job management, scheduling, or daemon detection
+    - Map each to a specific file/line/category using the expert review findings
+    - If a GitHub issue is vague, use the expert reviews to concretize it
+      (identify the specific file, line, and fix — then reference the issue #)
+
+    **Step 2: Fill with expert-review discoveries (≤9 items)**
+    - From the expert reviews, select issues NOT already tracked in GitHub
+    - **Strongly prefer daemon subsystem findings** over other modules
+    - These are genuinely new findings the backlog doesn't cover
+
+    **Categories** (for classification, not quotas):
+    1. **Dead Code** - unused imports, unreachable branches, orphan functions
+    2. **Complexity** - functions >50 LOC, deep nesting, complex conditionals
+    3. **Naming** - unclear names, inconsistent conventions, misleading names
+    4. **Error Handling** - bare excepts, swallowed errors, missing context
+    5. **Type Safety** - missing hints, Any abuse, type: ignore without reason
+    6. **Duplication** - copy-paste code, repeated patterns extractable to functions
+    7. **Documentation** - missing docstrings, stale comments, wrong docs
+    8. **Testing Gaps** - untested paths, assertions that don't assert
+    9. **Performance** - O(n²) loops, repeated computations, unnecessary allocations
+    10. **Security** - path injection, unsafe deserialization, hardcoded secrets
+
+    **Output to:** {{ workspace }}/04-category-discovery.yaml
+
+    Format each issue:
+    ```yaml
+    backlog_stats:
+      github_issues_available: N   # from 00-known-issues.md
+      selected_from_backlog: N     # must be ≥70% of total
+      newly_discovered: N          # ≤30% of total
+      backlog_percentage: N%       # MUST be ≥70 (or waived if no gh access)
+
+    issues:
+      - id: Q001
+        github_issue: 42           # GitHub issue number (null if newly discovered)
+        source: backlog | discovered
+        category: Dead Code
+        file: path/to/file.py
+        line: N
+        severity: critical | high | medium | low
+        description: Specific description of the issue
+        current_code: |
+          [5-10 line snippet showing the problem]
+        suggested_fix: How to fix it
+        fix_effort: quick | medium | significant
+    ```
+
+    {% elif stage == 4 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 4: SYNTHESIS & PRIORITIZATION                                         ║
+    ║  "Wisdom is knowing which fires to fight first"                              ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read all review files and create a prioritized remediation plan.
+
+    **Files to synthesize:**
+    - {{ workspace }}/00-known-issues.md (PRIMARY — the GitHub backlog)
+    - {{ workspace }}/01-architecture-review.md
+    - {{ workspace }}/02-test-coverage-review.md
+    - {{ workspace }}/03-code-debt-review.md
+    - {{ workspace }}/03b-silent-failure-review.md
+    - {{ workspace }}/03c-type-design-review.md
+    - {{ workspace }}/04-category-discovery.yaml
+
+    **CRITICAL: Preserve GitHub issue numbers.** Every work item from the
+    backlog must carry its `#N` through batching so the fix stages can
+    reference it in commits and the issue-filing stage can close resolved ones.
+
+    **Create prioritized plan:**
+
+    1. **Deduplicate** - Remove issues found by multiple reviewers
+    2. **Score** each issue: `severity × impact × (1/effort)`
+       - Critical = 4, High = 3, Medium = 2, Low = 1
+       - Quick effort = 3, Medium = 2, Significant = 1
+       - **Bonus +1 for backlog items** (prefer burning down known issues)
+       - **Bonus +2 for daemon subsystem files** (daemon focus priority)
+    3. **Batch** into 3 remediation groups:
+       - **Batch 1 (Stage 5):** Quick wins - high impact, low effort
+       - **Batch 2 (Stage 7):** Medium effort - structural fixes
+       - **Batch 3 (Stage 9):** Significant - refactoring, new tests
+
+    **Output to:** {{ workspace }}/05-fix-plan.md
+
+    Format:
+    ```markdown
+    # Quality Remediation Plan (Iteration N)
+
+    ## Summary
+    | Metric | Count |
+    |--------|-------|
+    | Total unique issues | N |
+    | From GitHub backlog | N |
+    | Newly discovered | N |
+    | Duplicates removed | N |
+    | Critical | N |
+    | High | N |
+
+    ## Batch 1: Quick Wins (Stage 5)
+    | ID | GH# | Issue | Score | File |
+    |----|-----|-------|-------|------|
+
+    ## Batch 2: Medium Effort (Stage 7)
+    | ID | GH# | Issue | Score | File |
+    |----|-----|-------|-------|------|
+
+    ## Batch 3: Significant (Stage 9)
+    | ID | GH# | Issue | Score | File |
+    |----|-----|-------|-------|------|
+    ```
+
+    {% elif stage == 5 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 5: BATCH 1 - QUICK WINS (MANDATORY 70%+ COMPLETION)                   ║
+    ║  "Low-hanging fruit that compounds into significant improvement"             ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/05-fix-plan.md and fix Batch 1 issues.
+
+    **MANDATORY REQUIREMENT: You MUST complete at least 70% of Batch 1 issues.**
+    Validation will FAIL if you skip more than 30%.
+
+    **Fix quick wins:**
+    - Remove unused imports
+    - Delete dead code
+    - Add missing type hints (simple cases)
+    - Fix obvious naming issues
+    - Add missing docstrings
+    - Remove commented-out code
+
+    {{ batch_rules }}
+
+    **Valid skip reasons (ONLY these):**
+    - Would break existing tests (must show which test)
+    - Requires schema/migration change
+    - File/function no longer exists
+    - Already implemented (must verify with grep/code check)
+
+    **Output to:** {{ workspace }}/06-batch1-fixes.md
+
+    **GitHub issue references:** When fixing a backlog item, note its GH#
+    in the output table. This is how Stage 14 knows which issues to close.
+
+    Format EXACTLY (validation parses this):
+    ```markdown
+    # Batch 1 Results: Quick Wins
+
+    **Total:** N issues
+    **Fixed:** N issues
+    **Completion:** N% (MUST BE >= 70%)
+
+    ## Fixed
+    | ID | GH# | What was fixed | File | Verified |
+    |----|-----|---------------|------|----------|
+
+    ## Deferred (max 30%)
+    | ID | GH# | Blocker reason | Evidence |
+    |----|-----|----------------|----------|
+
+    ## Test Results
+    [pytest output showing all tests pass]
+    ```
+
+    {% elif stage == 6 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 6: BATCH 1 - COMPLETION PASS (FINISH REMAINING)                       ║
+    ║  "No excuses - complete what was deferred"                                   ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/06-batch1-fixes.md and complete ALL deferred items.
+
+    **MANDATORY: Complete every deferred item or prove it's impossible.**
+
+    For each deferred item from Batch 1:
+    1. Re-attempt the fix
+    2. If still blocked, provide CONCRETE evidence (error message, failing test)
+    3. "Risky" or "complex" are NOT acceptable - do the work
+
+    **Step 4: Code Simplification Pass**
+
+    Identify all files you modified during this completion pass (from
+    "## Completed" table above).
+
+    **PRIMARY: Use Task tool**
+
+    Use the Task tool with:
+    - subagent_type: "pr-review-toolkit:code-simplifier"
+    - prompt: "Simplify the following recently modified files for clarity,
+      consistency, and maintainability while preserving all functionality:
+      [list the specific files you modified]. Focus on: reducing unnecessary
+      complexity, eliminating redundant code, improving naming, ensuring
+      consistent patterns."
+    - description: "Simplify batch 1 completion changes"
+
+    **FALLBACK:** Manually review each modified file for:
+    - Unnecessary complexity introduced by fixes
+    - Naming inconsistency with project conventions
+    - Debug artifacts or commented-out code
+
+    After simplification, re-run tests:
+    ```bash
+    pytest -x -q --tb=short
+    ```
+
+    If tests fail after simplification, revert that simplification.
+
+    **Output to:** {{ workspace }}/07-batch1-completion.md
+
+    Format:
+    ```markdown
+    # Batch 1 Completion Pass
+
+    **Deferred from first pass:** N items
+    **Now completed:** N items
+    **Still blocked:** N items (must be 0 or have concrete evidence)
+
+    ## Completed
+    | ID | What was fixed | Evidence it works |
+    |----|---------------|-------------------|
+
+    ## Truly Blocked (with proof)
+    | ID | Blocker | Error message/test failure |
+    |----|---------|---------------------------|
+
+    ## Simplification
+    | File | What was simplified | Tests pass |
+    |------|--------------------|-----------|
+    ```
+
+    {% elif stage == 7 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 7: BATCH 2 - MEDIUM EFFORT (MANDATORY 70%+ COMPLETION)                ║
+    ║  "Structural improvements that prevent future bugs"                          ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/05-fix-plan.md and fix Batch 2 issues.
+
+    **MANDATORY REQUIREMENT: You MUST complete at least 70% of Batch 2 issues.**
+
+    **Fix medium effort issues:**
+    - Error handling improvements
+    - Extract duplicated code
+    - Simplify complex conditionals
+    - Add type hints requiring analysis
+    - Fix code flow issues
+    - Add missing cleanup/resource management
+
+    {{ batch_rules }}
+
+    **Valid skip reasons for Batch 2 (ONLY these):**
+    - Would require database schema change
+    - Would break public API contract
+    - File/function no longer exists
+    - Already implemented (must verify)
+
+    **GitHub issue references:** When fixing a backlog item, note its GH#
+    in the output table.
+
+    **Output to:** {{ workspace }}/08-batch2-fixes.md
+
+    Format EXACTLY:
+    ```markdown
+    # Batch 2 Results: Medium Effort
+
+    **Total:** N issues
+    **Fixed:** N issues
+    **Completion:** N% (MUST BE >= 70%)
+
+    ## Fixed
+    | ID | GH# | What was fixed | File | Test verification |
+    |----|-----|---------------|------|-------------------|
+
+    ## Deferred (max 30%)
+    | ID | GH# | Blocker | Evidence command/output |
+    |----|-----|---------|------------------------|
+    ```
+
+    {% elif stage == 8 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 8: BATCH 2 - COMPLETION PASS (FINISH REMAINING)                       ║
+    ║  "No excuses - complete what was deferred"                                   ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/08-batch2-fixes.md and complete ALL deferred items.
+
+    **MANDATORY: Complete every deferred item or prove it's impossible.**
+
+    For each deferred item:
+    1. Re-attempt the fix with fresh approach
+    2. If blocked, provide CONCRETE evidence (specific error, test failure)
+    3. "Would require significant effort" is NOT acceptable - do the work
+
+    **Step 4: Code Simplification Pass**
+
+    Identify all files you modified during this completion pass (from
+    "## Completed" table above).
+
+    **PRIMARY: Use Task tool**
+
+    Use the Task tool with:
+    - subagent_type: "pr-review-toolkit:code-simplifier"
+    - prompt: "Simplify the following recently modified files for clarity,
+      consistency, and maintainability while preserving all functionality:
+      [list the specific files you modified]. Focus on: reducing unnecessary
+      complexity, eliminating redundant code, improving naming, ensuring
+      consistent patterns."
+    - description: "Simplify batch 2 completion changes"
+
+    **FALLBACK:** Manually review each modified file for:
+    - Unnecessary complexity introduced by fixes
+    - Naming inconsistency with project conventions
+    - Debug artifacts or commented-out code
+
+    After simplification, re-run tests:
+    ```bash
+    pytest -x -q --tb=short
+    ```
+
+    If tests fail after simplification, revert that simplification.
+
+    **Output to:** {{ workspace }}/09-batch2-completion.md
+
+    Format:
+    ```markdown
+    # Batch 2 Completion Pass
+
+    **Deferred from first pass:** N items
+    **Now completed:** N items
+    **Still blocked:** N items (must have concrete proof)
+
+    ## Completed
+    | ID | What was fixed | Test verification |
+    |----|---------------|-------------------|
+
+    ## Truly Blocked (with proof)
+    | ID | Blocker | Specific error/failure |
+    |----|---------|----------------------|
+
+    ## Simplification
+    | File | What was simplified | Tests pass |
+    |------|--------------------|-----------|
+    ```
+
+    {% elif stage == 9 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 9: BATCH 3 - SIGNIFICANT FIXES (MANDATORY 50%+ COMPLETION)            ║
+    ║  "The 10% that separates good from production-ready"                         ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/05-fix-plan.md and address Batch 3 issues.
+
+    **MANDATORY REQUIREMENT: You MUST complete at least 50% of Batch 3 issues.**
+    These are significant but that doesn't mean optional.
+
+    **Fix significant issues:**
+    - Write missing unit tests (PRIORITY - no skipping test writing)
+    - Write missing smoke tests
+    - Refactor complex functions (break into smaller steps)
+    - Fix security issues (CRITICAL - no skipping)
+    - Add missing functional tests
+
+    **DO NOT be conservative. Be thorough:**
+    - Tests are NEVER optional - write them
+    - Security issues are NEVER optional - fix them
+    - "Major architectural change" is not a skip reason - do it incrementally
+
+    {{ batch_rules }}
+
+    **Valid skip reasons for Batch 3 (ONLY these):**
+    - Would require multi-day refactoring (estimate hours)
+    - Requires external dependency change
+    - Already has adequate test coverage (show coverage proof)
+
+    **GitHub issue references:** When fixing a backlog item, note its GH#
+    in the output table.
+
+    **Output to:** {{ workspace }}/10-batch3-fixes.md
+
+    Format EXACTLY:
+    ```markdown
+    # Batch 3 Results: Significant Fixes
+
+    **Total:** N issues
+    **Fixed:** N issues
+    **Completion:** N% (MUST BE >= 50%)
+
+    ## Fixed
+    | ID | GH# | What was fixed | File | Tests added/passed |
+    |----|-----|---------------|------|-------------------|
+
+    ## Deferred
+    | ID | GH# | Blocker | Estimated effort | Why not now |
+    |----|-----|---------|------------------|-------------|
+    ```
+
+    {% elif stage == 10 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 10: BATCH 3 - COMPLETION PASS (FINISH REMAINING)                      ║
+    ║  "Tests and security are NEVER optional"                                     ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/10-batch3-fixes.md and complete ALL deferred items.
+
+    **MANDATORY: Complete every deferred item. No exceptions for tests/security.**
+
+    For each deferred item:
+    1. If it's a missing test - WRITE THE TEST
+    2. If it's a security issue - FIX IT
+    3. If it's refactoring - do it incrementally, one function at a time
+    4. Only truly multi-day efforts can remain (must estimate hours)
+
+    **Step 5: Code Simplification Pass**
+
+    Identify all files you modified during this completion pass (from
+    "## Completed" table above).
+
+    **PRIMARY: Use Task tool**
+
+    Use the Task tool with:
+    - subagent_type: "pr-review-toolkit:code-simplifier"
+    - prompt: "Simplify the following recently modified files for clarity,
+      consistency, and maintainability while preserving all functionality:
+      [list the specific files you modified]. Focus on: reducing unnecessary
+      complexity, eliminating redundant code, improving naming, ensuring
+      consistent patterns."
+    - description: "Simplify batch 3 completion changes"
+
+    **FALLBACK:** Manually review each modified file for:
+    - Unnecessary complexity introduced by fixes
+    - Naming inconsistency with project conventions
+    - Debug artifacts or commented-out code
+
+    After simplification, re-run tests:
+    ```bash
+    pytest -x -q --tb=short
+    ```
+
+    If tests fail after simplification, revert that simplification.
+
+    **Output to:** {{ workspace }}/11-batch3-completion.md
+
+    Format:
+    ```markdown
+    # Batch 3 Completion Pass
+
+    **Deferred from first pass:** N items
+    **Now completed:** N items
+    **Remaining (multi-day only):** N items
+
+    ## Completed
+    | ID | What was fixed | Tests added |
+    |----|---------------|-------------|
+
+    ## Multi-Day Items (deferred to next iteration)
+    | ID | Estimated hours | What's needed |
+    |----|-----------------|---------------|
+
+    ## Simplification
+    | File | What was simplified | Tests pass |
+    |------|--------------------|-----------|
+    ```
+
+    {% elif stage == 11 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 11: VERIFICATION & SUMMARY                                            ║
+    ║  "Measure twice, commit once"                                                ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Step 0: Pre-Verification Silent Failure Sweep**
+
+    Collect ALL files modified this iteration from batch result tables
+    (06/07/08/09/10/11 files, "## Fixed" and "## Completed" columns).
+
+    **PRIMARY: Use Task tool**
+
+    Use the Task tool with:
+    - subagent_type: "pr-review-toolkit:silent-failure-hunter"
+    - prompt: "Audit these files modified during quality iteration for
+      newly introduced silent failure patterns: [list files from batch
+      results]. Focus on bare excepts added during refactoring, error
+      swallowing in new code, fallback behavior that masks problems."
+    - description: "Pre-verification silent failure sweep"
+
+    **FALLBACK:** For each modified file, check for:
+    ```bash
+    # Check modified files for bare excepts and broad catches
+    for f in [list modified files]; do
+      echo "=== $f ==="
+      grep -n "except:" "$f" 2>/dev/null || true
+      grep -n "except Exception" "$f" 2>/dev/null || true
+    done
+    ```
+
+    Fix any CRITICAL silent failures before proceeding to tests.
+
+    **Step 1: Run full test suite**
+    ```bash
+    pytest --tb=short 2>&1 | tee {{ workspace }}/12-test-output.txt | tail -50
+    ```
+
+    **Step 2: Run type checker**
+    ```bash
+    mypy src/ --ignore-missing-imports 2>&1 | tee {{ workspace }}/12-typecheck-output.txt | tail -30 || echo "mypy not configured"
+    ```
+
+    **Step 3: Run linter**
+    ```bash
+    ruff check src/ 2>&1 | tee {{ workspace }}/12-lint-output.txt | tail -30 || echo "ruff not configured"
+    ```
+
+    **Step 4: Check for regressions**
+    ```bash
+    # Verify imports still work
+    python -c "import sys; sys.path.insert(0, 'src'); __import__('$(ls src/ | head -1)')" 2>&1 || echo "Import check skipped"
+    ```
+
+    **Step 4b: Wolf Prevention Checks**
+
+    Anti-stub: For key modified functions, verify DIFFERENT input produces
+    DIFFERENT output (Wolf Pattern #2 — the 252.728 problem).
+
+    Anti-identical: Verify test assertions actually test behavior, not just
+    "no crash" — find assertion-free test functions.
+
+    ```bash
+    # Check for tests with no assertions
+    grep -rn "def test_" tests/ --include="*.py" -A10 | \
+      awk '/def test_/{name=$0; count=0} /assert/{count++} /^$/{if(count==0) print name}' | head -10
+    ```
+
+    Note any wolf patterns in the summary. CRITICAL patterns (stub functions,
+    assertion-free tests) must be fixed before committing.
+
+    **Step 5: Summarize this iteration**
+
+    Read all batch results and create summary.
+
+    **Output to:** {{ workspace }}/12-summary.md
+
+    Read all batch results and completion passes:
+    - {{ workspace }}/06-batch1-fixes.md
+    - {{ workspace }}/07-batch1-completion.md
+    - {{ workspace }}/08-batch2-fixes.md
+    - {{ workspace }}/09-batch2-completion.md
+    - {{ workspace }}/10-batch3-fixes.md
+    - {{ workspace }}/11-batch3-completion.md
+
+    ```markdown
+    # Quality Iteration N Summary
+
+    ## Issues Found
+    | Source | Count |
+    |--------|-------|
+    | Architecture Review | N |
+    | Test Coverage Review | N |
+    | Code Debt Review | N |
+    | Silent Failure Audit | N |
+    | Type Design Audit | N |
+    | Category Discovery | N |
+    | **Total (deduplicated)** | **N** |
+
+    ## Issues Fixed (First Pass + Completion)
+    | Batch | First Pass | Completion | Total | Remaining |
+    |-------|------------|------------|-------|-----------|
+    | Quick Wins | N | N | N | N |
+    | Medium | N | N | N | N |
+    | Significant | N | N | N | N |
+    | **Total** | **N** | **N** | **N** | **N** |
+
+    ## Backlog Burn-Down
+    | Metric | Count |
+    |--------|-------|
+    | GitHub issues selected | N |
+    | GitHub issues resolved | N |
+    | Backlog burn rate | N% |
+
+    ## Overall Completion Rate
+    **N%** of identified issues resolved
+
+    ## Wolf Prevention Results
+    | Check | Result | Issues Found |
+    |-------|--------|-------------|
+    | Anti-Stub | pass/fail | N |
+    | Anti-Identical | pass/fail | N |
+    | Silent Failure Sweep | pass/fail | N |
+
+    ## Key Improvements
+    - [List major improvements]
+
+    ## Remaining Issues (for next iteration)
+    - [Only truly blocked items]
+
+    ## Test Results
+    [pytest output]
+
+    ## Type Check Results
+    [mypy output]
+
+    ## Lint Results
+    [ruff output]
+    ```
+
+    {% elif stage == 12 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 12: COMMIT CHANGES                                                    ║
+    ║  "Ship it"                                                                   ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Step 1: Check for changes**
+    ```bash
+    git status --short | grep -E "\.py$" | head -20
+    ```
+
+    **Step 2: Build commit message from actual results**
+
+    Read the batch result files to extract what was actually fixed:
+    - {{ workspace }}/06-batch1-fixes.md — "## Fixed" table
+    - {{ workspace }}/07-batch1-completion.md — "## Completed" table
+    - {{ workspace }}/08-batch2-fixes.md — "## Fixed" table
+    - {{ workspace }}/09-batch2-completion.md — "## Completed" table
+    - {{ workspace }}/10-batch3-fixes.md — "## Fixed" table
+    - {{ workspace }}/11-batch3-completion.md — "## Completed" table
+    - {{ workspace }}/12-summary.md — overall stats
+
+    Write a commit message file to {{ workspace }}/13-commit-message.txt with
+    EXACTLY this structure:
+
+    ```
+    refactor: Quality iteration N - YYYY-MM-DD
+
+    Fixed M issues across N files:
+    - [ID]: [one-line description of what was fixed] ([file])
+    - [ID]: [one-line description] ([file])
+    ...
+    (list EVERY fixed issue — do not truncate or summarize)
+
+    Stats: M fixed, N deferred | Tests: [pass count] passed
+    GitHub issues referenced: #X, #Y (if any known issues were addressed)
+
+    Co-Authored-By: Mozart AI Compose <noreply@mozart.ai>
+    ```
+
+    Rules for the commit message:
+    - The subject line (first line) must be under 72 characters
+    - List every fixed issue by ID — this is the audit trail
+    - Each line item should be a concrete change, not a category label
+    - If a fix addresses a known GitHub issue, include "Refs #N" on that line
+    - Do NOT paste raw markdown tables — convert to a flat list
+    - Do NOT include deferred/skipped items — only what was fixed
+
+    **Step 3: Selective staging**
+
+    Do NOT use `git add -A` — that absorbs unrelated changes from concurrent
+    jobs or manual work. Instead, stage ONLY the files this iteration touched.
+
+    Extract the list of modified files from batch result tables (the "File"
+    column in each "## Fixed" and "## Completed" section). Then stage only
+    those files:
+    ```bash
+    # Stage only files this quality iteration actually modified.
+    # Build list from batch results — example:
+    #   git add src/mozart/core/config.py src/mozart/backends/claude_cli.py ...
+    #
+    # If you modified test files, include them too.
+    # Do NOT stage workspace files, yaml scores, or unrelated changes.
+    git add [list each file explicitly]
+
+    # Verify: only our changes are staged
+    git diff --cached --stat
+    git diff --cached --stat | wc -l  # Should match expected file count
+    ```
+
+    If `git diff --cached --stat` shows files you did NOT modify, unstage them:
+    ```bash
+    git restore --staged path/to/unrelated/file.py
+    ```
+
+    If nothing is staged (all changes were already committed by another job),
+    skip the commit and note "No changes to commit — likely absorbed by
+    concurrent job" in your output file. Do NOT create an empty commit.
+
+    **Step 4: Sync with remote before committing**
+    ```bash
+    # Check if remote has new commits we don't have
+    git fetch origin main 2>/dev/null
+
+    BEHIND=$(git rev-list HEAD..origin/main --count 2>/dev/null || echo "0")
+    echo "Commits behind remote: $BEHIND"
+    ```
+
+    If behind, rebase our staged changes on top:
+    ```bash
+    # Stash staged changes, rebase, re-apply
+    git stash
+    git pull --rebase origin main
+    git stash pop
+    ```
+
+    If the stash pop causes **merge conflicts**:
+    1. Check which files conflict: `git diff --name-only --diff-filter=U`
+    2. For each conflicted file, try to resolve:
+       - If the conflict is in code you modified — keep both changes
+       - If the conflict is in code you did NOT modify — accept theirs
+       (`git checkout --theirs <file>`)
+    3. After resolving simple conflicts: `git add <resolved files>`
+
+    If conflicts remain that you cannot resolve inline (e.g., both sides
+    modified the same function in incompatible ways), do NOT abort. Instead:
+
+    1. Save the full conflict context for stage 13 to resolve:
+       ```bash
+       # Capture every conflicted file's state
+       CONFLICTED=$(git diff --name-only --diff-filter=U)
+       echo "$CONFLICTED"
+       ```
+    2. For each conflicted file, write to `{{ workspace }}/13-merge-conflicts.md`:
+       - The file path
+       - What OUR quality fix was trying to do (from batch result files)
+       - The full conflict markers (`<<<<<<<` ... `>>>>>>>`) verbatim
+       - The remote's intent (from `git log --oneline origin/main -3 -- <file>`)
+    3. Abort to a clean state:
+       ```bash
+       git checkout -- .       # Discard conflict markers
+       git stash drop          # Drop our changes (context saved above)
+       ```
+       Now git is clean at remote HEAD. Stage 13 will re-apply intelligently.
+    4. Skip steps 5-7 below. Set status to "conflicts_pending" in output.
+
+    **Step 5: Commit** (skip if conflicts_pending)
+    ```bash
+    ITER=$(cat {{ workspace }}/.iteration)
+    git commit -F {{ workspace }}/13-commit-message.txt
+    echo "Commit created for iteration $ITER"
+    ```
+
+    **Step 6: Push** (skip if conflicts_pending)
+    ```bash
+    git push
+    echo "Pushed to remote"
+    ```
+
+    If push fails due to new remote commits (race condition), pull and retry:
+    ```bash
+    git pull --rebase origin main && git push
+    ```
+    Do NOT force-push.
+
+    **Step 7: Verify** (skip if conflicts_pending)
+    ```bash
+    git log --oneline -1
+    git show --stat HEAD | tail -20
+    ```
+
+    **Output to:** {{ workspace }}/13-commit.md
+
+    ```markdown
+    # Commit Results (Iteration N)
+
+    ## Status
+    [committed | conflicts_pending]
+
+    ## Commit Message
+    [full commit message as written, or "N/A — deferred to stage 13"]
+
+    ## Files Staged (selective)
+    [list of files explicitly staged]
+
+    ## Sync Status
+    - Commits behind remote before sync: N
+    - Rebase needed: yes/no
+    - Merge conflicts: none / resolved inline / deferred to stage 13
+
+    ## Changes Committed
+    [git diff --stat output, or "N/A — conflicts pending"]
+
+    ## Commit Hash
+    [git log --oneline -1 output, or "N/A"]
+
+    ## Push Status
+    - Pushed: yes/no/deferred
+    - Retries needed: N
+
+    ## Next Steps
+    - If conflicts_pending: Stage 13 will resolve and commit
+    - If committed: Quality iteration complete
+    ```
+
+    {% elif stage == 13 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 13: MERGE CONFLICT RESOLUTION                                         ║
+    ║  "Complexity is not a reason to abort — it's a reason to think harder"       ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Step 1: Check if conflict resolution is needed**
+
+    Read {{ workspace }}/13-commit.md and check the Status field.
+    - If status is "committed" → stage 12 succeeded, no conflicts.
+      Write "No conflicts to resolve — stage 12 committed successfully"
+      to your output file and stop.
+    - If status is "conflicts_pending" → proceed to step 2.
+
+    Also verify the conflict context file exists:
+    ```bash
+    if [ -f "{{ workspace }}/13-merge-conflicts.md" ]; then
+      echo "Conflict context found"
+      wc -l "{{ workspace }}/13-merge-conflicts.md"
+    else
+      echo "No conflict file — nothing to resolve"
+    fi
+    ```
+
+    **Step 2: Understand the conflicts**
+
+    Read {{ workspace }}/13-merge-conflicts.md carefully. For each
+    conflicted file, understand:
+    - What our quality fix was changing and why
+    - What the remote changed and why
+    - Whether both changes can coexist
+
+    Also read the relevant batch result files for full context on our
+    changes:
+    - {{ workspace }}/06-batch1-fixes.md
+    - {{ workspace }}/08-batch2-fixes.md
+    - {{ workspace }}/10-batch3-fixes.md
+
+    **Step 3: Re-apply our changes on top of current remote**
+
+    The working tree is clean at remote HEAD (stage 12 cleaned up).
+    For each conflicted file:
+
+    1. Read the current version of the file
+    2. Understand what our quality fix intended to change
+    3. Apply the change manually — adapt it to the current code state
+       rather than blindly replaying the old diff
+    4. If the remote's changes made our fix unnecessary (e.g., they
+       already fixed the same issue), skip it and note why
+
+    After applying each file's changes:
+    ```bash
+    python -c "import ast; ast.parse(open('<file>').read())" 2>&1 || echo "SYNTAX ERROR in <file>"
+    ```
+    Fix any syntax errors immediately before moving to the next file.
+
+    **Step 4: Verify the resolution**
+    ```bash
+    # Run tests to ensure our re-applied changes don't break anything
+    pytest -x -q --tb=short 2>&1 | tail -20
+    ```
+
+    If tests fail:
+    - Identify which of our re-applied changes caused the failure
+    - If a specific fix conflicts with remote's changes, REVERT that one
+      fix and note it as "incompatible with remote changes — deferred"
+    - Re-run tests after each revert until they pass
+    - Do NOT revert all changes — save as many fixes as possible
+
+    **Step 5: Stage, commit, and push**
+    ```bash
+    # Stage only the files we re-applied changes to
+    git add [list each resolved file]
+
+    # Verify staging
+    git diff --cached --stat
+
+    # Commit using the message from stage 12
+    git commit -F {{ workspace }}/13-commit-message.txt
+
+    # Push
+    git push
+    ```
+
+    If push fails (race condition):
+    ```bash
+    git pull --rebase origin main && git push
+    ```
+
+    **Step 6: Verify**
+    ```bash
+    git log --oneline -1
+    git show --stat HEAD | tail -20
+    ```
+
+    **Output to:** {{ workspace }}/14-merge-resolution.md
+
+    ```markdown
+    # Merge Conflict Resolution (Iteration N)
+
+    ## Resolution Needed
+    [yes / no — stage 12 already committed]
+
+    ## Conflicts Resolved
+    | File | Our Intent | Remote's Change | Resolution | Tests Pass |
+    |------|-----------|-----------------|------------|------------|
+
+    ## Fixes Deferred (incompatible with remote)
+    | File | Our Fix | Why Incompatible | Deferred To |
+    |------|---------|------------------|-------------|
+    (or "None — all fixes re-applied successfully")
+
+    ## Test Results
+    [pytest output summary]
+
+    ## Commit
+    - Hash: [git log --oneline -1]
+    - Files changed: N
+    - Pushed: yes/no
+
+    ## Stats
+    - Conflicts received from stage 12: N files
+    - Successfully re-applied: N
+    - Deferred (incompatible): N
+    - Resolution rate: N%
+    ```
+
+    {% elif stage == 14 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 14: FILE GITHUB ISSUES FOR DEFERRED ITEMS                             ║
+    ║  "What we can't do today, we document for tomorrow"                          ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Close resolved GitHub issues and file a tracking issue for deferred items.
+    This iteration is backlog-driven — burn down the issues you fixed.
+
+    **Step 1: Check prerequisites**
+    ```bash
+    gh auth status
+    gh repo view --json name,owner
+    ```
+    If `gh` is not available or this isn't a GitHub repo, write a report noting
+    "Skipped: no GitHub access" in your output file and stop.
+
+    **Step 2: Close resolved GitHub issues**
+
+    Scan all batch result files for items with a GH# that were fixed:
+    - {{ workspace }}/06-batch1-fixes.md → "## Fixed" table, GH# column
+    - {{ workspace }}/07-batch1-completion.md → "## Completed" table
+    - {{ workspace }}/08-batch2-fixes.md → "## Fixed" table, GH# column
+    - {{ workspace }}/09-batch2-completion.md → "## Completed" table
+    - {{ workspace }}/10-batch3-fixes.md → "## Fixed" table, GH# column
+    - {{ workspace }}/11-batch3-completion.md → "## Completed" table
+
+    For each resolved GitHub issue:
+    ```bash
+    # Close the issue with a comment explaining what was done
+    gh issue close N --comment "Resolved in quality iteration M. Fix: [one-line description]"
+    ```
+
+    **Step 3: Collect remaining items**
+    Read these files and gather ALL deferred/blocked/remaining items:
+    - {{ workspace }}/12-summary.md → "Remaining Issues" section
+    - {{ workspace }}/07-batch1-completion.md → "Truly Blocked" items
+    - {{ workspace }}/09-batch2-completion.md → "Truly Blocked" items
+    - {{ workspace }}/11-batch3-completion.md → "Multi-Day Items" section
+
+    If there are NO remaining items (everything was fixed this iteration),
+    write "All issues resolved — no GitHub issues needed" in your output
+    file and stop. Do NOT create an empty tracking issue.
+
+    **Step 4: Deduplicate against existing issues**
+    ```bash
+    gh issue list --label "mozart-quality" --state open --json number,title,body --limit 10
+    ```
+    - If a previous iteration's tracking issue exists and ALL its checklist
+      items were resolved this iteration, close it with comment:
+      "All items resolved in quality iteration N."
+    - Note which items are already tracked to avoid filing duplicates.
+
+    **Step 5: Create tracking issue**
+    Create the label if it doesn't already exist:
+    ```bash
+    gh label create "mozart-quality" \
+      --description "Deferred items from automated quality review" \
+      --color "d4c5f9" 2>/dev/null || true
+    ```
+
+    Create ONE issue containing a checklist of all remaining items.
+
+    Issue requirements:
+    - **Title:** `Quality Iteration N: M deferred items requiring manual effort`
+    - **Label:** `mozart-quality`
+    - **Body must include:**
+      - Checkbox list (`- [ ]`) of each deferred item with effort estimate
+      - Category for each item (structural, testing, performance, etc.)
+      - Summary table: issues found vs fixed vs deferred this iteration
+      - Footer: `*Filed automatically by Mozart Quality Score*`
+
+    Do NOT create individual issues per item — one summary issue per iteration.
+
+    **Output to:** {{ workspace }}/15-issues-filed.md
+
+    Format:
+    ```markdown
+    # GitHub Issues Filed (Iteration N)
+
+    ## Summary
+    | Metric | Count |
+    |--------|-------|
+    | Backlog issues resolved & closed | N |
+    | Remaining items collected | N |
+    | New tracking issues created | N |
+    | Previous tracking issues closed | N |
+    | Items already tracked (deduped) | N |
+
+    ## Backlog Issues Closed (fixed this iteration)
+    | GH# | Title | Fix Summary | Closed By |
+    |------|-------|-------------|-----------|
+
+    ## New Tracking Issues Created
+    | Issue # | Title | Deferred Items |
+    |---------|-------|----------------|
+
+    ## Previous Tracking Issues Closed
+    | Issue # | Reason |
+    |---------|--------|
+
+    ## Remaining Tracked Items
+    | ID | GH# | Description | Effort Estimate |
+    |----|-----|-------------|-----------------|
+    ```
+
+    {% endif %}
+
+  variables:
+    preamble: |
+      ╔══════════════════════════════════════════════════════════════════════════╗
+      ║              CONTINUOUS QUALITY IMPROVEMENT                              ║
+      ║                                                                          ║
+      ║  Goal: Close the gap between 90% LLM completion and 100% quality         ║
+      ║                                                                          ║
+      ║  Parallel Expert Reviews → Discovery → Prioritization → Fix → Commit    ║
+      ╚══════════════════════════════════════════════════════════════════════════╝
+
+      **The Last 10% Checklist:**
+      - Correctness: Does code do what it claims?
+      - Completeness: Are edge cases handled?
+      - Cleanup: Are resources properly released?
+      - Clarity: Can a new developer understand it?
+      - Coverage: Are critical paths tested?
+
+    review_types:
+      1: "Architecture"
+      2: "Test Coverage"
+      3: "Code Debt & Simplicity"
+      4: "Silent Failure Audit"
+      5: "Type Design"
+
+    batch_rules: |
+      **Rules:**
+      - One logical change at a time
+      - Run tests after each change: `pytest -x -q --tb=short`
+      - DO NOT SKIP unless genuinely blocked (not "risky" or "low benefit")
+      - "Already fixed" is acceptable ONLY if you verify it's actually fixed
+
+      **INVALID skip reasons (will fail validation):**
+      - "Risky" without specific test failure
+      - "Low benefit" - that's not your call
+      - "Extensive testing needed" - that's the job
+      - "Better for future version" - do it now
+
+validations:
+  # Stage 1: Setup
+  - type: file_exists
+    path: "{workspace}/00-known-issues.md"
+    description: "Known issues file must exist"
+    condition: "stage >= 1"
+
+  # Stage 2: Expert Reviews (per-instance)
+  - type: file_exists
+    path: "{workspace}/01-architecture-review.md"
+    description: "Architecture review must exist"
+    condition: "stage == 2 and instance == 1"
+
+  - type: file_exists
+    path: "{workspace}/02-test-coverage-review.md"
+    description: "Test coverage review must exist"
+    condition: "stage == 2 and instance == 2"
+
+  - type: file_exists
+    path: "{workspace}/03-code-debt-review.md"
+    description: "Code debt review must exist"
+    condition: "stage == 2 and instance == 3"
+
+  - type: file_exists
+    path: "{workspace}/03b-silent-failure-review.md"
+    description: "Silent failure review must exist"
+    condition: "stage == 2 and instance == 4"
+
+  - type: file_exists
+    path: "{workspace}/03c-type-design-review.md"
+    description: "Type design review must exist"
+    condition: "stage == 2 and instance == 5"
+
+  # Stage 3: Issue Selection (backlog-driven)
+  - type: file_exists
+    path: "{workspace}/04-category-discovery.yaml"
+    description: "Issue selection must exist"
+    condition: "stage >= 3"
+
+  # Stage 3: Backlog ratio check (≥70% from GitHub issues)
+  - type: command_succeeds
+    command: |
+      FILE="{workspace}/04-category-discovery.yaml"
+      if [ ! -f "$FILE" ]; then echo "file missing"; exit 1; fi
+      # Check if GitHub access was available
+      BACKLOG_FILE="{workspace}/00-known-issues.md"
+      if grep -q "No GitHub access\|gh not available" "$BACKLOG_FILE" 2>/dev/null; then
+        echo "GitHub access unavailable — backlog ratio waived - PASSED"
+        exit 0
+      fi
+      # Extract backlog_percentage from YAML
+      PCT=$(grep -oE 'backlog_percentage:.*[0-9]+' "$FILE" | grep -oE '[0-9]+' | head -1)
+      if [ -z "$PCT" ]; then
+        # Fallback: count source fields
+        TOTAL=$(grep -c "source:" "$FILE" 2>/dev/null || echo "0")
+        BACKLOG=$(grep -c "source: backlog" "$FILE" 2>/dev/null || echo "0")
+        if [ "$TOTAL" -gt 0 ]; then
+          PCT=$((BACKLOG * 100 / TOTAL))
+        fi
+      fi
+      if [ -n "$PCT" ] && [ "$PCT" -ge 70 ]; then
+        echo "Backlog ratio: ${PCT}% (>=70% required) - PASSED"
+      else
+        echo "Backlog ratio: ${PCT:-unknown}% (>=70% required) - FAILED"
+        exit 1
+      fi
+    description: "At least 70% of selected issues must come from GitHub backlog"
+    condition: "stage >= 3"
+
+  # Stage 4: Synthesis
+  - type: file_exists
+    path: "{workspace}/05-fix-plan.md"
+    description: "Fix plan must exist"
+    condition: "stage >= 4"
+
+  # Stage 5: Batch 1 First Pass
+  - type: file_exists
+    path: "{workspace}/06-batch1-fixes.md"
+    description: "Batch 1 results must exist"
+    condition: "stage >= 5"
+
+  # Batch 1: Must have 70%+ completion
+  - type: command_succeeds
+    command: |
+      FILE="{workspace}/06-batch1-fixes.md"
+      if [ ! -f "$FILE" ]; then echo "file missing"; exit 1; fi
+      COMPLETION=$(grep -oE 'Completion.*[0-9]+%' "$FILE" | grep -oE '[0-9]+' | head -1)
+      if [ -z "$COMPLETION" ]; then
+        # Fallback: calculate from Fixed/Total
+        FIXED=$(grep -E '^\*\*Fixed:\*\*' "$FILE" | grep -oE '[0-9]+' | head -1)
+        TOTAL=$(grep -E '^\*\*Total:\*\*' "$FILE" | grep -oE '[0-9]+' | head -1)
+        if [ -n "$FIXED" ] && [ -n "$TOTAL" ] && [ "$TOTAL" -gt 0 ]; then
+          COMPLETION=$((FIXED * 100 / TOTAL))
+        fi
+      fi
+      if [ -n "$COMPLETION" ] && [ "$COMPLETION" -ge 70 ]; then
+        echo "Batch 1 completion: ${COMPLETION}% (>=70% required) - PASSED"
+      else
+        echo "Batch 1 completion: ${COMPLETION:-unknown}% (>=70% required) - FAILED"
+        exit 1
+      fi
+    description: "Batch 1 must have >=70% completion rate"
+    condition: "stage >= 5"
+
+  # Stage 6: Batch 1 Completion Pass
+  - type: file_exists
+    path: "{workspace}/07-batch1-completion.md"
+    description: "Batch 1 completion pass must exist"
+    condition: "stage >= 6"
+
+  # Stage 7: Batch 2 First Pass
+  - type: file_exists
+    path: "{workspace}/08-batch2-fixes.md"
+    description: "Batch 2 results must exist"
+    condition: "stage >= 7"
+
+  - type: command_succeeds
+    command: |
+      FILE="{workspace}/08-batch2-fixes.md"
+      if [ ! -f "$FILE" ]; then echo "file missing"; exit 1; fi
+      COMPLETION=$(grep -oE 'Completion.*[0-9]+%' "$FILE" | grep -oE '[0-9]+' | head -1)
+      if [ -z "$COMPLETION" ]; then
+        FIXED=$(grep -E '^\*\*Fixed:\*\*' "$FILE" | grep -oE '[0-9]+' | head -1)
+        TOTAL=$(grep -E '^\*\*Total:\*\*' "$FILE" | grep -oE '[0-9]+' | head -1)
+        if [ -n "$FIXED" ] && [ -n "$TOTAL" ] && [ "$TOTAL" -gt 0 ]; then
+          COMPLETION=$((FIXED * 100 / TOTAL))
+        fi
+      fi
+      if [ -n "$COMPLETION" ] && [ "$COMPLETION" -ge 70 ]; then
+        echo "Batch 2 completion: ${COMPLETION}% (>=70% required) - PASSED"
+      else
+        echo "Batch 2 completion: ${COMPLETION:-unknown}% (>=70% required) - FAILED"
+        exit 1
+      fi
+    description: "Batch 2 must have >=70% completion rate"
+    condition: "stage >= 7"
+
+  # Stage 8: Batch 2 Completion Pass
+  - type: file_exists
+    path: "{workspace}/09-batch2-completion.md"
+    description: "Batch 2 completion pass must exist"
+    condition: "stage >= 8"
+
+  # Stage 9: Batch 3 First Pass
+  - type: file_exists
+    path: "{workspace}/10-batch3-fixes.md"
+    description: "Batch 3 results must exist"
+    condition: "stage >= 9"
+
+  - type: command_succeeds
+    command: |
+      FILE="{workspace}/10-batch3-fixes.md"
+      if [ ! -f "$FILE" ]; then echo "file missing"; exit 1; fi
+      COMPLETION=$(grep -oE 'Completion.*[0-9]+%' "$FILE" | grep -oE '[0-9]+' | head -1)
+      if [ -z "$COMPLETION" ]; then
+        FIXED=$(grep -E '^\*\*Fixed:\*\*' "$FILE" | grep -oE '[0-9]+' | head -1)
+        TOTAL=$(grep -E '^\*\*Total:\*\*' "$FILE" | grep -oE '[0-9]+' | head -1)
+        if [ -n "$FIXED" ] && [ -n "$TOTAL" ] && [ "$TOTAL" -gt 0 ]; then
+          COMPLETION=$((FIXED * 100 / TOTAL))
+        fi
+      fi
+      if [ -n "$COMPLETION" ] && [ "$COMPLETION" -ge 50 ]; then
+        echo "Batch 3 completion: ${COMPLETION}% (>=50% required) - PASSED"
+      else
+        echo "Batch 3 completion: ${COMPLETION:-unknown}% (>=50% required) - FAILED"
+        exit 1
+      fi
+    description: "Batch 3 must have >=50% completion rate"
+    condition: "stage >= 9"
+
+  # Stage 10: Batch 3 Completion Pass
+  - type: file_exists
+    path: "{workspace}/11-batch3-completion.md"
+    description: "Batch 3 completion pass must exist"
+    condition: "stage >= 10"
+
+  # Stage 11: Verification & Summary
+  - type: file_exists
+    path: "{workspace}/12-summary.md"
+    description: "Summary must exist"
+    condition: "stage >= 11"
+
+  # Tests must pass before committing
+  - type: command_succeeds
+    command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed|no tests'"
+    description: "Tests must pass"
+    condition: "stage >= 11"
+
+  # Stage 12: Commit
+  - type: file_exists
+    path: "{workspace}/13-commit.md"
+    description: "Commit report must exist"
+    condition: "stage == 12"
+
+  # Verify commit was created (by stage 12 or stage 13 conflict resolver)
+  - type: command_succeeds
+    command: "git log --oneline -1 --since='30 minutes ago' 2>/dev/null | grep -qE '.' && echo 'passed' || echo 'no recent commit'"
+    description: "Recent commit should exist after commit/merge-resolve"
+    condition: "stage == 13"
+
+  # Stage 13: Merge Conflict Resolution
+  - type: file_exists
+    path: "{workspace}/14-merge-resolution.md"
+    description: "Merge resolution report must exist"
+    condition: "stage >= 13"
+
+  # Stage 14: GitHub Issues for Deferred Items
+  - type: file_exists
+    path: "{workspace}/15-issues-filed.md"
+    description: "Issue filing report must exist"
+    condition: "stage >= 14"
+
+# Self-chain for continuous improvement
+on_success:
+  - type: run_job
+    job_path: "examples/quality-daemon.yaml"
+    description: "Chain to next daemon quality iteration"
+    detached: true
+    fresh: true  # Clear previous run's state to prevent infinite empty-run loop
+
+concert:
+  enabled: true
+  max_chain_depth: 10
+  cooldown_between_jobs_seconds: 120  # 2 min cooldown between iterations
+  inherit_workspace: false

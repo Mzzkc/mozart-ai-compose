@@ -6,6 +6,8 @@
 # Usage:
 #   ./setup.sh           # Standard installation
 #   ./setup.sh --dev     # Include development dependencies
+#   ./setup.sh --daemon  # Include daemon support (mozartd)
+#   ./setup.sh --docs    # Include documentation site tools
 #   ./setup.sh --help    # Show usage information
 #
 set -euo pipefail
@@ -44,6 +46,8 @@ Usage: ./setup.sh [OPTIONS]
 
 Options:
     --dev       Include development dependencies (pytest, mypy, ruff)
+    --daemon    Include daemon support (psutil for mozartd)
+    --docs      Include documentation site tools (mkdocs-material)
     --no-venv   Skip virtual environment creation (use current environment)
     --clean     Remove existing virtual environment before setup
     --help      Show this help message
@@ -51,18 +55,24 @@ Options:
 Examples:
     ./setup.sh              # Standard installation
     ./setup.sh --dev        # Development setup with test tools
+    ./setup.sh --daemon     # Install with daemon support
+    ./setup.sh --docs       # Install with documentation tools
+    ./setup.sh --dev --daemon --docs  # Everything
     ./setup.sh --clean      # Fresh install (removes existing venv)
     ./setup.sh --no-venv    # Install to current Python environment
 
 Prerequisites:
     - Python ${PYTHON_MIN_VERSION}+
     - Claude CLI (optional, required for claude_cli backend)
+    - git (required for worktree isolation)
 
 EOF
 }
 
 # Parse arguments
 DEV_MODE=false
+DAEMON_MODE=false
+DOCS_MODE=false
 USE_VENV=true
 CLEAN_INSTALL=false
 
@@ -70,6 +80,14 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --dev)
             DEV_MODE=true
+            shift
+            ;;
+        --daemon)
+            DAEMON_MODE=true
+            shift
+            ;;
+        --docs)
+            DOCS_MODE=true
             shift
             ;;
         --no-venv)
@@ -161,9 +179,15 @@ fi
 # Step 3: Install Mozart
 log_info "Installing Mozart AI Compose..."
 
-if [[ "$DEV_MODE" == true ]]; then
-    pip install --quiet -e ".[dev]"
-    log_success "Installed Mozart with development dependencies"
+# Build extras list based on flags
+EXTRAS=""
+if [[ "$DEV_MODE" == true ]]; then EXTRAS="${EXTRAS:+$EXTRAS,}dev"; fi
+if [[ "$DAEMON_MODE" == true ]]; then EXTRAS="${EXTRAS:+$EXTRAS,}daemon"; fi
+if [[ "$DOCS_MODE" == true ]]; then EXTRAS="${EXTRAS:+$EXTRAS,}docs"; fi
+
+if [[ -n "$EXTRAS" ]]; then
+    pip install --quiet -e ".[$EXTRAS]"
+    log_success "Installed Mozart with extras: $EXTRAS"
 else
     pip install --quiet -e "."
     log_success "Installed Mozart"
@@ -193,7 +217,35 @@ else
     log_info "Mozart can still use the anthropic_api backend without Claude CLI"
 fi
 
-# Step 6: Validate example configuration
+# Step 6: Verify daemon installation (if requested)
+if [[ "$DAEMON_MODE" == true ]]; then
+    log_info "Verifying daemon installation..."
+    if command -v mozartd &> /dev/null; then
+        log_success "Mozart daemon (mozartd) available"
+    else
+        log_error "mozartd not found in PATH after installation"
+        log_info "You may need to activate the virtual environment: source $VENV_DIR/bin/activate"
+    fi
+fi
+
+# Step 7: Verify docs installation (if requested)
+if [[ "$DOCS_MODE" == true ]]; then
+    log_info "Verifying documentation tools..."
+    if command -v mkdocs &> /dev/null; then
+        log_success "mkdocs available"
+        log_info "Building documentation site to verify..."
+        if mkdocs build --quiet 2>/dev/null; then
+            log_success "Documentation site built successfully"
+        else
+            log_warn "Documentation site build failed (may need mkdocs.yml configuration)"
+        fi
+    else
+        log_error "mkdocs not found in PATH after installation"
+        log_info "You may need to activate the virtual environment: source $VENV_DIR/bin/activate"
+    fi
+fi
+
+# Step 8: Validate example configuration
 log_info "Validating example configuration..."
 
 if [[ -f "examples/simple-sheet.yaml" ]]; then
@@ -224,9 +276,32 @@ echo "  mozart --version"
 echo "  mozart validate examples/simple-sheet.yaml"
 echo ""
 
-echo "To run your first job:"
-echo "  mozart run examples/simple-sheet.yaml --dry-run"
-echo ""
+if [[ "$DAEMON_MODE" == true ]]; then
+    echo "To run your first job (daemon mode):"
+    echo "  mozartd start              # Start the daemon"
+    echo "  mozartd status             # Verify daemon is running"
+    echo "  mozart run examples/simple-sheet.yaml --dry-run"
+    echo ""
+else
+    echo "To run your first job:"
+    echo "  mozart run examples/simple-sheet.yaml --dry-run"
+    echo ""
+fi
+
+if [[ "$DAEMON_MODE" == true ]]; then
+    echo "Daemon commands:"
+    echo "  mozartd start              # Start the daemon"
+    echo "  mozartd status             # Check daemon status"
+    echo "  mozartd stop               # Stop the daemon"
+    echo ""
+fi
+
+if [[ "$DOCS_MODE" == true ]]; then
+    echo "Documentation site:"
+    echo "  mkdocs serve               # Browse at http://localhost:8000"
+    echo "  mkdocs build               # Build static site to site/"
+    echo ""
+fi
 
 if [[ "$DEV_MODE" == true ]]; then
     echo "Development tools installed:"

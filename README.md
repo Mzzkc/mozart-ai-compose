@@ -61,10 +61,10 @@ The setup script handles virtual environment creation, dependency installation, 
 ```bash
 git clone https://github.com/Mzzkc/mozart-ai-compose.git
 cd mozart-ai-compose
-./setup.sh
+./setup.sh --daemon
 ```
 
-After setup completes, activate the virtual environment:
+The `--daemon` flag installs daemon dependencies required for job execution. After setup completes, activate the virtual environment:
 
 ```bash
 source .venv/bin/activate
@@ -73,7 +73,7 @@ source .venv/bin/activate
 For development (includes pytest, mypy, ruff):
 
 ```bash
-./setup.sh --dev
+./setup.sh --dev --daemon
 ```
 
 Run `./setup.sh --help` for all options.
@@ -144,7 +144,16 @@ Configuration valid: hello-world.yaml
   Workspace: ./workspace/hello-world
 ```
 
-### 3. Run the Job
+### 3. Start the Daemon
+
+The Mozart daemon is required for job execution:
+
+```bash
+mozartd start
+mozartd status   # Verify it's running
+```
+
+### 4. Run the Job
 
 ```bash
 mozart run hello-world.yaml
@@ -152,7 +161,7 @@ mozart run hello-world.yaml
 
 Mozart executes each sheet sequentially, validating output before proceeding to the next.
 
-### 4. Monitor Progress
+### 5. Monitor Progress
 
 While the job runs (or after), check status:
 
@@ -160,7 +169,7 @@ While the job runs (or after), check status:
 mozart status hello-world --workspace ./workspace/hello-world
 ```
 
-### 5. Resume if Interrupted
+### 6. Resume if Interrupted
 
 If the job is interrupted (Ctrl+C, rate limit, error), resume from where it left off:
 
@@ -193,7 +202,7 @@ mozart resume hello-world --workspace ./workspace/hello-world
 | Worktree isolation | Git worktree isolation for parallel-safe execution |
 | Cost tracking | Per-sheet and per-job cost limits |
 | Circuit breaker | Cross-workspace coordination, rate limit sharing |
-| Human-in-the-loop | Escalation for low-confidence decisions (`--escalation`) |
+| Human-in-the-loop | Escalation for low-confidence decisions (`--escalation`) — not currently supported in daemon mode |
 
 ## CLI Reference
 
@@ -258,7 +267,7 @@ Starts the web dashboard for visual monitoring and control.
 | `--dry-run, -n` | `run` | Validate and show execution plan without running |
 | `--self-healing, -H` | `run`, `resume` | Enable automatic diagnosis and remediation |
 | `--yes, -y` | `run`, `resume` | Auto-confirm suggested self-healing fixes |
-| `--escalation, -e` | `run` | Enable human-in-the-loop for low-confidence decisions |
+| `--escalation, -e` | `run` | Enable human-in-the-loop for low-confidence decisions (not currently supported — blocked in daemon mode) |
 | `--fresh` | `run` | Delete existing state before starting (clean run) |
 | `--start-sheet, -s` | `run` | Override starting sheet number |
 | `--json, -j` | `status`, `validate` | Output in JSON format |
@@ -266,10 +275,10 @@ Starts the web dashboard for visual monitoring and control.
 
 ### Daemon Mode (mozartd)
 
-Mozart includes a long-running daemon for managing multiple concurrent jobs with centralized rate limiting and resource monitoring.
+The Mozart daemon (`mozartd`) is **required** for job execution. It manages concurrent jobs, coordinates rate limits, and provides resource monitoring.
 
 ```bash
-# Start the daemon
+# Start the daemon (required before mozart run)
 mozartd start              # Background (production)
 mozartd start --foreground # Foreground (development)
 
@@ -280,9 +289,9 @@ mozartd status
 mozartd stop
 ```
 
-When a daemon is running, `mozart run` auto-detects it and routes jobs through the daemon. Without a daemon, Mozart falls back to direct CLI execution. This is zero-impact — existing workflows work identically either way.
+`mozart run` requires a running daemon and will exit with an error if one is not found. Only `mozart validate` and `mozart run --dry-run` work without a running daemon.
 
-See [CLAUDE.md](CLAUDE.md#daemon-mode-mozartd) for daemon architecture details.
+See the [Daemon Guide](docs/daemon-guide.md) for configuration, systemd integration, and troubleshooting.
 
 ## Configuration
 
@@ -422,7 +431,7 @@ See [examples/README.md](examples/README.md) for detailed documentation of each 
 |   CLI (Typer)    +--------->|  Execution Runner +--------->|  Backend         |
 +--------+---------+          +--------+----------+          |  (Claude CLI /   |
          |                             |                     |   Anthropic API /|
-         v (auto-detect)               v                     |   Ollama)        |
+         v (required)                  v                     |   Ollama)        |
 +--------+---------+          +--------+----------+          +------------------+
 |  Daemon (mozartd)|          |  State Manager    |
 |  Job Manager     |          |  (JSON/SQLite)    |
@@ -455,11 +464,20 @@ See [examples/README.md](examples/README.md) for detailed documentation of each 
 
 ## Documentation
 
-- [Usage Skill](skills/mozart-usage.md) - Comprehensive reference for Mozart usage
-- [Examples](examples/) - Working configurations for various use cases
 - [Getting Started](docs/getting-started.md) - Step-by-step introduction
 - [CLI Reference](docs/cli-reference.md) - Complete command documentation
-- [CLAUDE.md](CLAUDE.md) - Instructions for AI assistants working with Mozart
+- [Daemon Guide](docs/daemon-guide.md) - Daemon setup, configuration, and troubleshooting
+- [Score Writing Guide](docs/score-writing-guide.md) - How to author Mozart scores
+- [Configuration Reference](docs/configuration-reference.md) - Every config field documented
+- [Known Limitations](docs/limitations.md) - What doesn't work and workarounds
+- [Examples](examples/) - Working configurations for various use cases
+
+To browse documentation locally:
+
+```bash
+pip install -e ".[docs]"
+mkdocs serve
+```
 
 ## Development
 

@@ -3,12 +3,7 @@
 > **Purpose:** Comprehensive reference for AI assistants and developers working on Mozart.
 > This document should be kept current by the `docs-generator` score.
 >
-> **Last manually updated:** 2026-02-14 (out of date — pending automated refresh)
->
-> **WARNING:** Large portions of this document predate the daemon work (mozartd) and need
-> to be updated. The daemon subsystem (persistent job registry, IPC, job management,
-> human-friendly job IDs, daemon-aware `mozart list`) is partially documented here but
-> many details may be stale or incomplete. Run the `docs-generator` score to refresh.
+> **Last updated:** 2026-02-14
 
 ---
 
@@ -25,9 +20,9 @@ The musical metaphor runs deep. Jobs are "scores" (sheet music), units of work a
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        CLI Layer (Typer + Rich)                 │
-│  23 commands: run, status, resume, pause, modify, validate,    │
-│  diagnose, errors, recover, list, logs, dashboard, mcp,        │
-│  + 11 learning commands (patterns, drift, entropy, budget)     │
+│  26 commands: run, status, resume, pause, modify, validate,    │
+│  diagnose, errors, recover, list, logs, history, dashboard,    │
+│  mcp, config + 10 learning commands                            │
 └─────────────────────┬───────────────────────────────────────────┘
                       │
 ┌─────────────────────▼───────────────────────────────────────────┐
@@ -75,7 +70,7 @@ When you run `mozart run job.yaml`:
 
 1. **Parse & Validate** — YAML -> Pydantic JobConfig with 40+ config models. Fan-out expansion happens at parse time (e.g., stage 2 with fan_count=3 becomes sheets 2, 3, 4). Dependencies validated for cycles.
 
-2. **Daemon Detection** — CLI checks for a running daemon via Unix socket. If found, job is submitted to daemon for execution. If not, falls back to direct execution.
+2. **Daemon Detection** — CLI checks for a running daemon via Unix socket. If found, job is submitted to daemon for execution. If not, the command exits with an error (daemon is required). Only `--dry-run` works without a daemon.
 
 3. **Initialize State** — Creates CheckpointState or loads existing. Zombie detection: checks if PID in state file is actually alive via `os.kill(pid, 0)`. Dead PID -> recover to PAUSED.
 
@@ -352,16 +347,17 @@ Key validation features:
 
 | Metric | Value |
 |--------|-------|
-| Source files | 120+ Python files |
-| Test suite | 4,190+ passing tests |
-| CLI commands | 23 |
+| Source files | 182 Python files |
+| Test files | 115 |
+| CLI commands | 26 mozart + 3 mozartd = 29 |
+| Packages | 20 under src/mozart/ |
 | Config models | 40+ Pydantic models |
 | Error codes | 50 across 9 categories |
 | Learning tables | 15 SQLite tables |
 | Pattern types | 8 |
 | Backend types | 4 (Claude CLI, API, Ollama, Recursive Light) |
 | State backends | 3 (JSON, SQLite, Memory) |
-| Notification channels | 3 (Desktop, Slack, Webhook) |
+| Notification channels | 3 implemented (Desktop, Slack, Webhook). Email type exists in config schema but has no backend implementation. |
 
 ---
 

@@ -1,0 +1,933 @@
+# Configuration Reference
+
+Complete reference for every field in Mozart score YAML files. All types, defaults,
+and constraints are extracted directly from the Pydantic v2 config models in
+`src/mozart/core/config/`.
+
+---
+
+## Table of Contents
+
+- [Top-Level Fields](#top-level-fields)
+- [workspace_lifecycle](#workspace_lifecycle)
+- [backend](#backend)
+  - [Ollama Sub-Config](#ollama-sub-config)
+  - [Recursive Light Sub-Config](#recursive-light-sub-config)
+- [bridge](#bridge)
+  - [MCP Server Sub-Config](#mcp-server-sub-config)
+- [sheet](#sheet)
+- [prompt](#prompt)
+- [parallel](#parallel)
+- [retry](#retry)
+- [rate_limit](#rate_limit)
+- [circuit_breaker](#circuit_breaker)
+- [cost_limits](#cost_limits)
+- [stale_detection](#stale_detection)
+- [cross_sheet](#cross_sheet)
+- [validations](#validations)
+- [isolation](#isolation)
+- [grounding](#grounding)
+  - [Grounding Hook Sub-Config](#grounding-hook-sub-config)
+- [conductor](#conductor)
+  - [Conductor Preferences Sub-Config](#conductor-preferences-sub-config)
+- [concert](#concert)
+- [on_success (Post-Success Hooks)](#on_success-post-success-hooks)
+- [notifications](#notifications)
+- [learning](#learning)
+  - [Exploration Budget Sub-Config](#exploration-budget-sub-config)
+  - [Entropy Response Sub-Config](#entropy-response-sub-config)
+  - [Auto Apply Sub-Config](#auto-apply-sub-config)
+- [checkpoints](#checkpoints)
+  - [Checkpoint Trigger Sub-Config](#checkpoint-trigger-sub-config)
+- [ai_review](#ai_review)
+- [logging](#logging)
+- [feedback](#feedback)
+- [State and Misc](#state-and-misc)
+- [DaemonConfig (mozartd)](#daemonconfig-mozartd)
+  - [Socket Sub-Config](#socket-sub-config)
+  - [Resource Limits Sub-Config](#resource-limits-sub-config)
+
+---
+
+## Top-Level Fields
+
+*Source: `src/mozart/core/config/job.py` — `JobConfig`*
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | `str` | **required** | Unique job name |
+| `description` | `str \| None` | `None` | Human-readable description |
+| `workspace` | `Path` | `./workspace` | Output directory. Resolved to absolute path at construction time. |
+
+---
+
+## workspace_lifecycle
+
+*Source: `src/mozart/core/config/workspace.py` — `WorkspaceLifecycleConfig`*
+
+Controls how workspace files are handled across job iterations, particularly for self-chaining jobs that reuse the same workspace.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `archive_on_fresh` | `bool` | `false` | | Archive workspace files when `--fresh` flag is used. Moves non-preserved files to a numbered archive subdirectory. |
+| `archive_dir` | `str` | `"archive"` | | Subdirectory within workspace for archive storage. |
+| `archive_naming` | `"iteration" \| "timestamp"` | `"iteration"` | | Naming scheme for archive directories. `iteration` reads `.iteration` file, `timestamp` uses current time. |
+| `max_archives` | `int` | `0` | `>= 0` | Maximum archive directories to keep. 0 = unlimited. When exceeded, oldest archives are deleted. |
+| `preserve_patterns` | `list[str]` | `[".iteration", ".mozart-*", ".coverage", "archive/**", ".worktrees/**"]` | | Glob patterns for files/directories to preserve (not archive). Matched against paths relative to workspace root. |
+
+```yaml
+workspace_lifecycle:
+  archive_on_fresh: true
+  archive_dir: archive
+  max_archives: 10
+  preserve_patterns:
+    - ".iteration"
+    - ".mozart-*"
+    - "archive/**"
+```
+
+---
+
+## backend
+
+*Source: `src/mozart/core/config/backend.py` — `BackendConfig`*
+
+Uses a flat structure with cross-field validation. Fields marked with a backend prefix (e.g., `[claude_cli]`) only take effect when `type` matches that backend. Setting fields for an unselected backend emits a warning.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `type` | `"claude_cli" \| "anthropic_api" \| "recursive_light" \| "ollama"` | `"claude_cli"` | | Backend type |
+| `skip_permissions` | `bool` | `true` | | **[claude_cli]** Skip permission prompts for unattended execution. Maps to `--dangerously-skip-permissions`. |
+| `disable_mcp` | `bool` | `true` | | **[claude_cli]** Disable MCP server loading for faster, isolated execution (~2x speedup). Maps to `--strict-mcp-config {}`. Set to `false` to use MCP servers. |
+| `output_format` | `"json" \| "text" \| "stream-json"` | `"text"` | | **[claude_cli]** Claude CLI output format. `text` for human-readable, `json` for structured, `stream-json` for streaming events. |
+| `cli_model` | `str \| None` | `None` | | **[claude_cli]** Model for Claude CLI. Maps to `--model` flag. If `None`, uses Claude Code's default. Example: `"claude-sonnet-4-20250514"` |
+| `allowed_tools` | `list[str] \| None` | `None` | | **[claude_cli]** Restrict Claude to specific tools. Maps to `--allowedTools`. Example: `["Read", "Grep", "Glob"]` for read-only execution. |
+| `system_prompt_file` | `Path \| None` | `None` | | **[claude_cli]** Path to custom system prompt file. Maps to `--system-prompt`. |
+| `working_directory` | `Path \| None` | `None` | | Working directory for execution. If `None`, uses the directory containing the config file. |
+| `timeout_seconds` | `float` | `1800.0` | `> 0` | Maximum time per prompt execution (seconds). Default: 30 minutes. |
+| `timeout_overrides` | `dict[int, float]` | `{}` | | Per-sheet timeout overrides. Map of `sheet_num -> timeout_seconds`. Unlisted sheets use `timeout_seconds`. |
+| `cli_extra_args` | `list[str]` | `[]` | | **[claude_cli]** Escape hatch for CLI flags not yet exposed as named options. Applied last, can override other settings. |
+| `max_output_capture_bytes` | `int` | `10240` | `> 0` | Maximum bytes of stdout/stderr to capture per sheet for diagnostics (10KB default). |
+| `model` | `str` | `"claude-sonnet-4-20250514"` | | **[anthropic_api]** Model ID for Anthropic API |
+| `api_key_env` | `str` | `"ANTHROPIC_API_KEY"` | | **[anthropic_api]** Environment variable containing API key |
+| `max_tokens` | `int` | `8192` | `>= 1` | **[anthropic_api]** Maximum tokens for API response |
+| `temperature` | `float` | `0.7` | `0.0–1.0` | **[anthropic_api]** Sampling temperature |
+| `recursive_light` | `RecursiveLightConfig` | *(see sub-config)* | | **[recursive_light]** Recursive Light backend configuration |
+| `ollama` | `OllamaConfig` | *(see sub-config)* | | **[ollama]** Ollama backend configuration |
+
+```yaml
+backend:
+  type: claude_cli
+  skip_permissions: true
+  disable_mcp: true
+  timeout_seconds: 1800
+  timeout_overrides:
+    5: 3600    # Sheet 5 gets 1 hour
+  cli_model: "claude-sonnet-4-20250514"
+  allowed_tools: ["Read", "Grep", "Glob", "Write", "Edit"]
+```
+
+### Ollama Sub-Config
+
+*Source: `src/mozart/core/config/backend.py` — `OllamaConfig`*
+
+Nested under `backend.ollama`. Only meaningful when `backend.type` is `"ollama"`.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `base_url` | `str` | `"http://localhost:11434"` | | Ollama server base URL |
+| `model` | `str` | `"llama3.1:8b"` | | Ollama model to use. Must support tool calling. |
+| `num_ctx` | `int` | `32768` | `>= 4096` | Context window size. Minimum 32K recommended for Claude Code tools. |
+| `dynamic_tools` | `bool` | `true` | | Enable dynamic toolset loading to optimize context |
+| `compression_level` | `"minimal" \| "moderate" \| "aggressive"` | `"moderate"` | | Tool schema compression level |
+| `timeout_seconds` | `float` | `300.0` | `> 0` | Request timeout for Ollama API calls |
+| `keep_alive` | `str` | `"5m"` | | Keep model loaded in memory for this duration |
+| `max_tool_iterations` | `int` | `10` | `1–50` | Maximum tool call iterations per execution |
+| `health_check_timeout` | `float` | `10.0` | | Timeout for health check requests |
+
+### Recursive Light Sub-Config
+
+*Source: `src/mozart/core/config/backend.py` — `RecursiveLightConfig`*
+
+Nested under `backend.recursive_light`. Only meaningful when `backend.type` is `"recursive_light"`.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `endpoint` | `str` | `"http://localhost:8080"` | | Base URL for the Recursive Light API server |
+| `user_id` | `str \| None` | `None` | | Unique identifier for this Mozart instance (generates UUID if not set) |
+| `timeout` | `float` | `30.0` | `> 0` | Request timeout in seconds for RL API calls |
+
+---
+
+## bridge
+
+*Source: `src/mozart/core/config/backend.py` — `BridgeConfig`*
+
+The bridge enables Ollama models to use MCP tools through a proxy service. Set at the top level (not inside `backend`). Defaults to `None` (bridge disabled).
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `enabled` | `bool` | `false` | | Enable bridge mode (Ollama with MCP tools) |
+| `mcp_proxy_enabled` | `bool` | `true` | | Enable MCP server proxy for tool access |
+| `mcp_servers` | `list[MCPServerConfig]` | `[]` | | MCP servers to connect to |
+| `hybrid_routing_enabled` | `bool` | `false` | | Enable hybrid routing between Ollama and Claude |
+| `complexity_threshold` | `float` | `0.7` | `0.0–1.0` | Complexity threshold for routing to Claude |
+| `fallback_to_claude` | `bool` | `true` | | Fall back to Claude if Ollama execution fails |
+| `context_budget_percent` | `int` | `75` | `10–95` | Percent of context window for tools (rest for conversation) |
+
+### MCP Server Sub-Config
+
+*Source: `src/mozart/core/config/backend.py` — `MCPServerConfig`*
+
+Each entry in `bridge.mcp_servers`.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `name` | `str` | **required** | | Unique name for this MCP server |
+| `command` | `str` | **required** | | Command to run the MCP server |
+| `args` | `list[str]` | `[]` | | Command line arguments |
+| `env` | `dict[str, str]` | `{}` | Blocked keys: PATH, LD_PRELOAD, PYTHONPATH, API keys, etc. | Environment variables for the server |
+| `working_dir` | `str \| None` | `None` | | Working directory for the server |
+| `timeout_seconds` | `float` | `30.0` | | Timeout for server operations |
+
+```yaml
+bridge:
+  enabled: true
+  mcp_proxy_enabled: true
+  mcp_servers:
+    - name: filesystem
+      command: "npx"
+      args: ["-y", "@anthropic/mcp-server-filesystem", "/home/user"]
+  hybrid_routing_enabled: true
+  complexity_threshold: 0.7
+```
+
+---
+
+## sheet
+
+*Source: `src/mozart/core/config/job.py` — `SheetConfig`*
+
+Defines how the work is divided into sheets (execution units).
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `size` | `int` | **required** | `>= 1` | Number of items per sheet |
+| `total_items` | `int` | **required** | `>= 1` | Total number of items to process |
+| `start_item` | `int` | `1` | `>= 1` | First item number (1-indexed) |
+| `dependencies` | `dict[int, list[int]]` | `{}` | No self-references | Sheet dependency declarations. Map of `sheet_num -> [prerequisites]`. Sheets without entries are independent. |
+| `skip_when` | `dict[int, str]` | `{}` | | Conditional skip rules. Map of `sheet_num -> condition`. Expression accesses `sheets` dict and `job` state. If truthy, sheet is skipped. |
+| `fan_out` | `dict[int, int]` | `{}` | Requires `size=1`, `start_item=1` | Fan-out declarations. Map of `stage_num -> instance_count`. Creates parallel instances of stages. Cleared after expansion. |
+| `fan_out_stage_map` | `dict[int, dict] \| None` | `None` | | Per-sheet fan-out metadata, populated by expansion. Survives serialization for resume support. |
+
+```yaml
+sheet:
+  size: 1
+  total_items: 7
+  dependencies:
+    2: [1]
+    3: [1]
+    4: [2, 3]
+  skip_when:
+    5: "sheets.get(3) and sheets[3].validation_passed"
+  fan_out:
+    2: 3    # 3 parallel instances of stage 2
+```
+
+**Computed properties** (not configurable):
+- `total_sheets` — calculated as `ceil((total_items - start_item + 1) / size)`
+- `total_stages` — original stage count before fan-out expansion
+
+---
+
+## prompt
+
+*Source: `src/mozart/core/config/job.py` — `PromptConfig`*
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `template` | `str \| None` | `None` | Cannot set both `template` and `template_file` | Inline Jinja2 template |
+| `template_file` | `Path \| None` | `None` | Cannot set both `template` and `template_file` | Path to external `.j2` template file |
+| `variables` | `dict[str, Any]` | `{}` | | Static variables available in template |
+| `stakes` | `str \| None` | `None` | | Motivational stakes section appended to prompt |
+| `thinking_method` | `str \| None` | `None` | | Thinking methodology injected into prompt |
+
+For template variable reference, see the [Score Writing Guide](score-writing-guide.md#template-variables-reference).
+
+```yaml
+prompt:
+  template: |
+    Process items {{ start_item }} through {{ end_item }}.
+    Focus on: {{ variables.focus_area }}
+  variables:
+    focus_area: "error handling"
+  stakes: "This code will be deployed to production."
+  thinking_method: "Think step by step."
+```
+
+---
+
+## parallel
+
+*Source: `src/mozart/core/config/execution.py` — `ParallelConfig`*
+
+Enables running multiple sheets concurrently when the dependency DAG permits.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `enabled` | `bool` | `false` | | Enable parallel sheet execution |
+| `max_concurrent` | `int` | `3` | `1–10` | Maximum sheets to execute concurrently |
+| `fail_fast` | `bool` | `true` | | Stop starting new sheets when one fails |
+| `budget_partition` | `bool` | `true` | **Not yet implemented** | Partition cost budget across parallel branches. Accepted but not enforced; cost checks use global total. |
+
+```yaml
+parallel:
+  enabled: true
+  max_concurrent: 3
+  fail_fast: true
+```
+
+---
+
+## retry
+
+*Source: `src/mozart/core/config/execution.py` — `RetryConfig`*
+
+Controls retry behavior including partial completion recovery.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `max_retries` | `int` | `3` | `>= 0` | Maximum retry attempts per sheet |
+| `base_delay_seconds` | `float` | `10.0` | `> 0`, must be `<= max_delay_seconds` | Initial delay between retries |
+| `max_delay_seconds` | `float` | `3600.0` | `> 0` | Maximum delay cap (1 hour) |
+| `exponential_base` | `float` | `2.0` | `> 1` | Exponential backoff multiplier |
+| `jitter` | `bool` | `true` | | Add randomness to delays |
+| `max_completion_attempts` | `int` | `3` | `>= 0` | Maximum completion prompt attempts before full retry |
+| `completion_delay_seconds` | `float` | `5.0` | `>= 0` | Delay between completion attempts (seconds) |
+| `completion_threshold_percent` | `float` | `50.0` | `> 0`, `<= 100` | Minimum pass percentage to trigger completion mode |
+
+**Completion mode:** When a sheet partially passes validation (more than `completion_threshold_percent`), Mozart sends a targeted "complete the remaining work" prompt instead of a full retry. This is more efficient and preserves already-completed work.
+
+```yaml
+retry:
+  max_retries: 5
+  base_delay_seconds: 15
+  max_delay_seconds: 600
+  exponential_base: 2.0
+  jitter: true
+  max_completion_attempts: 3
+  completion_threshold_percent: 50.0
+```
+
+---
+
+## rate_limit
+
+*Source: `src/mozart/core/config/execution.py` — `RateLimitConfig`*
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `detection_patterns` | `list[str]` | `["rate.?limit", "usage.?limit", "quota", "too many requests", "429", "capacity", "try again later"]` | Must be valid regex | Regex patterns to detect rate limiting in output |
+| `wait_minutes` | `int` | `60` | `>= 1` | Minutes to wait when rate limited |
+| `max_waits` | `int` | `24` | `>= 1` | Maximum wait cycles (24 = 24 hours) |
+| `max_quota_waits` | `int` | `48` | `>= 1` | Maximum quota exhaustion wait cycles before failing (48 = 48 hours at 60min/wait) |
+
+```yaml
+rate_limit:
+  detection_patterns:
+    - "rate.?limit"
+    - "too many requests"
+    - "429"
+  wait_minutes: 30
+  max_waits: 48
+```
+
+---
+
+## circuit_breaker
+
+*Source: `src/mozart/core/config/execution.py` — `CircuitBreakerConfig`*
+
+Prevents cascading failures by temporarily blocking requests after repeated failures. State transitions: CLOSED (normal) → OPEN (blocking) → HALF_OPEN (testing recovery).
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `enabled` | `bool` | `true` | | Enable circuit breaker pattern |
+| `failure_threshold` | `int` | `5` | `1–100` | Consecutive failures before opening circuit |
+| `recovery_timeout_seconds` | `float` | `300.0` | `> 0`, `<= 3600` | Seconds in OPEN state before testing recovery (max 1 hour) |
+| `cross_workspace_coordination` | `bool` | `true` | | Enable cross-workspace coordination via global learning store. Rate limit events shared between parallel jobs. |
+| `honor_other_jobs_rate_limits` | `bool` | `true` | | Honor rate limits detected by other parallel jobs |
+
+```yaml
+circuit_breaker:
+  enabled: true
+  failure_threshold: 5
+  recovery_timeout_seconds: 300
+  cross_workspace_coordination: true
+```
+
+---
+
+## cost_limits
+
+*Source: `src/mozart/core/config/execution.py` — `CostLimitConfig`*
+
+Prevents runaway costs by tracking token usage. When enabled, at least one of `max_cost_per_sheet` or `max_cost_per_job` must be set.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `enabled` | `bool` | `false` | | Enable cost tracking and limit enforcement |
+| `max_cost_per_sheet` | `float \| None` | `None` | `> 0` | Maximum cost per sheet in USD |
+| `max_cost_per_job` | `float \| None` | `None` | `> 0` | Maximum cost for entire job in USD |
+| `cost_per_1k_input_tokens` | `float` | `0.003` | `> 0` | Cost per 1000 input tokens (Claude Sonnet default: $0.003) |
+| `cost_per_1k_output_tokens` | `float` | `0.015` | `> 0` | Cost per 1000 output tokens (Claude Sonnet default: $0.015) |
+| `warn_at_percent` | `float` | `80.0` | `> 0`, `<= 100` | Emit warning at this percentage of limit |
+
+**Model-specific rates:** Default rates are for Claude Sonnet. For Opus, use `cost_per_1k_input_tokens: 0.015` and `cost_per_1k_output_tokens: 0.075`.
+
+```yaml
+cost_limits:
+  enabled: true
+  max_cost_per_sheet: 5.00
+  max_cost_per_job: 100.00
+  warn_at_percent: 80
+```
+
+---
+
+## stale_detection
+
+*Source: `src/mozart/core/config/execution.py` — `StaleDetectionConfig`*
+
+Detects hung sheet executions that produce no output.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `enabled` | `bool` | `false` | | Enable stale execution detection |
+| `idle_timeout_seconds` | `float` | `300.0` | `> 0` | Maximum seconds of inactivity before marking stale. Recommended minimum 120s for LLM workloads. |
+| `check_interval_seconds` | `float` | `30.0` | `> 0`, must be `< idle_timeout_seconds` | How often to check for idle executions |
+
+```yaml
+stale_detection:
+  enabled: true
+  idle_timeout_seconds: 300
+  check_interval_seconds: 30
+```
+
+---
+
+## cross_sheet
+
+*Source: `src/mozart/core/config/workspace.py` — `CrossSheetConfig`*
+
+Enables passing outputs and files between sheets. Set to `null` or omit to disable. When configured, later sheets can access `{{ previous_outputs[N] }}` and `{{ previous_files }}` in templates.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `auto_capture_stdout` | `bool` | `false` | | Include previous sheets' `stdout_tail` in context |
+| `max_output_chars` | `int` | `2000` | `> 0` | Maximum characters per previous sheet output |
+| `capture_files` | `list[str]` | `[]` | | File path patterns to read between sheets. Supports Jinja2 templating. |
+| `lookback_sheets` | `int` | `3` | `>= 0` | Number of previous sheets to include. 0 = all completed. |
+
+```yaml
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 4000
+  lookback_sheets: 5
+  capture_files:
+    - "{{ workspace }}/sheet-{{ sheet_num - 1 }}.md"
+```
+
+---
+
+## validations
+
+*Source: `src/mozart/core/config/execution.py` — `ValidationRule`*
+
+A list of validation rules applied after each sheet execution. Supports staged execution — validations run in stage order, and if any validation in a stage fails, higher stages are skipped.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `type` | `"file_exists" \| "file_modified" \| "content_contains" \| "content_regex" \| "command_succeeds"` | **required** | | Validation type |
+| `path` | `str \| None` | `None` | Required for `file_exists`, `file_modified`, `content_contains`, `content_regex` | File path. Supports `{sheet_num}`, `{workspace}` templates. |
+| `pattern` | `str \| None` | `None` | Required for `content_contains`, `content_regex`. Must be valid regex for `content_regex`. | Pattern for content matching |
+| `command` | `str \| None` | `None` | Required for `command_succeeds` | Shell command to run |
+| `working_directory` | `str \| None` | `None` | | Working directory for command (defaults to workspace) |
+| `description` | `str \| None` | `None` | | Human-readable description |
+| `stage` | `int` | `1` | `1–10` | Validation stage. Lower stages run first; fail-fast on failure. |
+| `condition` | `str \| None` | `None` | | Condition for when this validation applies. Supports: `sheet_num >= N`, `sheet_num == N`, `sheet_num <= N`. |
+| `retry_count` | `int` | `3` | `0–10` | Retry attempts for file-based validations (helps with filesystem race conditions) |
+| `retry_delay_ms` | `int` | `200` | `0–5000` | Delay between retries in milliseconds |
+
+**Validation types:**
+
+| Type | Required Fields | What It Checks |
+|------|-----------------|----------------|
+| `file_exists` | `path` | File exists at the given path |
+| `file_modified` | `path` | File was modified during sheet execution |
+| `content_contains` | `path`, `pattern` | File contains the literal pattern string |
+| `content_regex` | `path`, `pattern` | File content matches the regex pattern |
+| `command_succeeds` | `command` | Shell command exits with code 0 |
+
+```yaml
+validations:
+  # Stage 1: Check files exist
+  - type: file_exists
+    path: "{workspace}/output-{sheet_num}.md"
+    stage: 1
+    description: "Output file created"
+
+  # Stage 2: Run tests
+  - type: command_succeeds
+    command: "pytest tests/ -x"
+    stage: 2
+    description: "Tests pass"
+
+  # Stage 3: Code quality
+  - type: command_succeeds
+    command: "ruff check src/"
+    stage: 3
+    condition: "sheet_num >= 3"
+    description: "Lint clean"
+```
+
+---
+
+## isolation
+
+*Source: `src/mozart/core/config/workspace.py` — `IsolationConfig`*
+
+Git worktree isolation for parallel-safe job execution. Each job runs in an isolated git working directory.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `enabled` | `bool` | `false` | | Enable worktree isolation |
+| `mode` | `"none" \| "worktree"` | `"worktree"` | | Isolation method. Currently only `worktree` is supported. |
+| `worktree_base` | `Path \| None` | `None` | | Directory for worktrees. `None` resolves to `<repo>/.worktrees` at runtime. |
+| `branch_prefix` | `str` | `"mozart"` | Pattern: `^[a-zA-Z][a-zA-Z0-9_-]*$` | Prefix for worktree branch names. Format: `{prefix}/{job-id}` |
+| `source_branch` | `str \| None` | `None` | | Branch to base worktree on. Default: current branch (HEAD). |
+| `cleanup_on_success` | `bool` | `true` | | Remove worktree after successful job completion |
+| `cleanup_on_failure` | `bool` | `false` | | Remove worktree when job fails. Default `false` for debugging. |
+| `lock_during_execution` | `bool` | `true` | | Lock worktree during execution with `git worktree lock` |
+| `fallback_on_error` | `bool` | `true` | | Continue without isolation if worktree creation fails |
+
+> **Warning:** Enabling both `parallel` and `isolation` causes parallel sheets to share the same worktree. Ensure parallel sheets don't write to overlapping paths.
+
+```yaml
+isolation:
+  enabled: true
+  mode: worktree
+  branch_prefix: mozart
+  cleanup_on_success: true
+  cleanup_on_failure: false
+```
+
+---
+
+## grounding
+
+*Source: `src/mozart/core/config/learning.py` — `GroundingConfig`*
+
+External grounding hooks validate sheet outputs against external sources to prevent model drift.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `enabled` | `bool` | `false` | | Enable external grounding hooks |
+| `hooks` | `list[GroundingHookConfig]` | `[]` | | Grounding hook configurations |
+| `fail_on_grounding_failure` | `bool` | `true` | | Fail validation if grounding fails |
+| `escalate_on_failure` | `bool` | `true` | | Escalate to human if grounding fails (requires escalation handler) |
+| `timeout_seconds` | `float` | `30.0` | `> 0` | Maximum time per grounding hook |
+
+### Grounding Hook Sub-Config
+
+*Source: `src/mozart/core/config/learning.py` — `GroundingHookConfig`*
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `type` | `"file_checksum"` | **required** | | Hook type |
+| `name` | `str \| None` | `None` | | Custom name (uses type if not specified) |
+| `expected_checksums` | `dict[str, str]` | `{}` | | Map of file path to expected checksum |
+| `checksum_algorithm` | `"md5" \| "sha256"` | `"sha256"` | | Checksum algorithm |
+
+```yaml
+grounding:
+  enabled: true
+  hooks:
+    - type: file_checksum
+      name: critical_files
+      expected_checksums:
+        "output.py": "abc123..."
+      checksum_algorithm: sha256
+```
+
+---
+
+## conductor
+
+*Source: `src/mozart/core/config/orchestration.py` — `ConductorConfig`*
+
+Identifies who (or what) is conducting the job. Affects escalation behavior and output formatting.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `name` | `str` | `"default"` | 1–100 chars | Human-readable conductor name |
+| `role` | `"human" \| "ai" \| "hybrid"` | `"human"` | | Role classification |
+| `identity_context` | `str \| None` | `None` | Max 500 chars | Brief description of the conductor's identity/purpose |
+| `preferences` | `ConductorPreferences` | *(see sub-config)* | | Conductor interaction preferences |
+
+### Conductor Preferences Sub-Config
+
+*Source: `src/mozart/core/config/orchestration.py` — `ConductorPreferences`*
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `prefer_minimal_output` | `bool` | `false` | | Reduce console output verbosity |
+| `escalation_response_timeout_seconds` | `float` | `300.0` | `> 0` | Maximum time to wait for escalation response (defaults to abort after timeout) |
+| `auto_retry_on_transient_errors` | `bool` | `true` | | Automatically retry transient errors before escalating |
+| `notification_channels` | `list[str]` | `[]` | | Preferred notification channels. Empty = use job-level settings. |
+
+```yaml
+conductor:
+  name: "Claude Evolution Agent"
+  role: ai
+  identity_context: "Self-improving orchestration agent"
+  preferences:
+    prefer_minimal_output: true
+    auto_retry_on_transient_errors: true
+```
+
+---
+
+## concert
+
+*Source: `src/mozart/core/config/orchestration.py` — `ConcertConfig`*
+
+Concert orchestration chains multiple jobs in sequence. Each job can dynamically generate the config for the next.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `enabled` | `bool` | `false` | | Enable concert mode (job chaining via `on_success` hooks) |
+| `max_chain_depth` | `int` | `5` | `1–100` | Maximum chained jobs. Prevents infinite loops. |
+| `cooldown_between_jobs_seconds` | `float` | `30.0` | `>= 0` | Minimum wait between job transitions |
+| `inherit_workspace` | `bool` | `true` | | Child jobs inherit parent workspace if not explicitly specified |
+| `concert_log_path` | `Path \| None` | `None` | | Consolidated concert log (default: `workspace/concert.log`) |
+| `abort_concert_on_hook_failure` | `bool` | `false` | | Abort entire concert if any hook fails |
+
+```yaml
+concert:
+  enabled: true
+  max_chain_depth: 10
+  cooldown_between_jobs_seconds: 60
+```
+
+---
+
+## on_success (Post-Success Hooks)
+
+*Source: `src/mozart/core/config/orchestration.py` — `PostSuccessHookConfig`*
+
+A list of hooks that execute after successful job completion.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `type` | `"run_job" \| "run_command" \| "run_script"` | **required** | | Hook type |
+| `job_path` | `Path \| None` | `None` | Required for `run_job` | Path to job config YAML. Supports `{workspace}` template. |
+| `job_workspace` | `Path \| None` | `None` | | Override workspace for chained job |
+| `inherit_learning` | `bool` | `true` | | Chained job shares outcome store with parent |
+| `command` | `str \| None` | `None` | Required for `run_command`/`run_script` | Shell command or script path. Supports `{workspace}`, `{job_id}`, `{sheet_count}`. |
+| `working_directory` | `Path \| None` | `None` | | Working directory for command (default: job workspace) |
+| `description` | `str \| None` | `None` | | Human-readable description |
+| `on_failure` | `"continue" \| "abort"` | `"continue"` | | Action if hook fails: continue to next or abort remaining |
+| `timeout_seconds` | `float` | `300.0` | `> 0` | Maximum hook execution time (5 min default) |
+| `detached` | `bool` | `false` | | For `run_job`: spawn and don't wait. Use for infinite chaining. |
+| `fresh` | `bool` | `false` | | For `run_job`: pass `--fresh` to start with clean state. Required for self-chaining jobs. |
+
+```yaml
+on_success:
+  - type: run_job
+    job_path: "{workspace}/next-phase.yaml"
+    description: "Chain to next phase"
+    detached: true
+    fresh: true
+  - type: run_command
+    command: "curl -X POST https://api.example.com/notify"
+    description: "Notify deployment"
+```
+
+---
+
+## notifications
+
+*Source: `src/mozart/core/config/orchestration.py` — `NotificationConfig`*
+
+A list of notification channel configurations.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `type` | `"desktop" \| "slack" \| "webhook" \| "email"` | **required** | | Notification channel type |
+| `on_events` | `list[str]` | `["job_complete", "job_failed"]` | Valid events: `job_start`, `sheet_start`, `sheet_complete`, `sheet_failed`, `job_complete`, `job_failed`, `job_paused` | Events that trigger this notification |
+| `config` | `dict[str, Any]` | `{}` | | Channel-specific configuration |
+
+```yaml
+notifications:
+  - type: desktop
+    on_events: [job_complete, job_failed]
+  - type: webhook
+    on_events: [sheet_failed]
+    config:
+      url: "https://hooks.slack.com/..."
+```
+
+---
+
+## learning
+
+*Source: `src/mozart/core/config/learning.py` — `LearningConfig`*
+
+Controls outcome recording, confidence thresholds, pattern application, and escalation.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `enabled` | `bool` | `true` | | Enable learning and outcome recording |
+| `outcome_store_type` | `"json" \| "sqlite"` | `"json"` | | Backend for storing learning outcomes |
+| `outcome_store_path` | `Path \| None` | `None` | | Path for outcome store (default: `workspace/.mozart-outcomes.json`) |
+| `min_confidence_threshold` | `float` | `0.3` | `0.0–1.0` | Confidence below this triggers escalation (if enabled) |
+| `high_confidence_threshold` | `float` | `0.7` | `0.0–1.0` | Confidence above this uses completion mode for partial failures |
+| `escalation_enabled` | `bool` | `false` | | Enable escalation for low-confidence decisions |
+| `use_global_patterns` | `bool` | `true` | | Query and apply patterns from global learning store |
+| `exploration_rate` | `float` | `0.15` | `0.0–1.0` | Epsilon-greedy exploration rate. 0.0 = pure exploitation, 1.0 = try everything. |
+| `exploration_min_priority` | `float` | `0.05` | `0.0–1.0` | Minimum priority threshold for exploration candidates |
+| `entropy_alert_threshold` | `float` | `0.5` | `0.0–1.0` | Shannon entropy below this triggers alert for low diversity |
+| `entropy_check_interval` | `int` | `100` | `>= 1` | Check entropy every N pattern applications |
+| `auto_apply_enabled` | `bool` | `false` | **Deprecated** — use `auto_apply` block | Enable auto-apply for high-trust patterns |
+| `auto_apply_trust_threshold` | `float` | `0.85` | `0.0–1.0` | **Deprecated** — use `auto_apply` block | Minimum trust score to auto-apply |
+| `exploration_budget` | `ExplorationBudgetConfig` | *(see sub-config)* | | Dynamic exploration budget configuration |
+| `entropy_response` | `EntropyResponseConfig` | *(see sub-config)* | | Automatic entropy response configuration |
+| `auto_apply` | `AutoApplyConfig \| None` | `None` | | Structured autonomous pattern application config (replaces flat fields) |
+
+### Exploration Budget Sub-Config
+
+*Source: `src/mozart/core/config/learning.py` — `ExplorationBudgetConfig`*
+
+Nested under `learning.exploration_budget`. Maintains a dynamic exploration budget that prevents convergence to zero.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `enabled` | `bool` | `false` | | Enable dynamic exploration budget |
+| `floor` | `float` | `0.05` | `0.0–1.0`, must be `<= ceiling` | Minimum exploration budget (never below this) |
+| `ceiling` | `float` | `0.50` | `0.0–1.0` | Maximum exploration budget |
+| `decay_rate` | `float` | `0.95` | `0.0–1.0` | Decay per check interval. `budget = max(floor, budget * decay_rate)` |
+| `boost_amount` | `float` | `0.10` | `0.0–0.5` | Budget boost when entropy is low. `budget = min(ceiling, budget + boost_amount)` |
+| `initial_budget` | `float` | `0.15` | `0.0–1.0`, must be between floor and ceiling | Starting exploration budget |
+
+### Entropy Response Sub-Config
+
+*Source: `src/mozart/core/config/learning.py` — `EntropyResponseConfig`*
+
+Nested under `learning.entropy_response`. Automatically injects diversity when pattern entropy drops.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `enabled` | `bool` | `false` | | Enable automatic entropy response |
+| `entropy_threshold` | `float` | `0.3` | `0.0–1.0` | Entropy level that triggers diversity injection |
+| `cooldown_seconds` | `int` | `3600` | `>= 60` | Minimum seconds between responses (1 hour default) |
+| `boost_budget` | `bool` | `true` | | Boost exploration budget on low entropy |
+| `revisit_quarantine` | `bool` | `true` | | Mark quarantined patterns for review |
+| `max_quarantine_revisits` | `int` | `3` | `0–10` | Max quarantined patterns to revisit per response |
+
+### Auto Apply Sub-Config
+
+*Source: `src/mozart/core/config/learning.py` — `AutoApplyConfig`*
+
+Nested under `learning.auto_apply`. Enables high-trust patterns to be applied without human confirmation.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `enabled` | `bool` | `false` | | Enable autonomous pattern application |
+| `trust_threshold` | `float` | `0.85` | `0.0–1.0` | Minimum trust score for autonomous application |
+| `max_patterns_per_sheet` | `int` | `3` | `1–10` | Maximum patterns to auto-apply per sheet |
+| `require_validated_status` | `bool` | `true` | | Require patterns to have VALIDATED quarantine status |
+| `log_applications` | `bool` | `true` | | Log when patterns are auto-applied |
+
+```yaml
+learning:
+  enabled: true
+  exploration_rate: 0.15
+  exploration_budget:
+    enabled: true
+    floor: 0.05
+    ceiling: 0.50
+  auto_apply:
+    enabled: true
+    trust_threshold: 0.85
+    max_patterns_per_sheet: 3
+```
+
+---
+
+## checkpoints
+
+*Source: `src/mozart/core/config/learning.py` — `CheckpointConfig`*
+
+Proactive checkpoints ask for confirmation before dangerous operations.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `enabled` | `bool` | `false` | | Enable proactive checkpoints |
+| `triggers` | `list[CheckpointTriggerConfig]` | `[]` | | Checkpoint triggers to evaluate before each sheet |
+
+### Checkpoint Trigger Sub-Config
+
+*Source: `src/mozart/core/config/learning.py` — `CheckpointTriggerConfig`*
+
+Each trigger must have at least one condition (`sheet_nums`, `prompt_contains`, or `min_retry_count`).
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `name` | `str` | **required** | | Trigger identifier |
+| `sheet_nums` | `list[int] \| None` | `None` | | Specific sheet numbers to checkpoint |
+| `prompt_contains` | `list[str] \| None` | `None` | | Keywords that trigger checkpoint (case-insensitive) |
+| `min_retry_count` | `int \| None` | `None` | `>= 0` | Trigger if retry count >= this value |
+| `requires_confirmation` | `bool` | `true` | | Require explicit confirmation vs. just warn |
+| `message` | `str` | `""` | | Custom message shown when triggered |
+
+```yaml
+checkpoints:
+  enabled: true
+  triggers:
+    - name: production_warning
+      prompt_contains: ["production", "deploy", "delete"]
+      message: "This sheet may affect production systems"
+    - name: high_retry
+      min_retry_count: 3
+      requires_confirmation: false
+      message: "Sheet has been retried multiple times"
+```
+
+---
+
+## ai_review
+
+*Source: `src/mozart/core/config/workspace.py` — `AIReviewConfig`*
+
+AI-powered code review after batch execution with scoring.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `enabled` | `bool` | `false` | | Enable AI code review |
+| `min_score` | `int` | `60` | `0–100`, must be `<= target_score` | Minimum score to pass. Below triggers action. |
+| `target_score` | `int` | `80` | `0–100` | Target score for high quality |
+| `on_low_score` | `"retry" \| "warn" \| "fail"` | `"warn"` | | Action when `score < min_score` |
+| `max_retry_for_review` | `int` | `2` | `0–5` | Maximum retries when score is too low |
+| `review_prompt_template` | `str \| None` | `None` | | Custom prompt template for review |
+
+```yaml
+ai_review:
+  enabled: true
+  min_score: 70
+  target_score: 90
+  on_low_score: retry
+  max_retry_for_review: 2
+```
+
+---
+
+## logging
+
+*Source: `src/mozart/core/config/workspace.py` — `LogConfig`*
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `level` | `"DEBUG" \| "INFO" \| "WARNING" \| "ERROR"` | `"INFO"` | | Minimum log level |
+| `format` | `"json" \| "console" \| "both"` | `"console"` | `file_path` required when `"both"` | Output format |
+| `file_path` | `Path \| None` | `None` | | Log file output path |
+| `max_file_size_mb` | `int` | `50` | `1–1000` | Maximum log file size before rotation (MB) |
+| `backup_count` | `int` | `5` | `0–100` | Rotated log files to keep |
+| `include_timestamps` | `bool` | `true` | | Include ISO8601 UTC timestamps |
+| `include_context` | `bool` | `true` | | Include bound context (job_id, sheet_num) |
+
+```yaml
+logging:
+  level: DEBUG
+  format: both
+  file_path: ./workspace/mozart.log
+  max_file_size_mb: 100
+```
+
+---
+
+## feedback
+
+*Source: `src/mozart/core/config/workspace.py` — `FeedbackConfig`*
+
+Extracts structured feedback from agent output after each sheet.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `enabled` | `bool` | `false` | | Enable agent feedback extraction |
+| `pattern` | `str` | `"(?s)FEEDBACK_START(.+?)FEEDBACK_END"` | Must be valid regex | Regex with capture group to extract feedback |
+| `format` | `"json" \| "yaml" \| "text"` | `"json"` | | Format of extracted feedback block |
+
+```yaml
+feedback:
+  enabled: true
+  pattern: '(?s)FEEDBACK_START(.+?)FEEDBACK_END'
+  format: json
+```
+
+---
+
+## State and Misc
+
+*Source: `src/mozart/core/config/job.py` — `JobConfig`*
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `state_backend` | `"json" \| "sqlite"` | `"sqlite"` | State storage backend |
+| `state_path` | `Path \| None` | `None` | Path for state storage (default: `workspace/.mozart-state.db` for sqlite, `.mozart-state.json` for json) |
+| `pause_between_sheets_seconds` | `int` | `10` | Seconds to wait between sheets. `>= 0`. |
+
+---
+
+## DaemonConfig (mozartd)
+
+*Source: `src/mozart/daemon/config.py` — `DaemonConfig`*
+
+Top-level configuration for the Mozart daemon process. Configured separately from score files (typically via `~/.mozart/daemon.yaml` or CLI flags).
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `socket` | `SocketConfig` | *(see sub-config)* | | Unix domain socket configuration |
+| `pid_file` | `Path` | `/tmp/mozartd.pid` | | PID file for daemon process management |
+| `max_concurrent_jobs` | `int` | `5` | `1–50` | Maximum jobs executing simultaneously |
+| `max_concurrent_sheets` | `int` | `10` | `1–100` | **Reserved for Phase 3 scheduler — not yet enforced.** Global parallel sheet limit. |
+| `resource_limits` | `ResourceLimitConfig` | *(see sub-config)* | | Resource constraints |
+| `state_backend_type` | `"sqlite"` | `"sqlite"` | **Reserved — frozen to sqlite.** Changing has no effect. |
+| `state_db_path` | `Path` | `~/.mozart/daemon-state.db` | **Reserved — not yet implemented.** | Future daemon state database path |
+| `log_level` | `"debug" \| "info" \| "warning" \| "error"` | `"info"` | | Daemon log level |
+| `log_file` | `Path \| None` | `None` | | Log file path. `None` = stderr only. |
+| `job_timeout_seconds` | `float` | `21600.0` | `>= 60` | Maximum wall-clock time per job (6 hours default). |
+| `shutdown_timeout_seconds` | `float` | `300.0` | `>= 10` | Max seconds for graceful shutdown |
+| `monitor_interval_seconds` | `float` | `15.0` | `>= 5` | Interval between resource monitor checks |
+| `max_job_history` | `int` | `1000` | `>= 10` | Completed/failed/cancelled jobs to keep in memory |
+| `config_file` | `Path \| None` | `None` | **Reserved — SIGHUP reload not implemented.** | Future config reload path |
+
+### Socket Sub-Config
+
+*Source: `src/mozart/daemon/config.py` — `SocketConfig`*
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `path` | `Path` | `/tmp/mozartd.sock` | | Unix domain socket path |
+| `permissions` | `int` | `0o660` | | Socket file permissions (owner+group read/write) |
+| `backlog` | `int` | `5` | `>= 1` | Maximum pending connections in listen queue |
+
+### Resource Limits Sub-Config
+
+*Source: `src/mozart/daemon/config.py` — `ResourceLimitConfig`*
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `max_memory_mb` | `int` | `8192` | `>= 512` | Maximum RSS memory (MB) before backpressure triggers |
+| `max_processes` | `int` | `50` | `>= 5` | Maximum child processes (backends + validation commands) |
+| `max_api_calls_per_minute` | `int` | `60` | `>= 1` | **Not yet enforced.** Global API rate limit across all jobs. Rate limiting currently works through externally-reported events. |

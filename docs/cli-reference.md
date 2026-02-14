@@ -47,7 +47,7 @@ Usage: mozart run [OPTIONS] CONFIG_FILE
 | `--start-sheet` | `-s` | | Override starting sheet number |
 | `--workspace` | `-w` | | Override workspace directory (creates if missing; takes precedence over YAML config) |
 | `--json` | `-j` | false | Output result as JSON for machine parsing |
-| `--escalation` | `-e` | false | Enable human-in-the-loop escalation for low-confidence sheets |
+| `--escalation` | `-e` | false | Enable human-in-the-loop escalation — **not currently supported** (blocked in daemon mode) |
 | `--self-healing` | `-H` | false | Enable automatic diagnosis and remediation when retries are exhausted |
 | `--yes` | `-y` | false | Auto-confirm suggested fixes when using `--self-healing` |
 | `--fresh` | | false | Delete existing state before running, ensuring a fresh start. Use for self-chaining jobs or re-running completed jobs from scratch |
@@ -55,10 +55,10 @@ Usage: mozart run [OPTIONS] CONFIG_FILE
 #### Examples
 
 ```bash
-# Basic run
+# Basic run (requires running daemon: mozartd start)
 mozart run job.yaml
 
-# Dry run to preview
+# Dry run to preview (works without daemon)
 mozart run job.yaml --dry-run
 
 # Custom workspace
@@ -72,12 +72,6 @@ mozart run job.yaml --self-healing --yes
 
 # Fresh start (ignores existing state)
 mozart run job.yaml --fresh
-
-# Human-in-the-loop for uncertain sheets
-mozart run job.yaml --escalation
-
-# Detached execution (survives session changes)
-setsid mozart run job.yaml > workspace/mozart.log 2>&1 &
 ```
 
 #### Exit Codes
@@ -112,7 +106,7 @@ Loads the job state from the state backend and continues execution from where it
 | `--config` | `-c` | | Path to config file (optional if `config_snapshot` exists in state) |
 | `--workspace` | `-w` | | Workspace directory to search for job state |
 | `--force` | `-f` | false | Force resume even if job appears completed |
-| `--escalation` | `-e` | false | Enable human-in-the-loop escalation for low-confidence sheets |
+| `--escalation` | `-e` | false | Enable human-in-the-loop escalation — **not currently supported** (blocked in daemon mode) |
 | `--reload-config` | `-r` | false | Reload config from YAML file instead of cached snapshot. Use with `--config` to specify a new file |
 | `--self-healing` | `-H` | false | Enable automatic diagnosis and remediation when retries are exhausted |
 | `--yes` | `-y` | false | Auto-confirm suggested fixes when using `--self-healing` |

@@ -52,13 +52,17 @@ Mozart's global learning system aggregates execution outcomes and patterns acros
 
 ```bash
 # View global patterns
-mozart patterns [--type failure|success|recovery] [--limit N]
-
-# Aggregate from workspaces
-mozart aggregate-patterns [--from-workspaces] [--workspace PATH]
+mozart patterns-list [--min-priority 0.0] [--limit N]
 
 # View learning statistics
 mozart learning-stats
+
+# Pattern analysis
+mozart patterns-why          # Why patterns succeed
+mozart patterns-entropy      # Pattern diversity
+mozart patterns-budget       # Exploration budget
+mozart learning-drift        # Effectiveness drift
+mozart learning-activity     # Recent activity
 ```
 
 ---

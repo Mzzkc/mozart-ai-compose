@@ -1,0 +1,953 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║              PHASE 3 WIRING: Scheduler-Driven Execution                    ║
+# ║                                                                            ║
+# ║  Wires the GlobalSheetScheduler and RateLimitCoordinator into the actual   ║
+# ║  execution path. Creates SheetExecutor as the independently-dispatchable   ║
+# ║  unit of work that the scheduler dispatches to.                            ║
+# ║                                                                            ║
+# ║  Three-Phase Promotion (safety-first):                                     ║
+# ║    Phase A: Shadow mode — scheduler observes, monolithic executes          ║
+# ║    Phase B: Scheduler-driven with monolithic fallback                      ║
+# ║    Phase C: Remove monolithic path, scheduler is authoritative             ║
+# ║                                                                            ║
+# ║  This score implements all three phases in a single run because the        ║
+# ║  three-phase promotion is a CODE structure (runtime feature flags),        ║
+# ║  not a deployment cadence. All code ships together; the daemon config      ║
+# ║  controls which phase is active at runtime.                                ║
+# ║                                                                            ║
+# ║  Execution Flow (10 stages):                                               ║
+# ║                                                                            ║
+# ║    Stage 1:  Architecture Audit (trace full execution path)                ║
+# ║    Stage 2:  SheetExecutor Design (extract from Runner)                    ║
+# ║    Stage 3:  SheetExecutor Implementation                                 ║
+# ║    Stage 4:  SheetExecutor Tests                                          ║
+# ║    Stage 5:  Shadow Mode (scheduler observes alongside monolithic)        ║
+# ║    Stage 6:  Scheduler-Driven Mode (scheduler dispatches sheets)          ║
+# ║    Stage 7:  Manager Integration (wire into JobManager._run_job_task)     ║
+# ║    Stage 8:  Integration Tests                                            ║
+# ║    Stage 9:  Verification & Cleanup                                       ║
+# ║    Stage 10: Commit & Push                                                ║
+# ║                                                                            ║
+# ║  Usage:                                                                    ║
+# ║    cd ~/Projects/mozart-ai-compose                                         ║
+# ║    mozart run examples/phase3-wiring.yaml                                  ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+name: "phase3-wiring"
+description: "Wire GlobalSheetScheduler and RateLimitCoordinator into execution path via SheetExecutor"
+
+workspace: "./.phase3-wiring-workspace"
+
+workspace_lifecycle:
+  archive_on_fresh: true
+  max_archives: 5
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  timeout_seconds: 3600  # 60 min — architectural work needs time
+  timeout_overrides:
+    3: 5400   # 90 min for SheetExecutor implementation (largest change)
+    6: 5400   # 90 min for scheduler-driven mode (complex integration)
+    7: 5400   # 90 min for manager integration (careful wiring)
+
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 5000
+  lookback_sheets: 3
+  capture_files:
+    - "{{ workspace }}/*.md"
+
+sheet:
+  size: 1
+  total_items: 10
+
+  dependencies:
+    2: [1]     # Design depends on audit
+    3: [2]     # Implementation depends on design
+    4: [3]     # Tests depend on implementation
+    5: [4]     # Shadow mode depends on tested SheetExecutor
+    6: [5]     # Scheduler-driven depends on shadow
+    7: [6]     # Manager integration depends on scheduler mode
+    8: [7]     # Integration tests depend on manager integration
+    9: [8]     # Verification depends on integration tests
+    10: [9]    # Commit depends on verification
+
+parallel:
+  enabled: false  # Strictly sequential — each stage builds on the last
+
+retry:
+  max_retries: 2
+
+prompt:
+  template: |
+    {{ preamble }}
+
+    {% if stage == 1 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 1: ARCHITECTURE AUDIT                                                ║
+    ║  "You can't rewire what you don't understand"                               ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Trace the full execution path from `mozart run` through daemon to sheet
+    execution. Document every component, method, and data flow involved.
+
+    **Step 1: Trace the current monolithic path**
+    Read these files in order and document the call chain:
+    1. `src/mozart/cli/commands/run.py` — CLI entry, daemon detection
+    2. `src/mozart/daemon/detect.py` — how CLI finds the daemon
+    3. `src/mozart/daemon/ipc/client.py` — how CLI submits to daemon
+    4. `src/mozart/daemon/ipc/handler.py` — how daemon receives requests
+    5. `src/mozart/daemon/manager.py` — `submit_job()` → `_run_job_task()`
+    6. `src/mozart/daemon/job_service.py` — `start_job()`, component creation
+    7. `src/mozart/execution/runner/__init__.py` — JobRunner mixin composition
+    8. `src/mozart/execution/runner/lifecycle.py` — THE LOOP (`run()`, `_execute_sequential_mode()`)
+    9. `src/mozart/execution/runner/sheet.py` — per-sheet state machine
+    10. `src/mozart/execution/runner/recovery.py` — retry, self-healing
+    11. `src/mozart/execution/runner/patterns.py` — pattern injection/feedback
+
+    **Step 2: Trace the Phase 3 infrastructure (built but not wired)**
+    Read these files and document their public API:
+    1. `src/mozart/daemon/scheduler.py` — `register_job()`, `next_sheet()`, `mark_complete()`, `deregister_job()`
+    2. `src/mozart/daemon/rate_coordinator.py` — `report_rate_limit()`, `is_rate_limited()`
+    3. `src/mozart/daemon/backpressure.py` — `can_start_sheet()`
+
+    **Step 3: Identify the clean cut**
+    Document precisely:
+    - What LifecycleMixin does that the scheduler will replace (the loop)
+    - What SheetExecutionMixin does that stays unchanged (per-sheet execution)
+    - What RecoveryMixin, PatternsMixin, CostMixin contribute to per-sheet execution
+    - What IsolationMixin does (worktree setup/teardown — job-level, not sheet-level)
+    - How cross_sheet context flows between sheets
+    - How state is saved (CheckpointState, StateBackend)
+    - How signal handling works (SIGINT/SIGTERM → graceful shutdown)
+
+    **Step 4: Document integration points**
+    For each Phase 3 component, document:
+    - What it needs as input (from where?)
+    - What it produces as output (consumed by whom?)
+    - What's missing (data sources not yet connected)
+
+    **Output to:** {{ workspace }}/01-architecture-audit.md
+
+    Format:
+    ```markdown
+    # Architecture Audit: Current Execution Path
+
+    ## Call Chain (CLI → Sheet Execution)
+    [Full trace with file:line references]
+
+    ## The Loop (What Scheduler Replaces)
+    [LifecycleMixin._execute_sequential_mode analysis]
+
+    ## Per-Sheet State Machine (What Stays)
+    [SheetExecutionMixin._execute_sheet_with_recovery analysis]
+
+    ## Phase 3 Infrastructure API
+    ### GlobalSheetScheduler
+    [Public methods, parameters, return types]
+    ### RateLimitCoordinator
+    [Public methods, integration points]
+    ### BackpressureController
+    [Public methods, integration points]
+
+    ## The Clean Cut
+    [Precise boundary: what moves to scheduler, what stays in executor]
+
+    ## Cross-Cutting Concerns
+    - State persistence: [how CheckpointState flows]
+    - Signal handling: [how shutdown propagates]
+    - Cross-sheet context: [how outputs pass between sheets]
+    - Isolation: [worktree lifecycle — job-level, not sheet-level]
+    - Learning: [pattern injection before sheet, feedback after]
+    ```
+
+    {% elif stage == 2 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 2: SHEETEXECUTOR DESIGN                                              ║
+    ║  "Design the right abstraction before writing a line of code"               ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/01-architecture-audit.md.
+
+    Design `SheetExecutor` — the independently-dispatchable unit that the
+    scheduler dispatches to. This is the bridge between the scheduler's
+    `next_sheet()` output and the actual per-sheet execution.
+
+    **Design constraints:**
+    1. SheetExecutor must be stateless between invocations — the scheduler
+       owns the dispatch loop, not the executor
+    2. SheetExecutor must handle: backend execution, validation, recovery
+       (retry + self-healing), pattern injection/feedback, cost tracking
+    3. SheetExecutor does NOT handle: the loop, isolation setup/teardown
+       (job-level concern), cross-sheet context assembly (scheduler concern)
+    4. SheetExecutor must work with the existing CheckpointState — it reads
+       and writes sheet state through the StateBackend
+    5. SheetExecutor must support the RunnerContext for learning/escalation
+    6. The existing JobRunner must continue to work unchanged during the
+       transition — SheetExecutor is a NEW component, not a replacement (yet)
+
+    **Design the following:**
+
+    1. **SheetExecutor class** — what methods, what parameters, what it returns
+    2. **SheetExecutionContext** — the context bundle passed per-sheet
+       (config, backend, state_backend, sheet_num, cross_sheet_context, etc.)
+    3. **How it reuses existing code** — which Runner mixin methods it calls
+       or extracts. Prefer extraction over duplication.
+    4. **How it reports results** — what the scheduler needs back
+       (success/failure, rate_limit_hit, retry_needed, etc.)
+    5. **How it integrates with RateLimitCoordinator** — when a rate limit
+       is detected during execution, how does the executor report it back?
+
+    **Important: Don't over-design.** SheetExecutor's job is to execute ONE
+    sheet and report the result. The scheduler handles sequencing, DAG deps,
+    fair-share, and backpressure. Keep the executor focused.
+
+    **Output to:** {{ workspace }}/02-sheet-executor-design.md
+
+    Format:
+    ```markdown
+    # SheetExecutor Design
+
+    ## Class Interface
+    ```python
+    class SheetExecutor:
+        """Execute a single sheet independently."""
+        [method signatures with docstrings]
+    ```
+
+    ## SheetExecutionContext
+    ```python
+    @dataclass
+    class SheetExecutionContext:
+        [fields with types and descriptions]
+    ```
+
+    ## SheetResult
+    ```python
+    @dataclass
+    class SheetResult:
+        [what the scheduler needs back]
+    ```
+
+    ## Code Reuse Strategy
+    [Which methods from which mixins, extraction vs delegation]
+
+    ## Integration Points
+    - Rate limit reporting: [how executor → coordinator]
+    - Pattern injection: [how patterns flow in]
+    - Pattern feedback: [how outcomes flow out]
+    - State persistence: [how CheckpointState is read/written]
+    - Cross-sheet context: [passed in via context, not assembled by executor]
+
+    ## What Stays in JobRunner
+    [List of things that remain in the Runner during transition]
+
+    ## File Plan
+    [Which files to create/modify]
+    ```
+
+    {% elif stage == 3 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 3: SHEETEXECUTOR IMPLEMENTATION                                      ║
+    ║  "Write the code that makes sheets independently dispatchable"              ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/01-architecture-audit.md and {{ workspace }}/02-sheet-executor-design.md.
+
+    Implement SheetExecutor following the design. This is the largest change
+    in the score — take your time and get it right.
+
+    **Implementation rules:**
+    1. Create `src/mozart/execution/sheet_executor.py` — new file
+    2. Extract shared logic from Runner mixins into callable functions where
+       possible, rather than duplicating. If extraction is too invasive for
+       this stage, document what to extract later and use delegation.
+    3. SheetExecutor must NOT import or depend on LifecycleMixin — that's
+       the monolithic loop it's replacing
+    4. Keep JobRunner working unchanged — this is additive, not destructive
+    5. Write clean, typed Python with docstrings
+    6. Follow existing code style (structlog logging, Pydantic models,
+       async/await throughout)
+
+    **What to implement:**
+    1. `SheetExecutionContext` dataclass — everything needed to execute one sheet
+    2. `SheetResult` dataclass — what the scheduler gets back
+    3. `SheetExecutor` class with:
+       - `async def execute(self, context: SheetExecutionContext) -> SheetResult`
+       - Internal methods for: build prompt, call backend, validate, handle
+         retry/recovery, inject/feedback patterns, track cost
+    4. Any shared utility functions extracted from Runner mixins
+
+    **After implementing, verify:**
+    ```bash
+    # Type check the new file
+    mypy src/mozart/execution/sheet_executor.py --ignore-missing-imports
+
+    # Ensure existing tests still pass (no breakage)
+    pytest -x -q --tb=short
+    ```
+
+    **Output to:** {{ workspace }}/03-implementation.md
+
+    Document:
+    - Files created/modified with line counts
+    - Design decisions made during implementation
+    - Any deviations from the Stage 2 design and why
+    - What was extracted vs delegated vs duplicated
+    - Type check and test results
+
+    {% elif stage == 4 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 4: SHEETEXECUTOR TESTS                                               ║
+    ║  "Prove it works before wiring it in"                                       ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/03-implementation.md.
+
+    Write comprehensive tests for SheetExecutor. These tests validate the
+    executor in isolation, before it's wired into the scheduler.
+
+    **Test file:** `tests/test_sheet_executor.py`
+
+    **Required test categories:**
+
+    1. **Happy path** — execute a sheet successfully, verify SheetResult
+    2. **Validation failure** — sheet executes but validation fails,
+       verify result indicates failure with details
+    3. **Backend error** — backend raises, verify retry behavior
+    4. **Rate limit detection** — backend returns rate limit error,
+       verify result includes rate_limit_hit=True
+    5. **Cost tracking** — verify token/cost data flows through
+    6. **Pattern injection** — verify patterns are injected into prompt
+    7. **Pattern feedback** — verify outcomes are reported back
+    8. **Cross-sheet context** — verify previous_outputs are available
+    9. **State persistence** — verify CheckpointState is updated correctly
+    10. **Timeout handling** — verify timeout behavior
+
+    **Testing approach:**
+    - Use the existing test patterns from `tests/` (mock backends, in-memory
+      state, etc.)
+    - Look at `tests/test_sheet_execution.py` for patterns to follow
+    - Each test should be focused and fast (no real backend calls)
+
+    **After writing tests:**
+    ```bash
+    # Run only the new tests
+    pytest tests/test_sheet_executor.py -v --tb=short
+
+    # Run full suite to verify no breakage
+    pytest -x -q --tb=short
+    ```
+
+    **Output to:** {{ workspace }}/04-tests.md
+
+    Document:
+    - Test count and categories covered
+    - Test results (must be all passing)
+    - Full test suite results (must be all passing)
+    - Any gaps identified during testing
+
+    {% elif stage == 5 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 5: SHADOW MODE                                                       ║
+    ║  "Observe before you act"                                                   ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/03-implementation.md and {{ workspace }}/04-tests.md.
+
+    Implement shadow mode: the scheduler registers jobs and tracks what
+    it WOULD schedule, while the monolithic path continues to execute.
+    This validates scheduler decisions against real execution without risk.
+
+    **What to implement:**
+
+    1. **Add `scheduler_mode` to DaemonConfig** (`src/mozart/daemon/config.py`):
+       ```python
+       scheduler_mode: Literal["off", "shadow", "active"] = "off"
+       ```
+       Default is "off" — existing behavior unchanged.
+
+    2. **Shadow observer in JobManager** (`src/mozart/daemon/manager.py`):
+       In `_run_job_task()`, when `scheduler_mode == "shadow"`:
+       - Parse sheets from config (same way the scheduler will)
+       - Call `self._scheduler.register_job(job_id, sheets, deps)`
+       - Start a background task that polls `self._scheduler.next_sheet()`
+         and logs what it would have dispatched
+       - Continue with monolithic `JobService.start_job()` as before
+       - After job completes, call `self._scheduler.deregister_job(job_id)`
+       - Compare scheduler's decisions with actual execution order
+       - Log discrepancies as warnings
+
+    3. **Sheet info extraction** — a helper function that converts
+       `JobConfig` → `list[SheetInfo]` + dependency dict. This helper
+       will be reused in active mode.
+
+    **Implementation rules:**
+    - Shadow mode must have ZERO impact on job execution
+    - All shadow work happens in a separate background task
+    - If shadow task errors, log warning and continue — never affect the job
+    - Add structured logging for shadow comparisons
+
+    **After implementing:**
+    ```bash
+    pytest -x -q --tb=short
+    ```
+
+    **Output to:** {{ workspace }}/05-shadow-mode.md
+
+    Document:
+    - Files modified with changes described
+    - How shadow observation works
+    - What gets logged for comparison
+    - Test results
+
+    {% elif stage == 6 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 6: SCHEDULER-DRIVEN MODE                                             ║
+    ║  "The scheduler takes the wheel"                                            ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/05-shadow-mode.md.
+
+    Implement active scheduler mode: when `scheduler_mode == "active"`,
+    the scheduler dispatches sheets to SheetExecutor instead of running
+    jobs monolithically through JobService.
+
+    **What to implement:**
+
+    1. **Scheduler dispatch loop** — a new method in JobManager (or a new
+       `SchedulerDispatcher` class if cleaner):
+       ```
+       async def _run_scheduled_job(self, job_id, config):
+           # 1. Setup: create backend, state_backend, components (reuse JobService helpers)
+           # 2. Job-level setup: workspace, isolation, fresh handling
+           # 3. Register sheets: self._scheduler.register_job(job_id, sheets, deps)
+           # 4. Dispatch loop:
+           #    while True:
+           #        entry = await self._scheduler.next_sheet()
+           #        if entry is None: break  # all done or blocked
+           #        context = build_sheet_context(entry, ...)
+           #        result = await sheet_executor.execute(context)
+           #        self._scheduler.mark_complete(job_id, entry.info.sheet_num)
+           #        if result.rate_limit_hit:
+           #            self._rate_coordinator.report_rate_limit(...)
+           # 5. Job-level teardown: finalize state, cleanup isolation
+           # 6. Deregister: self._scheduler.deregister_job(job_id)
+       ```
+
+    2. **Mode switching in `_run_job_task()`**:
+       ```python
+       if self._config.scheduler_mode == "active":
+           await self._run_scheduled_job(job_id, config)
+       elif self._config.scheduler_mode == "shadow":
+           # existing shadow + monolithic
+       else:
+           # existing monolithic only
+       ```
+
+    3. **Cross-sheet context assembly** — the dispatch loop must build
+       `previous_outputs` and `previous_files` for each sheet, matching
+       what LifecycleMixin currently does implicitly through sequential execution.
+
+    4. **Job-level concerns that stay outside SheetExecutor:**
+       - Workspace creation / `--fresh` handling
+       - Worktree isolation setup/teardown
+       - Global learning aggregation (after all sheets done)
+       - Post-success hooks (on_success concert chaining)
+       - Signal handling (SIGINT/SIGTERM)
+       - Summary finalization
+
+    5. **Wire RateLimitCoordinator data source:**
+       When SheetExecutor reports `rate_limit_hit=True`, the dispatch loop
+       calls `self._rate_coordinator.report_rate_limit(backend_type, wait, job_id, sheet_num)`.
+
+    **Implementation rules:**
+    - The dispatch loop must handle: graceful shutdown, pause signals,
+       circuit breaker, cost limits — same as LifecycleMixin does
+    - State must be saved after each sheet (atomic, via StateBackend)
+    - If scheduler returns None (all blocked), check if job is done or stuck
+    - Failed sheets: report to scheduler via mark_complete with failure flag,
+      or handle retry within SheetExecutor (check design doc)
+
+    **After implementing:**
+    ```bash
+    pytest -x -q --tb=short
+    ```
+
+    **Output to:** {{ workspace }}/06-scheduler-driven.md
+
+    Document:
+    - The dispatch loop implementation
+    - How job-level concerns are handled outside SheetExecutor
+    - How rate limit data flows: executor → dispatch loop → coordinator
+    - Mode switching logic
+    - Test results
+
+    {% elif stage == 7 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 7: MANAGER INTEGRATION                                               ║
+    ║  "Wire everything together"                                                 ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/06-scheduler-driven.md.
+
+    Complete the integration: update JobManager to use the scheduler-driven
+    path, update IPC handler to expose scheduler stats, update CLI for
+    scheduler visibility.
+
+    **What to implement:**
+
+    1. **IPC handler updates** (`src/mozart/daemon/ipc/handler.py`):
+       - Add `scheduler.stats` RPC method exposing `SchedulerStats`
+       - Add `scheduler.mode` RPC method showing current mode
+
+    2. **Manager updates** (`src/mozart/daemon/manager.py`):
+       - Ensure `_run_job_task` correctly routes based on scheduler_mode
+       - Ensure job cancellation calls `deregister_job()`
+       - Ensure shutdown deregisters all active jobs
+       - Update `_on_task_done` to handle scheduler-driven task completion
+
+    3. **Health check updates** (`src/mozart/daemon/health.py`):
+       - Include scheduler stats in health response
+       - Report scheduler mode in readiness check
+
+    4. **Registry updates** (`src/mozart/daemon/registry.py`) if needed:
+       - Ensure registry correctly tracks scheduler-driven jobs
+
+    5. **Update existing TODO comments:**
+       - Remove the "Phase 3" TODO in `_run_job_task()`
+       - Update module docstrings in scheduler.py and rate_coordinator.py
+         to reflect "wired" status instead of "not yet wired"
+       - Update any "Phase 3 — built and tested, not yet wired" comments
+
+    **After implementing:**
+    ```bash
+    pytest -x -q --tb=short
+    ```
+
+    **Output to:** {{ workspace }}/07-manager-integration.md
+
+    Document:
+    - All files modified
+    - IPC methods added
+    - Health check changes
+    - TODO comments cleaned up
+    - Test results
+
+    {% elif stage == 8 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 8: INTEGRATION TESTS                                                 ║
+    ║  "Test the whole chain, not just the parts"                                 ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/07-manager-integration.md.
+
+    Write integration tests that exercise the full scheduler-driven path
+    from job submission through sheet execution to completion.
+
+    **Test file:** `tests/test_scheduler_integration.py`
+
+    **Required test scenarios:**
+
+    1. **Single job, scheduler mode "off"** — existing behavior unchanged
+    2. **Single job, scheduler mode "shadow"** — monolithic executes,
+       scheduler logs what it would have done, no execution impact
+    3. **Single job, scheduler mode "active"** — scheduler dispatches
+       sheets to SheetExecutor, job completes successfully
+    4. **Single job with DAG dependencies** — scheduler respects DAG order
+    5. **Rate limit during active mode** — SheetExecutor reports rate limit,
+       coordinator receives it, scheduler delays subsequent sheets
+    6. **Job cancellation during active mode** — deregisters from scheduler
+    7. **Multiple concurrent jobs** — two jobs, scheduler interleaves sheets
+       with fair-share scheduling
+    8. **Mode config validation** — invalid scheduler_mode value rejected
+
+    **Testing approach:**
+    - Use mock backends (no real Claude calls)
+    - Use in-memory state backends
+    - Use short timeouts for fast test execution
+    - Follow patterns from `tests/test_daemon_*.py`
+
+    **After writing tests:**
+    ```bash
+    # Run only integration tests
+    pytest tests/test_scheduler_integration.py -v --tb=short
+
+    # Run full suite
+    pytest -x -q --tb=short
+    ```
+
+    **Output to:** {{ workspace }}/08-integration-tests.md
+
+    Document:
+    - Test count and scenarios covered
+    - All test results (must pass)
+    - Full suite results (must pass)
+    - Edge cases identified
+
+    {% elif stage == 9 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 9: VERIFICATION & CLEANUP                                            ║
+    ║  "Measure twice, cut once"                                                  ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read all previous stage outputs in {{ workspace }}/.
+
+    Comprehensive verification of the Phase 3 wiring work.
+
+    **Step 1: Full test suite**
+    ```bash
+    pytest -x -q --tb=short 2>&1
+    ```
+    ALL tests must pass. If any fail, fix them before proceeding.
+
+    **Step 2: Type checking**
+    ```bash
+    mypy src/mozart/ --ignore-missing-imports 2>&1 | tail -20
+    ```
+    Fix any type errors in new/modified files.
+
+    **Step 3: Lint check**
+    ```bash
+    ruff check src/mozart/ 2>&1 | tail -20
+    ```
+    Fix any lint issues in new/modified files.
+
+    **Step 4: Documentation audit**
+    Verify that all modified files have accurate docstrings:
+    - `src/mozart/execution/sheet_executor.py` — new file, needs module docstring
+    - `src/mozart/daemon/scheduler.py` — update "not yet wired" language
+    - `src/mozart/daemon/rate_coordinator.py` — update "not yet wired" language
+    - `src/mozart/daemon/manager.py` — update TODO comments
+    - `src/mozart/daemon/config.py` — document scheduler_mode field
+    - Any other modified files
+
+    **Step 5: Verify backward compatibility**
+    - scheduler_mode defaults to "off" — ALL existing behavior unchanged
+    - JobRunner still works for direct CLI execution (non-daemon mode)
+    - No import errors, no circular imports
+    - DaemonConfig accepts the new field without requiring changes to
+      existing daemon configs
+
+    **Step 6: Architecture summary**
+    Write a summary of what was built, how to enable it, and what's next
+    on the path to VISION.md Phase 3 (multi-conductor concerts).
+
+    **Output to:** {{ workspace }}/09-verification.md
+
+    Format:
+    ```markdown
+    # Phase 3 Wiring: Verification Report
+
+    ## Test Results
+    - Total tests: N
+    - All passing: yes/no
+    - New tests added: N
+
+    ## Type Check Results
+    [mypy output summary]
+
+    ## Lint Results
+    [ruff output summary]
+
+    ## Backward Compatibility
+    - Default mode ("off"): [verified/broken]
+    - Direct CLI execution: [verified/broken]
+    - Existing daemon configs: [verified/broken]
+
+    ## Files Changed
+    | File | Change Type | Lines Added/Modified |
+    |------|------------|---------------------|
+
+    ## Architecture Summary
+    [What was built, how to enable, what's next]
+
+    ## Enabling the Scheduler
+    To enable scheduler-driven execution, add to daemon config:
+    ```yaml
+    scheduler_mode: "shadow"   # observe first
+    scheduler_mode: "active"   # scheduler drives execution
+    ```
+
+    ## Path to VISION.md Phase 3
+    [How SheetExecutor enables conductor-aware sheet dispatch]
+    ```
+
+    {% elif stage == 10 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 10: COMMIT & PUSH                                                    ║
+    ║  "Ship it"                                                                  ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/09-verification.md. Verify all checks passed.
+
+    **Step 1: Check current branch**
+    ```bash
+    git branch --show-current
+    ```
+    Ensure we're on `main`. If not, switch to main.
+
+    **Step 2: Stage changes**
+    ```bash
+    git status
+    ```
+
+    Stage ONLY source and test files — not workspace artifacts:
+    ```bash
+    git add src/mozart/execution/sheet_executor.py
+    git add src/mozart/daemon/config.py
+    git add src/mozart/daemon/manager.py
+    git add src/mozart/daemon/scheduler.py
+    git add src/mozart/daemon/rate_coordinator.py
+    git add src/mozart/daemon/ipc/handler.py
+    git add src/mozart/daemon/health.py
+    git add tests/test_sheet_executor.py
+    git add tests/test_scheduler_integration.py
+    # Add any other modified source/test files shown by git status
+    ```
+
+    **Step 3: Verify staged changes**
+    ```bash
+    git diff --cached --stat
+    ```
+    Review the staged changes. Ensure no workspace files, no secrets.
+
+    **Step 4: Final test run**
+    ```bash
+    pytest -x -q --tb=short
+    ```
+    Must pass. Do NOT commit if tests fail.
+
+    **Step 5: Commit**
+    ```bash
+    git commit -m "feat(daemon): Wire Phase 3 scheduler into execution path
+
+    Introduce SheetExecutor as an independently-dispatchable unit of work
+    and wire GlobalSheetScheduler into JobManager with three-mode promotion:
+    - off: existing monolithic behavior (default, backward-compatible)
+    - shadow: scheduler observes alongside monolithic execution
+    - active: scheduler dispatches sheets to SheetExecutor
+
+    Also wires RateLimitCoordinator data source: SheetExecutor reports
+    rate limits back through the dispatch loop to the coordinator.
+
+    This is the foundation for VISION.md Phase 3 (multi-conductor concerts)
+    where sheets can be dispatched to different conductors."
+    ```
+
+    **Step 6: Push**
+    ```bash
+    git push origin main
+    ```
+
+    **Output to:** {{ workspace }}/10-commit.md
+
+    Document:
+    - Commit hash
+    - Files committed
+    - Push result
+    - Final status
+
+    {% endif %}
+
+    {{ feedback_footer }}
+
+  variables:
+    preamble: |
+      ╔══════════════════════════════════════════════════════════════════════════╗
+      ║              PHASE 3 WIRING: Scheduler-Driven Execution                ║
+      ║                                                                        ║
+      ║  Goal: Wire GlobalSheetScheduler and RateLimitCoordinator into the     ║
+      ║  actual execution path. Create SheetExecutor as the independently      ║
+      ║  dispatchable unit of work.                                            ║
+      ║                                                                        ║
+      ║  Three-mode promotion: off → shadow → active                          ║
+      ║  Default: "off" — zero impact on existing behavior                    ║
+      ╚══════════════════════════════════════════════════════════════════════════╝
+
+      **Project:** Mozart AI Compose (~/Projects/mozart-ai-compose)
+      **Language:** Python 3.11+, async/await, Pydantic v2, structlog
+      **Test framework:** pytest (4190+ existing tests must continue passing)
+
+      **Key architectural context:**
+      - JobRunner is 8 mixins via multiple inheritance (see runner/__init__.py)
+      - LifecycleMixin owns THE LOOP (what scheduler replaces)
+      - SheetExecutionMixin owns per-sheet logic (what SheetExecutor wraps)
+      - RecoveryMixin, PatternsMixin, CostMixin support per-sheet execution
+      - IsolationMixin handles worktree setup/teardown (job-level, not sheet-level)
+      - GlobalSheetScheduler is fully built and tested (daemon/scheduler.py)
+      - RateLimitCoordinator is fully built and tested (daemon/rate_coordinator.py)
+      - Both are instantiated in JobManager.__init__() but not used for dispatch
+
+      **Rules:**
+      - NEVER break existing tests — run `pytest -x -q --tb=short` after every change
+      - Follow existing code style (structlog, Pydantic, async, type hints)
+      - Keep backward compatibility — scheduler_mode="off" must be identical to current behavior
+      - Don't over-engineer — SheetExecutor executes ONE sheet and reports results
+      - Prefer extraction over duplication when reusing Runner code
+
+    feedback_footer: |
+
+      ──────────────────────────────────────────────────────────────────────────
+      SHEET FEEDBACK (REQUIRED — append to your output file)
+      ──────────────────────────────────────────────────────────────────────────
+
+      After completing your primary task, append this section to your output file.
+
+      ### Sheet Feedback
+      | Metric | Rating (1-5) | Notes |
+      |--------|-------------|-------|
+      | Prompt clarity | | Was the task clear? |
+      | Context sufficiency | | Did you have everything you needed? |
+      | Task actionability | | Could you act without guessing? |
+
+      **Issues encountered:**
+      - [description, or "None"]
+
+      **Suggestions:**
+      - [improvements, or "None"]
+
+validations:
+  # Stage 1: Architecture audit
+  - type: file_exists
+    path: "{workspace}/01-architecture-audit.md"
+    description: "Architecture audit must exist"
+    condition: "stage >= 1"
+
+  - type: content_contains
+    path: "{workspace}/01-architecture-audit.md"
+    pattern: "Clean Cut"
+    description: "Audit must identify the clean cut boundary"
+    condition: "stage >= 1"
+
+  # Stage 2: SheetExecutor design
+  - type: file_exists
+    path: "{workspace}/02-sheet-executor-design.md"
+    description: "SheetExecutor design must exist"
+    condition: "stage >= 2"
+
+  - type: content_contains
+    path: "{workspace}/02-sheet-executor-design.md"
+    pattern: "SheetExecutor"
+    description: "Design must define SheetExecutor"
+    condition: "stage >= 2"
+
+  # Stage 3: Implementation
+  - type: file_exists
+    path: "{workspace}/03-implementation.md"
+    description: "Implementation report must exist"
+    condition: "stage >= 3"
+
+  - type: command_succeeds
+    command: "test -f src/mozart/execution/sheet_executor.py && echo 'exists' || echo 'missing'"
+    description: "SheetExecutor source file must exist"
+    condition: "stage >= 3"
+
+  - type: command_succeeds
+    command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed|no tests'"
+    description: "All existing tests must pass after implementation"
+    condition: "stage >= 3"
+
+  # Stage 4: Tests
+  - type: file_exists
+    path: "{workspace}/04-tests.md"
+    description: "Test report must exist"
+    condition: "stage >= 4"
+
+  - type: command_succeeds
+    command: "test -f tests/test_sheet_executor.py && echo 'exists' || echo 'missing'"
+    description: "SheetExecutor test file must exist"
+    condition: "stage >= 4"
+
+  - type: command_succeeds
+    command: "pytest tests/test_sheet_executor.py -q --tb=no 2>&1 | tail -1 | grep 'passed'"
+    description: "SheetExecutor tests must pass"
+    condition: "stage >= 4"
+
+  - type: command_succeeds
+    command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed|no tests'"
+    description: "Full test suite must pass"
+    condition: "stage >= 4"
+
+  # Stage 5: Shadow mode
+  - type: file_exists
+    path: "{workspace}/05-shadow-mode.md"
+    description: "Shadow mode report must exist"
+    condition: "stage >= 5"
+
+  - type: command_succeeds
+    command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed|no tests'"
+    description: "All tests must pass after shadow mode"
+    condition: "stage >= 5"
+
+  # Stage 6: Scheduler-driven mode
+  - type: file_exists
+    path: "{workspace}/06-scheduler-driven.md"
+    description: "Scheduler-driven mode report must exist"
+    condition: "stage >= 6"
+
+  - type: command_succeeds
+    command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed|no tests'"
+    description: "All tests must pass after scheduler-driven mode"
+    condition: "stage >= 6"
+
+  # Stage 7: Manager integration
+  - type: file_exists
+    path: "{workspace}/07-manager-integration.md"
+    description: "Manager integration report must exist"
+    condition: "stage >= 7"
+
+  - type: command_succeeds
+    command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed|no tests'"
+    description: "All tests must pass after manager integration"
+    condition: "stage >= 7"
+
+  # Stage 8: Integration tests
+  - type: file_exists
+    path: "{workspace}/08-integration-tests.md"
+    description: "Integration test report must exist"
+    condition: "stage >= 8"
+
+  - type: command_succeeds
+    command: "test -f tests/test_scheduler_integration.py && echo 'exists' || echo 'missing'"
+    description: "Integration test file must exist"
+    condition: "stage >= 8"
+
+  - type: command_succeeds
+    command: "pytest tests/test_scheduler_integration.py -q --tb=no 2>&1 | tail -1 | grep 'passed'"
+    description: "Integration tests must pass"
+    condition: "stage >= 8"
+
+  - type: command_succeeds
+    command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed|no tests'"
+    description: "Full test suite must pass"
+    condition: "stage >= 8"
+
+  # Stage 9: Verification
+  - type: file_exists
+    path: "{workspace}/09-verification.md"
+    description: "Verification report must exist"
+    condition: "stage >= 9"
+
+  - type: content_contains
+    path: "{workspace}/09-verification.md"
+    pattern: "All passing: yes"
+    description: "Verification must confirm all tests passing"
+    condition: "stage >= 9"
+
+  - type: command_succeeds
+    command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed|no tests'"
+    description: "Final test verification"
+    condition: "stage >= 9"
+
+  # Stage 10: Commit
+  - type: file_exists
+    path: "{workspace}/10-commit.md"
+    description: "Commit report must exist"
+    condition: "stage == 10"
+
+  - type: command_succeeds
+    command: "git log --oneline -1 --since='2 hours ago' 2>/dev/null | grep -qE '.' && echo 'passed' || echo 'no recent commit'"
+    description: "Recent commit must exist"
+    condition: "stage == 10"

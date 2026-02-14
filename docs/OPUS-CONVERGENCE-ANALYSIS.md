@@ -1,5 +1,7 @@
 # Opus Convergence Analysis
 
+> **Internal Reference** — This is a meta-analysis document, not user documentation.
+
 **Date:** 2026-01-16
 **Analysis:** Patterns to converge between Mozart Opus (v20, 20 cycles) and RLF Opus (v15, 15 cycles)
 

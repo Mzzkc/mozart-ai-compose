@@ -11,18 +11,20 @@ Mozart AI Compose is an orchestration tool for running multiple AI sessions with
 git clone https://github.com/Mzzkc/mozart-ai-compose.git
 cd mozart-ai-compose
 
-# Create and activate virtual environment
+# Install with daemon support (required for job execution)
+./setup.sh --daemon
+
+# Or manually:
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install Mozart
-pip install -e .
+pip install -e ".[daemon]"
 ```
 
 ### With Development Dependencies
 
 ```bash
-pip install -e ".[dev]"
+./setup.sh --dev --daemon
+# Or: pip install -e ".[dev,daemon]"
 ```
 
 ### Verify Installation
@@ -37,6 +39,7 @@ Mozart uses Claude CLI as its default backend. Ensure you have:
 
 1. **Claude CLI installed**: Follow [Claude CLI installation guide](https://docs.anthropic.com/claude-code)
 2. **API access configured**: Claude CLI should be authenticated
+3. **Daemon support installed**: `pip install -e ".[daemon]"` or `./setup.sh --daemon`
 
 ## Your First Job
 
@@ -109,7 +112,16 @@ This shows:
 - Sheet plan with item ranges
 - Prompt that will be sent to the backend
 
-### Step 4: Run the Job
+### Step 4: Start the Daemon
+
+The Mozart daemon is required for job execution:
+
+```bash
+mozartd start
+mozartd status   # Verify it's running
+```
+
+### Step 5: Run the Job
 
 Execute the job:
 
@@ -122,16 +134,17 @@ You'll see:
 - Current sheet status
 - Validation results
 
-### Step 5: Check Status
+### Step 6: Check Status
 
 While running (or after), check job status:
 
 ```bash
 # Show specific job details
 mozart status my-first-job
-```
 
-> **Note:** `mozart list` shows jobs managed by the daemon. If you're running the daemon (`mozartd start`), jobs submitted via `mozart run` are auto-routed through it. Without a daemon, use `mozart status <job-id>` directly.
+# List all active daemon jobs
+mozart list
+```
 
 ## Handling Interruptions
 
@@ -284,9 +297,10 @@ mozart dashboard --port 3000
 ## Next Steps
 
 - [CLI Reference](cli-reference.md) - All commands and options
+- [Daemon Guide](daemon-guide.md) - Daemon configuration, systemd integration, and troubleshooting
+- [Score Writing Guide](score-writing-guide.md) - How to author Mozart scores
+- [Configuration Reference](configuration-reference.md) - Every config field documented
 - See `examples/` directory for configuration examples
-- Check `CLAUDE.md` for development guidelines
-- For production use, consider running the daemon (`mozartd start`) for centralized job management
 
 ## Troubleshooting
 

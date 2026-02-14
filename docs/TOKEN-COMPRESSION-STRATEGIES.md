@@ -1,7 +1,8 @@
 # Token Compression Strategies for Mozart
 
+> **Status: Research / Not Implemented** — This document describes strategies under consideration. None have been implemented.
+
 **Research Date:** 2026-01-05
-**Status:** Research Complete, Implementation Pending
 **Priority:** High (cost/latency impact)
 
 ---
