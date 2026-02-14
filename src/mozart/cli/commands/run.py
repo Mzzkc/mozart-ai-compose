@@ -19,8 +19,12 @@ import typer
 from rich.panel import Panel
 from rich.table import Table
 
+from mozart.core.logging import get_logger
+
 from ..helpers import is_quiet
 from ..output import console
+
+_logger = get_logger("cli.run")
 
 if TYPE_CHECKING:
     from mozart.core.config import JobConfig
@@ -217,6 +221,7 @@ async def _try_daemon_submit(
 
         return True
     except Exception:
+        _logger.debug("daemon_submit_failed", exc_info=True)
         return False
 
 

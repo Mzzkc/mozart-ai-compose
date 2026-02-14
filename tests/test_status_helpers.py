@@ -1,20 +1,22 @@
 """Tests for status command helper functions and CLI integration.
 
-FIX-31: The status module (706 LOC) had its CLI paths tested in test_cli.py
-but the internal helper functions (_collect_recent_errors, _infer_circuit_breaker_state,
-_get_last_activity_time, _infer_error_type) were untested. This file provides
-focused unit tests for those functions, plus additional CLI edge cases.
+Covers internal helper functions (_collect_recent_errors, _infer_circuit_breaker_state,
+_get_last_activity_time, _infer_error_type, _format_daemon_timestamp), list_jobs
+command, JSON output schema, cost/hook/synthesis rendering, and additional CLI edge cases.
 """
 
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
+from unittest.mock import AsyncMock, patch
 
 from typer.testing import CliRunner
 
 from mozart.cli import app
 from mozart.cli.commands.status import (
     _collect_recent_errors,
+    _format_daemon_timestamp,
     _get_last_activity_time,
     _infer_circuit_breaker_state,
     _infer_error_type,
@@ -438,3 +440,315 @@ class TestStatusCommandEdgeCases:
         )
         assert result.exit_code == 0
         assert "Error" in result.stdout or "error" in result.stdout.lower()
+
+
+# ---------------------------------------------------------------------------
+# _format_daemon_timestamp tests
+# ---------------------------------------------------------------------------
+
+
+class TestFormatDaemonTimestamp:
+    """Tests for the _format_daemon_timestamp() helper."""
+
+    def test_none_returns_dash(self) -> None:
+        assert _format_daemon_timestamp(None) == "-"
+
+    def test_valid_timestamp(self) -> None:
+        # 2026-01-15 12:00:00 UTC
+        ts = datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC).timestamp()
+        result = _format_daemon_timestamp(ts)
+        assert "2026-01-15" in result
+        assert "12:00" in result
+
+    def test_epoch_zero(self) -> None:
+        result = _format_daemon_timestamp(0.0)
+        assert "1970" in result
+
+
+# ---------------------------------------------------------------------------
+# JSON output schema tests
+# ---------------------------------------------------------------------------
+
+
+class TestStatusJsonOutput:
+    """Tests for _output_status_json() via CLI invocation."""
+
+    def test_json_output_has_required_keys(self, tmp_path: Path) -> None:
+        """JSON output should include all documented top-level keys."""
+        state = CheckpointState(
+            job_id="json-schema-test",
+            job_name="JSON Schema Test",
+            total_sheets=2,
+            last_completed_sheet=1,
+            status=JobStatus.RUNNING,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            sheets={
+                1: SheetState(sheet_num=1, status=SheetStatus.COMPLETED, attempt_count=1),
+                2: SheetState(sheet_num=2, status=SheetStatus.PENDING, attempt_count=0),
+            },
+        )
+        _write_state(tmp_path, state)
+
+        result = runner.invoke(
+            app, ["status", "json-schema-test", "--json", "--workspace", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+
+        # Verify all required top-level keys
+        required_keys = {
+            "job_id", "job_name", "status", "progress", "timing",
+            "execution", "cost", "circuit_breaker", "hook_results_count",
+            "hook_failures", "recent_errors", "error", "sheets",
+        }
+        assert required_keys.issubset(data.keys())
+
+    def test_json_progress_structure(self, tmp_path: Path) -> None:
+        """JSON progress block should have completed/total/percent."""
+        state = CheckpointState(
+            job_id="progress-test",
+            job_name="Progress Test",
+            total_sheets=10,
+            last_completed_sheet=7,
+            status=JobStatus.RUNNING,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            sheets={
+                i: SheetState(sheet_num=i, status=SheetStatus.COMPLETED, attempt_count=1)
+                for i in range(1, 8)
+            },
+        )
+        _write_state(tmp_path, state)
+
+        result = runner.invoke(
+            app, ["status", "progress-test", "--json", "--workspace", str(tmp_path)]
+        )
+        data = json.loads(result.stdout)
+        assert data["progress"]["completed"] == 7
+        assert data["progress"]["total"] == 10
+        assert data["progress"]["percent"] == 70.0
+
+    def test_json_cost_data(self, tmp_path: Path) -> None:
+        """JSON output should include cost tracking fields."""
+        state = CheckpointState(
+            job_id="cost-test",
+            job_name="Cost Test",
+            total_sheets=1,
+            last_completed_sheet=1,
+            status=JobStatus.COMPLETED,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            total_estimated_cost=1.23,
+            total_input_tokens=5000,
+            total_output_tokens=3000,
+            sheets={
+                1: SheetState(
+                    sheet_num=1, status=SheetStatus.COMPLETED,
+                    attempt_count=1, estimated_cost=1.23,
+                ),
+            },
+        )
+        _write_state(tmp_path, state)
+
+        result = runner.invoke(
+            app, ["status", "cost-test", "--json", "--workspace", str(tmp_path)]
+        )
+        data = json.loads(result.stdout)
+        assert data["cost"]["total_estimated_cost"] == 1.23
+        assert data["cost"]["total_input_tokens"] == 5000
+        assert data["cost"]["total_output_tokens"] == 3000
+
+    def test_json_recent_errors_structure(self, tmp_path: Path) -> None:
+        """JSON recent_errors should contain structured error records."""
+        now = datetime.now(UTC)
+        err = ErrorRecord(
+            error_type="transient", error_code="E001",
+            error_message="Timeout", attempt_number=2,
+            timestamp=now,
+        )
+        state = CheckpointState(
+            job_id="json-errors-test",
+            job_name="JSON Errors Test",
+            total_sheets=1,
+            last_completed_sheet=0,
+            status=JobStatus.FAILED,
+            created_at=now,
+            updated_at=now,
+            sheets={
+                1: SheetState(
+                    sheet_num=1, status=SheetStatus.FAILED,
+                    attempt_count=2, error_history=[err],
+                ),
+            },
+        )
+        _write_state(tmp_path, state)
+
+        result = runner.invoke(
+            app, ["status", "json-errors-test", "--json", "--workspace", str(tmp_path)]
+        )
+        data = json.loads(result.stdout)
+        assert len(data["recent_errors"]) >= 1
+        error_item = data["recent_errors"][0]
+        assert "sheet_num" in error_item
+        assert "error_type" in error_item
+        assert "error_code" in error_item
+        assert "error_message" in error_item
+
+    def test_json_sheets_with_duration(self, tmp_path: Path) -> None:
+        """JSON sheets should include execution_duration_seconds when present."""
+        state = CheckpointState(
+            job_id="duration-test",
+            job_name="Duration Test",
+            total_sheets=1,
+            last_completed_sheet=1,
+            status=JobStatus.COMPLETED,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            sheets={
+                1: SheetState(
+                    sheet_num=1, status=SheetStatus.COMPLETED,
+                    attempt_count=1, execution_duration_seconds=42.5,
+                ),
+            },
+        )
+        _write_state(tmp_path, state)
+
+        result = runner.invoke(
+            app, ["status", "duration-test", "--json", "--workspace", str(tmp_path)]
+        )
+        data = json.loads(result.stdout)
+        assert data["sheets"]["1"]["execution_duration_seconds"] == 42.5
+
+
+# ---------------------------------------------------------------------------
+# list_jobs CLI tests
+# ---------------------------------------------------------------------------
+
+
+class TestListJobsCommand:
+    """Tests for the 'mozart list' command (daemon registry-based)."""
+
+    @staticmethod
+    def _mock_daemon_route(jobs: list[dict[str, Any]]):
+        """Return a patch that makes try_daemon_route return the given jobs."""
+        return patch(
+            "mozart.daemon.detect.try_daemon_route",
+            new_callable=AsyncMock,
+            return_value=(True, jobs),
+        )
+
+    def test_list_no_jobs(self) -> None:
+        """Empty registry should show 'No jobs found'."""
+        with self._mock_daemon_route([]):
+            result = runner.invoke(app, ["list"])
+        assert result.exit_code == 0
+        assert "No jobs found" in result.stdout
+
+    def test_list_finds_job_files(self) -> None:
+        """Should display jobs from the daemon registry."""
+        jobs = [{"job_id": "list-test-job", "status": "running", "workspace": "/tmp"}]
+        with self._mock_daemon_route(jobs):
+            result = runner.invoke(app, ["list"])
+        assert result.exit_code == 0
+        assert "list-test-job" in result.stdout
+
+    def test_list_status_filter(self) -> None:
+        """--status filter should only show matching jobs."""
+        jobs = [
+            {"job_id": "running-job", "status": "running", "workspace": "/tmp"},
+            {"job_id": "completed-job", "status": "completed", "workspace": "/tmp"},
+        ]
+        with self._mock_daemon_route(jobs):
+            result = runner.invoke(app, ["list", "--status", "completed"])
+        assert result.exit_code == 0
+        assert "completed-job" in result.stdout
+        assert "running-job" not in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Rich output rendering tests
+# ---------------------------------------------------------------------------
+
+
+class TestStatusRichRendering:
+    """Tests for rich-formatted status output sections."""
+
+    def test_cost_summary_displayed(self, tmp_path: Path) -> None:
+        """Rich output should show cost summary when data present."""
+        state = CheckpointState(
+            job_id="cost-rich-test",
+            job_name="Cost Rich Test",
+            total_sheets=1,
+            last_completed_sheet=1,
+            status=JobStatus.COMPLETED,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            total_estimated_cost=2.50,
+            total_input_tokens=10000,
+            total_output_tokens=5000,
+            sheets={
+                1: SheetState(sheet_num=1, status=SheetStatus.COMPLETED, attempt_count=1),
+            },
+        )
+        _write_state(tmp_path, state)
+
+        result = runner.invoke(
+            app, ["status", "cost-rich-test", "--workspace", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        assert "Cost" in result.stdout
+        assert "$2.50" in result.stdout
+
+    def test_hook_results_displayed(self, tmp_path: Path) -> None:
+        """Rich output should show hook results when present."""
+        state = CheckpointState(
+            job_id="hooks-test",
+            job_name="Hooks Test",
+            total_sheets=1,
+            last_completed_sheet=1,
+            status=JobStatus.COMPLETED,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            hook_results=[
+                {"hook_name": "pre_run", "event": "pre_run", "success": True},
+                {"hook_name": "post_run", "event": "post_run", "success": False,
+                 "error": "Hook script failed"},
+            ],
+            sheets={
+                1: SheetState(sheet_num=1, status=SheetStatus.COMPLETED, attempt_count=1),
+            },
+        )
+        _write_state(tmp_path, state)
+
+        result = runner.invoke(
+            app, ["status", "hooks-test", "--workspace", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        assert "Hook" in result.stdout
+
+    def test_timing_section_displayed(self, tmp_path: Path) -> None:
+        """Rich output should show timing section."""
+        now = datetime.now(UTC)
+        state = CheckpointState(
+            job_id="timing-test",
+            job_name="Timing Test",
+            total_sheets=1,
+            last_completed_sheet=1,
+            status=JobStatus.COMPLETED,
+            created_at=now - timedelta(hours=1),
+            started_at=now - timedelta(minutes=50),
+            updated_at=now,
+            completed_at=now,
+            sheets={
+                1: SheetState(sheet_num=1, status=SheetStatus.COMPLETED, attempt_count=1),
+            },
+        )
+        _write_state(tmp_path, state)
+
+        result = runner.invoke(
+            app, ["status", "timing-test", "--workspace", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        assert "Timing" in result.stdout
+        assert "Duration" in result.stdout

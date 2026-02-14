@@ -23,12 +23,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypedDict
-
-_logger = logging.getLogger(__name__)
 
 import typer
 from rich.panel import Panel
@@ -39,9 +36,8 @@ from rich.progress import (
 )
 
 from mozart.core.checkpoint import ErrorRecord, JobStatus, SheetStatus
-from mozart.state import StateBackend
 
-from ..helpers import ErrorMessages, find_job_state, get_state_backends, require_job_state
+from ..helpers import ErrorMessages, find_job_state, require_job_state
 from ..output import (
     StatusColors,
     console,
@@ -137,13 +133,14 @@ def list_jobs(
         None,
         "--workspace",
         "-w",
-        help="Workspace directory to scan for jobs (scans JSON state files)",
+        help="Reserved for future per-workspace filtering.",
+        hidden=True,
     ),
 ) -> None:
-    """List all jobs.
+    """List all jobs from the daemon's persistent registry.
 
-    By default, searches for job state files in the workspace directories.
-    Use --workspace to specify a particular directory to scan.
+    Requires a running daemon (mozartd). Shows all jobs submitted to the
+    daemon, including completed and failed jobs from previous sessions.
     """
     asyncio.run(_list_jobs(status_filter, limit, workspace))
 
@@ -235,82 +232,65 @@ async def _list_jobs(
     limit: int,
     workspace: Path | None,
 ) -> None:
-    """Asynchronously list jobs from state backends."""
-    if workspace and not workspace.exists():
-        console.print(f"[red]Workspace not found:[/red] {workspace}")
+    """List jobs from the daemon's persistent registry."""
+    from mozart.daemon.detect import try_daemon_route
+
+    _ = workspace  # Reserved for future per-workspace filtering
+
+    routed, result = await try_daemon_route("job.list", {})
+    if not routed:
+        console.print(
+            "[red]Error:[/red] Mozart daemon is not running.\n"
+            "Start it with: [bold]mozartd start[/bold]"
+        )
         raise typer.Exit(1)
 
-    source_label = str(workspace) if workspace else "."
-    backends: list[tuple[str, StateBackend]] = [
-        (source_label, b) for b in get_state_backends(workspace)
-    ]
+    jobs: list[dict[str, Any]] = result if isinstance(result, list) else []
 
-
-    # Collect all jobs
-    all_jobs: list[tuple[str, CheckpointState]] = []
-
-    for source, backend in backends:
-        try:
-            jobs = await backend.list_jobs()
-            for job in jobs:
-                all_jobs.append((source, job))
-        except Exception:
-            _logger.warning("list_jobs_backend_error", exc_info=True)
-            continue
-
-    # Remove duplicates (same job_id from different backends)
-    seen_ids: set[str] = set()
-    unique_jobs: list[tuple[str, CheckpointState]] = []
-    for source, job in all_jobs:
-        if job.job_id not in seen_ids:
-            seen_ids.add(job.job_id)
-            unique_jobs.append((source, job))
+    # Status color map
+    _colors: dict[str, str] = {
+        "queued": "yellow",
+        "running": "green",
+        "completed": "bright_green",
+        "paused": "yellow",
+        "failed": "red",
+        "cancelled": "dim",
+    }
 
     # Filter by status if specified
     if status_filter:
-        try:
-            target_status = JobStatus(status_filter.lower())
-            unique_jobs = [
-                (s, j) for s, j in unique_jobs if j.status == target_status
-            ]
-        except ValueError:
-            console.print(
-                f"[red]Invalid status:[/red] {status_filter}\n"
-                f"Valid values: pending, running, completed, failed, paused"
-            )
-            raise typer.Exit(1) from None
+        target = status_filter.lower()
+        jobs = [j for j in jobs if str(j.get("status", "")).lower() == target]
 
-    # Sort by updated_at descending and limit
-    def _sort_key(x: tuple[str, Any]) -> datetime:
-        return x[1].updated_at or datetime.min.replace(tzinfo=UTC)
+    # Limit
+    jobs = jobs[:limit]
 
-    unique_jobs.sort(key=_sort_key, reverse=True)
-    unique_jobs = unique_jobs[:limit]
-
-    if not unique_jobs:
+    if not jobs:
         console.print("[dim]No jobs found.[/dim]")
         if status_filter:
-            console.print("[dim]Try without --status filter or check a different workspace.[/dim]")
+            console.print("[dim]Try without --status filter.[/dim]")
         return
 
-    # Build table
     table = create_jobs_table()
-
-    for _source, job in unique_jobs:
-        # Format status with color
-        status_color = StatusColors.get_job_color(job.status)
-        status_str = f"[{status_color}]{job.status.value}[/{status_color}]"
-
-        # Format progress
-        progress = f"{job.last_completed_sheet}/{job.total_sheets}"
-
-        # Format updated time
-        updated = job.updated_at.strftime("%Y-%m-%d %H:%M") if job.updated_at else "-"
-
-        table.add_row(job.job_id, status_str, progress, updated)
+    for dj in jobs:
+        dj_status = str(dj.get("status", "unknown"))
+        color = _colors.get(dj_status, "white")
+        table.add_row(
+            dj.get("job_id", "?"),
+            f"[{color}]{dj_status}[/{color}]",
+            dj.get("workspace", "-"),
+            _format_daemon_timestamp(dj.get("submitted_at")),
+        )
 
     console.print(table)
-    console.print(f"\n[dim]Showing {len(unique_jobs)} job(s)[/dim]")
+    console.print(f"\n[dim]Showing {len(jobs)} job(s)[/dim]")
+
+
+def _format_daemon_timestamp(ts: float | None) -> str:
+    """Format a Unix timestamp from daemon JobMeta."""
+    if ts is None:
+        return "-"
+    return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%d %H:%M")
 
 
 # =============================================================================

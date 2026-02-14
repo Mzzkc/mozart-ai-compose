@@ -83,6 +83,35 @@ class StateBackend(ABC):
         """
         ...
 
+    async def record_execution(
+        self,
+        job_id: str,
+        sheet_num: int,
+        attempt_num: int,
+        prompt: str | None = None,
+        output: str | None = None,
+        exit_code: int | None = None,
+        duration_seconds: float | None = None,
+    ) -> int | None:
+        """Record an execution attempt in history.
+
+        Optional method — backends that support execution recording (e.g. SQLite)
+        override this. The default no-op returns None.
+
+        Args:
+            job_id: Job identifier.
+            sheet_num: Sheet number.
+            attempt_num: Attempt number within the sheet.
+            prompt: The prompt sent to the backend.
+            output: The output received.
+            exit_code: Exit code from the execution.
+            duration_seconds: Execution duration.
+
+        Returns:
+            The ID of the inserted record, or None if not supported.
+        """
+        return None
+
     async def infer_state_from_artifacts(
         self,
         job_id: str,

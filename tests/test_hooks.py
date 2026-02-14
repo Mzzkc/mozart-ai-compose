@@ -11,9 +11,12 @@ Covers:
 
 import os
 import signal
+import subprocess as _subprocess
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
+from pydantic import ValidationError
 
 from mozart.core.config import JobConfig, PostSuccessHookConfig
 from mozart.execution.hooks import ConcertContext, HookExecutor, HookResult
@@ -239,6 +242,7 @@ class TestHookExecutor:
         # Manually add a hook and modify its type attribute after creation
         hook = PostSuccessHookConfig(
             type="run_command",  # Valid type for construction
+            command="echo test",  # Required for run_command type
             description="Unknown hook",
         )
         # Use object.__setattr__ to bypass Pydantic validation
@@ -499,74 +503,29 @@ class TestHookErrorPaths:
         assert results[0].error_message is not None
         assert "timeout" in results[0].error_message.lower()
 
-    @pytest.mark.asyncio
-    async def test_run_command_missing_command(self) -> None:
-        """run_command with no command should fail gracefully."""
-        config = JobConfig.model_validate({
-            "name": "no-cmd-test",
-            "description": "Test",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "Test"},
-        })
-        hook = PostSuccessHookConfig(
-            type="run_command",
-            description="Missing command",
-        )
-        config.on_success = [hook]
+    def test_run_command_missing_command(self) -> None:
+        """run_command with no command should be rejected at construction."""
+        with pytest.raises(ValidationError, match="requires 'command' field"):
+            PostSuccessHookConfig(
+                type="run_command",
+                description="Missing command",
+            )
 
-        executor = HookExecutor(config=config, workspace=Path("/tmp"))
-        results = await executor.execute_hooks()
+    def test_run_script_missing_command(self) -> None:
+        """run_script with no command should be rejected at construction."""
+        with pytest.raises(ValidationError, match="requires 'command' field"):
+            PostSuccessHookConfig(
+                type="run_script",
+                description="Missing script",
+            )
 
-        assert len(results) == 1
-        assert results[0].success is False
-        assert "command is required" in results[0].error_message.lower()
-
-    @pytest.mark.asyncio
-    async def test_run_script_missing_command(self) -> None:
-        """run_script with no command should fail gracefully."""
-        config = JobConfig.model_validate({
-            "name": "no-script-test",
-            "description": "Test",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "Test"},
-        })
-        hook = PostSuccessHookConfig(
-            type="run_script",
-            description="Missing script",
-        )
-        config.on_success = [hook]
-
-        executor = HookExecutor(config=config, workspace=Path("/tmp"))
-        results = await executor.execute_hooks()
-
-        assert len(results) == 1
-        assert results[0].success is False
-        assert "command is required" in results[0].error_message.lower()
-
-    @pytest.mark.asyncio
-    async def test_run_job_no_job_path(self) -> None:
-        """run_job with no job_path should fail gracefully."""
-        config = JobConfig.model_validate({
-            "name": "no-path-test",
-            "description": "Test",
-            "backend": {"type": "claude_cli"},
-            "sheet": {"size": 1, "total_items": 1},
-            "prompt": {"template": "Test"},
-        })
-        hook = PostSuccessHookConfig(
-            type="run_job",
-            description="Missing path",
-        )
-        config.on_success = [hook]
-
-        executor = HookExecutor(config=config, workspace=Path("/tmp"))
-        results = await executor.execute_hooks()
-
-        assert len(results) == 1
-        assert results[0].success is False
-        assert "job_path is required" in results[0].error_message.lower()
+    def test_run_job_no_job_path(self) -> None:
+        """run_job with no job_path should be rejected at construction."""
+        with pytest.raises(ValidationError, match="requires 'job_path' field"):
+            PostSuccessHookConfig(
+                type="run_job",
+                description="Missing path",
+            )
 
     @pytest.mark.asyncio
     async def test_hook_exception_captured_as_failure(self) -> None:
@@ -744,9 +703,6 @@ class TestDetachedChildSurvival:
             ],
         })
 
-        import subprocess as _subprocess
-        from unittest.mock import patch
-
         # Patch Popen to spawn a real `sleep 30` instead of `mozart run ...`
         # (mozart may not be in PATH in test environments). We capture the
         # real Popen object to check liveness afterward.
@@ -815,9 +771,6 @@ class TestDetachedChildSurvival:
                 },
             ],
         })
-
-        import subprocess as _subprocess
-        from unittest.mock import patch
 
         # Spawn a child that exits immediately (exit 0 completes before
         # the 200ms liveness check)

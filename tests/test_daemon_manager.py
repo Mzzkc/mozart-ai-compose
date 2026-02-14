@@ -28,6 +28,7 @@ def daemon_config(tmp_path: Path) -> DaemonConfig:
     return DaemonConfig(
         max_concurrent_jobs=2,
         pid_file=tmp_path / "test.pid",
+        state_db_path=tmp_path / "test-registry.db",
     )
 
 
@@ -598,11 +599,12 @@ class TestJobHistoryPruning:
     """Tests for _prune_job_history() eviction logic."""
 
     @pytest.mark.asyncio
-    async def test_prune_removes_oldest_terminal_jobs(self):
+    async def test_prune_removes_oldest_terminal_jobs(self, tmp_path: Path):
         """When terminal jobs exceed max_job_history, oldest are evicted."""
         config = DaemonConfig(
             max_concurrent_jobs=2,
             max_job_history=10,
+            state_db_path=tmp_path / "reg.db",
         )
         mgr = JobManager(config)
         mgr._service = MagicMock()
@@ -628,11 +630,12 @@ class TestJobHistoryPruning:
         assert "job-12" in mgr._job_meta
 
     @pytest.mark.asyncio
-    async def test_prune_preserves_running_jobs(self):
+    async def test_prune_preserves_running_jobs(self, tmp_path: Path):
         """Pruning never evicts running/queued jobs."""
         config = DaemonConfig(
             max_concurrent_jobs=2,
             max_job_history=10,
+            state_db_path=tmp_path / "reg.db",
         )
         mgr = JobManager(config)
         mgr._service = MagicMock()
@@ -681,11 +684,12 @@ class TestJobHistoryPruning:
         assert "job-1" in manager._job_meta
 
     @pytest.mark.asyncio
-    async def test_on_task_done_triggers_pruning(self):
+    async def test_on_task_done_triggers_pruning(self, tmp_path: Path):
         """_on_task_done calls _prune_job_history after status update."""
         config = DaemonConfig(
             max_concurrent_jobs=2,
             max_job_history=10,
+            state_db_path=tmp_path / "reg.db",
         )
         mgr = JobManager(config)
         mgr._service = MagicMock()
@@ -771,9 +775,9 @@ class TestJobTimeout:
     """Tests for per-job task timeout (D007)."""
 
     @pytest.mark.asyncio
-    async def test_job_exceeding_timeout_is_failed(self):
+    async def test_job_exceeding_timeout_is_failed(self, tmp_path: Path):
         """A job that exceeds job_timeout_seconds is marked FAILED."""
-        config = DaemonConfig(max_concurrent_jobs=2)
+        config = DaemonConfig(max_concurrent_jobs=2, state_db_path=tmp_path / "reg.db")
         mgr = JobManager(config)
         # Override for test speed (Pydantic ge=60 prevents construction with low values)
         mgr._config = config.model_copy(update={"job_timeout_seconds": 0.2})
@@ -796,9 +800,9 @@ class TestJobTimeout:
         assert "exceeded timeout" in (meta.error_message or "").lower()
 
     @pytest.mark.asyncio
-    async def test_job_within_timeout_completes(self):
+    async def test_job_within_timeout_completes(self, tmp_path: Path):
         """A job that finishes before job_timeout_seconds completes normally."""
-        config = DaemonConfig(max_concurrent_jobs=2)
+        config = DaemonConfig(max_concurrent_jobs=2, state_db_path=tmp_path / "reg.db")
         mgr = JobManager(config)
 
         from mozart.daemon.manager import DaemonJobStatus, JobMeta
@@ -819,9 +823,9 @@ class TestJobTimeout:
         assert meta.status == DaemonJobStatus.COMPLETED
 
     @pytest.mark.asyncio
-    async def test_timeout_records_failure(self):
+    async def test_timeout_records_failure(self, tmp_path: Path):
         """Timeout adds to the recent_failures deque (affects failure_rate_elevated)."""
-        config = DaemonConfig(max_concurrent_jobs=2)
+        config = DaemonConfig(max_concurrent_jobs=2, state_db_path=tmp_path / "reg.db")
         mgr = JobManager(config)
         mgr._config = config.model_copy(update={"job_timeout_seconds": 0.1})
 

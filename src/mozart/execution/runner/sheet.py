@@ -57,7 +57,7 @@ if TYPE_CHECKING:
     from mozart.backends.base import Backend
     from mozart.core.checkpoint import SheetState
     from mozart.core.config import CrossSheetConfig, JobConfig
-    from mozart.core.errors import ErrorClassifier
+    from mozart.core.errors import ClassificationResult, ErrorClassifier
     from mozart.core.logging import MozartLogger
     from mozart.execution.circuit_breaker import CircuitBreaker
     from mozart.execution.escalation import ConsoleCheckpointHandler, ConsoleEscalationHandler
@@ -116,8 +116,6 @@ from .models import (
 class _SheetSkipped(Exception):
     """Internal signal that a sheet was skipped during setup (e.g. via checkpoint)."""
 
-    pass
-
 
 class SheetExecutionMixin:
     """Mixin providing sheet execution methods for JobRunner.
@@ -128,6 +126,8 @@ class SheetExecutionMixin:
     """
 
     _MAX_EXECUTION_HISTORY = 20
+    _MAX_HEALING_CYCLES = 2
+    _MAX_PREFLIGHT_WARNINGS_LOG = 20
 
     # Type declarations for attributes from JobRunnerBase
     # These are populated at runtime by the base class __init__
@@ -192,6 +192,10 @@ class SheetExecutionMixin:
             error_code: str = "E101",
             suggested_wait_seconds: float | None = None,
         ) -> None: ...
+
+        def _classify_execution(
+            self, result: ExecutionResult,
+        ) -> ClassificationResult: ...
 
         # Methods from CostMixin
         async def _track_cost(
@@ -992,7 +996,7 @@ class SheetExecutionMixin:
         normal_attempts = 0
         completion_attempts = 0
         healing_attempts = 0
-        max_healing_cycles = 2  # Cap healing to prevent unlimited retry loops
+        max_healing_cycles = self._MAX_HEALING_CYCLES
 
         # Track execution history for judgment (Phase 4)
         # Capped to prevent unbounded memory growth during long retry loops.
@@ -1058,26 +1062,33 @@ class SheetExecutionMixin:
                 max_bytes=self.config.backend.max_output_capture_bytes,
             )
 
+            # Extract agent feedback if configured (GH#15)
+            self._extract_agent_feedback(sheet_state, result.stdout)
+
             # Track cost (v4 evolution: Cost Circuit Breaker)
             await self._enforce_cost_limits(result, sheet_state, state, sheet_num)
 
             # Track execution result for judgment (Phase 4)
             execution_history.append(result)
 
-            # Record execution in history (if sqlite backend supports it)
-            if hasattr(self.state_backend, 'record_execution'):
-                try:
-                    await self.state_backend.record_execution(
-                        job_id=self.config.name,
-                        sheet_num=sheet_num,
-                        attempt_num=sheet_state.attempt_count,
-                        prompt=current_prompt[:2000] if current_prompt else None,
-                        output=result.stdout[-5000:] if result and result.stdout else None,
-                        exit_code=result.exit_code if result else None,
-                        duration_seconds=result.duration_seconds if result else None,
-                    )
-                except Exception as e:
-                    self._logger.warning("record_execution_failed", error=str(e))
+            # Record execution in history (no-op for backends that don't support it)
+            try:
+                await self.state_backend.record_execution(
+                    job_id=self.config.name,
+                    sheet_num=sheet_num,
+                    attempt_num=sheet_state.attempt_count,
+                    prompt=current_prompt[:2000] if current_prompt else None,
+                    output=result.stdout[-5000:] if result and result.stdout else None,
+                    exit_code=result.exit_code if result else None,
+                    duration_seconds=result.duration_seconds if result else None,
+                )
+            except Exception as e:
+                self._logger.warning(
+                    "record_execution_failed",
+                    error=str(e),
+                    sheet_num=sheet_num,
+                    attempt_num=sheet_state.attempt_count,
+                )
 
             # ===== VALIDATION-FIRST APPROACH =====
             validation_start = time.monotonic()
@@ -1545,11 +1556,12 @@ class SheetExecutionMixin:
 
         # Read configured file patterns
         if cross_sheet.capture_files:
-            self._capture_cross_sheet_files(context, sheet_num, cross_sheet)
+            self._capture_cross_sheet_files(context, state, sheet_num, cross_sheet)
 
     def _capture_cross_sheet_files(
         self,
         context: SheetContext,
+        state: CheckpointState,
         sheet_num: int,
         cross_sheet: CrossSheetConfig,
     ) -> None:
@@ -1558,8 +1570,12 @@ class SheetExecutionMixin:
         Reads files matching the configured patterns and adds their contents
         to context.previous_files. Pattern variables are expanded using Jinja2.
 
+        Files modified before the current job's started_at are considered stale
+        (leftover from a previous run) and are skipped with a warning.
+
         Args:
             context: SheetContext to populate.
+            state: Current job state (used for stale file detection).
             sheet_num: Current sheet number.
             cross_sheet: Cross-sheet configuration.
         """
@@ -1569,6 +1585,9 @@ class SheetExecutionMixin:
             "workspace": str(self.config.workspace),
             "sheet_num": sheet_num,
         }
+
+        # Stale file threshold: files older than job start are from a previous run
+        job_start_ts = state.started_at.timestamp() if state.started_at else None
 
         for pattern in cross_sheet.capture_files:
             try:
@@ -1587,6 +1606,17 @@ class SheetExecutionMixin:
                 for file_path in glob.glob(expanded_pattern):
                     path = Path(file_path)
                     if path.is_file():
+                        # Skip stale files from previous runs
+                        if job_start_ts is not None:
+                            file_mtime = path.stat().st_mtime
+                            if file_mtime < job_start_ts:
+                                self._logger.debug(
+                                    "cross_sheet.stale_file_skipped",
+                                    path=str(path),
+                                    file_mtime=file_mtime,
+                                    job_started_at=job_start_ts,
+                                )
+                                continue
                         try:
                             content = path.read_text(encoding="utf-8")
                             max_chars = cross_sheet.max_output_chars
@@ -1605,6 +1635,56 @@ class SheetExecutionMixin:
                     pattern=pattern,
                     error=str(e),
                 )
+
+    def _extract_agent_feedback(
+        self,
+        sheet_state: SheetState,
+        stdout: str,
+    ) -> None:
+        """Extract structured feedback from agent output (GH#15).
+
+        When feedback collection is enabled, searches the agent's stdout
+        for a feedback block matching the configured regex pattern. The
+        extracted text is parsed according to the configured format and
+        stored in sheet_state.agent_feedback.
+
+        Args:
+            sheet_state: SheetState to populate with feedback.
+            stdout: Raw stdout from the execution.
+        """
+        feedback_config = self.config.feedback
+        if not feedback_config.enabled or not stdout:
+            return
+
+        match = re.search(feedback_config.pattern, stdout)
+        if not match or not match.group(1):
+            return
+
+        raw_feedback = match.group(1).strip()
+
+        if feedback_config.format == "json":
+            import json
+            try:
+                sheet_state.agent_feedback = json.loads(raw_feedback)
+            except json.JSONDecodeError as e:
+                self._logger.warning(
+                    "feedback.json_parse_failed",
+                    error=str(e),
+                    raw_length=len(raw_feedback),
+                )
+        elif feedback_config.format == "yaml":
+            try:
+                import yaml
+                sheet_state.agent_feedback = yaml.safe_load(raw_feedback)
+            except Exception as e:
+                self._logger.warning(
+                    "feedback.yaml_parse_failed",
+                    error=str(e),
+                    raw_length=len(raw_feedback),
+                )
+        else:
+            # text format — store as-is in a dict wrapper
+            sheet_state.agent_feedback = {"text": raw_feedback}
 
     def _run_preflight_checks(
         self,
@@ -1644,10 +1724,10 @@ class SheetExecutionMixin:
         metrics = result.prompt_metrics
 
         if result.has_warnings:
-            _MAX_PREFLIGHT_WARNINGS_LOG = 20
-            log_warnings = result.warnings[:_MAX_PREFLIGHT_WARNINGS_LOG]
-            if len(result.warnings) > _MAX_PREFLIGHT_WARNINGS_LOG:
-                extra = len(result.warnings) - _MAX_PREFLIGHT_WARNINGS_LOG
+            limit = self._MAX_PREFLIGHT_WARNINGS_LOG
+            log_warnings = result.warnings[:limit]
+            if len(result.warnings) > limit:
+                extra = len(result.warnings) - limit
                 log_warnings.append(f"... and {extra} more warnings")
             self._logger.warning(
                 "sheet.preflight_warnings",

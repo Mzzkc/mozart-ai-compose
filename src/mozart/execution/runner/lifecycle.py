@@ -531,9 +531,7 @@ class LifecycleMixin:
             "workspace": str(self.config.workspace),
             "validation_count": len(self.config.validations),
             "rate_limit_wait_minutes": self.config.rate_limit.wait_minutes,
-            "learning_enabled": (
-                self.config.learning.enabled if hasattr(self.config, "learning") else False
-            ),
+            "learning_enabled": self.config.learning.enabled,
             "circuit_breaker_enabled": self.config.circuit_breaker.enabled,
             "circuit_breaker_threshold": self.config.circuit_breaker.failure_threshold,
             "isolation_enabled": self.config.isolation.enabled,
@@ -651,6 +649,54 @@ class LifecycleMixin:
     # Execution Modes
     # =========================================================================
 
+    def _should_skip_sheet(self, sheet_num: int, state: CheckpointState) -> str | None:
+        """Evaluate conditional skip rules for a sheet.
+
+        Checks the skip_when config for a condition expression tied to this
+        sheet number. Conditions use a restricted expression syntax:
+        - ``sheets[N].status.value == "completed"``
+        - ``sheets[N].validation_passed``
+        - ``sheets[N].attempt_count > 2``
+
+        The expression is evaluated with a restricted builtins set for safety.
+        Condition expressions come from the operator's YAML config file, not
+        from untrusted user input.
+
+        Args:
+            sheet_num: Sheet number to evaluate.
+            state: Current job state for condition context.
+
+        Returns:
+            Skip reason string if the sheet should be skipped, None otherwise.
+        """
+        skip_conditions = self.config.sheet.skip_when
+        if not skip_conditions or sheet_num not in skip_conditions:
+            return None
+
+        condition = skip_conditions[sheet_num]
+        # Restricted builtins — only allow safe comparison operations
+        safe_builtins = {
+            "True": True, "False": False, "None": None,
+            "len": len, "bool": bool, "int": int, "str": str,
+            "any": any, "all": all, "max": max, "min": min,
+        }
+        try:
+            result = eval(  # noqa: S307 — operator-controlled config, not user input
+                condition,
+                {"__builtins__": safe_builtins},
+                {"sheets": state.sheets, "job": state},
+            )
+            if result:
+                return f"Condition met: {condition}"
+        except Exception as e:
+            self._logger.warning(
+                "skip_condition_eval_failed",
+                sheet_num=sheet_num,
+                condition=condition,
+                error=str(e),
+            )
+        return None
+
     async def _execute_sequential_mode(self, state: CheckpointState) -> None:
         """Execute sheets sequentially (one at a time).
 
@@ -671,6 +717,17 @@ class LifecycleMixin:
             # Check for pause signal before starting sheet (Job Control Integration)
             if self._check_pause_signal(state):
                 await self._handle_pause_request(state, next_sheet)
+
+            # Evaluate conditional skip rules (GH#13)
+            skip_reason = self._should_skip_sheet(next_sheet, state)
+            if skip_reason:
+                state.mark_sheet_skipped(next_sheet, reason=skip_reason)
+                await self.state_backend.save(state)
+                self.console.print(
+                    f"[yellow]Sheet {next_sheet}: Skipped ({skip_reason})[/yellow]"
+                )
+                next_sheet = self._get_next_sheet_dag_aware(state)
+                continue
 
             sheet_start = time.monotonic()
 
@@ -797,18 +854,33 @@ class LifecycleMixin:
                 )
 
             # Handle failures
-            if result.failed and self.config.parallel.fail_fast:
-                first_failed = result.failed[0]
-                error_msg = result.error_details.get(first_failed, "Unknown error")
-                state.mark_job_failed(f"Parallel batch failed: Sheet {first_failed} - {error_msg}")
-                await self.state_backend.save(state)
-                self._finalize_summary(state)
-                self._logger.error(
-                    "parallel.batch_failed",
-                    failed_sheets=result.failed,
-                    completed_sheets=result.completed,
-                )
-                raise FatalError(f"Sheet {first_failed} failed: {error_msg}")
+            if result.failed:
+                if self.config.parallel.fail_fast:
+                    first_failed = result.failed[0]
+                    error_msg = result.error_details.get(first_failed, "Unknown error")
+                    state.mark_job_failed(
+                        f"Parallel batch failed: Sheet {first_failed} - {error_msg}"
+                    )
+                    await self.state_backend.save(state)
+                    self._finalize_summary(state)
+                    self._logger.error(
+                        "parallel.batch_failed",
+                        failed_sheets=result.failed,
+                        completed_sheets=result.completed,
+                    )
+                    raise FatalError(f"Sheet {first_failed} failed: {error_msg}")
+                else:
+                    # Track permanently failed sheets so they're not retried
+                    # infinitely. The batch already ran retry logic internally
+                    # via _execute_sheet_with_recovery, so failures here are
+                    # permanent (retries exhausted).
+                    for sheet_num in result.failed:
+                        self._parallel_executor._permanently_failed.add(sheet_num)
+                    self._logger.warning(
+                        "parallel.sheets_permanently_failed",
+                        failed_sheets=result.failed,
+                        batch_number=batch_count,
+                    )
 
             # Pause between batches
             completed_count = len(self._get_completed_sheets(state))

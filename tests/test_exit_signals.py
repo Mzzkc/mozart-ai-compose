@@ -242,7 +242,10 @@ class TestClaudeCliBackendSignalDetection:
 
         assert result.success is False
         assert result.exit_code is None
-        assert result.exit_signal == signal.SIGKILL
+        # Backend sends SIGTERM first for graceful shutdown; SIGKILL only
+        # escalates when the process doesn't exit within the grace period.
+        # Mock process.wait() returns immediately, so SIGTERM succeeds.
+        assert result.exit_signal == signal.SIGTERM
         assert result.exit_reason == "timeout"
         assert "timed out" in result.stderr.lower()
 

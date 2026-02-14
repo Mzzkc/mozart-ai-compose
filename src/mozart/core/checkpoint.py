@@ -366,6 +366,16 @@ class SheetState(BaseModel):
         description="Confidence in cost estimate (1.0=exact, 0.7=estimated from chars)",
     )
 
+    # Developer feedback (GH#15: Developer Feedback Mode)
+    agent_feedback: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Structured feedback from the agent about this sheet execution. "
+            "Extracted from agent output via feedback_pattern regex. "
+            "Typically includes keys like 'confidence', 'blockers', 'notes'."
+        ),
+    )
+
     def capture_output(
         self,
         stdout: str,

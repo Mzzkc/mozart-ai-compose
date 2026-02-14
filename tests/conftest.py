@@ -3,6 +3,7 @@
 import logging
 from collections.abc import Generator
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import structlog
@@ -127,6 +128,26 @@ def reset_logging_state() -> Generator[None, None, None]:
         root_logger.removeHandler(handler)
     for handler in original_handlers:
         root_logger.addHandler(handler)
+
+
+@pytest.fixture(autouse=True)
+def no_daemon_detection() -> Generator[None, None, None]:
+    """Prevent dashboard tests from connecting to a real daemon.
+
+    The dashboard's JobControlService.is_daemon_available() checks for a
+    Unix socket, which succeeds if mozartd happens to be running. Patching
+    it globally ensures dashboard API tests always take the subprocess path.
+
+    Note: CLI commands that use ``try_daemon_route()`` from
+    ``mozart.daemon.detect`` are NOT affected by this fixture -- those
+    tests mock ``try_daemon_route`` directly where needed.
+    """
+    with patch(
+        "mozart.dashboard.services.job_control.JobControlService.is_daemon_available",
+        new_callable=AsyncMock,
+        return_value=False,
+    ):
+        yield
 
 
 @pytest.fixture

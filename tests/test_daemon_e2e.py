@@ -44,6 +44,7 @@ def _make_daemon_config(tmp_path: Path) -> DaemonConfig:
     return DaemonConfig(
         socket=SocketConfig(path=tmp_path / "test-mozartd.sock"),
         pid_file=tmp_path / "test-mozartd.pid",
+        state_db_path=tmp_path / "test-registry.db",
         max_concurrent_jobs=2,
         max_concurrent_sheets=3,
         # Use a fast monitor interval for tests
@@ -757,6 +758,7 @@ class TestBackpressureIntegration:
         config = DaemonConfig(
             socket=SocketConfig(path=tmp_path / "test-bp.sock"),
             pid_file=tmp_path / "test-bp.pid",
+            state_db_path=tmp_path / "test-registry.db",
             max_concurrent_jobs=2,
             max_concurrent_sheets=3,
             monitor_interval_seconds=5.0,
@@ -1323,6 +1325,7 @@ class TestMonitorCancellation:
         config = DaemonConfig(
             socket=SocketConfig(path=tmp_path / "test-mon.sock"),
             pid_file=tmp_path / "test-mon.pid",
+            state_db_path=tmp_path / "test-registry.db",
             max_concurrent_jobs=4,
             max_concurrent_sheets=10,
             # Minimum valid monitor interval for test responsiveness

@@ -286,7 +286,7 @@ class TestParallelCancellationNoCrash:
         """One sheet dying with SIGABRT should not crash the parallel executor."""
         from mozart.core.checkpoint import CheckpointState, SheetStatus
         from mozart.execution.dag import DependencyDAG
-        from mozart.execution.parallel import ParallelExecutionConfig, execute_sheets_parallel
+        from mozart.execution.parallel import ParallelExecutionConfig, ParallelExecutor
 
         dag = DependencyDAG.from_dependencies(total_sheets=3, dependencies=None)
         parallel_runner.dependency_dag = dag
@@ -297,10 +297,7 @@ class TestParallelCancellationNoCrash:
 
         async def mock_execute(st, sheet_num):
             if sheet_num == 2:
-                # Simulate SIGABRT: the sheet runner would raise after detecting
-                # the process was killed by signal 6
                 raise RuntimeError("Process killed by SIGABRT (signal 6)")
-            # Small delay to ensure parallel execution
             await asyncio.sleep(0.01)
             st.sheets[sheet_num] = MagicMock(status=SheetStatus.COMPLETED)
 
@@ -312,9 +309,11 @@ class TestParallelCancellationNoCrash:
             enabled=True, max_concurrent=3, fail_fast=True,
         )
 
-        # This must not raise RuntimeError: Event loop is closed
-        result = await execute_sheets_parallel(parallel_runner, state, config)
-        assert result is False  # Sheet 2 failed
+        executor = ParallelExecutor(parallel_runner, config)
+        batch = executor.get_next_parallel_batch(state)
+        result = await executor.execute_batch(batch, state)
+        assert not result.success
+        assert 2 in result.failed
 
     @pytest.mark.asyncio
     async def test_multiple_sheets_fail_simultaneously(
@@ -323,7 +322,7 @@ class TestParallelCancellationNoCrash:
         """Multiple sheets failing at the same time should not cause crashes."""
         from mozart.core.checkpoint import CheckpointState, SheetStatus
         from mozart.execution.dag import DependencyDAG
-        from mozart.execution.parallel import ParallelExecutionConfig, execute_sheets_parallel
+        from mozart.execution.parallel import ParallelExecutionConfig, ParallelExecutor
 
         dag = DependencyDAG.from_dependencies(total_sheets=4, dependencies=None)
         parallel_runner.dependency_dag = dag
@@ -346,8 +345,10 @@ class TestParallelCancellationNoCrash:
             enabled=True, max_concurrent=4, fail_fast=True,
         )
 
-        result = await execute_sheets_parallel(parallel_runner, state, config)
-        assert result is False
+        executor = ParallelExecutor(parallel_runner, config)
+        batch = executor.get_next_parallel_batch(state)
+        result = await executor.execute_batch(batch, state)
+        assert not result.success
 
 
 # =============================================================================

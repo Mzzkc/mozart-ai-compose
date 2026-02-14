@@ -56,130 +56,107 @@ class TestValidateCommand:
 
 
 class TestListCommand:
-    """Tests for the list command."""
+    """Tests for the list command.
 
-    def test_list_empty_state(self, tmp_path: Path) -> None:
-        """Test list command when no jobs exist."""
-        workspace = tmp_path / "empty_workspace"
-        workspace.mkdir()
+    ``mozart list`` queries the daemon's persistent registry via
+    ``try_daemon_route("job.list", {})``.  All tests mock this route.
+    """
 
-        result = runner.invoke(app, ["list", "--workspace", str(workspace)])
+    @staticmethod
+    def _mock_route(jobs: list[dict]):
+        """Return a patch that makes try_daemon_route return *jobs*."""
+        async def _fake_route(method, params):
+            return (True, jobs)
+        return patch("mozart.daemon.detect.try_daemon_route", side_effect=_fake_route)
+
+    @staticmethod
+    def _mock_route_down():
+        """Return a patch simulating no daemon running."""
+        async def _fake_route(method, params):
+            return (False, None)
+        return patch("mozart.daemon.detect.try_daemon_route", side_effect=_fake_route)
+
+    def test_list_empty_state(self) -> None:
+        """Test list command when daemon has no jobs."""
+        with self._mock_route([]):
+            result = runner.invoke(app, ["list"])
         assert result.exit_code == 0
         assert "No jobs found" in result.stdout
 
-    def test_list_with_json_state(self, tmp_path: Path) -> None:
-        """Test list command with JSON state files."""
-        # Create a mock JSON state file
-        state = CheckpointState(
-            job_id="test-job-1",
-            job_name="Test Job 1",
-            total_sheets=5,
-            last_completed_sheet=3,
-            status=JobStatus.RUNNING,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-        )
-
-        state_file = tmp_path / "test-job-1.json"
-        state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
-
-        result = runner.invoke(app, ["list", "--workspace", str(tmp_path)])
+    def test_list_with_running_job(self) -> None:
+        """Test list command shows a running job from daemon."""
+        jobs = [{
+            "job_id": "test-job-1",
+            "config_path": "/tmp/test.yaml",
+            "workspace": "/tmp/ws",
+            "status": "running",
+            "submitted_at": 1707900000.0,
+            "started_at": 1707900001.0,
+            "pid": 12345,
+        }]
+        with self._mock_route(jobs):
+            result = runner.invoke(app, ["list"])
         assert result.exit_code == 0
         assert "test-job-1" in result.stdout
         assert "running" in result.stdout.lower()
-        assert "3/5" in result.stdout
 
-    def test_list_with_multiple_jobs(self, tmp_path: Path) -> None:
-        """Test list command with multiple job state files."""
-        # Create multiple job state files
-        for i, status in enumerate([JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.PENDING]):
-            state = CheckpointState(
-                job_id=f"job-{i}",
-                job_name=f"Job {i}",
-                total_sheets=10,
-                last_completed_sheet=i * 3,
-                status=status,
-                created_at=datetime.now(UTC),
-                updated_at=datetime.now(UTC),
-            )
-            state_file = tmp_path / f"job-{i}.json"
-            state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
-
-        result = runner.invoke(app, ["list", "--workspace", str(tmp_path)])
+    def test_list_with_multiple_jobs(self) -> None:
+        """Test list command with multiple jobs from daemon."""
+        jobs = [
+            {"job_id": "job-0", "status": "completed", "workspace": "/w0", "submitted_at": 1707900000.0},
+            {"job_id": "job-1", "status": "failed", "workspace": "/w1", "submitted_at": 1707900001.0},
+            {"job_id": "job-2", "status": "queued", "workspace": "/w2", "submitted_at": 1707900002.0},
+        ]
+        with self._mock_route(jobs):
+            result = runner.invoke(app, ["list"])
         assert result.exit_code == 0
         assert "job-0" in result.stdout
         assert "job-1" in result.stdout
         assert "job-2" in result.stdout
         assert "Showing 3 job(s)" in result.stdout
 
-    def test_list_filter_by_status(self, tmp_path: Path) -> None:
+    def test_list_filter_by_status(self) -> None:
         """Test list command with status filter."""
-        # Create jobs with different statuses
-        for i, status in enumerate([JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.COMPLETED]):
-            state = CheckpointState(
-                job_id=f"job-{i}",
-                job_name=f"Job {i}",
-                total_sheets=10,
-                last_completed_sheet=10 if status == JobStatus.COMPLETED else 5,
-                status=status,
-                created_at=datetime.now(UTC),
-                updated_at=datetime.now(UTC),
-            )
-            state_file = tmp_path / f"job-{i}.json"
-            state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
-
-        # Filter for completed jobs
-        result = runner.invoke(
-            app, ["list", "--workspace", str(tmp_path), "--status", "completed"]
-        )
+        jobs = [
+            {"job_id": "job-0", "status": "completed", "workspace": "/w0", "submitted_at": 1707900000.0},
+            {"job_id": "job-1", "status": "failed", "workspace": "/w1", "submitted_at": 1707900001.0},
+            {"job_id": "job-2", "status": "completed", "workspace": "/w2", "submitted_at": 1707900002.0},
+        ]
+        with self._mock_route(jobs):
+            result = runner.invoke(app, ["list", "--status", "completed"])
         assert result.exit_code == 0
         assert "job-0" in result.stdout
         assert "job-2" in result.stdout
-        # job-1 is failed, should not appear
         assert "job-1" not in result.stdout
         assert "Showing 2 job(s)" in result.stdout
 
-    def test_list_filter_by_invalid_status(self, tmp_path: Path) -> None:
-        """Test list command with invalid status filter."""
-        workspace = tmp_path / "ws"
-        workspace.mkdir()
+    def test_list_filter_no_matches(self) -> None:
+        """Test list command with status filter that matches nothing."""
+        jobs = [
+            {"job_id": "job-0", "status": "completed", "workspace": "/w0", "submitted_at": 1707900000.0},
+        ]
+        with self._mock_route(jobs):
+            result = runner.invoke(app, ["list", "--status", "running"])
+        assert result.exit_code == 0
+        assert "No jobs found" in result.stdout
 
-        result = runner.invoke(
-            app, ["list", "--workspace", str(workspace), "--status", "bogus"]
-        )
-        assert result.exit_code == 1
-        assert "Invalid status" in result.stdout
-
-    def test_list_with_limit(self, tmp_path: Path) -> None:
+    def test_list_with_limit(self) -> None:
         """Test list command respects --limit option."""
-        # Create 5 job state files
-        for i in range(5):
-            state = CheckpointState(
-                job_id=f"job-{i}",
-                job_name=f"Job {i}",
-                total_sheets=10,
-                last_completed_sheet=i,
-                status=JobStatus.COMPLETED,
-                created_at=datetime.now(UTC),
-                updated_at=datetime.now(UTC),
-            )
-            state_file = tmp_path / f"job-{i}.json"
-            state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
-
-        # Request only 2
-        result = runner.invoke(
-            app, ["list", "--workspace", str(tmp_path), "--limit", "2"]
-        )
+        jobs = [
+            {"job_id": f"job-{i}", "status": "completed", "workspace": f"/w{i}", "submitted_at": 1707900000.0 + i}
+            for i in range(5)
+        ]
+        with self._mock_route(jobs):
+            result = runner.invoke(app, ["list", "--limit", "2"])
         assert result.exit_code == 0
         assert "Showing 2 job(s)" in result.stdout
 
-    def test_list_nonexistent_workspace(self, tmp_path: Path) -> None:
-        """Test list command with nonexistent workspace."""
-        fake_workspace = tmp_path / "does_not_exist"
-
-        result = runner.invoke(app, ["list", "--workspace", str(fake_workspace)])
+    def test_list_daemon_not_running(self) -> None:
+        """Test list command when daemon is not running."""
+        with self._mock_route_down():
+            result = runner.invoke(app, ["list"])
         assert result.exit_code == 1
-        assert "Workspace not found" in result.stdout
+        assert "daemon is not running" in result.stdout
 
 
 class TestRunCommand:
@@ -1301,14 +1278,14 @@ class TestLoggingOptions:
         # New enhanced validation shows different output
         assert "Configuration valid" in result.stdout or "YAML syntax valid" in result.stdout
 
-    def test_log_level_with_list_command(self, tmp_path: Path) -> None:
+    def test_log_level_with_list_command(self) -> None:
         """Test --log-level works with list command."""
-        workspace = tmp_path / "empty_workspace"
-        workspace.mkdir()
-
-        result = runner.invoke(
-            app, ["--log-level", "WARNING", "list", "--workspace", str(workspace)]
-        )
+        async def _fake_route(method, params):
+            return (True, [])
+        with patch("mozart.daemon.detect.try_daemon_route", side_effect=_fake_route):
+            result = runner.invoke(
+                app, ["--log-level", "WARNING", "list"]
+            )
         assert result.exit_code == 0
         assert "No jobs found" in result.stdout
 

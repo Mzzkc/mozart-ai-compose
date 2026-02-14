@@ -1,0 +1,411 @@
+"""Job and sheet configuration models.
+
+Defines the top-level JobConfig, SheetConfig, and PromptConfig models.
+"""
+
+from __future__ import annotations
+
+import warnings
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal
+
+import yaml
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
+
+if TYPE_CHECKING:
+    from mozart.core.fan_out import FanOutMetadata  # noqa: F401
+
+from mozart.core.config.backend import BackendConfig, BridgeConfig
+from mozart.core.config.execution import (
+    CircuitBreakerConfig,
+    CostLimitConfig,
+    ParallelConfig,
+    RateLimitConfig,
+    RetryConfig,
+    ValidationRule,
+)
+from mozart.core.config.learning import (
+    CheckpointConfig,
+    GroundingConfig,
+    LearningConfig,
+)
+from mozart.core.config.orchestration import (
+    ConcertConfig,
+    ConductorConfig,
+    NotificationConfig,
+    PostSuccessHookConfig,
+)
+from mozart.core.config.workspace import (
+    AIReviewConfig,
+    CrossSheetConfig,
+    FeedbackConfig,
+    IsolationConfig,
+    LogConfig,
+    WorkspaceLifecycleConfig,
+)
+
+
+class SheetConfig(BaseModel):
+    """Configuration for sheet processing.
+
+    In Mozart's musical theme, a composition is divided into sheets,
+    each containing a portion of the work to be performed.
+
+    Fan-out support: When ``fan_out`` is specified, stages are expanded into
+    concrete sheets at parse time. For example, ``total_items=7, fan_out={2: 3}``
+    produces 9 concrete sheets (stage 2 instantiated 3 times). After expansion,
+    ``total_items`` and ``dependencies`` reflect expanded values, and ``fan_out``
+    is cleared to ``{}`` to prevent re-expansion on resume.
+    """
+
+    size: int = Field(ge=1, description="Number of items per sheet")
+    total_items: int = Field(ge=1, description="Total number of items to process")
+    start_item: int = Field(default=1, ge=1, description="First item number (1-indexed)")
+
+    # Sheet dependencies (v17 evolution: Sheet Dependency DAG)
+    dependencies: dict[int, list[int]] = Field(
+        default_factory=dict,
+        description=(
+            "Sheet dependency declarations. Map of sheet_num -> list of prerequisite sheets. "
+            "Example: {3: [1, 2], 4: [3]} means sheet 3 needs 1 and 2, sheet 4 needs 3. "
+            "Sheets without entries are independent (can run immediately or after config order)."
+        ),
+    )
+
+    # Conditional execution: skip sheets based on runtime state (GH#13)
+    skip_when: dict[int, str] = Field(
+        default_factory=dict,
+        description=(
+            "Conditional skip rules. Map of sheet_num -> condition expression. "
+            "Expression is evaluated as a Python expression with access to 'sheets' dict "
+            "(sheet_num -> SheetState) and 'job' (CheckpointState). "
+            "If the expression evaluates to truthy, the sheet is SKIPPED. "
+            "Example: {5: \"sheets.get(3) and sheets[3].validation_passed\"} "
+            "skips sheet 5 when sheet 3's validations passed (only run on failure)."
+        ),
+    )
+
+    # Fan-out: parameterized stage instantiation
+    fan_out: dict[int, int] = Field(
+        default_factory=dict,
+        description=(
+            "Fan-out declarations. Map of stage_num -> instance count. "
+            "Stages not listed default to 1 instance. "
+            "Example: {2: 3, 4: 3} creates 3 parallel instances of stages 2 and 4. "
+            "Requires size=1 and start_item=1. Cleared after expansion."
+        ),
+    )
+
+    fan_out_stage_map: dict[int, dict[str, int]] | None = Field(
+        default=None,
+        description=(
+            "Per-sheet fan-out metadata, populated by expansion. "
+            "Map of sheet_num -> {stage, instance, fan_count}. "
+            "Survives serialization for resume support."
+        ),
+    )
+
+    @property
+    def total_sheets(self) -> int:
+        """Calculate total number of sheets."""
+        return (self.total_items - self.start_item + 1 + self.size - 1) // self.size
+
+    @property
+    def total_stages(self) -> int:
+        """Return the original stage count.
+
+        After fan-out expansion, total_items reflects expanded sheet count.
+        total_stages preserves the original logical stage count from fan_out_stage_map.
+        When no fan-out was used, total_stages == total_sheets (identity).
+        """
+        if self.fan_out_stage_map:
+            return max(
+                meta["stage"] for meta in self.fan_out_stage_map.values()
+            )
+        return self.total_sheets
+
+    def get_fan_out_metadata(self, sheet_num: int) -> FanOutMetadata:  # noqa: F821
+        """Get fan-out metadata for a specific sheet.
+
+        Args:
+            sheet_num: Concrete sheet number (1-indexed).
+
+        Returns:
+            FanOutMetadata with stage, instance, and fan_count.
+            When no fan-out is configured, returns identity metadata
+            (stage=sheet_num, instance=1, fan_count=1).
+        """
+        from mozart.core.fan_out import FanOutMetadata
+
+        if self.fan_out_stage_map and sheet_num in self.fan_out_stage_map:
+            meta = self.fan_out_stage_map[sheet_num]
+            return FanOutMetadata(
+                stage=meta["stage"],
+                instance=meta["instance"],
+                fan_count=meta["fan_count"],
+            )
+        return FanOutMetadata(stage=sheet_num, instance=1, fan_count=1)
+
+    @field_validator("fan_out")
+    @classmethod
+    def validate_fan_out(cls, v: dict[int, int]) -> dict[int, int]:
+        """Validate fan_out field values."""
+        for stage, count in v.items():
+            if not isinstance(stage, int) or stage < 1:
+                raise ValueError(
+                    f"Fan-out stage must be positive integer, got {stage}"
+                )
+            if not isinstance(count, int) or count < 1:
+                raise ValueError(
+                    f"Fan-out count for stage {stage} must be >= 1, got {count}"
+                )
+        return v
+
+    @field_validator("dependencies")
+    @classmethod
+    def validate_dependencies(
+        cls, v: dict[int, list[int]], info: ValidationInfo
+    ) -> dict[int, list[int]]:
+        """Validate dependency declarations.
+
+        Note: Full validation (range checks, cycle detection) happens when
+        the DependencyDAG is built at runtime, since total_sheets isn't
+        available during field validation.
+        """
+        for sheet_num, deps in v.items():
+            if not isinstance(sheet_num, int) or sheet_num < 1:
+                raise ValueError(f"Sheet number must be positive integer, got {sheet_num}")
+            if not isinstance(deps, list):
+                raise ValueError(f"Dependencies for sheet {sheet_num} must be a list")
+            for dep in deps:
+                if not isinstance(dep, int) or dep < 1:
+                    raise ValueError(
+                        f"Dependency must be positive integer, got {dep} for sheet {sheet_num}"
+                    )
+                if dep == sheet_num:
+                    raise ValueError(f"Sheet {sheet_num} cannot depend on itself")
+        return v
+
+    @model_validator(mode="after")
+    def expand_fan_out_config(self) -> SheetConfig:
+        """Expand fan_out declarations into concrete sheet assignments.
+
+        This runs after field validators. When fan_out is non-empty:
+        1. Validates constraints (size=1, start_item=1)
+        2. Calls expand_fan_out() to compute concrete sheet assignments
+        3. Overwrites total_items and dependencies with expanded values
+        4. Stores metadata in fan_out_stage_map for resume support
+        5. Clears fan_out={} to prevent re-expansion on resume
+        """
+        if not self.fan_out:
+            return self
+
+        # Enforce constraints for fan-out
+        if self.size != 1:
+            raise ValueError(
+                f"fan_out requires size=1, got size={self.size}. "
+                "Each stage must map to exactly one sheet for fan-out to work."
+            )
+        if self.start_item != 1:
+            raise ValueError(
+                f"fan_out requires start_item=1, got start_item={self.start_item}. "
+                "Fan-out stages are 1-indexed from the beginning."
+            )
+
+        from mozart.core.fan_out import expand_fan_out
+
+        expansion = expand_fan_out(
+            total_stages=self.total_items,
+            fan_out=self.fan_out,
+            stage_dependencies=self.dependencies,
+        )
+
+        # Overwrite with expanded values
+        self.total_items = expansion.total_sheets
+        self.dependencies = expansion.expanded_dependencies
+
+        # Store serializable metadata for resume
+        self.fan_out_stage_map = {
+            sheet_num: {
+                "stage": meta.stage,
+                "instance": meta.instance,
+                "fan_count": meta.fan_count,
+            }
+            for sheet_num, meta in expansion.sheet_metadata.items()
+        }
+
+        # Clear fan_out to prevent re-expansion on resume
+        self.fan_out = {}
+
+        return self
+
+
+class PromptConfig(BaseModel):
+    """Configuration for prompt templating."""
+
+    template: str | None = Field(
+        default=None,
+        description="Inline Jinja2 template",
+    )
+    template_file: Path | None = Field(
+        default=None,
+        description="Path to external .j2 template file",
+    )
+    variables: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Static variables available in template",
+    )
+    stakes: str | None = Field(
+        default=None,
+        description="Motivational stakes section to append",
+    )
+    thinking_method: str | None = Field(
+        default=None,
+        description="Thinking methodology to inject into prompt",
+    )
+
+    @model_validator(mode="after")
+    def at_least_one_template(self) -> PromptConfig:
+        """Warn when no template source is provided (falls back to default prompt)."""
+        if self.template is not None and self.template_file is not None:
+            raise ValueError(
+                "PromptConfig accepts 'template' or 'template_file', not both"
+            )
+        return self
+
+
+class JobConfig(BaseModel):
+    """Complete configuration for an orchestration job."""
+
+    name: str = Field(description="Unique job name")
+    description: str | None = Field(default=None, description="Human-readable description")
+    workspace: Path = Field(default=Path("./workspace"), description="Output directory")
+
+    backend: BackendConfig = Field(default_factory=BackendConfig)
+    sheet: SheetConfig
+    prompt: PromptConfig
+
+    retry: RetryConfig = Field(default_factory=RetryConfig)
+    rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
+    circuit_breaker: CircuitBreakerConfig = Field(default_factory=CircuitBreakerConfig)
+    cost_limits: CostLimitConfig = Field(default_factory=CostLimitConfig)
+    learning: LearningConfig = Field(default_factory=LearningConfig)
+    grounding: GroundingConfig = Field(default_factory=GroundingConfig)
+    ai_review: AIReviewConfig = Field(default_factory=AIReviewConfig)
+    logging: LogConfig = Field(default_factory=LogConfig)
+    workspace_lifecycle: WorkspaceLifecycleConfig = Field(
+        default_factory=WorkspaceLifecycleConfig,
+        description="Workspace lifecycle management. "
+        "Controls archival of workspace files on --fresh runs.",
+    )
+    isolation: IsolationConfig = Field(
+        default_factory=IsolationConfig,
+        description="Execution isolation configuration. "
+        "Enables parallel-safe job execution via git worktrees.",
+    )
+    conductor: ConductorConfig = Field(
+        default_factory=ConductorConfig,
+        description="Conductor identity and preferences. "
+        "Identifies who (human or AI) is conducting this job.",
+    )
+    parallel: ParallelConfig = Field(
+        default_factory=ParallelConfig,
+        description="Parallel sheet execution configuration. "
+        "Enables running independent sheets concurrently.",
+    )
+    checkpoints: CheckpointConfig = Field(
+        default_factory=CheckpointConfig,
+        description="Proactive checkpoint configuration. "
+        "Enables pre-execution approval for configurable triggers.",
+    )
+    bridge: BridgeConfig | None = Field(
+        default=None,
+        description="Mozart-Ollama bridge configuration. "
+        "Enables Ollama backend with MCP tool support.",
+    )
+    cross_sheet: CrossSheetConfig | None = Field(
+        default=None,
+        description="Cross-sheet context configuration. "
+        "Enables passing outputs and files between sheets for multi-phase workflows.",
+    )
+    feedback: FeedbackConfig = Field(
+        default_factory=FeedbackConfig,
+        description="Developer feedback collection configuration (GH#15). "
+        "When enabled, extracts structured feedback from agent output after each sheet.",
+    )
+
+    validations: list[ValidationRule] = Field(default_factory=list)
+    notifications: list[NotificationConfig] = Field(default_factory=list)
+
+    # Concert orchestration (job chaining)
+    on_success: list[PostSuccessHookConfig] = Field(
+        default_factory=list,
+        description="Hooks to run after successful job completion. "
+        "Enables chaining jobs into a Concert.",
+    )
+    concert: ConcertConfig = Field(
+        default_factory=ConcertConfig,
+        description="Configuration for concert orchestration (job chaining)",
+    )
+
+    state_backend: Literal["json", "sqlite"] = Field(
+        default="sqlite",
+        description="State storage backend",
+    )
+    state_path: Path | None = Field(
+        default=None,
+        description="Path for state storage (default: workspace/.mozart-state)",
+    )
+
+    pause_between_sheets_seconds: int = Field(
+        default=10,
+        ge=0,
+        description="Seconds to wait between sheets",
+    )
+
+    @model_validator(mode="after")
+    def _warn_parallel_isolation(self) -> JobConfig:
+        """Warn when parallel execution and worktree isolation are both enabled (#29).
+
+        Worktree isolation creates a single worktree for the job, but parallel
+        sheets share it.  This combination is safe for read-only parallel sheets
+        but risky when parallel sheets both write to the worktree.
+        """
+        if self.parallel.enabled and self.isolation.enabled:
+            warnings.warn(
+                "parallel.enabled and isolation.enabled are both set. "
+                "Parallel sheets will share the same worktree — ensure "
+                "they don't write to overlapping paths.",
+                UserWarning,
+                stacklevel=2,
+            )
+        return self
+
+    @classmethod
+    def from_yaml(cls, path: Path) -> JobConfig:
+        """Load job configuration from a YAML file."""
+        with open(path) as f:
+            data = yaml.safe_load(f)
+        return cls.model_validate(data)
+
+    @classmethod
+    def from_yaml_string(cls, yaml_str: str) -> JobConfig:
+        """Load job configuration from a YAML string."""
+        data = yaml.safe_load(yaml_str)
+        return cls.model_validate(data)
+
+    def get_state_path(self) -> Path:
+        """Get the resolved state path."""
+        if self.state_path:
+            return self.state_path
+        if self.state_backend == "json":
+            return self.workspace / ".mozart-state.json"
+        return self.workspace / ".mozart-state.db"
+
+    def get_outcome_store_path(self) -> Path:
+        """Get the resolved outcome store path for learning."""
+        if self.learning.outcome_store_path:
+            return self.learning.outcome_store_path
+        if self.learning.outcome_store_type == "json":
+            return self.workspace / ".mozart-outcomes.json"
+        return self.workspace / ".mozart-outcomes.db"

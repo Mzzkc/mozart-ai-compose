@@ -256,8 +256,8 @@ def create_jobs_table() -> Table:
     table = Table(title="Mozart Jobs")
     table.add_column("Job ID", style="cyan", no_wrap=True)
     table.add_column("Status", style="bold")
-    table.add_column("Progress", justify="right")
-    table.add_column("Updated", style="dim")
+    table.add_column("Workspace", style="dim", no_wrap=True)
+    table.add_column("Submitted", style="dim")
     return table
 
 

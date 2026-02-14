@@ -327,6 +327,7 @@ class ClaudeCliBackend(Backend):
 
         Returns an ExecutionResult indicating timeout failure.
         """
+        escalated_to_kill = False
         try:
             process.terminate()
         except ProcessLookupError:
@@ -335,6 +336,7 @@ class ClaudeCliBackend(Backend):
             try:
                 await asyncio.wait_for(process.wait(), timeout=GRACEFUL_TERMINATION_TIMEOUT)
             except TimeoutError:
+                escalated_to_kill = True
                 try:
                     process.kill()
                 except ProcessLookupError:
@@ -342,6 +344,7 @@ class ClaudeCliBackend(Backend):
                 await process.wait()
 
         duration = time.monotonic() - start_time
+        actual_signal = signal.SIGKILL if escalated_to_kill else signal.SIGTERM
 
         _logger.error(
             "execution_timeout",
@@ -349,6 +352,7 @@ class ClaudeCliBackend(Backend):
             timeout_seconds=self.timeout_seconds,
             bytes_received=bytes_received,
             lines_received=lines_received,
+            termination_signal=actual_signal,
         )
 
         if self.progress_callback:
@@ -373,7 +377,7 @@ class ClaudeCliBackend(Backend):
         return ExecutionResult(
             success=False,
             exit_code=None,
-            exit_signal=signal.SIGKILL,
+            exit_signal=actual_signal,
             exit_reason="timeout",
             stdout=partial_stdout,
             stderr=stderr_combined,
@@ -558,7 +562,10 @@ class ClaudeCliBackend(Backend):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self.working_directory,
-                env=os.environ.copy(),
+                env={
+                    k: v for k, v in os.environ.items()
+                    if k != "CLAUDECODE"
+                },
                 start_new_session=True,
             )
 

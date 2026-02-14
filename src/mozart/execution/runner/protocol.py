@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from mozart.core.logging import ExecutionContext, MozartLogger
     from mozart.execution.circuit_breaker import CircuitBreaker
     from mozart.execution.dag import DependencyDAG
+    from mozart.execution.escalation import ConsoleCheckpointHandler, ConsoleEscalationHandler
     from mozart.execution.grounding import GroundingEngine
     from mozart.execution.parallel import ParallelExecutor
     from mozart.execution.preflight import PreflightChecker
@@ -74,8 +75,8 @@ class RunnerProtocol(Protocol):
 
     # ── Learning components ──────────────────────────────────────────
     outcome_store: OutcomeStore | None
-    escalation_handler: Any  # ConsoleEscalationHandler | None
-    checkpoint_handler: Any  # ConsoleCheckpointHandler | None
+    escalation_handler: ConsoleEscalationHandler | None
+    checkpoint_handler: ConsoleCheckpointHandler | None
     judgment_client: JudgmentClient | None
 
     # ── Progress callbacks ───────────────────────────────────────────

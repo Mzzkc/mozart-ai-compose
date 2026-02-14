@@ -10,12 +10,11 @@ import asyncio
 import os
 import time
 import traceback
-import uuid
 from collections import deque
+from collections.abc import Coroutine
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from collections.abc import Coroutine
 from typing import Any
 
 import mozart
@@ -28,6 +27,7 @@ from mozart.daemon.learning_hub import LearningHub
 from mozart.daemon.monitor import ResourceMonitor
 from mozart.daemon.output import StructuredOutput
 from mozart.daemon.rate_coordinator import RateLimitCoordinator
+from mozart.daemon.registry import JobRegistry
 from mozart.daemon.scheduler import GlobalSheetScheduler
 from mozart.daemon.task_utils import log_task_exception
 from mozart.daemon.types import JobRequest, JobResponse
@@ -73,6 +73,8 @@ class JobMeta:
             "submitted_at": self.submitted_at,
             "started_at": self.started_at,
         }
+        if self.error_message:
+            result["error_message"] = self.error_message
         if self.error_traceback:
             result["error_traceback"] = self.error_traceback
         return result
@@ -140,10 +142,19 @@ class JobManager:
         )
         self._scheduler.set_backpressure(self._backpressure)
 
+        # Persistent job registry — survives daemon restarts.
+        db_path = config.state_db_path.expanduser()
+        self._registry = JobRegistry(db_path)
+
     # ─── Lifecycle ────────────────────────────────────────────────────
 
     async def start(self) -> None:
         """Start daemon subsystems (learning hub, monitor, etc.)."""
+        # Mark any jobs left running from a previous daemon as failed
+        orphan_count = self._registry.mark_orphans_failed()
+        if orphan_count:
+            _logger.info("manager.orphans_recovered", count=orphan_count)
+
         await self._learning_hub.start()
         # Create service with shared store now that the hub is initialized
         self._service = JobService(
@@ -166,6 +177,25 @@ class JobManager:
             raise RuntimeError("JobManager not started — call start() first")
         return self._service
 
+    # ─── Helpers ───────────────────────────────────────────────────────
+
+    def _generate_job_id(self, base_name: str) -> str:
+        """Generate a human-friendly job ID from config file stem.
+
+        Uses the name directly (e.g. ``quality-continuous``). If a job
+        with that name is already active (in-memory or registry),
+        appends ``-2``, ``-3``, etc.
+        """
+        def _is_active(name: str) -> bool:
+            return name in self._job_meta or self._registry.has_active_job(name)
+
+        if not _is_active(base_name):
+            return base_name
+        suffix = 2
+        while _is_active(f"{base_name}-{suffix}"):
+            suffix += 1
+        return f"{base_name}-{suffix}"
+
     # ─── RPC Handlers ─────────────────────────────────────────────────
 
     async def submit_job(self, request: JobRequest) -> JobResponse:
@@ -184,7 +214,7 @@ class JobManager:
                 message="System under high pressure — try again later",
             )
 
-        job_id = f"{request.config_path.stem}-{uuid.uuid4().hex[:8]}"
+        job_id = self._generate_job_id(request.config_path.stem)
 
         # Validate config exists
         if not request.config_path.exists():
@@ -202,6 +232,7 @@ class JobManager:
             workspace=workspace,
         )
         self._job_meta[job_id] = meta
+        self._registry.register_job(job_id, request.config_path, workspace)
 
         task = asyncio.create_task(
             self._run_job_task(job_id, request),
@@ -300,16 +331,31 @@ class JobManager:
         meta = self._job_meta.get(job_id)
         if meta:
             meta.status = DaemonJobStatus.CANCELLED
+        self._registry.update_status(job_id, "cancelled")
 
         await self._scheduler.deregister_job(job_id)
         _logger.info("job.cancelled", job_id=job_id)
         return True
 
     async def list_jobs(self) -> list[dict[str, Any]]:
-        """List all tracked jobs and their states."""
+        """List all jobs from the persistent registry.
+
+        In-memory ``_job_meta`` is authoritative for active jobs (has
+        live status). The registry fills in historical jobs.
+        """
+        seen: set[str] = set()
         result: list[dict[str, Any]] = []
+
+        # Active jobs first (in-memory is most current)
         for meta in self._job_meta.values():
             result.append(meta.to_dict())
+            seen.add(meta.job_id)
+
+        # Historical jobs from registry
+        for record in self._registry.list_jobs():
+            if record.job_id not in seen:
+                result.append(record.to_dict())
+
         return result
 
     async def get_daemon_status(self) -> dict[str, Any]:
@@ -394,6 +440,7 @@ class JobManager:
         # Stop centralized learning hub (final persist + cleanup)
         await self._learning_hub.stop()
 
+        self._registry.close()
         self._shutdown_event.set()
         _logger.info("manager.shutdown_complete")
 
@@ -528,6 +575,9 @@ class JobManager:
         async with self._concurrency_semaphore:
             meta.status = DaemonJobStatus.RUNNING
             meta.started_at = time.monotonic()
+            self._registry.update_status(
+                job_id, "running", pid=os.getpid(),
+            )
             _logger.info(start_event, job_id=job_id, timeout_seconds=timeout)
 
             try:
@@ -536,18 +586,22 @@ class JobManager:
                     meta.status = result_status
                 else:
                     meta.status = DaemonJobStatus.COMPLETED
+                self._registry.update_status(job_id, meta.status.value)
                 _logger.info(
                     "job.paused" if meta.status == DaemonJobStatus.PAUSED
                     else "job.completed",
                     job_id=job_id,
                 )
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 meta.status = DaemonJobStatus.FAILED
                 elapsed = time.monotonic() - (meta.started_at or 0)
                 meta.error_message = (
                     f"Job exceeded timeout of {timeout:.0f}s "
                     f"(ran for {elapsed:.0f}s)"
+                )
+                self._registry.update_status(
+                    job_id, "failed", error_message=meta.error_message,
                 )
                 self._recent_failures.append(time.monotonic())
                 _logger.error(
@@ -559,6 +613,7 @@ class JobManager:
 
             except asyncio.CancelledError:
                 meta.status = DaemonJobStatus.CANCELLED
+                self._registry.update_status(job_id, "cancelled")
                 _logger.info("job.cancelled_during_execution", job_id=job_id)
                 raise
 
@@ -566,6 +621,9 @@ class JobManager:
                 meta.status = DaemonJobStatus.FAILED
                 meta.error_message = str(exc)
                 meta.error_traceback = traceback.format_exc()
+                self._registry.update_status(
+                    job_id, "failed", error_message=meta.error_message,
+                )
                 self._recent_failures.append(time.monotonic())
                 _logger.exception(fail_event, job_id=job_id)
 
@@ -632,59 +690,11 @@ class JobManager:
             if meta and meta.status == DaemonJobStatus.RUNNING:
                 meta.status = DaemonJobStatus.FAILED
                 meta.error_message = str(exc)
+                self._registry.update_status(
+                    job_id, "failed", error_message=str(exc),
+                )
 
         self._prune_job_history()
-
-    # ─── Wiring Adapters (Phase 3 prep) ─────────────────────────────
-
-    @staticmethod
-    def _build_sheet_infos(
-        job_id: str,
-        config: Any,
-    ) -> list[Any]:
-        """Build a list of ``SheetInfo`` objects from a ``JobConfig``.
-
-        Translates config-layer sheet definitions into scheduler-layer
-        ``SheetInfo`` dataclasses.  Each sheet gets the backend type and
-        model from the job config, so the scheduler can forward them to
-        the rate limiter for per-model tracking.
-
-        Stub — returns an empty list until Phase 3 wires per-sheet dispatch.
-
-        Args:
-            job_id: The daemon's job identifier.
-            config: A ``JobConfig`` instance (typed as Any to avoid import
-                    in this stub phase).
-
-        Returns:
-            A list of ``SheetInfo`` objects, one per concrete sheet.
-        """
-        # TODO(Phase 3 wiring): Implement translation from
-        # config.sheet → SheetInfo list, using config.backend.type
-        # and config.backend.model / config.backend.cli_model.
-        return []
-
-    @staticmethod
-    def _build_dependency_map(
-        config: Any,
-    ) -> dict[int, set[int]]:
-        """Build a sheet dependency DAG from a ``JobConfig``.
-
-        Translates ``config.sheet.dependencies`` (``dict[int, list[int]]``)
-        into the scheduler's format (``dict[int, set[int]]``).
-
-        Stub — returns an empty dict until Phase 3 wires per-sheet dispatch.
-
-        Args:
-            config: A ``JobConfig`` instance.
-
-        Returns:
-            Dependency map: ``{sheet_num: {prerequisite_sheet_nums}}``.
-        """
-        # TODO(Phase 3 wiring): return {
-        #     sn: set(deps) for sn, deps in config.sheet.dependencies.items()
-        # }
-        return {}
 
     def _prune_job_history(self) -> None:
         """Evict oldest terminal jobs when history exceeds max_job_history."""

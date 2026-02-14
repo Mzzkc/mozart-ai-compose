@@ -12,6 +12,7 @@ from mozart.core.config import (
     ConductorRole,
     CostLimitConfig,
     IsolationConfig,
+    FeedbackConfig,
     JobConfig,
     LearningConfig,
     PromptConfig,
@@ -77,6 +78,23 @@ class TestSheetConfig:
         """Test start_item defaults to 1."""
         config = SheetConfig(size=10, total_items=30)
         assert config.start_item == 1
+
+    def test_skip_when_default_empty(self):
+        """Test skip_when defaults to empty dict."""
+        config = SheetConfig(size=1, total_items=5)
+        assert config.skip_when == {}
+
+    def test_skip_when_accepts_conditions(self):
+        """Test skip_when accepts condition strings per sheet."""
+        config = SheetConfig(
+            size=1, total_items=5,
+            skip_when={
+                3: "sheets.get(1) and sheets[1].validation_passed",
+                5: "job.total_retry_count > 10",
+            },
+        )
+        assert config.skip_when[3] == "sheets.get(1) and sheets[1].validation_passed"
+        assert config.skip_when[5] == "job.total_retry_count > 10"
 
 
 class TestValidationRule:
@@ -277,6 +295,69 @@ class TestBackendConfig:
         assert config.working_directory == Path("/project")
         assert config.timeout_seconds == 3600
         assert config.cli_extra_args == ["--verbose"]
+
+
+import warnings as _warnings_mod
+
+
+class TestBackendConfigCrossValidation:
+    """Tests for BackendConfig cross-field type validation (Q018)."""
+
+    def test_cli_defaults_no_warning(self):
+        """Default BackendConfig (type=claude_cli) emits no warnings."""
+        with _warnings_mod.catch_warnings(record=True) as w:
+            _warnings_mod.simplefilter("always")
+            BackendConfig()
+            assert len(w) == 0
+
+    def test_api_type_with_cli_fields_warns(self):
+        """Setting CLI-specific fields with type=anthropic_api emits a warning."""
+        with _warnings_mod.catch_warnings(record=True) as w:
+            _warnings_mod.simplefilter("always")
+            config = BackendConfig(
+                type="anthropic_api",
+                cli_model="some-model",
+                disable_mcp=False,
+            )
+            backend_warnings = [x for x in w if "different backend" in str(x.message)]
+            assert len(backend_warnings) == 1
+            msg = str(backend_warnings[0].message)
+            assert "cli_model" in msg
+            assert "disable_mcp" in msg
+            assert config.type == "anthropic_api"
+
+    def test_cli_type_with_api_fields_warns(self):
+        """Setting API-specific fields with type=claude_cli emits a warning."""
+        with _warnings_mod.catch_warnings(record=True) as w:
+            _warnings_mod.simplefilter("always")
+            config = BackendConfig(
+                type="claude_cli",
+                model="some-other-model",
+                temperature=0.5,
+            )
+            backend_warnings = [x for x in w if "different backend" in str(x.message)]
+            assert len(backend_warnings) == 1
+            msg = str(backend_warnings[0].message)
+            assert "model" in msg
+            assert "temperature" in msg
+            assert config.type == "claude_cli"
+
+    def test_api_type_with_api_defaults_no_warning(self):
+        """API type with default API values should not warn (defaults are allowed)."""
+        with _warnings_mod.catch_warnings(record=True) as w:
+            _warnings_mod.simplefilter("always")
+            BackendConfig(type="anthropic_api")
+            backend_warnings = [x for x in w if "different backend" in str(x.message)]
+            assert len(backend_warnings) == 0
+
+    def test_ollama_type_with_cli_fields_warns(self):
+        """Setting CLI fields with type=ollama should warn."""
+        with _warnings_mod.catch_warnings(record=True) as w:
+            _warnings_mod.simplefilter("always")
+            BackendConfig(type="ollama", skip_permissions=False)
+            backend_warnings = [x for x in w if "different backend" in str(x.message)]
+            assert len(backend_warnings) == 1
+            assert "skip_permissions" in str(backend_warnings[0].message)
 
 
 class TestConductorPreferences:
@@ -663,3 +744,48 @@ class TestJobConfigEdgeCases:
         assert restored.name == original.name
         assert restored.retry.max_retries == 5
         assert restored.sheet.total_sheets == original.sheet.total_sheets
+
+
+class TestFeedbackConfig:
+    """Tests for FeedbackConfig model."""
+
+    def test_defaults_disabled(self):
+        """Feedback is disabled by default."""
+        config = FeedbackConfig()
+        assert config.enabled is False
+        assert config.format == "json"
+
+    def test_custom_pattern(self):
+        """Custom feedback pattern is accepted."""
+        config = FeedbackConfig(
+            enabled=True,
+            pattern=r"<<<FEEDBACK>>>(.*?)<<<\/FEEDBACK>>>",
+            format="yaml",
+        )
+        assert config.enabled is True
+        assert config.format == "yaml"
+        assert "FEEDBACK" in config.pattern
+
+    def test_text_format_accepted(self):
+        """Text format should be accepted."""
+        config = FeedbackConfig(enabled=True, format="text")
+        assert config.format == "text"
+
+    def test_jobconfig_includes_feedback(self):
+        """JobConfig should include feedback as a top-level field."""
+        config = JobConfig.model_validate({
+            "name": "feedback-test",
+            "sheet": {"size": 1, "total_items": 5},
+            "prompt": {"template": "test"},
+            "feedback": {"enabled": True},
+        })
+        assert config.feedback.enabled is True
+
+    def test_jobconfig_feedback_defaults(self):
+        """JobConfig should have feedback with defaults if not specified."""
+        config = JobConfig.model_validate({
+            "name": "minimal",
+            "sheet": {"size": 1, "total_items": 5},
+            "prompt": {"template": "test"},
+        })
+        assert config.feedback.enabled is False

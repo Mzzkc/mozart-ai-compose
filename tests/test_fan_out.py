@@ -17,7 +17,7 @@ import pytest
 
 from mozart.core.config import SheetConfig
 from mozart.execution.dag import CycleDetectedError, DependencyDAG, build_dag_from_config
-from mozart.execution.fan_out import FanOutMetadata, expand_fan_out
+from mozart.core.fan_out import FanOutMetadata, expand_fan_out
 from mozart.prompts.templating import PromptBuilder, SheetContext
 
 # ─── Unit tests: expand_fan_out() ────────────────────────────────────────

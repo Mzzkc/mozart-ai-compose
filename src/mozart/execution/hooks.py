@@ -419,7 +419,7 @@ class HookExecutor:
                 )
 
             # Normal mode - wait for completion
-            process = await asyncio.create_subprocess_exec(
+            async_proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
@@ -430,14 +430,14 @@ class HookExecutor:
             # Wait for completion with timeout
             try:
                 stdout_bytes, _ = await asyncio.wait_for(
-                    process.communicate(),
+                    async_proc.communicate(),
                     timeout=hook.timeout_seconds,
                 )
                 stdout = stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
-                exit_code = process.returncode
+                exit_code = async_proc.returncode
             except TimeoutError:
-                process.kill()
-                await process.wait()
+                async_proc.kill()
+                await async_proc.wait()
                 return HookResult(
                     hook_type="run_job",
                     description=hook.description,
@@ -458,7 +458,7 @@ class HookExecutor:
                 chained_job_info={
                     "job_path": str(job_path),
                     "workspace": str(chained_workspace) if chained_workspace else None,
-                    "pid": process.pid,
+                    "pid": async_proc.pid,
                     "log_path": None,
                 },
             )

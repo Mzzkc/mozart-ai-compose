@@ -2,12 +2,6 @@
 
 Contains functions for parsing CLI JSON output to extract structured errors
 and identifying root causes from multiple errors.
-
-This module provides:
-- ROOT_CAUSE_PRIORITY: Priority scores for root cause selection
-- try_parse_json_errors(): Extract errors from CLI JSON output
-- classify_single_json_error(): Classify a single parsed error
-- select_root_cause(): Select root cause from multiple errors
 """
 
 from __future__ import annotations
@@ -19,14 +13,6 @@ from .codes import ErrorCategory, ErrorCode, ExitReason
 from .models import ClassifiedError, ErrorInfo, ParsedCliError
 
 _logger = logging.getLogger("mozart.errors.parsers")
-
-
-logger = logging.getLogger(__name__)
-
-
-# =============================================================================
-# Root Cause Priority (for selecting root cause from multiple errors)
-# =============================================================================
 
 
 # Priority scores for root cause selection.
@@ -98,11 +84,6 @@ ROOT_CAUSE_PRIORITY: dict[ErrorCode, int] = {
     ErrorCode.BACKEND_RESPONSE: 91,
     ErrorCode.UNKNOWN: 99,
 }
-
-
-# =============================================================================
-# JSON Parsing Utilities
-# =============================================================================
 
 
 def try_parse_json_errors(output: str, stderr: str = "") -> list[ParsedCliError]:

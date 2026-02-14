@@ -7,6 +7,10 @@ would cause runtime errors.
 import difflib
 from pathlib import Path
 
+from mozart.core.logging import get_logger
+
+_logger = get_logger("validation.jinja")
+
 import jinja2
 from jinja2 import meta as jinja2_meta
 
@@ -223,8 +227,12 @@ class JinjaUndefinedVariableCheck:
                         env,
                     )
                     issues.extend(var_issues)
-                except Exception:
-                    pass  # File read errors handled by V001
+                except Exception as exc:
+                    _logger.debug(
+                        "template_file_read_failed",
+                        path=str(template_path),
+                        error=str(exc),
+                    )
 
         return issues
 

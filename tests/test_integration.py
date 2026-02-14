@@ -107,7 +107,10 @@ def workspace_with_config(tmp_path: Path, sample_config_dict: dict) -> tuple[Pat
 
 @pytest.fixture
 def multi_job_workspace(tmp_path: Path) -> Path:
-    """Create workspace with multiple job states."""
+    """Create workspace with file-based job states.
+
+    Used by status/resume tests that still read from JSON state files.
+    """
     workspace = tmp_path / "multi-jobs"
     workspace.mkdir()
 
@@ -161,6 +164,36 @@ def multi_job_workspace(tmp_path: Path) -> Path:
         state_file.write_text(json.dumps(job.model_dump(mode="json"), default=str))
 
     return workspace
+
+
+def _multi_job_daemon_data() -> list[dict[str, Any]]:
+    """Daemon-format job data for list command tests."""
+    import time
+
+    now = time.time()
+    return [
+        {
+            "job_id": "job-completed-1", "status": "completed",
+            "workspace": "/ws/1", "submitted_at": now - 400,
+            "started_at": now - 390, "completed_at": now - 300, "pid": 1001,
+        },
+        {
+            "job_id": "job-running-2", "status": "running",
+            "workspace": "/ws/2", "submitted_at": now - 200,
+            "started_at": now - 190, "pid": 1002,
+        },
+        {
+            "job_id": "job-failed-3", "status": "failed",
+            "workspace": "/ws/3", "submitted_at": now - 100,
+            "started_at": now - 90, "completed_at": now - 50,
+            "error_message": "Max retries exceeded", "pid": 1003,
+        },
+        {
+            "job_id": "job-paused-4", "status": "paused",
+            "workspace": "/ws/4", "submitted_at": now - 50,
+            "started_at": now - 40, "pid": 1004,
+        },
+    ]
 
 
 # ============================================================================
@@ -388,13 +421,20 @@ class TestRunStatusResumeWorkflow:
 
 
 class TestListMultipleJobs:
-    """Tests for listing and filtering multiple jobs."""
+    """Tests for listing and filtering multiple jobs via daemon."""
 
-    def test_list_shows_all_jobs(self, multi_job_workspace: Path) -> None:
-        """List shows all jobs in workspace."""
-        result = runner.invoke(
-            app, ["list", "--workspace", str(multi_job_workspace)]
-        )
+    @staticmethod
+    def _mock_route(jobs: list[dict]):
+        """Return a patch that makes try_daemon_route return *jobs*."""
+        async def _fake_route(method, params):
+            return (True, jobs)
+        return patch("mozart.daemon.detect.try_daemon_route", side_effect=_fake_route)
+
+    def test_list_shows_all_jobs(self) -> None:
+        """List shows all jobs from daemon."""
+        jobs = _multi_job_daemon_data()
+        with self._mock_route(jobs):
+            result = runner.invoke(app, ["list"])
 
         assert result.exit_code == 0
         assert "job-completed-1" in result.stdout
@@ -403,12 +443,11 @@ class TestListMultipleJobs:
         assert "job-paused-4" in result.stdout
         assert "Showing 4 job(s)" in result.stdout
 
-    def test_list_filters_by_completed(self, multi_job_workspace: Path) -> None:
+    def test_list_filters_by_completed(self) -> None:
         """List with --status=completed shows only completed jobs."""
-        result = runner.invoke(
-            app,
-            ["list", "--workspace", str(multi_job_workspace), "--status", "completed"],
-        )
+        jobs = _multi_job_daemon_data()
+        with self._mock_route(jobs):
+            result = runner.invoke(app, ["list", "--status", "completed"])
 
         assert result.exit_code == 0
         assert "job-completed-1" in result.stdout
@@ -417,46 +456,44 @@ class TestListMultipleJobs:
         assert "job-paused-4" not in result.stdout
         assert "Showing 1 job(s)" in result.stdout
 
-    def test_list_filters_by_failed(self, multi_job_workspace: Path) -> None:
+    def test_list_filters_by_failed(self) -> None:
         """List with --status=failed shows only failed jobs."""
-        result = runner.invoke(
-            app,
-            ["list", "--workspace", str(multi_job_workspace), "--status", "failed"],
-        )
+        jobs = _multi_job_daemon_data()
+        with self._mock_route(jobs):
+            result = runner.invoke(app, ["list", "--status", "failed"])
 
         assert result.exit_code == 0
         assert "job-failed-3" in result.stdout
         assert "Showing 1 job(s)" in result.stdout
 
-    def test_list_filters_by_paused(self, multi_job_workspace: Path) -> None:
+    def test_list_filters_by_paused(self) -> None:
         """List with --status=paused shows only paused jobs."""
-        result = runner.invoke(
-            app,
-            ["list", "--workspace", str(multi_job_workspace), "--status", "paused"],
-        )
+        jobs = _multi_job_daemon_data()
+        with self._mock_route(jobs):
+            result = runner.invoke(app, ["list", "--status", "paused"])
 
         assert result.exit_code == 0
         assert "job-paused-4" in result.stdout
         assert "Showing 1 job(s)" in result.stdout
 
-    def test_list_with_limit(self, multi_job_workspace: Path) -> None:
+    def test_list_with_limit(self) -> None:
         """List respects --limit option."""
-        result = runner.invoke(
-            app, ["list", "--workspace", str(multi_job_workspace), "--limit", "2"]
-        )
+        jobs = _multi_job_daemon_data()
+        with self._mock_route(jobs):
+            result = runner.invoke(app, ["list", "--limit", "2"])
 
         assert result.exit_code == 0
         assert "Showing 2 job(s)" in result.stdout
 
-    def test_list_shows_progress_info(self, multi_job_workspace: Path) -> None:
-        """List shows progress information for each job."""
-        result = runner.invoke(
-            app, ["list", "--workspace", str(multi_job_workspace)]
-        )
+    def test_list_shows_workspace_info(self) -> None:
+        """List shows workspace path for each job."""
+        jobs = _multi_job_daemon_data()
+        with self._mock_route(jobs):
+            result = runner.invoke(app, ["list"])
 
         assert result.exit_code == 0
-        # Should show progress like "5/5" or "3/8"
-        assert "/" in result.stdout
+        # Should show workspace paths
+        assert "/ws/" in result.stdout
 
 
 # ============================================================================
@@ -562,11 +599,13 @@ class TestAllCLICommandsFunctional:
         assert "Dry run" in result.stdout
         assert "Sheet Plan" in result.stdout
 
-    def test_list_command_works(self, multi_job_workspace: Path) -> None:
-        """List command works."""
-        result = runner.invoke(
-            app, ["list", "--workspace", str(multi_job_workspace)]
-        )
+    def test_list_command_works(self) -> None:
+        """List command works via daemon."""
+        jobs = _multi_job_daemon_data()
+        async def _fake_route(method, params):
+            return (True, jobs)
+        with patch("mozart.daemon.detect.try_daemon_route", side_effect=_fake_route):
+            result = runner.invoke(app, ["list"])
         assert result.exit_code == 0
         assert "Showing" in result.stdout
 
@@ -708,13 +747,11 @@ class TestErrorHandlingIntegration:
         # Exit code 1 = invalid config, exit code 2 = cannot validate (parse error)
         assert result.exit_code in (1, 2)
 
-    def test_missing_workspace_error(self, tmp_path: Path) -> None:
-        """Missing workspace produces helpful error."""
-        fake_workspace = tmp_path / "does-not-exist"
-
-        result = runner.invoke(app, ["list", "--workspace", str(fake_workspace)])
+    def test_list_without_daemon_error(self) -> None:
+        """List without running daemon produces helpful error."""
+        result = runner.invoke(app, ["list"])
         assert result.exit_code == 1
-        assert "not found" in result.stdout.lower()
+        assert "daemon is not running" in result.stdout.lower()
 
     def test_missing_job_error(self, tmp_path: Path) -> None:
         """Missing job produces helpful error."""

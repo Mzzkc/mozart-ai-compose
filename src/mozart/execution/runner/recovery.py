@@ -40,6 +40,9 @@ from typing import TYPE_CHECKING
 from rich.console import Console
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from typing import Any
+
     from mozart.healing.coordinator import HealingReport, SelfHealingCoordinator
     from mozart.learning.global_store import GlobalLearningStore
 
@@ -90,6 +93,7 @@ class RecoveryMixin:
     _global_learning_store: GlobalLearningStore | None
     _healing_coordinator: SelfHealingCoordinator | None
     error_classifier: ErrorClassifier
+    rate_limit_callback: Callable[[str, float, str, int], Any] | None
 
     def _get_effective_model(self) -> str | None:
         """Resolve the effective model name from backend config.

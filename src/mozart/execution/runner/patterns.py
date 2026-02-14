@@ -36,6 +36,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from rich.console import Console
+
     from mozart.learning.global_store import GlobalLearningStore
 
 from mozart.core.config import JobConfig
@@ -135,6 +137,7 @@ class PatternsMixin:
     # Type hints for attributes provided by base.py
     config: JobConfig
     _logger: MozartLogger
+    console: Console
     _global_learning_store: GlobalLearningStore | None
     outcome_store: OutcomeStore | None
     _exploration_pattern_ids: list[str]

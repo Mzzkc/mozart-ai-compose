@@ -7,7 +7,9 @@ Tests cover:
 """
 
 import asyncio
+import signal
 import signal as signal_module
+import time
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -533,6 +535,70 @@ class TestClaudeCliBackendTimeoutOutputPreservation:
         ):
             await backend._execute_impl("test")
             assert stream_called, "Streaming path must be used even without progress_callback"
+
+
+    @pytest.mark.asyncio
+    async def test_timeout_with_empty_output(self, backend: ClaudeCliBackend) -> None:
+        """Timeout with no output collected should return empty strings, not crash."""
+        result = await backend._handle_execution_timeout(
+            process=AsyncMock(
+                terminate=MagicMock(),
+                wait=AsyncMock(),
+                kill=MagicMock(),
+                returncode=-9,
+            ),
+            start_time=time.monotonic() - 10.0,
+            bytes_received=0,
+            lines_received=0,
+        )
+        assert result.success is False
+        assert result.exit_reason == "timeout"
+        assert result.stdout == ""
+        assert "timed out" in result.stderr.lower()
+
+    @pytest.mark.asyncio
+    async def test_timeout_preserves_large_partial_output(self, backend: ClaudeCliBackend) -> None:
+        """Partial output >10KB is preserved without truncation on timeout."""
+        # Simulate large output accumulated across many chunks
+        large_chunk = b"x" * 5000
+        backend._partial_stdout_chunks = [large_chunk, large_chunk, large_chunk]
+        backend._partial_stderr_chunks = [b"err"]
+
+        result = await backend._handle_execution_timeout(
+            process=AsyncMock(
+                terminate=MagicMock(),
+                wait=AsyncMock(),
+                kill=MagicMock(),
+                returncode=-9,
+            ),
+            start_time=time.monotonic() - 30.0,
+            bytes_received=15001,
+            lines_received=0,
+        )
+        assert len(result.stdout) == 15000
+        assert result.stderr.startswith("err")
+
+    @pytest.mark.asyncio
+    async def test_graceful_termination_before_kill(self, backend: ClaudeCliBackend) -> None:
+        """Timeout handler tries SIGTERM before SIGKILL."""
+        mock_process = AsyncMock()
+        mock_process.terminate = MagicMock()
+        mock_process.kill = MagicMock()
+        # Process exits after SIGTERM (no escalation to SIGKILL)
+        mock_process.wait = AsyncMock(return_value=0)
+
+        backend._partial_stdout_chunks = []
+        backend._partial_stderr_chunks = []
+
+        result = await backend._handle_execution_timeout(
+            process=mock_process,
+            start_time=time.monotonic() - 5.0,
+            bytes_received=0,
+            lines_received=0,
+        )
+        mock_process.terminate.assert_called_once()
+        mock_process.kill.assert_not_called()
+        assert result.exit_signal == signal.SIGTERM
 
 
 class TestClaudeCliBackendRateLimitDetection:

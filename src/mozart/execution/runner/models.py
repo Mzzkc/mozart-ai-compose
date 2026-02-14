@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from rich.console import Console
 
@@ -365,7 +365,7 @@ class FailureHandlingResult:
     - "fatal": Raise FatalError with the given message
     """
 
-    action: str
+    action: Literal["continue", "fatal"]
     """Either 'continue' or 'fatal'."""
 
     normal_attempts: int

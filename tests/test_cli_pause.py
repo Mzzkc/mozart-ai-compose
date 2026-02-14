@@ -239,13 +239,17 @@ class TestFindJobWorkspace:
         found = _find_job_workspace(state.job_id, hint=workspace)
         assert found == workspace
 
-    def test_find_without_hint(self) -> None:
+    def test_find_without_hint(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test workspace not found without hint when not in cwd."""
+        # Isolate from real workspace dirs in project root
+        monkeypatch.chdir(tmp_path)
         # Without hint and not in cwd patterns, should return None
         found = _find_job_workspace("nonexistent-job")
         assert found is None
 
-    def test_find_in_cwd_workspace_subdir(self, tmp_path: Path) -> None:
+    def test_find_in_cwd_workspace_subdir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Test finding job in ./workspace subdirectory."""
         # Create workspace subdirectory structure
         workspace = tmp_path / "workspace"
@@ -260,18 +264,16 @@ class TestFindJobWorkspace:
         state_file = workspace / f"{state.job_id}.json"
         state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
 
-        # Change to tmp_path
-        import os
-        original_cwd = os.getcwd()
-        try:
-            os.chdir(tmp_path)
-            found = _find_job_workspace(state.job_id)
-            assert found == workspace
-        finally:
-            os.chdir(original_cwd)
+        monkeypatch.chdir(tmp_path)
+        found = _find_job_workspace(state.job_id)
+        assert found == workspace
 
-    def test_find_nonexistent_job(self, temp_workspace: Path) -> None:
+    def test_find_nonexistent_job(
+        self, temp_workspace: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Test searching for nonexistent job returns None."""
+        # Isolate from real workspace dirs in project root
+        monkeypatch.chdir(temp_workspace.parent)
         found = _find_job_workspace("does-not-exist", hint=temp_workspace)
         assert found is None
 
