@@ -716,7 +716,7 @@ A list of hooks that execute after successful job completion.
 | `description` | `str \| None` | `None` | | Human-readable description |
 | `on_failure` | `"continue" \| "abort"` | `"continue"` | | Action if hook fails: continue to next or abort remaining |
 | `timeout_seconds` | `float` | `300.0` | `> 0` | Maximum hook execution time (5 min default) |
-| `detached` | `bool` | `false` | | For `run_job`: spawn and don't wait. Use for infinite chaining. |
+| `detached` | `bool` | `false` | | For `run_job`: spawn and don't wait. Routes through daemon IPC when available (enabling tracking, rate coordination, backpressure). Falls back to subprocess if no daemon is running. |
 | `fresh` | `bool` | `false` | | For `run_job`: pass `--fresh` to start with clean state. Required for self-chaining jobs. |
 
 ```yaml

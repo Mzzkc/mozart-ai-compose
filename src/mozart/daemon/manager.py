@@ -62,6 +62,7 @@ class JobMeta:
     status: DaemonJobStatus = DaemonJobStatus.QUEUED
     error_message: str | None = None
     error_traceback: str | None = None
+    chain_depth: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dict suitable for JSON-RPC responses."""
@@ -77,6 +78,8 @@ class JobMeta:
             result["error_message"] = self.error_message
         if self.error_traceback:
             result["error_traceback"] = self.error_traceback
+        if self.chain_depth is not None:
+            result["chain_depth"] = self.chain_depth
         return result
 
 
@@ -114,22 +117,18 @@ class JobManager:
         self._shutdown_event = asyncio.Event()
         self._recent_failures: deque[float] = deque()
 
-        # Phase 3: Global sheet scheduler for cross-job coordination.
+        # Phase 3: Global sheet scheduler — lazily initialized via property.
         # Infrastructure is built and tested but not yet wired into the
         # execution path.  Currently, jobs run monolithically via
-        # JobService.start_job().  When wired, _run_job_task() will
-        # decompose jobs into sheets, register them via register_job(),
-        # and use next_sheet()/mark_complete() for per-sheet dispatch.
-        self._scheduler = GlobalSheetScheduler(config)
+        # JobService.start_job().  Lazy init avoids allocating resources
+        # until Phase 3 is actually wired.
+        self._scheduler_instance: GlobalSheetScheduler | None = None
 
         # Phase 3: Cross-job rate limit coordination.
         # Built and tested; wired into the scheduler so next_sheet()
         # skips rate-limited backends.  Not yet active because the
-        # scheduler itself is not yet driving execution.  When wired,
-        # job runners or backends will call report_rate_limit() to
-        # feed data into the coordinator.
+        # scheduler itself is not yet driving execution.
         self._rate_coordinator = RateLimitCoordinator()
-        self._scheduler.set_rate_limiter(self._rate_coordinator)
 
         # Phase 3: Backpressure controller.
         # Uses a single ResourceMonitor instance shared with DaemonProcess
@@ -140,7 +139,6 @@ class JobManager:
         self._backpressure = BackpressureController(
             self._monitor, self._rate_coordinator,
         )
-        self._scheduler.set_backpressure(self._backpressure)
 
         # Persistent job registry — survives daemon restarts.
         db_path = config.state_db_path.expanduser()
@@ -164,11 +162,19 @@ class JobManager:
         )
         _logger.info(
             "manager.started",
-            scheduler_status="instantiated_not_wired",
-            scheduler_note="Phase 3 scheduler and rate coordinator are built "
-            "and tested but not yet driving execution. Jobs run "
-            "monolithically via JobService.",
+            scheduler_status="lazy_not_wired",
+            scheduler_note="Phase 3 scheduler is lazily initialized and not "
+            "yet driving execution. Jobs run monolithically via JobService.",
         )
+
+    @property
+    def _scheduler(self) -> GlobalSheetScheduler:
+        """Lazily create the Phase 3 scheduler on first access."""
+        if self._scheduler_instance is None:
+            self._scheduler_instance = GlobalSheetScheduler(self._config)
+            self._scheduler_instance.set_rate_limiter(self._rate_coordinator)
+            self._scheduler_instance.set_backpressure(self._backpressure)
+        return self._scheduler_instance
 
     @property
     def _checked_service(self) -> JobService:
@@ -230,6 +236,7 @@ class JobManager:
             job_id=job_id,
             config_path=request.config_path,
             workspace=workspace,
+            chain_depth=request.chain_depth,
         )
         self._job_meta[job_id] = meta
         self._registry.register_job(job_id, request.config_path, workspace)
@@ -679,21 +686,30 @@ class JobManager:
         )
 
     def _on_task_done(self, job_id: str, task: asyncio.Task[Any]) -> None:
-        """Callback when a job task completes (success, error, or cancel)."""
-        self._jobs.pop(job_id, None)
-        log_task_exception(task, _logger, "job.task_failed")
+        """Callback when a job task completes (success, error, or cancel).
 
-        exc = task.exception() if not task.cancelled() else None
-        if exc:
-            meta = self._job_meta.get(job_id)
-            if meta and meta.status == DaemonJobStatus.RUNNING:
-                meta.status = DaemonJobStatus.FAILED
-                meta.error_message = str(exc)
-                self._registry.update_status(
-                    job_id, "failed", error_message=str(exc),
-                )
+        Wrapped in try/except because asyncio silently drops exceptions
+        in Task.add_done_callback handlers.
+        """
+        try:
+            self._jobs.pop(job_id, None)
+            log_task_exception(task, _logger, "job.task_failed")
 
-        self._prune_job_history()
+            exc = task.exception() if not task.cancelled() else None
+            if exc:
+                meta = self._job_meta.get(job_id)
+                if meta and meta.status == DaemonJobStatus.RUNNING:
+                    meta.status = DaemonJobStatus.FAILED
+                    meta.error_message = str(exc)
+                    self._registry.update_status(
+                        job_id, "failed", error_message=str(exc),
+                    )
+
+            self._prune_job_history()
+        except Exception:
+            _logger.error(
+                "task_done_callback_failed", job_id=job_id, exc_info=True,
+            )
 
     def _prune_job_history(self) -> None:
         """Evict oldest terminal jobs when history exceeds max_job_history."""

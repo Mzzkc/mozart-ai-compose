@@ -13,7 +13,7 @@ import os
 import signal
 import subprocess as _subprocess
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -718,7 +718,8 @@ class TestDetachedChildSurvival:
         executor = HookExecutor(config=config, workspace=tmp_path)
 
         try:
-            with patch("mozart.execution.hooks._subprocess.Popen", side_effect=capturing_popen):
+            with patch("mozart.execution.hooks._try_daemon_submit", return_value=(False, None)), \
+                 patch("mozart.execution.hooks._subprocess.Popen", side_effect=capturing_popen):
                 results = await executor.execute_hooks()
 
             # Hook should report success
@@ -734,6 +735,68 @@ class TestDetachedChildSurvival:
 
         finally:
             # Clean up: kill any spawned children
+            for pid in spawned_pids:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                    os.waitpid(pid, 0)
+                except (ProcessLookupError, ChildProcessError):
+                    pass
+
+    @pytest.mark.asyncio
+    async def test_detached_daemon_fallback_still_spawns_popen(self, tmp_path: Path) -> None:
+        """When daemon is unavailable, detached hook should fall back to Popen."""
+        job_config = tmp_path / "fallback-job.yaml"
+        job_config.write_text(
+            "name: fallback-job\n"
+            "backend:\n  type: claude_cli\n"
+            "sheet:\n  size: 1\n  total_items: 1\n"
+            "prompt:\n  template: Test\n"
+        )
+
+        config = JobConfig.model_validate({
+            "name": "detach-fallback-test",
+            "description": "Test",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 1, "total_items": 1},
+            "prompt": {"template": "Test"},
+            "concert": {
+                "enabled": True,
+                "cooldown_between_jobs_seconds": 0,
+            },
+            "on_success": [
+                {
+                    "type": "run_job",
+                    "job_path": str(job_config),
+                    "description": "Fallback test",
+                    "detached": True,
+                },
+            ],
+        })
+
+        spawned_pids: list[int] = []
+        original_popen = _subprocess.Popen
+
+        def capturing_popen(cmd, **kwargs):
+            proc = original_popen(["sleep", "30"], **kwargs)
+            spawned_pids.append(proc.pid)
+            return proc
+
+        executor = HookExecutor(config=config, workspace=tmp_path)
+
+        try:
+            # _try_daemon_submit returns (False, None) → daemon unavailable
+            with patch("mozart.execution.hooks._try_daemon_submit", return_value=(False, None)), \
+                 patch("mozart.execution.hooks._subprocess.Popen", side_effect=capturing_popen):
+                results = await executor.execute_hooks()
+
+            assert len(results) == 1
+            assert results[0].success is True
+            # Popen WAS called (fallback path)
+            assert len(spawned_pids) == 1
+            # Should NOT be routed via daemon
+            assert results[0].chained_job_info is not None
+            assert results[0].chained_job_info.get("routed_via") != "daemon"
+        finally:
             for pid in spawned_pids:
                 try:
                     os.kill(pid, signal.SIGKILL)
@@ -782,10 +845,430 @@ class TestDetachedChildSurvival:
 
         executor = HookExecutor(config=config, workspace=tmp_path)
 
-        with patch("mozart.execution.hooks._subprocess.Popen", side_effect=dying_popen):
+        with patch("mozart.execution.hooks._try_daemon_submit", return_value=(False, None)), \
+             patch("mozart.execution.hooks._subprocess.Popen", side_effect=dying_popen):
             results = await executor.execute_hooks()
 
         assert len(results) == 1
         assert results[0].success is False
         assert results[0].error_message is not None
         assert "exited immediately" in results[0].error_message
+
+
+class TestDaemonAwareChaining:
+    """Tests for daemon-aware chained job submission (Issue #74).
+
+    Verifies that detached run_job hooks attempt to submit through the
+    daemon IPC before falling back to subprocess.Popen, and that
+    chain_depth is correctly propagated.
+    """
+
+    @pytest.fixture
+    def job_config_file(self, tmp_path: Path) -> Path:
+        """Create a minimal job config file for chaining tests."""
+        config = tmp_path / "chain-target.yaml"
+        config.write_text(
+            "name: chain-target\n"
+            "backend:\n  type: claude_cli\n"
+            "sheet:\n  size: 1\n  total_items: 1\n"
+            "prompt:\n  template: Test\n"
+        )
+        return config
+
+    def _make_config(self, job_config_file: Path, *, detached: bool = True) -> JobConfig:
+        """Build a JobConfig with a run_job hook."""
+        return JobConfig.model_validate({
+            "name": "daemon-chain-test",
+            "description": "Test",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 1, "total_items": 1},
+            "prompt": {"template": "Test"},
+            "concert": {
+                "enabled": True,
+                "cooldown_between_jobs_seconds": 0,
+            },
+            "on_success": [
+                {
+                    "type": "run_job",
+                    "job_path": str(job_config_file),
+                    "description": "Daemon chaining test",
+                    "detached": detached,
+                },
+            ],
+        })
+
+    @pytest.mark.asyncio
+    async def test_daemon_available_submits_via_ipc(
+        self, tmp_path: Path, job_config_file: Path,
+    ) -> None:
+        """When daemon is available and accepts, Popen should NOT be called."""
+        config = self._make_config(job_config_file)
+        executor = HookExecutor(
+            config=config,
+            workspace=tmp_path,
+            concert_context=ConcertContext(concert_id="test", chain_depth=0),
+        )
+
+        with patch(
+            "mozart.execution.hooks._try_daemon_submit",
+            return_value=(True, "daemon-job-123"),
+        ) as mock_submit, \
+             patch("mozart.execution.hooks._subprocess.Popen") as mock_popen:
+            results = await executor.execute_hooks()
+
+        assert len(results) == 1
+        assert results[0].success is True
+        assert results[0].chained_job_info is not None
+        assert results[0].chained_job_info["routed_via"] == "daemon"
+        assert results[0].chained_job_info["job_id"] == "daemon-job-123"
+        # Popen must NOT have been called
+        mock_popen.assert_not_called()
+        # _try_daemon_submit was called with correct args
+        mock_submit.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_daemon_unavailable_falls_back_to_popen(
+        self, tmp_path: Path, job_config_file: Path,
+    ) -> None:
+        """When daemon is unavailable, hook should fall back to Popen."""
+        config = self._make_config(job_config_file)
+        executor = HookExecutor(
+            config=config,
+            workspace=tmp_path,
+            concert_context=ConcertContext(concert_id="test", chain_depth=0),
+        )
+
+        spawned_pids: list[int] = []
+        original_popen = _subprocess.Popen
+
+        def capturing_popen(cmd, **kwargs):
+            proc = original_popen(["sleep", "30"], **kwargs)
+            spawned_pids.append(proc.pid)
+            return proc
+
+        try:
+            with patch(
+                "mozart.execution.hooks._try_daemon_submit",
+                return_value=(False, None),
+            ), patch(
+                "mozart.execution.hooks._subprocess.Popen",
+                side_effect=capturing_popen,
+            ):
+                results = await executor.execute_hooks()
+
+            assert len(results) == 1
+            assert results[0].success is True
+            assert len(spawned_pids) == 1
+            # Fallback — not routed through daemon
+            assert results[0].chained_job_info is not None
+            assert results[0].chained_job_info.get("routed_via") != "daemon"
+            assert "pid" in results[0].chained_job_info
+        finally:
+            for pid in spawned_pids:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                    os.waitpid(pid, 0)
+                except (ProcessLookupError, ChildProcessError):
+                    pass
+
+    @pytest.mark.asyncio
+    async def test_daemon_submission_error_falls_back_to_popen(
+        self, tmp_path: Path, job_config_file: Path,
+    ) -> None:
+        """When _try_daemon_submit raises, hook should fall back to Popen.
+
+        This tests the fail-open design: any exception in the daemon path
+        returns (False, None), and Popen is used as fallback.
+        """
+        config = self._make_config(job_config_file)
+        executor = HookExecutor(
+            config=config,
+            workspace=tmp_path,
+            concert_context=ConcertContext(concert_id="test", chain_depth=0),
+        )
+
+        spawned_pids: list[int] = []
+        original_popen = _subprocess.Popen
+
+        def capturing_popen(cmd, **kwargs):
+            proc = original_popen(["sleep", "30"], **kwargs)
+            spawned_pids.append(proc.pid)
+            return proc
+
+        try:
+            # Simulate _try_daemon_submit returning failure (it catches
+            # exceptions internally and returns (False, None))
+            with patch(
+                "mozart.execution.hooks._try_daemon_submit",
+                return_value=(False, None),
+            ), patch(
+                "mozart.execution.hooks._subprocess.Popen",
+                side_effect=capturing_popen,
+            ):
+                results = await executor.execute_hooks()
+
+            assert len(results) == 1
+            assert results[0].success is True
+            assert len(spawned_pids) == 1
+        finally:
+            for pid in spawned_pids:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                    os.waitpid(pid, 0)
+                except (ProcessLookupError, ChildProcessError):
+                    pass
+
+    @pytest.mark.asyncio
+    async def test_chain_depth_propagated_in_daemon_submit(
+        self, tmp_path: Path, job_config_file: Path,
+    ) -> None:
+        """chain_depth from ConcertContext should be incremented and passed."""
+        config = self._make_config(job_config_file)
+        concert_ctx = ConcertContext(concert_id="test", chain_depth=3)
+        executor = HookExecutor(
+            config=config,
+            workspace=tmp_path,
+            concert_context=concert_ctx,
+        )
+
+        captured_args: list[dict] = []
+
+        async def capturing_submit(job_path, workspace, fresh, chain_depth):
+            captured_args.append({
+                "job_path": job_path,
+                "workspace": workspace,
+                "fresh": fresh,
+                "chain_depth": chain_depth,
+            })
+            return True, "daemon-job-depth"
+
+        with patch(
+            "mozart.execution.hooks._try_daemon_submit",
+            side_effect=capturing_submit,
+        ):
+            results = await executor.execute_hooks()
+
+        assert len(results) == 1
+        assert results[0].success is True
+        # chain_depth should be concert_ctx.chain_depth + 1 = 4
+        assert len(captured_args) == 1
+        assert captured_args[0]["chain_depth"] == 4
+
+    @pytest.mark.asyncio
+    async def test_non_detached_hooks_skip_daemon_path(
+        self, tmp_path: Path, job_config_file: Path,
+    ) -> None:
+        """Non-detached run_job hooks should NOT attempt daemon submission."""
+        config = self._make_config(job_config_file, detached=False)
+        executor = HookExecutor(
+            config=config,
+            workspace=tmp_path,
+            concert_context=ConcertContext(concert_id="test", chain_depth=0),
+        )
+
+        with patch(
+            "mozart.execution.hooks._try_daemon_submit",
+        ) as mock_submit:
+            # Non-detached hook will try to run `mozart run ...` and likely
+            # fail because mozart isn't in PATH — but _try_daemon_submit
+            # should NOT be called at all.
+            results = await executor.execute_hooks()
+
+        mock_submit.assert_not_called()
+        assert len(results) == 1
+        # The hook may fail (mozart not in PATH) but that's fine — we're
+        # testing that daemon path was not attempted
+
+
+class TestTryDaemonSubmitUnit:
+    """Unit tests for the _try_daemon_submit function itself (Issue #74).
+
+    Tests the function directly with mocked daemon components, covering
+    success, rejection, connection failures, and import errors.
+    """
+
+    @pytest.mark.asyncio
+    async def test_daemon_available_and_accepts(self) -> None:
+        """When daemon is available and accepts, should return (True, job_id)."""
+        from mozart.daemon.types import JobResponse
+        from mozart.execution.hooks import _try_daemon_submit
+
+        mock_response = JobResponse(
+            job_id="test-job-42", status="accepted", message="OK",
+        )
+
+        mock_is_available = AsyncMock(return_value=True)
+        with patch("mozart.daemon.detect.is_daemon_available", mock_is_available), \
+             patch("mozart.daemon.ipc.client.DaemonClient") as MockClient:
+            MockClient.return_value.submit_job = AsyncMock(return_value=mock_response)
+            ok, job_id = await _try_daemon_submit(
+                job_path=Path("/config/test.yaml"),
+                workspace=Path("/workspace"),
+                fresh=False,
+                chain_depth=2,
+            )
+
+        assert ok is True
+        assert job_id == "test-job-42"
+
+    @pytest.mark.asyncio
+    async def test_daemon_available_but_rejects(self) -> None:
+        """When daemon rejects submission, should return (False, None)."""
+        from mozart.daemon.types import JobResponse
+        from mozart.execution.hooks import _try_daemon_submit
+
+        mock_response = JobResponse(
+            job_id="", status="rejected", message="Under pressure",
+        )
+
+        mock_is_available = AsyncMock(return_value=True)
+        with patch("mozart.daemon.detect.is_daemon_available", mock_is_available), \
+             patch("mozart.daemon.ipc.client.DaemonClient") as MockClient:
+            MockClient.return_value.submit_job = AsyncMock(return_value=mock_response)
+            ok, job_id = await _try_daemon_submit(
+                job_path=Path("/config/test.yaml"),
+                workspace=None,
+                fresh=True,
+                chain_depth=None,
+            )
+
+        assert ok is False
+        assert job_id is None
+
+    @pytest.mark.asyncio
+    async def test_daemon_unavailable(self) -> None:
+        """When daemon is not available, should return (False, None) immediately."""
+        from mozart.execution.hooks import _try_daemon_submit
+
+        mock_is_available = AsyncMock(return_value=False)
+        with patch("mozart.daemon.detect.is_daemon_available", mock_is_available):
+            ok, job_id = await _try_daemon_submit(
+                job_path=Path("/config/test.yaml"),
+                workspace=None,
+                fresh=False,
+                chain_depth=1,
+            )
+
+        assert ok is False
+        assert job_id is None
+
+    @pytest.mark.asyncio
+    async def test_connection_error_falls_back(self) -> None:
+        """Connection errors during submit should return (False, None)."""
+        from mozart.execution.hooks import _try_daemon_submit
+
+        mock_is_available = AsyncMock(return_value=True)
+        with patch("mozart.daemon.detect.is_daemon_available", mock_is_available), \
+             patch("mozart.daemon.ipc.client.DaemonClient") as MockClient:
+            MockClient.return_value.submit_job = AsyncMock(
+                side_effect=ConnectionRefusedError("Socket gone"),
+            )
+            ok, job_id = await _try_daemon_submit(
+                job_path=Path("/config/test.yaml"),
+                workspace=Path("/workspace"),
+                fresh=False,
+                chain_depth=3,
+            )
+
+        assert ok is False
+        assert job_id is None
+
+    @pytest.mark.asyncio
+    async def test_chain_depth_passed_to_job_request(self) -> None:
+        """chain_depth argument should be included in the JobRequest."""
+        from mozart.daemon.types import JobResponse
+        from mozart.execution.hooks import _try_daemon_submit
+
+        mock_response = JobResponse(
+            job_id="chained-42", status="accepted", message="OK",
+        )
+        captured_requests = []
+
+        async def capture_submit(request):
+            captured_requests.append(request)
+            return mock_response
+
+        mock_is_available = AsyncMock(return_value=True)
+        with patch("mozart.daemon.detect.is_daemon_available", mock_is_available), \
+             patch("mozart.daemon.ipc.client.DaemonClient") as MockClient:
+            MockClient.return_value.submit_job = AsyncMock(side_effect=capture_submit)
+            await _try_daemon_submit(
+                job_path=Path("/config/test.yaml"),
+                workspace=Path("/work"),
+                fresh=True,
+                chain_depth=5,
+            )
+
+        assert len(captured_requests) == 1
+        req = captured_requests[0]
+        assert req.chain_depth == 5
+        assert req.fresh is True
+        assert req.config_path == Path("/config/test.yaml")
+        assert req.workspace == Path("/work")
+
+
+class TestJobMetaChainDepth:
+    """Tests for chain_depth propagation in JobMeta.to_dict() (Issue #74)."""
+
+    def test_chain_depth_in_to_dict_when_set(self) -> None:
+        """to_dict() should include chain_depth when it's not None."""
+        from mozart.daemon.manager import JobMeta
+
+        meta = JobMeta(
+            job_id="test-job",
+            config_path=Path("/config.yaml"),
+            workspace=Path("/workspace"),
+            chain_depth=3,
+        )
+        result = meta.to_dict()
+        assert result["chain_depth"] == 3
+
+    def test_chain_depth_absent_in_to_dict_when_none(self) -> None:
+        """to_dict() should NOT include chain_depth when it's None."""
+        from mozart.daemon.manager import JobMeta
+
+        meta = JobMeta(
+            job_id="test-job",
+            config_path=Path("/config.yaml"),
+            workspace=Path("/workspace"),
+        )
+        result = meta.to_dict()
+        assert "chain_depth" not in result
+
+    def test_chain_depth_in_job_request_model(self) -> None:
+        """JobRequest should accept chain_depth and default to None."""
+        from mozart.daemon.types import JobRequest
+
+        # With chain_depth
+        req = JobRequest(config_path=Path("/c.yaml"), chain_depth=7)
+        assert req.chain_depth == 7
+
+        # Without chain_depth (defaults to None)
+        req2 = JobRequest(config_path=Path("/c.yaml"))
+        assert req2.chain_depth is None
+
+    def test_chain_depth_in_job_submit_params(self) -> None:
+        """JobSubmitParams TypedDict should accept chain_depth."""
+        from mozart.daemon.types import JobSubmitParams
+
+        params: JobSubmitParams = {
+            "config_path": "/config.yaml",
+            "chain_depth": 4,
+        }
+        assert params["chain_depth"] == 4
+
+    def test_job_request_round_trip_with_chain_depth(self) -> None:
+        """JobRequest should serialize and deserialize chain_depth correctly."""
+        from mozart.daemon.types import JobRequest
+
+        req = JobRequest(
+            config_path=Path("/config/test.yaml"),
+            workspace=Path("/workspace"),
+            fresh=True,
+            chain_depth=2,
+        )
+        dumped = req.model_dump(mode="json")
+        restored = JobRequest(**dumped)
+        assert restored.chain_depth == 2
+        assert restored.fresh is True
+        assert restored.config_path == Path("/config/test.yaml")

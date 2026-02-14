@@ -9,7 +9,7 @@
 
 | # | Issue | Feature | Tier |
 |---|-------|---------|------|
-| **23** | **[#74](https://github.com/Mzzkc/mozart-ai-compose/issues/74)** | **Fix: Chained jobs route through daemon** | **tier-1-foundation (TOP PRIORITY)** |
+| **23** | **[#74](https://github.com/Mzzkc/mozart-ai-compose/issues/74)** | **Fix: Chained jobs route through daemon** | **DONE** |
 | 1 | [#49](https://github.com/Mzzkc/mozart-ai-compose/issues/49) | Live Job Progress + Observability | tier-1-foundation |
 | 2+6b | [#50](https://github.com/Mzzkc/mozart-ai-compose/issues/50) | Conductor-First Architecture | tier-1-foundation |
 | 3 | [#51](https://github.com/Mzzkc/mozart-ai-compose/issues/51) | Conductor Configuration (ClamAV-style) | tier-1-foundation |
@@ -37,17 +37,17 @@
 
 ## Feature Details
 
-### Feature 23: Fix Chained Jobs Route Through Daemon (#74) — TOP PRIORITY
+### Feature 23: Fix Chained Jobs Route Through Daemon (#74) — IMPLEMENTED
 
-**Summary:** `on_success` hooks with `detached: true` spawn chained jobs via `subprocess.Popen`, completely bypassing the daemon. Every self-chaining score (quality-continuous, issue-solver) creates invisible orphan processes after the first chain iteration.
+**Summary:** `on_success` hooks with `detached: true` now route through daemon IPC when available, with fail-open fallback to `subprocess.Popen`.
 
-**Fix:** When spawning a chained job, check if a daemon is running and submit through IPC instead of raw subprocess. Fall back to subprocess.Popen if no daemon is available (fail-open).
+**Implementation:** Added `_try_daemon_submit()` in `hooks.py` with lazy imports to avoid circular deps. `chain_depth` propagated via `JobRequest` and `JobMeta` for concert context tracking. 10 new tests + 3 updated existing tests.
 
-**Files:** `src/mozart/execution/hooks.py`, `src/mozart/daemon/ipc/client.py`, `src/mozart/daemon/ipc/handler.py`
+**Files modified:** `src/mozart/execution/hooks.py`, `src/mozart/daemon/types.py`, `src/mozart/daemon/manager.py`, `tests/test_hooks.py`
 
-**Dependencies:** None — targeted fix that works with existing daemon infrastructure.
+**Dependencies:** None.
 
-**Priority:** TOP — This undermines the core value proposition of the daemon. Chained jobs are the most common source of concurrent execution, and they all bypass the daemon.
+**Status:** Complete — chained jobs are now tracked, rate-coordinated, and visible in `mozart list` when a daemon is running.
 
 ---
 

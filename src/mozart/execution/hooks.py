@@ -96,6 +96,38 @@ def get_hook_log_path(workspace: str | Path | None, hook_type: str) -> Path | No
     return hook_log_dir / f"{hook_type}-{timestamp}.log"
 
 
+async def _try_daemon_submit(
+    job_path: Path, workspace: Path | None, fresh: bool, chain_depth: int | None,
+) -> tuple[bool, str | None]:
+    """Attempt to submit a chained job through the daemon IPC.
+
+    Lazy imports avoid circular deps (hooks → daemon → runner → hooks).
+    Fail-open: any error returns (False, None) to fall back to Popen.
+    """
+    try:
+        from mozart.daemon.config import SocketConfig
+        from mozart.daemon.detect import is_daemon_available
+        from mozart.daemon.ipc.client import DaemonClient
+        from mozart.daemon.types import JobRequest
+
+        if not await is_daemon_available():
+            return False, None
+        client = DaemonClient(SocketConfig().path)
+        request = JobRequest(
+            config_path=job_path, workspace=workspace,
+            fresh=fresh, chain_depth=chain_depth,
+        )
+        response = await client.submit_job(request)
+        if response.status == "accepted":
+            _logger.info("hook.daemon_submit_success", job_id=response.job_id)
+            return True, response.job_id
+        _logger.warning("hook.daemon_submit_rejected", status=response.status)
+        return False, None
+    except Exception as exc:
+        _logger.debug("hook.daemon_submit_failed", error=str(exc))
+        return False, None
+
+
 class HookExecutor:
     """Executes post-success hooks and manages concert orchestration.
 
@@ -330,11 +362,36 @@ class HookExecutor:
         # Use parent process cwd (not workspace) so relative job_path finds the config
         # This allows on_success hooks to reference sibling config files correctly
         try:
-            # For detached mode, create independent session group.
-            # start_new_session=True calls os.setsid() in the child, which is
-            # sufficient — the external `setsid` binary would double-detach
-            # redundantly and adds a dependency on the setsid binary.
+            # For detached mode, try routing through the daemon first.
+            # This keeps chained jobs within the daemon's management scope
+            # (registry, rate coordinator, backpressure, learning hub).
+            # Falls back to subprocess.Popen if daemon is unavailable.
             if hook.detached:
+                chain_depth = (
+                    self.concert_context.chain_depth + 1
+                    if self.concert_context else 1
+                )
+                daemon_ok, daemon_job_id = await _try_daemon_submit(
+                    job_path=job_path,
+                    workspace=chained_workspace,
+                    fresh=hook.fresh,
+                    chain_depth=chain_depth,
+                )
+                if daemon_ok:
+                    return HookResult(
+                        hook_type="run_job",
+                        description=hook.description,
+                        success=True,
+                        output=f"Job submitted to daemon (job_id={daemon_job_id})",
+                        chained_job_path=job_path,
+                        chained_job_workspace=chained_workspace,
+                        chained_job_info={
+                            "job_path": str(job_path),
+                            "workspace": str(chained_workspace) if chained_workspace else None,
+                            "job_id": daemon_job_id,
+                            "routed_via": "daemon",
+                        },
+                    )
                 # Create log file for detached hook output instead of DEVNULL.
                 # This ensures chained job failures leave a diagnostic trace.
                 log_path = get_hook_log_path(self.workspace, "chain")

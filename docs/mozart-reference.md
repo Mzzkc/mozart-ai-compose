@@ -99,7 +99,7 @@ When you run `mozart run job.yaml`:
 
 7. **Learning Aggregation** — On completion (or failure — survivorship bias fix), outcomes flow to GlobalLearningStore (~/.mozart/global-learning.db). Patterns detected, merged, trust-scored.
 
-8. **Post-Success Hooks** — Concert chaining: completed jobs can spawn new jobs. `fresh: true` prevents infinite loops. Zero-work guard as defense-in-depth.
+8. **Post-Success Hooks** — Concert chaining: completed jobs can spawn new jobs. Detached `run_job` hooks route through the daemon IPC when available, so chained jobs are tracked, rate-coordinated, and visible in `mozart list`. Falls back to subprocess when no daemon is running. `fresh: true` prevents infinite loops. Zero-work guard as defense-in-depth.
 
 > **Defense-in-depth example:** When a job chains to itself, the child loads the parent's COMPLETED state. Without `--fresh`, it executes zero sheets and triggers on_success again — infinite loop. Mozart fixes this at two independent layers: `--fresh` deletes state (root cause), AND a zero-work guard skips hooks when nothing was done (symptom prevention). Either fix alone is sufficient.
 

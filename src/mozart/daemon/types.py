@@ -31,6 +31,7 @@ class JobSubmitParams(TypedDict, total=False):
     self_healing_auto_confirm: bool
     start_sheet: int | None
     dry_run: bool
+    chain_depth: int | None
 
 
 class JobIdentifyParams(TypedDict, total=False):
@@ -87,6 +88,11 @@ class JobRequest(BaseModel):
     dry_run: bool = Field(
         default=False,
         description="Validate config and return without executing sheets",
+    )
+    chain_depth: int | None = Field(
+        default=None,
+        description="Concert chain depth for chained job submissions. "
+        "Used by the daemon to track and enforce max_chain_depth.",
     )
 
 

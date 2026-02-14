@@ -882,7 +882,7 @@ on_success:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `detached` | bool | `false` | For `run_job`: spawn and don't wait. |
+| `detached` | bool | `false` | For `run_job`: spawn and don't wait. Routes through daemon IPC when available, falls back to subprocess. |
 | `fresh` | bool | `false` | For `run_job`: pass `--fresh` to clear previous state. Required for self-chaining. |
 | `inherit_learning` | bool | `true` | Share outcome store with parent job. |
 | `on_failure` | `"continue"` \| `"abort"` | `"continue"` | What to do if hook fails. |

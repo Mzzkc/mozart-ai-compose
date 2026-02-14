@@ -155,7 +155,8 @@ class TestHookExecutorFreshFlag:
             proc.poll.return_value = None  # Child still alive for liveness check
             return proc
 
-        with patch("mozart.execution.hooks._subprocess.Popen", side_effect=mock_popen):
+        with patch("mozart.execution.hooks._try_daemon_submit", return_value=(False, None)), \
+             patch("mozart.execution.hooks._subprocess.Popen", side_effect=mock_popen):
             results = await executor.execute_hooks()
 
         assert len(results) == 1
@@ -200,7 +201,8 @@ class TestHookExecutorFreshFlag:
             proc.poll.return_value = None  # Child still alive for liveness check
             return proc
 
-        with patch("mozart.execution.hooks._subprocess.Popen", side_effect=mock_popen):
+        with patch("mozart.execution.hooks._try_daemon_submit", return_value=(False, None)), \
+             patch("mozart.execution.hooks._subprocess.Popen", side_effect=mock_popen):
             results = await executor.execute_hooks()
 
         assert len(results) == 1
