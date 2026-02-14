@@ -426,7 +426,7 @@ class LifecycleMixin:
         self._summary.completed_sheets = 0
         self._summary.failed_sheets = 0
         self._summary.skipped_sheets = 0
-        self._summary.first_attempt_successes = 0
+        self._summary.successes_without_retry = 0
         self._summary.total_completion_attempts = 0
         self._summary.total_retries = 0
         self._summary.validation_pass_count = 0
@@ -436,8 +436,8 @@ class LifecycleMixin:
         for sheet_state in state.sheets.values():
             if sheet_state.status == SheetStatus.COMPLETED:
                 self._summary.completed_sheets += 1
-                if sheet_state.first_attempt_success:
-                    self._summary.first_attempt_successes += 1
+                if sheet_state.success_without_retry:
+                    self._summary.successes_without_retry += 1
                 # Track completion attempts
                 if sheet_state.completion_attempts:
                     self._summary.total_completion_attempts += sheet_state.completion_attempts
@@ -719,7 +719,7 @@ class LifecycleMixin:
             returncode = await _asyncio.wait_for(
                 proc.wait(), timeout=skip_cmd.timeout_seconds
             )
-        except _asyncio.TimeoutError:
+        except TimeoutError:
             self._logger.warning(
                 "skip_when_command_timeout",
                 sheet_num=sheet_num,
@@ -1049,7 +1049,7 @@ class LifecycleMixin:
                         if sheet_state.validation_passed is False
                         else 50.0  # Unknown
                     ),
-                    first_attempt_success=sheet_state.first_attempt_success,
+                    success_without_retry=sheet_state.success_without_retry,
                     timestamp=sheet_state.completed_at or utc_now(),
                     # Output capture for pattern extraction (Evolution: Learning Data Collection)
                     stdout_tail=sheet_state.stdout_tail or "",
