@@ -1409,115 +1409,107 @@ validations:
     condition: "stage >= 4"
 
   # ── Stage 5: setup.sh ──────────────────────────────────────────────────────
+  # NOTE: setup.sh lives at project root (outside workspace), so we use
+  # command_succeeds with explicit paths instead of file_exists/content_contains
+  # which are sandboxed to the workspace directory.
   - type: file_exists
     path: "{workspace}/05-setup-fixed.md"
     description: "setup.sh update report must exist"
     condition: "stage >= 5"
 
   - type: command_succeeds
-    command: "bash -n setup.sh"
+    command: "bash -n ../setup.sh"
     description: "setup.sh must have valid syntax"
     condition: "stage >= 5"
 
-  - type: content_contains
-    path: "setup.sh"
-    pattern: "daemon"
+  - type: command_succeeds
+    command: "grep -q 'daemon' ../setup.sh"
     description: "setup.sh must mention daemon"
     condition: "stage >= 5"
 
   # ── Stage 6: Score Writing Guide ────────────────────────────────────────────
-  - type: file_exists
-    path: "docs/score-writing-guide.md"
+  # NOTE: docs/ lives at project root (outside workspace), so all checks on
+  # project-root files use command_succeeds with ../ relative paths.
+  - type: command_succeeds
+    command: "test -f ../docs/score-writing-guide.md"
     description: "Score writing guide must exist"
     condition: "stage >= 6"
 
-  - type: content_contains
-    path: "docs/score-writing-guide.md"
-    pattern: "Validation"
+  - type: command_succeeds
+    command: "grep -q 'Validation' ../docs/score-writing-guide.md"
     description: "Score guide must cover validations"
     condition: "stage >= 6"
 
-  - type: content_contains
-    path: "docs/score-writing-guide.md"
-    pattern: "template"
+  - type: command_succeeds
+    command: "grep -q 'template' ../docs/score-writing-guide.md"
     description: "Score guide must cover templates"
     condition: "stage >= 6"
 
-  - type: content_regex
-    path: "docs/score-writing-guide.md"
-    pattern: "sheet_num|stage|workspace"
+  - type: command_succeeds
+    command: "grep -qE 'sheet_num|stage|workspace' ../docs/score-writing-guide.md"
     description: "Score guide must reference template variables"
     condition: "stage >= 6"
 
   # ── Stage 7: Daemon Guide ──────────────────────────────────────────────────
-  - type: file_exists
-    path: "docs/daemon-guide.md"
+  - type: command_succeeds
+    command: "test -f ../docs/daemon-guide.md"
     description: "Daemon guide must exist"
     condition: "stage >= 7"
 
-  - type: content_contains
-    path: "docs/daemon-guide.md"
-    pattern: "mozartd"
+  - type: command_succeeds
+    command: "grep -q 'mozartd' ../docs/daemon-guide.md"
     description: "Daemon guide must reference mozartd"
     condition: "stage >= 7"
 
-  - type: content_contains
-    path: "docs/daemon-guide.md"
-    pattern: "Quick Start"
+  - type: command_succeeds
+    command: "grep -q 'Quick Start' ../docs/daemon-guide.md"
     description: "Daemon guide must have quick start"
     condition: "stage >= 7"
 
-  - type: content_regex
-    path: "docs/daemon-guide.md"
-    pattern: "Phase 3|not.*wired|not yet"
+  - type: command_succeeds
+    command: "grep -qE 'Phase 3|not.*wired|not yet' ../docs/daemon-guide.md"
     description: "Daemon guide must note unwired components"
     condition: "stage >= 7"
 
   # ── Stage 8: Limitations ───────────────────────────────────────────────────
-  - type: file_exists
-    path: "docs/limitations.md"
+  - type: command_succeeds
+    command: "test -f ../docs/limitations.md"
     description: "Limitations doc must exist"
     condition: "stage >= 8"
 
-  - type: content_contains
-    path: "docs/limitations.md"
-    pattern: "Limitation"
+  - type: command_succeeds
+    command: "grep -q 'Limitation' ../docs/limitations.md"
     description: "Limitations doc must contain limitation entries"
     condition: "stage >= 8"
 
-  - type: content_contains
-    path: "docs/limitations.md"
-    pattern: "daemon"
+  - type: command_succeeds
+    command: "grep -q 'daemon' ../docs/limitations.md"
     description: "Limitations must mention daemon requirement"
     condition: "stage >= 8"
 
-  - type: content_contains
-    path: "docs/limitations.md"
-    pattern: "escalation"
+  - type: command_succeeds
+    command: "grep -q 'escalation' ../docs/limitations.md"
     description: "Limitations must mention escalation incompatibility"
     condition: "stage >= 8"
 
   # ── Stage 9: Configuration Reference ────────────────────────────────────────
-  - type: file_exists
-    path: "docs/configuration-reference.md"
+  - type: command_succeeds
+    command: "test -f ../docs/configuration-reference.md"
     description: "Config reference must exist"
     condition: "stage >= 9"
 
-  - type: content_regex
-    path: "docs/configuration-reference.md"
-    pattern: "\\| Field.*\\| Type.*\\| Default"
+  - type: command_succeeds
+    command: "grep -qE '\\| Field.*\\| Type.*\\| Default' ../docs/configuration-reference.md"
     description: "Config reference must have field tables"
     condition: "stage >= 9"
 
-  - type: content_contains
-    path: "docs/configuration-reference.md"
-    pattern: "backend"
+  - type: command_succeeds
+    command: "grep -q 'backend' ../docs/configuration-reference.md"
     description: "Config reference must cover backend config"
     condition: "stage >= 9"
 
-  - type: content_contains
-    path: "docs/configuration-reference.md"
-    pattern: "retry"
+  - type: command_succeeds
+    command: "grep -q 'retry' ../docs/configuration-reference.md"
     description: "Config reference must cover retry config"
     condition: "stage >= 9"
 
@@ -1533,13 +1525,13 @@ validations:
     description: "Doc site build report must exist"
     condition: "stage >= 11"
 
-  - type: file_exists
-    path: "site/index.html"
+  - type: command_succeeds
+    command: "test -f ../site/index.html"
     description: "Doc site index.html must be generated"
     condition: "stage >= 11"
 
   - type: command_succeeds
-    command: "test -f site/search/search_index.json"
+    command: "test -f ../site/search/search_index.json"
     description: "Doc site search index must exist"
     condition: "stage >= 11"
 
