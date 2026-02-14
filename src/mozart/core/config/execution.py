@@ -391,4 +391,38 @@ class ValidationRule(BaseModel):
                 raise ValueError(
                     "Validation type 'command_succeeds' requires 'command' field"
                 )
+        if self.type == "content_regex" and self.pattern is not None:
+            try:
+                re.compile(self.pattern)
+            except re.error as exc:
+                raise ValueError(
+                    f"Invalid regex pattern for content_regex validation: {exc}"
+                ) from exc
         return self
+
+
+class SkipWhenCommand(BaseModel):
+    """A command-based conditional skip rule for sheet execution.
+
+    When the command exits 0, the sheet is SKIPPED.
+    When the command exits non-zero, the sheet RUNS.
+    On timeout or error, the sheet RUNS (fail-open for safety).
+
+    The ``command`` field supports ``{workspace}`` template expansion,
+    following the same pattern as validation commands.
+    """
+
+    command: str = Field(
+        description="Shell command to evaluate. Exit 0 = skip the sheet. "
+        "Supports {workspace} template expansion.",
+    )
+    description: str | None = Field(
+        default=None,
+        description="Human-readable reason for the skip condition",
+    )
+    timeout_seconds: float = Field(
+        default=10.0,
+        gt=0,
+        le=60,
+        description="Maximum seconds to wait for command (fail-open on timeout)",
+    )

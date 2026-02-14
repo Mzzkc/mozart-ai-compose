@@ -19,6 +19,7 @@ from mozart.core.config import (
     RateLimitConfig,
     RetryConfig,
     SheetConfig,
+    SkipWhenCommand,
     ValidationRule,
 )
 
@@ -790,3 +791,39 @@ class TestFeedbackConfig:
             "prompt": {"template": "test"},
         })
         assert config.feedback.enabled is False
+
+
+class TestSkipWhenCommand:
+    """Tests for SkipWhenCommand model."""
+
+    def test_defaults(self):
+        """Test default values."""
+        cmd = SkipWhenCommand(command="grep -q DONE file.txt")
+        assert cmd.command == "grep -q DONE file.txt"
+        assert cmd.description is None
+        assert cmd.timeout_seconds == 10.0
+
+    def test_custom_values(self):
+        """Test custom values."""
+        cmd = SkipWhenCommand(
+            command="test -f output.txt",
+            description="Skip if output exists",
+            timeout_seconds=30.0,
+        )
+        assert cmd.description == "Skip if output exists"
+        assert cmd.timeout_seconds == 30.0
+
+    def test_timeout_must_be_positive(self):
+        """Test timeout_seconds must be > 0."""
+        with pytest.raises(ValidationError):
+            SkipWhenCommand(command="echo hi", timeout_seconds=0)
+
+    def test_timeout_max_60(self):
+        """Test timeout_seconds capped at 60."""
+        with pytest.raises(ValidationError):
+            SkipWhenCommand(command="echo hi", timeout_seconds=61)
+
+    def test_command_required(self):
+        """Test command field is required."""
+        with pytest.raises(ValidationError):
+            SkipWhenCommand()
