@@ -1,42 +1,56 @@
 # Mozart CLI Reference
 
-Complete reference for all Mozart CLI commands and options.
+Complete reference for all Mozart CLI commands and options. Mozart provides two entry points:
+
+- **`mozart`** — Job orchestration CLI (run, monitor, diagnose, learn)
+- **`mozartd`** — Daemon service for managing multiple concurrent jobs
+
+---
 
 ## Global Options
 
-These options work with all commands:
+These options apply to all `mozart` commands:
 
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--version` | `-V` | Show version and exit |
-| `--verbose` | `-v` | Enable verbose output |
-| `--quiet` | `-q` | Suppress non-essential output |
-| `--help` | | Show help message |
+| Option | Short | Description | Env Var |
+|--------|-------|-------------|---------|
+| `--version` | `-V` | Show version and exit | |
+| `--verbose` | `-v` | Show detailed output with additional information | |
+| `--quiet` | `-q` | Show minimal output (errors only) | |
+| `--log-level` | `-L` | Logging level: `DEBUG`, `INFO`, `WARNING`, `ERROR` | `MOZART_LOG_LEVEL` |
+| `--log-file` | | Path for log file output | `MOZART_LOG_FILE` |
+| `--log-format` | | Log format: `json`, `console`, or `both` | `MOZART_LOG_FORMAT` |
+| `--help` | | Show help message | |
 
-## Commands
+---
+
+## Core Commands
 
 ### `mozart run`
 
-Execute a batch job from a configuration file.
+Run a job from a YAML configuration file.
 
-```bash
-mozart run <config> [OPTIONS]
+```
+Usage: mozart run [OPTIONS] CONFIG_FILE
 ```
 
 #### Arguments
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `config` | Yes | Path to YAML configuration file |
+| `CONFIG_FILE` | Yes | Path to YAML job configuration file |
 
 #### Options
 
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
-| `--dry-run` | `-n` | false | Show plan without executing |
-| `--workspace` | `-w` | `.` | Workspace directory for state |
-| `--json` | `-j` | false | Output results as JSON |
-| `--start-batch` | | 1 | Start from specific batch number |
+| `--dry-run` | `-n` | false | Show what would be executed without running |
+| `--start-sheet` | `-s` | | Override starting sheet number |
+| `--workspace` | `-w` | | Override workspace directory (creates if missing; takes precedence over YAML config) |
+| `--json` | `-j` | false | Output result as JSON for machine parsing |
+| `--escalation` | `-e` | false | Enable human-in-the-loop escalation for low-confidence sheets |
+| `--self-healing` | `-H` | false | Enable automatic diagnosis and remediation when retries are exhausted |
+| `--yes` | `-y` | false | Auto-confirm suggested fixes when using `--self-healing` |
+| `--fresh` | | false | Delete existing state before running, ensuring a fresh start. Use for self-chaining jobs or re-running completed jobs from scratch |
 
 #### Examples
 
@@ -50,11 +64,20 @@ mozart run job.yaml --dry-run
 # Custom workspace
 mozart run job.yaml --workspace ./output
 
-# Start from batch 3
-mozart run job.yaml --start-batch 3
+# Start from sheet 3
+mozart run job.yaml --start-sheet 3
 
-# JSON output for scripting
-mozart run job.yaml --json
+# With self-healing enabled
+mozart run job.yaml --self-healing --yes
+
+# Fresh start (ignores existing state)
+mozart run job.yaml --fresh
+
+# Human-in-the-loop for uncertain sheets
+mozart run job.yaml --escalation
+
+# Detached execution (survives session changes)
+setsid mozart run job.yaml > workspace/mozart.log 2>&1 &
 ```
 
 #### Exit Codes
@@ -66,38 +89,186 @@ mozart run job.yaml --json
 
 ---
 
-### `mozart status`
+### `mozart resume`
 
-Show status of a specific job.
+Resume a paused or failed job.
 
-```bash
-mozart status <job-id> [OPTIONS]
 ```
+Usage: mozart resume [OPTIONS] JOB_ID
+```
+
+Loads the job state from the state backend and continues execution from where it left off. The job configuration is reconstructed from the stored `config_snapshot`, or you can provide a config file with `--config`.
 
 #### Arguments
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `job-id` | Yes | Job identifier |
+| `JOB_ID` | Yes | Job ID to resume |
 
 #### Options
 
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
-| `--workspace` | `-w` | `.` | Workspace directory |
-| `--json` | `-j` | false | Output as JSON |
+| `--config` | `-c` | | Path to config file (optional if `config_snapshot` exists in state) |
+| `--workspace` | `-w` | | Workspace directory to search for job state |
+| `--force` | `-f` | false | Force resume even if job appears completed |
+| `--escalation` | `-e` | false | Enable human-in-the-loop escalation for low-confidence sheets |
+| `--reload-config` | `-r` | false | Reload config from YAML file instead of cached snapshot. Use with `--config` to specify a new file |
+| `--self-healing` | `-H` | false | Enable automatic diagnosis and remediation when retries are exhausted |
+| `--yes` | `-y` | false | Auto-confirm suggested fixes when using `--self-healing` |
+
+#### Examples
+
+```bash
+# Resume paused job
+mozart resume my-job
+
+# Resume with explicit config
+mozart resume my-job --config job.yaml
+
+# Resume with updated config
+mozart resume my-job --reload-config --config updated.yaml
+
+# Force restart completed job
+mozart resume my-job --force
+```
+
+#### Resumable States
+
+| Status | Resumable | Notes |
+|--------|-----------|-------|
+| `paused` | Yes | Continues from last sheet |
+| `failed` | Yes | Retries from failed sheet |
+| `running` | Yes | Continues from last sheet |
+| `completed` | With `--force` | Restarts entire job |
+| `pending` | No | Use `run` instead |
+
+---
+
+### `mozart pause`
+
+Pause a running Mozart job gracefully.
+
+```
+Usage: mozart pause [OPTIONS] JOB_ID
+```
+
+Creates a pause signal that the job detects at the next sheet boundary. The job saves its state and can be resumed with `mozart resume`.
+
+#### Arguments
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `JOB_ID` | Yes | Job ID to pause |
+
+#### Options
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--workspace` | `-w` | | Workspace directory containing job state |
+| `--wait` | | false | Wait for job to acknowledge pause signal |
+| `--timeout` | `-t` | 60 | Timeout in seconds when using `--wait` |
+| `--json` | `-j` | false | Output result as JSON |
+
+#### Examples
+
+```bash
+# Pause a running job
+mozart pause my-job
+
+# Pause and wait for acknowledgment
+mozart pause my-job --wait --timeout 30
+
+# Pause with specific workspace
+mozart pause my-job --workspace ./workspace
+```
+
+---
+
+### `mozart modify`
+
+Modify a job's configuration and optionally resume execution.
+
+```
+Usage: mozart modify [OPTIONS] JOB_ID
+```
+
+Convenience command that combines pause + config validation. If the job is running, it will be paused first. Use `--resume` to immediately resume with the new configuration.
+
+#### Arguments
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `JOB_ID` | Yes | Job ID to modify |
+
+#### Options
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--config` | `-c` | **required** | New configuration file |
+| `--workspace` | `-w` | | Workspace directory containing job state |
+| `--resume` | `-r` | false | Immediately resume with new config after pausing |
+| `--wait` | | false | Wait for job to pause before resuming (when `--resume`) |
+| `--timeout` | `-t` | 60 | Timeout in seconds for pause acknowledgment |
+| `--json` | `-j` | false | Output result as JSON |
+
+#### Examples
+
+```bash
+# Modify config (pauses job if running)
+mozart modify my-job --config updated.yaml
+
+# Modify and immediately resume
+mozart modify my-job -c new-config.yaml --resume
+
+# Modify, wait for pause, then resume
+mozart modify my-job -c updated.yaml --resume --wait
+```
+
+---
+
+### `mozart status`
+
+Show detailed status of a specific job.
+
+```
+Usage: mozart status [OPTIONS] JOB_ID
+```
+
+Displays job progress, sheet states, timing information, and any errors. Use `--watch` for continuous monitoring.
+
+#### Arguments
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `JOB_ID` | Yes | Job ID to check status for |
+
+#### Options
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--json` | `-j` | false | Output as JSON for machine parsing |
+| `--watch` | `-W` | false | Continuously monitor status with live updates |
+| `--interval` | `-i` | 5 | Refresh interval in seconds for `--watch` mode |
+| `--workspace` | `-w` | | Workspace directory to search for job state |
 
 #### Examples
 
 ```bash
 # Show job status
-mozart status my-batch-job
+mozart status my-job
 
 # JSON output
-mozart status my-batch-job --json
+mozart status my-job --json
+
+# Continuous monitoring
+mozart status my-job --watch
+
+# Watch with custom interval
+mozart status my-job --watch --interval 10
 
 # Custom workspace
-mozart status my-batch-job --workspace ./jobs
+mozart status my-job --workspace ./jobs
 ```
 
 #### Output
@@ -105,23 +276,23 @@ mozart status my-batch-job --workspace ./jobs
 Standard output includes:
 - Job name and ID
 - Status (running, completed, failed, paused, pending)
-- Progress bar with batch counts
+- Progress bar with sheet counts
 - Timing information
 - Error messages (if any)
-- Batch details table
+- Sheet details table
 
 JSON output structure:
 ```json
 {
-  "job_id": "my-batch-job",
-  "job_name": "My Batch Job",
+  "job_id": "my-job",
+  "job_name": "My Job",
   "status": "running",
   "progress": {
     "completed": 5,
     "total": 10,
     "percent": 50.0
   },
-  "batches": {
+  "sheets": {
     "1": {"status": "completed", "attempt_count": 1},
     "2": {"status": "in_progress", "attempt_count": 1}
   }
@@ -130,96 +301,41 @@ JSON output structure:
 
 ---
 
-### `mozart resume`
-
-Resume a paused or failed job.
-
-```bash
-mozart resume <job-id> [OPTIONS]
-```
-
-#### Arguments
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `job-id` | Yes | Job identifier to resume |
-
-#### Options
-
-| Option | Short | Default | Description |
-|--------|-------|---------|-------------|
-| `--workspace` | `-w` | `.` | Workspace directory |
-| `--config` | `-c` | | Override config file path |
-| `--force` | `-f` | false | Force resume completed jobs |
-
-#### Examples
-
-```bash
-# Resume paused job
-mozart resume my-batch-job
-
-# Resume with explicit config
-mozart resume my-batch-job --config job.yaml
-
-# Force restart completed job
-mozart resume my-batch-job --force
-```
-
-#### Resumable States
-
-| Status | Resumable | Notes |
-|--------|-----------|-------|
-| `paused` | Yes | Continues from last batch |
-| `failed` | Yes | Retries from failed batch |
-| `running` | Yes | Continues from last batch |
-| `completed` | With `--force` | Restarts entire job |
-| `pending` | No | Use `run` instead |
-
----
-
 ### `mozart list`
 
-List all jobs in workspace.
+List jobs from the daemon.
 
-```bash
-mozart list [OPTIONS]
 ```
+Usage: mozart list [OPTIONS]
+```
+
+By default shows only active jobs (queued, running, paused). Use `--all` to include completed, failed, and cancelled jobs.
+
+> **Note:** This command requires a running Mozart daemon (`mozartd`). Use `mozart status <job-id>` for checking individual jobs without a daemon.
 
 #### Options
 
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
-| `--workspace` | `-w` | `.` | Workspace directory |
-| `--status` | `-s` | | Filter by status |
-| `--limit` | `-l` | 50 | Maximum jobs to show |
-| `--json` | `-j` | false | Output as JSON |
+| `--all` | `-a` | false | Show all jobs including completed, failed, and cancelled |
+| `--status` | `-s` | | Filter by job status: `queued`, `running`, `completed`, `failed`, `paused` |
+| `--limit` | `-l` | 20 | Maximum number of jobs to display |
 
 #### Examples
 
 ```bash
-# List all jobs
+# List active jobs (default)
 mozart list
 
+# List all jobs including completed
+mozart list --all
+
 # Filter by status
-mozart list --status completed
 mozart list --status failed
-mozart list --status paused
 
 # Limit results
 mozart list --limit 10
-
-# JSON output
-mozart list --json
 ```
-
-#### Status Filters
-
-Valid status values:
-- `pending` - Not yet started
-- `running` - Currently executing
-- `paused` - Gracefully interrupted
-- `completed` - Successfully finished
-- `failed` - Ended with error
 
 ---
 
@@ -227,105 +343,817 @@ Valid status values:
 
 Validate a job configuration file.
 
-```bash
-mozart validate <config> [OPTIONS]
 ```
+Usage: mozart validate [OPTIONS] CONFIG_FILE
+```
+
+Performs comprehensive validation including YAML syntax, Pydantic schema validation, Jinja template syntax checking, path existence verification, regex pattern compilation, and configuration completeness checks.
 
 #### Arguments
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `config` | Yes | Path to YAML configuration file |
+| `CONFIG_FILE` | Yes | Path to YAML job configuration file |
+
+#### Options
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--json` | `-j` | false | Output validation results as JSON |
+| `--verbose` | `-v` | false | Show detailed validation output |
+
+#### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Valid (warnings/info OK) |
+| 1 | Invalid (one or more errors) |
+| 2 | Cannot validate (file not found, YAML unparseable) |
+
+#### Validation Checks
+
+| Code | Description | Severity |
+|------|-------------|----------|
+| V001 | Jinja syntax errors | ERROR |
+| V002 | Workspace parent missing | ERROR (auto-fixable) |
+| V003 | Template file missing | ERROR |
+| V007 | Invalid regex patterns | ERROR |
+| V101 | Undefined template variables | WARNING |
+| V103 | Very short timeout | WARNING |
 
 #### Examples
 
 ```bash
-# Validate config
+# Basic validation
 mozart validate job.yaml
+
+# Detailed output
+mozart validate job.yaml --verbose
+
+# JSON output for CI/CD
+mozart validate job.yaml --json
 ```
 
-#### Output
+---
 
-On success:
+### `mozart logs`
+
+Show or tail log files for a job.
+
 ```
-Valid configuration: my-batch-job
-  Batches: 10 (5 items each)
-  Validations: 2
+Usage: mozart logs [OPTIONS] [JOB_ID]
 ```
 
-On error:
+Displays log entries from Mozart log files. Supports both current log files and compressed rotated logs (`.gz`).
+
+#### Arguments
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `JOB_ID` | No | Job ID to filter logs for (shows all if not specified) |
+
+#### Options
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--workspace` | `-w` | `.` | Workspace directory to find logs |
+| `--file` | `-f` | | Specific log file path (overrides workspace default) |
+| `--follow` | `-F` | false | Follow the log file for new entries (like `tail -f`) |
+| `--lines` | `-n` | 50 | Number of lines to show (0 for all) |
+| `--level` | `-l` | | Filter by minimum log level: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `--json` | `-j` | false | Output raw JSON log entries |
+
+#### Examples
+
+```bash
+# Show recent logs
+mozart logs
+
+# Filter by job
+mozart logs my-job
+
+# Follow logs in real-time
+mozart logs --follow
+
+# Show last 100 lines of errors only
+mozart logs --lines 100 --level ERROR
+
+# Use specific log file
+mozart logs --file ./workspace/logs/mozart.log
 ```
-Invalid configuration: job.yaml
-  Error: batch.size must be positive
+
+---
+
+### `mozart errors`
+
+List all errors for a job with detailed information.
+
+```
+Usage: mozart errors [OPTIONS] JOB_ID
+```
+
+Displays errors grouped by sheet, with color-coding by error type:
+- **Red:** Permanent errors (non-retriable, fatal)
+- **Yellow:** Transient errors (retriable with backoff)
+- **Blue:** Rate limit errors (retriable after wait)
+
+#### Arguments
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `JOB_ID` | Yes | Job ID to show errors for |
+
+#### Options
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--sheet` | `-b` | | Filter errors by specific sheet number |
+| `--type` | `-t` | | Filter by error type: `transient`, `rate_limit`, or `permanent` |
+| `--code` | `-c` | | Filter by error code (e.g., `E001`, `E101`) |
+| `--verbose` | `-V` | false | Show full stdout/stderr tails for each error |
+| `--workspace` | `-w` | | Workspace directory to search for job state |
+| `--json` | `-j` | false | Output errors as JSON |
+
+#### Examples
+
+```bash
+# Show all errors
+mozart errors my-job
+
+# Errors for specific sheet
+mozart errors my-job --sheet 3
+
+# Only transient errors
+mozart errors my-job --type transient
+
+# Filter by error code
+mozart errors my-job --code E001
+
+# Verbose with stdout/stderr details
+mozart errors my-job --verbose
+```
+
+---
+
+### `mozart diagnose`
+
+Generate a comprehensive diagnostic report for a job.
+
+```
+Usage: mozart diagnose [OPTIONS] JOB_ID
+```
+
+The diagnostic report includes:
+- Job overview and current status
+- Preflight warnings from all sheets
+- Prompt metrics (token counts, line counts)
+- Execution timeline with timing information
+- All errors with full context and output tails
+- Log file locations, sizes, and modification times
+- (with `--include-logs`) Inline log content from each log file
+
+#### Arguments
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `JOB_ID` | Yes | Job ID to diagnose |
+
+#### Options
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--workspace` | `-w` | | Workspace directory to search for job state |
+| `--json` | `-j` | false | Output diagnostic report as JSON |
+| `--include-logs` | | false | Inline the last 50 lines from each sheet/hook log file |
+
+#### Examples
+
+```bash
+# Full diagnostic report
+mozart diagnose my-job
+
+# Machine-readable
+mozart diagnose my-job --json
+
+# Include inline log content
+mozart diagnose my-job --include-logs
+```
+
+---
+
+### `mozart history`
+
+Show execution history for a job.
+
+```
+Usage: mozart history [OPTIONS] JOB_ID
+```
+
+Displays a table of past execution attempts from the SQLite state backend, including sheet number, attempt number, exit code, duration, and timestamp.
+
+> **Note:** Requires the SQLite state backend. Execution history is not available with the JSON backend.
+
+#### Arguments
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `JOB_ID` | Yes | Job ID to show execution history for |
+
+#### Options
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--sheet` | `-b` | | Filter by specific sheet number |
+| `--limit` | `-n` | 50 | Maximum number of records to show |
+| `--workspace` | `-w` | | Workspace directory to search for job state |
+| `--json` | `-j` | false | Output history as JSON |
+
+#### Examples
+
+```bash
+# Show all history
+mozart history my-job
+
+# History for specific sheet
+mozart history my-job --sheet 3
+
+# Show more records
+mozart history my-job --limit 100
+
+# JSON output
+mozart history my-job --json
+```
+
+---
+
+### `mozart recover`
+
+Recover sheets that completed work but were incorrectly marked as failed.
+
+```
+Usage: mozart recover [OPTIONS] JOB_ID
+```
+
+Runs validations for failed sheets without re-executing them. If validations pass, the sheet is marked as complete. This is useful when:
+- Claude CLI returned a non-zero exit code but the work was done
+- A transient error caused failure after files were created
+- You want to check if a failed sheet actually succeeded
+
+#### Arguments
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `JOB_ID` | Yes | Job ID to recover |
+
+#### Options
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--sheet` | `-s` | | Specific sheet number to recover (default: all failed sheets) |
+| `--workspace` | `-w` | | Workspace directory containing job state |
+| `--dry-run` | `-n` | false | Check validations without modifying state |
+
+#### Examples
+
+```bash
+# Recover all failed sheets
+mozart recover my-job
+
+# Recover specific sheet
+mozart recover my-job --sheet 6
+
+# Check without modifying (dry run)
+mozart recover my-job --dry-run
 ```
 
 ---
 
 ### `mozart dashboard`
 
-Start the web dashboard server.
+Start the web dashboard.
 
-```bash
-mozart dashboard [OPTIONS]
 ```
+Usage: mozart dashboard [OPTIONS]
+```
+
+Launches the Mozart dashboard API server for job monitoring and control.
 
 #### Options
 
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
-| `--workspace` | `-w` | `.` | Workspace directory |
-| `--host` | `-h` | `127.0.0.1` | Host to bind to |
-| `--port` | `-p` | `8000` | Port to listen on |
+| `--port` | `-p` | 8000 | Port to run dashboard on |
+| `--host` | | `127.0.0.1` | Host to bind to |
+| `--workspace` | `-w` | `.` | Workspace directory for job state |
+| `--reload` | `-r` | false | Enable auto-reload for development |
 
 #### Examples
 
 ```bash
-# Start with defaults
+# Start with defaults (localhost:8000)
 mozart dashboard
 
 # Custom port
 mozart dashboard --port 3000
 
-# Bind to all interfaces
+# Allow external connections
 mozart dashboard --host 0.0.0.0
 
-# Custom workspace
-mozart dashboard --workspace ./jobs
+# Development mode with auto-reload
+mozart dashboard --reload
 ```
 
-#### API Endpoints
+#### Dashboard API Endpoints
+
+##### Health
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/health` | Health check |
-| GET | `/api/jobs` | List all jobs |
-| GET | `/api/jobs/{id}` | Get job details |
-| GET | `/api/jobs/{id}/status` | Get job status (lightweight) |
-| GET | `/docs` | Swagger UI |
-| GET | `/openapi.json` | OpenAPI schema |
+| GET | `/health` | Service health check (status, version) |
+
+##### Job Management
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/jobs` | List all jobs with optional status filter and pagination |
+| GET | `/api/jobs/{id}` | Get detailed information about a specific job |
+| GET | `/api/jobs/{id}/status` | Get focused status (lightweight polling endpoint) |
+| POST | `/api/jobs` | Start a new job (inline config or file path) |
+| POST | `/api/jobs/{id}/pause` | Pause a running job |
+| POST | `/api/jobs/{id}/resume` | Resume a paused job |
+| POST | `/api/jobs/{id}/cancel` | Cancel a running job |
+| DELETE | `/api/jobs/{id}` | Delete a job record |
+
+##### Sheet Details
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/jobs/{id}/sheets/{num}` | Sheet-level status, logs, validation, costs, tokens |
+
+##### Streaming & Logs
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/jobs/{id}/stream` | Real-time job status updates via SSE |
+| GET | `/api/jobs/{id}/logs` | Stream job logs via SSE with follow mode |
+| GET | `/api/jobs/{id}/logs/static` | Download complete log file as plain text |
+| GET | `/api/jobs/{id}/logs/info` | Log file metadata (size, lines, modified time) |
+
+##### Artifacts & Workspace
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/jobs/{id}/artifacts` | List workspace files (recursive, with filtering) |
+| GET | `/api/jobs/{id}/artifacts/{path}` | Read a specific workspace file |
+
+##### Configuration & Templates
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/scores/validate` | Validate YAML config (syntax, schema, extended checks) |
+| GET | `/api/templates/list` | List available templates (category, complexity, search filtering) |
+| GET | `/api/templates/{name}` | Get template details |
+| GET | `/api/templates/{name}/download` | Download template as YAML file |
+| POST | `/api/templates/{name}/use` | Use a template (redirect to editor) |
+
+##### Daemon
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/jobs/daemon/status` | Check daemon status (PID, uptime, running jobs, memory) |
 
 ---
 
-## Environment Variables
+### `mozart mcp`
 
-| Variable | Description |
-|----------|-------------|
-| `MOZART_WORKSPACE` | Default workspace directory |
-| `ANTHROPIC_API_KEY` | API key for Anthropic backend |
+Start the Mozart MCP (Model Context Protocol) server.
 
-## Configuration File Reference
+```
+Usage: mozart mcp [OPTIONS]
+```
 
-See [Configuration Guide](configuration.md) for full YAML options.
+Launches an MCP server that exposes Mozart's job management capabilities as tools for external AI agents. Provides job management tools, artifact browsing, log streaming, and configuration access.
+
+When a Mozart daemon is running, the MCP server routes operations through it for coordinated execution.
+
+#### Options
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--port` | `-p` | 8001 | Port to run MCP server on |
+| `--host` | | `127.0.0.1` | Host to bind to |
+| `--workspace` | `-w` | `.` | Workspace directory for job operations |
+
+#### Examples
+
+```bash
+# Start on default port
+mozart mcp
+
+# Custom port
+mozart mcp --port 8002
+
+# Specific workspace
+mozart mcp --workspace ./projects
+```
+
+See [MCP Integration Guide](MCP-INTEGRATION.md) for Claude Desktop setup and available tools.
+
+---
+
+### `mozart config`
+
+Manage daemon (`mozartd`) configuration.
+
+```
+Usage: mozart config COMMAND [OPTIONS]
+```
+
+#### Subcommands
+
+##### `mozart config show`
+
+Display current daemon configuration as a table. Values loaded from config file are highlighted; defaults shown in dim.
+
+```bash
+mozart config show
+mozart config show --config /etc/mozart/daemon.yaml
+```
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--config` | `-c` | Path to daemon config file (default: `~/.mozart/daemon.yaml`) |
+
+##### `mozart config set`
+
+Update a daemon configuration value. Values are validated against the DaemonConfig schema before saving. Use dot notation for nested keys.
+
+```bash
+mozart config set max_concurrent_jobs 10
+mozart config set socket.path /tmp/custom.sock
+mozart config set resource_limits.max_memory_mb 4096
+mozart config set log_level debug
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `KEY` | Yes | Config key in dot notation (e.g., `socket.path`, `max_concurrent_jobs`) |
+| `VALUE` | Yes | New value to set |
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--config` | `-c` | Path to daemon config file (default: `~/.mozart/daemon.yaml`) |
+
+##### `mozart config path`
+
+Show the daemon config file location and whether it exists.
+
+```bash
+mozart config path
+```
+
+##### `mozart config init`
+
+Create a default daemon config file with all default values and descriptive comments. Refuses to overwrite unless `--force` is given.
+
+```bash
+mozart config init
+mozart config init --force
+mozart config init --config /etc/mozart/daemon.yaml
+```
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--config` | `-c` | Path to create config file (default: `~/.mozart/daemon.yaml`) |
+| `--force` | `-f` | Overwrite existing config file |
+
+---
+
+## Learning Commands
+
+These commands inspect and analyze Mozart's learning system — patterns learned from job executions that inform future runs.
+
+### `mozart patterns-list`
+
+View global learning patterns.
+
+```
+Usage: mozart patterns-list [OPTIONS]
+```
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--global` / `--local` | `-g` / `-l` | global | Show global or local workspace patterns |
+| `--min-priority` | `-p` | 0.0 | Minimum priority score (0.0–1.0) |
+| `--limit` | `-n` | 20 | Maximum patterns to display |
+| `--json` | `-j` | false | Output as JSON |
+| `--quarantined` | `-q` | false | Show only quarantined patterns |
+| `--high-trust` | | false | Show only patterns with trust >= 0.7 |
+| `--low-trust` | | false | Show only patterns with trust <= 0.3 |
+
+```bash
+mozart patterns-list
+mozart patterns-list --high-trust
+mozart patterns-list --quarantined
+mozart patterns-list --min-priority 0.5 --json
+```
+
+---
+
+### `mozart patterns-why`
+
+Analyze WHY patterns succeed with metacognitive insights. Shows success factors — the context conditions that contribute to pattern effectiveness.
+
+```
+Usage: mozart patterns-why [OPTIONS] [PATTERN_ID]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATTERN_ID` | No | Pattern ID to analyze (first 10 chars). If omitted, shows all patterns with success factors |
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--min-obs` | `-m` | 1 | Minimum success factor observations required |
+| `--limit` | `-n` | 10 | Maximum patterns to display |
+| `--json` | `-j` | false | Output as JSON |
+
+```bash
+mozart patterns-why
+mozart patterns-why abc123
+mozart patterns-why --min-obs 3
+```
+
+---
+
+### `mozart patterns-entropy`
+
+Monitor pattern population diversity using Shannon entropy.
+
+```
+Usage: mozart patterns-entropy [OPTIONS]
+```
+
+Shannon entropy measures how evenly patterns are used:
+- **High entropy (H → max):** Healthy diversity, many patterns contribute
+- **Low entropy (H → 0):** Single pattern dominates (collapse risk)
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--threshold` | `-t` | 0.5 | Diversity index alert threshold (0.0–1.0) |
+| `--history` | `-H` | false | Show entropy history over time |
+| `--limit` | `-n` | 20 | Number of history records to show |
+| `--json` | `-j` | false | Output as JSON |
+| `--record` | `-r` | false | Record current entropy to history |
+
+```bash
+mozart patterns-entropy
+mozart patterns-entropy --threshold 0.3
+mozart patterns-entropy --history
+mozart patterns-entropy --record
+```
+
+---
+
+### `mozart patterns-budget`
+
+Display exploration budget status and history. The budget adjusts based on pattern entropy: low entropy boosts the budget to inject diversity; healthy entropy decays toward floor (default 5%).
+
+```
+Usage: mozart patterns-budget [OPTIONS]
+```
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--job` | `-j` | | Filter by specific job hash |
+| `--history` | `-H` | false | Show budget adjustment history |
+| `--limit` | `-n` | 20 | Number of history records to show |
+| `--json` | | false | Output as JSON |
+
+```bash
+mozart patterns-budget
+mozart patterns-budget --history
+```
+
+---
+
+### `mozart learning-stats`
+
+View global learning statistics. Shows summary including execution counts, pattern counts, and effectiveness metrics.
+
+```
+Usage: mozart learning-stats [OPTIONS]
+```
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--json` | `-j` | Output as JSON |
+
+```bash
+mozart learning-stats
+mozart learning-stats --json
+```
+
+---
+
+### `mozart learning-insights`
+
+Show actionable insights from learning data including output patterns, error code patterns, and success predictors.
+
+```
+Usage: mozart learning-insights [OPTIONS]
+```
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--limit` | | 10 | Maximum patterns to show |
+| `--pattern-type` | | | Filter by type |
+
+```bash
+mozart learning-insights
+mozart learning-insights --pattern-type output_pattern
+mozart learning-insights --limit 20
+```
+
+---
+
+### `mozart learning-drift`
+
+Detect patterns with effectiveness drift. Drift is calculated by comparing pattern effectiveness in the last N applications vs the previous N.
+
+```
+Usage: mozart learning-drift [OPTIONS]
+```
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--threshold` | `-t` | 0.2 | Drift threshold (0.0–1.0) to flag patterns |
+| `--window` | `-w` | 5 | Window size for drift comparison |
+| `--limit` | `-l` | 10 | Maximum patterns to show |
+| `--json` | `-j` | false | Output as JSON |
+| `--summary` | `-s` | false | Show only summary statistics |
+
+```bash
+mozart learning-drift
+mozart learning-drift --threshold 0.15
+mozart learning-drift --summary
+```
+
+---
+
+### `mozart learning-epistemic-drift`
+
+Detect patterns with epistemic drift (belief/confidence changes). Epistemic drift tracks confidence changes over time, complementing effectiveness drift as a leading indicator of pattern health.
+
+```
+Usage: mozart learning-epistemic-drift [OPTIONS]
+```
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--threshold` | `-t` | 0.15 | Epistemic drift threshold (0.0–1.0) |
+| `--window` | `-w` | 5 | Window size for drift comparison |
+| `--limit` | `-l` | 10 | Maximum patterns to show |
+| `--json` | `-j` | false | Output as JSON |
+| `--summary` | `-s` | false | Show only summary statistics |
+
+```bash
+mozart learning-epistemic-drift
+mozart learning-epistemic-drift --threshold 0.1
+mozart learning-epistemic-drift --summary
+```
+
+---
+
+### `mozart learning-activity`
+
+View recent learning activity and pattern applications.
+
+```
+Usage: mozart learning-activity [OPTIONS]
+```
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--hours` | `-h` | 24 | Show activity from the last N hours |
+| `--json` | `-j` | false | Output as JSON |
+
+```bash
+mozart learning-activity
+mozart learning-activity --hours 48
+```
+
+---
+
+### `mozart entropy-status`
+
+Display entropy response status and history. When pattern entropy drops below threshold, the system automatically boosts exploration budget and revisits quarantined patterns.
+
+```
+Usage: mozart entropy-status [OPTIONS]
+```
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--job` | `-j` | | Filter by specific job hash |
+| `--history` | `-H` | false | Show entropy response history |
+| `--limit` | `-n` | 20 | Number of history records to show |
+| `--json` | | false | Output as JSON |
+| `--check` | `-c` | false | Check if entropy response is needed (dry-run) |
+
+```bash
+mozart entropy-status
+mozart entropy-status --history
+mozart entropy-status --check
+```
+
+---
+
+## Daemon Commands
+
+### `mozartd start`
+
+Start the Mozart daemon.
+
+```
+Usage: mozartd start [OPTIONS]
+```
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--config` | `-c` | | Path to daemon config file |
+| `--foreground` | `-f` | false | Run in foreground (for development) |
+| `--log-level` | `-l` | `info` | Logging level |
+
+```bash
+# Start in background (production)
+mozartd start
+
+# Start in foreground (development)
+mozartd start --foreground
+
+# Custom config
+mozartd start --config /etc/mozart/daemon.yaml
+
+# Debug logging
+mozartd start --log-level debug
+```
+
+---
+
+### `mozartd stop`
+
+Stop the running daemon.
+
+```
+Usage: mozartd stop [OPTIONS]
+```
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--pid-file` | | `/tmp/mozartd.pid` | Path to PID file |
+| `--force` | | false | Force stop |
+
+```bash
+mozartd stop
+mozartd stop --force
+```
+
+---
+
+### `mozartd status`
+
+Check daemon status via health probes.
+
+```
+Usage: mozartd status [OPTIONS]
+```
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--pid-file` | | `/tmp/mozartd.pid` | Path to PID file |
+| `--socket` | | `/tmp/mozartd.sock` | Path to Unix socket |
+
+```bash
+mozartd status
+```
+
+---
+
+## Configuration Reference
+
+Job configurations are defined in YAML files. Here are the key sections:
 
 ### Minimal Example
 
 ```yaml
 name: "my-job"
-batch:
-  size: 10
-  total_items: 100
-prompt:
-  template: "Process batch {{ batch_num }}"
+sheets:
+  - prompt:
+      template: "Process item {{ sheet_num }} of {{ total_sheets }}"
+    validations:
+      - type: file_exists
+        path: "{{ workspace }}/output-{{ sheet_num }}.md"
 ```
 
 ### Full Example
@@ -335,47 +1163,87 @@ name: "full-example"
 description: "Comprehensive job example"
 
 backend:
-  type: claude_cli
+  type: claude_cli          # claude_cli | anthropic_api | ollama
   skip_permissions: true
   working_directory: ./workspace
+  timeout_seconds: 1800
 
-batch:
-  size: 10
-  total_items: 100
+sheets:
+  - prompt:
+      template: |
+        Process sheet {{ sheet_num }} of {{ total_sheets }}.
+        {{ stakes }}
+      stakes: "Be thorough and precise."
+    retry:
+      max_retries: 3
+      base_delay_seconds: 30
+      exponential_base: 2.0
+    rate_limit:
+      wait_minutes: 60
+      max_waits: 24
+    validations:
+      - type: file_exists
+        path: "{{ workspace }}/output-{{ sheet_num }}.md"
+      - type: content_contains
+        path: "{{ workspace }}/output-{{ sheet_num }}.md"
+        pattern: "## Summary"
+      - type: file_modified
+        path: "{{ workspace }}/output-{{ sheet_num }}.md"
+      - type: command_succeeds
+        command: "wc -w {{ workspace }}/output-{{ sheet_num }}.md | awk '$1 >= 500'"
 
-prompt:
-  template: |
-    Process batch {{ batch_num }} of {{ total_batches }}.
-    Items: {{ start_item }} to {{ end_item }}.
-    {{ stakes }}
-  stakes: "Be thorough!"
-
-retry:
-  max_retries: 3
-  base_delay_seconds: 30
-  exponential_base: 2.0
-
-rate_limit:
-  wait_minutes: 60
-  max_waits: 24
-
-validations:
-  - type: file_exists
-    path: "output/batch{{ batch_num }}.md"
+workspace: "./my-workspace"
 
 notifications:
   - type: desktop
     on_events: [job_complete, job_failed]
 ```
 
-## Keyboard Shortcuts
+### Template Variables
 
-During execution:
+| Variable | Description |
+|----------|-------------|
+| `{{ sheet_num }}` | Current sheet number (1-based) |
+| `{{ total_sheets }}` | Total number of sheets |
+| `{{ workspace }}` | Workspace directory path |
+| `{{ job_name }}` | Name of the job |
 
-| Key | Action |
-|-----|--------|
-| `Ctrl+C` | Graceful shutdown (saves state) |
-| `Ctrl+C` (x2) | Force quit |
+### Backend Types
+
+| Type | Description |
+|------|-------------|
+| `claude_cli` | Execute via Claude CLI (default) |
+| `anthropic_api` | Direct Anthropic API with model selection |
+| `ollama` | Local models via Ollama |
+
+### Validation Types
+
+| Type | Description |
+|------|-------------|
+| `file_exists` | Check for expected output files |
+| `file_modified` | Verify file was updated during sheet |
+| `content_contains` | Check for literal string in file content |
+| `content_regex` | Match regex patterns in file content |
+| `command_succeeds` | Execute shell commands as quality checks |
+
+---
+
+## Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `MOZART_LOG_LEVEL` | Logging level (DEBUG, INFO, WARNING, ERROR) | |
+| `MOZART_LOG_FILE` | Path for log file output | |
+| `MOZART_LOG_FORMAT` | Log format: `json`, `console`, or `both` | |
+| `MOZART_AUTH_MODE` | Dashboard auth: `disabled`, `api_key`, `localhost_only` | `localhost_only` |
+| `MOZART_API_KEYS` | Comma-separated API keys for dashboard auth | |
+| `MOZART_LOCALHOST_BYPASS` | Allow localhost to bypass API key auth | `true` |
+| `MOZART_CORS_ORIGINS` | Comma-separated allowed CORS origins | `http://localhost:8080,http://127.0.0.1:8080` |
+| `MOZART_CORS_CREDENTIALS` | Allow credentials in CORS requests | `true` |
+| `MOZART_DEV` | Enable development mode (permissive CORS) | |
+| `ANTHROPIC_API_KEY` | API key for Anthropic API backend | |
+
+---
 
 ## Tips
 
@@ -388,7 +1256,7 @@ mozart -v run job.yaml
 
 Shows:
 - Backend configuration
-- Batch execution details
+- Sheet execution details
 - Validation results
 - Timing information
 
@@ -410,6 +1278,36 @@ Combine `--json` with `jq` for scripting:
 # Get job status
 mozart status my-job --json | jq '.status'
 
-# List failed jobs
-mozart list --status failed --json | jq '.jobs[].job_id'
+# Get failed sheet numbers
+mozart status my-job --json | jq '.sheets | to_entries[] | select(.value.status == "failed") | .key'
+```
+
+### Keyboard Shortcuts
+
+During execution:
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+C` | Graceful shutdown (saves state) |
+| `Ctrl+C` (x2) | Force quit |
+
+### Debugging Protocol
+
+When a job fails, follow this order:
+
+```bash
+# 1. Check current status
+mozart status my-job --workspace ./workspace
+
+# 2. Get full diagnostic report
+mozart diagnose my-job --workspace ./workspace
+
+# 3. View error history
+mozart errors my-job --verbose
+
+# 4. Check logs
+mozart logs my-job --level ERROR
+
+# 5. Try recovery (re-validate without re-execute)
+mozart recover my-job --dry-run
 ```

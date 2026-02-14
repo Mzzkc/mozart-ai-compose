@@ -17,9 +17,20 @@ This directory contains example Mozart configurations for various use cases. Moz
 | [sheet-review.yaml](sheet-review.yaml) | Multi-agent coordinated code review with expert agents | High |
 | [worktree-isolation.yaml](worktree-isolation.yaml) | Parallel-safe execution using git worktrees | Medium |
 | [parallel-research-fanout.yaml](parallel-research-fanout.yaml) | Fan-out: parameterized parallel stages without sheet duplication | Medium |
+| [parallel-research.yaml](parallel-research.yaml) | Multi-source parallel research with independent sheets | Medium |
 | [observability-demo.yaml](observability-demo.yaml) | Demonstrating logging, error tracking, and diagnostics | Medium |
+| [issue-fixer.yaml](issue-fixer.yaml) | GitHub issue fixing workflow | Medium |
+| [agent-spike.yaml](agent-spike.yaml) | Agent experimentation and exploration | Medium |
+| [docs-generator.yaml](docs-generator.yaml) | Documentation generation orchestration | Medium |
+
+## Quality & Continuous Improvement
+
+| Example | Purpose | Complexity |
+|---------|---------|------------|
 | [quality-continuous.yaml](quality-continuous.yaml) | Backlog-driven quality improvement for Python projects (18 sheets, fan-out + tool agents) | High |
 | [quality-continuous-generic.yaml](quality-continuous-generic.yaml) | Language-agnostic quality improvement with parallel reviews (16 sheets, fan-out) | High |
+| [quality-daemon.yaml](quality-daemon.yaml) | Quality improvement via daemon mode | High |
+| [quality-continuous-daemon.yaml](quality-continuous-daemon.yaml) | Continuous quality improvement with daemon orchestration | High |
 
 ## Beyond Coding
 
@@ -236,20 +247,27 @@ For detailed Mozart usage, debugging, and configuration:
 
 All examples pass `mozart validate`:
 
-| Example | Status | Sheets | Validations |
-|---------|--------|--------|-------------|
-| simple-sheet.yaml | ✓ | 2 | 0 |
-| api-backend.yaml | ✓ | 5 | 0 |
-| self-improvement.yaml | ✓ | 4 | 3 |
-| sheet-review.yaml | ✓ | 56 | 0 |
-| worktree-isolation.yaml | ✓ | 5 | 0 |
-| observability-demo.yaml | ✓ | 3 | 1 |
-| systematic-literature-review.yaml | ✓ | 8 | 17 |
-| training-data-curation.yaml | ✓ | 7 | 24 |
-| nonfiction-book.yaml | ✓ | 8 | 31 |
-| strategic-plan.yaml | ✓ | 8 | 39 |
-| quality-continuous.yaml | ✓ | 18 | 24 |
-| quality-continuous-generic.yaml | ✓ | 16 | 22 |
+| Example | Status | Description |
+|---------|--------|-------------|
+| simple-sheet.yaml | ✓ | Minimal configuration |
+| api-backend.yaml | ✓ | Anthropic API backend |
+| self-improvement.yaml | ✓ | Codebase improvement with quality gates |
+| sheet-review.yaml | ✓ | Multi-agent code review |
+| worktree-isolation.yaml | ✓ | Git worktree parallel execution |
+| parallel-research-fanout.yaml | ✓ | Fan-out parameterized stages |
+| parallel-research.yaml | ✓ | Multi-source parallel research |
+| observability-demo.yaml | ✓ | Logging and diagnostics demo |
+| issue-fixer.yaml | ✓ | GitHub issue fixing |
+| agent-spike.yaml | ✓ | Agent experimentation |
+| docs-generator.yaml | ✓ | Documentation generation |
+| quality-continuous.yaml | ✓ | Python quality improvement (fan-out) |
+| quality-continuous-generic.yaml | ✓ | Language-agnostic quality (fan-out) |
+| quality-daemon.yaml | ✓ | Daemon mode quality improvement |
+| quality-continuous-daemon.yaml | ✓ | Continuous quality via daemon |
+| systematic-literature-review.yaml | ✓ | PRISMA-compliant research |
+| training-data-curation.yaml | ✓ | ML dataset creation |
+| nonfiction-book.yaml | ✓ | Non-fiction book authoring |
+| strategic-plan.yaml | ✓ | Multi-framework strategic planning |
 
 ---
 

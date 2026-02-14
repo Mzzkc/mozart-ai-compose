@@ -29,7 +29,7 @@ Mozart is a general-purpose orchestration system for AI-assisted workflows. It d
 - **Automatic recovery**: Checkpoint state enables resume after interruption, rate limits, or failures
 - **Self-healing**: Diagnose and fix common issues automatically when retries are exhausted
 - **Learning system**: Record outcomes and detect patterns across executions
-- **Multiple backends**: Claude CLI, Anthropic API, or Recursive Light
+- **Multiple backends**: Claude CLI, Anthropic API, Ollama (local models), or Recursive Light
 
 ### When to Use Mozart
 
@@ -59,7 +59,7 @@ Mozart is NOT for:
 The setup script handles virtual environment creation, dependency installation, and verification:
 
 ```bash
-git clone https://github.com/emzi/mozart-ai-compose.git
+git clone https://github.com/Mzzkc/mozart-ai-compose.git
 cd mozart-ai-compose
 ./setup.sh
 ```
@@ -83,7 +83,7 @@ Run `./setup.sh --help` for all options.
 If you prefer manual setup:
 
 ```bash
-git clone https://github.com/emzi/mozart-ai-compose.git
+git clone https://github.com/Mzzkc/mozart-ai-compose.git
 cd mozart-ai-compose
 python -m venv .venv
 source .venv/bin/activate
@@ -203,28 +203,44 @@ mozart resume hello-world --workspace ./workspace/hello-world
 |---------|---------|
 | `mozart run <config>` | Execute a job from YAML configuration |
 | `mozart resume <job-id>` | Resume a paused or failed job |
+| `mozart pause <job-id>` | Pause a running job gracefully |
+| `mozart modify <job-id>` | Modify config and optionally resume a paused job |
 | `mozart status [job-id]` | Show job status and progress |
 | `mozart validate <config>` | Validate configuration file |
-| `mozart list` | List all jobs in workspace |
+| `mozart list` | List active jobs (requires daemon; use `--all` for all jobs) |
+| `mozart history <job-id>` | Show execution history from SQLite |
+| `mozart config <subcommand>` | Manage Mozart configuration (`show`, `set`, `path`, `init`) |
 
 ### Diagnostic Commands
 
 | Command | Purpose |
 |---------|---------|
 | `mozart logs <job-id>` | View or tail log files |
-| `mozart errors <job-id>` | List job errors with details |
+| `mozart errors <job-id>` | List job errors with color-coded output |
 | `mozart diagnose <job-id>` | Comprehensive diagnostic report |
+| `mozart recover <job-id>` | Re-validate without re-execution (hidden) |
+
+### Dashboard & MCP
+
+| Command | Purpose |
+|---------|---------|
+| `mozart dashboard` | Start web dashboard for monitoring and control |
+| `mozart mcp` | Start MCP server for tool integration |
 
 ### Learning Commands
 
 | Command | Purpose |
 |---------|---------|
-| `mozart patterns` | View learning patterns |
+| `mozart patterns-list` | List learned patterns |
+| `mozart patterns-why` | Metacognitive analysis of pattern success factors |
+| `mozart patterns-entropy` | Entropy monitoring for pattern diversity |
+| `mozart patterns-budget` | Exploration budget status |
 | `mozart learning-stats` | Learning system statistics |
 | `mozart learning-insights` | Actionable insights from patterns |
 | `mozart learning-drift` | Detect pattern effectiveness drift |
-
-Additional learning commands are available for pattern management (`pattern-quarantine`, `pattern-validate`, `pattern-show`, `aggregate-patterns`, `recalculate-trust`) and analysis (`patterns-entropy`, `learning-epistemic-drift`, `learning-activity`). Run `mozart --help` for the complete list.
+| `mozart learning-epistemic-drift` | Epistemic drift analysis |
+| `mozart learning-activity` | Learning activity summary |
+| `mozart entropy-status` | Entropy response status |
 
 ### Dashboard
 
@@ -236,13 +252,37 @@ Starts the web dashboard for visual monitoring and control.
 
 ### Common Options
 
-| Option | Description |
-|--------|-------------|
-| `--workspace <path>` | Workspace directory for job artifacts |
-| `--dry-run` | Validate and show execution plan without running |
-| `--self-healing` | Enable automatic diagnosis and remediation |
-| `--json` | Output in JSON format |
-| `-v, --verbose` | Detailed output |
+| Option | Applies To | Description |
+|--------|-----------|-------------|
+| `--workspace, -w <path>` | most commands | Workspace directory for job artifacts |
+| `--dry-run, -n` | `run` | Validate and show execution plan without running |
+| `--self-healing, -H` | `run`, `resume` | Enable automatic diagnosis and remediation |
+| `--yes, -y` | `run`, `resume` | Auto-confirm suggested self-healing fixes |
+| `--escalation, -e` | `run` | Enable human-in-the-loop for low-confidence decisions |
+| `--fresh` | `run` | Delete existing state before starting (clean run) |
+| `--start-sheet, -s` | `run` | Override starting sheet number |
+| `--json, -j` | `status`, `validate` | Output in JSON format |
+| `-v, --verbose` | various | Detailed output |
+
+### Daemon Mode (mozartd)
+
+Mozart includes a long-running daemon for managing multiple concurrent jobs with centralized rate limiting and resource monitoring.
+
+```bash
+# Start the daemon
+mozartd start              # Background (production)
+mozartd start --foreground # Foreground (development)
+
+# Check daemon status
+mozartd status
+
+# Stop the daemon
+mozartd stop
+```
+
+When a daemon is running, `mozart run` auto-detects it and routes jobs through the daemon. Without a daemon, Mozart falls back to direct CLI execution. This is zero-impact — existing workflows work identically either way.
+
+See [CLAUDE.md](CLAUDE.md#daemon-mode-mozartd) for daemon architecture details.
 
 ## Configuration
 
@@ -304,7 +344,7 @@ notifications:
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `type` | string | Backend type: `claude_cli`, `anthropic_api`, or `recursive_light` |
+| `type` | string | Backend type: `claude_cli`, `anthropic_api`, `ollama`, or `recursive_light` |
 | `skip_permissions` | bool | Skip Claude CLI permission prompts (required for unattended) |
 | `disable_mcp` | bool | Disable MCP servers for faster execution |
 | `timeout_seconds` | int | Maximum execution time per sheet (default: 1800) |
@@ -344,6 +384,18 @@ Mozart includes examples demonstrating various use cases:
 | [sheet-review.yaml](examples/sheet-review.yaml) | Multi-agent coordinated code review |
 | [worktree-isolation.yaml](examples/worktree-isolation.yaml) | Parallel-safe execution using git worktrees |
 | [observability-demo.yaml](examples/observability-demo.yaml) | Demonstration of Mozart's observability features |
+| [issue-fixer.yaml](examples/issue-fixer.yaml) | GitHub issue fixing |
+| [agent-spike.yaml](examples/agent-spike.yaml) | Agent experimentation |
+| [docs-generator.yaml](examples/docs-generator.yaml) | Documentation generation orchestration |
+
+### Quality & Continuous Improvement
+
+| Example | Description |
+|---------|-------------|
+| [quality-daemon.yaml](examples/quality-daemon.yaml) | Quality improvement via daemon |
+| [quality-continuous-daemon.yaml](examples/quality-continuous-daemon.yaml) | Continuous quality improvement with daemon |
+| [quality-continuous.yaml](examples/quality-continuous.yaml) | Continuous quality improvement (standalone) |
+| [quality-continuous-generic.yaml](examples/quality-continuous-generic.yaml) | Generic continuous quality template |
 
 ### Beyond Coding
 
@@ -354,6 +406,7 @@ Mozart includes examples demonstrating various use cases:
 | [nonfiction-book.yaml](examples/nonfiction-book.yaml) | Writing | Book manuscript using Snowflake Method |
 | [strategic-plan.yaml](examples/strategic-plan.yaml) | Planning | Strategic plan with multi-framework analysis |
 | [parallel-research.yaml](examples/parallel-research.yaml) | Research | Parallel source collection with synthesis |
+| [parallel-research-fanout.yaml](examples/parallel-research-fanout.yaml) | Research | Parallel research using fan-out |
 
 See [examples/README.md](examples/README.md) for detailed documentation of each example.
 
@@ -367,21 +420,21 @@ See [examples/README.md](examples/README.md) for detailed documentation of each 
                                        v
 +------------------+          +--------+----------+          +------------------+
 |   CLI (Typer)    +--------->|  Execution Runner +--------->|  Backend         |
-+------------------+          +--------+----------+          |  (Claude CLI /   |
-                                       |                     |   Anthropic API) |
-                                       v                     +------------------+
-                              +--------+----------+
-                              |  State Manager    |
-                              |  (JSON/SQLite)    |
-                              +--------+----------+
-                                       |
-                                       v
-                              +--------+----------+
-                              |  Validation       |
-                              |  (5 types)        |
-                              +--------+----------+
-                                       |
-                                       v
++--------+---------+          +--------+----------+          |  (Claude CLI /   |
+         |                             |                     |   Anthropic API /|
+         v (auto-detect)               v                     |   Ollama)        |
++--------+---------+          +--------+----------+          +------------------+
+|  Daemon (mozartd)|          |  State Manager    |
+|  Job Manager     |          |  (JSON/SQLite)    |
+|  Rate Coordinator|          +--------+----------+
+|  Backpressure    |                   |
++--------+---------+                   v
+         |                    +--------+----------+
+         v                    |  Validation       |
++--------+---------+          |  (5 types)        |
+|  Dashboard / MCP |          +--------+----------+
+|  (FastAPI)       |                   |
++------------------+                   v
                               +--------+----------+
                               |  Learning System  |
                               |  (Patterns/Store) |
@@ -394,7 +447,7 @@ See [examples/README.md](examples/README.md) for detailed documentation of each 
 
 - **Validation**: Rules that determine whether a sheet completed successfully. Mozart's validation-first philosophy means exit code 0 is insufficient; validations must pass.
 
-- **Backend**: The execution engine that runs prompts. Claude CLI provides subprocess execution with tool access; Anthropic API provides direct API calls; Recursive Light provides HTTP API integration.
+- **Backend**: The execution engine that runs prompts. Claude CLI provides subprocess execution with tool access; Anthropic API provides direct API calls; Ollama provides local model execution; Recursive Light provides HTTP API integration.
 
 - **Checkpoint**: Persistent state saved after each sheet, enabling resume from any point. Atomic writes prevent corruption on interruption.
 
@@ -413,7 +466,7 @@ See [examples/README.md](examples/README.md) for detailed documentation of each 
 ### Setup
 
 ```bash
-git clone https://github.com/emzi/mozart-ai-compose.git
+git clone https://github.com/Mzzkc/mozart-ai-compose.git
 cd mozart-ai-compose
 python -m venv .venv
 source .venv/bin/activate

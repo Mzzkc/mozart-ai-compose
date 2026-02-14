@@ -21,10 +21,9 @@
 | P1: IPC | 11 | Unix socket, JSON-RPC 2.0, DaemonClient | COMPLETE |
 | P2: Service | 12 | mozartd, JobManager, ResourceMonitor | COMPLETE |
 | P3: Scheduler | 11 | GlobalScheduler, RateLimitCoordinator | COMPLETE |
-| P4: Integration | 12 | E2E tests, dashboard/MCP wiring, PR | RUNNING |
+| P4: Integration | 12 | E2E tests, dashboard/MCP wiring, PR | COMPLETE |
 
-**Branch:** `daemon-symphony` (main stays clean)
-**Monitor:** `mozart status daemon-phase0-scaffold -w .daemon-workspace-p0 --watch`
+**Merged to main** — all 5 phases complete.
 
 ---
 
@@ -174,11 +173,11 @@ setsid mozart run mozart-opus-evolution-v25.yaml > evolution-workspace-v25/mozar
 | SQLite State Backend | DONE | Full StateBackend protocol + dashboard queries |
 | Claude CLI Backend | DONE | Async subprocess, rate limit detection |
 | Anthropic API Backend | DONE | Direct API calls without CLI |
-| CLI | DONE | 14 commands functional, Rich output |
+| CLI | DONE | 26+ commands functional, Rich output |
 | Validation Framework | DONE | 5 types + confidence + semantic failure_reason |
 | Notifications | DONE | Desktop, Slack, Webhook |
 | Dashboard API | DONE | FastAPI REST (needs UI improvement) |
-| Test Suite | DONE | 1897 pytest tests |
+| Test Suite | DONE | 3384+ pytest tests |
 | Learning Foundation | DONE | Phases 1-4 complete |
 | Meta-Orchestration | DONE | Mozart calling Mozart works |
 | Pattern Detection | DONE | PatternDetector/Matcher/Applicator |
@@ -206,7 +205,7 @@ setsid mozart run mozart-opus-evolution-v25.yaml > evolution-workspace-v25/mozar
 | Automatic Entropy Response | DONE | `EntropyResponseConfig`, response triggers (v23) |
 | **Validation-Informed Retry** | **DONE** | `ValidationRetryStrategy`, `get_retry_strategy_for_failure()` (v24) |
 | **Pattern Effectiveness Dashboard** | **DONE** | `patterns-effectiveness` CLI command (v24) |
-| **Daemon Mode (mozartd)** | **RUNNING** | P0-P3 complete, P4 integration in progress (Issue #39) |
+| **Daemon Mode (mozartd)** | **DONE** | All 5 phases complete, merged to main (Issue #39) |
 
 ---
 
@@ -247,13 +246,16 @@ setsid mozart run mozart-opus-evolution-v25.yaml > evolution-workspace-v25/mozar
 
 | Purpose | Location |
 |---------|----------|
-| CLI entry | `src/mozart/cli.py` |
+| CLI entry | `src/mozart/cli/` (package) |
+| Config models | `src/mozart/core/config/` (package) |
+| Error handling | `src/mozart/core/errors/` (package) |
 | Pattern Learning | `src/mozart/learning/patterns.py` |
-| Global Learning | `src/mozart/learning/global_store.py` |
-| Sheet Runner | `src/mozart/execution/runner.py` |
-| Dependency DAG | `src/mozart/execution/dependency_dag.py` |
+| Global Learning | `src/mozart/learning/store/` (package) |
+| Sheet Runner | `src/mozart/execution/runner/` (package) |
+| Dependency DAG | `src/mozart/execution/dag.py` |
 | Result Synthesizer | `src/mozart/execution/synthesizer.py` |
 | Validation (+ Cross-Sheet) | `src/mozart/execution/validation.py` |
+| Daemon | `src/mozart/daemon/` (package) |
 | **Evolved Score v25** | `mozart-opus-evolution-v25.yaml` |
 | **v24 Cycle Summary** | `evolution-workspace-v24/09-coda-summary.md` |
 
@@ -277,4 +279,4 @@ Score vN → Discovery → Synthesis → Evolution → Validation → Score v(N+
 
 ---
 
-*Last Updated: 2026-02-06 - Self-Chaining Fix + Quality Score*
+*Last Updated: 2026-02-14 - Documentation refresh, daemon complete, CLI/test count updates*
