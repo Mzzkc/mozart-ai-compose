@@ -137,8 +137,9 @@ prompt:
     cat {{ roadmap_file }}
     ```
 
-    Read the roadmap carefully. Understand the dependency graph — which issues
-    must be resolved before others can start.
+    Read the roadmap carefully. It contains a list of issues organized by tier,
+    with a dependency graph showing which issues must be resolved before others
+    can start. Parse the DAG to determine eligible issues.
 
     **Step 2: List open issues**
     ```bash
@@ -218,27 +219,15 @@ prompt:
     - Read any linked issues or referenced files
 
     **Step 2: Read relevant source files**
-    ```bash
-    # Find files related to the issue keywords
-    grep -rn "KEYWORD" --include="*.py" src/ | head -30
-
-    # Read the specific files mentioned in or relevant to the issue
-    # [Read each relevant file]
-    ```
+    Find and read the files related to the issue. Use the issue description,
+    keywords, and any referenced file paths to guide your search.
 
     **Step 3: Map the blast radius**
     - Which files need to change?
     - Which functions are affected?
     - What tests exist for the affected code?
     - What could break if we change these files?
-    ```bash
-    # Find existing tests
-    grep -rn "KEYWORD" --include="*.py" tests/ | head -20
-
-    # Check imports and dependencies
-    grep -rn "from.*AFFECTED_MODULE.*import\|import.*AFFECTED_MODULE" \
-      --include="*.py" src/ | head -20
-    ```
+    - What imports or depends on the affected modules?
 
     **Step 4: Root cause analysis**
     For bugs: trace the code path to find the root cause.
@@ -247,32 +236,12 @@ prompt:
 
     **Output to:** {{ workspace }}/02-investigation.md
 
-    ```markdown
-    # Investigation: Issue #N — Title
-
-    ## Summary
-    [One-paragraph summary of the issue and what needs to happen]
-
-    ## Root Cause / Design Analysis
-    [Detailed explanation with code references]
-
-    ## Affected Files
-    | File | What Changes | Risk |
-    |------|-------------|------|
-
-    ## Dependencies & Integration Points
-    [How this connects to other code]
-
-    ## Test Coverage
-    | Existing Test | What It Covers | Gaps |
-    |--------------|---------------|------|
-
-    ## Estimated Complexity
-    - Files to modify: N
-    - Lines of changes (estimated): N
-    - New tests needed: N
-    - Risk level: Low/Medium/High
-    ```
+    Include at minimum:
+    - Summary of the issue and what needs to happen
+    - Root cause analysis (for bugs) or design analysis (for features)
+    - List of affected files and what changes in each
+    - Existing test coverage and gaps
+    - Estimated complexity (files, risk level)
 
     {% elif stage == 3 %}
     ╔══════════════════════════════════════════════════════════════════════════════╗
@@ -822,27 +791,8 @@ prompt:
 
     **Output to:** {{ workspace }}/12-review-functional.md
 
-    ```markdown
-    # Functional Review: Issue #N
-
-    ## Changes Reviewed
-    | File | Correctness | Edge Cases | Concerns |
-    |------|------------|-----------|----------|
-
-    ## Tests Written
-    | Test | File | What It Verifies |
-    |------|------|-----------------|
-
-    ## Issues Found
-    | Severity | File | Issue | Fix Applied |
-    |----------|------|-------|------------|
-
-    ## Test Results
-    [pytest output after adding new tests]
-
-    ## Verdict
-    PASS / FAIL (with reasons)
-    ```
+    Include: changes reviewed (with correctness assessment), tests written,
+    issues found (with severity), test results, and a PASS/FAIL verdict.
 
     {% elif instance == 2 %}
     {# ═══════════════ E2E / SMOKE REVIEW ═══════════════ #}
@@ -886,37 +836,9 @@ prompt:
 
     **Output to:** {{ workspace }}/12-review-e2e.md
 
-    ```markdown
-    # E2E/Smoke Review: Issue #N
-
-    ## Test Suite
-    - Tests passed: N
-    - Tests failed: N
-    - New failures: [list any]
-
-    ## Linter
-    [ruff output summary]
-
-    ## Type Checker
-    [mypy output summary]
-
-    ## Verification Script
-    [verify.sh output]
-
-    ## Smoke Tests
-    | Check | Result | Notes |
-    |-------|--------|-------|
-    | Import | pass/fail | |
-    | CLI help | pass/fail | |
-    | Config validate | pass/fail | |
-
-    ## Integration
-    | Integration Point | Status | Concerns |
-    |-------------------|--------|----------|
-
-    ## Verdict
-    PASS / FAIL (with reasons)
-    ```
+    Include: test suite results (with any new failures), linter output,
+    type checker output, verification script output, smoke test results,
+    integration check results, and a PASS/FAIL verdict.
 
     {% elif instance == 3 %}
     {# ═══════════════ CODE QUALITY REVIEW ═══════════════ #}
@@ -961,37 +883,10 @@ prompt:
 
     **Output to:** {{ workspace }}/12-review-quality.md
 
-    ```markdown
-    # Code Quality Review: Issue #N
-
-    ## Quality Assessment
-    | Criterion | Rating (1-5) | Notes |
-    |-----------|-------------|-------|
-    | Naming | | |
-    | Simplicity | | |
-    | Documentation | | |
-    | Error handling | | |
-    | Type hints | | |
-
-    ## Wolf Prevention
-    | Check | Result | Issues |
-    |-------|--------|--------|
-    | Stub functions | pass/fail | |
-    | Silent failures | pass/fail | |
-    | Missing cleanup | pass/fail | |
-    | Incomplete impl | pass/fail | |
-
-    ## Issues Found
-    | Severity | File | Line | Issue | Suggested Fix |
-    |----------|------|------|-------|--------------|
-
-    ## Style Issues
-    | File | Issue | Fix |
-    |------|-------|-----|
-
-    ## Verdict
-    PASS / FAIL (with reasons)
-    ```
+    Include: quality assessment (naming, simplicity, documentation, error
+    handling, type hints), wolf prevention results (stubs, silent failures,
+    missing cleanup, incomplete implementations), issues found with severity,
+    and a PASS/FAIL verdict.
 
     {% endif %}
 
@@ -1422,6 +1317,39 @@ validations:
     description: "Phase 1 completion results exist"
     condition: "sheet_num >= 5"
 
+  # ── Stages 6-11: Phases 2-4 (conditionally skipped) ────────────────────
+  # These use sheet_num == N (not >=) because skip_when_command may skip
+  # these sheets. If skipped, the validation never evaluates.
+  - type: file_exists
+    path: "{workspace}/06-phase2-fix.md"
+    description: "Phase 2 fix results exist"
+    condition: "sheet_num == 6"
+
+  - type: file_exists
+    path: "{workspace}/07-phase2-complete.md"
+    description: "Phase 2 completion results exist"
+    condition: "sheet_num == 7"
+
+  - type: file_exists
+    path: "{workspace}/08-phase3-fix.md"
+    description: "Phase 3 fix results exist"
+    condition: "sheet_num == 8"
+
+  - type: file_exists
+    path: "{workspace}/09-phase3-complete.md"
+    description: "Phase 3 completion results exist"
+    condition: "sheet_num == 9"
+
+  - type: file_exists
+    path: "{workspace}/10-phase4-fix.md"
+    description: "Phase 4 fix results exist"
+    condition: "sheet_num == 10"
+
+  - type: file_exists
+    path: "{workspace}/11-phase4-complete.md"
+    description: "Phase 4 completion results exist"
+    condition: "sheet_num == 11"
+
   # ── Stage 12: Fan-out reviews (sheets 12-14) ─────────────────────────────
   - type: file_exists
     path: "{workspace}/12-review-functional.md"
@@ -1463,7 +1391,7 @@ validations:
     stage: 2
 
   - type: command_succeeds
-    command: 'cd "{workspace}/.." && pytest -x -q --tb=no 2>&1 | tail -1 | grep -E "passed|no tests"'
+    command: 'cd "{workspace}/.." && pytest -x -q --tb=no'
     description: "Test suite passes"
     condition: "sheet_num >= 17"
     stage: 2

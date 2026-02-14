@@ -303,6 +303,7 @@ Defines how work is divided into sheets.
 | `dependencies` | dict[int, list[int]] | `{}` | Sheet/stage dependency DAG. See [Fan-Out and Dependencies](#fan-out-and-dependencies). |
 | `fan_out` | dict[int, int] | `{}` | Stage → instance count. See [Fan-Out and Dependencies](#fan-out-and-dependencies). |
 | `skip_when` | dict[int, str] | `{}` | Conditional skip rules. Expression evaluated with access to `sheets` dict and `job` state. |
+| `skip_when_command` | dict[int, SkipWhenCommand] | `{}` | Command-based conditional skip rules. Shell command exit 0 = skip, non-zero = run. See [Conditional Sheet Skipping](#conditional-sheet-skipping). |
 
 ### `prompt`
 
@@ -737,7 +738,8 @@ dependency DAG would allow parallelism.
 
 ### Conditional Sheet Skipping
 
-Skip sheets based on runtime state:
+**Expression-based (`skip_when`):** Skip sheets based on runtime state
+using Python expressions with access to `sheets` dict and `job` state:
 
 ```yaml
 sheet:
@@ -747,6 +749,41 @@ sheet:
 
 This skips sheet 5 when sheet 3's validations passed — useful for
 conditional error-handling stages that only run on failure.
+
+**Command-based (`skip_when_command`):** Skip sheets based on shell
+command exit codes. Exit 0 = skip the sheet, non-zero = run the sheet.
+Supports `{workspace}` template expansion and configurable timeout.
+On timeout or error, the sheet runs (fail-open for safety).
+
+```yaml
+sheet:
+  skip_when_command:
+    6:
+      command: 'grep -q "TOTAL_PHASES: 1$" "{workspace}/03-plan.md"'
+      description: "Skip phase 2 — plan has only 1 phase"
+      timeout_seconds: 10  # default, max 60
+    8:
+      command: 'grep -q "TOTAL_PHASES: [12]$" "{workspace}/03-plan.md"'
+      description: "Skip phase 3 — plan has fewer than 3 phases"
+```
+
+This is useful when earlier stages write workspace files that determine
+whether later stages should run — for example, a planning stage that
+decides how many implementation phases are needed.
+
+`SkipWhenCommand` fields:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `command` | str | **(required)** | Shell command. `{workspace}` is expanded. Exit 0 = skip. |
+| `description` | str | `null` | Human-readable skip reason (shown in logs). |
+| `timeout_seconds` | float | `10.0` | Max seconds to wait (0-60). Fail-open on timeout. |
+
+**When to use which:**
+- `skip_when` — conditions based on previous sheet results (validation
+  pass/fail, sheet status) available in the checkpoint state
+- `skip_when_command` — conditions based on workspace file contents or
+  external state that requires I/O to check
 
 ---
 
