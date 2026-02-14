@@ -97,6 +97,41 @@ class TestSheetConfig:
         assert config.skip_when[3] == "sheets.get(1) and sheets[1].validation_passed"
         assert config.skip_when[5] == "job.total_retry_count > 10"
 
+    def test_skip_when_command_default_empty(self):
+        """Test skip_when_command defaults to empty dict."""
+        config = SheetConfig(size=1, total_items=5)
+        assert config.skip_when_command == {}
+
+    def test_skip_when_command_accepts_rules(self):
+        """Test skip_when_command accepts SkipWhenCommand per sheet."""
+        config = SheetConfig(
+            size=1, total_items=10,
+            skip_when_command={
+                8: {"command": 'grep -q "TOTAL_PHASES: [1]$" "{workspace}/plan.md"',
+                    "description": "Skip phase 2 if plan has only 1 phase"},
+                9: {"command": 'grep -q "TOTAL_PHASES: [1]$" "{workspace}/plan.md"'},
+            },
+        )
+        assert 8 in config.skip_when_command
+        assert config.skip_when_command[8].command.startswith("grep")
+        assert config.skip_when_command[8].description == "Skip phase 2 if plan has only 1 phase"
+        assert config.skip_when_command[9].description is None
+
+    def test_skip_when_command_in_jobconfig(self):
+        """Test skip_when_command works in full JobConfig."""
+        config = JobConfig.model_validate({
+            "name": "test",
+            "sheet": {
+                "size": 1, "total_items": 5,
+                "skip_when_command": {
+                    3: {"command": "test -f /tmp/skip", "description": "test"},
+                },
+            },
+            "prompt": {"template": "{{ sheet_num }}"},
+        })
+        assert 3 in config.sheet.skip_when_command
+        assert config.sheet.skip_when_command[3].timeout_seconds == 10.0
+
 
 class TestValidationRule:
     """Tests for ValidationRule model."""

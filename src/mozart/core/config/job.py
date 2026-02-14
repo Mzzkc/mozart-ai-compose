@@ -22,6 +22,7 @@ from mozart.core.config.execution import (
     ParallelConfig,
     RateLimitConfig,
     RetryConfig,
+    SkipWhenCommand,
     StaleDetectionConfig,
     ValidationRule,
 )
@@ -83,6 +84,18 @@ class SheetConfig(BaseModel):
             "If the expression evaluates to truthy, the sheet is SKIPPED. "
             "Example: {5: \"sheets.get(3) and sheets[3].validation_passed\"} "
             "skips sheet 5 when sheet 3's validations passed (only run on failure)."
+        ),
+    )
+
+    # Command-based conditional execution (GH#71)
+    skip_when_command: dict[int, SkipWhenCommand] = Field(
+        default_factory=dict,
+        description=(
+            "Command-based conditional skip rules. Map of sheet_num -> SkipWhenCommand. "
+            "The command is run via shell; exit 0 = skip the sheet, non-zero = run it. "
+            "Supports {workspace} template expansion in the command string. "
+            "On timeout or error, the sheet runs (fail-open). "
+            "Example: {8: {command: 'grep -q \"PHASES: 1\" plan.md', description: 'Skip phase 2'}}"
         ),
     )
 
