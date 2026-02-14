@@ -193,7 +193,7 @@ class TestCollectRecentErrors:
                 status=SheetStatus.FAILED,
                 attempt_count=3,
                 error_message="CLI not found",
-                error_category="E201",
+                error_category="validation",
                 completed_at=now,
             ),
         }
@@ -202,7 +202,7 @@ class TestCollectRecentErrors:
 
         assert len(result) == 1
         assert result[0][1].error_message == "CLI not found"
-        assert result[0][1].error_code == "E201"
+        assert result[0][1].error_code == "validation"
 
 
 # ---------------------------------------------------------------------------
@@ -639,11 +639,11 @@ class TestListJobsCommand:
         )
 
     def test_list_no_jobs(self) -> None:
-        """Empty registry should show 'No jobs found'."""
+        """Empty registry should show 'No active jobs' (default active-only filter)."""
         with self._mock_daemon_route([]):
             result = runner.invoke(app, ["list"])
         assert result.exit_code == 0
-        assert "No jobs found" in result.stdout
+        assert "No active jobs" in result.stdout
 
     def test_list_finds_job_files(self) -> None:
         """Should display jobs from the daemon registry."""

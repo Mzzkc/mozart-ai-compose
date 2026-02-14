@@ -94,7 +94,9 @@ class TestJobTools:
         assert start_job_tool["inputSchema"]["required"] == ["config_path"]
 
     async def test_list_jobs_placeholder(self, job_tools: JobTools):
-        """Test list_jobs returns placeholder message."""
+        """Test list_jobs returns fallback message when daemon is not running."""
+        # Mock daemon as not running so we get the deterministic fallback path
+        job_tools._daemon_client.is_daemon_running = AsyncMock(return_value=False)
         result = await job_tools.call_tool("list_jobs", {})
 
         assert "content" in result
