@@ -464,12 +464,11 @@ class JobManager:
 
     @property
     def active_job_count(self) -> int:
-        """Number of active jobs (proxy for sheet count until Phase 3).
+        """Number of concurrently executing jobs (used for fair-share scheduling).
 
-        Returns ``running_count`` since the scheduler is not yet wired
-        into the execution path.  When Phase 3 wires per-sheet dispatch,
-        this should be replaced with a true sheet-level count from
-        ``self._scheduler.active_count``.
+        Currently returns ``running_count`` (job-level granularity).
+        Phase 3 will replace this with ``self._scheduler.active_count``
+        for sheet-level granularity once per-sheet dispatch is wired.
         """
         # TODO(Phase 3): return self._scheduler.active_count when wired
         return self.running_count

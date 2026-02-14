@@ -302,7 +302,8 @@ class JobService:
         Raises:
             JobSubmissionError: If job not found or not in a pausable state.
         """
-        found_state, _ = await self._find_job_state(job_id, workspace)
+        found_state, found_backend = await self._find_job_state(job_id, workspace)
+        await found_backend.close()
 
         if found_state.status != JobStatus.RUNNING:
             raise JobSubmissionError(
@@ -335,7 +336,10 @@ class JobService:
             CheckpointState if found, None if job doesn't exist.
         """
         state_backend = self._create_state_backend(workspace)
-        return await state_backend.load(job_id)
+        try:
+            return await state_backend.load(job_id)
+        finally:
+            await state_backend.close()
 
     # ─── Internal Helpers ────────────────────────────────────────────────
 
@@ -436,6 +440,7 @@ class JobService:
                     consecutive_failures=self._notification_consecutive_failures,
                     message="Notification delivery degraded — "
                     "health probes will report this condition.",
+                    exc_info=True,
                 )
             else:
                 _logger.warning(context, exc_info=True)
@@ -648,46 +653,58 @@ class JobService:
 
         preferred_name = backends[0][0] if backends else None
         failed_backends: list[str] = []
+        chosen_backend: StateBackend | None = None
 
-        for name, backend in backends:
-            try:
-                state = await backend.load(job_id)
-                if state is not None:
-                    if failed_backends:
-                        # Resume operations risk replaying completed sheets
-                        # if the fallback state is stale → ERROR severity.
-                        # Status queries are read-only → WARNING suffices.
-                        log_fn = _logger.error if for_resume else _logger.warning
-                        log_fn(
-                            "state_recovered_from_fallback_backend",
-                            job_id=job_id,
-                            preferred_backend=preferred_name,
-                            failed_backends=failed_backends,
-                            recovered_from=name,
-                            operation="resume" if for_resume else "status",
-                            message="Preferred backend failed — state loaded from "
-                            "fallback. "
-                            + (
-                                "RESUME RISK: fallback state may be stale, "
-                                "risking replay of completed sheets."
-                                if for_resume
-                                else "Verify state is current."
-                            ),
-                        )
-                    return state, backend
-            except Exception as e:
-                failed_backends.append(name)
-                _logger.warning(
-                    "error_querying_backend",
-                    job_id=job_id,
-                    backend=name,
-                    error=str(e),
-                )
-                continue
+        try:
+            for name, backend in backends:
+                try:
+                    state = await backend.load(job_id)
+                    if state is not None:
+                        if failed_backends:
+                            # Resume operations risk replaying completed sheets
+                            # if the fallback state is stale → ERROR severity.
+                            # Status queries are read-only → WARNING suffices.
+                            log_fn = _logger.error if for_resume else _logger.warning
+                            if for_resume:
+                                detail = (
+                                    "RESUME RISK: fallback state may be stale, "
+                                    "risking replay of completed sheets."
+                                )
+                            else:
+                                detail = "Verify state is current."
+                            log_fn(
+                                "state_recovered_from_fallback_backend",
+                                job_id=job_id,
+                                preferred_backend=preferred_name,
+                                failed_backends=failed_backends,
+                                recovered_from=name,
+                                operation="resume" if for_resume else "status",
+                                message=(
+                                    "Preferred backend failed — state loaded "
+                                    f"from fallback. {detail}"
+                                ),
+                            )
+                        chosen_backend = backend
+                        return state, backend
+                except Exception as e:
+                    failed_backends.append(name)
+                    _logger.warning(
+                        "error_querying_backend",
+                        job_id=job_id,
+                        backend=name,
+                        error=str(e),
+                        exc_info=True,
+                    )
+                    continue
 
-        raise JobSubmissionError(
-            f"Job '{job_id}' not found in workspace: {workspace}"
-        )
+            raise JobSubmissionError(
+                f"Job '{job_id}' not found in workspace: {workspace}"
+            )
+        finally:
+            # Close backends that weren't chosen (resource cleanup)
+            for _, backend in backends:
+                if backend is not chosen_backend:
+                    await backend.close()
 
     def _reconstruct_config(
         self,

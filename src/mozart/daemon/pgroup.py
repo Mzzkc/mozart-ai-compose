@@ -216,10 +216,13 @@ class ProcessGroupManager:
         Delegates to ``SystemProbe.count_group_members()``.
         Uses a lazy import to avoid import-time side effects that can
         interfere with pytest's exit cleanup.
+
+        Returns 0 when the probe fails entirely (None from SystemProbe),
+        which is fail-safe: "no members found → don't signal anyone".
         """
         from mozart.daemon.system_probe import SystemProbe
 
-        return SystemProbe.count_group_members(pgid, exclude_pid=exclude_pid)
+        return SystemProbe.count_group_members(pgid, exclude_pid=exclude_pid) or 0
 
     @staticmethod
     def _cleanup_orphans_proc() -> list[int]:

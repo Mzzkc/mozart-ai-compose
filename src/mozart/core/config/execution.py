@@ -6,9 +6,10 @@ cost limits, and parallel execution.
 
 from __future__ import annotations
 
+import re
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class RetryConfig(BaseModel):
@@ -65,6 +66,19 @@ class RateLimitConfig(BaseModel):
         ],
         description="Regex patterns to detect rate limiting in output",
     )
+
+    @field_validator("detection_patterns")
+    @classmethod
+    def _validate_regex_patterns(cls, v: list[str]) -> list[str]:
+        for i, pattern in enumerate(v):
+            try:
+                re.compile(pattern)
+            except re.error as e:
+                raise ValueError(
+                    f"detection_patterns[{i}] is not valid regex: {pattern!r} — {e}"
+                ) from e
+        return v
+
     wait_minutes: int = Field(default=60, ge=1, description="Minutes to wait when rate limited")
     max_waits: int = Field(default=24, ge=1, description="Maximum wait cycles (24 = 24 hours)")
     max_quota_waits: int = Field(
@@ -188,6 +202,16 @@ class CostLimitConfig(BaseModel):
         le=100,
         description="Emit warning when this percentage of limit is reached",
     )
+
+    @model_validator(mode="after")
+    def _require_limit_when_enabled(self) -> CostLimitConfig:
+        """Require at least one cost limit when cost tracking is enabled."""
+        if self.enabled and self.max_cost_per_sheet is None and self.max_cost_per_job is None:
+            raise ValueError(
+                "CostLimitConfig has enabled=True but no limits set. "
+                "Set max_cost_per_sheet and/or max_cost_per_job, or disable cost limits."
+            )
+        return self
 
 
 class ParallelConfig(BaseModel):

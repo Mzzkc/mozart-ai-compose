@@ -302,6 +302,7 @@ class ResourceMonitor:
                         consecutive_failures=self._prune_consecutive_failures,
                         message="Pruning disabled after repeated failures. "
                         "Rate limit event list may grow unbounded.",
+                        exc_info=True,
                     )
 
     async def _enforce_memory_limit(self) -> None:

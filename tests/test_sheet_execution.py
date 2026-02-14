@@ -1459,6 +1459,7 @@ class TestHandleExecutionFailure:
         state.mark_sheet_started(1)
 
         mock_store = MagicMock()
+        mock_store.check_recent_pattern_discoveries.return_value = []
         mixin._global_learning_store = mock_store
 
         pending = {

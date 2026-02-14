@@ -1,7 +1,8 @@
 """Tests for mozart.daemon.pgroup module.
 
 Covers ProcessGroupManager setup(), cleanup_orphans(), and
-kill_all_children() signal propagation.
+kill_all_children() signal propagation, including verification
+that process-counting delegates to SystemProbe.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from mozart.daemon.pgroup import ProcessGroupManager
+from mozart.daemon.system_probe import SystemProbe
 
 
 # ─── Setup ─────────────────────────────────────────────────────────────
@@ -396,7 +398,7 @@ class TestCountGroupMembers:
             return {100: 1234, 200: 1234, 300: 9999}[pid]
 
         with (
-            patch.dict("sys.modules", {"psutil": mock_psutil}),
+            patch("mozart.daemon.system_probe._psutil", mock_psutil),
             patch("mozart.daemon.system_probe.os.getpgid", side_effect=fake_getpgid),
         ):
             count = ProcessGroupManager._count_group_members(
@@ -466,3 +468,71 @@ class TestAtexitCleanup:
         ):
             # Should not raise
             pgm._atexit_cleanup()
+
+
+# ─── SystemProbe delegation ───────────────────────────────────────────
+
+
+class TestSystemProbeDelegation:
+    """Verify ProcessGroupManager delegates process counting to SystemProbe."""
+
+    def test_count_group_members_delegates_to_system_probe(self):
+        """_count_group_members calls SystemProbe.count_group_members."""
+        with patch.object(
+            SystemProbe, "count_group_members", return_value=5,
+        ) as mock_probe:
+            result = ProcessGroupManager._count_group_members(
+                pgid=1234, exclude_pid=100,
+            )
+
+        mock_probe.assert_called_once_with(1234, exclude_pid=100)
+        assert result == 5
+
+    def test_count_group_members_returns_zero_on_none(self):
+        """_count_group_members converts None (probe failure) to 0 (fail-safe)."""
+        with patch.object(
+            SystemProbe, "count_group_members", return_value=None,
+        ):
+            result = ProcessGroupManager._count_group_members(
+                pgid=1234, exclude_pid=100,
+            )
+
+        assert result == 0
+
+    def test_kill_all_children_uses_system_probe_count(self):
+        """kill_all_children uses SystemProbe-derived count for its decision."""
+        pgm = ProcessGroupManager()
+        pgm._is_leader = True
+
+        with (
+            patch("mozart.daemon.pgroup.os.getpgrp", return_value=1234),
+            patch("mozart.daemon.pgroup.os.getpid", return_value=1234),
+            patch.object(
+                SystemProbe, "count_group_members", return_value=2,
+            ) as mock_probe,
+            patch("mozart.daemon.pgroup.os.killpg") as mock_killpg,
+            patch("mozart.daemon.pgroup.signal.signal"),
+        ):
+            result = pgm.kill_all_children()
+
+        mock_probe.assert_called_once_with(1234, exclude_pid=1234)
+        mock_killpg.assert_called_once_with(1234, signal.SIGTERM)
+        assert result == 1234
+
+    def test_kill_all_children_skips_signal_when_probe_returns_zero(self):
+        """kill_all_children skips killpg when SystemProbe returns 0 children."""
+        pgm = ProcessGroupManager()
+        pgm._is_leader = True
+
+        with (
+            patch("mozart.daemon.pgroup.os.getpgrp", return_value=1234),
+            patch("mozart.daemon.pgroup.os.getpid", return_value=1234),
+            patch.object(
+                SystemProbe, "count_group_members", return_value=0,
+            ),
+            patch("mozart.daemon.pgroup.os.killpg") as mock_killpg,
+        ):
+            result = pgm.kill_all_children()
+
+        mock_killpg.assert_not_called()
+        assert result == 1234

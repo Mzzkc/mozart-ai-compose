@@ -6,6 +6,7 @@ autonomous pattern application, grounding hooks, and proactive checkpoints.
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import Literal
 
@@ -290,12 +291,27 @@ class LearningConfig(BaseModel):
     def _sync_auto_apply_fields(self) -> LearningConfig:
         """Sync flat auto_apply_enabled/threshold with structured auto_apply config.
 
-        When auto_apply is set, its values take precedence over the flat fields.
-        This eliminates the two-sources-of-truth problem (D07).
+        The structured ``auto_apply`` config is the canonical source of truth.
+        When both representations are present, ``auto_apply`` wins.
+        When only the flat fields are set, they are migrated into ``auto_apply``
+        with a deprecation log so operators know to update their configs.
         """
         if self.auto_apply is not None:
+            # Structured config takes precedence → sync flat fields from it
             self.auto_apply_enabled = self.auto_apply.enabled
             self.auto_apply_trust_threshold = self.auto_apply.trust_threshold
+        elif self.auto_apply_enabled:
+            # Flat fields set without structured config -- migrate upward
+            warnings.warn(
+                "Flat auto_apply_enabled/auto_apply_trust_threshold fields are deprecated. "
+                "Migrate to structured 'auto_apply:' config block.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self.auto_apply = AutoApplyConfig(
+                enabled=self.auto_apply_enabled,
+                trust_threshold=self.auto_apply_trust_threshold,
+            )
         return self
 
 
@@ -409,6 +425,20 @@ class CheckpointTriggerConfig(BaseModel):
         default="",
         description="Custom message to show when checkpoint triggers",
     )
+
+    @model_validator(mode="after")
+    def _require_at_least_one_condition(self) -> CheckpointTriggerConfig:
+        """Ensure trigger has at least one matching condition."""
+        if (
+            self.sheet_nums is None
+            and self.prompt_contains is None
+            and self.min_retry_count is None
+        ):
+            raise ValueError(
+                f"CheckpointTrigger '{self.name}' must have at least one condition "
+                "(sheet_nums, prompt_contains, or min_retry_count)"
+            )
+        return self
 
 
 class CheckpointConfig(BaseModel):

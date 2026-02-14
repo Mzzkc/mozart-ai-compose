@@ -811,7 +811,10 @@ class SheetExecutionMixin:
         # Check both max retries and adaptive strategy recommendation
         if normal_attempts >= context.max_retries:
             # Try self-healing before giving up
-            if self._healing_coordinator is not None and healing_attempts < context.max_healing_cycles:
+            if (
+                self._healing_coordinator is not None
+                and healing_attempts < context.max_healing_cycles
+            ):
                 healing_report = await self._try_self_healing(
                     result=context.result,
                     error=error,
@@ -881,7 +884,10 @@ class SheetExecutionMixin:
                 normal_attempts=normal_attempts,
                 healing_attempts=healing_attempts,
                 pending_recovery=pending_recovery,
-                fatal_message=f"Sheet {context.sheet_num} failed after {context.max_retries} retries",
+                fatal_message=(
+                    f"Sheet {context.sheet_num} failed after"
+                    f" {context.max_retries} retries"
+                ),
             )
 
         # Check if adaptive strategy recommends stopping early
@@ -1088,6 +1094,7 @@ class SheetExecutionMixin:
                     error=str(e),
                     sheet_num=sheet_num,
                     attempt_num=sheet_state.attempt_count,
+                    exc_info=True,
                 )
 
             # ===== VALIDATION-FIRST APPROACH =====
@@ -1407,10 +1414,11 @@ class SheetExecutionMixin:
                     limit=3,
                 )
             except Exception as e:
-                self._logger.debug(
+                self._logger.warning(
                     "patterns.query_local_failed",
                     sheet_num=sheet_num,
                     error=str(e),
+                    exc_info=True,
                 )
 
         # Query from global learning store (cross-workspace patterns)
@@ -1474,10 +1482,11 @@ class SheetExecutionMixin:
                     sheets=[f.sheet_num for f in historical_failures],
                 )
         except Exception as e:
-            self._logger.debug(
+            self._logger.warning(
                 "history.query_failed",
                 sheet_num=sheet_num,
                 error=str(e),
+                exc_info=True,
             )
 
         return historical_failures
@@ -2063,11 +2072,12 @@ class SheetExecutionMixin:
                         context_tags=discovery.context_tags,
                     )
 
-        except Exception as e:
+        except (sqlite3.Error, OSError, ValueError) as e:
             self._logger.warning(
                 "broadcast.polling_failed",
                 sheet_num=sheet_num,
                 error=str(e),
+                exc_info=True,
             )
 
     async def _record_sheet_outcome(
@@ -2345,6 +2355,7 @@ class SheetExecutionMixin:
             self._logger.warning(
                 "auto_apply.check_failed",
                 error=str(e),
+                exc_info=True,
             )
             return False
 
@@ -2406,6 +2417,7 @@ class SheetExecutionMixin:
                 sheet_num=sheet_num,
                 error=str(e),
                 error_type=type(e).__name__,
+                exc_info=True,
             )
             self.console.print(
                 f"[yellow]Sheet {sheet_num}: Judgment client error: {e}, "
@@ -2655,10 +2667,11 @@ class SheetExecutionMixin:
                         for past in similar
                     ]
             except Exception as e:
-                self._logger.debug(
+                self._logger.warning(
                     "escalation.similar_lookup_failed",
                     sheet_num=sheet_num,
                     error=str(e),
+                    exc_info=True,
                 )
 
         context = EscalationContext(
@@ -2708,11 +2721,12 @@ class SheetExecutionMixin:
                 )
                 sheet_state.outcome_data = sheet_state.outcome_data or {}
                 sheet_state.outcome_data["escalation_record_id"] = escalation_record_id
-            except Exception as e:
+            except (sqlite3.Error, OSError) as e:
                 self._logger.warning(
                     "escalation.record_failed",
                     sheet_num=sheet_num,
                     error=str(e),
+                    exc_info=True,
                 )
 
         return response

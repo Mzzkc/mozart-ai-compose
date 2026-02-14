@@ -635,7 +635,7 @@ class TestRateLimitMiddleware:
         app.add_middleware(RateLimitMiddleware, config=config)
 
         @app.get("/api/test")
-        def test_endpoint():
+        def mock_endpoint():
             return {"ok": True}
 
         @app.get("/health")
@@ -755,7 +755,7 @@ class TestSecurityHeadersMiddleware:
         app.add_middleware(SecurityHeadersMiddleware, config=config)
 
         @app.get("/test")
-        def test_endpoint():
+        def mock_endpoint():
             return {"ok": True}
 
         return app

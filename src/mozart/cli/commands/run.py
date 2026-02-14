@@ -221,7 +221,7 @@ async def _try_daemon_submit(
 
         return True
     except Exception:
-        _logger.debug("daemon_submit_failed", exc_info=True)
+        _logger.warning("daemon_submit_failed", exc_info=True)
         return False
 
 

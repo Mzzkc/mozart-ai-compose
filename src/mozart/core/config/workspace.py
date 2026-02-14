@@ -6,11 +6,12 @@ logging, AI review, and feedback.
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class IsolationMode(str, Enum):
@@ -294,6 +295,16 @@ class FeedbackConfig(BaseModel):
         description="Regex pattern with a capture group to extract feedback from agent output. "
         "The first capture group contents are parsed according to 'format'.",
     )
+
+    @field_validator("pattern")
+    @classmethod
+    def _validate_regex_pattern(cls, v: str) -> str:
+        try:
+            re.compile(v)
+        except re.error as e:
+            raise ValueError(f"pattern is not valid regex: {v!r} — {e}") from e
+        return v
+
     format: Literal["json", "yaml", "text"] = Field(
         default="json",
         description="Format of the extracted feedback block. "

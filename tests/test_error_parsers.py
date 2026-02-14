@@ -288,10 +288,10 @@ class TestSelectRootCause:
             message="Rate limit exceeded",
             error_code=ErrorCode.RATE_LIMIT_API,
         )
-        root, symptoms, confidence = select_root_cause([rate_limit, enoent])
+        root, rest, _ = select_root_cause([rate_limit, enoent])
         assert root.error_code == ErrorCode.BACKEND_NOT_FOUND
-        assert len(symptoms) == 1
-        assert symptoms[0].error_code == ErrorCode.RATE_LIMIT_API
+        assert len(rest) == 1
+        assert rest[0].error_code == ErrorCode.RATE_LIMIT_API
 
     def test_auth_wins_over_rate_limit(self) -> None:
         """Can't be rate limited if auth fails first."""
@@ -305,7 +305,7 @@ class TestSelectRootCause:
             message="Rate limit",
             error_code=ErrorCode.RATE_LIMIT_API,
         )
-        root, symptoms, confidence = select_root_cause([rate_limit, auth])
+        root, _, _ = select_root_cause([rate_limit, auth])
         assert root.error_code == ErrorCode.BACKEND_AUTH
 
     def test_network_wins_over_service_errors(self) -> None:
@@ -320,7 +320,7 @@ class TestSelectRootCause:
             message="Backend timeout",
             error_code=ErrorCode.BACKEND_TIMEOUT,
         )
-        root, symptoms, confidence = select_root_cause([timeout, network])
+        root, _, _ = select_root_cause([timeout, network])
         assert root.error_code == ErrorCode.NETWORK_CONNECTION_FAILED
 
     def test_timeout_demoted_when_rate_limit_present(self) -> None:
@@ -335,7 +335,7 @@ class TestSelectRootCause:
             message="Rate limit",
             error_code=ErrorCode.RATE_LIMIT_API,
         )
-        root, symptoms, confidence = select_root_cause([timeout, rate_limit])
+        root, _, _ = select_root_cause([timeout, rate_limit])
         assert root.error_code == ErrorCode.RATE_LIMIT_API
 
     def test_config_path_missing_boosted(self) -> None:
@@ -350,7 +350,7 @@ class TestSelectRootCause:
             message="Execution crashed",
             error_code=ErrorCode.EXECUTION_CRASHED,
         )
-        root, symptoms, confidence = select_root_cause([exec_error, config_missing])
+        root, _, _ = select_root_cause([exec_error, config_missing])
         assert root.error_code == ErrorCode.CONFIG_PATH_NOT_FOUND
 
     def test_confidence_higher_with_clear_gap(self) -> None:
@@ -428,3 +428,69 @@ class TestRootCausePriority:
         config_pri = ROOT_CAUSE_PRIORITY[ErrorCode.CONFIG_INVALID]
         validation_pri = ROOT_CAUSE_PRIORITY[ErrorCode.VALIDATION_GENERIC]
         assert config_pri < validation_pri
+
+
+class TestJsonParsingEdgeCases:
+    """Edge cases for JSON extraction from CLI output."""
+
+    def test_escaped_quotes_in_message(self) -> None:
+        """Backslash-escaped quotes inside error messages."""
+        output = json.dumps({
+            "errors": [
+                {"type": "system", "message": 'Path is "C:\\\\Users\\\\test"'}
+            ],
+        })
+        result = try_parse_json_errors(output)
+        assert len(result) == 1
+        assert "Users" in result[0].message
+        assert "test" in result[0].message
+
+    def test_incomplete_json_truncated(self) -> None:
+        """Truncated JSON should not crash — returns empty on parse failure."""
+        output = '{"errors": [{"type": "system", "message": "truncated'
+        result = try_parse_json_errors(output)
+        # Incomplete JSON cannot be parsed — empty result
+        assert result == []
+
+    def test_multiple_json_objects_takes_first_with_errors(self) -> None:
+        """When multiple JSON objects exist, errors from first valid one win."""
+        json1 = json.dumps({"result": "ok"})  # No errors
+        json2 = json.dumps({
+            "errors": [{"type": "user", "message": "second object error"}],
+        })
+        output = json1 + "\n" + json2
+        result = try_parse_json_errors(output)
+        assert len(result) == 1
+        assert result[0].message == "second object error"
+
+    def test_cli_mode_masks_execution_error(self) -> None:
+        """CLI mode error masks execution errors (priority modifier)."""
+        cli_mode = ClassifiedError(
+            category=ErrorCategory.CONFIGURATION,
+            message="Streaming mode not supported",
+            error_code=ErrorCode.CONFIG_CLI_MODE_ERROR,
+        )
+        exec_error = ClassifiedError(
+            category=ErrorCategory.TRANSIENT,
+            message="Execution crashed",
+            error_code=ErrorCode.EXECUTION_CRASHED,
+        )
+        root, _, _ = select_root_cause([exec_error, cli_mode])
+        assert root.error_code == ErrorCode.CONFIG_CLI_MODE_ERROR
+
+    def test_zero_gap_confidence(self) -> None:
+        """Errors with identical priority (gap=0) produce 0.4 confidence."""
+        # Both errors have priority 91 in ROOT_CAUSE_PRIORITY, so gap=0
+        err1 = ClassifiedError(
+            category=ErrorCategory.TRANSIENT,
+            message="Error A",
+            error_code=ErrorCode.BACKEND_RESPONSE,
+        )
+        err2 = ClassifiedError(
+            category=ErrorCategory.TRANSIENT,
+            message="Error B",
+            error_code=ErrorCode.BACKEND_RESPONSE,
+        )
+        _, _, confidence = select_root_cause([err1, err2])
+        # gap == 0 → confidence = 0.4 (ambiguous)
+        assert confidence == 0.4

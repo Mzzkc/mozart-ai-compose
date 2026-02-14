@@ -9,7 +9,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from mozart.core.logging import get_logger
+
+_logger = get_logger("daemon.config")
 
 
 class ResourceLimitConfig(BaseModel):
@@ -37,6 +41,18 @@ class ResourceLimitConfig(BaseModel):
         "externally-reported events via RateLimitCoordinator. "
         "Setting a non-default value will log a warning at startup.",
     )
+
+    @model_validator(mode="after")
+    def _warn_reserved_fields(self) -> ResourceLimitConfig:
+        """Warn when reserved fields are set to non-default values."""
+        if self.max_api_calls_per_minute != 60:
+            _logger.warning(
+                "reserved_field_set",
+                field="max_api_calls_per_minute",
+                value=self.max_api_calls_per_minute,
+                message="not yet enforced — rate limiting works through externally-reported events",
+            )
+        return self
 
 
 class SocketConfig(BaseModel):
@@ -146,3 +162,22 @@ class DaemonConfig(BaseModel):
         description="Reserved for future config reload support. "
         "Not yet functional — SIGHUP reload is not implemented.",
     )
+
+    @model_validator(mode="after")
+    def _warn_reserved_fields(self) -> DaemonConfig:
+        """Warn when reserved/unimplemented fields are set to non-default values."""
+        if self.max_concurrent_sheets != 10:
+            _logger.warning(
+                "reserved_field_set",
+                field="max_concurrent_sheets",
+                value=self.max_concurrent_sheets,
+                message="reserved for Phase 3 scheduler — not yet enforced",
+            )
+        if self.config_file is not None:
+            _logger.warning(
+                "reserved_field_set",
+                field="config_file",
+                value=str(self.config_file),
+                message="reserved for future config reload — not yet functional",
+            )
+        return self

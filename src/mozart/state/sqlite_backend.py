@@ -260,6 +260,11 @@ class SQLiteStateBackend(StateBackend):
         try:
             return datetime.fromisoformat(s)
         except ValueError:
+            _logger.warning(
+                "corrupt_timestamp",
+                value=s,
+                message="Could not parse ISO timestamp — returning None",
+            )
             return None
 
     def _json_dumps(self, obj: Any) -> str | None:
@@ -421,130 +426,133 @@ class SQLiteStateBackend(StateBackend):
             # between the job upsert and the last sheet upsert doesn't
             # leave the database in an inconsistent state.
             await db.execute("BEGIN IMMEDIATE")
-
-            # Upsert job record
-            await db.execute(
-                """
-                INSERT INTO jobs (
-                    id, name, description, status, total_sheets,
-                    last_completed_sheet, current_sheet, config_hash,
-                    config_snapshot, config_path,
-                    pid, error_message, total_retry_count, rate_limit_waits,
-                    created_at, updated_at, started_at, completed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    name = excluded.name,
-                    status = excluded.status,
-                    total_sheets = excluded.total_sheets,
-                    last_completed_sheet = excluded.last_completed_sheet,
-                    current_sheet = excluded.current_sheet,
-                    config_hash = excluded.config_hash,
-                    config_snapshot = excluded.config_snapshot,
-                    config_path = excluded.config_path,
-                    pid = excluded.pid,
-                    error_message = excluded.error_message,
-                    total_retry_count = excluded.total_retry_count,
-                    rate_limit_waits = excluded.rate_limit_waits,
-                    updated_at = excluded.updated_at,
-                    started_at = excluded.started_at,
-                    completed_at = excluded.completed_at
-            """,
-                (
-                    state.job_id,
-                    state.job_name,
-                    None,  # description - not in CheckpointState currently
-                    state.status.value,
-                    state.total_sheets,
-                    state.last_completed_sheet,
-                    state.current_sheet,
-                    state.config_hash,
-                    self._json_dumps(state.config_snapshot),
-                    state.config_path,
-                    state.pid,
-                    state.error_message,
-                    state.total_retry_count,
-                    state.rate_limit_waits,
-                    self._datetime_to_str(state.created_at),
-                    self._datetime_to_str(state.updated_at),
-                    self._datetime_to_str(state.started_at),
-                    self._datetime_to_str(state.completed_at),
-                ),
-            )
-
-            # Upsert sheet records
-            for sheet in state.sheets.values():
+            try:
+                # Upsert job record
                 await db.execute(
                     """
-                    INSERT INTO sheets (
-                        job_id, sheet_num, status, attempt_count, exit_code,
-                        error_message, error_category, validation_passed,
-                        validation_details, completion_attempts, passed_validations,
-                        failed_validations, last_pass_percentage, execution_mode,
-                        outcome_data, confidence_score, learned_patterns,
-                        similar_outcomes_count, first_attempt_success,
-                        outcome_category, started_at, completed_at,
-                        execution_duration_seconds, exit_signal, exit_reason
-                    ) VALUES (
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-                    )
-                    ON CONFLICT(job_id, sheet_num) DO UPDATE SET
+                    INSERT INTO jobs (
+                        id, name, description, status, total_sheets,
+                        last_completed_sheet, current_sheet, config_hash,
+                        config_snapshot, config_path,
+                        pid, error_message, total_retry_count, rate_limit_waits,
+                        created_at, updated_at, started_at, completed_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        name = excluded.name,
                         status = excluded.status,
-                        attempt_count = excluded.attempt_count,
-                        exit_code = excluded.exit_code,
+                        total_sheets = excluded.total_sheets,
+                        last_completed_sheet = excluded.last_completed_sheet,
+                        current_sheet = excluded.current_sheet,
+                        config_hash = excluded.config_hash,
+                        config_snapshot = excluded.config_snapshot,
+                        config_path = excluded.config_path,
+                        pid = excluded.pid,
                         error_message = excluded.error_message,
-                        error_category = excluded.error_category,
-                        validation_passed = excluded.validation_passed,
-                        validation_details = excluded.validation_details,
-                        completion_attempts = excluded.completion_attempts,
-                        passed_validations = excluded.passed_validations,
-                        failed_validations = excluded.failed_validations,
-                        last_pass_percentage = excluded.last_pass_percentage,
-                        execution_mode = excluded.execution_mode,
-                        outcome_data = excluded.outcome_data,
-                        confidence_score = excluded.confidence_score,
-                        learned_patterns = excluded.learned_patterns,
-                        similar_outcomes_count = excluded.similar_outcomes_count,
-                        first_attempt_success = excluded.first_attempt_success,
-                        outcome_category = excluded.outcome_category,
+                        total_retry_count = excluded.total_retry_count,
+                        rate_limit_waits = excluded.rate_limit_waits,
+                        updated_at = excluded.updated_at,
                         started_at = excluded.started_at,
-                        completed_at = excluded.completed_at,
-                        execution_duration_seconds = excluded.execution_duration_seconds,
-                        exit_signal = excluded.exit_signal,
-                        exit_reason = excluded.exit_reason
+                        completed_at = excluded.completed_at
                 """,
                     (
                         state.job_id,
-                        sheet.sheet_num,
-                        sheet.status.value,
-                        sheet.attempt_count,
-                        sheet.exit_code,
-                        sheet.error_message,
-                        sheet.error_category,
-                        1 if sheet.validation_passed else 0
-                        if sheet.validation_passed is not None
-                        else None,
-                        self._json_dumps(sheet.validation_details),
-                        sheet.completion_attempts,
-                        self._json_dumps(sheet.passed_validations),
-                        self._json_dumps(sheet.failed_validations),
-                        sheet.last_pass_percentage,
-                        sheet.execution_mode,
-                        self._json_dumps(sheet.outcome_data),
-                        sheet.confidence_score,
-                        self._json_dumps(sheet.learned_patterns),
-                        sheet.similar_outcomes_count,
-                        1 if sheet.first_attempt_success else 0,
-                        sheet.outcome_category,
-                        self._datetime_to_str(sheet.started_at),
-                        self._datetime_to_str(sheet.completed_at),
-                        sheet.execution_duration_seconds,
-                        sheet.exit_signal,
-                        sheet.exit_reason,
+                        state.job_name,
+                        None,  # description - not in CheckpointState currently
+                        state.status.value,
+                        state.total_sheets,
+                        state.last_completed_sheet,
+                        state.current_sheet,
+                        state.config_hash,
+                        self._json_dumps(state.config_snapshot),
+                        state.config_path,
+                        state.pid,
+                        state.error_message,
+                        state.total_retry_count,
+                        state.rate_limit_waits,
+                        self._datetime_to_str(state.created_at),
+                        self._datetime_to_str(state.updated_at),
+                        self._datetime_to_str(state.started_at),
+                        self._datetime_to_str(state.completed_at),
                     ),
                 )
 
-            await db.commit()
+                # Upsert sheet records
+                for sheet in state.sheets.values():
+                    await db.execute(
+                        """
+                        INSERT INTO sheets (
+                            job_id, sheet_num, status, attempt_count, exit_code,
+                            error_message, error_category, validation_passed,
+                            validation_details, completion_attempts, passed_validations,
+                            failed_validations, last_pass_percentage, execution_mode,
+                            outcome_data, confidence_score, learned_patterns,
+                            similar_outcomes_count, first_attempt_success,
+                            outcome_category, started_at, completed_at,
+                            execution_duration_seconds, exit_signal, exit_reason
+                        ) VALUES (
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                        )
+                        ON CONFLICT(job_id, sheet_num) DO UPDATE SET
+                            status = excluded.status,
+                            attempt_count = excluded.attempt_count,
+                            exit_code = excluded.exit_code,
+                            error_message = excluded.error_message,
+                            error_category = excluded.error_category,
+                            validation_passed = excluded.validation_passed,
+                            validation_details = excluded.validation_details,
+                            completion_attempts = excluded.completion_attempts,
+                            passed_validations = excluded.passed_validations,
+                            failed_validations = excluded.failed_validations,
+                            last_pass_percentage = excluded.last_pass_percentage,
+                            execution_mode = excluded.execution_mode,
+                            outcome_data = excluded.outcome_data,
+                            confidence_score = excluded.confidence_score,
+                            learned_patterns = excluded.learned_patterns,
+                            similar_outcomes_count = excluded.similar_outcomes_count,
+                            first_attempt_success = excluded.first_attempt_success,
+                            outcome_category = excluded.outcome_category,
+                            started_at = excluded.started_at,
+                            completed_at = excluded.completed_at,
+                            execution_duration_seconds = excluded.execution_duration_seconds,
+                            exit_signal = excluded.exit_signal,
+                            exit_reason = excluded.exit_reason
+                    """,
+                        (
+                            state.job_id,
+                            sheet.sheet_num,
+                            sheet.status.value,
+                            sheet.attempt_count,
+                            sheet.exit_code,
+                            sheet.error_message,
+                            sheet.error_category,
+                            1 if sheet.validation_passed else 0
+                            if sheet.validation_passed is not None
+                            else None,
+                            self._json_dumps(sheet.validation_details),
+                            sheet.completion_attempts,
+                            self._json_dumps(sheet.passed_validations),
+                            self._json_dumps(sheet.failed_validations),
+                            sheet.last_pass_percentage,
+                            sheet.execution_mode,
+                            self._json_dumps(sheet.outcome_data),
+                            sheet.confidence_score,
+                            self._json_dumps(sheet.learned_patterns),
+                            sheet.similar_outcomes_count,
+                            1 if sheet.first_attempt_success else 0,
+                            sheet.outcome_category,
+                            self._datetime_to_str(sheet.started_at),
+                            self._datetime_to_str(sheet.completed_at),
+                            sheet.execution_duration_seconds,
+                            sheet.exit_signal,
+                            sheet.exit_reason,
+                        ),
+                    )
+
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
 
         _logger.info(
             "checkpoint_saved",

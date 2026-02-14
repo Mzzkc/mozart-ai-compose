@@ -15,14 +15,17 @@ static — callers import the class and call methods directly.
 
 from __future__ import annotations
 
-import logging
 import os
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    import psutil
+from mozart.core.logging import get_logger
 
-_logger = logging.getLogger("daemon.system_probe")
+_logger = get_logger("daemon.system_probe")
+
+# Check psutil availability once at import time
+try:
+    import psutil as _psutil
+except ImportError:
+    _psutil = None  # type: ignore[assignment]
 
 
 class SystemProbe:
@@ -43,16 +46,13 @@ class SystemProbe:
         Returns:
             RSS in megabytes, or ``None`` when all probes fail.
         """
-        try:
-            import psutil
-
-            proc: psutil.Process = psutil.Process()
-            rss_bytes: int = proc.memory_info().rss
-            return rss_bytes / (1024 * 1024)
-        except ImportError:
-            pass
-        except Exception:
-            _logger.debug("psutil_memory_probe_failed", exc_info=True)
+        if _psutil is not None:
+            try:
+                proc = _psutil.Process()
+                rss_bytes: int = proc.memory_info().rss
+                return rss_bytes / (1024 * 1024)
+            except (_psutil.NoSuchProcess, _psutil.AccessDenied, OSError, AttributeError):
+                _logger.debug("psutil_memory_probe_failed", exc_info=True)
         # Fallback: /proc/self/status (Linux only)
         try:
             with open("/proc/self/status") as f:
@@ -74,15 +74,12 @@ class SystemProbe:
         Returns:
             Number of child processes, or ``None`` when all probes fail.
         """
-        try:
-            import psutil
-
-            current = psutil.Process()
-            return len(current.children(recursive=True))
-        except ImportError:
-            pass
-        except Exception:
-            _logger.debug("psutil_child_count_probe_failed", exc_info=True)
+        if _psutil is not None:
+            try:
+                current = _psutil.Process()
+                return len(current.children(recursive=True))
+            except (_psutil.NoSuchProcess, _psutil.AccessDenied, OSError, AttributeError):
+                _logger.debug("psutil_child_count_probe_failed", exc_info=True)
         return SystemProbe._proc_child_count()
 
     @staticmethod
@@ -115,31 +112,28 @@ class SystemProbe:
                   via psutil to actually reap it.
         """
         found: list[int] = []
-        try:
-            import psutil
-
-            current = psutil.Process()
-            for child in current.children(recursive=True):
-                try:
-                    if child.status() == psutil.STATUS_ZOMBIE:
-                        if reap:
-                            try:
-                                os.waitpid(child.pid, os.WNOHANG)
-                            except ChildProcessError:
-                                pass
-                        found.append(child.pid)
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    continue
-            return found
-        except ImportError:
-            pass
-        except Exception:
-            _logger.warning("zombie_scan_failed", exc_info=True)
-            return found
+        if _psutil is not None:
+            try:
+                current = _psutil.Process()
+                for child in current.children(recursive=True):
+                    try:
+                        if child.status() == _psutil.STATUS_ZOMBIE:
+                            if reap:
+                                try:
+                                    os.waitpid(child.pid, os.WNOHANG)
+                                except ChildProcessError:
+                                    pass
+                            found.append(child.pid)
+                    except (_psutil.NoSuchProcess, _psutil.AccessDenied):
+                        continue
+                return found
+            except (_psutil.NoSuchProcess, _psutil.AccessDenied, OSError, AttributeError):
+                _logger.warning("zombie_scan_failed", exc_info=True)
+                return found
         return SystemProbe._waitpid_reap_loop()
 
     @staticmethod
-    def count_group_members(pgid: int, exclude_pid: int = 0) -> int:
+    def count_group_members(pgid: int, exclude_pid: int = 0) -> int | None:
         """Count processes in a process group, excluding one PID.
 
         Uses psutil ``Process.pgid`` per-process if available, falls
@@ -154,45 +148,54 @@ class SystemProbe:
             exclude_pid: PID to exclude from count (typically self).
 
         Returns:
-            Number of matching processes (0 if probes fail).
+            Number of matching processes, or None if all probes fail.
         """
-        try:
-            import psutil
-
-            count = 0
-            for proc in psutil.process_iter(["pid"]):
-                try:
-                    pid = proc.info["pid"]
-                    if pid == exclude_pid:
+        if _psutil is not None:
+            try:
+                count = 0
+                for proc in _psutil.process_iter(["pid"]):
+                    try:
+                        pid = proc.info["pid"]
+                        if pid == exclude_pid:
+                            continue
+                        if os.getpgid(pid) == pgid:
+                            count += 1
+                    except (_psutil.NoSuchProcess, _psutil.AccessDenied, OSError, AttributeError):
                         continue
-                    if os.getpgid(pid) == pgid:
-                        count += 1
-                except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
-                    continue
-            return count
-        except ImportError:
-            pass
+                return count
+            except (_psutil.NoSuchProcess, _psutil.AccessDenied, OSError, AttributeError):
+                _logger.debug("psutil_group_count_failed", exc_info=True)
         return SystemProbe._proc_group_count(pgid, exclude_pid)
 
     # ─── /proc fallback helpers ───────────────────────────────────
 
     @staticmethod
-    def _proc_child_count() -> int:
+    def _proc_child_count() -> int | None:
         """Count child processes by scanning /proc/*/status for PPid.
 
         Linux-only fallback when psutil is unavailable.
+
+        Returns:
+            Number of child processes, or None if /proc scan fails entirely.
         """
         my_pid = os.getpid()
         count = 0
+        any_readable = False
         try:
             for entry in os.listdir("/proc"):
                 if not entry.isdigit():
                     continue
                 ppid = SystemProbe._read_proc_ppid(entry)
-                if ppid == my_pid:
-                    count += 1
+                if ppid is not None:
+                    any_readable = True
+                    if ppid == my_pid:
+                        count += 1
         except OSError:
             _logger.warning("child_process_probe_failed", exc_info=True)
+            return None
+        if not any_readable:
+            _logger.warning("child_process_probe_no_readable_entries")
+            return None
         return count
 
     @staticmethod
@@ -226,10 +229,13 @@ class SystemProbe:
         return reaped
 
     @staticmethod
-    def _proc_group_count(pgid: int, exclude_pid: int = 0) -> int:
+    def _proc_group_count(pgid: int, exclude_pid: int = 0) -> int | None:
         """Count process group members by scanning /proc/*/stat.
 
         Linux-only fallback when psutil is unavailable.
+
+        Returns:
+            Number of group members, or None if /proc scan fails entirely.
         """
         count = 0
         try:
@@ -248,7 +254,8 @@ class SystemProbe:
                 except (OSError, ValueError, IndexError):
                     continue
         except OSError:
-            pass
+            _logger.warning("proc_group_probe_failed", exc_info=True)
+            return None
         return count
 
 

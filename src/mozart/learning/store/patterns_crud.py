@@ -94,61 +94,44 @@ class PatternCrudMixin:
         ).hexdigest()[:16]
 
         with self._get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT id, occurrence_count FROM patterns WHERE id = ?",
-                (pattern_id,),
+            # Atomic upsert: INSERT on first occurrence, UPDATE on subsequent.
+            # Avoids the SELECT-then-INSERT race where two concurrent callers
+            # both see "not found" and both attempt INSERT.
+            conn.execute(
+                """
+                INSERT INTO patterns (
+                    id, pattern_type, pattern_name, description,
+                    occurrence_count, first_seen, last_seen, last_confirmed,
+                    led_to_success_count, led_to_failure_count,
+                    effectiveness_score, variance, suggested_action,
+                    context_tags, priority_score,
+                    quarantine_status, provenance_job_hash, provenance_sheet_num,
+                    trust_score, trust_calculation_date
+                ) VALUES (?, ?, ?, ?, 1, ?, ?, ?, 0, 0, 0.5, 0.0, ?, ?, 0.5,
+                          ?, ?, ?, 0.5, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    occurrence_count = occurrence_count + 1,
+                    last_seen = excluded.last_seen,
+                    description = COALESCE(excluded.description, description),
+                    suggested_action = COALESCE(excluded.suggested_action, suggested_action),
+                    context_tags = excluded.context_tags
+                """,
+                (
+                    pattern_id,
+                    pattern_type,
+                    pattern_name,
+                    description,
+                    now,
+                    now,
+                    now,
+                    suggested_action,
+                    json.dumps(context_tags or []),
+                    QuarantineStatus.PENDING.value,
+                    job_hash,
+                    sheet_num,
+                    now,
+                ),
             )
-            existing = cursor.fetchone()
-
-            if existing:
-                conn.execute(
-                    """
-                    UPDATE patterns SET
-                        occurrence_count = occurrence_count + 1,
-                        last_seen = ?,
-                        description = COALESCE(?, description),
-                        suggested_action = COALESCE(?, suggested_action),
-                        context_tags = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        now,
-                        description,
-                        suggested_action,
-                        json.dumps(context_tags or []),
-                        pattern_id,
-                    ),
-                )
-            else:
-                conn.execute(
-                    """
-                    INSERT INTO patterns (
-                        id, pattern_type, pattern_name, description,
-                        occurrence_count, first_seen, last_seen, last_confirmed,
-                        led_to_success_count, led_to_failure_count,
-                        effectiveness_score, variance, suggested_action,
-                        context_tags, priority_score,
-                        quarantine_status, provenance_job_hash, provenance_sheet_num,
-                        trust_score, trust_calculation_date
-                    ) VALUES (?, ?, ?, ?, 1, ?, ?, ?, 0, 0, 0.5, 0.0, ?, ?, 0.5,
-                              ?, ?, ?, 0.5, ?)
-                    """,
-                    (
-                        pattern_id,
-                        pattern_type,
-                        pattern_name,
-                        description,
-                        now,
-                        now,
-                        now,
-                        suggested_action,
-                        json.dumps(context_tags or []),
-                        QuarantineStatus.PENDING.value,
-                        job_hash,
-                        sheet_num,
-                        now,
-                    ),
-                )
 
         return pattern_id
 
@@ -283,8 +266,11 @@ class PatternCrudMixin:
                 )
 
                 _logger.debug(
-                    f"Updated pattern {pattern_id}: effectiveness={new_effectiveness:.3f}, "
-                    f"priority={new_priority:.3f}, mode={application_mode}"
+                    "pattern_effectiveness_updated",
+                    pattern_id=pattern_id,
+                    effectiveness=round(new_effectiveness, 3),
+                    priority=round(new_priority, 3),
+                    mode=application_mode,
                 )
 
         return app_id
@@ -493,8 +479,10 @@ class PatternCrudMixin:
             )
 
             _logger.debug(
-                f"Manual update pattern {pattern_id}: "
-                f"effectiveness={new_effectiveness:.3f}, priority={new_priority:.3f}"
+                "pattern_effectiveness_manual_update",
+                pattern_id=pattern_id,
+                effectiveness=round(new_effectiveness, 3),
+                priority=round(new_priority, 3),
             )
             return new_effectiveness
 

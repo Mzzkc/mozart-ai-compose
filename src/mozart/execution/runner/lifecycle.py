@@ -482,7 +482,7 @@ class LifecycleMixin:
         executor = HookExecutor(
             config=self.config,
             workspace=self.config.workspace,
-            concert_context=None,  # Concert chaining not yet implemented (see GitHub issue)
+            concert_context=None,  # TODO(#37): Concert chaining not yet implemented
         )
 
         # Execute hooks

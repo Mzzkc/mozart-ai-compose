@@ -31,7 +31,6 @@ Architecture:
 
 from __future__ import annotations
 
-import asyncio
 import random
 import sqlite3
 from pathlib import Path
@@ -94,6 +93,8 @@ class RecoveryMixin:
     _healing_coordinator: SelfHealingCoordinator | None
     error_classifier: ErrorClassifier
     rate_limit_callback: Callable[[str, float, str, int], Any] | None
+
+    async def _interruptible_sleep(self, seconds: float) -> None: ...
 
     def _get_effective_model(self) -> str | None:
         """Resolve the effective model name from backend config.
@@ -254,7 +255,7 @@ class RecoveryMixin:
         # Daemon rate coordinator notification (Phase 3 wiring prereq P025)
         if self.rate_limit_callback is not None:
             try:
-                backend_type = getattr(self.backend, "backend_type", "claude_cli")
+                backend_type = self.backend.name
                 await self.rate_limit_callback(
                     backend_type, wait_seconds, state.job_id,
                     self._infer_active_sheet_num(state),
@@ -272,8 +273,8 @@ class RecoveryMixin:
             sheet_num=self._infer_active_sheet_num(state),
         )
 
-        # Wait and health-check
-        await asyncio.sleep(wait_seconds)
+        # Wait and health-check (interruptible so shutdown isn't delayed)
+        await self._interruptible_sleep(wait_seconds)
         await self._health_check_after_wait(state, is_quota)
 
     def _resolve_wait_duration(self, suggested_wait_seconds: float | None) -> float:

@@ -1,6 +1,7 @@
 """Tests for Mozart JobRunner with graceful shutdown and progress tracking."""
 
 import asyncio
+import sqlite3
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1248,8 +1249,6 @@ class TestRunnerLoggingIntegration:
             patch.object(
                 runner, "_run_preflight_checks", return_value=make_mock_preflight_result()
             ),
-            patch("mozart.execution.runner.recovery.asyncio.sleep", side_effect=fast_sleep),
-            patch("mozart.execution.runner.sheet.asyncio.sleep", side_effect=fast_sleep),
             patch("mozart.execution.runner.base.asyncio.sleep", side_effect=fast_sleep),
         ):
             mock_validation.side_effect = validation_side_effect
@@ -1597,8 +1596,6 @@ class TestLoggingLevelFiltering:
             patch.object(
                 runner, "_run_preflight_checks", return_value=make_mock_preflight_result()
             ),
-            patch("mozart.execution.runner.recovery.asyncio.sleep", side_effect=fast_sleep),
-            patch("mozart.execution.runner.sheet.asyncio.sleep", side_effect=fast_sleep),
             patch("mozart.execution.runner.base.asyncio.sleep", side_effect=fast_sleep),
         ):
             mock_validation.side_effect = validation_side_effect
@@ -1763,7 +1760,7 @@ class TestActiveBroadcastPolling:
         """Verify polling handles store errors gracefully without blocking."""
         mock_store = MagicMock()
         mock_store.check_recent_pattern_discoveries = MagicMock(
-            side_effect=Exception("Database connection failed")
+            side_effect=sqlite3.OperationalError("Database connection failed")
         )
 
         runner = JobRunner(

@@ -3,11 +3,14 @@
 Defines the state that gets persisted between runs for resumable orchestration.
 """
 
+from __future__ import annotations
+
+import os
 from datetime import datetime
 from enum import Enum
 from typing import Any, Literal, TypedDict
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from mozart.core.logging import get_logger
 from mozart.utils.time import utc_now
@@ -49,6 +52,7 @@ class ValidationDetailDict(TypedDict, total=False):
     failure_reason: str | None
     failure_category: str | None
     suggested_fix: str | None
+    error_type: str | None
 
 
 class PromptMetricsDict(TypedDict, total=False):
@@ -373,6 +377,44 @@ class SheetState(BaseModel):
             "Typically includes keys like 'confidence', 'blockers', 'notes'."
         ),
     )
+
+    @model_validator(mode="after")
+    def _enforce_status_invariants(self) -> SheetState:
+        """Warn and auto-fill when status-dependent fields are missing.
+
+        Invariants:
+        - COMPLETED → completed_at must be set
+        - IN_PROGRESS → started_at must be set
+        - FAILED → error_message must be set
+        """
+        if self.status == SheetStatus.COMPLETED and self.completed_at is None:
+            _logger.debug(
+                "sheet_state.invariant_autofill",
+                sheet_num=self.sheet_num,
+                field="completed_at",
+                status="COMPLETED",
+            )
+            self.completed_at = utc_now()
+
+        if self.status == SheetStatus.IN_PROGRESS and self.started_at is None:
+            _logger.debug(
+                "sheet_state.invariant_autofill",
+                sheet_num=self.sheet_num,
+                field="started_at",
+                status="IN_PROGRESS",
+            )
+            self.started_at = utc_now()
+
+        if self.status == SheetStatus.FAILED and self.error_message is None:
+            _logger.debug(
+                "sheet_state.invariant_autofill",
+                sheet_num=self.sheet_num,
+                field="error_message",
+                status="FAILED",
+            )
+            self.error_message = "Unknown failure (no error message recorded)"
+
+        return self
 
     def capture_output(
         self,
@@ -701,6 +743,8 @@ class CheckpointState(BaseModel):
         """
         self.updated_at = utc_now()
 
+        if sheet_num not in self.sheets:
+            self.sheets[sheet_num] = SheetState(sheet_num=sheet_num)
         sheet = self.sheets[sheet_num]
         sheet.status = SheetStatus.COMPLETED
         sheet.completed_at = utc_now()
@@ -762,6 +806,8 @@ class CheckpointState(BaseModel):
         """
         self.updated_at = utc_now()
 
+        if sheet_num not in self.sheets:
+            self.sheets[sheet_num] = SheetState(sheet_num=sheet_num)
         sheet = self.sheets[sheet_num]
         sheet.status = SheetStatus.FAILED
         sheet.completed_at = utc_now()
@@ -805,6 +851,8 @@ class CheckpointState(BaseModel):
         """
         self.updated_at = utc_now()
 
+        if sheet_num not in self.sheets:
+            self.sheets[sheet_num] = SheetState(sheet_num=sheet_num)
         sheet = self.sheets[sheet_num]
         sheet.status = SheetStatus.SKIPPED
         sheet.completed_at = utc_now()
@@ -881,8 +929,6 @@ class CheckpointState(BaseModel):
         Returns:
             True if job appears to be a zombie, False otherwise.
         """
-        import os
-
         # Only RUNNING jobs can be zombies
         if self.status != JobStatus.RUNNING:
             return False
@@ -959,8 +1005,6 @@ class CheckpointState(BaseModel):
         Args:
             pid: Process ID to record. Defaults to current process.
         """
-        import os
-
         self.pid = pid if pid is not None else os.getpid()
         self.updated_at = utc_now()
 

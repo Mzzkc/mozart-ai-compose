@@ -72,6 +72,15 @@ async def try_daemon_route(
             return False, None
         result = await client.call(method, params)
         return True, result
-    except Exception as e:
+    except (OSError, ConnectionError, TimeoutError, ValueError) as e:
         _logger.debug("daemon_route_failed", method=method, error=str(e))
+        return False, None
+    except Exception as e:
+        _logger.warning(
+            "daemon_route_unexpected_error",
+            method=method,
+            error=str(e),
+            error_type=type(e).__name__,
+            exc_info=True,
+        )
         return False, None

@@ -11,6 +11,9 @@ from mozart.daemon.exceptions import JobSubmissionError
 from mozart.daemon.job_service import JobService
 from mozart.daemon.output import NullOutput
 
+# Path to the fixture config (shared across all test classes)
+FIXTURE_CONFIG = Path(__file__).parent / "fixtures" / "test-daemon-job.yaml"
+
 
 # ─── Fixtures ─────────────────────────────────────────────────────────────
 
@@ -28,19 +31,22 @@ def job_service(null_output: NullOutput) -> JobService:
 
 
 @pytest.fixture
-def sample_job_config() -> MagicMock:
-    """Create a mock JobConfig for testing."""
-    config = MagicMock()
-    config.name = "test-job"
-    config.workspace = Path("/tmp/test-workspace")
-    config.state_backend = "json"
-    config.sheet.total_sheets = 5
-    config.backend.type = "claude_cli"
-    config.learning.enabled = False
-    config.notifications = None
-    config.grounding.enabled = False
-    config.workspace_lifecycle.archive_on_fresh = False
-    return config
+def sample_job_config(tmp_path: Path) -> JobConfig:
+    """Create a real JobConfig from the test fixture YAML.
+
+    Uses a real config instead of MagicMock to catch schema drift
+    and ensure tests validate real attribute access patterns.
+    Learning is disabled to match the baseline expectation of most tests;
+    tests that need learning create their own config copy.
+    """
+    config = JobConfig.from_yaml(FIXTURE_CONFIG)
+    # Override workspace to a unique tmp_path per test and bump sheet count
+    # for tests that rely on 5 sheets; disable learning for isolation
+    return config.model_copy(update={
+        "workspace": tmp_path / "test-workspace",
+        "sheet": config.sheet.model_copy(update={"size": 2, "total_items": 10}),
+        "learning": config.learning.model_copy(update={"enabled": False}),
+    })
 
 
 # ─── Instantiation ────────────────────────────────────────────────────────
@@ -79,34 +85,28 @@ class TestStartJob:
 
     @pytest.mark.asyncio
     async def test_dry_run_returns_pending_summary(
-        self, job_service: JobService, sample_job_config: MagicMock
+        self, job_service: JobService, sample_job_config: JobConfig
     ):
         """Test dry_run=True returns summary without executing."""
-        sample_job_config.workspace = Path("/tmp/test-dry-run")
+        summary = await job_service.start_job(
+            sample_job_config,
+            dry_run=True,
+        )
 
-        with patch.object(Path, "mkdir"):
-            summary = await job_service.start_job(
-                sample_job_config,
-                dry_run=True,
-            )
-
-        assert summary.job_id == "test-job"
+        assert summary.job_id == "test-daemon-job"
         assert summary.final_status == JobStatus.PENDING
         assert summary.total_sheets == 5
 
     @pytest.mark.asyncio
     async def test_start_job_creates_workspace(
-        self, job_service: JobService, sample_job_config: MagicMock
+        self, job_service: JobService, sample_job_config: JobConfig
     ):
         """Test start_job creates workspace directory."""
-        mock_mkdir = MagicMock()
-        sample_job_config.workspace = MagicMock(spec=Path)
-        sample_job_config.workspace.mkdir = mock_mkdir
+        assert not sample_job_config.workspace.exists()
 
-        with patch.object(Path, "mkdir"):
-            await job_service.start_job(sample_job_config, dry_run=True)
+        await job_service.start_job(sample_job_config, dry_run=True)
 
-        mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)
+        assert sample_job_config.workspace.exists()
 
 
 # ─── pause_job ────────────────────────────────────────────────────────────
@@ -134,7 +134,8 @@ class TestPauseJob:
         with patch.object(
             JobService, "_find_job_state", new_callable=AsyncMock
         ) as mock_find:
-            mock_find.return_value = (state, MagicMock())
+            mock_backend = AsyncMock()
+            mock_find.return_value = (state, mock_backend)
             result = await job_service.pause_job("test-job", workspace)
 
         assert result is True
@@ -159,7 +160,7 @@ class TestPauseJob:
         with patch.object(
             JobService, "_find_job_state", new_callable=AsyncMock
         ) as mock_find:
-            mock_find.return_value = (state, MagicMock())
+            mock_find.return_value = (state, AsyncMock())
 
             with pytest.raises(JobSubmissionError, match="not running"):
                 await job_service.pause_job("test-job", workspace)
@@ -182,7 +183,7 @@ class TestPauseJob:
         with patch.object(
             JobService, "_find_job_state", new_callable=AsyncMock
         ) as mock_find:
-            mock_find.return_value = (state, MagicMock())
+            mock_find.return_value = (state, AsyncMock())
 
             with pytest.raises(JobSubmissionError, match="not running"):
                 await job_service.pause_job("test-job", workspace)
@@ -406,7 +407,7 @@ class TestResumeJobValidation:
         with patch.object(
             JobService, "_find_job_state", new_callable=AsyncMock
         ) as mock_find:
-            mock_find.return_value = (state, MagicMock())
+            mock_find.return_value = (state, AsyncMock())
 
             with pytest.raises(JobSubmissionError, match="already completed"):
                 await job_service.resume_job("test-job", workspace)
@@ -429,7 +430,7 @@ class TestResumeJobValidation:
         with patch.object(
             JobService, "_find_job_state", new_callable=AsyncMock
         ) as mock_find:
-            mock_find.return_value = (state, MagicMock())
+            mock_find.return_value = (state, AsyncMock())
 
             with pytest.raises(JobSubmissionError, match="not been started"):
                 await job_service.resume_job("test-job", workspace)
@@ -469,7 +470,7 @@ class TestReconstructConfig:
             )
 
     def test_config_snapshot_used_when_available(
-        self, job_service: JobService, sample_job_config: MagicMock
+        self, job_service: JobService, sample_job_config: JobConfig
     ):
         """Test config_snapshot is used as priority 3."""
         from mozart.core.config import JobConfig
@@ -499,23 +500,21 @@ class TestStartJobExecution:
 
     @pytest.mark.asyncio
     async def test_start_job_runs_and_returns_summary(
-        self, job_service: JobService, sample_job_config: MagicMock
+        self, job_service: JobService, sample_job_config: JobConfig
     ):
         """Test start_job runs the runner and returns a RunSummary."""
         from mozart.execution.runner.models import RunSummary
 
+        name = sample_job_config.name
+        sheets = sample_job_config.sheet.total_sheets
+
         expected_state = CheckpointState(
-            job_id="test-job",
-            job_name="test-job",
-            total_sheets=5,
+            job_id=name, job_name=name, total_sheets=sheets,
             status=JobStatus.COMPLETED,
         )
         expected_summary = RunSummary(
-            job_id="test-job",
-            job_name="test-job",
-            total_sheets=5,
-            completed_sheets=5,
-            final_status=JobStatus.COMPLETED,
+            job_id=name, job_name=name, total_sheets=sheets,
+            completed_sheets=sheets, final_status=JobStatus.COMPLETED,
         )
 
         mock_runner = MagicMock()
@@ -536,24 +535,25 @@ class TestStartJobExecution:
         ):
             summary = await job_service.start_job(sample_job_config)
 
-        assert summary.job_id == "test-job"
+        assert summary.job_id == name
         assert summary.final_status == JobStatus.COMPLETED
-        assert summary.completed_sheets == 5
+        assert summary.completed_sheets == sheets
 
     @pytest.mark.asyncio
     async def test_start_job_graceful_shutdown_returns_paused(
-        self, job_service: JobService, sample_job_config: MagicMock
+        self, job_service: JobService, sample_job_config: JobConfig
     ):
         """Test start_job returns PAUSED summary on GracefulShutdownError."""
         from mozart.execution.runner import GracefulShutdownError
         from mozart.execution.runner.models import RunSummary
 
+        name = sample_job_config.name
+        sheets = sample_job_config.sheet.total_sheets
+
         mock_runner = MagicMock()
         mock_runner.run = AsyncMock(side_effect=GracefulShutdownError())
         partial_summary = RunSummary(
-            job_id="test-job",
-            job_name="test-job",
-            total_sheets=5,
+            job_id=name, job_name=name, total_sheets=sheets,
             completed_sheets=3,
         )
         mock_runner.get_summary.return_value = partial_summary
@@ -578,10 +578,12 @@ class TestStartJobExecution:
 
     @pytest.mark.asyncio
     async def test_start_job_fatal_error_returns_failed(
-        self, job_service: JobService, sample_job_config: MagicMock
+        self, job_service: JobService, sample_job_config: JobConfig
     ):
         """Test start_job returns FAILED summary on FatalError."""
         from mozart.execution.runner import FatalError
+
+        sheets = sample_job_config.sheet.total_sheets
 
         mock_runner = MagicMock()
         mock_runner.run = AsyncMock(side_effect=FatalError("bad thing"))
@@ -603,27 +605,25 @@ class TestStartJobExecution:
             summary = await job_service.start_job(sample_job_config)
 
         assert summary.final_status == JobStatus.FAILED
-        assert summary.total_sheets == 5
+        assert summary.total_sheets == sheets
 
     @pytest.mark.asyncio
     async def test_start_job_notifications_lifecycle(
-        self, job_service: JobService, sample_job_config: MagicMock
+        self, job_service: JobService, sample_job_config: JobConfig
     ):
         """Test start_job calls notification manager start, complete, and close."""
         from mozart.execution.runner.models import RunSummary
 
+        name = sample_job_config.name
+        sheets = sample_job_config.sheet.total_sheets
+
         expected_state = CheckpointState(
-            job_id="test-job",
-            job_name="test-job",
-            total_sheets=5,
+            job_id=name, job_name=name, total_sheets=sheets,
             status=JobStatus.COMPLETED,
         )
         expected_summary = RunSummary(
-            job_id="test-job",
-            job_name="test-job",
-            total_sheets=5,
-            completed_sheets=5,
-            final_status=JobStatus.COMPLETED,
+            job_id=name, job_name=name, total_sheets=sheets,
+            completed_sheets=sheets, final_status=JobStatus.COMPLETED,
         )
 
         mock_runner = MagicMock()
@@ -795,14 +795,10 @@ class TestSetupComponents:
     """Tests for JobService._setup_components()."""
 
     def test_basic_setup_no_learning_no_notifications(
-        self, job_service: JobService, sample_job_config: MagicMock,
+        self, job_service: JobService, sample_job_config: JobConfig,
     ):
         """Test _setup_components with learning/notifications/grounding disabled."""
-        with patch(
-            "mozart.backends.claude_cli.ClaudeCliBackend.from_config"
-        ) as mock_from_config:
-            mock_from_config.return_value = MagicMock()
-            components = job_service._setup_components(sample_job_config)
+        components = job_service._setup_components(sample_job_config)
 
         assert components["backend"] is not None
         assert components["outcome_store"] is None
@@ -812,34 +808,22 @@ class TestSetupComponents:
         assert components["grounding_engine"] is None
 
     def test_setup_with_learning_enabled(
-        self, job_service: JobService, sample_job_config: MagicMock,
+        self, job_service: JobService, sample_job_config: JobConfig,
     ):
         """Test _setup_components creates learning stores when enabled."""
-        sample_job_config.learning.enabled = True
-        sample_job_config.learning.outcome_store_type = "json"
-        sample_job_config.get_outcome_store_path.return_value = Path("/tmp/outcomes")
+        config = sample_job_config.model_copy(
+            update={"learning": sample_job_config.learning.model_copy(
+                update={"enabled": True},
+            )},
+        )
+        components = job_service._setup_components(config)
 
-        with (
-            patch(
-                "mozart.backends.claude_cli.ClaudeCliBackend.from_config",
-                return_value=MagicMock(),
-            ),
-            patch("mozart.learning.outcomes.JsonOutcomeStore") as mock_store_cls,
-            patch("mozart.learning.global_store.get_global_store") as mock_global,
-        ):
-            mock_store_cls.return_value = MagicMock()
-            mock_global.return_value = MagicMock()
-            components = job_service._setup_components(sample_job_config)
-
-        assert components["outcome_store"] is not None
+        from mozart.learning.outcomes import JsonOutcomeStore
+        assert isinstance(components["outcome_store"], JsonOutcomeStore)
         assert components["global_learning_store"] is not None
 
 
 # ─── Real Component Wiring (D020) ────────────────────────────────────────
-
-
-# Path to the fixture config (same one used by E2E tests)
-FIXTURE_CONFIG = Path(__file__).parent / "fixtures" / "test-daemon-job.yaml"
 
 
 class TestRealComponentWiring:

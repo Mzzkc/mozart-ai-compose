@@ -353,7 +353,13 @@ async def find_job_state(
             if job:
                 return job, backend
         except Exception as e:
-            _logger.debug("error_querying_backend", job_id=job_id, error=str(e))
+            _logger.warning(
+                "error_querying_backend",
+                job_id=job_id,
+                backend=type(backend).__name__,
+                error=str(e),
+                exc_info=True,
+            )
             continue
 
     return None, None

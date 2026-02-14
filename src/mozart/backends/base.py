@@ -92,6 +92,14 @@ class ExecutionResult:
     output_tokens: int | None = None
     """Output tokens consumed (completion tokens). None if not available from backend."""
 
+    def __post_init__(self) -> None:
+        """Validate invariant: success=True requires exit_code 0 or None."""
+        if self.success and self.exit_code is not None and self.exit_code != 0:
+            raise ValueError(
+                f"Inconsistent ExecutionResult: success=True but exit_code={self.exit_code}. "
+                "success=True should only be set when exit_code is 0 or None."
+            )
+
     @property
     def output(self) -> str:
         """Combined stdout and stderr."""

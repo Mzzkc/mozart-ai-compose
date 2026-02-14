@@ -99,13 +99,9 @@ class MCPConnection:
 class ToolNotFoundError(Exception):
     """Raised when requested tool doesn't exist."""
 
-    pass
-
 
 class ToolExecutionTimeout(Exception):
     """Raised when tool execution times out."""
-
-    pass
 
 
 class MCPProxyService:
@@ -157,8 +153,13 @@ class MCPProxyService:
         3. Wait for initialize response
         4. Send initialized notification
         5. Call tools/list to cache available tools
+
+        Raises:
+            RuntimeError: If no servers could be started (total failure).
         """
         _logger.info("mcp_proxy_starting", server_count=len(self.servers))
+
+        failed_servers: list[str] = []
 
         for config in self.servers:
             try:
@@ -183,7 +184,24 @@ class MCPProxyService:
                     server=config.name,
                     error=str(e),
                 )
+                failed_servers.append(config.name)
+                # Remove partially-initialized connection
+                self._connections.pop(config.name, None)
                 # Continue with other servers - don't fail entirely
+
+        if failed_servers:
+            _logger.warning(
+                "mcp_proxy_partial_startup",
+                failed_servers=failed_servers,
+                connected_servers=len(self._connections),
+                total_configured=len(self.servers),
+            )
+
+        if self.servers and not self._connections:
+            raise RuntimeError(
+                f"All {len(self.servers)} MCP servers failed to start: "
+                f"{', '.join(failed_servers)}"
+            )
 
         _logger.info(
             "mcp_proxy_started",
@@ -467,10 +485,10 @@ class MCPProxyService:
         await conn.stdin.drain()
 
         # Read response
-        timeout = timeout or self.request_timeout
+        effective_timeout = timeout or self.request_timeout
         response = await asyncio.wait_for(
             self._read_jsonrpc(conn, request_id),
-            timeout=timeout,
+            timeout=effective_timeout,
         )
 
         # Check for error
