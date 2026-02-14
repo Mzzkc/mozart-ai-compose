@@ -1846,7 +1846,7 @@ validations:
 
   # Tests must pass before committing
   - type: command_succeeds
-    command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed|no tests'"
+    command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -vE 'failed' | grep -E 'passed|no tests'"
     description: "Tests must pass"
     condition: "stage >= 11"
 

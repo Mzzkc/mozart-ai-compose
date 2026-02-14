@@ -1004,7 +1004,7 @@ validations:
       if echo "$VERDICT" | grep -q 'NONE'; then
         echo "No work this iteration — test check not required"
       else
-        pytest -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed|no tests'
+        pytest -x -q --tb=no 2>&1 | tail -1 | grep -vE 'failed' | grep -E 'passed|no tests'
       fi
     description: "Tests must pass (skipped when no issues to fix)"
     condition: "sheet_num >= 8"

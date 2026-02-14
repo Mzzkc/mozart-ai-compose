@@ -845,7 +845,7 @@ validations:
     condition: "stage >= 3"
 
   - type: command_succeeds
-    command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed|no tests'"
+    command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -vE 'failed' | grep -E 'passed|no tests'"
     description: "All existing tests must pass after implementation"
     condition: "stage >= 3"
 
@@ -866,7 +866,7 @@ validations:
     condition: "stage >= 4"
 
   - type: command_succeeds
-    command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed|no tests'"
+    command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -vE 'failed' | grep -E 'passed|no tests'"
     description: "Full test suite must pass"
     condition: "stage >= 4"
 
@@ -877,7 +877,7 @@ validations:
     condition: "stage >= 5"
 
   - type: command_succeeds
-    command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed|no tests'"
+    command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -vE 'failed' | grep -E 'passed|no tests'"
     description: "All tests must pass after shadow mode"
     condition: "stage >= 5"
 
@@ -888,7 +888,7 @@ validations:
     condition: "stage >= 6"
 
   - type: command_succeeds
-    command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed|no tests'"
+    command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -vE 'failed' | grep -E 'passed|no tests'"
     description: "All tests must pass after scheduler-driven mode"
     condition: "stage >= 6"
 
@@ -899,7 +899,7 @@ validations:
     condition: "stage >= 7"
 
   - type: command_succeeds
-    command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed|no tests'"
+    command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -vE 'failed' | grep -E 'passed|no tests'"
     description: "All tests must pass after manager integration"
     condition: "stage >= 7"
 
@@ -920,7 +920,7 @@ validations:
     condition: "stage >= 8"
 
   - type: command_succeeds
-    command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed|no tests'"
+    command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -vE 'failed' | grep -E 'passed|no tests'"
     description: "Full test suite must pass"
     condition: "stage >= 8"
 
@@ -937,7 +937,7 @@ validations:
     condition: "stage >= 9"
 
   - type: command_succeeds
-    command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -E 'passed|no tests'"
+    command: "pytest -x -q --tb=no 2>&1 | tail -1 | grep -vE 'failed' | grep -E 'passed|no tests'"
     description: "Final test verification"
     condition: "stage >= 9"
 
