@@ -91,6 +91,7 @@ class SheetEntry:
     priority: float
     submitted_at: float = field(compare=True)
     info: SheetInfo = field(compare=False)
+    rate_limit_skip_count: int = field(default=0, compare=False)
 
 
 @dataclass
@@ -152,6 +153,11 @@ class GlobalSheetScheduler:
         # Fair-share tuning
         self._fair_share_overage_penalty = 20.0
         self._max_per_job_multiplier = 2.0
+
+        # Rate-limiter error tolerance: after this many consecutive
+        # rate-limiter errors, a sheet is dropped from the queue to
+        # prevent infinite cycling.
+        self._max_rate_limit_skips = 10
 
         # Optional downstream integrations (set via setters)
         self._rate_limiter: RateLimitChecker | None = None
@@ -336,12 +342,14 @@ class GlobalSheetScheduler:
                     priority=self._calculate_priority(entry.info),
                     submitted_at=entry.submitted_at,
                     info=entry.info,
+                    rate_limit_skip_count=entry.rate_limit_skip_count,
                 )
                 refreshed.append(rescored)
             heapq.heapify(refreshed)
             self._queue = refreshed
 
             skipped: list[SheetEntry] = []
+            dropped: list[SheetEntry] = []
             result: SheetEntry | None = None
 
             while self._queue:
@@ -368,15 +376,30 @@ class GlobalSheetScheduler:
                             entry.info.backend_type,
                             model=entry.info.model,
                         )
-                    except Exception:
-                        # Fail-safe: treat rate limiter errors as "skip" to
-                        # avoid leaking the popped entry.
-                        _logger.warning(
-                            "scheduler.rate_limiter_error",
-                            job_id=job_id,
-                            sheet_num=entry.info.sheet_num,
-                        )
-                        skipped.append(entry)
+                    except Exception as e:
+                        entry.rate_limit_skip_count += 1
+                        if entry.rate_limit_skip_count >= self._max_rate_limit_skips:
+                            _logger.error(
+                                "scheduler.rate_limiter_error_exhausted",
+                                job_id=job_id,
+                                sheet_num=entry.info.sheet_num,
+                                skip_count=entry.rate_limit_skip_count,
+                                max_skips=self._max_rate_limit_skips,
+                                error=str(e),
+                                error_type=type(e).__name__,
+                            )
+                            dropped.append(entry)
+                        else:
+                            _logger.warning(
+                                "scheduler.rate_limiter_error",
+                                job_id=job_id,
+                                sheet_num=entry.info.sheet_num,
+                                skip_count=entry.rate_limit_skip_count,
+                                max_skips=self._max_rate_limit_skips,
+                                error=str(e),
+                                error_type=type(e).__name__,
+                            )
+                            skipped.append(entry)
                         continue
                     if is_limited:
                         skipped.append(entry)
@@ -548,16 +571,8 @@ class GlobalSheetScheduler:
 
         def dfs(node: int) -> list[int] | None:
             color[node] = GRAY
-            # Edges: node depends on deps, but cycle detection needs
-            # forward edges. deps[node] = {prerequisites of node}.
-            # The graph edge is prerequisite → node (prerequisite must
-            # finish before node).  For cycle detection we traverse
-            # "node → its dependents" which is the reverse direction.
-            # Actually, we want to detect cycles in the "must-come-before"
-            # relation.  If A depends on B, B must come before A, so
-            # edge B→A.  A cycle in this graph means deadlock.
-            # Let's build adjacency as: for each node, its successors
-            # are nodes that depend on it.
+            # Traverse forward adjacency: prerequisite → dependents.
+            # A cycle in this "must-come-before" graph means deadlock.
             for successor in adjacency.get(node, []):
                 if color[successor] == GRAY:
                     # Found cycle — reconstruct

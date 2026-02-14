@@ -83,6 +83,14 @@ class StateBackend(ABC):
         """
         ...
 
+    async def close(self) -> None:  # noqa: B027 — intentional concrete no-op default
+        """Release any resources held by the backend (Q018/#37).
+
+        Optional method — backends that hold persistent connections or file
+        handles should override this. The default no-op is safe for backends
+        that use per-operation connections (e.g. aiosqlite context managers).
+        """
+
     async def record_execution(
         self,
         job_id: str,

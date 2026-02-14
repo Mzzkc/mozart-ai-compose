@@ -245,7 +245,14 @@ class OllamaBackend(HttpxClientMixin, Backend):
                     tools = self._translate_tools_to_ollama(mcp_tools)
                     _logger.debug("tools_loaded", tool_count=len(tools))
                 except Exception as e:
-                    _logger.warning("mcp_tool_load_failed", error=str(e))
+                    _logger.warning(
+                        "mcp_tool_load_failed.falling_back_to_non_agentic",
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        hint="MCP proxy configured but tool loading failed; "
+                             "running in non-agentic mode (no tool calls). "
+                             "Check MCP server connectivity and configuration.",
+                    )
 
             # Run agentic loop if tools available, else simple completion
             if tools:
@@ -579,6 +586,14 @@ class OllamaBackend(HttpxClientMixin, Backend):
                         args = json.loads(args)
                     except json.JSONDecodeError:
                         args = self._extract_json_from_text(args)
+                        if not args:
+                            # Skip tool call with empty args from failed extraction
+                            # to avoid downstream errors from missing arguments (Q024)
+                            _logger.warning(
+                                "tool_call_skipped_empty_args",
+                                tool_name=name,
+                            )
+                            continue
 
                 # Generate ID if not provided (Ollama doesn't always provide)
                 call_id = raw.get("id") or f"call_{uuid.uuid4().hex[:8]}"
@@ -621,7 +636,11 @@ class OllamaBackend(HttpxClientMixin, Backend):
                 _logger.debug("json_direct_parse_failed", error=str(e))
 
         if text.strip():
-            _logger.warning("json_extraction_failed", text_length=len(text))
+            _logger.warning(
+                "json_extraction_failed",
+                text_length=len(text),
+                text_preview=text[:200],
+            )
         return {}
 
     def _estimate_tokens(self, response: OllamaChatResponse) -> tuple[int, int]:

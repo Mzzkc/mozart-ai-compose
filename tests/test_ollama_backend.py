@@ -389,10 +389,10 @@ class TestJsonExtraction:
         assert len(parsed) == 1
         assert parsed[0].arguments == {"path": "/etc/hosts"}
 
-    def test_parse_tool_calls_completely_invalid_string_args_yields_empty(
+    def test_parse_tool_calls_completely_invalid_string_args_skipped(
         self, ollama_backend
     ):
-        """_parse_tool_calls with totally invalid string args gets empty dict."""
+        """_parse_tool_calls with totally invalid string args skips the call (Q024)."""
         raw_calls = [
             {
                 "function": {
@@ -403,9 +403,9 @@ class TestJsonExtraction:
         ]
         parsed = ollama_backend._parse_tool_calls(raw_calls)
 
-        assert len(parsed) == 1
-        assert parsed[0].name == "some_tool"
-        assert parsed[0].arguments == {}
+        # Tool call with unparseable args is skipped to prevent downstream
+        # errors from missing arguments
+        assert len(parsed) == 0
 
 
 # =============================================================================

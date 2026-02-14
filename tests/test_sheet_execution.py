@@ -168,7 +168,7 @@ class _MockMixin:
     ) -> tuple[list[str], list[str]]:
         return [], []
 
-    async def _record_pattern_feedback(self, pattern_ids, ctx) -> None:
+    async def _record_pattern_feedback(self, pattern_ids, context) -> None:
         pass
 
     async def _try_self_healing(
@@ -626,8 +626,9 @@ class TestPollBroadcastDiscoveries:
 
     @pytest.mark.asyncio
     async def test_no_global_store_is_noop(self, mixin: _TestableSheetMixin):
+        assert mixin._global_learning_store is None
         await mixin._poll_broadcast_discoveries("job-1", 1)
-        # No exception means success
+        # Completed without error and no store was accessed
 
     @pytest.mark.asyncio
     async def test_logs_discoveries(self, mixin: _TestableSheetMixin):
@@ -655,12 +656,14 @@ class TestRecordSheetOutcome:
 
     @pytest.mark.asyncio
     async def test_no_outcome_store_is_noop(self, mixin: _TestableSheetMixin):
+        assert mixin.outcome_store is None
         vr = _make_validation_result()
         await mixin._record_sheet_outcome(
             sheet_num=1, job_id="test", validation_result=vr,
             execution_duration=5.0, normal_attempts=1, completion_attempts=0,
             first_attempt_success=True, final_status=SheetStatus.COMPLETED,
         )
+        # Completed without error — no store to call
 
     @pytest.mark.asyncio
     async def test_records_outcome_when_store_available(self, mixin: _TestableSheetMixin):

@@ -10,7 +10,6 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from mozart.core.checkpoint import CheckpointState, JobStatus
 from mozart.core.config import JobConfig
@@ -18,9 +17,7 @@ from mozart.core.logging import get_logger
 from mozart.daemon.exceptions import DaemonNotRunningError
 from mozart.daemon.ipc.client import DaemonClient
 from mozart.daemon.types import JobRequest
-
-if TYPE_CHECKING:
-    from mozart.state.base import StateBackend
+from mozart.state.base import StateBackend
 
 logger = get_logger("job_control")
 
@@ -82,7 +79,11 @@ class JobControlService:
         """Check if the Mozart daemon (mozartd) is running and reachable."""
         try:
             return await self._daemon_client.is_daemon_running()
+        except (ConnectionRefusedError, FileNotFoundError, OSError):
+            # Expected: daemon socket doesn't exist or isn't accepting connections
+            return False
         except Exception:
+            logger.warning("daemon_availability_check_failed", exc_info=True)
             return False
 
     async def start_job(
@@ -648,10 +649,8 @@ class JobControlService:
             logger.debug("Failed to clean pause signal on cancel", exc_info=True)
 
         # Clean up process tracking
-        if job_id in self._running_processes:
-            del self._running_processes[job_id]
-        if job_id in self._process_start_times:
-            del self._process_start_times[job_id]
+        self._running_processes.pop(job_id, None)
+        self._process_start_times.pop(job_id, None)
 
         logger.info(
             "job_cancelled",
@@ -700,10 +699,8 @@ class JobControlService:
         deleted = await self._state_backend.delete(job_id)
 
         # Clean up process tracking
-        if job_id in self._running_processes:
-            del self._running_processes[job_id]
-        if job_id in self._process_start_times:
-            del self._process_start_times[job_id]
+        self._running_processes.pop(job_id, None)
+        self._process_start_times.pop(job_id, None)
 
         if deleted:
             logger.info(
@@ -878,10 +875,8 @@ class JobControlService:
                     await self._state_backend.save(state)
 
                     # Clean up our tracking
-                    if job_id in self._running_processes:
-                        del self._running_processes[job_id]
-                    if job_id in self._process_start_times:
-                        del self._process_start_times[job_id]
+                    self._running_processes.pop(job_id, None)
+                    self._process_start_times.pop(job_id, None)
 
                     zombie_jobs.append(job_id)
 

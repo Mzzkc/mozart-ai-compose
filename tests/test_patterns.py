@@ -3,7 +3,7 @@
 Tests the Priority 1 Evolution: Close the Learning Loop.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -342,14 +342,14 @@ class TestPatternMatcher:
             description="Recent pattern",
             frequency=1,
             confidence=0.5,
-            last_seen=datetime.now(),
+            last_seen=datetime.now(tz=timezone.utc),
         )
         old = DetectedPattern(
             pattern_type=PatternType.RETRY_SUCCESS,
             description="Old pattern",
             frequency=1,
             confidence=0.5,
-            last_seen=datetime.now() - timedelta(days=30),
+            last_seen=datetime.now(tz=timezone.utc) - timedelta(days=30),
         )
 
         matcher = PatternMatcher([old, recent])

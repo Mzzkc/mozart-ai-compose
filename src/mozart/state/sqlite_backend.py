@@ -630,7 +630,7 @@ class SQLiteStateBackend(StateBackend):
         output: str | None = None,
         exit_code: int | None = None,
         duration_seconds: float | None = None,
-    ) -> int:
+    ) -> int | None:
         """Record an execution attempt in history.
 
         Args:
@@ -643,7 +643,7 @@ class SQLiteStateBackend(StateBackend):
             duration_seconds: Execution duration
 
         Returns:
-            The ID of the inserted record
+            The ID of the inserted record, or None if insertion failed.
         """
         await self._ensure_initialized()
 

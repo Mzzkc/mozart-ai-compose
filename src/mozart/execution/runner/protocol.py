@@ -83,6 +83,9 @@ class RunnerProtocol(Protocol):
     progress_callback: Callable[[int, int, float | None], None] | None
     execution_progress_callback: Callable[[dict[str, Any]], None] | None
 
+    # ── Rate limit callback (daemon integration) ─────────────────────
+    rate_limit_callback: Callable[[str, float, str, int], Any] | None
+
     # ── Prompt / error infrastructure ────────────────────────────────
     prompt_builder: PromptBuilder
     error_classifier: ErrorClassifier
@@ -187,7 +190,7 @@ class RunnerProtocol(Protocol):
     async def _record_pattern_feedback(
         self,
         pattern_ids: list[str],
-        ctx: Any,
+        context: Any,
     ) -> None: ...
 
     # ── Methods from CostMixin ───────────────────────────────────────

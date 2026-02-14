@@ -261,11 +261,11 @@ class TestBuildDiagnosticReport:
         assert report["job_error"] == "Max retries exceeded globally"
 
     def test_empty_job_no_sheets(self) -> None:
-        job = _make_job(total_sheets=0, sheets={})
+        job = _make_job(total_sheets=1, sheets={})
         job.last_completed_sheet = 0
         report = _build_diagnostic_report(job)
 
-        assert report["progress"]["total_sheets"] == 0
+        assert report["progress"]["total_sheets"] == 1
         assert report["progress"]["percent"] == 0
         assert report["execution_timeline"] == []
 

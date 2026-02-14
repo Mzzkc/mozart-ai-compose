@@ -139,6 +139,7 @@ class OutcomeCategory(str, Enum):
     SUCCESS_COMPLETION = "success_completion"
     FAILED_EXHAUSTED = "failed_exhausted"
     FAILED_FATAL = "failed_fatal"
+    SKIPPED_BY_ESCALATION = "skipped_by_escalation"
 
 
 class JobStatus(str, Enum):
@@ -202,7 +203,7 @@ ErrorRecord = CheckpointErrorRecord
 class SheetState(BaseModel):
     """State for a single sheet."""
 
-    sheet_num: int
+    sheet_num: int = Field(ge=1)
     status: SheetStatus = SheetStatus.PENDING
     started_at: datetime | None = None
     completed_at: datetime | None = None
@@ -272,12 +273,9 @@ class SheetState(BaseModel):
         default=False,
         description="Whether sheet succeeded on first attempt (no retries/completion)",
     )
-    outcome_category: str | None = Field(
+    outcome_category: OutcomeCategory | None = Field(
         default=None,
-        description=(
-            "Outcome classification: success_first_try, success_completion, "
-            "success_retry, failed_exhausted, failed_fatal"
-        ),
+        description="Outcome classification using OutcomeCategory enum (Q015/#37).",
     )
 
     # Raw output capture for debugging (last N bytes to avoid memory issues)
@@ -478,7 +476,7 @@ class CheckpointState(BaseModel):
     completed_at: datetime | None = None
 
     # Progress tracking
-    total_sheets: int
+    total_sheets: int = Field(ge=1)
     last_completed_sheet: int = Field(
         default=0, description="Last successfully completed sheet number"
     )
@@ -601,11 +599,9 @@ class CheckpointState(BaseModel):
             trigger: What caused the transition (e.g., "failure_recorded", "success_recorded").
             consecutive_failures: Number of consecutive failures at time of transition.
         """
-        from datetime import UTC, datetime
-
         self.circuit_breaker_history.append({
             "state": state,
-            "timestamp": datetime.now(UTC).isoformat(),
+            "timestamp": utc_now().isoformat(),
             "trigger": trigger,
             "consecutive_failures": consecutive_failures,
         })
@@ -714,11 +710,21 @@ class CheckpointState(BaseModel):
         if execution_duration_seconds is not None:
             sheet.execution_duration_seconds = execution_duration_seconds
 
-        self.last_completed_sheet = sheet_num
+        # Only advance the watermark, never retreat it (Q016/#37).
+        # In parallel execution, sheets may complete out of order.
+        if sheet_num > self.last_completed_sheet:
+            self.last_completed_sheet = sheet_num
         self.current_sheet = None
 
-        # Check if job is complete
-        job_completed = sheet_num >= self.total_sheets
+        # Check if job is complete — all sheets must be completed, not just
+        # the highest-numbered one, to handle parallel out-of-order completion.
+        job_completed = (
+            len(self.sheets) >= self.total_sheets
+            and all(
+                s.status == SheetStatus.COMPLETED
+                for s in self.sheets.values()
+            )
+        )
         if job_completed:
             self.status = JobStatus.COMPLETED
             self.completed_at = utc_now()

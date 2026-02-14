@@ -95,7 +95,7 @@ class PatternFeedbackContext:
 
     Groups the parameters needed by _record_pattern_feedback into a
     single typed object, reducing the method's parameter count from 10
-    to 3 (self, pattern_ids, ctx).
+    to 3 (self, pattern_ids, context).
     """
 
     validation_passed: bool
@@ -434,7 +434,7 @@ class PatternsMixin:
     async def _record_pattern_feedback(
         self,
         pattern_ids: list[str],
-        ctx: PatternFeedbackContext,
+        context: PatternFeedbackContext,
     ) -> None:
         """Record pattern application feedback to global learning store.
 
@@ -451,7 +451,7 @@ class PatternsMixin:
 
         Args:
             pattern_ids: List of pattern IDs that were applied.
-            ctx: Feedback context containing validation results, sheet info,
+            context: Feedback context containing validation results, sheet info,
                  and metacognitive context for success factor analysis.
         """
         if self._global_learning_store is None or not pattern_ids:
@@ -460,7 +460,7 @@ class PatternsMixin:
         # Determine if the pattern led to execution success:
         # - True if validation passed AND first_attempt (pattern worked)
         # - False if validation failed or retries needed (pattern didn't help)
-        pattern_led_to_success = ctx.validation_passed and ctx.first_attempt_success
+        pattern_led_to_success = context.validation_passed and context.first_attempt_success
 
         for pattern_id in pattern_ids:
             try:
@@ -472,13 +472,13 @@ class PatternsMixin:
 
                 self._global_learning_store.record_pattern_application(
                     pattern_id=pattern_id,
-                    execution_id=f"sheet_{ctx.sheet_num}",
+                    execution_id=f"sheet_{context.sheet_num}",
                     pattern_led_to_success=pattern_led_to_success,
                     retry_count_before=0,  # We don't track this per-pattern
-                    retry_count_after=0 if ctx.first_attempt_success else 1,
+                    retry_count_after=0 if context.first_attempt_success else 1,
                     application_mode=application_mode,
-                    validation_passed=ctx.validation_passed,
-                    grounding_confidence=ctx.grounding_confidence,
+                    validation_passed=context.validation_passed,
+                    grounding_confidence=context.grounding_confidence,
                 )
 
                 # v22 Evolution: Update success factors when pattern succeeds
@@ -486,30 +486,30 @@ class PatternsMixin:
                 if pattern_led_to_success:
                     self._global_learning_store.update_success_factors(
                         pattern_id=pattern_id,
-                        validation_types=ctx.validation_types,
-                        error_categories=ctx.error_categories,
-                        prior_sheet_status=ctx.prior_sheet_status,
-                        retry_iteration=ctx.retry_iteration,
-                        escalation_was_pending=ctx.escalation_was_pending,
-                        grounding_confidence=ctx.grounding_confidence,
+                        validation_types=context.validation_types,
+                        error_categories=context.error_categories,
+                        prior_sheet_status=context.prior_sheet_status,
+                        retry_iteration=context.retry_iteration,
+                        escalation_was_pending=context.escalation_was_pending,
+                        grounding_confidence=context.grounding_confidence,
                     )
                     self._logger.debug(
                         "learning.success_factors_updated",
                         pattern_id=pattern_id,
-                        sheet_num=ctx.sheet_num,
-                        validation_types=ctx.validation_types,
-                        prior_sheet_status=ctx.prior_sheet_status,
+                        sheet_num=context.sheet_num,
+                        validation_types=context.validation_types,
+                        prior_sheet_status=context.prior_sheet_status,
                     )
 
                 self._logger.debug(
                     "learning.pattern_feedback_recorded",
                     pattern_id=pattern_id,
-                    sheet_num=ctx.sheet_num,
+                    sheet_num=context.sheet_num,
                     pattern_led_to_success=pattern_led_to_success,
-                    validation_passed=ctx.validation_passed,
-                    first_attempt_success=ctx.first_attempt_success,
+                    validation_passed=context.validation_passed,
+                    first_attempt_success=context.first_attempt_success,
                     application_mode=application_mode,
-                    grounding_confidence=ctx.grounding_confidence,
+                    grounding_confidence=context.grounding_confidence,
                 )
             except sqlite3.IntegrityError as e:
                 # FK/UNIQUE constraint violation — data consistency bug
@@ -517,12 +517,12 @@ class PatternsMixin:
                 self._logger.error(
                     "learning.pattern_feedback_integrity_error",
                     pattern_id=pattern_id,
-                    sheet_num=ctx.sheet_num,
+                    sheet_num=context.sheet_num,
                     error=str(e),
                 )
                 self.console.print(
                     f"[yellow]Warning: Pattern feedback integrity error on sheet "
-                    f"{ctx.sheet_num} — feedback for pattern {pattern_id[:8]} "
+                    f"{context.sheet_num} — feedback for pattern {pattern_id[:8]} "
                     f"not recorded (FK constraint: {e})[/yellow]"
                 )
             except (sqlite3.Error, KeyError, ValueError, OSError) as e:
@@ -530,7 +530,7 @@ class PatternsMixin:
                 self._logger.warning(
                     "learning.pattern_feedback_failed",
                     pattern_id=pattern_id,
-                    sheet_num=ctx.sheet_num,
+                    sheet_num=context.sheet_num,
                     error=str(e),
                 )
 

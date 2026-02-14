@@ -126,7 +126,7 @@ class HookExecutor:
 
     _KNOWN_VARS = frozenset({"workspace", "job_id", "sheet_count"})
 
-    def _expand_template(self, template: str) -> str:
+    def _expand_hook_variables(self, template: str) -> str:
         """Expand template variables in hook paths/commands.
 
         Known variables: {workspace}, {job_id}, {sheet_count}.
@@ -271,7 +271,7 @@ class HookExecutor:
             )
 
         # Expand template variables in job path
-        job_path = Path(self._expand_template(str(hook.job_path)))
+        job_path = Path(self._expand_hook_variables(str(hook.job_path)))
 
         # Check if job config exists
         if not job_path.exists():
@@ -488,7 +488,7 @@ class HookExecutor:
             )
 
         # Expand template variables
-        command = self._expand_template(hook.command)
+        command = self._expand_hook_variables(hook.command)
 
         # Determine working directory
         cwd = hook.working_directory or self.workspace
@@ -552,7 +552,7 @@ class HookExecutor:
             )
 
         # Expand template variables
-        command = self._expand_template(hook.command)
+        command = self._expand_hook_variables(hook.command)
 
         # Determine working directory
         cwd = hook.working_directory or self.workspace

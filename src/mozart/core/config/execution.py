@@ -67,6 +67,12 @@ class RateLimitConfig(BaseModel):
     )
     wait_minutes: int = Field(default=60, ge=1, description="Minutes to wait when rate limited")
     max_waits: int = Field(default=24, ge=1, description="Maximum wait cycles (24 = 24 hours)")
+    max_quota_waits: int = Field(
+        default=48,
+        ge=1,
+        description="Maximum quota exhaustion wait cycles before failing "
+        "(48 = 48 hours at 60min/wait)",
+    )
 
 
 class CircuitBreakerConfig(BaseModel):

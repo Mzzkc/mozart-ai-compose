@@ -214,8 +214,8 @@ class TestGetLastActivityTime:
     """Tests for the _get_last_activity_time() helper."""
 
     def test_returns_updated_at_for_empty_job(self) -> None:
-        """Even an empty job has updated_at, so it should return that."""
-        job = _make_job(total_sheets=0, sheets={})
+        """Even a minimal job has updated_at, so it should return that."""
+        job = _make_job(total_sheets=1, sheets={})
         job.last_completed_sheet = 0
         # updated_at is always set (non-optional), so result should be non-None
         result = _get_last_activity_time(job)
@@ -255,7 +255,7 @@ class TestInferCircuitBreakerState:
     """Tests for the _infer_circuit_breaker_state() helper."""
 
     def test_no_sheets_returns_none(self) -> None:
-        job = _make_job(total_sheets=0, sheets={})
+        job = _make_job(total_sheets=1, sheets={})
         job.last_completed_sheet = 0
         assert _infer_circuit_breaker_state(job) is None
 

@@ -19,6 +19,7 @@ import sqlite3
 import uuid
 from collections.abc import Callable
 from contextlib import AbstractContextManager
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any
 
@@ -27,6 +28,33 @@ from mozart.core.logging import MozartLogger, get_logger
 from .models import EntropyResponseRecord, ExplorationBudgetRecord, PatternEntropyMetrics
 
 _logger = get_logger("learning.global_store")
+
+
+@dataclass
+class EntropyResponseConfig:
+    """Configuration for entropy response actions.
+
+    Groups the tuneable parameters for ``trigger_entropy_response()``,
+    reducing its parameter count and making configs reusable.
+    """
+
+    boost_budget: bool = True
+    """Whether to boost exploration budget."""
+
+    revisit_quarantine: bool = True
+    """Whether to revisit quarantined patterns."""
+
+    max_quarantine_revisits: int = 3
+    """Maximum quarantined patterns to revisit per response."""
+
+    budget_floor: float = 0.05
+    """Floor for budget enforcement."""
+
+    budget_ceiling: float = 0.50
+    """Ceiling for budget enforcement."""
+
+    budget_boost_amount: float = 0.10
+    """Amount to boost budget by."""
 
 
 class BudgetMixin:
@@ -48,6 +76,20 @@ class BudgetMixin:
     _logger: MozartLogger
     _get_connection: Callable[[], AbstractContextManager[sqlite3.Connection]]
 
+    @staticmethod
+    def _where_job_hash(
+        job_hash: str | None,
+    ) -> tuple[str, tuple[str, ...] | tuple[()]]:
+        """Build an optional WHERE clause and params for job_hash filtering.
+
+        Returns a (clause, params) tuple that can be appended to SQL queries.
+        When job_hash is None, returns empty strings/tuples so the query
+        runs unfiltered.
+        """
+        if job_hash:
+            return "WHERE job_hash = ?", (job_hash,)
+        return "", ()
+
     # =========================================================================
     # v23 Evolution: Exploration Budget Maintenance
     # =========================================================================
@@ -67,29 +109,19 @@ class BudgetMixin:
         Returns:
             The most recent ExplorationBudgetRecord, or None if no budget recorded.
         """
+        where, params = self._where_job_hash(job_hash)
         with self._get_connection() as conn:
-            if job_hash:
-                cursor = conn.execute(
-                    """
-                    SELECT id, job_hash, recorded_at, budget_value,
-                           entropy_at_time, adjustment_type, adjustment_reason
-                    FROM exploration_budget
-                    WHERE job_hash = ?
-                    ORDER BY recorded_at DESC
-                    LIMIT 1
-                    """,
-                    (job_hash,),
-                )
-            else:
-                cursor = conn.execute(
-                    """
-                    SELECT id, job_hash, recorded_at, budget_value,
-                           entropy_at_time, adjustment_type, adjustment_reason
-                    FROM exploration_budget
-                    ORDER BY recorded_at DESC
-                    LIMIT 1
-                    """
-                )
+            cursor = conn.execute(
+                f"""
+                SELECT id, job_hash, recorded_at, budget_value,
+                       entropy_at_time, adjustment_type, adjustment_reason
+                FROM exploration_budget
+                {where}
+                ORDER BY recorded_at DESC
+                LIMIT 1
+                """,
+                params,
+            )
             row = cursor.fetchone()
 
             if not row:
@@ -122,45 +154,32 @@ class BudgetMixin:
         Returns:
             List of ExplorationBudgetRecord objects, most recent first.
         """
+        where, params = self._where_job_hash(job_hash)
         with self._get_connection() as conn:
-            if job_hash:
-                cursor = conn.execute(
-                    """
-                    SELECT id, job_hash, recorded_at, budget_value,
-                           entropy_at_time, adjustment_type, adjustment_reason
-                    FROM exploration_budget
-                    WHERE job_hash = ?
-                    ORDER BY recorded_at DESC
-                    LIMIT ?
-                    """,
-                    (job_hash, limit),
-                )
-            else:
-                cursor = conn.execute(
-                    """
-                    SELECT id, job_hash, recorded_at, budget_value,
-                           entropy_at_time, adjustment_type, adjustment_reason
-                    FROM exploration_budget
-                    ORDER BY recorded_at DESC
-                    LIMIT ?
-                    """,
-                    (limit,),
-                )
+            cursor = conn.execute(
+                f"""
+                SELECT id, job_hash, recorded_at, budget_value,
+                       entropy_at_time, adjustment_type, adjustment_reason
+                FROM exploration_budget
+                {where}
+                ORDER BY recorded_at DESC
+                LIMIT ?
+                """,
+                (*params, limit),
+            )
 
-            records: list[ExplorationBudgetRecord] = []
-            for row in cursor.fetchall():
-                records.append(
-                    ExplorationBudgetRecord(
-                        id=row["id"],
-                        job_hash=row["job_hash"],
-                        recorded_at=datetime.fromisoformat(row["recorded_at"]),
-                        budget_value=row["budget_value"],
-                        entropy_at_time=row["entropy_at_time"],
-                        adjustment_type=row["adjustment_type"],
-                        adjustment_reason=row["adjustment_reason"],
-                    )
+            return [
+                ExplorationBudgetRecord(
+                    id=row["id"],
+                    job_hash=row["job_hash"],
+                    recorded_at=datetime.fromisoformat(row["recorded_at"]),
+                    budget_value=row["budget_value"],
+                    entropy_at_time=row["entropy_at_time"],
+                    adjustment_type=row["adjustment_type"],
+                    adjustment_reason=row["adjustment_reason"],
                 )
-            return records
+                for row in cursor.fetchall()
+            ]
 
     def update_exploration_budget(
         self,
@@ -333,43 +352,26 @@ class BudgetMixin:
             - boost_count: Number of boost adjustments
             - decay_count: Number of decay adjustments
         """
+        where, params = self._where_job_hash(job_hash)
         with self._get_connection() as conn:
-            if job_hash:
-                cursor = conn.execute(
-                    """
-                    SELECT
-                        COUNT(*) as total,
-                        AVG(budget_value) as avg_val,
-                        MIN(budget_value) as min_val,
-                        MAX(budget_value) as max_val,
-                        SUM(CASE WHEN adjustment_type = 'floor_enforced'
-                            THEN 1 ELSE 0 END) as floor_count,
-                        SUM(CASE WHEN adjustment_type = 'boost'
-                            THEN 1 ELSE 0 END) as boost_count,
-                        SUM(CASE WHEN adjustment_type = 'decay'
-                            THEN 1 ELSE 0 END) as decay_count
-                    FROM exploration_budget
-                    WHERE job_hash = ?
-                    """,
-                    (job_hash,),
-                )
-            else:
-                cursor = conn.execute(
-                    """
-                    SELECT
-                        COUNT(*) as total,
-                        AVG(budget_value) as avg_val,
-                        MIN(budget_value) as min_val,
-                        MAX(budget_value) as max_val,
-                        SUM(CASE WHEN adjustment_type = 'floor_enforced'
-                            THEN 1 ELSE 0 END) as floor_count,
-                        SUM(CASE WHEN adjustment_type = 'boost'
-                            THEN 1 ELSE 0 END) as boost_count,
-                        SUM(CASE WHEN adjustment_type = 'decay'
-                            THEN 1 ELSE 0 END) as decay_count
-                    FROM exploration_budget
-                    """
-                )
+            cursor = conn.execute(
+                f"""
+                SELECT
+                    COUNT(*) as total,
+                    AVG(budget_value) as avg_val,
+                    MIN(budget_value) as min_val,
+                    MAX(budget_value) as max_val,
+                    SUM(CASE WHEN adjustment_type = 'floor_enforced'
+                        THEN 1 ELSE 0 END) as floor_count,
+                    SUM(CASE WHEN adjustment_type = 'boost'
+                        THEN 1 ELSE 0 END) as boost_count,
+                    SUM(CASE WHEN adjustment_type = 'decay'
+                        THEN 1 ELSE 0 END) as decay_count
+                FROM exploration_budget
+                {where}
+                """,
+                params,
+            )
 
             row = cursor.fetchone()
 
@@ -485,12 +487,14 @@ class BudgetMixin:
         job_hash: str,
         entropy_at_trigger: float,
         threshold_used: float,
-        boost_budget: bool = True,
-        revisit_quarantine: bool = True,
-        max_quarantine_revisits: int = 3,
-        budget_floor: float = 0.05,
-        budget_ceiling: float = 0.50,
-        budget_boost_amount: float = 0.10,
+        *,
+        config: EntropyResponseConfig | None = None,
+        boost_budget: bool | None = None,
+        revisit_quarantine: bool | None = None,
+        max_quarantine_revisits: int | None = None,
+        budget_floor: float | None = None,
+        budget_ceiling: float | None = None,
+        budget_boost_amount: float | None = None,
     ) -> EntropyResponseRecord:
         """Execute an entropy response by boosting budget and/or revisiting quarantine.
 
@@ -501,6 +505,9 @@ class BudgetMixin:
             job_hash: Hash of the job triggering response.
             entropy_at_trigger: Entropy value that triggered this response.
             threshold_used: The threshold that was crossed.
+            config: Configuration object grouping all response tuning params.
+                Individual keyword arguments override config values when both
+                are provided.
             boost_budget: Whether to boost exploration budget.
             revisit_quarantine: Whether to revisit quarantined patterns.
             max_quarantine_revisits: Maximum patterns to revisit.
@@ -511,18 +518,32 @@ class BudgetMixin:
         Returns:
             The EntropyResponseRecord documenting the response.
         """
+        # Build effective config: start from config (or defaults), then apply
+        # any explicit keyword overrides without mutating the caller's object.
+        overrides: dict[str, Any] = {
+            k: v for k, v in {
+                "boost_budget": boost_budget,
+                "revisit_quarantine": revisit_quarantine,
+                "max_quarantine_revisits": max_quarantine_revisits,
+                "budget_floor": budget_floor,
+                "budget_ceiling": budget_ceiling,
+                "budget_boost_amount": budget_boost_amount,
+            }.items() if v is not None
+        }
+        cfg = replace(config, **overrides) if config else EntropyResponseConfig(**overrides)
+
         actions_taken: list[str] = []
         patterns_revisited: list[str] = []
         budget_boosted = False
         quarantine_revisit_count = 0
 
         # Action 1: Boost exploration budget
-        if boost_budget:
+        if cfg.boost_budget:
             current = self.get_exploration_budget(job_hash)
             if current:
-                new_budget = current.budget_value + budget_boost_amount
+                new_budget = current.budget_value + cfg.budget_boost_amount
             else:
-                new_budget = 0.15 + budget_boost_amount  # Initial + boost
+                new_budget = 0.15 + cfg.budget_boost_amount  # Initial + boost
 
             self.update_exploration_budget(
                 job_hash=job_hash,
@@ -533,15 +554,15 @@ class BudgetMixin:
                     f"Entropy response: diversity"
                     f" {entropy_at_trigger:.3f} < {threshold_used:.3f}"
                 ),
-                floor=budget_floor,
-                ceiling=budget_ceiling,
+                floor=cfg.budget_floor,
+                ceiling=cfg.budget_ceiling,
             )
             budget_boosted = True
             actions_taken.append("budget_boost")
-            _logger.info("entropy_budget_boost", boost_amount=round(budget_boost_amount, 4))
+            _logger.info("entropy_budget_boost", boost_amount=round(cfg.budget_boost_amount, 4))
 
         # Action 2: Revisit quarantined patterns
-        if revisit_quarantine:
+        if cfg.revisit_quarantine:
             # Get quarantined patterns and mark for review
             with self._get_connection() as conn:
                 cursor = conn.execute(
@@ -552,7 +573,7 @@ class BudgetMixin:
                     ORDER BY last_seen DESC
                     LIMIT ?
                     """,
-                    (max_quarantine_revisits,),
+                    (cfg.max_quarantine_revisits,),
                 )
                 quarantined = cursor.fetchall()
 
@@ -633,31 +654,20 @@ class BudgetMixin:
         Returns:
             The most recent EntropyResponseRecord, or None if none found.
         """
+        where, params = self._where_job_hash(job_hash)
         with self._get_connection() as conn:
-            if job_hash:
-                cursor = conn.execute(
-                    """
-                    SELECT id, job_hash, recorded_at, entropy_at_trigger,
-                           threshold_used, actions_taken, budget_boosted,
-                           quarantine_revisits, patterns_revisited
-                    FROM entropy_responses
-                    WHERE job_hash = ?
-                    ORDER BY recorded_at DESC
-                    LIMIT 1
-                    """,
-                    (job_hash,),
-                )
-            else:
-                cursor = conn.execute(
-                    """
-                    SELECT id, job_hash, recorded_at, entropy_at_trigger,
-                           threshold_used, actions_taken, budget_boosted,
-                           quarantine_revisits, patterns_revisited
-                    FROM entropy_responses
-                    ORDER BY recorded_at DESC
-                    LIMIT 1
-                    """
-                )
+            cursor = conn.execute(
+                f"""
+                SELECT id, job_hash, recorded_at, entropy_at_trigger,
+                       threshold_used, actions_taken, budget_boosted,
+                       quarantine_revisits, patterns_revisited
+                FROM entropy_responses
+                {where}
+                ORDER BY recorded_at DESC
+                LIMIT 1
+                """,
+                params,
+            )
 
             row = cursor.fetchone()
 
@@ -696,52 +706,38 @@ class BudgetMixin:
         Returns:
             List of EntropyResponseRecord objects, most recent first.
         """
+        where, params = self._where_job_hash(job_hash)
         with self._get_connection() as conn:
-            if job_hash:
-                cursor = conn.execute(
-                    """
-                    SELECT id, job_hash, recorded_at, entropy_at_trigger,
-                           threshold_used, actions_taken, budget_boosted,
-                           quarantine_revisits, patterns_revisited
-                    FROM entropy_responses
-                    WHERE job_hash = ?
-                    ORDER BY recorded_at DESC
-                    LIMIT ?
-                    """,
-                    (job_hash, limit),
-                )
-            else:
-                cursor = conn.execute(
-                    """
-                    SELECT id, job_hash, recorded_at, entropy_at_trigger,
-                           threshold_used, actions_taken, budget_boosted,
-                           quarantine_revisits, patterns_revisited
-                    FROM entropy_responses
-                    ORDER BY recorded_at DESC
-                    LIMIT ?
-                    """,
-                    (limit,),
-                )
+            cursor = conn.execute(
+                f"""
+                SELECT id, job_hash, recorded_at, entropy_at_trigger,
+                       threshold_used, actions_taken, budget_boosted,
+                       quarantine_revisits, patterns_revisited
+                FROM entropy_responses
+                {where}
+                ORDER BY recorded_at DESC
+                LIMIT ?
+                """,
+                (*params, limit),
+            )
 
-            records: list[EntropyResponseRecord] = []
-            for row in cursor.fetchall():
-                records.append(
-                    EntropyResponseRecord(
-                        id=row["id"],
-                        job_hash=row["job_hash"],
-                        recorded_at=datetime.fromisoformat(row["recorded_at"]),
-                        entropy_at_trigger=row["entropy_at_trigger"],
-                        threshold_used=row["threshold_used"],
-                        actions_taken=json.loads(row["actions_taken"]),
-                        budget_boosted=bool(row["budget_boosted"]),
-                        quarantine_revisits=row["quarantine_revisits"],
-                        patterns_revisited=(
-                    json.loads(row["patterns_revisited"])
-                    if row["patterns_revisited"] else []
-                ),
-                    )
+            return [
+                EntropyResponseRecord(
+                    id=row["id"],
+                    job_hash=row["job_hash"],
+                    recorded_at=datetime.fromisoformat(row["recorded_at"]),
+                    entropy_at_trigger=row["entropy_at_trigger"],
+                    threshold_used=row["threshold_used"],
+                    actions_taken=json.loads(row["actions_taken"]),
+                    budget_boosted=bool(row["budget_boosted"]),
+                    quarantine_revisits=row["quarantine_revisits"],
+                    patterns_revisited=(
+                        json.loads(row["patterns_revisited"])
+                        if row["patterns_revisited"] else []
+                    ),
                 )
-            return records
+                for row in cursor.fetchall()
+            ]
 
     def get_entropy_response_statistics(
         self,
@@ -758,31 +754,20 @@ class BudgetMixin:
         Returns:
             Dict with response statistics.
         """
+        where, params = self._where_job_hash(job_hash)
         with self._get_connection() as conn:
-            if job_hash:
-                cursor = conn.execute(
-                    """
-                    SELECT
-                        COUNT(*) as total,
-                        AVG(entropy_at_trigger) as avg_entropy,
-                        SUM(budget_boosted) as budget_boosts,
-                        SUM(quarantine_revisits) as total_revisits
-                    FROM entropy_responses
-                    WHERE job_hash = ?
-                    """,
-                    (job_hash,),
-                )
-            else:
-                cursor = conn.execute(
-                    """
-                    SELECT
-                        COUNT(*) as total,
-                        AVG(entropy_at_trigger) as avg_entropy,
-                        SUM(budget_boosted) as budget_boosts,
-                        SUM(quarantine_revisits) as total_revisits
-                    FROM entropy_responses
-                    """
-                )
+            cursor = conn.execute(
+                f"""
+                SELECT
+                    COUNT(*) as total,
+                    AVG(entropy_at_trigger) as avg_entropy,
+                    SUM(budget_boosted) as budget_boosts,
+                    SUM(quarantine_revisits) as total_revisits
+                FROM entropy_responses
+                {where}
+                """,
+                params,
+            )
 
             row = cursor.fetchone()
 

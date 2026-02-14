@@ -110,10 +110,9 @@ class DaemonConfig(BaseModel):
         "Will be the path for daemon state database. "
         "Tilde is expanded at runtime. Stores job registry and metrics.",
     )
-    log_level: str = Field(
+    log_level: Literal["debug", "info", "warning", "error"] = Field(
         default="info",
-        description="Minimum log level for daemon structlog output. "
-        "One of: debug, info, warning, error.",
+        description="Minimum log level for daemon structlog output.",
     )
     log_file: Path | None = Field(
         default=None,

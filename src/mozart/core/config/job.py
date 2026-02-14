@@ -364,6 +364,15 @@ class JobConfig(BaseModel):
     )
 
     @model_validator(mode="after")
+    def _resolve_workspace(self) -> JobConfig:
+        """Resolve workspace to an absolute path at construction time (#12/#34).
+
+        This eliminates redundant .resolve() calls scattered across consumers.
+        """
+        self.workspace = self.workspace.resolve()
+        return self
+
+    @model_validator(mode="after")
     def _warn_parallel_isolation(self) -> JobConfig:
         """Warn when parallel execution and worktree isolation are both enabled (#29).
 

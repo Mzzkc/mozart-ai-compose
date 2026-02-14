@@ -689,14 +689,13 @@ class ClaudeCliBackend(Backend):
 
         log_path = self._stdout_log_path if is_stdout else self._stderr_log_path
         log_file = None
-        if log_path:
-            try:
-                log_file = open(log_path, "ab")  # noqa: SIM115
-            except OSError as e:
-                _logger.warning("log_file_open_failed", path=str(log_path), error=str(e))
-                self.log_write_failures += 1
-
         try:
+            if log_path:
+                try:
+                    log_file = open(log_path, "ab")  # noqa: SIM115
+                except OSError as e:
+                    _logger.warning("log_file_open_failed", path=str(log_path), error=str(e))
+                    self.log_write_failures += 1
             while True:
                 try:
                     chunk = await asyncio.wait_for(

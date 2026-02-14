@@ -553,12 +553,13 @@ class TestJobConfig:
         assert config.sheet.size == 10
 
     def test_workspace_default(self, sample_config_dict: dict):
-        """Test workspace defaults to ./workspace."""
+        """Test workspace defaults to ./workspace resolved to absolute path (#12/#34)."""
         config = JobConfig(**sample_config_dict)
-        assert config.workspace == Path("./workspace")
+        assert config.workspace.is_absolute()
+        assert config.workspace == Path("./workspace").resolve()
 
     def test_custom_workspace(self, sample_config_dict: dict):
-        """Test custom workspace path."""
+        """Test custom workspace path is resolved to absolute."""
         sample_config_dict["workspace"] = "/custom/path"
         config = JobConfig(**sample_config_dict)
         assert config.workspace == Path("/custom/path")

@@ -56,6 +56,7 @@ def mock_state():
     """Create a mock CheckpointState."""
     state = MagicMock(spec=CheckpointState)
     state.total_sheets = 5
+    state.last_completed_sheet = 0
     state.sheets = {}
     state.current_sheet = None
     state.status = JobStatus.RUNNING

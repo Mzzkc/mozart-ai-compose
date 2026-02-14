@@ -373,20 +373,44 @@ class TestRateLimitHandling:
         assert "Exceeded maximum rate limit waits" in str(exc_info.value)
 
     @pytest.mark.asyncio
-    async def test_quota_exhaustion_has_no_max_waits(
+    async def test_quota_exhaustion_raises_when_max_exceeded(
         self,
         runner_with_global_store: JobRunner,
     ) -> None:
-        """Test that quota exhaustion bypasses max_waits check."""
+        """Test that quota exhaustion raises FatalError when max_quota_waits exceeded."""
+        max_quota = runner_with_global_store.config.rate_limit.max_quota_waits
         state = CheckpointState(
             job_id="test-job",
             job_name="Test Job",
             total_sheets=3,
             status=JobStatus.RUNNING,
-            quota_waits=100,  # Very high, but shouldn't matter
+            quota_waits=max_quota,  # At the limit — should raise
         )
 
-        # Should not raise even with high quota_waits
+        with (
+            pytest.raises(FatalError, match="quota exhaustion waits"),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            await runner_with_global_store._handle_rate_limit(
+                state=state,
+                error_code="E104",
+                suggested_wait_seconds=1.0,
+            )
+
+    @pytest.mark.asyncio
+    async def test_quota_exhaustion_allows_waits_below_limit(
+        self,
+        runner_with_global_store: JobRunner,
+    ) -> None:
+        """Test that quota exhaustion waits proceed when below max_quota_waits."""
+        state = CheckpointState(
+            job_id="test-job",
+            job_name="Test Job",
+            total_sheets=3,
+            status=JobStatus.RUNNING,
+            quota_waits=2,  # Well below default max_quota_waits
+        )
+
         with patch("asyncio.sleep", new_callable=AsyncMock):
             await runner_with_global_store._handle_rate_limit(
                 state=state,
@@ -394,7 +418,7 @@ class TestRateLimitHandling:
                 suggested_wait_seconds=1.0,
             )
 
-        assert state.quota_waits == 101
+        assert state.quota_waits == 3
 
     @pytest.mark.asyncio
     async def test_health_check_failure_raises_fatal_error(

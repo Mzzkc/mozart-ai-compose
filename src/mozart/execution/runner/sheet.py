@@ -172,7 +172,7 @@ class SheetExecutionMixin:
         async def _record_pattern_feedback(
             self,
             pattern_ids: list[str],
-            ctx: PatternFeedbackContext,
+            context: PatternFeedbackContext,
         ) -> None: ...
 
         # Methods from RecoveryMixin
@@ -405,7 +405,7 @@ class SheetExecutionMixin:
 
     async def _handle_validation_success(
         self,
-        ctx: ValidationSuccessContext,
+        context: ValidationSuccessContext,
     ) -> str | None:
         """Handle the success path when all validations pass.
 
@@ -413,7 +413,7 @@ class SheetExecutionMixin:
         and marks the sheet as completed.
 
         Args:
-            ctx: ValidationSuccessContext with all required state.
+            context: ValidationSuccessContext with all required state.
 
         Returns:
             None if sheet is complete (caller should return).
@@ -421,17 +421,17 @@ class SheetExecutionMixin:
             "break" if grounding escalation chose to skip (exit loop).
         """
         # Unpack for local readability
-        state = ctx.state
-        sheet_num = ctx.sheet_num
-        result = ctx.result
-        validation_result = ctx.validation_result
-        validation_duration = ctx.validation_duration
-        current_prompt = ctx.current_prompt
-        normal_attempts = ctx.normal_attempts
-        completion_attempts = ctx.completion_attempts
-        execution_start_time = ctx.execution_start_time
-        execution_history = ctx.execution_history
-        pending_recovery = ctx.pending_recovery
+        state = context.state
+        sheet_num = context.sheet_num
+        result = context.result
+        validation_result = context.validation_result
+        validation_duration = context.validation_duration
+        current_prompt = context.current_prompt
+        normal_attempts = context.normal_attempts
+        completion_attempts = context.completion_attempts
+        execution_start_time = context.execution_start_time
+        execution_history = context.execution_history
+        pending_recovery = context.pending_recovery
 
         if not result.success:
             self._logger.warning(
@@ -595,7 +595,7 @@ class SheetExecutionMixin:
 
         await self._record_pattern_feedback(
             pattern_ids=self._applied_pattern_ids,
-            ctx=PatternFeedbackContext(
+            context=PatternFeedbackContext(
                 validation_passed=True,
                 first_attempt_success=first_attempt_success,
                 sheet_num=sheet_num,
@@ -667,7 +667,7 @@ class SheetExecutionMixin:
 
     async def _handle_execution_failure(
         self,
-        ctx: ExecutionFailureContext,
+        context: ExecutionFailureContext,
     ) -> FailureHandlingResult:
         """Handle non-success execution results: classify, retry, heal, or abort.
 
@@ -683,17 +683,17 @@ class SheetExecutionMixin:
         - Adaptive retry abort recommendations
 
         Args:
-            ctx: ExecutionFailureContext with all needed state.
+            context: ExecutionFailureContext with all needed state.
 
         Returns:
             FailureHandlingResult indicating caller action ('continue' or 'fatal').
         """
-        classification = self._classify_execution(ctx.result)
+        classification = self._classify_execution(context.result)
         error = classification.primary
 
-        normal_attempts = ctx.normal_attempts
-        healing_attempts = ctx.healing_attempts
-        pending_recovery = ctx.pending_recovery
+        normal_attempts = context.normal_attempts
+        healing_attempts = context.healing_attempts
+        pending_recovery = context.pending_recovery
 
         # Record recovery outcome as failure if we had a pending retry
         if pending_recovery is not None and self._global_learning_store is not None:
@@ -707,7 +707,7 @@ class SheetExecutionMixin:
                 )
                 self._logger.debug(
                     "learning.recovery_recorded",
-                    sheet_num=ctx.sheet_num,
+                    sheet_num=context.sheet_num,
                     error_code=pending_recovery["error_code"],
                     actual_wait=pending_recovery["actual_wait"],
                     recovery_success=False,
@@ -715,7 +715,7 @@ class SheetExecutionMixin:
             except (sqlite3.Error, OSError) as e:
                 self._logger.warning(
                     "learning.recovery_record_failed",
-                    sheet_num=ctx.sheet_num,
+                    sheet_num=context.sheet_num,
                     error=str(e),
                 )
             pending_recovery = None
@@ -723,10 +723,10 @@ class SheetExecutionMixin:
         # Track error for adaptive retry with root cause info
         error_record = ErrorRecord.from_classification_result(
             result=classification,
-            sheet_num=ctx.sheet_num,
+            sheet_num=context.sheet_num,
             attempt_num=normal_attempts + 1,
         )
-        ctx.error_history.append(error_record)
+        context.error_history.append(error_record)
 
         # Record failure in circuit breaker
         if self._circuit_breaker is not None and not error.is_rate_limit:
@@ -734,16 +734,16 @@ class SheetExecutionMixin:
             # Persist CB state change for observability
             cb_stats = await self._circuit_breaker.get_stats()
             cb_state_val = (await self._circuit_breaker.get_state()).value
-            ctx.state.record_circuit_breaker_change(
+            context.state.record_circuit_breaker_change(
                 state=cb_state_val,
                 trigger="failure_recorded",
                 consecutive_failures=cb_stats.consecutive_failures,
             )
 
         if error.is_rate_limit:
-            ctx.error_history.clear()
+            context.error_history.clear()
             await self._handle_rate_limit(
-                ctx.state,
+                context.state,
                 error_code=error.error_code.value,
                 suggested_wait_seconds=error.suggested_wait_seconds,
             )
@@ -755,7 +755,7 @@ class SheetExecutionMixin:
             )
 
         if not error.should_retry:
-            failed_validations = ctx.validation_result.get_failed_results()
+            failed_validations = context.validation_result.get_failed_results()
             validation_info = ""
             if failed_validations:
                 failed_names = [
@@ -764,31 +764,31 @@ class SheetExecutionMixin:
                 ]
                 validation_info = f" (validations failed: {', '.join(failed_names)})"
 
-            ctx.state.mark_sheet_failed(
-                ctx.sheet_num,
+            context.state.mark_sheet_failed(
+                context.sheet_num,
                 error.message + validation_info,
                 error.category.value,
-                exit_code=ctx.result.exit_code,
-                exit_signal=ctx.result.exit_signal,
-                exit_reason=ctx.result.exit_reason,
-                execution_duration_seconds=ctx.result.duration_seconds,
+                exit_code=context.result.exit_code,
+                exit_signal=context.result.exit_signal,
+                exit_reason=context.result.exit_reason,
+                execution_duration_seconds=context.result.duration_seconds,
             )
-            await self.state_backend.save(ctx.state)
+            await self.state_backend.save(context.state)
             self._logger.error(
                 "sheet.failed",
-                sheet_num=ctx.sheet_num,
+                sheet_num=context.sheet_num,
                 error_category=error.category.value,
                 error_message=error.message,
-                exit_code=ctx.result.exit_code,
-                exit_signal=ctx.result.exit_signal,
-                exit_reason=ctx.result.exit_reason,
-                duration_seconds=round(ctx.result.duration_seconds or 0, 2),
-                validations_passed=ctx.passed_count,
-                validations_failed=ctx.failed_count,
+                exit_code=context.result.exit_code,
+                exit_signal=context.result.exit_signal,
+                exit_reason=context.result.exit_reason,
+                duration_seconds=round(context.result.duration_seconds or 0, 2),
+                validations_passed=context.passed_count,
+                validations_failed=context.failed_count,
                 failed_validation_names=[f.rule.description for f in failed_validations],
                 stdout_tail=(
-                    ctx.result.stdout[-TRUNCATE_STDOUT_TAIL_CHARS:]
-                    if ctx.result.stdout
+                    context.result.stdout[-TRUNCATE_STDOUT_TAIL_CHARS:]
+                    if context.result.stdout
                     else None
                 ),
             )
@@ -797,38 +797,38 @@ class SheetExecutionMixin:
                 normal_attempts=normal_attempts,
                 healing_attempts=healing_attempts,
                 pending_recovery=pending_recovery,
-                fatal_message=f"Sheet {ctx.sheet_num}: {error.message}{validation_info}",
+                fatal_message=f"Sheet {context.sheet_num}: {error.message}{validation_info}",
             )
 
         # Transient error - get adaptive retry recommendation
         retry_recommendation = self._retry_strategy.analyze(
-            error_history=ctx.error_history,
-            max_retries=ctx.max_retries,
+            error_history=context.error_history,
+            max_retries=context.max_retries,
         )
 
         normal_attempts += 1
 
         # Check both max retries and adaptive strategy recommendation
-        if normal_attempts >= ctx.max_retries:
+        if normal_attempts >= context.max_retries:
             # Try self-healing before giving up
-            if self._healing_coordinator is not None and healing_attempts < ctx.max_healing_cycles:
+            if self._healing_coordinator is not None and healing_attempts < context.max_healing_cycles:
                 healing_report = await self._try_self_healing(
-                    result=ctx.result,
+                    result=context.result,
                     error=error,
                     config_path=None,
-                    sheet_num=ctx.sheet_num,
+                    sheet_num=context.sheet_num,
                     retry_count=normal_attempts,
-                    max_retries=ctx.max_retries,
+                    max_retries=context.max_retries,
                 )
                 if healing_report and healing_report.should_retry:
                     healing_attempts += 1
-                    normal_attempts = ctx.max_retries - 1  # Grant one more retry
+                    normal_attempts = context.max_retries - 1  # Grant one more retry
                     self.console.print(healing_report.format())
                     self._logger.info(
                         "sheet.healed",
-                        sheet_num=ctx.sheet_num,
+                        sheet_num=context.sheet_num,
                         healing_attempt=healing_attempts,
-                        max_healing_cycles=ctx.max_healing_cycles,
+                        max_healing_cycles=context.max_healing_cycles,
                         remedies_applied=len(healing_report.actions_taken),
                     )
                     return FailureHandlingResult(
@@ -839,66 +839,66 @@ class SheetExecutionMixin:
                     )
 
             # Record pattern feedback for failure
-            sheet_state = ctx.state.sheets[ctx.sheet_num]
+            sheet_state = context.state.sheets[context.sheet_num]
             sheet_state.applied_pattern_ids = self._applied_pattern_ids.copy()
             sheet_state.applied_pattern_descriptions = self._current_sheet_patterns.copy()
             await self._record_pattern_feedback(
                 pattern_ids=self._applied_pattern_ids,
-                ctx=PatternFeedbackContext(
+                context=PatternFeedbackContext(
                     validation_passed=False,
                     first_attempt_success=False,
-                    sheet_num=ctx.sheet_num,
+                    sheet_num=context.sheet_num,
                     grounding_confidence=(
-                        ctx.grounding_ctx.confidence
-                        if ctx.grounding_ctx.hooks_executed > 0
+                        context.grounding_ctx.confidence
+                        if context.grounding_ctx.hooks_executed > 0
                         else None
                     ),
                 ),
             )
 
-            ctx.state.mark_sheet_failed(
-                ctx.sheet_num,
-                f"Failed after {ctx.max_retries} retries: {error.message}",
+            context.state.mark_sheet_failed(
+                context.sheet_num,
+                f"Failed after {context.max_retries} retries: {error.message}",
                 error.category.value,
-                exit_code=ctx.result.exit_code,
-                exit_signal=ctx.result.exit_signal,
-                exit_reason=ctx.result.exit_reason,
-                execution_duration_seconds=ctx.result.duration_seconds,
+                exit_code=context.result.exit_code,
+                exit_signal=context.result.exit_signal,
+                exit_reason=context.result.exit_reason,
+                execution_duration_seconds=context.result.duration_seconds,
             )
-            await self.state_backend.save(ctx.state)
+            await self.state_backend.save(context.state)
             self._logger.error(
                 "sheet.failed",
-                sheet_num=ctx.sheet_num,
+                sheet_num=context.sheet_num,
                 error_category=error.category.value,
                 error_message=f"Retries exhausted: {error.message}",
                 attempt=normal_attempts,
-                max_retries=ctx.max_retries,
-                exit_code=ctx.result.exit_code,
-                duration_seconds=round(ctx.result.duration_seconds or 0, 2),
+                max_retries=context.max_retries,
+                exit_code=context.result.exit_code,
+                duration_seconds=round(context.result.duration_seconds or 0, 2),
             )
             return FailureHandlingResult(
                 action="fatal",
                 normal_attempts=normal_attempts,
                 healing_attempts=healing_attempts,
                 pending_recovery=pending_recovery,
-                fatal_message=f"Sheet {ctx.sheet_num} failed after {ctx.max_retries} retries",
+                fatal_message=f"Sheet {context.sheet_num} failed after {context.max_retries} retries",
             )
 
         # Check if adaptive strategy recommends stopping early
         if not retry_recommendation.should_retry:
-            ctx.state.mark_sheet_failed(
-                ctx.sheet_num,
+            context.state.mark_sheet_failed(
+                context.sheet_num,
                 f"Adaptive retry aborted: {retry_recommendation.reason}",
                 error.category.value,
-                exit_code=ctx.result.exit_code,
-                exit_signal=ctx.result.exit_signal,
-                exit_reason=ctx.result.exit_reason,
-                execution_duration_seconds=ctx.result.duration_seconds,
+                exit_code=context.result.exit_code,
+                exit_signal=context.result.exit_signal,
+                exit_reason=context.result.exit_reason,
+                execution_duration_seconds=context.result.duration_seconds,
             )
-            await self.state_backend.save(ctx.state)
+            await self.state_backend.save(context.state)
             self._logger.warning(
                 "sheet.adaptive_retry_aborted",
-                sheet_num=ctx.sheet_num,
+                sheet_num=context.sheet_num,
                 error_category=error.category.value,
                 pattern=retry_recommendation.detected_pattern.value,
                 reason=retry_recommendation.reason,
@@ -911,15 +911,15 @@ class SheetExecutionMixin:
                 normal_attempts=normal_attempts,
                 healing_attempts=healing_attempts,
                 pending_recovery=pending_recovery,
-                fatal_message=f"Sheet {ctx.sheet_num} aborted: {retry_recommendation.reason}",
+                fatal_message=f"Sheet {context.sheet_num} aborted: {retry_recommendation.reason}",
             )
 
         # Log retry attempt with adaptive strategy info
         self._logger.warning(
             "sheet.retry",
-            sheet_num=ctx.sheet_num,
+            sheet_num=context.sheet_num,
             attempt=normal_attempts,
-            max_retries=ctx.max_retries,
+            max_retries=context.max_retries,
             error_category=error.category.value,
             reason=error.message,
             retry_delay_seconds=round(retry_recommendation.delay_seconds, 2),
@@ -928,8 +928,8 @@ class SheetExecutionMixin:
             retry_strategy=retry_recommendation.strategy_used,
         )
         self.console.print(
-            f"[yellow]Sheet {ctx.sheet_num}: {retry_recommendation.detected_pattern.value} - "
-            f"retry {normal_attempts}/{ctx.max_retries} "
+            f"[yellow]Sheet {context.sheet_num}: {retry_recommendation.detected_pattern.value} - "
+            f"retry {normal_attempts}/{context.max_retries} "
             f"(delay: {retry_recommendation.delay_seconds:.1f}s, "
             f"confidence: {retry_recommendation.confidence:.0%})[/yellow]"
         )
@@ -943,7 +943,7 @@ class SheetExecutionMixin:
             }
 
         # Active Broadcast Polling
-        await self._poll_broadcast_discoveries(ctx.state.job_id, ctx.sheet_num)
+        await self._poll_broadcast_discoveries(context.state.job_id, context.sheet_num)
 
         await asyncio.sleep(retry_recommendation.delay_seconds)
         return FailureHandlingResult(
@@ -1291,7 +1291,7 @@ class SheetExecutionMixin:
                         validation_details=validation_result.to_dict_list(),
                     )
                     sheet_state = state.sheets[sheet_num]
-                    sheet_state.outcome_category = "skipped_by_escalation"
+                    sheet_state.outcome_category = OutcomeCategory.SKIPPED_BY_ESCALATION
                     self._update_escalation_outcome(sheet_state, "skipped", sheet_num)
                     await self.state_backend.save(state)
                     self.console.print(
@@ -1339,7 +1339,7 @@ class SheetExecutionMixin:
                     sheet_state.applied_pattern_descriptions = self._current_sheet_patterns.copy()
                     await self._record_pattern_feedback(
                         pattern_ids=self._applied_pattern_ids,
-                        ctx=PatternFeedbackContext(
+                        context=PatternFeedbackContext(
                             validation_passed=False,
                             first_attempt_success=False,
                             sheet_num=sheet_num,
@@ -1968,7 +1968,7 @@ class SheetExecutionMixin:
     def _classify_success_outcome(
         normal_attempts: int,
         completion_attempts: int,
-    ) -> tuple[str, bool]:
+    ) -> tuple[OutcomeCategory, bool]:
         """Classify the outcome category for a successfully validated sheet.
 
         Args:
@@ -1982,11 +1982,11 @@ class SheetExecutionMixin:
         # A first-attempt success means exactly 1 normal attempt and 0 completion attempts.
         first_attempt_success = normal_attempts <= 1 and completion_attempts == 0
         if first_attempt_success:
-            return OutcomeCategory.SUCCESS_FIRST_TRY.value, True
+            return OutcomeCategory.SUCCESS_FIRST_TRY, True
         elif completion_attempts > 0:
-            return OutcomeCategory.SUCCESS_COMPLETION.value, False
+            return OutcomeCategory.SUCCESS_COMPLETION, False
         else:
-            return OutcomeCategory.SUCCESS_RETRY.value, False
+            return OutcomeCategory.SUCCESS_RETRY, False
 
     # _classify_execution() and _classify_error() are provided by RecoveryMixin
 
@@ -2401,6 +2401,12 @@ class SheetExecutionMixin:
             return mode, reason, response.prompt_modifications
 
         except Exception as e:
+            self._logger.warning(
+                "judgment.fallback",
+                sheet_num=sheet_num,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
             self.console.print(
                 f"[yellow]Sheet {sheet_num}: Judgment client error: {e}, "
                 f"falling back to local decision[/yellow]"

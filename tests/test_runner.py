@@ -418,8 +418,9 @@ class TestProgressTracking:
             last_completed_sheet=1,
         )
 
-        # Should not raise
+        # No callback configured — verify _update_progress handles it gracefully
         runner._update_progress(state)
+        assert runner.progress_callback is None
 
 
 class TestProgressCallbackErrorPaths:
@@ -1772,8 +1773,10 @@ class TestActiveBroadcastPolling:
             context=RunnerContext(global_learning_store=mock_store),
         )
 
-        # Should not raise - polling failure shouldn't block retry
+        # Polling failure shouldn't block retry — verify the store was called and
+        # the exception was swallowed (not re-raised)
         await runner._poll_broadcast_discoveries("test-job", sheet_num=1)
+        mock_store.check_recent_pattern_discoveries.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_poll_broadcast_discoveries_noop_without_store(
@@ -1789,8 +1792,9 @@ class TestActiveBroadcastPolling:
             state_backend=mock_state_backend,
         )
 
-        # Should not raise
+        # No store configured — verify it returns without attempting any store calls
         await runner._poll_broadcast_discoveries("test-job", sheet_num=1)
+        assert runner._global_learning_store is None
 
 
 # =============================================================================
@@ -2328,8 +2332,9 @@ class TestUpdateEscalationOutcome:
         runner._global_learning_store = None
         sheet_state = SheetState(sheet_num=1)
         sheet_state.outcome_data = {"escalation_record_id": "esc-123"}
-        # Should not raise
-        runner._update_escalation_outcome(sheet_state, "success", 1)
+        # No store → should return without raising or calling anything
+        result = runner._update_escalation_outcome(sheet_state, "success", 1)
+        assert result is None
 
     def test_noop_without_escalation_record_id(self, runner: JobRunner) -> None:
         """Should return silently when no escalation_record_id in outcome_data."""
@@ -2368,6 +2373,8 @@ class TestUpdateEscalationOutcome:
 
         sheet_state = SheetState(sheet_num=1)
         sheet_state.outcome_data = {"escalation_record_id": "esc-789"}
-        # Should not raise
+        # Should swallow the exception — verify the store was called (proving
+        # the exception was raised and caught, not skipped)
         runner._update_escalation_outcome(sheet_state, "success", 1)
+        mock_store.update_escalation_outcome.assert_called_once()
 

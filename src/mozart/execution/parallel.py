@@ -178,9 +178,7 @@ class _LockingStateBackend:
 
     async def close(self) -> None:
         """Delegate close to the inner backend to release connections."""
-        close_fn = getattr(self._inner, "close", None)
-        if close_fn is not None:
-            await close_fn()
+        await self._inner.close()
 
 
 class ParallelExecutor:
@@ -394,9 +392,22 @@ class ParallelExecutor:
             List of sheet numbers ready for parallel execution.
         """
         if self.dag is None:
-            # No DAG - fall back to sequential
-            next_sheet = state.get_next_sheet()
-            return [next_sheet] if next_sheet is not None else []
+            # No DAG - fall back to sequential, but skip permanently failed
+            # sheets to prevent infinite loops when fail_fast=False (Q001/#37).
+            # get_next_sheet() returns FAILED sheets for retry, but in parallel
+            # mode those have already exhausted retries and are in _permanently_failed.
+            for sheet_num in range(
+                state.last_completed_sheet + 1, state.total_sheets + 1
+            ):
+                if sheet_num in self._permanently_failed:
+                    continue
+                sheet_state = state.sheets.get(sheet_num)
+                if sheet_state is None or sheet_state.status in (
+                    SheetStatus.PENDING,
+                    SheetStatus.FAILED,
+                ):
+                    return [sheet_num]
+            return []
 
         # Get completed sheets by iterating stored state directly
         completed: set[int] = {

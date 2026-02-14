@@ -11,9 +11,11 @@ and apply that learning to improve future sheet executions.
 
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import TYPE_CHECKING, Any
+
+from mozart.learning.store.models import QuarantineStatus
 
 if TYPE_CHECKING:
     from mozart.core.checkpoint import ValidationDetailDict
@@ -112,8 +114,8 @@ class DetectedPattern:
     success_rate: float = 0.0
     """Rate at which this pattern leads to success (0.0-1.0)."""
 
-    last_seen: datetime = field(default_factory=datetime.now)
-    """When this pattern was last observed."""
+    last_seen: datetime = field(default_factory=lambda: datetime.now(tz=timezone.utc))
+    """When this pattern was last observed (UTC)."""
 
     context_tags: list[str] = field(default_factory=list)
     """Tags for matching: job types, validation types, error categories."""
@@ -132,8 +134,8 @@ class DetectedPattern:
     """Number of first_attempt_success outcomes when this pattern was applied."""
 
     # v19: Quarantine & Trust fields (optional, from global store)
-    quarantine_status: str | None = None
-    """Quarantine status from global store: pending, quarantined, validated, retired."""
+    quarantine_status: QuarantineStatus | None = None
+    """Quarantine status from global store."""
 
     trust_score: float | None = None
     """Trust score (0.0-1.0) from global store. None if not from global store."""
@@ -170,7 +172,7 @@ class DetectedPattern:
 
         v19 Evolution: Used for quarantine-aware scoring.
         """
-        return self.quarantine_status == "quarantined"
+        return self.quarantine_status == QuarantineStatus.QUARANTINED
 
     @property
     def is_validated(self) -> bool:
@@ -178,7 +180,7 @@ class DetectedPattern:
 
         v19 Evolution: Used for trust-aware scoring.
         """
-        return self.quarantine_status == "validated"
+        return self.quarantine_status == QuarantineStatus.VALIDATED
 
     def to_prompt_guidance(self) -> str:
         """Format this pattern as guidance for prompts.
@@ -900,7 +902,7 @@ class PatternMatcher:
 
         # Score from recency (more recent = more relevant)
         # Exponential decay: 50% weight loss per week
-        age_days = (datetime.now() - pattern.last_seen).days
+        age_days = (datetime.now(tz=timezone.utc) - pattern.last_seen).days
         recency_score = 0.5 ** (age_days / 7)
         score += recency_score * 0.15
 

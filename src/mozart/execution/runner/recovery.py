@@ -201,6 +201,15 @@ class RecoveryMixin:
     # Rate Limit Handling
     # ─────────────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _infer_active_sheet_num(state: CheckpointState) -> int:
+        """Derive the current sheet number from checkpoint state.
+
+        Returns the sheet currently being attempted, which is one past
+        the last completed sheet (or 1 if none have completed).
+        """
+        return state.last_completed_sheet + 1
+
     async def _handle_rate_limit(
         self,
         state: CheckpointState,
@@ -246,9 +255,9 @@ class RecoveryMixin:
         if self.rate_limit_callback is not None:
             try:
                 backend_type = getattr(self.backend, "backend_type", "claude_cli")
-                sheet_num = state.last_completed_sheet + 1 if state.last_completed_sheet else 1
                 await self.rate_limit_callback(
-                    backend_type, wait_seconds, state.job_id, sheet_num,
+                    backend_type, wait_seconds, state.job_id,
+                    self._infer_active_sheet_num(state),
                 )
             except (OSError, ConnectionError, TimeoutError) as e:
                 self._logger.warning(
@@ -260,7 +269,7 @@ class RecoveryMixin:
         # Poll for pattern discoveries during the wait window
         await self._poll_broadcast_discoveries(
             job_id=state.job_id,
-            sheet_num=state.last_completed_sheet + 1 if state.last_completed_sheet else 1,
+            sheet_num=self._infer_active_sheet_num(state),
         )
 
         # Wait and health-check
@@ -306,8 +315,9 @@ class RecoveryMixin:
     ) -> None:
         """Log and display rate limit event, enforcing max-wait limits.
 
-        Quota exhaustion has no max waits (always wait until reset).
-        Regular rate limits are bounded by config.rate_limit.max_waits.
+        Both quota exhaustion and regular rate limits are bounded by
+        config.rate_limit.max_quota_waits and config.rate_limit.max_waits
+        respectively.
 
         Args:
             state: Current job state.
@@ -315,21 +325,33 @@ class RecoveryMixin:
             wait_seconds: Duration of the wait.
 
         Raises:
-            FatalError: If regular rate limit max waits exceeded.
+            FatalError: If max waits exceeded (quota or regular).
         """
         wait_minutes = wait_seconds / 60
 
         if is_quota:
+            max_quota_waits = self.config.rate_limit.max_quota_waits
             self._logger.warning(
                 "quota_exhausted.detected",
                 job_id=state.job_id,
                 wait_count=state.quota_waits,
+                max_quota_waits=max_quota_waits,
                 wait_minutes=wait_minutes,
                 wait_seconds=wait_seconds,
             )
+            if state.quota_waits >= max_quota_waits:
+                self._logger.error(
+                    "quota_exhausted.max_waits_exceeded",
+                    job_id=state.job_id,
+                    wait_count=state.quota_waits,
+                    max_quota_waits=max_quota_waits,
+                )
+                raise FatalError(
+                    f"Exceeded maximum quota exhaustion waits ({max_quota_waits})"
+                )
             self.console.print(
                 f"[yellow]Token quota exhausted. Waiting {wait_minutes:.1f} minutes until reset... "
-                f"(quota wait #{state.quota_waits})[/yellow]"
+                f"(quota wait {state.quota_waits}/{max_quota_waits})[/yellow]"
             )
         else:
             self._logger.warning(

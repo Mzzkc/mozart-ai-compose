@@ -128,25 +128,25 @@ class TestHookExecutor:
             ],
         })
 
-    def test_expand_template(self, minimal_config: JobConfig) -> None:
-        """_expand_template should substitute workspace and job variables."""
+    def test_expand_hook_variables(self, minimal_config: JobConfig) -> None:
+        """_expand_hook_variables should substitute workspace and job variables."""
         executor = HookExecutor(
             config=minimal_config,
             workspace=Path("/test/workspace"),
         )
 
-        result = executor._expand_template("{workspace}/output/{job_id}.json")
+        result = executor._expand_hook_variables("{workspace}/output/{job_id}.json")
 
         assert result == "/test/workspace/output/test-job.json"
 
-    def test_expand_template_sheet_count(self, minimal_config: JobConfig) -> None:
-        """_expand_template should substitute sheet_count."""
+    def test_expand_hook_variables_sheet_count(self, minimal_config: JobConfig) -> None:
+        """_expand_hook_variables should substitute sheet_count."""
         executor = HookExecutor(
             config=minimal_config,
             workspace=Path("/work"),
         )
 
-        result = executor._expand_template("Processed {sheet_count} sheets")
+        result = executor._expand_hook_variables("Processed {sheet_count} sheets")
 
         assert result == "Processed 1 sheets"
 

@@ -756,45 +756,34 @@ class TestGetNextSheetDagAware:
     ):
         """D08: Blocked sheets are marked SKIPPED when DAG detects no progress.
 
-        The blocked path in _get_next_sheet_dag_aware triggers when:
-        1. All ready sheets (deps met) are already completed
-        2. Remaining sheets exist whose deps include failed sheets
-        3. Those remaining sheets are neither completed nor failed
+        When a failed sheet's deps are all met, the DAG returns it for retry.
+        Sheet 3 (depends on failed sheet 2) is NOT ready because sheet 2 is
+        not completed. But sheet 2 IS ready (deps=[1], 1 completed) and
+        returned as the next sheet to retry.
 
-        This requires a diamond DAG where a root sheet's failure blocks
-        a leaf sheet, but the root itself has been SKIPPED (removed from
-        ready pool). We simulate this by pre-marking a sheet as SKIPPED.
+        The SKIPPED path only triggers when ALL pending-ready sheets are
+        exhausted. Verify the retry-eligible path works correctly.
         """
-        # Diamond: {3: [1, 2], 4: [3]}
-        # Sheet 1 completed, sheet 2 completed, sheet 3 completed,
-        # sheet 4 skipped (pre-marked). All sheets processed → returns None.
-        # Not interesting. Instead test via the remaining calculation:
-        # deps={2:[1]}. Sheet 1 completed. Sheet 2 not started (pending).
-        # ready({1}) = [2]. pending_ready = [2]. Returns 2. Not blocked.
-        #
-        # The blocked path IS reachable when get_ready_sheets returns empty
-        # for non-completed sheets. This happens when remaining sheets have
-        # deps that point to failed (non-completed) sheets.
-        #
-        # We can exercise this by manually calling with a crafted state:
-        # Sheet 1: completed, Sheet 2: failed, Sheet 3: pending, deps={3: [2]}
-        # All no-dep sheets are in {completed, failed}. Sheet 3 needs dep [2].
-        # ready({1}) = [1(skip, completed), 2(dep on nothing?, need deps)]
-        # We need: deps={2:[], 3:[2]}. Sheet 2 has no deps.
-        # ready({1}) includes sheet 2 (no deps, not completed) → pending_ready=[2].
-        # Still returns 2.
-        #
-        # The path requires ALL non-completed sheets to have unmet deps.
-        # Since root sheets (no deps) are always ready when not completed,
-        # we need ALL root sheets to be completed. Then check leaf deps.
-        # deps={2:[1], 3:[1,2]}. Sheet 1: completed, Sheet 2: failed.
-        # ready({1}) = [2] (dep [1] met). pending_ready = [2]. Returns 2.
-        # Sheet 3 needs [1,2]; 2 not completed → not ready. But 2 returned.
-        #
-        # Conclusion: In sequential mode, the blocked path only fires
-        # in degenerate states. The primary D08 fix is the job completion
-        # logic (checking for FAILED/SKIPPED sheets). Test that instead.
-        pass
+        dag = DependencyDAG.from_dependencies(
+            total_sheets=3,
+            dependencies={2: [1], 3: [2]},
+        )
+        mixin._dependency_dag = dag
+
+        state = _make_state(total_sheets=3)
+        # Sheet 1: completed (root)
+        state.mark_sheet_started(1)
+        state.mark_sheet_completed(1)
+        # Sheet 2: failed but its deps (sheet 1) are met → eligible for retry
+        state.mark_sheet_started(2)
+        state.mark_sheet_failed(2, "fatal error")
+
+        next_sheet = mixin._get_next_sheet_dag_aware(state)
+
+        # Sheet 2 is returned for retry (deps met, not completed)
+        assert next_sheet == 2
+        # Sheet 3 remains pending — blocked by sheet 2 not being completed
+        assert 3 not in state.sheets or state.sheets[3].status == SheetStatus.PENDING
 
 
 # ===========================================================================

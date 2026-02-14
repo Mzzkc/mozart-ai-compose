@@ -339,7 +339,7 @@ class TestRecordPatternFeedback:
         # Should not raise
         await runner._record_pattern_feedback(
             pattern_ids=["p1", "p2"],
-            ctx=PatternFeedbackContext(
+            context=PatternFeedbackContext(
                 validation_passed=True,
                 first_attempt_success=True,
                 sheet_num=1,
@@ -355,7 +355,7 @@ class TestRecordPatternFeedback:
         """Test that recording does nothing with empty pattern list."""
         await runner_with_global_store._record_pattern_feedback(
             pattern_ids=[],
-            ctx=PatternFeedbackContext(
+            context=PatternFeedbackContext(
                 validation_passed=True,
                 first_attempt_success=True,
                 sheet_num=1,
@@ -373,7 +373,7 @@ class TestRecordPatternFeedback:
         """Test that each pattern gets a feedback record."""
         await runner_with_global_store._record_pattern_feedback(
             pattern_ids=["p1", "p2", "p3"],
-            ctx=PatternFeedbackContext(
+            context=PatternFeedbackContext(
                 validation_passed=True,
                 first_attempt_success=True,
                 sheet_num=1,
@@ -392,7 +392,7 @@ class TestRecordPatternFeedback:
         """Test that pattern_led_to_success=True when validation passed and first attempt."""
         await runner_with_global_store._record_pattern_feedback(
             pattern_ids=["p1"],
-            ctx=PatternFeedbackContext(
+            context=PatternFeedbackContext(
                 validation_passed=True,
                 first_attempt_success=True,
                 sheet_num=1,
@@ -411,7 +411,7 @@ class TestRecordPatternFeedback:
         """Test that pattern_led_to_success=False when validation failed."""
         await runner_with_global_store._record_pattern_feedback(
             pattern_ids=["p1"],
-            ctx=PatternFeedbackContext(
+            context=PatternFeedbackContext(
                 validation_passed=False,
                 first_attempt_success=False,
                 sheet_num=1,
@@ -430,7 +430,7 @@ class TestRecordPatternFeedback:
         """Test that pattern_led_to_success=False when not first attempt."""
         await runner_with_global_store._record_pattern_feedback(
             pattern_ids=["p1"],
-            ctx=PatternFeedbackContext(
+            context=PatternFeedbackContext(
                 validation_passed=True,
                 first_attempt_success=False,  # Required retry
                 sheet_num=1,
@@ -449,7 +449,7 @@ class TestRecordPatternFeedback:
         """Test that grounding confidence is passed to global store."""
         await runner_with_global_store._record_pattern_feedback(
             pattern_ids=["p1"],
-            ctx=PatternFeedbackContext(
+            context=PatternFeedbackContext(
                 validation_passed=True,
                 first_attempt_success=True,
                 sheet_num=1,
@@ -469,7 +469,7 @@ class TestRecordPatternFeedback:
         """Test that success factors are updated when pattern succeeds."""
         await runner_with_global_store._record_pattern_feedback(
             pattern_ids=["p1"],
-            ctx=PatternFeedbackContext(
+            context=PatternFeedbackContext(
                 validation_passed=True,
                 first_attempt_success=True,
                 sheet_num=1,
@@ -495,7 +495,7 @@ class TestRecordPatternFeedback:
         """Test that success factors are NOT updated when pattern fails."""
         await runner_with_global_store._record_pattern_feedback(
             pattern_ids=["p1"],
-            ctx=PatternFeedbackContext(
+            context=PatternFeedbackContext(
                 validation_passed=False,
                 first_attempt_success=False,
                 sheet_num=1,
@@ -517,7 +517,7 @@ class TestRecordPatternFeedback:
 
         await runner_with_global_store._record_pattern_feedback(
             pattern_ids=["p_explore", "p_exploit"],
-            ctx=PatternFeedbackContext(
+            context=PatternFeedbackContext(
                 validation_passed=True,
                 first_attempt_success=True,
                 sheet_num=1,
@@ -546,7 +546,7 @@ class TestRecordPatternFeedback:
         # Should not raise
         await runner_with_global_store._record_pattern_feedback(
             pattern_ids=["p1"],
-            ctx=PatternFeedbackContext(
+            context=PatternFeedbackContext(
                 validation_passed=True,
                 first_attempt_success=True,
                 sheet_num=1,

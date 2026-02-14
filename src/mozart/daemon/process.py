@@ -14,7 +14,7 @@ import signal
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import typer
 
@@ -49,7 +49,7 @@ def start(
 ) -> None:
     """Start the Mozart daemon."""
     config = _load_config(config_file)
-    config.log_level = log_level
+    config.log_level = cast(Any, log_level)  # Pydantic validates at runtime
 
     # Check if already running (PID alive check + advisory lock probe)
     pid = _read_pid(config.pid_file)
