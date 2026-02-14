@@ -1,0 +1,1507 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║              AUTOMATED ISSUE SOLVER                                        ║
+# ║                                                                            ║
+# ║  Roadmap-driven, dependency-aware, phased issue solver.                    ║
+# ║  Reads a roadmap file, selects the next eligible issue, plans a phased     ║
+# ║  implementation (1-4 phases), executes with fix+completion passes,         ║
+# ║  runs parallel quality reviews, and ships.                                 ║
+# ║                                                                            ║
+# ║  17 stages → 19 concrete sheets (stage 12 fans out to 3 reviewers).       ║
+# ║  Self-chains to solve the next issue after success.                        ║
+# ║                                                                            ║
+# ║  Stage→Sheet mapping after fan-out expansion:                              ║
+# ║    Stages  1-11 → Sheets  1-11  (1:1)                                     ║
+# ║    Stage  12     → Sheets 12-14  (3 parallel reviewers)                    ║
+# ║    Stage  13     → Sheet  15     (review synthesis)                        ║
+# ║    Stage  14     → Sheet  16     (docs update)                             ║
+# ║    Stage  15     → Sheet  17     (final verification)                      ║
+# ║    Stage  16     → Sheet  18     (commit & push)                           ║
+# ║    Stage  17     → Sheet  19     (close issue + chain gate)                ║
+# ║                                                                            ║
+# ║  Usage:                                                                    ║
+# ║    cd /path/to/your/project                                                ║
+# ║    setsid mozart run examples/issue-solver.yaml \                          ║
+# ║      > .issue-solver-workspace/mozart.log 2>&1 &                          ║
+# ║                                                                            ║
+# ║  Prerequisites:                                                            ║
+# ║    - gh CLI authenticated (gh auth login)                                  ║
+# ║    - Roadmap file at the configured path                                   ║
+# ║    - Open issues labeled with the configured label                         ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+name: "issue-solver"
+description: "Auto-select and solve GitHub issues from roadmap with phased implementation"
+workspace: "./.issue-solver-workspace"
+
+workspace_lifecycle:
+  archive_on_fresh: true
+  max_archives: 30
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  timeout_seconds: 2400  # 40 min default
+  timeout_overrides:
+    4: 3600   # Phase 1 fix gets extra time
+    6: 3600   # Phase 2 fix
+    8: 3600   # Phase 3 fix
+    10: 3600  # Phase 4 fix
+
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 3000
+  lookback_sheets: 3
+  capture_files:
+    - "{{ workspace }}/*.md"
+    - "{{ workspace }}/*.sh"
+
+sheet:
+  size: 1
+  total_items: 17  # 17 stages → 19 concrete sheets after fan-out
+
+  fan_out:
+    12: 3  # Stage 12: 3 parallel reviewers
+
+  dependencies:
+    2: [1]     # Investigate depends on selection
+    3: [2]     # Planning depends on investigation
+    4: [3]     # Phase 1 fix depends on planning
+    5: [4]     # Phase 1 completion depends on phase 1 fix
+    6: [5]     # Phase 2 fix depends on phase 1 completion
+    7: [6]     # Phase 2 completion depends on phase 2 fix
+    8: [7]     # Phase 3 fix depends on phase 2 completion
+    9: [8]     # Phase 3 completion depends on phase 3 fix
+    10: [9]    # Phase 4 fix depends on phase 3 completion
+    11: [10]   # Phase 4 completion depends on phase 4 fix
+    12: [11]   # Reviews depend on all implementation
+    13: [12]   # Synthesis depends on all reviews (fan-in)
+    14: [13]   # Docs depends on synthesis
+    15: [14]   # Final verification depends on docs
+    16: [15]   # Commit depends on verification
+    17: [16]   # Chain gate depends on commit
+
+  # Command-based conditional skip (GH#71)
+  # Phases 2-4 skip when TOTAL_PHASES in the plan is fewer
+  skip_when_command:
+    6:
+      command: 'grep -q "TOTAL_PHASES: 1$" "{workspace}/03-plan.md"'
+      description: "Skip phase 2 fix — plan has only 1 phase"
+    7:
+      command: 'grep -q "TOTAL_PHASES: 1$" "{workspace}/03-plan.md"'
+      description: "Skip phase 2 completion — plan has only 1 phase"
+    8:
+      command: 'grep -q "TOTAL_PHASES: [12]$" "{workspace}/03-plan.md"'
+      description: "Skip phase 3 fix — plan has fewer than 3 phases"
+    9:
+      command: 'grep -q "TOTAL_PHASES: [12]$" "{workspace}/03-plan.md"'
+      description: "Skip phase 3 completion — plan has fewer than 3 phases"
+    10:
+      command: 'grep -q "TOTAL_PHASES: [123]$" "{workspace}/03-plan.md"'
+      description: "Skip phase 4 fix — plan has fewer than 4 phases"
+    11:
+      command: 'grep -q "TOTAL_PHASES: [123]$" "{workspace}/03-plan.md"'
+      description: "Skip phase 4 completion — plan has fewer than 4 phases"
+
+parallel:
+  enabled: true
+  max_concurrent: 3
+
+retry:
+  max_retries: 2
+
+prompt:
+  template: |
+    {{ preamble }}
+
+    {% if stage == 1 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 1: ISSUE SELECTION                                                    ║
+    ║  "Pick the right battle before charging in"                                  ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Step 0: Track iteration**
+    ```bash
+    mkdir -p {{ workspace }}
+    if [ -f {{ workspace }}/.iteration ]; then
+      ITER=$(cat {{ workspace }}/.iteration)
+      ITER=$((ITER + 1))
+    else
+      ITER=1
+    fi
+    echo $ITER > {{ workspace }}/.iteration
+    echo "=== ISSUE SOLVER ITERATION $ITER ==="
+    ```
+
+    **Step 1: Read the roadmap**
+    ```bash
+    cat {{ roadmap_file }}
+    ```
+
+    Read the roadmap carefully. Understand the dependency graph — which issues
+    must be resolved before others can start.
+
+    **Step 2: List open issues**
+    ```bash
+    gh issue list --state open --label "{{ issue_label }}" \
+      --json number,title,body,labels --limit 30
+    ```
+
+    **Step 3: Select the next eligible issue**
+
+    Cross-reference the roadmap dependency graph with the open issues list.
+    An issue is **eligible** only if ALL of its dependencies are CLOSED.
+
+    Priority order:
+    1. Tier-1 issues with all dependencies satisfied
+    2. Tier-2 issues with all dependencies satisfied
+    3. Issues with the fewest remaining blockers (for planning ahead)
+
+    Check {{ workspace }}/archive/ to skip recently-attempted issues that
+    failed or were deferred in previous iterations.
+
+    **Step 4: Claim the issue**
+    ```bash
+    ITER=$(cat {{ workspace }}/.iteration 2>/dev/null || echo "?")
+    gh issue comment ISSUE_NUMBER \
+      --body "Mozart issue-solver: Starting work on this issue (iteration $ITER)."
+    ```
+
+    **Step 5: Write selection report**
+
+    **Output to:** {{ workspace }}/01-selected-issue.md
+
+    ```markdown
+    # Selected Issue
+
+    SELECTED_ISSUE: #NUMBER
+    ISSUE_TITLE: Title here
+    ISSUE_BODY: |
+      Full body from the GitHub issue...
+    DEPENDENCIES: #X (closed), #Y (closed)
+    TIER: tier-1
+    RATIONALE: Why this issue was selected over others
+    ```
+
+    If NO eligible issues remain (all open issues have unsatisfied dependencies
+    or all roadmap issues are closed), write instead:
+
+    ```markdown
+    # No Eligible Issues
+
+    NO_ISSUES_REMAINING
+
+    All roadmap issues are either closed or have unsatisfied dependencies.
+    ```
+
+    {% elif stage == 2 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 2: DEEP INVESTIGATION                                                 ║
+    ║  "Understand the disease before prescribing the cure"                        ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/01-selected-issue.md.
+
+    **If it contains `NO_ISSUES_REMAINING`:** Write a brief report to
+    {{ workspace }}/02-investigation.md:
+    ```markdown
+    # Investigation: No Open Issues
+
+    NO_ISSUES_REMAINING — nothing to investigate.
+    ```
+    Then stop.
+
+    **Otherwise, investigate the selected issue thoroughly:**
+
+    **Step 1: Understand the issue**
+    - Read the issue description carefully
+    - Identify what the issue is asking for (feature, fix, refactor, etc.)
+    - Read any linked issues or referenced files
+
+    **Step 2: Read relevant source files**
+    ```bash
+    # Find files related to the issue keywords
+    grep -rn "KEYWORD" --include="*.py" src/ | head -30
+
+    # Read the specific files mentioned in or relevant to the issue
+    # [Read each relevant file]
+    ```
+
+    **Step 3: Map the blast radius**
+    - Which files need to change?
+    - Which functions are affected?
+    - What tests exist for the affected code?
+    - What could break if we change these files?
+    ```bash
+    # Find existing tests
+    grep -rn "KEYWORD" --include="*.py" tests/ | head -20
+
+    # Check imports and dependencies
+    grep -rn "from.*AFFECTED_MODULE.*import\|import.*AFFECTED_MODULE" \
+      --include="*.py" src/ | head -20
+    ```
+
+    **Step 4: Root cause analysis**
+    For bugs: trace the code path to find the root cause.
+    For features: understand where the new code should live and how it
+    integrates with existing architecture.
+
+    **Output to:** {{ workspace }}/02-investigation.md
+
+    ```markdown
+    # Investigation: Issue #N — Title
+
+    ## Summary
+    [One-paragraph summary of the issue and what needs to happen]
+
+    ## Root Cause / Design Analysis
+    [Detailed explanation with code references]
+
+    ## Affected Files
+    | File | What Changes | Risk |
+    |------|-------------|------|
+
+    ## Dependencies & Integration Points
+    [How this connects to other code]
+
+    ## Test Coverage
+    | Existing Test | What It Covers | Gaps |
+    |--------------|---------------|------|
+
+    ## Estimated Complexity
+    - Files to modify: N
+    - Lines of changes (estimated): N
+    - New tests needed: N
+    - Risk level: Low/Medium/High
+    ```
+
+    {% elif stage == 3 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 3: PHASE PLANNING + VERIFY SCRIPT                                    ║
+    ║  "Measure twice, cut once — then verify the cut"                             ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/01-selected-issue.md and {{ workspace }}/02-investigation.md.
+
+    **If investigation contains `NO_ISSUES_REMAINING`:** Write:
+    ```markdown
+    # Plan: No Open Issues
+
+    TOTAL_PHASES: 0
+    NO_ISSUES_REMAINING — nothing to plan.
+    ```
+    to {{ workspace }}/03-plan.md and stop.
+
+    **Otherwise, create a phased implementation plan:**
+
+    **Step 1: Break the work into phases (1-4)**
+
+    Each phase should be:
+    - Independently testable (partial progress is verifiable)
+    - Small enough for one focused session (30-60 min each)
+    - Ordered by dependency (later phases build on earlier ones)
+
+    Guidelines for phase count:
+    - **1 phase:** Simple changes, < 3 files, no new tests needed
+    - **2 phases:** Medium changes, 3-6 files, some new tests
+    - **3 phases:** Significant changes, 6-10 files, new test infrastructure
+    - **4 phases:** Large changes, 10+ files, architectural modifications
+
+    **Step 2: Detail each phase**
+
+    For each phase, specify:
+    - Exact files to modify and what changes in each
+    - Tests to add or modify
+    - Verification criteria (what "done" looks like for this phase)
+    - What the next phase depends on from this one
+
+    **Step 3: Write the verification script**
+
+    Write {{ workspace }}/verify.sh — an executable script that validates
+    the implementation is correct. Use the check() function pattern:
+
+    ```bash
+    #!/bin/bash
+    set -euo pipefail
+
+    PASS=0; FAIL=0; TOTAL=0
+
+    check() {
+      TOTAL=$((TOTAL + 1))
+      if eval "$2" >/dev/null 2>&1; then
+        PASS=$((PASS + 1)); echo "  PASS: $1"
+      else
+        FAIL=$((FAIL + 1)); echo "  FAIL: $1"
+      fi
+    }
+
+    echo "=== Verification: Issue #N — Title ==="
+
+    # Phase 1 checks
+    check "Phase 1: [description]" "[test command]"
+    check "Phase 1: [another check]" "[test command]"
+
+    # Phase 2 checks (if applicable)
+    check "Phase 2: [description]" "[test command]"
+
+    # Integration checks
+    check "Tests pass" "{{ test_command }}"
+    check "Linter clean" "{{ lint_command }}"
+    check "Types check" "{{ typecheck_command }}"
+
+    echo ""
+    echo "=== Results: $PASS/$TOTAL passed, $FAIL failed ==="
+    [ "$FAIL" -eq 0 ]
+    ```
+
+    Make it executable:
+    ```bash
+    chmod +x {{ workspace }}/verify.sh
+    ```
+
+    **Output to:** {{ workspace }}/03-plan.md
+
+    ```markdown
+    # Implementation Plan: Issue #N — Title
+
+    TOTAL_PHASES: N
+
+    ## Phase 1: [Name]
+    **Goal:** [What this phase accomplishes]
+    **Files:**
+    | File | Change | Tests |
+    |------|--------|-------|
+    **Verification:** [How to verify this phase]
+    **Depends on:** Nothing (first phase)
+
+    ## Phase 2: [Name] (if applicable)
+    **Goal:** [What this phase accomplishes]
+    **Files:**
+    | File | Change | Tests |
+    |------|--------|-------|
+    **Verification:** [How to verify]
+    **Depends on:** Phase 1
+
+    [Continue for phases 3-4 if needed]
+
+    ## Risk Assessment
+    | Risk | Likelihood | Mitigation |
+    |------|-----------|------------|
+    ```
+
+    {% elif stage == 4 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 4: PHASE 1 — FIX                                                     ║
+    ║  "First, lay the foundation"                                                 ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/03-plan.md for Phase 1 details.
+    Read {{ workspace }}/02-investigation.md for context.
+
+    **If plan contains `NO_ISSUES_REMAINING`:** Write:
+    ```markdown
+    # Phase 1 Fix: Skipped
+
+    NO_ISSUES_REMAINING — nothing to implement.
+    ```
+    to {{ workspace }}/04-phase1-fix.md and stop.
+
+    **Otherwise, implement Phase 1:**
+
+    **Step 1: Execute the Phase 1 plan**
+    For each file listed in Phase 1:
+    1. Read the current file
+    2. Make the specified changes
+    3. Verify the change is correct (syntax check, import test)
+
+    **Step 2: Add/update tests**
+    Write or modify tests as specified in the plan. Tests should verify
+    the actual behavior change, not just "no crash."
+
+    **Step 3: Run tests after each change**
+    ```bash
+    {{ test_command }}
+    ```
+
+    **Step 4: Run verify.sh to check Phase 1 progress**
+    ```bash
+    bash {{ workspace }}/verify.sh 2>&1 || echo "Some checks still failing (expected — phases are incremental)"
+    ```
+
+    **MANDATORY: Complete at least 70% of Phase 1 work items.**
+    If you cannot complete an item, note the specific blocker.
+
+    **Output to:** {{ workspace }}/04-phase1-fix.md
+
+    ```markdown
+    # Phase 1 Fix Results
+
+    **Total items:** N
+    **Completed:** N
+    **Completion:** N%
+
+    ## Changes Made
+    | File | Change | Tests Pass |
+    |------|--------|-----------|
+
+    ## Deferred Items (max 30%)
+    | Item | Blocker | Evidence |
+    |------|---------|----------|
+
+    ## Test Results
+    [pytest output]
+
+    ## Verification Script Output
+    [verify.sh output]
+    ```
+
+    {% elif stage == 5 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 5: PHASE 1 — COMPLETION PASS                                         ║
+    ║  "Finish what was started — no excuses"                                      ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/04-phase1-fix.md for deferred items.
+    Read {{ workspace }}/03-plan.md for Phase 1 details.
+
+    **If phase 1 fix contains `NO_ISSUES_REMAINING`:** Write:
+    ```markdown
+    # Phase 1 Completion: Skipped
+
+    NO_ISSUES_REMAINING — nothing to complete.
+    ```
+    to {{ workspace }}/05-phase1-complete.md and stop.
+
+    **Otherwise, complete all deferred items from Phase 1:**
+
+    For each deferred item:
+    1. Re-attempt the fix with a fresh approach
+    2. If still blocked, provide CONCRETE evidence (error message, test failure)
+    3. "Risky" or "complex" are NOT acceptable skip reasons — do the work
+
+    **Code Simplification Pass:**
+    Review all files modified during Phase 1 for:
+    - Unnecessary complexity introduced by fixes
+    - Naming inconsistency with project conventions
+    - Debug artifacts or commented-out code
+    - Redundant code that can be simplified
+
+    After simplification, re-run tests:
+    ```bash
+    {{ test_command }}
+    ```
+
+    If tests fail after simplification, revert that specific simplification.
+
+    **Output to:** {{ workspace }}/05-phase1-complete.md
+
+    ```markdown
+    # Phase 1 Completion Pass
+
+    **Deferred from first pass:** N items
+    **Now completed:** N items
+    **Still blocked:** N items (must have concrete proof)
+
+    ## Completed
+    | Item | What was fixed | Evidence it works |
+    |------|---------------|-------------------|
+
+    ## Truly Blocked (with proof)
+    | Item | Blocker | Error message/test failure |
+    |------|---------|---------------------------|
+
+    ## Simplification
+    | File | What was simplified | Tests pass |
+    |------|--------------------|-----------|
+
+    ## Verification Script Output
+    [verify.sh output — should show Phase 1 checks passing]
+    ```
+
+    {% elif stage == 6 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 6: PHASE 2 — FIX                                                     ║
+    ║  "Build on the foundation"                                                   ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/03-plan.md for Phase 2 details.
+    Read {{ workspace }}/05-phase1-complete.md for Phase 1 results.
+
+    **Implement Phase 2** following the same pattern as Phase 1:
+
+    **Step 1: Execute the Phase 2 plan**
+    For each file listed in Phase 2:
+    1. Read the current file (including Phase 1 changes)
+    2. Make the specified changes
+    3. Verify syntax and imports
+
+    **Step 2: Add/update tests for Phase 2**
+
+    **Step 3: Run tests after each change**
+    ```bash
+    {{ test_command }}
+    ```
+
+    **Step 4: Run verify.sh**
+    ```bash
+    bash {{ workspace }}/verify.sh 2>&1 || echo "Some checks still failing (expected — phases are incremental)"
+    ```
+
+    **MANDATORY: Complete at least 70% of Phase 2 work items.**
+
+    **Output to:** {{ workspace }}/06-phase2-fix.md
+
+    ```markdown
+    # Phase 2 Fix Results
+
+    **Total items:** N
+    **Completed:** N
+    **Completion:** N%
+
+    ## Changes Made
+    | File | Change | Tests Pass |
+    |------|--------|-----------|
+
+    ## Deferred Items
+    | Item | Blocker | Evidence |
+    |------|---------|----------|
+
+    ## Test Results
+    [pytest output]
+
+    ## Verification Script Output
+    [verify.sh output — Phase 1+2 checks]
+    ```
+
+    {% elif stage == 7 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 7: PHASE 2 — COMPLETION PASS                                         ║
+    ║  "No loose ends"                                                             ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/06-phase2-fix.md for deferred items.
+
+    Complete all deferred items from Phase 2, then run a simplification pass
+    on modified files.
+
+    After completion:
+    ```bash
+    {{ test_command }}
+    bash {{ workspace }}/verify.sh 2>&1
+    ```
+
+    **Output to:** {{ workspace }}/07-phase2-complete.md
+
+    ```markdown
+    # Phase 2 Completion Pass
+
+    **Deferred from first pass:** N items
+    **Now completed:** N items
+    **Still blocked:** N items
+
+    ## Completed
+    | Item | What was fixed | Evidence |
+    |------|---------------|----------|
+
+    ## Truly Blocked (with proof)
+    | Item | Blocker | Error/failure |
+    |------|---------|---------------|
+
+    ## Simplification
+    | File | What was simplified | Tests pass |
+    |------|--------------------|-----------|
+
+    ## Verification Script Output
+    [verify.sh — Phase 1+2 checks should pass]
+    ```
+
+    {% elif stage == 8 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 8: PHASE 3 — FIX                                                     ║
+    ║  "Deeper structural work"                                                    ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/03-plan.md for Phase 3 details.
+    Read previous phase completion outputs for current state.
+
+    **Implement Phase 3** following the same fix pattern:
+
+    1. Execute Phase 3 plan items
+    2. Add/update tests
+    3. Run tests after each change: `{{ test_command }}`
+    4. Run verify.sh: `bash {{ workspace }}/verify.sh 2>&1`
+
+    **MANDATORY: Complete at least 70% of Phase 3 work items.**
+
+    **Output to:** {{ workspace }}/08-phase3-fix.md
+
+    ```markdown
+    # Phase 3 Fix Results
+
+    **Total items:** N
+    **Completed:** N
+    **Completion:** N%
+
+    ## Changes Made
+    | File | Change | Tests Pass |
+    |------|--------|-----------|
+
+    ## Deferred Items
+    | Item | Blocker | Evidence |
+    |------|---------|----------|
+
+    ## Test Results
+    [pytest output]
+
+    ## Verification Script Output
+    [verify.sh — Phase 1+2+3 checks]
+    ```
+
+    {% elif stage == 9 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 9: PHASE 3 — COMPLETION PASS                                         ║
+    ║  "Three-quarters done is not done"                                           ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/08-phase3-fix.md for deferred items.
+
+    Complete all deferred items from Phase 3, then simplification pass.
+
+    After completion:
+    ```bash
+    {{ test_command }}
+    bash {{ workspace }}/verify.sh 2>&1
+    ```
+
+    **Output to:** {{ workspace }}/09-phase3-complete.md
+
+    ```markdown
+    # Phase 3 Completion Pass
+
+    **Deferred from first pass:** N items
+    **Now completed:** N items
+    **Still blocked:** N items
+
+    ## Completed
+    | Item | What was fixed | Evidence |
+    |------|---------------|----------|
+
+    ## Truly Blocked (with proof)
+    | Item | Blocker | Error/failure |
+    |------|---------|---------------|
+
+    ## Simplification
+    | File | What was simplified | Tests pass |
+    |------|--------------------|-----------|
+
+    ## Verification Script Output
+    [verify.sh — Phase 1+2+3 checks should pass]
+    ```
+
+    {% elif stage == 10 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 10: PHASE 4 — FIX                                                    ║
+    ║  "The final push"                                                            ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/03-plan.md for Phase 4 details.
+    Read previous phase completion outputs for current state.
+
+    **Implement Phase 4** following the same fix pattern:
+
+    1. Execute Phase 4 plan items
+    2. Add/update tests
+    3. Run tests after each change: `{{ test_command }}`
+    4. Run verify.sh: `bash {{ workspace }}/verify.sh 2>&1`
+
+    **MANDATORY: Complete at least 70% of Phase 4 work items.**
+
+    **Output to:** {{ workspace }}/10-phase4-fix.md
+
+    ```markdown
+    # Phase 4 Fix Results
+
+    **Total items:** N
+    **Completed:** N
+    **Completion:** N%
+
+    ## Changes Made
+    | File | Change | Tests Pass |
+    |------|--------|-----------|
+
+    ## Deferred Items
+    | Item | Blocker | Evidence |
+    |------|---------|----------|
+
+    ## Test Results
+    [pytest output]
+
+    ## Verification Script Output
+    [verify.sh — all phase checks]
+    ```
+
+    {% elif stage == 11 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 11: PHASE 4 — COMPLETION PASS                                        ║
+    ║  "No stone unturned"                                                         ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/10-phase4-fix.md for deferred items.
+
+    Complete all deferred items from Phase 4, then simplification pass.
+
+    After completion:
+    ```bash
+    {{ test_command }}
+    bash {{ workspace }}/verify.sh 2>&1
+    ```
+
+    **Output to:** {{ workspace }}/11-phase4-complete.md
+
+    ```markdown
+    # Phase 4 Completion Pass
+
+    **Deferred from first pass:** N items
+    **Now completed:** N items
+    **Still blocked:** N items
+
+    ## Completed
+    | Item | What was fixed | Evidence |
+    |------|---------------|----------|
+
+    ## Truly Blocked (with proof)
+    | Item | Blocker | Error/failure |
+    |------|---------|---------------|
+
+    ## Simplification
+    | File | What was simplified | Tests pass |
+    |------|--------------------|-----------|
+
+    ## Verification Script Output
+    [verify.sh — ALL checks should pass now]
+    ```
+
+    {% elif stage == 12 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 12: QUALITY REVIEW — FAN-OUT                                          ║
+    ║  Instance {{ instance }} of {{ fan_count }} (running in PARALLEL)             ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/01-selected-issue.md for what was implemented.
+    Read {{ workspace }}/03-plan.md for the implementation plan.
+
+    {% if instance == 1 %}
+    {# ═══════════════ FUNCTIONAL REVIEW ═══════════════ #}
+
+    You are the **Functional Reviewer**. Verify the implementation is correct
+    and write targeted tests.
+
+    **Step 1: Understand what changed**
+    ```bash
+    git diff --stat
+    git diff --name-only
+    ```
+
+    **Step 2: Review each changed file**
+    For each modified file:
+    - Does the change match what the plan specified?
+    - Are edge cases handled?
+    - Are error paths covered?
+    - Could any change silently break existing functionality?
+
+    **Step 3: Write targeted pytest tests**
+    Write tests that specifically verify the issue is resolved.
+    Tests should cover:
+    - The happy path (issue is fixed)
+    - Edge cases mentioned in the investigation
+    - Regression prevention (existing behavior preserved)
+
+    ```bash
+    # Run the new tests
+    {{ test_command }}
+    ```
+
+    **Output to:** {{ workspace }}/12-review-functional.md
+
+    ```markdown
+    # Functional Review: Issue #N
+
+    ## Changes Reviewed
+    | File | Correctness | Edge Cases | Concerns |
+    |------|------------|-----------|----------|
+
+    ## Tests Written
+    | Test | File | What It Verifies |
+    |------|------|-----------------|
+
+    ## Issues Found
+    | Severity | File | Issue | Fix Applied |
+    |----------|------|-------|------------|
+
+    ## Test Results
+    [pytest output after adding new tests]
+
+    ## Verdict
+    PASS / FAIL (with reasons)
+    ```
+
+    {% elif instance == 2 %}
+    {# ═══════════════ E2E / SMOKE REVIEW ═══════════════ #}
+
+    You are the **E2E/Smoke Tester**. Verify the implementation works
+    end-to-end and doesn't break basic functionality.
+
+    **Step 1: Run the full test suite**
+    ```bash
+    {{ test_command }} 2>&1 | tail -30
+    ```
+
+    **Step 2: Run linter and type checker**
+    ```bash
+    {{ lint_command }} 2>&1 | tail -20
+    {{ typecheck_command }} 2>&1 | tail -20
+    ```
+
+    **Step 3: Run the verification script**
+    ```bash
+    bash {{ workspace }}/verify.sh 2>&1
+    ```
+
+    **Step 4: Smoke test basic functionality**
+    ```bash
+    # Verify imports still work
+    python -c "import mozart" 2>&1
+
+    # Verify CLI entry point
+    mozart --help 2>&1 | head -5
+
+    # Verify config validation
+    mozart validate examples/sheet-review.yaml 2>&1 | head -10
+    ```
+
+    **Step 5: Integration check**
+    If the changes touch multiple modules, verify they integrate correctly:
+    - Do cross-module calls work?
+    - Are shared data structures consistent?
+    - Do async patterns work correctly?
+
+    **Output to:** {{ workspace }}/12-review-e2e.md
+
+    ```markdown
+    # E2E/Smoke Review: Issue #N
+
+    ## Test Suite
+    - Tests passed: N
+    - Tests failed: N
+    - New failures: [list any]
+
+    ## Linter
+    [ruff output summary]
+
+    ## Type Checker
+    [mypy output summary]
+
+    ## Verification Script
+    [verify.sh output]
+
+    ## Smoke Tests
+    | Check | Result | Notes |
+    |-------|--------|-------|
+    | Import | pass/fail | |
+    | CLI help | pass/fail | |
+    | Config validate | pass/fail | |
+
+    ## Integration
+    | Integration Point | Status | Concerns |
+    |-------------------|--------|----------|
+
+    ## Verdict
+    PASS / FAIL (with reasons)
+    ```
+
+    {% elif instance == 3 %}
+    {# ═══════════════ CODE QUALITY REVIEW ═══════════════ #}
+
+    You are the **Code Quality Reviewer**. Audit the changes for quality,
+    style, and hidden risks.
+
+    **Step 1: Review code quality**
+    ```bash
+    git diff
+    ```
+
+    For each change, check:
+    - **Naming:** Are new names clear, consistent with project conventions?
+    - **Simplicity:** Is there a simpler way to achieve the same result?
+    - **Documentation:** Are docstrings updated? Are complex sections commented?
+    - **Error handling:** Are exceptions specific? Are errors logged properly?
+    - **Type hints:** Are all new functions fully typed?
+
+    **Step 2: Wolf prevention audit**
+    Check for common failure patterns:
+    - **Stub functions:** Do new functions return real values, not hardcoded?
+    - **Silent failures:** Are errors caught and silently swallowed?
+    - **Missing cleanup:** Are resources (files, connections) properly closed?
+    - **Incomplete implementations:** Are there TODO/FIXME markers in new code?
+
+    ```bash
+    # Check for TODOs in changed files
+    git diff --name-only | xargs grep -n "TODO\|FIXME\|HACK\|XXX" 2>/dev/null || echo "None found"
+
+    # Check for bare excepts in changed files
+    git diff --name-only | xargs grep -n "except:" 2>/dev/null || echo "None found"
+
+    # Check for pass-only except handlers
+    git diff --name-only | xargs grep -A1 "except" 2>/dev/null | grep -B1 "pass$" || echo "None found"
+    ```
+
+    **Step 3: Style consistency**
+    - Does the new code follow the same patterns as surrounding code?
+    - Are imports organized consistently?
+    - Is the code formatted consistently?
+
+    **Output to:** {{ workspace }}/12-review-quality.md
+
+    ```markdown
+    # Code Quality Review: Issue #N
+
+    ## Quality Assessment
+    | Criterion | Rating (1-5) | Notes |
+    |-----------|-------------|-------|
+    | Naming | | |
+    | Simplicity | | |
+    | Documentation | | |
+    | Error handling | | |
+    | Type hints | | |
+
+    ## Wolf Prevention
+    | Check | Result | Issues |
+    |-------|--------|--------|
+    | Stub functions | pass/fail | |
+    | Silent failures | pass/fail | |
+    | Missing cleanup | pass/fail | |
+    | Incomplete impl | pass/fail | |
+
+    ## Issues Found
+    | Severity | File | Line | Issue | Suggested Fix |
+    |----------|------|------|-------|--------------|
+
+    ## Style Issues
+    | File | Issue | Fix |
+    |------|-------|-----|
+
+    ## Verdict
+    PASS / FAIL (with reasons)
+    ```
+
+    {% endif %}
+
+    {% elif stage == 13 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 13: REVIEW SYNTHESIS + FIX FINDINGS                                   ║
+    ║  "Synthesize, then act"                                                      ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read all three review outputs:
+    - {{ workspace }}/12-review-functional.md
+    - {{ workspace }}/12-review-e2e.md
+    - {{ workspace }}/12-review-quality.md
+
+    **Step 1: Synthesize findings**
+    Merge all findings from the three reviewers. Deduplicate issues found
+    by multiple reviewers. Prioritize by severity.
+
+    **Step 2: Fix identified issues**
+    For each finding:
+    1. If it's a code issue — fix it directly
+    2. If it's a missing test — write the test
+    3. If it's a style issue — fix the style
+    4. If it's a wolf pattern — eliminate it
+
+    After each fix, run tests to verify no regressions:
+    ```bash
+    {{ test_command }}
+    ```
+
+    **Step 3: Re-run verification**
+    ```bash
+    bash {{ workspace }}/verify.sh 2>&1
+    {{ lint_command }} 2>&1 | tail -10
+    ```
+
+    **Output to:** {{ workspace }}/13-synthesis.md
+
+    ```markdown
+    # Review Synthesis: Issue #N
+
+    ## Summary
+    | Reviewer | Verdict | Issues Found | Issues Fixed |
+    |----------|---------|-------------|-------------|
+    | Functional | pass/fail | N | N |
+    | E2E/Smoke | pass/fail | N | N |
+    | Code Quality | pass/fail | N | N |
+
+    ## All Issues (deduplicated)
+    | ID | Source | Severity | Issue | Resolution |
+    |----|--------|----------|-------|-----------|
+
+    ## Fixes Applied
+    | ID | File | Change | Tests Pass |
+    |----|------|--------|-----------|
+
+    ## Remaining Issues (unfixable)
+    | ID | Why | Deferred To |
+    |----|-----|-------------|
+    (or "None — all issues resolved")
+
+    ## Verification
+    [verify.sh output]
+    [lint output]
+    ```
+
+    {% elif stage == 14 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 14: UPDATE DOCUMENTATION                                              ║
+    ║  "Code without docs is a liability"                                          ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Read {{ workspace }}/01-selected-issue.md for what was implemented.
+    Read {{ workspace }}/03-plan.md for the scope.
+    Read {{ workspace }}/13-synthesis.md for the final state.
+
+    **Step 1: Identify documentation that needs updating**
+
+    Check which documentation files are affected by the changes:
+    ```bash
+    # Check if any docs reference affected files/features
+    grep -rn "KEYWORD" --include="*.md" docs/ | head -20
+
+    # Check CLAUDE.md for relevant sections
+    grep -n "KEYWORD" CLAUDE.md | head -10
+
+    # Check README
+    grep -n "KEYWORD" README.md | head -10
+    ```
+
+    **Step 2: Update relevant documentation**
+
+    Only update docs that are ACTUALLY affected by the changes:
+    - If you added a new feature: add it to relevant docs
+    - If you changed behavior: update descriptions
+    - If you added new config options: document them
+    - If you fixed a bug: no doc changes typically needed
+
+    Do NOT create new documentation files unless the changes introduce
+    an entirely new feature that warrants its own documentation.
+
+    **Step 3: Update docstrings**
+
+    If you modified any public functions or classes, verify their docstrings
+    are still accurate.
+
+    **Output to:** {{ workspace }}/14-docs.md
+
+    ```markdown
+    # Documentation Update: Issue #N
+
+    ## Docs Updated
+    | File | Section | Change |
+    |------|---------|--------|
+    (or "No documentation changes needed")
+
+    ## Docstrings Updated
+    | File | Function/Class | Change |
+    |------|---------------|--------|
+    (or "No docstring changes needed")
+
+    ## New Documentation
+    (or "No new documentation files created")
+    ```
+
+    {% elif stage == 15 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 15: FINAL VERIFICATION                                                ║
+    ║  "Trust but verify — then verify again"                                      ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **ALL of these must pass before committing.**
+
+    **Step 1: Run the verification script**
+    ```bash
+    cd {{ project_root }}
+    bash {{ workspace }}/verify.sh 2>&1
+    ```
+
+    **Step 2: Run the full test suite**
+    ```bash
+    {{ test_command }} 2>&1 | tee {{ workspace }}/15-test-output.txt | tail -30
+    ```
+
+    **Step 3: Run the linter**
+    ```bash
+    {{ lint_command }} 2>&1 | tee {{ workspace }}/15-lint-output.txt | tail -20
+    ```
+
+    **Step 4: Run the type checker**
+    ```bash
+    {{ typecheck_command }} 2>&1 | tee {{ workspace }}/15-typecheck-output.txt | tail -20
+    ```
+
+    **Step 5: Verify no regressions**
+    ```bash
+    # Check that imports still work
+    python -c "import mozart" 2>&1
+
+    # Check CLI
+    mozart --help >/dev/null 2>&1 && echo "CLI OK" || echo "CLI BROKEN"
+    ```
+
+    **If ANY check fails:** Debug and fix the issue before proceeding.
+    Re-run ALL checks after fixing to verify the fix doesn't break anything else.
+
+    **Output to:** {{ workspace }}/15-verification.md
+
+    ```markdown
+    # Final Verification: Issue #N
+
+    ## Results
+    | Check | Status | Details |
+    |-------|--------|---------|
+    | verify.sh | pass/fail | [summary] |
+    | pytest | pass/fail | N passed, N failed |
+    | ruff | pass/fail | N issues |
+    | mypy | pass/fail | N errors |
+    | import check | pass/fail | |
+    | CLI check | pass/fail | |
+
+    ## All Checks Passed
+    YES / NO
+
+    ## Fixes Applied During Verification
+    | Check | Issue | Fix |
+    |-------|-------|-----|
+    (or "None needed — all checks passed first try")
+    ```
+
+    {% elif stage == 16 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 16: COMMIT & PUSH                                                     ║
+    ║  "Ship it"                                                                   ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Step 1: Check what changed**
+    ```bash
+    git status --short | head -30
+    git diff --stat
+    ```
+
+    **Step 2: Read issue details for commit message**
+    ```bash
+    ISSUE_NUM=$(grep -oE 'SELECTED_ISSUE: #[0-9]+' {{ workspace }}/01-selected-issue.md | grep -oE '[0-9]+')
+    ISSUE_TITLE=$(grep 'ISSUE_TITLE:' {{ workspace }}/01-selected-issue.md | sed 's/ISSUE_TITLE: //')
+    echo "Issue: #$ISSUE_NUM — $ISSUE_TITLE"
+    ```
+
+    **Step 3: Selective staging**
+
+    Do NOT use `git add -A` — stage ONLY files this issue's implementation
+    touched. Extract the modified files from phase results and review outputs.
+
+    ```bash
+    # Stage only implementation files (not workspace artifacts)
+    git add [list each modified source file explicitly]
+
+    # Verify staging
+    git diff --cached --stat
+    ```
+
+    If `git diff --cached --stat` shows files you did NOT modify, unstage them:
+    ```bash
+    git restore --staged path/to/unrelated/file.py
+    ```
+
+    Do NOT stage workspace files (.issue-solver-workspace/).
+
+    **Step 4: Sync with remote before committing**
+    ```bash
+    git fetch origin main 2>/dev/null
+    BEHIND=$(git rev-list HEAD..origin/main --count 2>/dev/null || echo "0")
+    echo "Commits behind remote: $BEHIND"
+    ```
+
+    If behind:
+    ```bash
+    git stash
+    git pull --rebase origin main
+    git stash pop
+    ```
+
+    If merge conflicts, resolve them carefully — keep both our changes and
+    remote changes where possible.
+
+    **Step 5: Commit**
+    ```bash
+    ISSUE_NUM=$(grep -oE 'SELECTED_ISSUE: #[0-9]+' {{ workspace }}/01-selected-issue.md | grep -oE '[0-9]+')
+    ISSUE_TITLE=$(grep 'ISSUE_TITLE:' {{ workspace }}/01-selected-issue.md | sed 's/ISSUE_TITLE: //')
+
+    git commit -m "fix: $ISSUE_TITLE (#$ISSUE_NUM)
+
+    Resolves #$ISSUE_NUM
+
+    Co-Authored-By: Mozart AI Compose <noreply@mozart.ai>"
+    ```
+
+    **Step 6: Push**
+    ```bash
+    git push
+    ```
+
+    If push fails due to new remote commits:
+    ```bash
+    git pull --rebase origin main && git push
+    ```
+    Do NOT force-push.
+
+    **Step 7: Verify**
+    ```bash
+    git log --oneline -1
+    git show --stat HEAD | tail -20
+    ```
+
+    **Output to:** {{ workspace }}/16-commit.md
+
+    ```markdown
+    # Commit & Push: Issue #N
+
+    ## Commit
+    [git log --oneline -1]
+
+    ## Files Changed
+    [git diff --stat HEAD~1]
+
+    ## Sync Status
+    - Behind remote: N commits
+    - Rebase needed: yes/no
+    - Conflicts: none/resolved
+
+    ## Push Status
+    - Pushed: yes/no
+    - Retries: N
+    ```
+
+    {% elif stage == 17 %}
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  STAGE 17: CLOSE ISSUE + SELF-CHAIN GATE                                    ║
+    ║  "Close the loop"                                                            ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+
+    **Step 1: Close the GitHub issue**
+    ```bash
+    ISSUE_NUM=$(grep -oE 'SELECTED_ISSUE: #[0-9]+' {{ workspace }}/01-selected-issue.md | grep -oE '[0-9]+')
+    ITER=$(cat {{ workspace }}/.iteration 2>/dev/null || echo "?")
+
+    gh issue close "$ISSUE_NUM" \
+      --comment "Resolved by Mozart issue-solver (iteration $ITER).
+
+    **Commit:** $(git log --oneline -1)
+    **Changes:** $(git diff --stat HEAD~1 | tail -5)
+
+    *Closed automatically by Mozart Issue Solver.*"
+    ```
+
+    **Step 2: Archive this iteration**
+    ```bash
+    ITER=$(cat {{ workspace }}/.iteration 2>/dev/null || echo "0")
+    ARCHIVE="{{ workspace }}/archive/iteration-$ITER"
+    mkdir -p "$ARCHIVE"
+    cp {{ workspace }}/*.md "$ARCHIVE/" 2>/dev/null || true
+    cp {{ workspace }}/*.sh "$ARCHIVE/" 2>/dev/null || true
+    echo "Archived iteration $ITER"
+    ```
+
+    **Step 3: Check chain gate condition**
+
+    Read {{ workspace }}/01-selected-issue.md. If it contains
+    `NO_ISSUES_REMAINING`, then there are no more issues to solve — the
+    chain gate validation will FAIL to prevent an empty self-chain.
+
+    If an issue was processed, the chain gate passes and the next
+    iteration will be triggered by the on_success hook.
+
+    **Output to:** {{ workspace }}/17-close.md
+
+    ```markdown
+    # Close & Chain Gate: Issue #N
+
+    ## Issue Closed
+    - Number: #N
+    - Status: closed
+    - Comment posted: yes
+
+    ## Archive
+    - Iteration: N
+    - Files archived: [list]
+
+    ## Chain Gate
+    - Issues processed this iteration: yes/no
+    - Chain should continue: yes/no
+    ```
+
+    {% endif %}
+
+  variables:
+    roadmap_file: "docs/plans/2026-02-14-roadmap-features.md"
+    issue_label: "roadmap"
+    test_command: "pytest -x -q --tb=short"
+    lint_command: "ruff check src/"
+    typecheck_command: "mypy src/ --ignore-missing-imports"
+    project_root: "."
+    preamble: |
+      ╔══════════════════════════════════════════════════════════════════════════╗
+      ║              AUTOMATED ISSUE SOLVER                                    ║
+      ║                                                                        ║
+      ║  Roadmap-driven, dependency-aware, phased implementation.              ║
+      ║                                                                        ║
+      ║  You are part of a multi-stage pipeline. Each stage has a focused      ║
+      ║  job. Do your job well. The next stage builds on your output.          ║
+      ╚══════════════════════════════════════════════════════════════════════════╝
+
+validations:
+  # ── Stage 1: Issue selection ──────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/01-selected-issue.md"
+    description: "Issue selection report exists"
+    condition: "sheet_num >= 1"
+
+  - type: command_succeeds
+    command: |
+      FILE="{workspace}/01-selected-issue.md"
+      if grep -qE 'SELECTED_ISSUE: #[0-9]+' "$FILE" || grep -q 'NO_ISSUES_REMAINING' "$FILE"; then
+        exit 0
+      else
+        exit 1
+      fi
+    description: "Selection must have issue number or no-issues marker"
+    condition: "sheet_num >= 1"
+
+  # ── Stage 2: Investigation ────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/02-investigation.md"
+    description: "Investigation report exists"
+    condition: "sheet_num >= 2"
+
+  # ── Stage 3: Plan + verify.sh ─────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/03-plan.md"
+    description: "Phase plan exists"
+    condition: "sheet_num >= 3"
+
+  - type: command_succeeds
+    command: 'grep -qE "TOTAL_PHASES: [0-4]$" "{workspace}/03-plan.md"'
+    description: "Plan has TOTAL_PHASES marker (0-4)"
+    condition: "sheet_num >= 3"
+
+  - type: file_exists
+    path: "{workspace}/verify.sh"
+    description: "Verification script exists"
+    condition: "sheet_num >= 3"
+
+  - type: command_succeeds
+    command: 'test -x "{workspace}/verify.sh"'
+    description: "Verification script is executable"
+    condition: "sheet_num >= 3"
+
+  # ── Stage 4: Phase 1 fix ──────────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/04-phase1-fix.md"
+    description: "Phase 1 fix results exist"
+    condition: "sheet_num >= 4"
+
+  # ── Stage 5: Phase 1 completion ───────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/05-phase1-complete.md"
+    description: "Phase 1 completion results exist"
+    condition: "sheet_num >= 5"
+
+  # ── Stage 12: Fan-out reviews (sheets 12-14) ─────────────────────────────
+  - type: file_exists
+    path: "{workspace}/12-review-functional.md"
+    description: "Functional review exists"
+    condition: "stage == 12 and instance == 1"
+
+  - type: file_exists
+    path: "{workspace}/12-review-e2e.md"
+    description: "E2E/smoke review exists"
+    condition: "stage == 12 and instance == 2"
+
+  - type: file_exists
+    path: "{workspace}/12-review-quality.md"
+    description: "Code quality review exists"
+    condition: "stage == 12 and instance == 3"
+
+  # ── Stage 13: Synthesis (sheet 15) ────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/13-synthesis.md"
+    description: "Review synthesis exists"
+    condition: "sheet_num >= 15"
+
+  # ── Stage 14: Docs (sheet 16) ─────────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/14-docs.md"
+    description: "Documentation update report exists"
+    condition: "sheet_num >= 16"
+
+  # ── Stage 15: Final verification (sheet 17) ──────────────────────────────
+  - type: file_exists
+    path: "{workspace}/15-verification.md"
+    description: "Final verification report exists"
+    condition: "sheet_num >= 17"
+
+  - type: command_succeeds
+    command: 'cd "{workspace}/.." && bash "{workspace}/verify.sh"'
+    description: "Verification script passes"
+    condition: "sheet_num >= 17"
+    stage: 2
+
+  - type: command_succeeds
+    command: 'cd "{workspace}/.." && pytest -x -q --tb=no 2>&1 | tail -1 | grep -E "passed|no tests"'
+    description: "Test suite passes"
+    condition: "sheet_num >= 17"
+    stage: 2
+
+  # ── Stage 16: Commit (sheet 18) ──────────────────────────────────────────
+  - type: file_exists
+    path: "{workspace}/16-commit.md"
+    description: "Commit report exists"
+    condition: "sheet_num >= 18"
+
+  # ── Stage 17: Close + chain gate (sheet 19) ──────────────────────────────
+  - type: file_exists
+    path: "{workspace}/17-close.md"
+    description: "Close and chain gate report exists"
+    condition: "sheet_num == 19"
+
+  - type: command_succeeds
+    command: |
+      if grep -q 'NO_ISSUES_REMAINING' "{workspace}/01-selected-issue.md" 2>/dev/null; then
+        echo "No issues remaining — stopping self-chain"
+        exit 1
+      else
+        echo "Issues were processed — chain may continue"
+        exit 0
+      fi
+    description: "Self-chain gate: fails when no issues remain"
+    condition: "sheet_num == 19"
+
+# Self-chain to solve the next issue
+on_success:
+  - type: run_job
+    job_path: "examples/issue-solver.yaml"
+    description: "Chain to solve next issue"
+    detached: true
+    fresh: true
+
+concert:
+  enabled: true
+  max_chain_depth: 30
+  cooldown_between_jobs_seconds: 300
+  inherit_workspace: false
