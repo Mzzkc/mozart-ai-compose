@@ -220,8 +220,8 @@ async def _try_daemon_submit(
                 return False
 
         return True
-    except Exception:
-        _logger.warning("daemon_submit_failed", exc_info=True)
+    except (OSError, ConnectionError, TimeoutError) as exc:
+        _logger.warning("daemon_submit_failed", error=str(exc), exc_info=True)
         return False
 
 

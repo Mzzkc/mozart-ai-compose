@@ -12,8 +12,12 @@ from typing import Any, Literal, TypedDict
 
 from pydantic import BaseModel, Field, model_validator
 
+from mozart.core.errors.codes import ErrorCategory, ExitReason
 from mozart.core.logging import get_logger
 from mozart.utils.time import utc_now
+
+# Isolation modes supported by worktree isolation
+IsolationMode = Literal["worktree", "none"]
 
 # Module-level logger for checkpoint operations
 _logger = get_logger("checkpoint")
@@ -89,11 +93,12 @@ class ErrorContextDict(TypedDict, total=False):
     """Schema for error context in CheckpointErrorRecord.context.
 
     All keys optional since context varies by error type.
+    Values may be None when the information is not available.
     """
 
-    exit_code: int
-    signal: int
-    category: str
+    exit_code: int | None
+    signal: int | None
+    category: str | None
 
 
 class OutcomeDataDict(TypedDict, total=False):
@@ -114,8 +119,8 @@ class SynthesisResultDict(TypedDict, total=False):
 
     batch_id: str
     sheets: list[int]
-    strategy: str  # "merge", "summarize", "pass_through"
-    status: str  # "pending", "ready", "done", "failed"
+    strategy: Literal["merge", "summarize", "pass_through"]
+    status: Literal["pending", "ready", "done", "failed"]
     created_at: str | None  # ISO format datetime, or None if not set
     completed_at: str | None
     sheet_outputs: dict[int, str]
@@ -214,7 +219,7 @@ class SheetState(BaseModel):
     attempt_count: int = 0
     exit_code: int | None = None
     error_message: str | None = None
-    error_category: str | None = None
+    error_category: ErrorCategory | None = None
     validation_passed: bool | None = None
     validation_details: list[ValidationDetailDict] | None = None
 
@@ -223,7 +228,7 @@ class SheetState(BaseModel):
         default=None,
         description="Signal number if process was killed (e.g., 9=SIGKILL, 15=SIGTERM)",
     )
-    exit_reason: str | None = Field(
+    exit_reason: ExitReason | None = Field(
         default=None,
         description="Why execution ended: completed, timeout, killed, or error",
     )
@@ -249,7 +254,7 @@ class SheetState(BaseModel):
         default=None,
         description="Last validation pass percentage",
     )
-    execution_mode: str | None = Field(
+    execution_mode: Literal["normal", "completion", "retry"] | None = Field(
         default=None,
         description="Last execution mode: normal, completion, or retry",
     )
@@ -570,7 +575,7 @@ class CheckpointState(BaseModel):
         default=None,
         description="Commit SHA the worktree was created from",
     )
-    isolation_mode: str | None = Field(
+    isolation_mode: IsolationMode | None = Field(
         default=None,
         description="Isolation mode used: 'worktree', 'none', or None (not configured)",
     )
@@ -787,10 +792,10 @@ class CheckpointState(BaseModel):
         self,
         sheet_num: int,
         error_message: str,
-        error_category: str | None = None,
+        error_category: ErrorCategory | str | None = None,
         exit_code: int | None = None,
         exit_signal: int | None = None,
-        exit_reason: str | None = None,
+        exit_reason: ExitReason | None = None,
         execution_duration_seconds: float | None = None,
     ) -> None:
         """Mark a sheet as failed.
@@ -812,6 +817,12 @@ class CheckpointState(BaseModel):
         sheet.status = SheetStatus.FAILED
         sheet.completed_at = utc_now()
         sheet.error_message = error_message
+        if error_category is not None and not isinstance(error_category, ErrorCategory):
+            try:
+                error_category = ErrorCategory(error_category)
+            except ValueError:
+                _logger.warning("unknown_error_category", value=error_category)
+                error_category = None
         sheet.error_category = error_category
         sheet.exit_code = exit_code
         sheet.exit_signal = exit_signal

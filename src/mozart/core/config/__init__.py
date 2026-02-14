@@ -22,6 +22,7 @@ from mozart.core.config.execution import (
     ParallelConfig,
     RateLimitConfig,
     RetryConfig,
+    StaleDetectionConfig,
     ValidationRule,
 )
 
@@ -78,6 +79,7 @@ __all__ = [
     "ParallelConfig",
     "RateLimitConfig",
     "RetryConfig",
+    "StaleDetectionConfig",
     "ValidationRule",
     # Job
     "JobConfig",

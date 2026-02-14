@@ -167,6 +167,14 @@ class JinjaUndefinedVariableCheck:
         "workspace",
         "stakes",
         "thinking_method",
+        # Fan-out variables (populated when fan_out is configured)
+        "stage",
+        "instance",
+        "fan_count",
+        "total_stages",
+        # Cross-sheet context variables
+        "previous_outputs",
+        "previous_files",
         # Jinja built-ins
         "loop",
         "self",

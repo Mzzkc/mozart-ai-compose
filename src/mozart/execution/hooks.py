@@ -21,7 +21,6 @@ import os
 import re
 import shlex
 import subprocess as _subprocess
-import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -208,7 +207,7 @@ class HookExecutor:
                         )
                         break
 
-            except Exception as e:
+            except (OSError, TimeoutError) as e:
                 result = HookResult(
                     hook_type=hook.type,
                     description=hook.description,
@@ -374,7 +373,7 @@ class HookExecutor:
                 # Use Popen.poll() instead of os.kill(pid, 0) because kill()
                 # succeeds on zombie processes (exited but not reaped), while
                 # poll() calls waitpid(WNOHANG) which correctly detects exit.
-                time.sleep(0.2)
+                await asyncio.sleep(0.2)
                 exit_code = process.poll()
                 if exit_code is not None:
                     _logger.error(

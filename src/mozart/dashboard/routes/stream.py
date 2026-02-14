@@ -20,6 +20,10 @@ from mozart.state.base import StateBackend
 
 _logger = get_logger("dashboard.stream")
 
+# Tail line count constants for log streaming
+DEFAULT_TAIL_LINES: int = 100
+MAX_TAIL_LINES: int = 1000
+
 router = APIRouter(prefix="/api/jobs", tags=["Streaming"])
 
 
@@ -245,7 +249,7 @@ def _make_log_event(line: str, line_number: int, is_initial_event: bool, event_i
 async def _log_stream(
     log_file: Path,
     follow: bool = True,
-    tail_lines: int = 100
+    tail_lines: int = DEFAULT_TAIL_LINES
 ) -> AsyncIterator[str]:
     """Stream log file content as SSE.
 
@@ -396,7 +400,7 @@ async def stream_job_status(
 async def stream_logs(
     job_id: str,
     follow: bool = True,
-    tail_lines: int = 100,
+    tail_lines: int = DEFAULT_TAIL_LINES,
     backend: StateBackend = Depends(get_state_backend),
 ) -> StreamingResponse:
     """Stream job logs via Server-Sent Events.
@@ -404,7 +408,7 @@ async def stream_logs(
     Args:
         job_id: Job identifier
         follow: If true, tail the log file for new content
-        tail_lines: Number of recent lines to send initially (max 1000)
+        tail_lines: Number of recent lines to send initially (max MAX_TAIL_LINES)
         backend: State backend (injected)
 
     Returns:
@@ -413,10 +417,10 @@ async def stream_logs(
     Raises:
         HTTPException: 404 if job/logs not found, 400 if invalid parameters
     """
-    if tail_lines < 0 or tail_lines > 1000:
+    if tail_lines < 0 or tail_lines > MAX_TAIL_LINES:
         raise HTTPException(
             status_code=400,
-            detail="tail_lines must be between 0 and 1000"
+            detail=f"tail_lines must be between 0 and {MAX_TAIL_LINES}"
         )
 
     log_file = await _get_job_log_file(job_id, backend)

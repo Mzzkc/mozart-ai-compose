@@ -725,6 +725,9 @@ class JobControlService:
             process = self._running_processes[job_id]
             if process.returncode is None:  # Process still running
                 return process.pid
+            # Process has exited — evict stale tracking entry
+            del self._running_processes[job_id]
+            self._process_start_times.pop(job_id, None)
 
         # Check state backend
         state = await self._state_backend.load(job_id)
@@ -837,8 +840,7 @@ class JobControlService:
         for job_id, process in list(self._running_processes.items()):
             if process.returncode is not None:  # Process has exited
                 del self._running_processes[job_id]
-                if job_id in self._process_start_times:
-                    del self._process_start_times[job_id]
+                self._process_start_times.pop(job_id, None)
                 orphaned_jobs.append(job_id)
 
                 logger.info(

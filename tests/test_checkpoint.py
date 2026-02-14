@@ -12,6 +12,7 @@ from mozart.core.checkpoint import (
     SheetState,
     SheetStatus,
 )
+from mozart.core.errors.codes import ErrorCategory
 
 
 class TestSheetStatus:
@@ -389,11 +390,11 @@ class TestCheckpointState:
         """Test marking a sheet as failed."""
         state = self._create_state(total_sheets=3)
         state.mark_sheet_started(1)
-        state.mark_sheet_failed(1, error_message="Test error", error_category="unknown")
+        state.mark_sheet_failed(1, error_message="Test error", error_category="fatal")
 
         assert state.sheets[1].status == SheetStatus.FAILED
         assert state.sheets[1].error_message == "Test error"
-        assert state.sheets[1].error_category == "unknown"
+        assert state.sheets[1].error_category == ErrorCategory.FATAL
 
     def test_mark_sheet_failed_with_signal_fields(self):
         """Test marking a sheet as failed with signal differentiation fields."""

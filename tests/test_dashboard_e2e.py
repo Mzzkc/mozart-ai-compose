@@ -313,12 +313,12 @@ class TestSheetDetailsE2E:
             ],
             execution_duration_seconds=45.2,
             exit_signal=None,
-            exit_reason="success",
+            exit_reason="completed",
             completion_attempts=2,
             passed_validations=["file_exists", "content_check"],
             failed_validations=[],
             last_pass_percentage=100.0,
-            execution_mode="standard",
+            execution_mode="normal",
             confidence_score=0.955,  # 0-1 scale
             outcome_category="success_first_try",
             first_attempt_success=False,
@@ -360,7 +360,7 @@ class TestSheetDetailsE2E:
         assert data["validation_passed"] is True
         assert len(data["validation_details"]) == 2
         assert data["execution_duration_seconds"] == 45.2
-        assert data["exit_reason"] == "success"
+        assert data["exit_reason"] == "completed"
         assert data["completion_attempts"] == 2
         assert data["passed_validations"] == [
             "file_exists", "content_check",

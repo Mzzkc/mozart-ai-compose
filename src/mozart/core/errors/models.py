@@ -13,7 +13,7 @@ This module provides:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from .codes import ErrorCategory, ErrorCode, ExitReason, Severity
 
@@ -78,7 +78,7 @@ class ParsedCliError:
         metadata: Additional structured metadata from the error.
     """
 
-    error_type: str
+    error_type: Literal["system", "user", "tool"]
     """Error type from CLI: "system", "user", "tool"."""
 
     message: str

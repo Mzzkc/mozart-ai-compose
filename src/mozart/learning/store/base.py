@@ -186,7 +186,7 @@ class GlobalLearningStoreBase:
             conn.commit()
         except Exception as e:
             conn.rollback()
-            _logger.debug(
+            _logger.warning(
                 f"Database operation failed on {self.db_path}: {type(e).__name__}: {e}"
             )
             raise
@@ -222,7 +222,7 @@ class GlobalLearningStoreBase:
             conn.commit()
         except Exception as e:
             conn.rollback()
-            _logger.debug(
+            _logger.warning(
                 f"Batch operation failed on {self.db_path}: {type(e).__name__}: {e}"
             )
             raise

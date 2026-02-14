@@ -59,6 +59,202 @@ from ..output import (
 )
 
 # =============================================================================
+# LogFollower: extracted from logs() closures for testability
+# =============================================================================
+
+# Level ordering for log level filtering.
+_LEVEL_ORDER = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3, "CRITICAL": 4}
+
+# Color mapping for log level display.
+_LEVEL_COLORS = {
+    "DEBUG": "dim",
+    "INFO": "blue",
+    "WARNING": "yellow",
+    "ERROR": "red",
+    "CRITICAL": "red bold",
+}
+
+# Keys excluded from "extras" display in formatted log entries.
+_EXCLUDE_KEYS = {
+    "timestamp", "level", "event", "component",
+    "job_id", "sheet_num", "run_id", "parent_run_id", "_raw",
+}
+
+
+class LogFollower:
+    """Parse, filter, and display structured log entries.
+
+    Extracted from the ``logs()`` command closures to enable unit testing
+    of log parsing, filtering, and formatting independently.
+
+    Args:
+        log_path: Path to the log file.
+        job_id: Optional job ID filter (None = show all).
+        min_level: Minimum log level (0=DEBUG, 1=INFO, 2=WARNING, 3=ERROR, 4=CRITICAL).
+        json_output: If True, output raw JSON instead of formatted lines.
+    """
+
+    def __init__(
+        self,
+        log_path: Path,
+        job_id: str | None = None,
+        min_level: int = 0,
+        json_output: bool = False,
+    ) -> None:
+        self.log_path = log_path
+        self.job_id = job_id
+        self.min_level = min_level
+        self.json_output = json_output
+
+    def parse_line(self, line: str) -> dict[str, Any] | None:
+        """Parse a JSON log line, returning None if blank."""
+        line = line.strip()
+        if not line:
+            return None
+        try:
+            result: dict[str, Any] = json_module.loads(line)
+            return result
+        except json_module.JSONDecodeError:
+            return {"event": line, "_raw": True}
+
+    def should_include(self, entry: dict[str, Any]) -> bool:
+        """Check if a log entry passes the configured filters."""
+        if self.job_id:
+            if entry.get("job_id", "") != self.job_id:
+                return False
+        entry_level = entry.get("level", "INFO").upper()
+        entry_level_num = _LEVEL_ORDER.get(entry_level, 1)
+        return entry_level_num >= self.min_level
+
+    def format_entry(self, entry: dict[str, Any]) -> str:
+        """Format a log entry for Rich console display."""
+        if self.json_output:
+            return json_module.dumps(entry)
+
+        if entry.get("_raw"):
+            return str(entry.get("event", ""))
+
+        timestamp = entry.get("timestamp", "")
+        level_str = entry.get("level", "INFO").upper()
+        event = entry.get("event", "")
+        component = entry.get("component", "")
+        entry_job_id = entry.get("job_id", "")
+        sheet_num = entry.get("sheet_num")
+
+        level_color = _LEVEL_COLORS.get(level_str, "white")
+
+        parts: list[str] = []
+        if timestamp:
+            if "T" in timestamp:
+                ts_short = timestamp.split("T")[1].split("+")[0].split(".")[0]
+                parts.append(f"[dim]{ts_short}[/dim]")
+            else:
+                parts.append(f"[dim]{timestamp[:19]}[/dim]")
+
+        parts.append(f"[{level_color}]{level_str:7}[/{level_color}]")
+
+        if component:
+            parts.append(f"[cyan]{component}[/cyan]")
+        if entry_job_id:
+            parts.append(f"[magenta]{entry_job_id}[/magenta]")
+        if sheet_num is not None:
+            parts.append(f"[green]sheet:{sheet_num}[/green]")
+        parts.append(event)
+
+        extras = {k: v for k, v in entry.items() if k not in _EXCLUDE_KEYS}
+        if extras:
+            extras_str = " ".join(f"{k}={v}" for k, v in extras.items())
+            parts.append(f"[dim]{extras_str}[/dim]")
+
+        return " ".join(parts)
+
+    def read_lines(self, num_lines: int | None = None) -> list[str]:
+        """Read lines from the log file (handles .gz compression)."""
+        is_gzip_file = self.log_path.suffix == ".gz"
+        all_lines: list[str] = []
+
+        try:
+            if is_gzip_file:
+                with gzip.open(self.log_path, "rt", encoding="utf-8") as f:
+                    all_lines = f.readlines()
+            else:
+                with open(self.log_path, encoding="utf-8") as f:
+                    all_lines = f.readlines()
+        except OSError as e:
+            console.print(f"[red]Error reading log file:[/red] {e}")
+            return []
+
+        if num_lines and num_lines > 0:
+            return all_lines[-num_lines:]
+        return all_lines
+
+    def display(self, num_lines: int | None = None) -> None:
+        """Display filtered log entries."""
+        raw_lines = self.read_lines(num_lines)
+
+        if not raw_lines:
+            console.print("[dim]No log entries found.[/dim]")
+            return
+
+        displayed = 0
+        for line in raw_lines:
+            entry = self.parse_line(line)
+            if entry and self.should_include(entry):
+                console.print(self.format_entry(entry))
+                displayed += 1
+
+        if displayed == 0:
+            console.print("[dim]No log entries match the specified filters.[/dim]")
+            if self.job_id:
+                console.print(f"[dim]Job ID filter: {self.job_id}[/dim]")
+
+    def follow(self) -> None:
+        """Follow log file for new entries (like tail -f)."""
+        console.print(f"[dim]Following log file: {self.log_path}[/dim]")
+        console.print("[dim]Press Ctrl+C to stop[/dim]\n")
+
+        file_handle = None
+        try:
+            file_handle = open(self.log_path, encoding="utf-8")  # noqa: SIM115
+            file_handle.seek(0, 2)
+
+            while True:
+                line = file_handle.readline()
+                if line:
+                    entry = self.parse_line(line)
+                    if entry and self.should_include(entry):
+                        console.print(self.format_entry(entry))
+                else:
+                    time.sleep(0.5)
+                    if not self.log_path.exists():
+                        console.print(
+                            "[yellow]Log file rotated. Waiting for new file...[/yellow]"
+                        )
+                        file_handle.close()
+                        for _ in range(10):
+                            time.sleep(1)
+                            if self.log_path.exists():
+                                file_handle = open(self.log_path, encoding="utf-8")  # noqa: SIM115
+                                break
+                        else:
+                            console.print(
+                                "[yellow]Log file not recreated. Stopping.[/yellow]"
+                            )
+                            return
+        except KeyboardInterrupt:
+            console.print("\n[dim]Stopped following logs.[/dim]")
+        except OSError as e:
+            console.print(f"[red]Error following log file:[/red] {e}")
+            raise typer.Exit(1) from None
+        finally:
+            if file_handle:
+                try:
+                    file_handle.close()
+                except OSError:
+                    pass
+
+
+# =============================================================================
 # logs command
 # =============================================================================
 
@@ -144,197 +340,23 @@ def logs(
         target_log = available_logs[0]
 
     # Parse log level filter
-    level_order = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3, "CRITICAL": 4}
     min_level = 0
     if level:
         level_upper = level.upper()
-        if level_upper not in level_order:
+        if level_upper not in _LEVEL_ORDER:
             console.print(
                 f"[red]Invalid log level:[/red] {level}\n"
                 "Valid levels: DEBUG, INFO, WARNING, ERROR, CRITICAL"
             )
             raise typer.Exit(1)
-        min_level = level_order[level_upper]
+        min_level = _LEVEL_ORDER[level_upper]
 
-    def parse_log_line(line: str) -> dict[str, Any] | None:
-        """Parse a JSON log line, returning None if invalid."""
-        line = line.strip()
-        if not line:
-            return None
-        try:
-            result: dict[str, Any] = json_module.loads(line)
-            return result
-        except json_module.JSONDecodeError:
-            # Not a JSON line, return as plain text entry
-            return {"event": line, "_raw": True}
-
-    def should_include(entry: dict[str, Any]) -> bool:
-        """Check if a log entry passes the filters."""
-        # Filter by job_id if specified
-        if job_id:
-            entry_job_id = entry.get("job_id", "")
-            if entry_job_id != job_id:
-                return False
-
-        # Filter by log level
-        entry_level = entry.get("level", "INFO").upper()
-        entry_level_num = level_order.get(entry_level, 1)
-        return entry_level_num >= min_level
-
-    def format_entry(entry: dict[str, Any]) -> str:
-        """Format a log entry for display."""
-        if json_output:
-            return json_module.dumps(entry)
-
-        # Raw/non-JSON line
-        if entry.get("_raw"):
-            return str(entry.get("event", ""))
-
-        # Format structured log entry
-        timestamp = entry.get("timestamp", "")
-        level_str = entry.get("level", "INFO").upper()
-        event = entry.get("event", "")
-        component = entry.get("component", "")
-        entry_job_id = entry.get("job_id", "")
-        sheet_num = entry.get("sheet_num")
-
-        # Color for level
-        level_colors = {
-            "DEBUG": "dim",
-            "INFO": "blue",
-            "WARNING": "yellow",
-            "ERROR": "red",
-            "CRITICAL": "red bold",
-        }
-        level_color = level_colors.get(level_str, "white")
-
-        # Build formatted line
-        parts: list[str] = []
-        if timestamp:
-            # Shorten timestamp for display
-            if "T" in timestamp:
-                ts_short = timestamp.split("T")[1].split("+")[0].split(".")[0]
-                parts.append(f"[dim]{ts_short}[/dim]")
-            else:
-                parts.append(f"[dim]{timestamp[:19]}[/dim]")
-
-        parts.append(f"[{level_color}]{level_str:7}[/{level_color}]")
-
-        if component:
-            parts.append(f"[cyan]{component}[/cyan]")
-
-        if entry_job_id:
-            parts.append(f"[magenta]{entry_job_id}[/magenta]")
-
-        if sheet_num is not None:
-            parts.append(f"[green]sheet:{sheet_num}[/green]")
-
-        parts.append(event)
-
-        # Add extra context fields
-        exclude_keys = {
-            "timestamp", "level", "event", "component",
-            "job_id", "sheet_num", "run_id", "parent_run_id", "_raw",
-        }
-        extras = {k: v for k, v in entry.items() if k not in exclude_keys}
-        if extras:
-            extras_str = " ".join(f"{k}={v}" for k, v in extras.items())
-            parts.append(f"[dim]{extras_str}[/dim]")
-
-        return " ".join(parts)
-
-    def read_log_lines(path: Path, num_lines: int | None = None) -> list[str]:
-        """Read lines from a log file (handles .gz compression)."""
-        is_gzip_file = path.suffix == ".gz"
-        all_lines: list[str] = []
-
-        try:
-            if is_gzip_file:
-                with gzip.open(path, "rt", encoding="utf-8") as f:
-                    all_lines = f.readlines()
-            else:
-                with open(path, encoding="utf-8") as f:
-                    all_lines = f.readlines()
-        except OSError as e:
-            console.print(f"[red]Error reading log file:[/red] {e}")
-            return []
-
-        if num_lines and num_lines > 0:
-            return all_lines[-num_lines:]
-        return all_lines
-
-    def display_logs() -> None:
-        """Display filtered log entries."""
-        raw_lines = read_log_lines(target_log, lines if lines > 0 else None)
-
-        if not raw_lines:
-            console.print("[dim]No log entries found.[/dim]")
-            return
-
-        displayed = 0
-        for line in raw_lines:
-            entry = parse_log_line(line)
-            if entry and should_include(entry):
-                console.print(format_entry(entry))
-                displayed += 1
-
-        if displayed == 0:
-            console.print("[dim]No log entries match the specified filters.[/dim]")
-            if job_id:
-                console.print(f"[dim]Job ID filter: {job_id}[/dim]")
-            if level:
-                console.print(f"[dim]Level filter: {level.upper()}+[/dim]")
-
-    def follow_logs() -> None:
-        """Follow log file for new entries (like tail -f)."""
-        console.print(f"[dim]Following log file: {target_log}[/dim]")
-        console.print("[dim]Press Ctrl+C to stop[/dim]\n")
-
-        file_handle = None
-        try:
-            # Open file and go to end
-            file_handle = open(target_log, encoding="utf-8")  # noqa: SIM115
-            file_handle.seek(0, 2)
-
-            while True:
-                line = file_handle.readline()
-                if line:
-                    entry = parse_log_line(line)
-                    if entry and should_include(entry):
-                        console.print(format_entry(entry))
-                else:
-                    # No new data, wait a bit
-                    time.sleep(0.5)
-
-                    # Check if file was rotated (inode changed or file deleted)
-                    if not target_log.exists():
-                        console.print(
-                            "[yellow]Log file rotated. Waiting for new file...[/yellow]"
-                        )
-                        file_handle.close()
-
-                        # Wait for new file to appear
-                        for _ in range(10):
-                            time.sleep(1)
-                            if target_log.exists():
-                                file_handle = open(target_log, encoding="utf-8")  # noqa: SIM115
-                                break
-                        else:
-                            console.print(
-                                "[yellow]Log file not recreated. Stopping.[/yellow]"
-                            )
-                            return
-        except KeyboardInterrupt:
-            console.print("\n[dim]Stopped following logs.[/dim]")
-        except OSError as e:
-            console.print(f"[red]Error following log file:[/red] {e}")
-            raise typer.Exit(1) from None
-        finally:
-            if file_handle:
-                try:
-                    file_handle.close()
-                except Exception:
-                    pass
+    follower = LogFollower(
+        log_path=target_log,
+        job_id=job_id,
+        min_level=min_level,
+        json_output=json_output,
+    )
 
     # Show log file info
     if not is_quiet() and not json_output:
@@ -342,9 +364,9 @@ def logs(
 
     # Either follow or display
     if follow:
-        follow_logs()
+        follower.follow()
     else:
-        display_logs()
+        follower.display(num_lines=lines if lines > 0 else None)
 
 
 # =============================================================================

@@ -11,11 +11,43 @@ and apply that learning to improve future sheet executions.
 
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from mozart.learning.store.models import QuarantineStatus
+
+# --- Pattern detection thresholds ---
+MIN_PATTERN_FREQUENCY: int = 2  # Minimum occurrences before a pattern is created
+MIN_ERROR_CATEGORY_FREQUENCY: int = 3  # Minimum for error category aggregation
+MIN_FIX_SUGGESTION_FREQUENCY: int = 3  # Minimum for fix suggestion patterns
+MIN_FIRST_ATTEMPT_SUCCESSES: int = 3  # Minimum first-attempt successes for pattern
+MIN_EFFECTIVENESS_APPLICATIONS: int = 3  # Minimum apps before trusting effectiveness
+DEFAULT_EFFECTIVENESS_RATE: float = 0.4  # Rate for untested patterns (< 3 apps)
+EFFECTIVENESS_FULL_WEIGHT_APPS: float = 5.0  # Applications for full effectiveness weight
+
+# --- Relevance scoring weights (sum ≈ 1.0) ---
+RELEVANCE_CONFIDENCE_WEIGHT: float = 0.25
+RELEVANCE_FREQUENCY_WEIGHT: float = 0.20
+RELEVANCE_CONTEXT_WEIGHT: float = 0.25
+RELEVANCE_RECENCY_WEIGHT: float = 0.15
+RELEVANCE_EFFECTIVENESS_WEIGHT: float = 0.15
+FREQUENCY_NORMALIZER: float = 10.0  # frequency / N, capped at 1.0
+RECENCY_HALF_LIFE_DAYS: float = 7.0  # 50% decay per this many days
+
+# --- Trust and quarantine adjustments ---
+QUARANTINE_PENALTY: float = 0.3
+VALIDATED_BONUS: float = 0.1
+HIGH_TRUST_THRESHOLD: float = 0.7
+LOW_TRUST_THRESHOLD: float = 0.3
+TRUST_BONUS_SCALE: float = 0.33  # (trust - threshold) * scale
+
+# --- Failure reason normalization ---
+MAX_NORMALIZABLE_REASON_LENGTH: int = 50
+
+# --- Prompt guidance limits ---
+MAX_PROMPT_PATTERNS: int = 5
+
 
 if TYPE_CHECKING:
     from mozart.core.checkpoint import ValidationDetailDict
@@ -114,7 +146,7 @@ class DetectedPattern:
     success_rate: float = 0.0
     """Rate at which this pattern leads to success (0.0-1.0)."""
 
-    last_seen: datetime = field(default_factory=lambda: datetime.now(tz=timezone.utc))
+    last_seen: datetime = field(default_factory=lambda: datetime.now(tz=UTC))
     """When this pattern was last observed (UTC)."""
 
     context_tags: list[str] = field(default_factory=list)
@@ -150,8 +182,8 @@ class DetectedPattern:
             This prevents unproven patterns from being treated equally with
             patterns that have demonstrated moderate (50%) success.
         """
-        if self.applications < 3:
-            return 0.4  # Slightly below neutral to prefer proven patterns
+        if self.applications < MIN_EFFECTIVENESS_APPLICATIONS:
+            return DEFAULT_EFFECTIVENESS_RATE
         return self.successes_after_application / self.applications
 
     @property
@@ -164,7 +196,7 @@ class DetectedPattern:
         Returns:
             Weight (0.0-1.0) based on sample size.
         """
-        return min(self.applications / 5.0, 1.0)
+        return min(self.applications / EFFECTIVENESS_FULL_WEIGHT_APPS, 1.0)
 
     @property
     def is_quarantined(self) -> bool:
@@ -193,9 +225,9 @@ class DetectedPattern:
         # v19: Add trust indicator if available
         trust_indicator = ""
         if self.trust_score is not None:
-            if self.trust_score >= 0.7:
+            if self.trust_score >= HIGH_TRUST_THRESHOLD:
                 trust_indicator = " [High trust]"
-            elif self.trust_score <= 0.3:
+            elif self.trust_score <= LOW_TRUST_THRESHOLD:
                 trust_indicator = " [Low trust]"
             else:
                 trust_indicator = f" [Trust: {self.trust_score:.0%}]"
@@ -330,9 +362,9 @@ class PatternDetector:
                             failure_evidence[vtype] = []
                         failure_evidence[vtype].append(outcome.sheet_id)
 
-        # Create patterns for recurring failures (seen >= 2 times)
+        # Create patterns for recurring failures
         for vtype, count in failure_counts.items():
-            if count >= 2:
+            if count >= MIN_PATTERN_FREQUENCY:
                 patterns.append(
                     DetectedPattern(
                         pattern_type=PatternType.VALIDATION_FAILURE,
@@ -363,7 +395,7 @@ class PatternDetector:
             if o.retry_count > 0 and o.validation_pass_rate == 1.0
         ]
 
-        if len(retry_successes) >= 2:
+        if len(retry_successes) >= MIN_PATTERN_FREQUENCY:
             # Calculate average retries needed
             avg_retries = sum(o.retry_count for o in retry_successes) / len(retry_successes)
             patterns.append(
@@ -393,7 +425,7 @@ class PatternDetector:
         # Find outcomes where completion mode was used
         completion_used = [o for o in self.outcomes if o.completion_mode_used]
 
-        if len(completion_used) >= 2:
+        if len(completion_used) >= MIN_PATTERN_FREQUENCY:
             success_in_completion = [
                 o for o in completion_used
                 if o.validation_pass_rate == 1.0
@@ -433,7 +465,7 @@ class PatternDetector:
             o for o in self.outcomes if o.first_attempt_success
         ]
 
-        if len(first_attempt_successes) >= 3:
+        if len(first_attempt_successes) >= MIN_FIRST_ATTEMPT_SUCCESSES:
             success_rate = len(first_attempt_successes) / len(self.outcomes)
             patterns.append(
                 DetectedPattern(
@@ -465,10 +497,10 @@ class PatternDetector:
         for outcome in self.outcomes:
             for val_result in outcome.validation_results:
                 confidence = val_result.get("confidence", 1.0)
-                if confidence < 0.7:
+                if confidence < HIGH_TRUST_THRESHOLD:
                     low_confidence_validations.append(val_result)
 
-        if len(low_confidence_validations) >= 2:
+        if len(low_confidence_validations) >= MIN_PATTERN_FREQUENCY:
             patterns.append(
                 DetectedPattern(
                     pattern_type=PatternType.LOW_CONFIDENCE,
@@ -535,9 +567,9 @@ class PatternDetector:
                     if outcome.sheet_id not in error_evidence[ec]:
                         error_evidence[ec].append(outcome.sheet_id)
 
-        # Create patterns for recurring error codes (seen >= 2 times)
+        # Create patterns for recurring error codes
         for code, count in error_counts.items():
-            if count >= 2:
+            if count >= MIN_PATTERN_FREQUENCY:
                 patterns.append(
                     DetectedPattern(
                         pattern_type=PatternType.VALIDATION_FAILURE,
@@ -552,7 +584,7 @@ class PatternDetector:
 
         # Create patterns for error categories (aggregated)
         for category, count in error_categories.items():
-            if count >= 3:
+            if count >= MIN_ERROR_CATEGORY_FREQUENCY:
                 patterns.append(
                     DetectedPattern(
                         pattern_type=PatternType.VALIDATION_FAILURE,
@@ -702,9 +734,9 @@ class PatternDetector:
         """
         patterns: list[DetectedPattern] = []
 
-        # Recurring failure categories (seen >= 2 times)
+        # Recurring failure categories
         for category, count in counts.category_counts.items():
-            if count >= 2:
+            if count >= MIN_PATTERN_FREQUENCY:
                 patterns.append(
                     DetectedPattern(
                         pattern_type=PatternType.SEMANTIC_FAILURE,
@@ -717,9 +749,9 @@ class PatternDetector:
                     )
                 )
 
-        # Recurring failure reasons (seen >= 2 times)
+        # Recurring failure reasons
         for reason, count in counts.reason_counts.items():
-            if count >= 2 and reason:
+            if count >= MIN_PATTERN_FREQUENCY and reason:
                 patterns.append(
                     DetectedPattern(
                         pattern_type=PatternType.SEMANTIC_FAILURE,
@@ -732,9 +764,9 @@ class PatternDetector:
                     )
                 )
 
-        # Effective fix suggestions (seen >= 3 times)
+        # Effective fix suggestions
         for fix, count in counts.fix_counts.items():
-            if count >= 3:
+            if count >= MIN_FIX_SUGGESTION_FREQUENCY:
                 patterns.append(
                     DetectedPattern(
                         pattern_type=PatternType.SEMANTIC_FAILURE,
@@ -792,9 +824,9 @@ class PatternDetector:
             if pattern in normalized:
                 return pattern
 
-        # If no common pattern matches, return first 50 chars as-is
+        # If no common pattern matches, return first N chars as-is
         # This prevents aggregating very specific error messages
-        if len(normalized) > 50:
+        if len(normalized) > MAX_NORMALIZABLE_REASON_LENGTH:
             return ""  # Too specific to aggregate
 
         return normalized
@@ -881,55 +913,51 @@ class PatternMatcher:
         """
         score = 0.0
 
-        # Weights normalized to sum to ~1.0:
-        # confidence=0.25, frequency=0.20, context_tags=0.25,
-        # recency=0.15, effectiveness=0.15 (max)
-        # v19: quarantine/trust adjustments are additive modifiers
-
         # Base score from pattern confidence
-        score += pattern.confidence * 0.25
+        score += pattern.confidence * RELEVANCE_CONFIDENCE_WEIGHT
 
         # Score from frequency (more frequent = more relevant)
-        frequency_score = min(1.0, pattern.frequency / 10.0)
-        score += frequency_score * 0.20
+        frequency_score = min(1.0, pattern.frequency / FREQUENCY_NORMALIZER)
+        score += frequency_score * RELEVANCE_FREQUENCY_WEIGHT
 
         # Score from context tag matching
         context_tags = context.get("tags", [])
         if isinstance(context_tags, list):
             matching_tags = len(set(pattern.context_tags) & set(context_tags))
             if matching_tags > 0:
-                score += min(1.0, matching_tags * 0.2) * 0.25
+                score += min(1.0, matching_tags * 0.2) * RELEVANCE_CONTEXT_WEIGHT
 
         # Score from recency (more recent = more relevant)
-        # Exponential decay: 50% weight loss per week
-        age_days = (datetime.now(tz=timezone.utc) - pattern.last_seen).days
-        recency_score = 0.5 ** (age_days / 7)
-        score += recency_score * 0.15
+        age_days = (datetime.now(tz=UTC) - pattern.last_seen).days
+        recency_score = 0.5 ** (age_days / RECENCY_HALF_LIFE_DAYS)
+        score += recency_score * RELEVANCE_RECENCY_WEIGHT
 
-        # Score from effectiveness (Evolution: Pattern Effectiveness)
-        # Blend effectiveness into score, weighted by sample size
-        # effectiveness_weight = min(applications / 5, 1.0)
-        # effectiveness_rate = successes / applications (or 0.4 if < 3 samples)
+        # Score from effectiveness (blended by sample size)
         effectiveness_boost = (
-            pattern.effectiveness_rate * pattern.effectiveness_weight * 0.15
+            pattern.effectiveness_rate * pattern.effectiveness_weight
+            * RELEVANCE_EFFECTIVENESS_WEIGHT
         )
         score += effectiveness_boost
 
         # v19: Quarantine status adjustments
         if pattern.is_quarantined:
-            score -= 0.3  # Significant penalty for quarantined patterns
+            score -= QUARANTINE_PENALTY
         elif pattern.is_validated:
-            score += 0.1  # Bonus for validated patterns
+            score += VALIDATED_BONUS
 
         # v19: Trust score adjustments
         if pattern.trust_score is not None:
-            if pattern.trust_score >= 0.7:
-                # High trust bonus: +0.1 to +0.2 based on trust level
-                trust_bonus = 0.1 + (pattern.trust_score - 0.7) * 0.33
+            if pattern.trust_score >= HIGH_TRUST_THRESHOLD:
+                trust_bonus = (
+                    VALIDATED_BONUS
+                    + (pattern.trust_score - HIGH_TRUST_THRESHOLD) * TRUST_BONUS_SCALE
+                )
                 score += trust_bonus
-            elif pattern.trust_score <= 0.3:
-                # Low trust penalty: -0.1 to -0.2 based on trust level
-                trust_penalty = 0.1 + (0.3 - pattern.trust_score) * 0.33
+            elif pattern.trust_score <= LOW_TRUST_THRESHOLD:
+                trust_penalty = (
+                    VALIDATED_BONUS
+                    + (LOW_TRUST_THRESHOLD - pattern.trust_score) * TRUST_BONUS_SCALE
+                )
                 score -= trust_penalty
 
         return float(max(0.0, min(1.0, score)))
@@ -965,7 +993,7 @@ class PatternApplicator:
         )
         lines.append("")
 
-        for i, pattern in enumerate(self.patterns[:5], 1):
+        for i, pattern in enumerate(self.patterns[:MAX_PROMPT_PATTERNS], 1):
             guidance = pattern.to_prompt_guidance()
             lines.append(f"{i}. {guidance}")
 
@@ -981,7 +1009,7 @@ class PatternApplicator:
         Returns:
             List of pattern guidance strings.
         """
-        return [p.to_prompt_guidance() for p in self.patterns[:5]]
+        return [p.to_prompt_guidance() for p in self.patterns[:MAX_PROMPT_PATTERNS]]
 
 
 class OutputPatternExtractor:

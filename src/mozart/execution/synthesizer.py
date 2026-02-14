@@ -17,7 +17,7 @@ outputs after batch completion.
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from mozart.core.checkpoint import SynthesisResultDict
 from mozart.core.logging import get_logger
@@ -87,7 +87,7 @@ class SynthesisResult:
     batch_id: str
     sheets: list[int] = field(default_factory=list)
     strategy: SynthesisStrategy = SynthesisStrategy.MERGE
-    status: str = "pending"  # pending, ready, done, failed
+    status: Literal["pending", "ready", "done", "failed"] = "pending"
     created_at: datetime = field(default_factory=utc_now)
     completed_at: datetime | None = None
     sheet_outputs: dict[int, str] = field(default_factory=dict)

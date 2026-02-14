@@ -41,6 +41,7 @@ from mozart.notifications.desktop import (
     MockDesktopNotifier,
     is_desktop_notification_available,
 )
+from mozart.notifications.factory import create_notifiers_from_config
 from mozart.notifications.slack import (
     MockSlackNotifier,
     SlackNotifier,
@@ -49,7 +50,6 @@ from mozart.notifications.webhook import (
     MockWebhookNotifier,
     WebhookNotifier,
 )
-from mozart.notifications.factory import create_notifiers_from_config
 
 __all__ = [
     # Base types

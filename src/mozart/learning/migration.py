@@ -207,9 +207,14 @@ class OutcomeMigrator:
                 detected_count: int = self._detect_patterns_from_store()
                 result.patterns_detected = detected_count
             except Exception as e:
+                _logger.warning("pattern_detection_error", error=str(e), exc_info=True)
                 result.errors.append(f"Pattern detection error: {e}")
 
-        _logger.info("migration_complete", outcomes=result.outcomes_imported, patterns=result.patterns_detected)
+        _logger.info(
+            "migration_complete",
+            outcomes=result.outcomes_imported,
+            patterns=result.patterns_detected,
+        )
 
         return result
 
@@ -240,6 +245,12 @@ class OutcomeMigrator:
             else:
                 result.skipped_workspaces.append(str(workspace_path))
         except Exception as e:
+            _logger.warning(
+                "workspace_migration_error",
+                workspace=str(workspace_path),
+                error=str(e),
+                exc_info=True,
+            )
             result.errors.append(f"Error: {e}")
 
         return result

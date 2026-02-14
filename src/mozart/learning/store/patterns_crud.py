@@ -23,6 +23,12 @@ from mozart.core.logging import MozartLogger
 from mozart.learning.store.base import _logger
 from mozart.learning.store.models import QuarantineStatus
 
+# Effectiveness calculation constants
+DECAY_BASE: float = 0.9  # Per-period decay factor (closer to 1 = slower decay)
+DECAY_PERIOD_DAYS: float = 30.0  # Days per decay period
+GROUNDING_BASE_WEIGHT: float = 0.7  # Minimum weight when grounding = 0
+GROUNDING_SENSITIVITY: float = 0.3  # Additional weight range from grounding (0→1)
+
 
 @dataclass(frozen=True)
 class PatternProvenance:
@@ -347,8 +353,8 @@ class PatternCrudMixin:
             Effectiveness score between 0.0 and 1.0.
         """
         combined: float = alpha * recent + (1 - alpha) * historical
-        decay: float = 0.9 ** (days_since_confirmed / 30.0)
-        grounding_weight: float = 0.7 + 0.3 * avg_grounding
+        decay: float = DECAY_BASE ** (days_since_confirmed / DECAY_PERIOD_DAYS)
+        grounding_weight: float = GROUNDING_BASE_WEIGHT + GROUNDING_SENSITIVITY * avg_grounding
         return combined * decay * grounding_weight
 
     def _calculate_effectiveness(

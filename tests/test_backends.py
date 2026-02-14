@@ -7,6 +7,7 @@ Tests cover:
 """
 
 import asyncio
+import contextlib
 import signal
 import signal as signal_module
 import time
@@ -465,10 +466,8 @@ class TestClaudeCliBackendTimeoutOverride:
             patch.object(backend, "_prepare_log_files"),
             patch.object(backend, "_stream_with_progress", side_effect=_capture_stream),
         ):
-            try:
+            with contextlib.suppress(Exception):
                 await backend._execute_impl("test", timeout_seconds=60.0)
-            except Exception:
-                pass  # We only care about the timeout passed to stream
             assert captured_timeout == [60.0]
 
 

@@ -296,6 +296,26 @@ class ValidationEngine:
                 if attempt < max_attempts - 1:
                     await asyncio.sleep(delay_seconds)
 
+            except OSError as e:
+                last_result = ValidationResult(
+                    rule=rule,
+                    passed=False,
+                    expected_value=rule.path or rule.pattern,
+                    error_message=f"I/O error: {e}",
+                    error_type="io_error",
+                )
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(delay_seconds)
+            except re.error as e:
+                last_result = ValidationResult(
+                    rule=rule,
+                    passed=False,
+                    expected_value=rule.path or rule.pattern,
+                    error_message=f"Regex error: {e}",
+                    error_type="regex_error",
+                )
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(delay_seconds)
             except Exception as e:
                 last_result = ValidationResult(
                     rule=rule,

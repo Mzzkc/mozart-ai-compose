@@ -86,17 +86,12 @@ class ConfigResources:
 
         # Dynamic job detail resources - only available if we have state backend
         if self.state_backend:
-            try:
-                # Note: This would require implementing a method to list all job IDs
-                # For now, we document the pattern for job-specific resources
-                resources.append({
-                    "uri": "mozart://jobs/{job_id}",
-                    "name": "Mozart Job Details (Template)",
-                    "description": "Detailed information about a specific Mozart job",
-                    "mimeType": "application/json"
-                })
-            except Exception:
-                logger.debug("State backend not available for job resources", exc_info=True)
+            resources.append({
+                "uri": "mozart://jobs/{job_id}",
+                "name": "Mozart Job Details (Template)",
+                "description": "Detailed information about a specific Mozart job",
+                "mimeType": "application/json"
+            })
 
         return resources
 

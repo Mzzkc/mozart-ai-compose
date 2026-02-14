@@ -22,6 +22,7 @@ from mozart.core.config.execution import (
     ParallelConfig,
     RateLimitConfig,
     RetryConfig,
+    StaleDetectionConfig,
     ValidationRule,
 )
 from mozart.core.config.learning import (
@@ -312,6 +313,11 @@ class JobConfig(BaseModel):
         default_factory=ParallelConfig,
         description="Parallel sheet execution configuration. "
         "Enables running independent sheets concurrently.",
+    )
+    stale_detection: StaleDetectionConfig = Field(
+        default_factory=StaleDetectionConfig,
+        description="Stale execution detection configuration. "
+        "When enabled, fails sheets that produce no output beyond idle_timeout_seconds.",
     )
     checkpoints: CheckpointConfig = Field(
         default_factory=CheckpointConfig,

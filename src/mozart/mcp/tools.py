@@ -136,7 +136,10 @@ class JobTools:
             else:
                 raise ValueError(f"Unknown job tool: {name}")
 
-        except Exception as e:
+        except (
+            KeyError, ValueError, FileNotFoundError,
+            RuntimeError, OSError, ConnectionError,
+        ) as e:
             logger.exception("Error executing tool %s", name)
             return _make_error_response(e)
 
@@ -181,9 +184,9 @@ class JobTools:
                     "content": [{"type": "text", "text": result}]
                 }
         except DaemonNotRunningError:
-            pass
-        except Exception:
-            logger.debug("daemon_list_jobs_failed", exc_info=True)
+            logger.info("daemon_not_running for list_jobs")
+        except (OSError, ConnectionError, TimeoutError):
+            logger.warning("daemon_list_jobs_failed", exc_info=True)
 
         # Fallback: daemon not available
         result = "Mozart MCP Job Listing\n"
@@ -306,7 +309,7 @@ class JobTools:
                 "content": [{"type": "text", "text": response_text}]
             }
 
-        except Exception as e:
+        except (FileNotFoundError, ValueError, RuntimeError, OSError) as e:
             logger.exception("Failed to start job from %s", config_path)
             raise RuntimeError(f"Failed to start job: {e}") from e
 
@@ -388,7 +391,7 @@ class ControlTools:
             else:
                 raise ValueError(f"Unknown control tool: {name}")
 
-        except Exception as e:
+        except (KeyError, ValueError, RuntimeError, OSError, ConnectionError) as e:
             logger.exception("Error executing control tool %s", name)
             return _make_error_response(e)
 
@@ -415,7 +418,7 @@ class ControlTools:
                 "content": [{"type": "text", "text": response_text}]
             }
 
-        except Exception as e:
+        except (RuntimeError, OSError, ConnectionError) as e:
             logger.exception("Error pausing job %s", job_id)
             raise RuntimeError(f"Failed to pause job: {e}") from e
 
@@ -441,7 +444,7 @@ class ControlTools:
                 "content": [{"type": "text", "text": response_text}]
             }
 
-        except Exception as e:
+        except (RuntimeError, OSError, ConnectionError) as e:
             logger.exception("Error resuming job %s", job_id)
             raise RuntimeError(f"Failed to resume job: {e}") from e
 
@@ -468,7 +471,7 @@ class ControlTools:
                 "content": [{"type": "text", "text": response_text}]
             }
 
-        except Exception as e:
+        except (RuntimeError, OSError, ConnectionError) as e:
             logger.exception("Error cancelling job %s", job_id)
             raise RuntimeError(f"Failed to cancel job: {e}") from e
 
@@ -673,7 +676,10 @@ class ArtifactTools:
             }
         try:
             return await handler(arguments)
-        except Exception as e:
+        except (
+            KeyError, ValueError, FileNotFoundError, IsADirectoryError,
+            NotADirectoryError, PermissionError, OSError,
+        ) as e:
             logger.exception("Error executing artifact tool %s", name)
             return _make_error_response(e)
 
@@ -890,7 +896,7 @@ class ArtifactTools:
 
                 parts.append("\n" + "-" * 40 + "\n\n")
 
-            except Exception as e:
+            except (OSError, UnicodeDecodeError) as e:
                 parts.append(f"Error reading {log_file}: {e}\n\n")
 
         return {
@@ -1047,7 +1053,7 @@ class ArtifactTools:
                         result += f"Large Binary File:\n{'-' * 40}\n"
                         result += f"First 1KB (hex): {raw_data[:1000].hex()}\n"
                         result += f"... ({len(raw_data)} total bytes)"
-        except Exception as e:
+        except (OSError, UnicodeDecodeError) as e:
             result += f"Error reading artifact content: {e}"
 
         return {
@@ -1136,7 +1142,7 @@ class ScoreTools:
             else:
                 raise ValueError(f"Unknown score tool: {name}")
 
-        except Exception as e:
+        except (KeyError, ValueError, FileNotFoundError, PermissionError, OSError) as e:
             logger.exception("Error executing score tool %s", name)
             return _make_error_response(e)
 
@@ -1251,15 +1257,3 @@ class ScoreTools:
     async def shutdown(self) -> None:
         """Cleanup score tools."""
         pass
-
-
-# Code Review During Implementation:
-# ✓ Proper parameter validation with JSON schemas
-# ✓ Security considerations (workspace restrictions, file size limits)
-# ✓ Error handling with clear user messages
-# ✓ Tool categorization for clear separation of concerns
-# ✓ Async/await pattern consistent
-# ✓ Logging for operational visibility
-# ✓ Security notes about requiring Mozart CLI for actual execution
-# ✓ Stub implementation with clear upgrade path to full AIReviewer integration
-# ✓ Documentation of score components and thresholds

@@ -262,8 +262,9 @@ def get_default_state_backend() -> StateBackend:
 
 # Re-exported from notifications module for backwards compatibility.
 # The canonical implementation lives in mozart.notifications.factory.
-from mozart.notifications.factory import create_notifiers_from_config as create_notifiers_from_config  # noqa: F401, E501
-
+from mozart.notifications.factory import (
+    create_notifiers_from_config as create_notifiers_from_config,  # noqa: F401, E501
+)
 
 # =============================================================================
 # State discovery helpers

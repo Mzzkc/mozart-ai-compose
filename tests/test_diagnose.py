@@ -194,7 +194,7 @@ class TestBuildDiagnosticReport:
                 status=SheetStatus.FAILED,
                 attempt_count=3,
                 error_message="CLI not found",
-                error_category="E201",
+                error_category="validation",
                 exit_code=127,
             ),
         }
@@ -204,7 +204,7 @@ class TestBuildDiagnosticReport:
         assert report["error_count"] == 1
         err = report["errors"][0]
         assert err["error_message"] == "CLI not found"
-        assert err["error_code"] == "E201"
+        assert err["error_code"] == "validation"
         assert err["context"]["exit_code"] == 127
 
     def test_no_errors_when_clean(self) -> None:
@@ -520,7 +520,7 @@ class TestErrorsCommand:
             1: SheetState(
                 sheet_num=1, status=SheetStatus.FAILED, attempt_count=2,
                 error_message="CLI binary not found",
-                error_category="E201",
+                error_category="validation",
             ),
         }
         job = _make_job(total_sheets=1, status=JobStatus.FAILED, sheets=sheets)

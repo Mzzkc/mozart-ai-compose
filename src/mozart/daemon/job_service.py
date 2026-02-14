@@ -10,6 +10,7 @@ All user-facing output goes through OutputProtocol.
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
@@ -427,7 +428,7 @@ class JobService:
                 )
                 self._notification_consecutive_failures = 0
                 self._notifications_degraded = False
-        except Exception:
+        except (OSError, ConnectionError, TimeoutError):
             self._notification_consecutive_failures += 1
             if (
                 self._notification_consecutive_failures
@@ -686,7 +687,7 @@ class JobService:
                             )
                         chosen_backend = backend
                         return state, backend
-                except Exception as e:
+                except (OSError, sqlite3.Error) as e:
                     failed_backends.append(name)
                     _logger.warning(
                         "error_querying_backend",

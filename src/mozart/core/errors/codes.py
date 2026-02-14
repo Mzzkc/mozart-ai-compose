@@ -678,3 +678,9 @@ class ErrorCategory(str, Enum):
 
     CONFIGURATION = "configuration"
     """Non-retriable - configuration error needs user intervention (e.g., MCP setup)."""
+
+    PREFLIGHT = "preflight"
+    """Pre-execution check failure — config or environment not ready."""
+
+    ESCALATION = "escalation"
+    """Escalation-based abort — grounding or escalation policy triggered."""

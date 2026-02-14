@@ -447,7 +447,7 @@ async def _resume_job(
         if notification_manager:
             try:
                 await notification_manager.close()
-            except Exception:
+            except OSError:
                 pass  # Don't mask errors during final cleanup
 
 

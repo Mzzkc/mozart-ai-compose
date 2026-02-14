@@ -11,7 +11,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class IsolationMode(str, Enum):
@@ -200,6 +200,15 @@ class LogConfig(BaseModel):
         description="Include bound context (job_id, sheet_num) in log entries",
     )
 
+    @model_validator(mode="after")
+    def _check_file_path_required(self) -> LogConfig:
+        """Validate that file_path is set when format requires file output."""
+        if self.format == "both" and self.file_path is None:
+            raise ValueError(
+                f"file_path is required when format='{self.format}'"
+            )
+        return self
+
 
 class AIReviewConfig(BaseModel):
     """Configuration for AI-powered code review after batch execution.
@@ -237,6 +246,15 @@ class AIReviewConfig(BaseModel):
         default=None,
         description="Custom prompt template for review (uses default if None)",
     )
+
+    @model_validator(mode="after")
+    def _check_score_range(self) -> AIReviewConfig:
+        """Validate that min_score <= target_score."""
+        if self.min_score > self.target_score:
+            raise ValueError(
+                f"min_score ({self.min_score}) must be <= target_score ({self.target_score})"
+            )
+        return self
 
 
 class CrossSheetConfig(BaseModel):

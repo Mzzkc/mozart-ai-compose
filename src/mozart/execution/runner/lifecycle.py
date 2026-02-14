@@ -695,6 +695,8 @@ class LifecycleMixin:
                 condition=condition,
                 error=str(e),
             )
+            return f"Condition evaluation failed (fail-closed): {condition}"
+
         return None
 
     async def _execute_sequential_mode(self, state: CheckpointState) -> None:

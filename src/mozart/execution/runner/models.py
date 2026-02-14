@@ -381,6 +381,38 @@ class FailureHandlingResult:
     """Error message if action is 'fatal'."""
 
 
+@dataclass
+class ModeDecisionResult:
+    """Result from _apply_mode_decision indicating what the caller should do.
+
+    Groups the outcome of judgment/completion/escalation/retry mode selection
+    into a single result, reducing control flow complexity in the main loop.
+
+    Flow control:
+    - "continue": Re-enter the while loop (completion mode, retry, escalation retry)
+    - "return": Exit the function (escalation skip)
+    - "fatal": Raise FatalError with the given message
+    """
+
+    action: Literal["continue", "return", "fatal"]
+    """Flow control action for the caller."""
+
+    current_prompt: str
+    """Updated prompt (may be modified by completion/escalation/judgment)."""
+
+    current_mode: SheetExecutionMode
+    """Updated execution mode."""
+
+    normal_attempts: int
+    """Updated normal attempt counter."""
+
+    completion_attempts: int
+    """Updated completion attempt counter."""
+
+    fatal_message: str = ""
+    """Error message if action is 'fatal'."""
+
+
 class FatalError(Exception):
     """Non-recoverable error that should stop the job."""
 

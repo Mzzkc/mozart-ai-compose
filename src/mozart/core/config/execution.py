@@ -214,6 +214,53 @@ class CostLimitConfig(BaseModel):
         return self
 
 
+class StaleDetectionConfig(BaseModel):
+    """Configuration for detecting stale (hung) sheet executions.
+
+    When enabled, monitors execution activity and fails sheets that produce
+    no output for longer than ``idle_timeout_seconds``. This catches hung
+    processes that the per-sheet timeout alone may not detect quickly enough
+    (e.g., a 30-minute timeout sheet that hangs after 2 minutes of output).
+
+    Example:
+        stale_detection:
+          enabled: true
+          idle_timeout_seconds: 300
+          check_interval_seconds: 30
+
+    Note: The idle timeout should be generous enough to accommodate legitimate
+    pauses (e.g., waiting for API responses). A minimum of 120 seconds is
+    recommended for LLM-based workloads.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable stale execution detection. "
+        "When true, sheets with no output activity beyond idle_timeout_seconds are failed.",
+    )
+    idle_timeout_seconds: float = Field(
+        default=300.0,
+        gt=0,
+        description="Maximum seconds of inactivity before marking a sheet as stale. "
+        "Default 300s (5 minutes). Recommended minimum 120s for LLM workloads.",
+    )
+    check_interval_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        description="How often (seconds) to check for idle executions. "
+        "Lower values detect stale sheets faster but add minor overhead.",
+    )
+
+    @model_validator(mode="after")
+    def _validate_interval_vs_timeout(self) -> StaleDetectionConfig:
+        if self.check_interval_seconds >= self.idle_timeout_seconds:
+            raise ValueError(
+                f"check_interval_seconds ({self.check_interval_seconds}) must be less than "
+                f"idle_timeout_seconds ({self.idle_timeout_seconds})"
+            )
+        return self
+
+
 class ParallelConfig(BaseModel):
     """Configuration for parallel sheet execution (v17 evolution).
 

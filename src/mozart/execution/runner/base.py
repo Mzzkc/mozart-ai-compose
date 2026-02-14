@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import signal
 import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -233,6 +234,8 @@ class JobRunnerBase:
         # Execution progress tracking (Task 4)
         self._current_sheet_num: int | None = None
         self._execution_progress_snapshots: list[ProgressSnapshotDict] = []
+        # Monotonic timestamp of last progress callback (for stale detection)
+        self._last_progress_monotonic: float = 0.0
 
         # Structured logging (Task 8: Logging Integration)
         self._logger: MozartLogger = get_logger("runner")
@@ -547,6 +550,8 @@ class JobRunnerBase:
             progress: Dict with bytes_received, lines_received, elapsed_seconds, phase.
         """
         from mozart.utils.time import utc_now
+
+        self._last_progress_monotonic = time.monotonic()
 
         # Add sheet_num to progress info
         progress_with_sheet = {
