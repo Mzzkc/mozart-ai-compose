@@ -430,11 +430,24 @@ class TestListMultipleJobs:
             return (True, jobs)
         return patch("mozart.daemon.detect.try_daemon_route", side_effect=_fake_route)
 
-    def test_list_shows_all_jobs(self) -> None:
-        """List shows all jobs from daemon."""
+    def test_list_default_shows_active_only(self) -> None:
+        """Default list shows only active jobs (running, queued, paused)."""
         jobs = _multi_job_daemon_data()
         with self._mock_route(jobs):
             result = runner.invoke(app, ["list"])
+
+        assert result.exit_code == 0
+        assert "job-running-2" in result.stdout
+        assert "job-paused-4" in result.stdout
+        assert "job-completed-1" not in result.stdout
+        assert "job-failed-3" not in result.stdout
+        assert "Showing 2 job(s)" in result.stdout
+
+    def test_list_all_shows_everything(self) -> None:
+        """--all flag shows all jobs including completed/failed."""
+        jobs = _multi_job_daemon_data()
+        with self._mock_route(jobs):
+            result = runner.invoke(app, ["list", "--all"])
 
         assert result.exit_code == 0
         assert "job-completed-1" in result.stdout
@@ -480,7 +493,7 @@ class TestListMultipleJobs:
         """List respects --limit option."""
         jobs = _multi_job_daemon_data()
         with self._mock_route(jobs):
-            result = runner.invoke(app, ["list", "--limit", "2"])
+            result = runner.invoke(app, ["list", "--all", "--limit", "2"])
 
         assert result.exit_code == 0
         assert "Showing 2 job(s)" in result.stdout
@@ -489,7 +502,7 @@ class TestListMultipleJobs:
         """List shows workspace path for each job."""
         jobs = _multi_job_daemon_data()
         with self._mock_route(jobs):
-            result = runner.invoke(app, ["list"])
+            result = runner.invoke(app, ["list", "--all"])
 
         assert result.exit_code == 0
         # Should show workspace paths
@@ -605,7 +618,7 @@ class TestAllCLICommandsFunctional:
         async def _fake_route(method, params):
             return (True, jobs)
         with patch("mozart.daemon.detect.try_daemon_route", side_effect=_fake_route):
-            result = runner.invoke(app, ["list"])
+            result = runner.invoke(app, ["list", "--all"])
         assert result.exit_code == 0
         assert "Showing" in result.stdout
 
@@ -749,7 +762,10 @@ class TestErrorHandlingIntegration:
 
     def test_list_without_daemon_error(self) -> None:
         """List without running daemon produces helpful error."""
-        result = runner.invoke(app, ["list"])
+        async def _fake_route(method, params):
+            return (False, None)
+        with patch("mozart.daemon.detect.try_daemon_route", side_effect=_fake_route):
+            result = runner.invoke(app, ["list"])
         assert result.exit_code == 1
         assert "daemon is not running" in result.stdout.lower()
 

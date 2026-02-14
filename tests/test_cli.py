@@ -76,39 +76,41 @@ class TestListCommand:
             return (False, None)
         return patch("mozart.daemon.detect.try_daemon_route", side_effect=_fake_route)
 
-    def test_list_empty_state(self) -> None:
-        """Test list command when daemon has no jobs."""
-        with self._mock_route([]):
-            result = runner.invoke(app, ["list"])
-        assert result.exit_code == 0
-        assert "No jobs found" in result.stdout
-
-    def test_list_with_running_job(self) -> None:
-        """Test list command shows a running job from daemon."""
-        jobs = [{
-            "job_id": "test-job-1",
-            "config_path": "/tmp/test.yaml",
-            "workspace": "/tmp/ws",
-            "status": "running",
-            "submitted_at": 1707900000.0,
-            "started_at": 1707900001.0,
-            "pid": 12345,
-        }]
+    def test_list_no_active_jobs(self) -> None:
+        """Default list shows 'no active jobs' when only historical jobs exist."""
+        jobs = [
+            {"job_id": "job-0", "status": "completed", "workspace": "/w0", "submitted_at": 1707900000.0},
+        ]
         with self._mock_route(jobs):
             result = runner.invoke(app, ["list"])
         assert result.exit_code == 0
-        assert "test-job-1" in result.stdout
-        assert "running" in result.stdout.lower()
+        assert "No active jobs" in result.stdout
+        assert "--all" in result.stdout
 
-    def test_list_with_multiple_jobs(self) -> None:
-        """Test list command with multiple jobs from daemon."""
+    def test_list_shows_active_jobs(self) -> None:
+        """Default list shows running/queued/paused jobs."""
+        jobs = [
+            {"job_id": "running-1", "status": "running", "workspace": "/w0", "submitted_at": 1707900000.0},
+            {"job_id": "completed-1", "status": "completed", "workspace": "/w1", "submitted_at": 1707900001.0},
+            {"job_id": "queued-1", "status": "queued", "workspace": "/w2", "submitted_at": 1707900002.0},
+        ]
+        with self._mock_route(jobs):
+            result = runner.invoke(app, ["list"])
+        assert result.exit_code == 0
+        assert "running-1" in result.stdout
+        assert "queued-1" in result.stdout
+        assert "completed-1" not in result.stdout
+        assert "Showing 2 job(s)" in result.stdout
+
+    def test_list_all_shows_everything(self) -> None:
+        """--all flag shows all jobs including completed/failed."""
         jobs = [
             {"job_id": "job-0", "status": "completed", "workspace": "/w0", "submitted_at": 1707900000.0},
             {"job_id": "job-1", "status": "failed", "workspace": "/w1", "submitted_at": 1707900001.0},
             {"job_id": "job-2", "status": "queued", "workspace": "/w2", "submitted_at": 1707900002.0},
         ]
         with self._mock_route(jobs):
-            result = runner.invoke(app, ["list"])
+            result = runner.invoke(app, ["list", "--all"])
         assert result.exit_code == 0
         assert "job-0" in result.stdout
         assert "job-1" in result.stdout
@@ -116,7 +118,7 @@ class TestListCommand:
         assert "Showing 3 job(s)" in result.stdout
 
     def test_list_filter_by_status(self) -> None:
-        """Test list command with status filter."""
+        """--status filter overrides default active-only view."""
         jobs = [
             {"job_id": "job-0", "status": "completed", "workspace": "/w0", "submitted_at": 1707900000.0},
             {"job_id": "job-1", "status": "failed", "workspace": "/w1", "submitted_at": 1707900001.0},
@@ -131,19 +133,19 @@ class TestListCommand:
         assert "Showing 2 job(s)" in result.stdout
 
     def test_list_filter_no_matches(self) -> None:
-        """Test list command with status filter that matches nothing."""
+        """Status filter with no matches shows appropriate message."""
         jobs = [
             {"job_id": "job-0", "status": "completed", "workspace": "/w0", "submitted_at": 1707900000.0},
         ]
         with self._mock_route(jobs):
             result = runner.invoke(app, ["list", "--status", "running"])
         assert result.exit_code == 0
-        assert "No jobs found" in result.stdout
+        assert "No running jobs found" in result.stdout
 
     def test_list_with_limit(self) -> None:
-        """Test list command respects --limit option."""
+        """--limit option caps results."""
         jobs = [
-            {"job_id": f"job-{i}", "status": "completed", "workspace": f"/w{i}", "submitted_at": 1707900000.0 + i}
+            {"job_id": f"job-{i}", "status": "running", "workspace": f"/w{i}", "submitted_at": 1707900000.0 + i}
             for i in range(5)
         ]
         with self._mock_route(jobs):
@@ -152,7 +154,7 @@ class TestListCommand:
         assert "Showing 2 job(s)" in result.stdout
 
     def test_list_daemon_not_running(self) -> None:
-        """Test list command when daemon is not running."""
+        """List without daemon shows error."""
         with self._mock_route_down():
             result = runner.invoke(app, ["list"])
         assert result.exit_code == 1
@@ -1287,7 +1289,7 @@ class TestLoggingOptions:
                 app, ["--log-level", "WARNING", "list"]
             )
         assert result.exit_code == 0
-        assert "No jobs found" in result.stdout
+        assert "No active jobs" in result.stdout
 
     def test_log_level_env_var(self, sample_yaml_config: Path) -> None:
         """Test MOZART_LOG_LEVEL environment variable."""

@@ -117,11 +117,17 @@ def status(
 
 
 def list_jobs(
+    all_jobs: bool = typer.Option(
+        False,
+        "--all",
+        "-a",
+        help="Show all jobs including completed, failed, and cancelled",
+    ),
     status_filter: str | None = typer.Option(
         None,
         "--status",
         "-s",
-        help="Filter by job status (pending, running, completed, failed, paused)",
+        help="Filter by job status (queued, running, completed, failed, paused)",
     ),
     limit: int = typer.Option(
         20,
@@ -137,12 +143,12 @@ def list_jobs(
         hidden=True,
     ),
 ) -> None:
-    """List all jobs from the daemon's persistent registry.
+    """List jobs from the daemon.
 
-    Requires a running daemon (mozartd). Shows all jobs submitted to the
-    daemon, including completed and failed jobs from previous sessions.
+    By default shows only active jobs (queued, running, paused).
+    Use --all to include completed, failed, and cancelled jobs.
     """
-    asyncio.run(_list_jobs(status_filter, limit, workspace))
+    asyncio.run(_list_jobs(all_jobs, status_filter, limit, workspace))
 
 
 # =============================================================================
@@ -227,7 +233,10 @@ async def _status_job_watch(
         console.print("\n[dim]Watch mode stopped[/dim]")
 
 
+_ACTIVE_STATUSES = {"queued", "running", "paused"}
+
 async def _list_jobs(
+    all_jobs: bool,
     status_filter: str | None,
     limit: int,
     workspace: Path | None,
@@ -257,18 +266,23 @@ async def _list_jobs(
         "cancelled": "dim",
     }
 
-    # Filter by status if specified
+    # Filter: explicit --status overrides --all, otherwise default to active-only
     if status_filter:
         target = status_filter.lower()
         jobs = [j for j in jobs if str(j.get("status", "")).lower() == target]
+    elif not all_jobs:
+        jobs = [j for j in jobs if str(j.get("status", "")).lower() in _ACTIVE_STATUSES]
 
     # Limit
     jobs = jobs[:limit]
 
     if not jobs:
-        console.print("[dim]No jobs found.[/dim]")
         if status_filter:
-            console.print("[dim]Try without --status filter.[/dim]")
+            console.print(f"[dim]No {status_filter} jobs found.[/dim]")
+        elif all_jobs:
+            console.print("[dim]No jobs found.[/dim]")
+        else:
+            console.print("[dim]No active jobs.[/dim] Use [bold]--all[/bold] to see job history.")
         return
 
     table = create_jobs_table()
