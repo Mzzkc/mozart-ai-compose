@@ -3,7 +3,7 @@ name = "mozart-ai-compose"
 version = "0.1.0"
 description = "Orchestration tool for Claude AI sessions"
 readme = "README.md"
-license = { text = "MIT" }
+license = { text = "AGPL-3.0-or-later" }
 requires-python = ">=3.11"
 authors = [
     { name = "Emzi" }
@@ -12,7 +12,7 @@ keywords = ["claude", "ai", "orchestration", "automation"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
@@ -46,6 +46,12 @@ dependencies = [
 
 [project.optional-dependencies]
 daemon = ["psutil>=5.9"]
+docs = [
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.24",
+    "mkdocs-gen-files>=0.5",
+    "mkdocs-literate-nav>=0.6",
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",

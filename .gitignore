@@ -81,6 +81,9 @@ STATUS.md
 # State files (keep structure, ignore contents)
 *.json.tmp
 
+# MkDocs generated site
+site/
+
 # OS
 .DS_Store
 Thumbs.db

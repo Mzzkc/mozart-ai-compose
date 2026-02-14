@@ -1,0 +1,98 @@
+site_name: Mozart AI Compose
+site_description: Orchestration tool for Claude AI sessions
+site_url: ""
+repo_url: https://github.com/emzi/mozart-ai-compose
+repo_name: emzi/mozart-ai-compose
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - toc:
+      permalink: true
+  - attr_list
+  - md_in_html
+  - tables
+
+plugins:
+  - search
+  - gen-files:
+      scripts:
+        - docs/scripts/gen_ref_pages.py
+  - literate-nav:
+      nav_file: SUMMARY.md
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            show_category_heading: true
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            members_order: source
+            docstring_style: google
+            merge_init_into_class: true
+            show_if_no_docstring: false
+            signature_crossrefs: true
+            separate_signature: true
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Guides:
+      - Daemon Guide: daemon-guide.md
+      - Score Writing Guide: score-writing-guide.md
+      - Configuration Reference: configuration-reference.md
+      - Limitations: limitations.md
+  - Reference:
+      - CLI Reference: cli-reference.md
+      - Mozart Technical Reference: mozart-reference.md
+      - MCP Integration: MCP-INTEGRATION.md
+  - API Reference: reference/
+  - Architecture:
+      - Distributed Learning: DISTRIBUTED-LEARNING-ARCHITECTURE.md
+      - Token Compression: TOKEN-COMPRESSION-STRATEGIES.md
+      - Opus Convergence: OPUS-CONVERGENCE-ANALYSIS.md
