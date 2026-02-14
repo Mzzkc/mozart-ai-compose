@@ -253,11 +253,16 @@ def create_jobs_table() -> Table:
     Returns:
         Rich Table configured for job list display.
     """
-    table = Table(title="Mozart Jobs")
+    table = Table(
+        title="Mozart Jobs",
+        show_edge=False,
+        pad_edge=False,
+        expand=False,
+    )
     table.add_column("Job ID", style="cyan", no_wrap=True)
-    table.add_column("Status", style="bold")
+    table.add_column("Status", style="bold", no_wrap=True)
     table.add_column("Workspace", style="dim", no_wrap=True)
-    table.add_column("Submitted", style="dim")
+    table.add_column("Submitted", style="dim", no_wrap=True)
     return table
 
 

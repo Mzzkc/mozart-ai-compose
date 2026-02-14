@@ -441,7 +441,7 @@ class TestListMultipleJobs:
         assert "job-paused-4" in result.stdout
         assert "job-completed-1" not in result.stdout
         assert "job-failed-3" not in result.stdout
-        assert "Showing 2 job(s)" in result.stdout
+        assert "2 job(s)" in result.stdout
 
     def test_list_all_shows_everything(self) -> None:
         """--all flag shows all jobs including completed/failed."""
@@ -454,7 +454,7 @@ class TestListMultipleJobs:
         assert "job-running-2" in result.stdout
         assert "job-failed-3" in result.stdout
         assert "job-paused-4" in result.stdout
-        assert "Showing 4 job(s)" in result.stdout
+        assert "4 job(s)" in result.stdout
 
     def test_list_filters_by_completed(self) -> None:
         """List with --status=completed shows only completed jobs."""
@@ -467,7 +467,7 @@ class TestListMultipleJobs:
         assert "job-running-2" not in result.stdout
         assert "job-failed-3" not in result.stdout
         assert "job-paused-4" not in result.stdout
-        assert "Showing 1 job(s)" in result.stdout
+        assert "1 job(s)" in result.stdout
 
     def test_list_filters_by_failed(self) -> None:
         """List with --status=failed shows only failed jobs."""
@@ -477,7 +477,7 @@ class TestListMultipleJobs:
 
         assert result.exit_code == 0
         assert "job-failed-3" in result.stdout
-        assert "Showing 1 job(s)" in result.stdout
+        assert "1 job(s)" in result.stdout
 
     def test_list_filters_by_paused(self) -> None:
         """List with --status=paused shows only paused jobs."""
@@ -487,7 +487,7 @@ class TestListMultipleJobs:
 
         assert result.exit_code == 0
         assert "job-paused-4" in result.stdout
-        assert "Showing 1 job(s)" in result.stdout
+        assert "1 job(s)" in result.stdout
 
     def test_list_with_limit(self) -> None:
         """List respects --limit option."""
@@ -496,7 +496,7 @@ class TestListMultipleJobs:
             result = runner.invoke(app, ["list", "--all", "--limit", "2"])
 
         assert result.exit_code == 0
-        assert "Showing 2 job(s)" in result.stdout
+        assert "2 job(s)" in result.stdout
 
     def test_list_shows_workspace_info(self) -> None:
         """List shows workspace path for each job."""
@@ -620,7 +620,7 @@ class TestAllCLICommandsFunctional:
         with patch("mozart.daemon.detect.try_daemon_route", side_effect=_fake_route):
             result = runner.invoke(app, ["list", "--all"])
         assert result.exit_code == 0
-        assert "Showing" in result.stdout
+        assert "job(s)" in result.stdout
 
     def test_status_command_works(self, multi_job_workspace: Path) -> None:
         """Status command works."""

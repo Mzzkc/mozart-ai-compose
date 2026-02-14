@@ -41,7 +41,6 @@ from ..helpers import ErrorMessages, find_job_state, require_job_state
 from ..output import (
     StatusColors,
     console,
-    create_jobs_table,
     create_sheet_details_table,
     create_synthesis_table,
     format_duration,
@@ -285,19 +284,42 @@ async def _list_jobs(
             console.print("[dim]No active jobs.[/dim] Use [bold]--all[/bold] to see job history.")
         return
 
-    table = create_jobs_table()
+    # Build rows and compute column widths
+    headers = ("JOB ID", "STATUS", "WORKSPACE", "SUBMITTED")
+    rows: list[tuple[str, str, str, str]] = []
     for dj in jobs:
-        dj_status = str(dj.get("status", "unknown"))
-        color = _colors.get(dj_status, "white")
-        table.add_row(
+        rows.append((
             dj.get("job_id", "?"),
-            f"[{color}]{dj_status}[/{color}]",
+            str(dj.get("status", "unknown")),
             dj.get("workspace", "-"),
             _format_daemon_timestamp(dj.get("submitted_at")),
-        )
+        ))
 
-    console.print(table)
-    console.print(f"\n[dim]Showing {len(jobs)} job(s)[/dim]")
+    widths = [len(h) for h in headers]
+    for row in rows:
+        for i, val in enumerate(row):
+            widths[i] = max(widths[i], len(val))
+
+    gap = "   "
+    fmt = gap.join(f"{{:<{w}}}" for w in widths)
+
+    # Header
+    console.print(f"[bold]{fmt.format(*headers)}[/bold]", soft_wrap=True)
+
+    # Rows
+    for row in rows:
+        color = _colors.get(row[1], "white")
+        styled = fmt.format(row[0], row[1], row[2], row[3])
+        # Apply color to the status portion only
+        plain_status = row[1]
+        styled = styled.replace(
+            plain_status,
+            f"[{color}]{plain_status}[/{color}]",
+            1,
+        )
+        console.print(styled, soft_wrap=True)
+
+    console.print(f"\n[dim]{len(rows)} job(s)[/dim]")
 
 
 def _format_daemon_timestamp(ts: float | None) -> str:

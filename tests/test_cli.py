@@ -100,7 +100,7 @@ class TestListCommand:
         assert "running-1" in result.stdout
         assert "queued-1" in result.stdout
         assert "completed-1" not in result.stdout
-        assert "Showing 2 job(s)" in result.stdout
+        assert "2 job(s)" in result.stdout
 
     def test_list_all_shows_everything(self) -> None:
         """--all flag shows all jobs including completed/failed."""
@@ -115,7 +115,7 @@ class TestListCommand:
         assert "job-0" in result.stdout
         assert "job-1" in result.stdout
         assert "job-2" in result.stdout
-        assert "Showing 3 job(s)" in result.stdout
+        assert "3 job(s)" in result.stdout
 
     def test_list_filter_by_status(self) -> None:
         """--status filter overrides default active-only view."""
@@ -130,7 +130,7 @@ class TestListCommand:
         assert "job-0" in result.stdout
         assert "job-2" in result.stdout
         assert "job-1" not in result.stdout
-        assert "Showing 2 job(s)" in result.stdout
+        assert "2 job(s)" in result.stdout
 
     def test_list_filter_no_matches(self) -> None:
         """Status filter with no matches shows appropriate message."""
@@ -151,7 +151,7 @@ class TestListCommand:
         with self._mock_route(jobs):
             result = runner.invoke(app, ["list", "--limit", "2"])
         assert result.exit_code == 0
-        assert "Showing 2 job(s)" in result.stdout
+        assert "2 job(s)" in result.stdout
 
     def test_list_daemon_not_running(self) -> None:
         """List without daemon shows error."""
