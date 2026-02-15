@@ -144,13 +144,13 @@ Configuration valid: hello-world.yaml
   Workspace: ./workspace/hello-world
 ```
 
-### 3. Start the Daemon
+### 3. Start the Conductor
 
-The Mozart daemon is required for job execution:
+The Mozart conductor is required for job execution:
 
 ```bash
-mozartd start
-mozartd status   # Verify it's running
+mozart start
+mozart conductor-status   # Verify it's running
 ```
 
 ### 4. Run the Job
@@ -273,23 +273,23 @@ Starts the web dashboard for visual monitoring and control.
 | `--json, -j` | `status`, `validate` | Output in JSON format |
 | `-v, --verbose` | various | Detailed output |
 
-### Daemon Mode (mozartd)
+### Conductor Mode
 
-The Mozart daemon (`mozartd`) is **required** for job execution. It manages concurrent jobs, coordinates rate limits, and provides resource monitoring.
+The Mozart conductor is **required** for job execution. It manages concurrent jobs, coordinates rate limits, and provides resource monitoring.
 
 ```bash
-# Start the daemon (required before mozart run)
-mozartd start              # Background (production)
-mozartd start --foreground # Foreground (development)
+# Start the conductor (required before mozart run)
+mozart start              # Background (production)
+mozart start --foreground # Foreground (development)
 
-# Check daemon status
-mozartd status
+# Check conductor status
+mozart conductor-status
 
-# Stop the daemon
-mozartd stop
+# Stop the conductor
+mozart stop
 ```
 
-`mozart run` requires a running daemon and will exit with an error if one is not found. Only `mozart validate` and `mozart run --dry-run` work without a running daemon.
+`mozart run` requires a running conductor and will exit with an error if one is not found. Only `mozart validate` and `mozart run --dry-run` work without a running conductor.
 
 See the [Daemon Guide](docs/daemon-guide.md) for configuration, systemd integration, and troubleshooting.
 
@@ -438,7 +438,7 @@ See [examples/README.md](examples/README.md) for detailed documentation of each 
          |                             |                     |   Anthropic API /|
          v (required)                  v                     |   Ollama)        |
 +--------+---------+          +--------+----------+          +------------------+
-|  Daemon (mozartd)|          |  State Manager    |
+|  Conductor      |          |  State Manager    |
 |  Job Manager     |          |  (JSON/SQLite)    |
 |  Rate Coordinator|          +--------+----------+
 |  Backpressure    |                   |

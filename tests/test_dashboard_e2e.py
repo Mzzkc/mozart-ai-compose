@@ -321,7 +321,7 @@ class TestSheetDetailsE2E:
             execution_mode="normal",
             confidence_score=0.955,  # 0-1 scale
             outcome_category="success_first_try",
-            first_attempt_success=False,
+            success_without_retry=False,
             stdout_tail="Process completed successfully\nOutput written to file",
             stderr_tail="",
             output_truncated=False,
@@ -369,7 +369,7 @@ class TestSheetDetailsE2E:
         assert data["last_pass_percentage"] == 100.0
         assert data["confidence_score"] == 0.955  # 0-1 scale
         assert data["outcome_category"] == "success_first_try"
-        assert data["first_attempt_success"] is False
+        assert data["success_without_retry"] is False
         assert data["stdout_tail"] == "Process completed successfully\nOutput written to file"
         assert data["stderr_tail"] == ""
         assert data["output_truncated"] is False

@@ -46,12 +46,12 @@ class TestSheetState:
         state = SheetState(
             sheet_num=1,
             confidence_score=0.85,
-            first_attempt_success=True,
+            success_without_retry=True,
             outcome_category="success_first_try",
             learned_patterns=["pattern1", "pattern2"],
         )
         assert state.confidence_score == 0.85
-        assert state.first_attempt_success is True
+        assert state.success_without_retry is True
         assert state.outcome_category == "success_first_try"
         assert len(state.learned_patterns) == 2
 

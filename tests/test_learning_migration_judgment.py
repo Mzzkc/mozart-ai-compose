@@ -96,7 +96,7 @@ class TestOutcomeMigrator:
                     "execution_duration": 30.0,
                     "retry_count": 0,
                     "completion_mode_used": False,
-                    "first_attempt_success": True,
+                    "success_without_retry": True,
                     "timestamp": "2024-01-15T10:00:00",
                 },
                 {
@@ -107,7 +107,7 @@ class TestOutcomeMigrator:
                     "execution_duration": 45.0,
                     "retry_count": 2,
                     "completion_mode_used": True,
-                    "first_attempt_success": False,
+                    "success_without_retry": False,
                     "timestamp": "2024-01-15T10:30:00",
                 },
             ]
@@ -233,7 +233,7 @@ class TestParseOutcome:
             "execution_duration": 60.0,
             "retry_count": 1,
             "completion_mode_used": True,
-            "first_attempt_success": False,
+            "success_without_retry": False,
             "timestamp": "2024-06-15T14:30:00",
         }
         outcome = migrator._parse_outcome(data)

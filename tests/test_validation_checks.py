@@ -435,7 +435,15 @@ class TestRegexPatternCheck:
         assert len(issues) == 0
 
     def test_catches_invalid_regex(self, tmp_path: Path) -> None:
-        """Error for invalid regex patterns."""
+        """Invalid regex patterns are now rejected at schema validation time (TD-VR01).
+
+        Previously, invalid regex passed schema validation and was caught by the
+        V007 check at validation-check time. Now ValidationRule's model_validator
+        catches invalid regex at construction, so JobConfig.from_yaml raises
+        ValidationError before the V007 check even runs.
+        """
+        from pydantic import ValidationError
+
         yaml_content = dedent("""
             name: test-job
             sheet:
@@ -451,15 +459,9 @@ class TestRegexPatternCheck:
 
         config_path = tmp_path / "test.yaml"
         config_path.write_text(yaml_content)
-        config = JobConfig.from_yaml(config_path)
 
-        check = RegexPatternCheck()
-        issues = check.check(config, config_path, yaml_content)
-
-        assert len(issues) == 1
-        assert issues[0].check_id == "V007"
-        assert issues[0].severity == ValidationSeverity.ERROR
-        assert "pattern" in issues[0].message.lower() or "regex" in issues[0].message.lower()
+        with pytest.raises(ValidationError, match="Invalid regex pattern"):
+            JobConfig.from_yaml(config_path)
 
 
 class TestValidationTypeCheck:

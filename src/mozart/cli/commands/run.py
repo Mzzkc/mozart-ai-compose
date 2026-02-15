@@ -1,11 +1,11 @@
 """Run command for Mozart CLI.
 
 This module implements the ``mozart run`` command which routes jobs
-through a running mozartd daemon.  Direct execution is not supported —
-a running daemon is required (like docker requires dockerd).
+through a running conductor (``mozart start``).  Direct execution is not
+supported — a running conductor is required (like docker requires dockerd).
 
 The only exception is ``--dry-run``, which validates and displays the
-job plan without executing anything (no daemon needed).
+job plan without executing anything (no conductor needed).
 """
 
 from __future__ import annotations
@@ -155,11 +155,11 @@ def run(
     # Daemon not available or submission failed
     if json_output:
         console.print(json.dumps({
-            "error": "Mozart daemon is not running. Start with: mozartd start",
+            "error": "Mozart conductor is not running. Start with: mozart start",
         }))
     else:
-        console.print("[red]Error:[/red] Mozart daemon is not running.")
-        console.print("Start it with: [bold]mozartd start[/bold]")
+        console.print("[red]Error:[/red] Mozart conductor is not running.")
+        console.print("Start it with: [bold]mozart start[/bold]")
     raise typer.Exit(1)
 
 
@@ -173,7 +173,7 @@ async def _try_daemon_submit(
     *,
     start_sheet: int | None = None,
 ) -> bool:
-    """Submit a job to the running mozartd daemon.
+    """Submit a job to the running conductor.
 
     Returns True if the daemon accepted the submission, False if the
     daemon is not reachable or rejected the job.  Never raises — all

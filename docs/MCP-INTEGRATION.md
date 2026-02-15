@@ -330,7 +330,7 @@ Enable debug logging in Claude Desktop configuration:
 
 ## Daemon Integration
 
-When the Mozart daemon (`mozartd`) is running, the MCP server automatically routes job operations through it. This enables:
+When the Mozart conductor (`mozart start`) is running, the MCP server automatically routes job operations through it. This enables:
 
 - **Coordinated rate limiting** across multiple concurrent jobs
 - **Centralized learning** — patterns learned by one job benefit others
@@ -343,13 +343,13 @@ The MCP server detects the daemon automatically. No additional configuration is 
 | Mode | How to Start | When to Use |
 |------|-------------|-------------|
 | Standalone | `mozart mcp` | Single-job workflows, development |
-| Through Daemon | `mozartd start` then `mozart mcp` | Multi-job orchestration, production |
+| Through Conductor | `mozart start` then `mozart mcp` | Multi-job orchestration, production |
 
 ### Related Commands
 
 - `mozart mcp` — Start the MCP server (see [CLI Reference](cli-reference.md#mozart-mcp))
-- `mozartd start` — Start the daemon service (see [CLI Reference](cli-reference.md#mozartd-start))
-- `mozart config` — Manage daemon configuration (see [CLI Reference](cli-reference.md#mozart-config))
+- `mozart start` — Start the conductor (see [CLI Reference](cli-reference.md#mozart-start))
+- `mozart config` — Manage conductor configuration (see [CLI Reference](cli-reference.md#mozart-config))
 
 ---
 

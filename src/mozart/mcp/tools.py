@@ -41,9 +41,9 @@ class JobTools:
     Provides MCP tools for running, monitoring, and querying Mozart jobs.
     Tools require explicit user consent due to file system and process execution.
 
-    Routes through the daemon (mozartd) when available, falling back to
+    Routes through the conductor when available, falling back to
     subprocess execution. Job start/get operations delegate to JobControlService
-    which handles daemon routing. List operations use DaemonClient directly.
+    which handles conductor routing. List operations use DaemonClient directly.
     """
 
     def __init__(self, state_backend: JsonStateBackend, workspace_root: Path):
@@ -196,10 +196,10 @@ class JobTools:
             result += f"Filter: {status_filter}\n"
         result += f"Limit: {limit}\n\n"
 
-        result += "Note: Full job listing requires the Mozart daemon (mozartd).\n"
-        result += "Start the daemon for comprehensive job tracking:\n"
-        result += "  mozartd start\n\n"
-        result += "Without daemon, use get_job with a specific job ID,\n"
+        result += "Note: Full job listing requires the Mozart conductor.\n"
+        result += "Start the conductor for comprehensive job tracking:\n"
+        result += "  mozart start\n\n"
+        result += "Without conductor, use get_job with a specific job ID,\n"
         result += "or the Mozart CLI: mozart list [--status running]\n"
 
         return {
@@ -324,7 +324,7 @@ class ControlTools:
     Provides MCP tools for controlling running Mozart jobs (pause, resume, cancel).
     These tools interact with job processes and require user consent.
 
-    Routes through the daemon (mozartd) when available via JobControlService,
+    Routes through the conductor when available via JobControlService,
     falling back to local signal-based control.
     """
 

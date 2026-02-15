@@ -1,9 +1,8 @@
 # Mozart CLI Reference
 
-Complete reference for all Mozart CLI commands and options. Mozart provides two entry points:
+Complete reference for all Mozart CLI commands and options. Mozart provides a single entry point:
 
-- **`mozart`** — Job orchestration CLI (run, monitor, diagnose, learn)
-- **`mozartd`** — Daemon service for managing multiple concurrent jobs
+- **`mozart`** — Job orchestration CLI (run, monitor, diagnose, learn, conductor management)
 
 ---
 
@@ -47,7 +46,7 @@ Usage: mozart run [OPTIONS] CONFIG_FILE
 | `--start-sheet` | `-s` | | Override starting sheet number |
 | `--workspace` | `-w` | | Override workspace directory (creates if missing; takes precedence over YAML config) |
 | `--json` | `-j` | false | Output result as JSON for machine parsing |
-| `--escalation` | `-e` | false | Enable human-in-the-loop escalation — **not currently supported** (blocked in daemon mode) |
+| `--escalation` | `-e` | false | Enable human-in-the-loop escalation — **not currently supported** (blocked in conductor mode) |
 | `--self-healing` | `-H` | false | Enable automatic diagnosis and remediation when retries are exhausted |
 | `--yes` | `-y` | false | Auto-confirm suggested fixes when using `--self-healing` |
 | `--fresh` | | false | Delete existing state before running, ensuring a fresh start. Use for self-chaining jobs or re-running completed jobs from scratch |
@@ -55,10 +54,10 @@ Usage: mozart run [OPTIONS] CONFIG_FILE
 #### Examples
 
 ```bash
-# Basic run (requires running daemon: mozartd start)
+# Basic run (requires running conductor: mozart start)
 mozart run job.yaml
 
-# Dry run to preview (works without daemon)
+# Dry run to preview (works without conductor)
 mozart run job.yaml --dry-run
 
 # Custom workspace
@@ -104,9 +103,9 @@ Loads the job state from the state backend and continues execution from where it
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
 | `--config` | `-c` | | Path to config file (optional if `config_snapshot` exists in state) |
-| `--workspace` | `-w` | | Workspace directory to search for job state |
+| `--workspace` | `-w` | | *(hidden)* Debug override: bypass conductor for resume |
 | `--force` | `-f` | false | Force resume even if job appears completed |
-| `--escalation` | `-e` | false | Enable human-in-the-loop escalation — **not currently supported** (blocked in daemon mode) |
+| `--escalation` | `-e` | false | Enable human-in-the-loop escalation — **not currently supported** (blocked in conductor mode) |
 | `--reload-config` | `-r` | false | Reload config from YAML file instead of cached snapshot. Use with `--config` to specify a new file |
 | `--self-healing` | `-H` | false | Enable automatic diagnosis and remediation when retries are exhausted |
 | `--yes` | `-y` | false | Auto-confirm suggested fixes when using `--self-healing` |
@@ -159,7 +158,7 @@ Creates a pause signal that the job detects at the next sheet boundary. The job 
 
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
-| `--workspace` | `-w` | | Workspace directory containing job state |
+| `--workspace` | `-w` | | *(hidden)* Debug override: bypass conductor for pause |
 | `--wait` | | false | Wait for job to acknowledge pause signal |
 | `--timeout` | `-t` | 60 | Timeout in seconds when using `--wait` |
 | `--json` | `-j` | false | Output result as JSON |
@@ -200,7 +199,7 @@ Convenience command that combines pause + config validation. If the job is runni
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
 | `--config` | `-c` | **required** | New configuration file |
-| `--workspace` | `-w` | | Workspace directory containing job state |
+| `--workspace` | `-w` | | *(hidden)* Debug override: bypass conductor for modify |
 | `--resume` | `-r` | false | Immediately resume with new config after pausing |
 | `--wait` | | false | Wait for job to pause before resuming (when `--resume`) |
 | `--timeout` | `-t` | 60 | Timeout in seconds for pause acknowledgment |
@@ -244,12 +243,14 @@ Displays job progress, sheet states, timing information, and any errors. Use `--
 | `--json` | `-j` | false | Output as JSON for machine parsing |
 | `--watch` | `-W` | false | Continuously monitor status with live updates |
 | `--interval` | `-i` | 5 | Refresh interval in seconds for `--watch` mode |
-| `--workspace` | `-w` | | Workspace directory to search for job state |
+| `--workspace` | `-w` | | *(hidden)* Debug override: bypass conductor and read job state from filesystem |
+
+> **Note:** `mozart status` routes through the conductor by default. The `--workspace` flag is a hidden debug override for direct filesystem access when the conductor is unavailable.
 
 #### Examples
 
 ```bash
-# Show job status
+# Show job status (routes through conductor)
 mozart status my-job
 
 # JSON output
@@ -297,7 +298,7 @@ JSON output structure:
 
 ### `mozart list`
 
-List jobs from the daemon.
+List jobs from the conductor.
 
 ```
 Usage: mozart list [OPTIONS]
@@ -305,7 +306,7 @@ Usage: mozart list [OPTIONS]
 
 By default shows only active jobs (queued, running, paused). Use `--all` to include completed, failed, and cancelled jobs.
 
-> **Note:** This command requires a running Mozart daemon (`mozartd`). Use `mozart status <job-id>` for checking individual jobs without a daemon.
+> **Note:** This command requires a running Mozart conductor (`mozart start`). Use `mozart status <job-id>` for checking individual jobs.
 
 #### Options
 
@@ -410,7 +411,7 @@ Displays log entries from Mozart log files. Supports both current log files and 
 
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
-| `--workspace` | `-w` | `.` | Workspace directory to find logs |
+| `--workspace` | `-w` | `.` | *(hidden)* Debug override: specify workspace for log file lookup |
 | `--file` | `-f` | | Specific log file path (overrides workspace default) |
 | `--follow` | `-F` | false | Follow the log file for new entries (like `tail -f`) |
 | `--lines` | `-n` | 50 | Number of lines to show (0 for all) |
@@ -465,7 +466,7 @@ Displays errors grouped by sheet, with color-coding by error type:
 | `--type` | `-t` | | Filter by error type: `transient`, `rate_limit`, or `permanent` |
 | `--code` | `-c` | | Filter by error code (e.g., `E001`, `E101`) |
 | `--verbose` | `-V` | false | Show full stdout/stderr tails for each error |
-| `--workspace` | `-w` | | Workspace directory to search for job state |
+| `--workspace` | `-w` | | *(hidden)* Debug override: bypass conductor for error retrieval |
 | `--json` | `-j` | false | Output errors as JSON |
 
 #### Examples
@@ -516,7 +517,7 @@ The diagnostic report includes:
 
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
-| `--workspace` | `-w` | | Workspace directory to search for job state |
+| `--workspace` | `-w` | | *(hidden)* Debug override: bypass conductor for diagnostics |
 | `--json` | `-j` | false | Output diagnostic report as JSON |
 | `--include-logs` | | false | Inline the last 50 lines from each sheet/hook log file |
 
@@ -559,7 +560,7 @@ Displays a table of past execution attempts from the SQLite state backend, inclu
 |--------|-------|---------|-------------|
 | `--sheet` | `-b` | | Filter by specific sheet number |
 | `--limit` | `-n` | 50 | Maximum number of records to show |
-| `--workspace` | `-w` | | Workspace directory to search for job state |
+| `--workspace` | `-w` | | *(hidden)* Debug override: bypass conductor for history |
 | `--json` | `-j` | false | Output history as JSON |
 
 #### Examples
@@ -604,7 +605,7 @@ Runs validations for failed sheets without re-executing them. If validations pas
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
 | `--sheet` | `-s` | | Specific sheet number to recover (default: all failed sheets) |
-| `--workspace` | `-w` | | Workspace directory containing job state |
+| `--workspace` | `-w` | | *(hidden)* Debug override: bypass conductor for recovery |
 | `--dry-run` | `-n` | false | Check validations without modifying state |
 
 #### Examples
@@ -728,7 +729,7 @@ Usage: mozart mcp [OPTIONS]
 
 Launches an MCP server that exposes Mozart's job management capabilities as tools for external AI agents. Provides job management tools, artifact browsing, log streaming, and configuration access.
 
-When a Mozart daemon is running, the MCP server routes operations through it for coordinated execution.
+When the Mozart conductor is running, the MCP server routes operations through it for coordinated execution.
 
 #### Options
 
@@ -757,7 +758,7 @@ See [MCP Integration Guide](MCP-INTEGRATION.md) for Claude Desktop setup and ava
 
 ### `mozart config`
 
-Manage daemon (`mozartd`) configuration.
+Manage conductor configuration.
 
 ```
 Usage: mozart config COMMAND [OPTIONS]
@@ -767,7 +768,7 @@ Usage: mozart config COMMAND [OPTIONS]
 
 ##### `mozart config show`
 
-Display current daemon configuration as a table. Values loaded from config file are highlighted; defaults shown in dim.
+Display current conductor configuration as a table. Values loaded from config file are highlighted; defaults shown in dim.
 
 ```bash
 mozart config show
@@ -780,7 +781,7 @@ mozart config show --config /etc/mozart/daemon.yaml
 
 ##### `mozart config set`
 
-Update a daemon configuration value. Values are validated against the DaemonConfig schema before saving. Use dot notation for nested keys.
+Update a conductor configuration value. Values are validated against the DaemonConfig schema before saving. Use dot notation for nested keys.
 
 ```bash
 mozart config set max_concurrent_jobs 10
@@ -800,7 +801,7 @@ mozart config set log_level debug
 
 ##### `mozart config path`
 
-Show the daemon config file location and whether it exists.
+Show the conductor config file location and whether it exists.
 
 ```bash
 mozart config path
@@ -808,7 +809,7 @@ mozart config path
 
 ##### `mozart config init`
 
-Create a default daemon config file with all default values and descriptive comments. Refuses to overwrite unless `--force` is given.
+Create a default conductor config file with all default values and descriptive comments. Refuses to overwrite unless `--force` is given.
 
 ```bash
 mozart config init
@@ -1063,73 +1064,94 @@ mozart entropy-status --check
 
 ---
 
-## Daemon Commands
+## Conductor Commands
 
-### `mozartd start`
+### `mozart start`
 
-Start the Mozart daemon.
+Start the Mozart conductor.
 
 ```
-Usage: mozartd start [OPTIONS]
+Usage: mozart start [OPTIONS]
 ```
 
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
-| `--config` | `-c` | | Path to daemon config file |
+| `--config` | `-c` | | Path to conductor config file |
 | `--foreground` | `-f` | false | Run in foreground (for development) |
 | `--log-level` | `-l` | `info` | Logging level |
 
 ```bash
 # Start in background (production)
-mozartd start
+mozart start
 
 # Start in foreground (development)
-mozartd start --foreground
+mozart start --foreground
 
 # Custom config
-mozartd start --config /etc/mozart/daemon.yaml
+mozart start --config /etc/mozart/daemon.yaml
 
 # Debug logging
-mozartd start --log-level debug
+mozart start --log-level debug
 ```
 
 ---
 
-### `mozartd stop`
+### `mozart stop`
 
-Stop the running daemon.
+Stop the running conductor.
 
 ```
-Usage: mozartd stop [OPTIONS]
+Usage: mozart stop [OPTIONS]
 ```
 
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
-| `--pid-file` | | `/tmp/mozartd.pid` | Path to PID file |
+| `--pid-file` | | `/tmp/mozart.pid` | Path to PID file |
 | `--force` | | false | Force stop |
 
 ```bash
-mozartd stop
-mozartd stop --force
+mozart stop
+mozart stop --force
 ```
 
 ---
 
-### `mozartd status`
+### `mozart restart`
 
-Check daemon status via health probes.
+Restart the conductor (stop + start).
 
 ```
-Usage: mozartd status [OPTIONS]
+Usage: mozart restart [OPTIONS]
 ```
 
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
-| `--pid-file` | | `/tmp/mozartd.pid` | Path to PID file |
-| `--socket` | | `/tmp/mozartd.sock` | Path to Unix socket |
+| `--config` | `-c` | | Path to conductor config file |
+| `--foreground` | `-f` | false | Run in foreground (for development) |
+| `--log-level` | `-l` | `info` | Logging level |
 
 ```bash
-mozartd status
+mozart restart
+mozart restart --foreground
+```
+
+---
+
+### `mozart conductor-status`
+
+Check conductor status via health probes.
+
+```
+Usage: mozart conductor-status [OPTIONS]
+```
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--pid-file` | | `/tmp/mozart.pid` | Path to PID file |
+| `--socket` | | `/tmp/mozart.sock` | Path to Unix socket |
+
+```bash
+mozart conductor-status
 ```
 
 ---
@@ -1312,11 +1334,11 @@ During execution:
 When a job fails, follow this order:
 
 ```bash
-# 1. Check current status
-mozart status my-job --workspace ./workspace
+# 1. Check current status (routes through conductor)
+mozart status my-job
 
 # 2. Get full diagnostic report
-mozart diagnose my-job --workspace ./workspace
+mozart diagnose my-job
 
 # 3. View error history
 mozart errors my-job --verbose

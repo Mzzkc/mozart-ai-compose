@@ -1,6 +1,6 @@
 """Regression tests for architecture-discovered correctness bugs.
 
-FIX-11a: first_attempt_success uses normal_attempts == 0 (Batch 1 FIX-01)
+FIX-11a: success_without_retry uses normal_attempts == 0 (Batch 1 FIX-01)
 FIX-11b: Self-healing doesn't bypass max_retries (Batch 1 FIX-02)
 FIX-11c: JSON backend zombie detection (Batch 1 FIX-03 + existing zombie logic)
 FIX-11d: mark_job_failed() clears PID (Batch 1 FIX-03)
@@ -12,48 +12,48 @@ from pathlib import Path
 from mozart.core.checkpoint import CheckpointState, JobStatus
 
 
-class TestFirstAttemptSuccess:
-    """FIX-11a: Verify first_attempt_success logic uses normal_attempts == 0."""
+class TestSuccessWithoutRetry:
+    """FIX-11a: Verify success_without_retry logic uses normal_attempts == 0."""
 
-    def test_first_attempt_success_when_no_failures(self) -> None:
-        """normal_attempts == 0 means no failures occurred -> first_attempt_success = True."""
+    def test_success_without_retry_when_no_failures(self) -> None:
+        """normal_attempts == 0 means no failures occurred -> success_without_retry = True."""
         normal_attempts = 0
         completion_attempts = 0
-        first_attempt_success = normal_attempts == 0 and completion_attempts == 0
-        assert first_attempt_success is True
+        success_without_retry = normal_attempts == 0 and completion_attempts == 0
+        assert success_without_retry is True
 
-    def test_first_attempt_success_false_after_retry(self) -> None:
-        """normal_attempts > 0 means at least one failure -> first_attempt_success = False."""
+    def test_success_without_retry_false_after_retry(self) -> None:
+        """normal_attempts > 0 means at least one failure -> success_without_retry = False."""
         normal_attempts = 1
         completion_attempts = 0
-        first_attempt_success = normal_attempts == 0 and completion_attempts == 0
-        assert first_attempt_success is False
+        success_without_retry = normal_attempts == 0 and completion_attempts == 0
+        assert success_without_retry is False
 
-    def test_first_attempt_success_false_after_completion(self) -> None:
+    def test_success_without_retry_false_after_completion(self) -> None:
         """completion_attempts > 0 means completion mode was used."""
         normal_attempts = 0
         completion_attempts = 1
-        first_attempt_success = normal_attempts == 0 and completion_attempts == 0
-        assert first_attempt_success is False
+        success_without_retry = normal_attempts == 0 and completion_attempts == 0
+        assert success_without_retry is False
 
     def test_outcome_category_mapping(self) -> None:
         """Verify outcome_category is set correctly based on attempt counts."""
         # Case 1: First try success
         normal_attempts, completion_attempts = 0, 0
-        first_attempt_success = normal_attempts == 0 and completion_attempts == 0
-        assert first_attempt_success is True
-        outcome = "success_first_try" if first_attempt_success else "other"
+        success_without_retry = normal_attempts == 0 and completion_attempts == 0
+        assert success_without_retry is True
+        outcome = "success_first_try" if success_without_retry else "other"
         assert outcome == "success_first_try"
 
         # Case 2: Success after retries
         normal_attempts, completion_attempts = 2, 0
-        first_attempt_success = normal_attempts == 0 and completion_attempts == 0
-        assert first_attempt_success is False
+        success_without_retry = normal_attempts == 0 and completion_attempts == 0
+        assert success_without_retry is False
 
         # Case 3: Success via completion mode
         normal_attempts, completion_attempts = 0, 1
-        first_attempt_success = normal_attempts == 0 and completion_attempts == 0
-        assert first_attempt_success is False
+        success_without_retry = normal_attempts == 0 and completion_attempts == 0
+        assert success_without_retry is False
 
 
 class TestSelfHealingRetryEnforcement:

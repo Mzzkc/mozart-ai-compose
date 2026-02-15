@@ -129,13 +129,28 @@ def setup_grounding(config: JobConfig) -> GroundingEngine | None:
     from mozart.execution.grounding import GroundingEngine, create_hook_from_config
 
     engine = GroundingEngine(hooks=[], config=config.grounding)
+    failed_count = 0
 
     for hook_config in config.grounding.hooks:
         try:
             hook = create_hook_from_config(hook_config)
             engine.add_hook(hook)
         except ValueError as e:
-            _logger.warning("failed_to_create_hook", error=str(e))
+            failed_count += 1
+            _logger.warning(
+                "failed_to_create_hook",
+                hook_type=getattr(hook_config, "type", "unknown"),
+                error=str(e),
+                exc_info=True,
+            )
+
+    if failed_count:
+        _logger.error(
+            "grounding_hooks_partial_failure",
+            failed=failed_count,
+            total=len(config.grounding.hooks),
+            loaded=len(config.grounding.hooks) - failed_count,
+        )
 
     return engine
 

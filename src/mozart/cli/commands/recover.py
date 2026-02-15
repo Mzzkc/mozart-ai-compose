@@ -26,11 +26,11 @@ from typing import Any
 import typer
 from rich.panel import Panel
 
-from mozart.core.checkpoint import JobStatus, SheetStatus
+from mozart.core.checkpoint import CheckpointState, JobStatus, SheetStatus
 from mozart.core.config import JobConfig
 from mozart.execution.validation import ValidationEngine
 
-from ..helpers import configure_global_logging, require_job_state
+from ..helpers import configure_global_logging, require_conductor
 from ..output import console
 
 
@@ -46,7 +46,8 @@ def recover(
         None,
         "--workspace",
         "-w",
-        help="Workspace directory containing job state",
+        help="Workspace directory containing job state (debug override)",
+        hidden=True,
     ),
     dry_run: bool = typer.Option(
         False,
@@ -81,16 +82,39 @@ async def _recover_job(
 ) -> None:
     """Recover sheets by running validations without re-executing.
 
-    Args:
-        job_id: Job ID to recover.
-        sheet_num: Specific sheet to recover, or None for all failed sheets.
-        workspace: Optional workspace directory.
-        dry_run: If True, only check validations without modifying state.
+    Routes through the conductor to locate job state. Falls back to
+    direct filesystem access when --workspace is explicitly provided.
     """
     configure_global_logging(console)
 
-    # Find job state using shared discovery helper
-    state, state_backend = await require_job_state(job_id, workspace)
+    # Route through conductor
+    from mozart.daemon.detect import try_daemon_route
+
+    ws_str = str(workspace) if workspace else None
+    params = {
+        "job_id": job_id, "workspace": ws_str,
+        "sheet_num": sheet_num, "dry_run": dry_run,
+    }
+    routed, result = await try_daemon_route("job.recover", params)
+
+    state: CheckpointState | None = None
+    state_backend = None
+
+    if routed and result:
+        state_data = result.get("state")
+        if state_data:
+            state = CheckpointState.model_validate(state_data)
+    elif not routed and workspace is not None:
+        # Fallback to filesystem with workspace override
+        from ..helpers import _find_job_state_direct
+        state, state_backend = await _find_job_state_direct(job_id, workspace)
+    else:
+        require_conductor(routed)
+        return
+
+    if state is None:
+        console.print(f"[red]Job not found:[/red] {job_id}")
+        raise typer.Exit(1)
 
     # Reconstruct config from snapshot
     if not state.config_snapshot:
@@ -134,21 +158,21 @@ async def _recover_job(
             workspace=config.workspace,
             sheet_context=sheet_context,
         )
-        result = await validation_engine.run_validations(config.validations)
+        vresult = await validation_engine.run_validations(config.validations)
 
         # Show results
-        for vr in result.results:
-            status = "[green]✓[/green]" if vr.passed else "[red]✗[/red]"
-            console.print(f"  {status} {vr.rule.description}")
+        for vr in vresult.results:
+            vstatus = "[green]✓[/green]" if vr.passed else "[red]✗[/red]"
+            console.print(f"  {vstatus} {vr.rule.description}")
 
-        if result.all_passed:
-            console.print(f"  [green]All {len(result.results)} validations passed![/green]")
+        if vresult.all_passed:
+            console.print(f"  [green]All {len(vresult.results)} validations passed![/green]")
 
             if not dry_run:
                 # Update state to mark sheet as completed
                 state.sheets[snum].status = SheetStatus.COMPLETED
                 state.sheets[snum].validation_passed = True
-                state.sheets[snum].validation_details = result.to_dict_list()
+                state.sheets[snum].validation_details = vresult.to_dict_list()
                 state.sheets[snum].error_message = None
                 state.sheets[snum].error_category = None
 
@@ -161,7 +185,7 @@ async def _recover_job(
             else:
                 console.print("  [yellow]→ Would mark as completed (dry-run)[/yellow]")
         else:
-            failed_count = len([r for r in result.results if not r.passed])
+            failed_count = len([r for r in vresult.results if not r.passed])
             console.print(
                 f"  [red]{failed_count} validation(s) failed - cannot recover[/red]"
             )
@@ -178,7 +202,8 @@ async def _recover_job(
         elif state.status == JobStatus.FAILED:
             state.status = JobStatus.PAUSED  # Allow resume
 
-        await state_backend.save(state)
+        if state_backend is not None:
+            await state_backend.save(state)
         console.print(f"\n[green]Recovered {recovered_count} sheet(s)[/green]")
     elif dry_run:
         console.print("\n[yellow]Dry run complete - no changes made[/yellow]")

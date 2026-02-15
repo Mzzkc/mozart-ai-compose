@@ -1,8 +1,11 @@
-"""mozartd — Mozart daemon process.
+"""Mozart daemon process.
 
 Long-running orchestration service that manages job execution,
-resources, and cross-job coordination.  Provides CLI commands
-for starting, stopping, and checking daemon status.
+resources, and cross-job coordination.  Provides core functions
+for starting, stopping, and checking conductor status.
+
+The entry point is ``mozart start/stop/restart`` via
+``cli/commands/conductor.py``.
 """
 
 from __future__ import annotations
@@ -29,32 +32,31 @@ if TYPE_CHECKING:
     from mozart.daemon.ipc.server import DaemonServer
     from mozart.daemon.manager import JobManager
 
-_logger = get_logger("mozartd")
+_logger = get_logger("conductor")
 
 # Advisory lock file descriptor — held for daemon lifetime to prevent
 # concurrent starts.  Set by _write_pid(), released on process exit.
 _pid_lock_fd: int | None = None
 
-daemon_app = typer.Typer(name="mozartd", help="Mozart daemon service")
+
+# ─── Core Functions (used by cli/commands/conductor.py) ───────────────
 
 
-# ─── CLI Commands ─────────────────────────────────────────────────────
-
-
-@daemon_app.command()
-def start(
-    config_file: Path | None = typer.Option(None, "--config", "-c"),
-    foreground: bool = typer.Option(False, "--foreground", "-f"),
-    log_level: str = typer.Option("info", "--log-level", "-l"),
+def start_conductor(
+    config_file: Path | None = None,
+    foreground: bool = False,
+    log_level: str = "info",
 ) -> None:
-    """Start the Mozart daemon."""
-    config = _load_config(config_file)
-    config.log_level = cast(Any, log_level)  # Pydantic validates at runtime
+    """Start the Mozart conductor process.
 
-    # Check if already running (PID alive check + advisory lock probe)
+    Called by ``mozart start`` via ``cli/commands/conductor.py``.
+    """
+    config = _load_config(config_file)
+    config.log_level = cast(Any, log_level)
+
     pid = _read_pid(config.pid_file)
     if pid is not None and _pid_alive(pid):
-        typer.echo(f"mozartd is already running (PID {pid})")
+        typer.echo(f"Mozart conductor is already running (PID {pid})")
         raise typer.Exit(1)
 
     # Detect concurrent start race via advisory lock
@@ -67,10 +69,9 @@ def start(
             finally:
                 os.close(probe_fd)
         except OSError:
-            typer.echo("mozartd is starting up (PID file locked)")
+            typer.echo("Mozart conductor is starting up (PID file locked)")
             raise typer.Exit(1) from None
 
-    # Configure logging
     from mozart.core.logging import configure_logging
 
     log_fmt = "console" if foreground else "json"
@@ -90,75 +91,77 @@ def start(
     asyncio.run(daemon.run())
 
 
-@daemon_app.command()
-def stop(
-    pid_file: Path = typer.Option(
-        Path("/tmp/mozartd.pid"), "--pid-file",
-    ),
-    force: bool = typer.Option(False, "--force"),
+def stop_conductor(
+    pid_file: Path | None = None,
+    force: bool = False,
 ) -> None:
-    """Stop the running daemon."""
-    pid = _read_pid(pid_file)
+    """Stop the running Mozart conductor (daemon) process.
+
+    This is the core implementation shared by ``mozart stop`` and
+    Called by ``mozart stop`` via ``cli/commands/conductor.py``.
+    """
+    resolved_pid_file = pid_file or Path("/tmp/mozart.pid")
+    pid = _read_pid(resolved_pid_file)
     if pid is None or not _pid_alive(pid):
-        typer.echo("mozartd is not running")
-        # Clean up stale PID file
-        pid_file.unlink(missing_ok=True)
+        typer.echo("Mozart conductor is not running")
+        resolved_pid_file.unlink(missing_ok=True)
         raise typer.Exit(1)
 
     sig = signal.SIGKILL if force else signal.SIGTERM
     os.kill(pid, sig)
-    typer.echo(f"Sent {'SIGKILL' if force else 'SIGTERM'} to mozartd (PID {pid})")
+    typer.echo(
+        f"Sent {'SIGKILL' if force else 'SIGTERM'} to Mozart conductor (PID {pid})",
+    )
 
 
-@daemon_app.command()
-def status(
-    pid_file: Path = typer.Option(
-        Path("/tmp/mozartd.pid"), "--pid-file",
-    ),
-    socket_path: Path = typer.Option(
-        Path("/tmp/mozartd.sock"), "--socket",
-    ),
+def get_conductor_status(
+    pid_file: Path | None = None,
+    socket_path: Path | None = None,
 ) -> None:
-    """Check daemon status via health probes."""
-    pid = _read_pid(pid_file)
+    """Check Mozart conductor (daemon) status via health probes.
+
+    This is the core implementation shared by ``mozart conductor-status``
+    Called by ``mozart conductor-status`` via ``cli/commands/conductor.py``.
+    """
+    resolved_pid_file = pid_file or Path("/tmp/mozart.pid")
+    resolved_socket = socket_path or Path("/tmp/mozart.sock")
+
+    pid = _read_pid(resolved_pid_file)
     if pid is None or not _pid_alive(pid):
-        typer.echo("mozartd is not running")
-        pid_file.unlink(missing_ok=True)
+        typer.echo("Mozart conductor is not running")
+        resolved_pid_file.unlink(missing_ok=True)
         raise typer.Exit(1)
 
-    typer.echo(f"mozartd is running (PID {pid})")
+    typer.echo(f"Mozart conductor is running (PID {pid})")
 
-    # Query health probes via IPC
     from mozart.daemon.ipc.client import DaemonClient
 
-    client = DaemonClient(socket_path)
+    client = DaemonClient(resolved_socket)
+
+    from mozart.daemon.exceptions import DaemonError
+
+    async def _probe(method: str) -> dict[str, Any] | None:
+        try:
+            result: dict[str, Any] = await client.call(method)
+            return result
+        except (OSError, DaemonError) as e:
+            _logger.info(f"probe.{method.split('.')[-1]}_failed", error=str(e))
+            return None
 
     async def _get_health() -> tuple[
         dict[str, Any] | None,
         dict[str, Any] | None,
         dict[str, Any] | None,
     ]:
-        health = None
-        ready = None
-        daemon_info = None
-        try:
-            health = await client.call("daemon.health")
-        except Exception as e:
-            _logger.info("probe.health_failed", error=str(e))
-        try:
-            ready = await client.call("daemon.ready")
-        except Exception as e:
-            _logger.info("probe.ready_failed", error=str(e))
-        try:
-            daemon_info = await client.call("daemon.status")
-        except Exception as e:
-            _logger.info("probe.status_failed", error=str(e))
+        health = await _probe("daemon.health")
+        ready = await _probe("daemon.ready")
+        daemon_info = await _probe("daemon.status")
         return health, ready, daemon_info
 
     try:
         health, ready, daemon_info = asyncio.run(_get_health())
-    except Exception:
-        typer.echo("  (Could not connect to daemon socket for details)")
+    except (OSError, DaemonError):
+        typer.echo("  (Could not connect to conductor socket for details)")
         return
 
     if health:
@@ -361,21 +364,31 @@ class DaemonProcess:
             return response.model_dump()
 
         async def handle_job_status(params: dict[str, Any], _w: Any) -> dict[str, Any]:
+            # Let JobSubmissionError propagate — the JSON-RPC protocol maps it
+            # to a JOB_NOT_FOUND error code, and the client re-raises it.
             return await manager.get_job_status(
                 params["job_id"], _workspace_path(params.get("workspace")),
             )
 
         async def handle_pause(params: dict[str, Any], _w: Any) -> dict[str, Any]:
-            ok = await manager.pause_job(
-                params["job_id"], _workspace_path(params.get("workspace")),
-            )
-            return {"paused": ok}
+            from mozart.daemon.exceptions import JobSubmissionError
+            try:
+                ok = await manager.pause_job(
+                    params["job_id"], _workspace_path(params.get("workspace")),
+                )
+                return {"paused": ok}
+            except JobSubmissionError as e:
+                return {"paused": False, "error": str(e)}
 
         async def handle_resume(params: dict[str, Any], _w: Any) -> dict[str, Any]:
-            response = await manager.resume_job(
-                params["job_id"], _workspace_path(params.get("workspace")),
-            )
-            return response.model_dump()
+            from mozart.daemon.exceptions import JobSubmissionError
+            try:
+                response = await manager.resume_job(
+                    params["job_id"], _workspace_path(params.get("workspace")),
+                )
+                return response.model_dump()
+            except JobSubmissionError as e:
+                return {"job_id": params.get("job_id", ""), "status": "rejected", "message": str(e)}
 
         async def handle_cancel(params: dict[str, Any], _w: Any) -> dict[str, Any]:
             ok = await manager.cancel_job(params["job_id"])
@@ -396,12 +409,40 @@ class DaemonProcess:
             self._track_signal_task(task)
             return {"shutting_down": True}
 
+        async def handle_errors(params: dict[str, Any], _w: Any) -> dict[str, Any]:
+            return await manager.get_job_errors(
+                params["job_id"], _workspace_path(params.get("workspace")),
+            )
+
+        async def handle_diagnose(params: dict[str, Any], _w: Any) -> dict[str, Any]:
+            return await manager.get_diagnostic_report(
+                params["job_id"], _workspace_path(params.get("workspace")),
+            )
+
+        async def handle_history(params: dict[str, Any], _w: Any) -> dict[str, Any]:
+            return await manager.get_execution_history(
+                params["job_id"], _workspace_path(params.get("workspace")),
+                sheet_num=params.get("sheet_num"),
+                limit=params.get("limit", 50),
+            )
+
+        async def handle_recover(params: dict[str, Any], _w: Any) -> dict[str, Any]:
+            return await manager.recover_job(
+                params["job_id"], _workspace_path(params.get("workspace")),
+                sheet_num=params.get("sheet_num"),
+                dry_run=params.get("dry_run", False),
+            )
+
         handler.register("job.submit", handle_submit)
         handler.register("job.status", handle_job_status)
         handler.register("job.pause", handle_pause)
         handler.register("job.resume", handle_resume)
         handler.register("job.cancel", handle_cancel)
         handler.register("job.list", handle_list)
+        handler.register("job.errors", handle_errors)
+        handler.register("job.diagnose", handle_diagnose)
+        handler.register("job.history", handle_history)
+        handler.register("job.recover", handle_recover)
         handler.register("daemon.status", handle_daemon_status)
         handler.register("daemon.shutdown", handle_shutdown)
 
@@ -463,7 +504,7 @@ def _load_config(config_file: Path | None) -> DaemonConfig:
 def _write_pid(pid_file: Path) -> None:
     """Write current PID to file atomically with advisory lock.
 
-    Uses fcntl.flock() to prevent TOCTOU races when two ``mozartd start``
+    Uses fcntl.flock() to prevent TOCTOU races when two ``mozart start``
     invocations run concurrently.  Also rejects symlinks to avoid a local
     attacker redirecting the write to an arbitrary file.
     """
@@ -543,4 +584,9 @@ def _daemonize(config: DaemonConfig) -> None:
     )
 
 
-__all__ = ["DaemonProcess", "daemon_app"]
+__all__ = [
+    "DaemonProcess",
+    "start_conductor",
+    "stop_conductor",
+    "get_conductor_status",
+]

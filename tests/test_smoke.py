@@ -21,6 +21,19 @@ from mozart.cli import app
 runner = CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prevent smoke tests from reaching a real conductor."""
+    async def _fake_route(
+        method: str, params: dict, *, socket_path=None
+    ) -> tuple[bool, None]:
+        return False, None
+
+    monkeypatch.setattr(
+        "mozart.daemon.detect.try_daemon_route", _fake_route,
+    )
+
+
 # =============================================================================
 # Module import smoke tests
 # =============================================================================

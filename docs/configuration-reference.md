@@ -44,7 +44,7 @@ and constraints are extracted directly from the Pydantic v2 config models in
 - [logging](#logging)
 - [feedback](#feedback)
 - [State and Misc](#state-and-misc)
-- [DaemonConfig (mozartd)](#daemonconfig-mozartd)
+- [DaemonConfig (Conductor)](#daemonconfig-conductor)
   - [Socket Sub-Config](#socket-sub-config)
   - [Resource Limits Sub-Config](#resource-limits-sub-config)
 
@@ -966,7 +966,7 @@ feedback:
 
 ---
 
-## DaemonConfig (mozartd)
+## DaemonConfig (Conductor)
 
 *Source: `src/mozart/daemon/config.py` — `DaemonConfig`*
 
@@ -975,7 +975,7 @@ Top-level configuration for the Mozart daemon process. Configured separately fro
 | Field | Type | Default | Constraints | Description |
 |-------|------|---------|-------------|-------------|
 | `socket` | `SocketConfig` | *(see sub-config)* | | Unix domain socket configuration |
-| `pid_file` | `Path` | `/tmp/mozartd.pid` | | PID file for daemon process management |
+| `pid_file` | `Path` | `/tmp/mozart.pid` | | PID file for daemon process management |
 | `max_concurrent_jobs` | `int` | `5` | `1–50` | Maximum jobs executing simultaneously |
 | `max_concurrent_sheets` | `int` | `10` | `1–100` | **Reserved for Phase 3 scheduler — not yet enforced.** Global parallel sheet limit. |
 | `resource_limits` | `ResourceLimitConfig` | *(see sub-config)* | | Resource constraints |
@@ -995,7 +995,7 @@ Top-level configuration for the Mozart daemon process. Configured separately fro
 
 | Field | Type | Default | Constraints | Description |
 |-------|------|---------|-------------|-------------|
-| `path` | `Path` | `/tmp/mozartd.sock` | | Unix domain socket path |
+| `path` | `Path` | `/tmp/mozart.sock` | | Unix domain socket path |
 | `permissions` | `int` | `0o660` | | Socket file permissions (owner+group read/write) |
 | `backlog` | `int` | `5` | `>= 1` | Maximum pending connections in listen queue |
 

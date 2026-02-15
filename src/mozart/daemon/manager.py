@@ -261,22 +261,32 @@ class JobManager:
         )
 
     async def get_job_status(self, job_id: str, workspace: Path | None = None) -> dict[str, Any]:
-        """Get status of a specific job."""
+        """Get full status of a specific job.
+
+        Attempts to load the full CheckpointState from the state backend
+        so the CLI can render rich status output. Falls back to basic
+        JobMeta if state loading fails.
+        """
         meta = self._job_meta.get(job_id)
         if meta is None:
             raise JobSubmissionError(f"Job '{job_id}' not found")
 
-        result = meta.to_dict()
-
-        # If running, try to get deeper status from state backend
-        if meta.status == DaemonJobStatus.RUNNING and workspace:
-            state = await self._checked_service.get_status(meta.job_id, workspace)
+        # Try loading full CheckpointState from the workspace
+        ws = workspace or meta.workspace
+        try:
+            state = await self._checked_service.get_status(meta.job_id, ws)
             if state:
-                result["current_sheet"] = state.current_sheet
-                result["total_sheets"] = state.total_sheets
-                result["last_completed_sheet"] = state.last_completed_sheet
+                return state.model_dump(mode="json")
+        except Exception:
+            _logger.debug(
+                "manager.get_job_status_state_load_failed",
+                job_id=job_id,
+                workspace=str(ws),
+                exc_info=True,
+            )
 
-        return result
+        # Fallback to basic metadata
+        return meta.to_dict()
 
     async def pause_job(self, job_id: str, workspace: Path | None = None) -> bool:
         """Send pause signal to a running job."""
@@ -364,6 +374,109 @@ class JobManager:
                 result.append(record.to_dict())
 
         return result
+
+    async def get_job_errors(self, job_id: str, workspace: Path | None = None) -> dict[str, Any]:
+        """Get errors for a specific job.
+
+        Loads the full CheckpointState and returns it for the CLI to
+        extract error information from sheet states.
+        """
+        meta = self._job_meta.get(job_id)
+        if meta is None:
+            raise JobSubmissionError(f"Job '{job_id}' not found")
+
+        ws = workspace or meta.workspace
+        state = await self._checked_service.get_status(meta.job_id, ws)
+        if state is None:
+            raise JobSubmissionError(f"No state found for job '{job_id}'")
+
+        return {"state": state.model_dump(mode="json")}
+
+    async def get_diagnostic_report(
+        self, job_id: str, workspace: Path | None = None,
+    ) -> dict[str, Any]:
+        """Get diagnostic data for a specific job.
+
+        Returns the full CheckpointState plus workspace path for the CLI
+        to build the diagnostic report locally.
+        """
+        meta = self._job_meta.get(job_id)
+        if meta is None:
+            raise JobSubmissionError(f"Job '{job_id}' not found")
+
+        ws = workspace or meta.workspace
+        state = await self._checked_service.get_status(meta.job_id, ws)
+        if state is None:
+            raise JobSubmissionError(f"No state found for job '{job_id}'")
+
+        return {
+            "state": state.model_dump(mode="json"),
+            "workspace": str(ws),
+        }
+
+    async def get_execution_history(
+        self, job_id: str, workspace: Path | None = None,
+        sheet_num: int | None = None, limit: int = 50,
+    ) -> dict[str, Any]:
+        """Get execution history for a specific job.
+
+        Requires the SQLite state backend for history records.
+        """
+        meta = self._job_meta.get(job_id)
+        if meta is None:
+            raise JobSubmissionError(f"Job '{job_id}' not found")
+
+        ws = workspace or meta.workspace
+
+        from mozart.state import SQLiteStateBackend
+
+        sqlite_path = ws / ".mozart-state.db"
+        records: list[dict[str, Any]] = []
+        has_history = False
+
+        if sqlite_path.exists():
+            backend = SQLiteStateBackend(sqlite_path)
+            try:
+                if hasattr(backend, 'get_execution_history'):
+                    records = await backend.get_execution_history(
+                        job_id=job_id, sheet_num=sheet_num, limit=limit,
+                    )
+                    has_history = True
+            finally:
+                await backend.close()
+
+        return {
+            "job_id": job_id,
+            "records": records,
+            "has_history": has_history,
+        }
+
+    async def recover_job(
+        self, job_id: str, workspace: Path | None = None,
+        sheet_num: int | None = None, dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Get state for recover operation.
+
+        Returns the job state and workspace for the CLI to run
+        validations locally. The actual validation logic stays
+        in the CLI command to avoid duplicating ValidationEngine
+        setup in the daemon.
+        """
+        meta = self._job_meta.get(job_id)
+        if meta is None:
+            raise JobSubmissionError(f"Job '{job_id}' not found")
+
+        ws = workspace or meta.workspace
+        state = await self._checked_service.get_status(meta.job_id, ws)
+        if state is None:
+            raise JobSubmissionError(f"No state found for job '{job_id}'")
+
+        return {
+            "state": state.model_dump(mode="json"),
+            "workspace": str(ws),
+            "dry_run": dry_run,
+            "sheet_num": sheet_num,
+        }
 
     async def get_daemon_status(self) -> dict[str, Any]:
         """Build daemon status summary.

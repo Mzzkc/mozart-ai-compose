@@ -1,7 +1,7 @@
 """Daemon configuration management commands for Mozart CLI.
 
 This module implements the `mozart config` command group for viewing
-and managing the mozartd daemon configuration file.
+and managing the conductor daemon configuration file.
 
 Subcommands:
 - `mozart config show`  — Display current config as a Rich table
@@ -23,7 +23,7 @@ from ..output import console
 
 config_app = typer.Typer(
     name="config",
-    help="Manage daemon (mozartd) configuration.",
+    help="Manage conductor configuration.",
     invoke_without_command=True,
 )
 
@@ -97,7 +97,7 @@ def _coerce_value(raw: str) -> Any:
 
 @config_app.callback(invoke_without_command=True)
 def config_callback(ctx: typer.Context) -> None:
-    """Manage daemon (mozartd) configuration."""
+    """Manage conductor configuration."""
     if ctx.invoked_subcommand is None:
         # No subcommand provided — show help
         console.print(ctx.get_help())

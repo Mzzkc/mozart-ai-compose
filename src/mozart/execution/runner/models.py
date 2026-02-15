@@ -55,7 +55,7 @@ class RunSummary:
     rate_limit_waits: int = 0
     validation_pass_count: int = 0
     validation_fail_count: int = 0
-    first_attempt_successes: int = 0
+    successes_without_retry: int = 0
     final_status: JobStatus = field(default=JobStatus.PENDING)
 
     # Cost tracking (v4 evolution: Cost Circuit Breaker)
@@ -86,11 +86,11 @@ class RunSummary:
         return (self.validation_pass_count / total) * 100
 
     @property
-    def first_attempt_rate(self) -> float:
-        """Calculate first-attempt success rate as percentage."""
+    def success_without_retry_rate(self) -> float:
+        """Calculate success-without-retry rate as percentage."""
         if self.completed_sheets == 0:
             return 0.0
-        return (self.first_attempt_successes / self.completed_sheets) * 100
+        return (self.successes_without_retry / self.completed_sheets) * 100
 
     def to_dict(self) -> dict[str, Any]:
         """Convert summary to dictionary for JSON output."""
@@ -116,8 +116,8 @@ class RunSummary:
                 "total_retries": self.total_retries,
                 "completion_attempts": self.total_completion_attempts,
                 "rate_limit_waits": self.rate_limit_waits,
-                "first_attempt_successes": self.first_attempt_successes,
-                "first_attempt_rate": round(self.first_attempt_rate, 1),
+                "successes_without_retry": self.successes_without_retry,
+                "success_without_retry_rate": round(self.success_without_retry_rate, 1),
             },
         }
 
@@ -379,6 +379,52 @@ class FailureHandlingResult:
 
     fatal_message: str = ""
     """Error message if action is 'fatal'."""
+
+
+@dataclass
+class ModeDecisionContext:
+    """Input context for _apply_mode_decision.
+
+    Groups the 12 parameters of ``_apply_mode_decision`` into a single
+    context object, matching the ValidationSuccessContext /
+    ExecutionFailureContext pattern used elsewhere.
+    """
+
+    state: CheckpointState
+    """Current checkpoint state."""
+
+    sheet_num: int
+    """Sheet number being executed."""
+
+    validation_result: SheetValidationResult
+    """Current validation results."""
+
+    execution_history: deque[ExecutionResult]
+    """History of execution results."""
+
+    original_prompt: str
+    """Original prompt (for reset on retry)."""
+
+    current_prompt: str
+    """Currently active prompt."""
+
+    current_mode: SheetExecutionMode
+    """Current execution mode."""
+
+    normal_attempts: int
+    """Normal retry attempt count."""
+
+    completion_attempts: int
+    """Completion-mode attempt count."""
+
+    max_retries: int
+    """Maximum normal retries."""
+
+    max_completion: int
+    """Maximum completion attempts."""
+
+    pass_pct: float
+    """Current validation pass percentage."""
 
 
 @dataclass

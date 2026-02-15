@@ -83,6 +83,11 @@ class SuccessFactors:
     success_rate: float = 1.0
     """Success rate when these factors are present (0.0-1.0)."""
 
+    def __post_init__(self) -> None:
+        """Clamp success_rate and occurrence_count to valid bounds."""
+        self.success_rate = max(0.0, min(1.0, self.success_rate))
+        self.occurrence_count = max(1, self.occurrence_count)
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary for JSON storage."""
         return {
@@ -138,7 +143,7 @@ class ExecutionRecord:
     duration_seconds: float
     status: str
     retry_count: int
-    first_attempt_success: bool
+    success_without_retry: bool
     validation_pass_rate: float
     confidence_score: float
     model: str | None
@@ -205,10 +210,7 @@ class PatternRecord:
 
     def __post_init__(self) -> None:
         """Clamp trust_score to valid range [0.0, 1.0]."""
-        if self.trust_score < 0.0:
-            self.trust_score = 0.0
-        elif self.trust_score > 1.0:
-            self.trust_score = 1.0
+        self.trust_score = max(0.0, min(1.0, self.trust_score))
 
 
 @dataclass

@@ -66,8 +66,8 @@ class PatternType(Enum):
     COMPLETION_MODE = "completion_mode"
     """Pattern where completion mode is effective."""
 
-    FIRST_ATTEMPT_SUCCESS = "first_attempt_success"
-    """Pattern of successful first attempts (positive pattern)."""
+    SUCCESS_WITHOUT_RETRY = "first_attempt_success"
+    """Pattern of success without retry (positive pattern)."""
 
     HIGH_CONFIDENCE = "high_confidence"
     """Pattern with high validation confidence."""
@@ -163,7 +163,7 @@ class DetectedPattern:
     """Number of times this pattern was applied (included in prompts)."""
 
     successes_after_application: int = 0
-    """Number of first_attempt_success outcomes when this pattern was applied."""
+    """Number of success_without_retry outcomes when this pattern was applied."""
 
     # v19: Quarantine & Trust fields (optional, from global store)
     quarantine_status: QuarantineStatus | None = None
@@ -243,7 +243,7 @@ class DetectedPattern:
             return f"✓ Tip: {self.description} ({rate}){trust_indicator}"
         elif self.pattern_type == PatternType.COMPLETION_MODE:
             return f"📝 Partial completion: {self.description}{trust_indicator}"
-        elif self.pattern_type == PatternType.FIRST_ATTEMPT_SUCCESS:
+        elif self.pattern_type == PatternType.SUCCESS_WITHOUT_RETRY:
             return f"✓ Best practice: {self.description}{trust_indicator}"
         elif self.pattern_type == PatternType.LOW_CONFIDENCE:
             return f"⚠️ Needs attention: {self.description}{trust_indicator}"
@@ -314,7 +314,7 @@ class PatternDetector:
         """Calculate effectiveness metrics for patterns based on outcomes.
 
         For each pattern, counts how many times it was applied (via patterns_applied)
-        and how many of those applications resulted in first_attempt_success.
+        and how many of those applications resulted in success_without_retry.
 
         This creates the feedback loop: patterns that lead to success get
         higher effectiveness_rate, which then influences relevance scoring.
@@ -335,7 +335,7 @@ class PatternDetector:
                 if applied_desc in pattern_lookup:
                     pattern = pattern_lookup[applied_desc]
                     pattern.applications += 1
-                    if outcome.first_attempt_success:
+                    if outcome.success_without_retry:
                         pattern.successes_after_application += 1
 
     def _detect_validation_patterns(self) -> list[DetectedPattern]:
@@ -462,14 +462,14 @@ class PatternDetector:
 
         # Find first-attempt successes
         first_attempt_successes = [
-            o for o in self.outcomes if o.first_attempt_success
+            o for o in self.outcomes if o.success_without_retry
         ]
 
         if len(first_attempt_successes) >= MIN_FIRST_ATTEMPT_SUCCESSES:
             success_rate = len(first_attempt_successes) / len(self.outcomes)
             patterns.append(
                 DetectedPattern(
-                    pattern_type=PatternType.FIRST_ATTEMPT_SUCCESS,
+                    pattern_type=PatternType.SUCCESS_WITHOUT_RETRY,
                     description=f"First-attempt success rate: {success_rate:.0%}",
                     frequency=len(first_attempt_successes),
                     success_rate=success_rate,

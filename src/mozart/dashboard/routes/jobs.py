@@ -327,7 +327,7 @@ async def get_sheet_details(
         "execution_mode": sheet_state.execution_mode,
         "confidence_score": sheet_state.confidence_score,
         "outcome_category": sheet_state.outcome_category,
-        "first_attempt_success": sheet_state.first_attempt_success,
+        "success_without_retry": sheet_state.success_without_retry,
         "stdout_tail": sheet_state.stdout_tail,
         "stderr_tail": sheet_state.stderr_tail,
         "output_truncated": sheet_state.output_truncated,
@@ -352,9 +352,9 @@ async def get_sheet_details(
 
 @router.get("/daemon/status", tags=["Daemon"])
 async def daemon_status() -> dict[str, Any]:
-    """Check if the Mozart daemon (mozartd) is running and get its status.
+    """Check if the Mozart conductor is running and get its status.
 
-    Returns a "Daemon Connected" indicator and status details when mozartd
+    Returns a "Daemon Connected" indicator and status details when the conductor
     is available, or a disconnected status when it's not.
     """
     from mozart.daemon.config import DaemonConfig

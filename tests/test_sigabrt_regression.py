@@ -366,7 +366,7 @@ class TestFindJobStateBackendErrors:
     @pytest.mark.asyncio
     async def test_sqlite_error_falls_back_to_json(self, tmp_path: Path) -> None:
         """SQLite backend error should not prevent JSON fallback from working."""
-        from mozart.cli.helpers import find_job_state
+        from mozart.cli.helpers import _find_job_state_fs as find_job_state
 
         workspace = tmp_path / "workspace"
         workspace.mkdir()
@@ -400,7 +400,7 @@ class TestFindJobStateBackendErrors:
     @pytest.mark.asyncio
     async def test_all_backends_error_returns_none(self, tmp_path: Path) -> None:
         """When all backends fail, find_job_state returns (None, None)."""
-        from mozart.cli.helpers import find_job_state
+        from mozart.cli.helpers import _find_job_state_fs as find_job_state
 
         workspace = tmp_path / "workspace"
         workspace.mkdir()
@@ -414,7 +414,7 @@ class TestFindJobStateBackendErrors:
     @pytest.mark.asyncio
     async def test_backend_exception_logged_not_raised(self, tmp_path: Path) -> None:
         """Backend exceptions should be caught and logged, not propagated."""
-        from mozart.cli.helpers import find_job_state
+        from mozart.cli.helpers import _find_job_state_fs as find_job_state
         from mozart.state import JsonStateBackend
 
         workspace = tmp_path / "workspace"
@@ -450,7 +450,7 @@ class TestLoggerKeywordArgs:
         import structlog
         from structlog.types import EventDict, WrappedLogger
 
-        from mozart.cli.helpers import find_job_state
+        from mozart.cli.helpers import _find_job_state_fs as find_job_state
         from mozart.state import JsonStateBackend
 
         captured_logs: list[dict] = []

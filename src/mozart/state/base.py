@@ -1,8 +1,11 @@
 """Abstract base for state backends."""
 
+import logging
 from abc import ABC, abstractmethod
 
 from mozart.core.checkpoint import CheckpointState, SheetStatus
+
+_logger = logging.getLogger(__name__)
 
 
 class StateBackend(ABC):
@@ -91,6 +94,16 @@ class StateBackend(ABC):
         that use per-operation connections (e.g. aiosqlite context managers).
         """
 
+    @property
+    def supports_execution_history(self) -> bool:
+        """Whether this backend persists execution history.
+
+        Backends that override ``record_execution`` should also override this
+        to return ``True``.  Callers can check this to avoid silent data loss
+        when a backend unexpectedly lacks execution recording.
+        """
+        return False
+
     async def record_execution(
         self,
         job_id: str,
@@ -104,7 +117,8 @@ class StateBackend(ABC):
         """Record an execution attempt in history.
 
         Optional method — backends that support execution recording (e.g. SQLite)
-        override this. The default no-op returns None.
+        override this. The default logs at DEBUG level so silent data
+        loss is traceable, then returns None.
 
         Args:
             job_id: Job identifier.
@@ -118,6 +132,10 @@ class StateBackend(ABC):
         Returns:
             The ID of the inserted record, or None if not supported.
         """
+        _logger.debug(
+            "record_execution_noop",
+            extra={"job_id": job_id, "sheet_num": sheet_num},
+        )
         return None
 
     async def infer_state_from_artifacts(

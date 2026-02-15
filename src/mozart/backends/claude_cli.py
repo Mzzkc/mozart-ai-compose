@@ -639,7 +639,10 @@ class ClaudeCliBackend(Backend):
             if process is not None and process.returncode is None:
                 await self._kill_orphaned_process(process, asyncio.CancelledError())
             raise
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError, UnicodeDecodeError) as e:
+            # Runtime errors from subprocess I/O, stream operations, or
+            # encoding. Narrow catch prevents masking programming bugs
+            # (TypeError, AttributeError, etc.) as execution failures.
             duration = time.monotonic() - start_time
 
             if process is not None and process.returncode is None:
@@ -661,6 +664,12 @@ class ClaudeCliBackend(Backend):
                 error_type="exception",
                 error_message=str(e),
             )
+        except Exception as e:
+            # Programming errors — clean up subprocess but re-raise so bugs
+            # are not silently masked as execution failures.
+            if process is not None and process.returncode is None:
+                await self._kill_orphaned_process(process, e)
+            raise
 
     async def _read_stream_with_logging(
         self,

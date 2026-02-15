@@ -187,11 +187,12 @@ class _MockMixin:
 
 
 # Dynamically compose the mixin for testing
+from mozart.execution.runner.context import ContextBuildingMixin
 from mozart.execution.runner.recovery import RecoveryMixin
 from mozart.execution.runner.sheet import SheetExecutionMixin
 
 
-class _TestableSheetMixin(_MockMixin, SheetExecutionMixin, RecoveryMixin):
+class _TestableSheetMixin(_MockMixin, SheetExecutionMixin, ContextBuildingMixin, RecoveryMixin):
     """Concrete class that combines the mixin with mock infrastructure."""
     pass
 
@@ -661,7 +662,7 @@ class TestRecordSheetOutcome:
         await mixin._record_sheet_outcome(
             sheet_num=1, job_id="test", validation_result=vr,
             execution_duration=5.0, normal_attempts=1, completion_attempts=0,
-            first_attempt_success=True, final_status=SheetStatus.COMPLETED,
+            success_without_retry=True, final_status=SheetStatus.COMPLETED,
         )
         # Completed without error — no store to call
 
@@ -673,7 +674,7 @@ class TestRecordSheetOutcome:
         await mixin._record_sheet_outcome(
             sheet_num=1, job_id="test", validation_result=vr,
             execution_duration=5.0, normal_attempts=1, completion_attempts=0,
-            first_attempt_success=True, final_status=SheetStatus.COMPLETED,
+            success_without_retry=True, final_status=SheetStatus.COMPLETED,
         )
         mixin.outcome_store.record.assert_called_once()
 

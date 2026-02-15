@@ -17,16 +17,33 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from typer.testing import CliRunner
 
-from mozart.cli import (
+from mozart.cli import app
+from mozart.cli.helpers import (
     _create_pause_signal,
     _find_job_workspace,
     _wait_for_pause_ack,
-    app,
 )
 from mozart.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
 from mozart.state.json_backend import JsonStateBackend
 
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure CLI tests never route through a real conductor.
+
+    All pause/modify tests exercise the filesystem-based fallback path
+    (invoked when --workspace is given and the conductor is unavailable).
+    """
+    async def _fake_route(
+        method: str, params: dict, *, socket_path=None
+    ) -> tuple[bool, None]:
+        return False, None
+
+    monkeypatch.setattr(
+        "mozart.daemon.detect.try_daemon_route", _fake_route,
+    )
 
 
 def _parse_json_output(output: str) -> dict:
@@ -537,7 +554,7 @@ class TestPauseCommand:
 
         # Patch where the function is used (in commands.pause), not where it's defined
         with patch(
-            "mozart.cli.commands.pause.create_pause_signal",
+            "mozart.cli.helpers._create_pause_signal",
             side_effect=PermissionError("Read-only"),
         ):
             result = runner.invoke(app, [
@@ -559,7 +576,7 @@ class TestPauseCommand:
         async def mock_wait(*_args: object, **_kwargs: object) -> bool:
             return False  # Simulate timeout
 
-        with patch("mozart.cli.commands.pause.wait_for_pause_ack", mock_wait):
+        with patch("mozart.cli.helpers._wait_for_pause_ack", mock_wait):
             result = runner.invoke(app, [
                 "pause", state.job_id,
                 "--workspace", str(workspace),
@@ -580,7 +597,7 @@ class TestPauseCommand:
         async def mock_wait(*_args: object, **_kwargs: object) -> bool:
             return True  # Simulate acknowledged pause
 
-        with patch("mozart.cli.commands.pause.wait_for_pause_ack", mock_wait):
+        with patch("mozart.cli.helpers._wait_for_pause_ack", mock_wait):
             result = runner.invoke(app, [
                 "pause", state.job_id,
                 "--workspace", str(workspace),
@@ -842,7 +859,7 @@ class TestModifyCommand:
         state, workspace = running_job_state
 
         with patch(
-            "mozart.cli.commands.pause.create_pause_signal",
+            "mozart.cli.helpers._create_pause_signal",
             side_effect=PermissionError("Read-only"),
         ):
             result = runner.invoke(app, [
@@ -1033,7 +1050,7 @@ class TestPauseEdgeCases:
         async def mock_wait(*_: object, **__: object) -> bool:
             return False
 
-        with patch("mozart.cli.commands.pause.wait_for_pause_ack", mock_wait):
+        with patch("mozart.cli.helpers._wait_for_pause_ack", mock_wait):
             result = runner.invoke(app, [
                 "pause", state.job_id,
                 "-w", str(workspace),

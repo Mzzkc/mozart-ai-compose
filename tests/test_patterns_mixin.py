@@ -123,7 +123,7 @@ def mock_global_store() -> MagicMock:
     store.update_success_factors = MagicMock()
     store.get_execution_stats = MagicMock(return_value={
         "total_executions": 100,
-        "first_attempt_success_rate": 0.75,
+        "success_without_retry_rate": 0.75,
     })
     store.is_rate_limited = MagicMock(return_value=(False, None))
 
@@ -341,7 +341,7 @@ class TestRecordPatternFeedback:
             pattern_ids=["p1", "p2"],
             context=PatternFeedbackContext(
                 validation_passed=True,
-                first_attempt_success=True,
+                success_without_retry=True,
                 sheet_num=1,
             ),
         )
@@ -357,7 +357,7 @@ class TestRecordPatternFeedback:
             pattern_ids=[],
             context=PatternFeedbackContext(
                 validation_passed=True,
-                first_attempt_success=True,
+                success_without_retry=True,
                 sheet_num=1,
             ),
         )
@@ -375,7 +375,7 @@ class TestRecordPatternFeedback:
             pattern_ids=["p1", "p2", "p3"],
             context=PatternFeedbackContext(
                 validation_passed=True,
-                first_attempt_success=True,
+                success_without_retry=True,
                 sheet_num=1,
             ),
         )
@@ -394,7 +394,7 @@ class TestRecordPatternFeedback:
             pattern_ids=["p1"],
             context=PatternFeedbackContext(
                 validation_passed=True,
-                first_attempt_success=True,
+                success_without_retry=True,
                 sheet_num=1,
             ),
         )
@@ -413,7 +413,7 @@ class TestRecordPatternFeedback:
             pattern_ids=["p1"],
             context=PatternFeedbackContext(
                 validation_passed=False,
-                first_attempt_success=False,
+                success_without_retry=False,
                 sheet_num=1,
             ),
         )
@@ -432,7 +432,7 @@ class TestRecordPatternFeedback:
             pattern_ids=["p1"],
             context=PatternFeedbackContext(
                 validation_passed=True,
-                first_attempt_success=False,  # Required retry
+                success_without_retry=False,  # Required retry
                 sheet_num=1,
             ),
         )
@@ -451,7 +451,7 @@ class TestRecordPatternFeedback:
             pattern_ids=["p1"],
             context=PatternFeedbackContext(
                 validation_passed=True,
-                first_attempt_success=True,
+                success_without_retry=True,
                 sheet_num=1,
                 grounding_confidence=0.85,
             ),
@@ -471,7 +471,7 @@ class TestRecordPatternFeedback:
             pattern_ids=["p1"],
             context=PatternFeedbackContext(
                 validation_passed=True,
-                first_attempt_success=True,
+                success_without_retry=True,
                 sheet_num=1,
                 validation_types=["file_exists", "content_regex"],
                 error_categories=["rate_limit"],
@@ -497,7 +497,7 @@ class TestRecordPatternFeedback:
             pattern_ids=["p1"],
             context=PatternFeedbackContext(
                 validation_passed=False,
-                first_attempt_success=False,
+                success_without_retry=False,
                 sheet_num=1,
             ),
         )
@@ -519,7 +519,7 @@ class TestRecordPatternFeedback:
             pattern_ids=["p_explore", "p_exploit"],
             context=PatternFeedbackContext(
                 validation_passed=True,
-                first_attempt_success=True,
+                success_without_retry=True,
                 sheet_num=1,
             ),
         )
@@ -548,7 +548,7 @@ class TestRecordPatternFeedback:
             pattern_ids=["p1"],
             context=PatternFeedbackContext(
                 validation_passed=True,
-                first_attempt_success=True,
+                success_without_retry=True,
                 sheet_num=1,
             ),
         )
@@ -580,7 +580,7 @@ class TestAssessFailureRisk:
         """Test that it returns unknown with insufficient executions."""
         mock_global_store.get_execution_stats.return_value = {
             "total_executions": 5,  # Less than 10
-            "first_attempt_success_rate": 0.8,
+            "success_without_retry_rate": 0.8,
         }
 
         assessment = runner_with_global_store._assess_failure_risk(
@@ -598,7 +598,7 @@ class TestAssessFailureRisk:
         """Test that high success rate yields low risk."""
         mock_global_store.get_execution_stats.return_value = {
             "total_executions": 100,
-            "first_attempt_success_rate": 0.85,  # > 0.7
+            "success_without_retry_rate": 0.85,  # > 0.7
         }
 
         assessment = runner_with_global_store._assess_failure_risk(
@@ -616,7 +616,7 @@ class TestAssessFailureRisk:
         """Test that moderate success rate yields medium risk."""
         mock_global_store.get_execution_stats.return_value = {
             "total_executions": 50,
-            "first_attempt_success_rate": 0.55,  # Between 0.4 and 0.7
+            "success_without_retry_rate": 0.55,  # Between 0.4 and 0.7
         }
 
         assessment = runner_with_global_store._assess_failure_risk(
@@ -633,7 +633,7 @@ class TestAssessFailureRisk:
         """Test that low success rate yields high risk."""
         mock_global_store.get_execution_stats.return_value = {
             "total_executions": 100,
-            "first_attempt_success_rate": 0.25,  # < 0.4
+            "success_without_retry_rate": 0.25,  # < 0.4
         }
 
         assessment = runner_with_global_store._assess_failure_risk(
@@ -650,7 +650,7 @@ class TestAssessFailureRisk:
         """Test that active rate limit increases risk to high."""
         mock_global_store.get_execution_stats.return_value = {
             "total_executions": 100,
-            "first_attempt_success_rate": 0.8,  # Would be low risk
+            "success_without_retry_rate": 0.8,  # Would be low risk
         }
         mock_global_store.is_rate_limited.return_value = (True, 120.0)
 
@@ -669,7 +669,7 @@ class TestAssessFailureRisk:
         """Test that high risk includes recommendations."""
         mock_global_store.get_execution_stats.return_value = {
             "total_executions": 100,
-            "first_attempt_success_rate": 0.2,
+            "success_without_retry_rate": 0.2,
         }
 
         assessment = runner_with_global_store._assess_failure_risk(

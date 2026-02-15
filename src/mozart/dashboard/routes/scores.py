@@ -155,22 +155,19 @@ def run_extended_validation(
     issues = runner.validate(config, config_path, content)
 
     # Convert to response objects
-    issue_responses = []
-    for issue in issues:
-        issue_responses.append(
-            ValidationIssueResponse(
-                check_id=issue.check_id,
-                severity=issue.severity.value,
-                message=issue.message,
-                line=issue.line,
-                column=issue.column,
-                context=issue.context,
-                suggestion=issue.suggestion,
-                auto_fixable=issue.auto_fixable,
-            )
+    return [
+        ValidationIssueResponse(
+            check_id=issue.check_id,
+            severity=issue.severity.value,
+            message=issue.message,
+            line=issue.line,
+            column=issue.column,
+            context=issue.context,
+            suggestion=issue.suggestion,
+            auto_fixable=issue.auto_fixable,
         )
-
-    return issue_responses
+        for issue in issues
+    ]
 
 
 def build_config_summary(config: JobConfig) -> dict[str, Any]:
@@ -460,7 +457,7 @@ async def list_available_templates(
             templates.append(template)
             categories.add(template.category)
 
-        except Exception:
+        except (KeyError, OSError, ValueError, yaml.YAMLError):
             _logger.warning("Failed to load template %s", name, exc_info=True)
             continue
 
@@ -492,7 +489,8 @@ async def get_template(template_name: str) -> TemplateResponse:
         raise HTTPException(
             status_code=404, detail=f"Template '{template_name}' not found"
         ) from None
-    except Exception:
+    except (OSError, ValueError, yaml.YAMLError):
+        _logger.warning("Failed to load template %s", template_name, exc_info=True)
         raise HTTPException(
             status_code=500, detail="Failed to load template"
         ) from None
@@ -526,7 +524,8 @@ async def download_template(template_name: str) -> PlainTextResponse:
         raise HTTPException(
             status_code=404, detail=f"Template '{template_name}' not found"
         ) from None
-    except Exception:
+    except OSError:
+        _logger.warning("Failed to download template %s", template_name, exc_info=True)
         raise HTTPException(
             status_code=500, detail="Failed to download template"
         ) from None
@@ -558,7 +557,8 @@ async def use_template(template_name: str) -> RedirectResponse:
         raise HTTPException(
             status_code=404, detail=f"Template '{template_name}' not found"
         ) from None
-    except Exception:
+    except OSError:
+        _logger.warning("Failed to use template %s", template_name, exc_info=True)
         raise HTTPException(
             status_code=500, detail="Failed to use template"
         ) from None

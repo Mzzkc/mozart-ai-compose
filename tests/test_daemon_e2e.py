@@ -42,8 +42,8 @@ FIXTURE_CONFIG = Path(__file__).parent / "fixtures" / "test-daemon-job.yaml"
 def _make_daemon_config(tmp_path: Path) -> DaemonConfig:
     """Build a DaemonConfig with paths scoped to tmp_path."""
     return DaemonConfig(
-        socket=SocketConfig(path=tmp_path / "test-mozartd.sock"),
-        pid_file=tmp_path / "test-mozartd.pid",
+        socket=SocketConfig(path=tmp_path / "test-mozart.sock"),
+        pid_file=tmp_path / "test-mozart.pid",
         state_db_path=tmp_path / "test-registry.db",
         max_concurrent_jobs=2,
         max_concurrent_sheets=3,

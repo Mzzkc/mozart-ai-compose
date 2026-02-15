@@ -2,24 +2,24 @@
 
 Contains the core sheet execution logic including:
 - _execute_sheet_with_recovery(): Main sheet execution state machine
-- _build_sheet_context(): Context construction for templates
-- _populate_cross_sheet_context(): Cross-sheet context propagation
 - Validation integration methods
 - Decision logic for retry/completion/escalation modes
 - Grounding hooks execution
 
+Note: Context building (_build_sheet_context, _populate_cross_sheet_context,
+_capture_cross_sheet_files) has been extracted to ContextBuildingMixin in
+context.py as part of incremental mixin decomposition.
+
 Architecture:
     This mixin requires access to attributes and methods from:
     - JobRunnerBase: config, backend, state_backend, console, _logger, etc.
+    - ContextBuildingMixin: _build_sheet_context()
     - PatternsMixin: _query_relevant_patterns(), _record_pattern_feedback()
     - RecoveryMixin: _try_self_healing(), _handle_rate_limit()
     - CostMixin: _track_cost(), _check_cost_limits()
 
     It provides:
     - _execute_sheet_with_recovery(): Core sheet execution
-    - _build_sheet_context(): Template context construction
-    - _populate_cross_sheet_context(): Cross-sheet data injection
-    - _capture_cross_sheet_files(): File capture for cross-sheet context
     - _run_preflight_checks(): Pre-execution validation
     - _update_sheet_validation_state(): State update after validation
     - _run_grounding_hooks(): External grounding hook execution
@@ -56,7 +56,7 @@ if TYPE_CHECKING:
 
     from mozart.backends.base import Backend
     from mozart.core.checkpoint import SheetState
-    from mozart.core.config import CrossSheetConfig, JobConfig
+    from mozart.core.config import JobConfig
     from mozart.core.errors import ClassificationResult, ErrorClassifier
     from mozart.core.logging import MozartLogger
     from mozart.execution.circuit_breaker import CircuitBreaker
@@ -107,6 +107,7 @@ from .models import (
     FatalError,
     GracefulShutdownError,
     GroundingDecisionContext,
+    ModeDecisionContext,
     ModeDecisionResult,
     SheetExecutionMode,
     SheetExecutionSetup,
@@ -140,6 +141,7 @@ class SheetExecutionMixin:
     _MAX_EXECUTION_HISTORY = 20
     _MAX_HEALING_CYCLES = 2
     _MAX_PREFLIGHT_WARNINGS_LOG = 20
+    _CONSECUTIVE_FAILURE_ERROR_THRESHOLD = 3
 
     # Type declarations for attributes from JobRunnerBase
     # These are populated at runtime by the base class __init__
@@ -170,6 +172,8 @@ class SheetExecutionMixin:
         _exploitation_pattern_ids: list[str]
         _shutdown_requested: bool
         _summary: RunSummary | None
+        _record_execution_failures: int
+        _escalation_update_failures: int
 
         # Methods from JobRunnerBase
         async def _interruptible_sleep(self, seconds: float) -> None: ...
@@ -223,6 +227,45 @@ class SheetExecutionMixin:
             sheet_state: SheetState,
             state: CheckpointState,
         ) -> tuple[bool, str | None]: ...
+
+        # Methods from ContextBuildingMixin
+        def _build_sheet_context(
+            self,
+            sheet_num: int,
+            state: CheckpointState | None = None,
+        ) -> Any: ...
+
+    def _log_swallowed_error(
+        self,
+        counter_attr: str,
+        event: str,
+        error: Exception,
+        **extra: Any,
+    ) -> int:
+        """Log a swallowed error with escalation on consecutive failures.
+
+        Increments the named counter and logs at warning level normally,
+        upgrading to error level after ``_CONSECUTIVE_FAILURE_ERROR_THRESHOLD``
+        consecutive failures.
+
+        Args:
+            counter_attr: Name of the ``self`` attribute tracking consecutive failures.
+            event: Structured log event name.
+            error: The caught exception.
+            **extra: Additional structured log fields.
+
+        Returns:
+            The updated consecutive failure count.
+        """
+        count: int = getattr(self, counter_attr) + 1
+        setattr(self, counter_attr, count)
+        log_fn = (
+            self._logger.error
+            if count >= self._CONSECUTIVE_FAILURE_ERROR_THRESHOLD
+            else self._logger.warning
+        )
+        log_fn(event, error=str(error), consecutive_failures=count, **extra, exc_info=True)
+        return count
 
     async def _idle_watchdog(
         self,
@@ -657,13 +700,16 @@ class SheetExecutionMixin:
 
         execution_duration = time.monotonic() - execution_start_time
 
-        outcome_category, first_attempt_success = self._classify_success_outcome(
+        outcome_category, success_without_retry = self._classify_success_outcome(
             normal_attempts, completion_attempts,
         )
 
         # Populate SheetState learning fields
-        sheet_state = state.sheets[sheet_num]
-        sheet_state.first_attempt_success = first_attempt_success
+        sheet_state = state.sheets.get(sheet_num)
+        if sheet_state is None:
+            self._logger.error("sheet_state_missing", sheet_num=sheet_num)
+            return "break"
+        sheet_state.success_without_retry = success_without_retry
         sheet_state.outcome_category = outcome_category
         sheet_state.confidence_score = validation_result.pass_percentage / 100.0
         sheet_state.applied_pattern_ids = self._applied_pattern_ids.copy()
@@ -695,7 +741,7 @@ class SheetExecutionMixin:
             pattern_ids=self._applied_pattern_ids,
             context=PatternFeedbackContext(
                 validation_passed=True,
-                first_attempt_success=first_attempt_success,
+                success_without_retry=success_without_retry,
                 sheet_num=sheet_num,
                 grounding_confidence=(
                     grounding_ctx.confidence
@@ -727,7 +773,7 @@ class SheetExecutionMixin:
             execution_duration=execution_duration,
             normal_attempts=normal_attempts,
             completion_attempts=completion_attempts,
-            first_attempt_success=first_attempt_success,
+            success_without_retry=success_without_retry,
             final_status=SheetStatus.COMPLETED,
         )
 
@@ -742,7 +788,7 @@ class SheetExecutionMixin:
             outcome_category=outcome_category,
             retry_count=normal_attempts - 1 if normal_attempts > 0 else 0,
             completion_attempts=completion_attempts,
-            first_attempt_success=first_attempt_success,
+            success_without_retry=success_without_retry,
             exit_code_was_nonzero=not result.success,
         )
         # Log validation summary, distinguishing new vs inherited validations
@@ -769,16 +815,12 @@ class SheetExecutionMixin:
     ) -> FailureHandlingResult:
         """Handle non-success execution results: classify, retry, heal, or abort.
 
-        Extracted from _execute_sheet_with_recovery to reduce the god function
-        by ~219 LOC. Handles the entire non-success error path including:
-        - Recovery outcome recording for global learning
-        - Error tracking for adaptive retry strategy
-        - Circuit breaker failure recording
-        - Rate limit detection and handling
-        - Non-retryable fatal error detection
-        - Self-healing coordinator integration
-        - Pattern feedback on retry exhaustion
-        - Adaptive retry abort recommendations
+        Dispatches to per-failure-mode handlers after common preamble:
+        - _handle_rate_limit_failure: Rate limit detected
+        - _handle_fatal_error: Non-retryable error
+        - _handle_retries_exhausted: Max retries reached (may try self-healing)
+        - _handle_adaptive_abort: Adaptive strategy recommends stopping
+        - _handle_transient_retry: Normal retry with delay
 
         Args:
             context: ExecutionFailureContext with all needed state.
@@ -838,64 +880,15 @@ class SheetExecutionMixin:
                 consecutive_failures=cb_stats.consecutive_failures,
             )
 
+        # Dispatch to per-failure-mode handler
         if error.is_rate_limit:
-            context.error_history.clear()
-            await self._handle_rate_limit(
-                context.state,
-                error_code=error.error_code.value,
-                suggested_wait_seconds=error.suggested_wait_seconds,
-            )
-            return FailureHandlingResult(
-                action="continue",
-                normal_attempts=normal_attempts,
-                healing_attempts=healing_attempts,
-                pending_recovery=pending_recovery,
+            return await self._handle_rate_limit_failure(
+                context, error, normal_attempts, healing_attempts, pending_recovery,
             )
 
         if not error.should_retry:
-            failed_validations = context.validation_result.get_failed_results()
-            validation_info = ""
-            if failed_validations:
-                failed_names = [
-                    f.rule.description or "unnamed validation"
-                    for f in failed_validations
-                ]
-                validation_info = f" (validations failed: {', '.join(failed_names)})"
-
-            context.state.mark_sheet_failed(
-                context.sheet_num,
-                error.message + validation_info,
-                error.category.value,
-                exit_code=context.result.exit_code,
-                exit_signal=context.result.exit_signal,
-                exit_reason=context.result.exit_reason,
-                execution_duration_seconds=context.result.duration_seconds,
-            )
-            await self.state_backend.save(context.state)
-            self._logger.error(
-                "sheet.failed",
-                sheet_num=context.sheet_num,
-                error_category=error.category.value,
-                error_message=error.message,
-                exit_code=context.result.exit_code,
-                exit_signal=context.result.exit_signal,
-                exit_reason=context.result.exit_reason,
-                duration_seconds=round(context.result.duration_seconds or 0, 2),
-                validations_passed=context.passed_count,
-                validations_failed=context.failed_count,
-                failed_validation_names=[f.rule.description for f in failed_validations],
-                stdout_tail=(
-                    context.result.stdout[-TRUNCATE_STDOUT_TAIL_CHARS:]
-                    if context.result.stdout
-                    else None
-                ),
-            )
-            return FailureHandlingResult(
-                action="fatal",
-                normal_attempts=normal_attempts,
-                healing_attempts=healing_attempts,
-                pending_recovery=pending_recovery,
-                fatal_message=f"Sheet {context.sheet_num}: {error.message}{validation_info}",
+            return await self._handle_fatal_error(
+                context, error, normal_attempts, healing_attempts, pending_recovery,
             )
 
         # Transient error - get adaptive retry recommendation
@@ -903,122 +896,239 @@ class SheetExecutionMixin:
             error_history=context.error_history,
             max_retries=context.max_retries,
         )
-
         normal_attempts += 1
 
-        # Check both max retries and adaptive strategy recommendation
         if normal_attempts >= context.max_retries:
-            # Try self-healing before giving up
-            if (
-                self._healing_coordinator is not None
-                and healing_attempts < context.max_healing_cycles
-            ):
-                healing_report = await self._try_self_healing(
-                    result=context.result,
-                    error=error,
-                    config_path=None,
-                    sheet_num=context.sheet_num,
-                    retry_count=normal_attempts,
-                    max_retries=context.max_retries,
-                )
-                if healing_report and healing_report.should_retry:
-                    healing_attempts += 1
-                    normal_attempts = context.max_retries - 1  # Grant one more retry
-                    self.console.print(healing_report.format())
-                    self._logger.info(
-                        "sheet.healed",
-                        sheet_num=context.sheet_num,
-                        healing_attempt=healing_attempts,
-                        max_healing_cycles=context.max_healing_cycles,
-                        remedies_applied=len(healing_report.actions_taken),
-                    )
-                    return FailureHandlingResult(
-                        action="continue",
-                        normal_attempts=normal_attempts,
-                        healing_attempts=healing_attempts,
-                        pending_recovery=pending_recovery,
-                    )
+            return await self._handle_retries_exhausted(
+                context, error, normal_attempts, healing_attempts,
+                pending_recovery,
+            )
 
-            # Record pattern feedback for failure
-            sheet_state = context.state.sheets[context.sheet_num]
+        if not retry_recommendation.should_retry:
+            return await self._handle_adaptive_abort(
+                context, error, retry_recommendation,
+                normal_attempts, healing_attempts, pending_recovery,
+            )
+
+        return await self._handle_transient_retry(
+            context, error, retry_recommendation,
+            normal_attempts, healing_attempts, pending_recovery,
+        )
+
+    async def _handle_rate_limit_failure(
+        self,
+        context: ExecutionFailureContext,
+        error: Any,
+        normal_attempts: int,
+        healing_attempts: int,
+        pending_recovery: dict[str, Any] | None,
+    ) -> FailureHandlingResult:
+        """Handle rate limit errors by clearing history and waiting."""
+        context.error_history.clear()
+        await self._handle_rate_limit(
+            context.state,
+            error_code=error.error_code.value,
+            suggested_wait_seconds=error.suggested_wait_seconds,
+        )
+        return FailureHandlingResult(
+            action="continue",
+            normal_attempts=normal_attempts,
+            healing_attempts=healing_attempts,
+            pending_recovery=pending_recovery,
+        )
+
+    async def _handle_fatal_error(
+        self,
+        context: ExecutionFailureContext,
+        error: Any,
+        normal_attempts: int,
+        healing_attempts: int,
+        pending_recovery: dict[str, Any] | None,
+    ) -> FailureHandlingResult:
+        """Handle non-retryable fatal errors."""
+        failed_validations = context.validation_result.get_failed_results()
+        validation_info = ""
+        if failed_validations:
+            failed_names = [
+                f.rule.description or "unnamed validation"
+                for f in failed_validations
+            ]
+            validation_info = f" (validations failed: {', '.join(failed_names)})"
+
+        context.state.mark_sheet_failed(
+            context.sheet_num,
+            error.message + validation_info,
+            error.category.value,
+            exit_code=context.result.exit_code,
+            exit_signal=context.result.exit_signal,
+            exit_reason=context.result.exit_reason,
+            execution_duration_seconds=context.result.duration_seconds,
+        )
+        await self.state_backend.save(context.state)
+        self._logger.error(
+            "sheet.failed",
+            sheet_num=context.sheet_num,
+            error_category=error.category.value,
+            error_message=error.message,
+            exit_code=context.result.exit_code,
+            exit_signal=context.result.exit_signal,
+            exit_reason=context.result.exit_reason,
+            duration_seconds=round(context.result.duration_seconds or 0, 2),
+            validations_passed=context.passed_count,
+            validations_failed=context.failed_count,
+            failed_validation_names=[f.rule.description for f in failed_validations],
+            stdout_tail=(
+                context.result.stdout[-TRUNCATE_STDOUT_TAIL_CHARS:]
+                if context.result.stdout
+                else None
+            ),
+        )
+        return FailureHandlingResult(
+            action="fatal",
+            normal_attempts=normal_attempts,
+            healing_attempts=healing_attempts,
+            pending_recovery=pending_recovery,
+            fatal_message=f"Sheet {context.sheet_num}: {error.message}{validation_info}",
+        )
+
+    async def _handle_retries_exhausted(
+        self,
+        context: ExecutionFailureContext,
+        error: Any,
+        normal_attempts: int,
+        healing_attempts: int,
+        pending_recovery: dict[str, Any] | None,
+    ) -> FailureHandlingResult:
+        """Handle retry exhaustion: try self-healing, then fail."""
+        # Try self-healing before giving up
+        if (
+            self._healing_coordinator is not None
+            and healing_attempts < context.max_healing_cycles
+        ):
+            healing_report = await self._try_self_healing(
+                result=context.result,
+                error=error,
+                config_path=None,
+                sheet_num=context.sheet_num,
+                retry_count=normal_attempts,
+                max_retries=context.max_retries,
+            )
+            if healing_report and healing_report.should_retry:
+                healing_attempts += 1
+                normal_attempts = context.max_retries - 1  # Grant one more retry
+                self.console.print(healing_report.format())
+                self._logger.info(
+                    "sheet.healed",
+                    sheet_num=context.sheet_num,
+                    healing_attempt=healing_attempts,
+                    max_healing_cycles=context.max_healing_cycles,
+                    remedies_applied=len(healing_report.actions_taken),
+                )
+                return FailureHandlingResult(
+                    action="continue",
+                    normal_attempts=normal_attempts,
+                    healing_attempts=healing_attempts,
+                    pending_recovery=pending_recovery,
+                )
+
+        # Record pattern feedback for failure
+        sheet_state = context.state.sheets.get(context.sheet_num)
+        if sheet_state is not None:
             sheet_state.applied_pattern_ids = self._applied_pattern_ids.copy()
             sheet_state.applied_pattern_descriptions = self._current_sheet_patterns.copy()
-            await self._record_pattern_feedback(
-                pattern_ids=self._applied_pattern_ids,
-                context=PatternFeedbackContext(
-                    validation_passed=False,
-                    first_attempt_success=False,
-                    sheet_num=context.sheet_num,
-                    grounding_confidence=(
-                        context.grounding_ctx.confidence
-                        if context.grounding_ctx.hooks_executed > 0
-                        else None
-                    ),
-                ),
-            )
-
-            context.state.mark_sheet_failed(
-                context.sheet_num,
-                f"Failed after {context.max_retries} retries: {error.message}",
-                error.category.value,
-                exit_code=context.result.exit_code,
-                exit_signal=context.result.exit_signal,
-                exit_reason=context.result.exit_reason,
-                execution_duration_seconds=context.result.duration_seconds,
-            )
-            await self.state_backend.save(context.state)
-            self._logger.error(
-                "sheet.failed",
+        await self._record_pattern_feedback(
+            pattern_ids=self._applied_pattern_ids,
+            context=PatternFeedbackContext(
+                validation_passed=False,
+                success_without_retry=False,
                 sheet_num=context.sheet_num,
-                error_category=error.category.value,
-                error_message=f"Retries exhausted: {error.message}",
-                attempt=normal_attempts,
-                max_retries=context.max_retries,
-                exit_code=context.result.exit_code,
-                duration_seconds=round(context.result.duration_seconds or 0, 2),
-            )
-            return FailureHandlingResult(
-                action="fatal",
-                normal_attempts=normal_attempts,
-                healing_attempts=healing_attempts,
-                pending_recovery=pending_recovery,
-                fatal_message=(
-                    f"Sheet {context.sheet_num} failed after"
-                    f" {context.max_retries} retries"
+                grounding_confidence=(
+                    context.grounding_ctx.confidence
+                    if context.grounding_ctx.hooks_executed > 0
+                    else None
                 ),
-            )
+            ),
+        )
 
-        # Check if adaptive strategy recommends stopping early
-        if not retry_recommendation.should_retry:
-            context.state.mark_sheet_failed(
-                context.sheet_num,
-                f"Adaptive retry aborted: {retry_recommendation.reason}",
-                error.category.value,
-                exit_code=context.result.exit_code,
-                exit_signal=context.result.exit_signal,
-                exit_reason=context.result.exit_reason,
-                execution_duration_seconds=context.result.duration_seconds,
-            )
-            await self.state_backend.save(context.state)
-            self._logger.warning(
-                "sheet.adaptive_retry_aborted",
-                sheet_num=context.sheet_num,
-                error_category=error.category.value,
-                pattern=retry_recommendation.detected_pattern.value,
-                reason=retry_recommendation.reason,
-                confidence=round(retry_recommendation.confidence, 3),
-                strategy=retry_recommendation.strategy_used,
-                attempt=normal_attempts,
-            )
-            return FailureHandlingResult(
-                action="fatal",
-                normal_attempts=normal_attempts,
-                healing_attempts=healing_attempts,
-                pending_recovery=pending_recovery,
-                fatal_message=f"Sheet {context.sheet_num} aborted: {retry_recommendation.reason}",
-            )
+        context.state.mark_sheet_failed(
+            context.sheet_num,
+            f"Failed after {context.max_retries} retries: {error.message}",
+            error.category.value,
+            exit_code=context.result.exit_code,
+            exit_signal=context.result.exit_signal,
+            exit_reason=context.result.exit_reason,
+            execution_duration_seconds=context.result.duration_seconds,
+        )
+        await self.state_backend.save(context.state)
+        self._logger.error(
+            "sheet.failed",
+            sheet_num=context.sheet_num,
+            error_category=error.category.value,
+            error_message=f"Retries exhausted: {error.message}",
+            attempt=normal_attempts,
+            max_retries=context.max_retries,
+            exit_code=context.result.exit_code,
+            duration_seconds=round(context.result.duration_seconds or 0, 2),
+        )
+        return FailureHandlingResult(
+            action="fatal",
+            normal_attempts=normal_attempts,
+            healing_attempts=healing_attempts,
+            pending_recovery=pending_recovery,
+            fatal_message=(
+                f"Sheet {context.sheet_num} failed after"
+                f" {context.max_retries} retries"
+            ),
+        )
 
-        # Log retry attempt with adaptive strategy info
+    async def _handle_adaptive_abort(
+        self,
+        context: ExecutionFailureContext,
+        error: Any,
+        retry_recommendation: Any,
+        normal_attempts: int,
+        healing_attempts: int,
+        pending_recovery: dict[str, Any] | None,
+    ) -> FailureHandlingResult:
+        """Handle adaptive retry strategy recommending early stop."""
+        context.state.mark_sheet_failed(
+            context.sheet_num,
+            f"Adaptive retry aborted: {retry_recommendation.reason}",
+            error.category.value,
+            exit_code=context.result.exit_code,
+            exit_signal=context.result.exit_signal,
+            exit_reason=context.result.exit_reason,
+            execution_duration_seconds=context.result.duration_seconds,
+        )
+        await self.state_backend.save(context.state)
+        self._logger.warning(
+            "sheet.adaptive_retry_aborted",
+            sheet_num=context.sheet_num,
+            error_category=error.category.value,
+            pattern=retry_recommendation.detected_pattern.value,
+            reason=retry_recommendation.reason,
+            confidence=round(retry_recommendation.confidence, 3),
+            strategy=retry_recommendation.strategy_used,
+            attempt=normal_attempts,
+        )
+        return FailureHandlingResult(
+            action="fatal",
+            normal_attempts=normal_attempts,
+            healing_attempts=healing_attempts,
+            pending_recovery=pending_recovery,
+            fatal_message=f"Sheet {context.sheet_num} aborted: {retry_recommendation.reason}",
+        )
+
+    async def _handle_transient_retry(
+        self,
+        context: ExecutionFailureContext,
+        error: Any,
+        retry_recommendation: Any,
+        normal_attempts: int,
+        healing_attempts: int,
+        pending_recovery: dict[str, Any] | None,
+    ) -> FailureHandlingResult:
+        """Handle transient error with retry delay and learning."""
         self._logger.warning(
             "sheet.retry",
             sheet_num=context.sheet_num,
@@ -1059,19 +1169,7 @@ class SheetExecutionMixin:
 
     async def _apply_mode_decision(
         self,
-        *,
-        state: CheckpointState,
-        sheet_num: int,
-        validation_result: SheetValidationResult,
-        execution_history: deque[ExecutionResult],
-        original_prompt: str,
-        current_prompt: str,
-        current_mode: SheetExecutionMode,
-        normal_attempts: int,
-        completion_attempts: int,
-        max_retries: int,
-        max_completion: int,
-        pass_pct: float,
+        ctx: ModeDecisionContext,
     ) -> ModeDecisionResult:
         """Apply judgment decision and manage mode transitions.
 
@@ -1079,22 +1177,26 @@ class SheetExecutionMixin:
         validation has determined the sheet is not fully passing.
 
         Args:
-            state: Current job state.
-            sheet_num: Sheet number.
-            validation_result: Current validation results.
-            execution_history: History of execution results.
-            original_prompt: Original prompt (for reset on retry).
-            current_prompt: Currently active prompt.
-            current_mode: Current execution mode.
-            normal_attempts: Normal retry attempt count.
-            completion_attempts: Completion-mode attempt count.
-            max_retries: Maximum normal retries.
-            max_completion: Maximum completion attempts.
-            pass_pct: Current validation pass percentage.
+            ctx: ModeDecisionContext with all execution state needed
+                for mode selection.
 
         Returns:
             ModeDecisionResult with flow control action and updated state.
         """
+        # Unpack context for local use
+        state = ctx.state
+        sheet_num = ctx.sheet_num
+        validation_result = ctx.validation_result
+        execution_history = ctx.execution_history
+        original_prompt = ctx.original_prompt
+        current_prompt = ctx.current_prompt
+        current_mode = ctx.current_mode
+        normal_attempts = ctx.normal_attempts
+        completion_attempts = ctx.completion_attempts
+        max_retries = ctx.max_retries
+        max_completion = ctx.max_completion
+        pass_pct = ctx.pass_pct
+
         next_mode, decision_reason, prompt_modifications = await self._decide_with_judgment(
             sheet_num=sheet_num,
             validation_result=validation_result,
@@ -1270,7 +1372,7 @@ class SheetExecutionMixin:
                 pattern_ids=self._applied_pattern_ids,
                 context=PatternFeedbackContext(
                     validation_passed=False,
-                    first_attempt_success=False,
+                    success_without_retry=False,
                     sheet_num=sheet_num,
                     grounding_confidence=(
                         grounding_ctx.confidence
@@ -1449,13 +1551,14 @@ class SheetExecutionMixin:
                     exit_code=result.exit_code if result else None,
                     duration_seconds=result.duration_seconds if result else None,
                 )
+                self._record_execution_failures = 0
             except Exception as e:
-                self._logger.warning(
+                self._log_swallowed_error(
+                    "_record_execution_failures",
                     "record_execution_failed",
-                    error=str(e),
+                    e,
                     sheet_num=sheet_num,
                     attempt_num=sheet_state.attempt_count,
-                    exc_info=True,
                 )
 
             # ===== VALIDATION-FIRST APPROACH =====
@@ -1564,7 +1667,7 @@ class SheetExecutionMixin:
                     continue
 
             # ===== JUDGMENT/COMPLETION/ESCALATION/RETRY MODE =====
-            mode_result = await self._apply_mode_decision(
+            mode_result = await self._apply_mode_decision(ModeDecisionContext(
                 state=state,
                 sheet_num=sheet_num,
                 validation_result=validation_result,
@@ -1577,7 +1680,7 @@ class SheetExecutionMixin:
                 max_retries=max_retries,
                 max_completion=max_completion,
                 pass_pct=pass_pct,
-            )
+            ))
 
             # Apply updated state from mode decision
             current_prompt = mode_result.current_prompt
@@ -1589,6 +1692,12 @@ class SheetExecutionMixin:
                 raise FatalError(mode_result.fatal_message)
             elif mode_result.action == "return":
                 return
+            elif mode_result.action == "continue":
+                continue
+            else:
+                raise FatalError(
+                    f"Unknown mode_result action: {mode_result.action!r}"
+                )
 
     async def _gather_learned_patterns(
         self,
@@ -1639,10 +1748,10 @@ class SheetExecutionMixin:
 
         # Combine patterns (local first, then global, deduplicated)
         if global_patterns:
-            for i, gp in enumerate(global_patterns):
+            for gp, gp_id in zip(global_patterns, global_pattern_ids, strict=True):
                 if gp not in relevant_patterns:
                     relevant_patterns.append(gp)
-                    self._applied_pattern_ids.append(global_pattern_ids[i])
+                    self._applied_pattern_ids.append(gp_id)
 
         # Store applied patterns for feedback tracking
         self._current_sheet_patterns = relevant_patterns.copy()
@@ -1673,7 +1782,8 @@ class SheetExecutionMixin:
             sheet_num: Current sheet number.
 
         Returns:
-            List of recent failures (empty on error or if none found).
+            List of recent failures.  Returns empty list on query error
+            (a warning is logged so the failure is not silent).
         """
         historical_failures: list[HistoricalFailure] = []
         try:
@@ -1696,164 +1806,11 @@ class SheetExecutionMixin:
                 "history.query_failed",
                 sheet_num=sheet_num,
                 error=str(e),
+                error_type=type(e).__name__,
                 exc_info=True,
             )
 
         return historical_failures
-
-    def _build_sheet_context(
-        self,
-        sheet_num: int,
-        state: CheckpointState | None = None,
-    ) -> SheetContext:
-        """Build sheet context for template expansion.
-
-        Args:
-            sheet_num: Current sheet number.
-            state: Optional current job state for cross-sheet context.
-
-        Returns:
-            SheetContext with item range, workspace, and optional cross-sheet data.
-        """
-        context = self.prompt_builder.build_sheet_context(
-            sheet_num=sheet_num,
-            total_sheets=self.config.sheet.total_sheets,
-            sheet_size=self.config.sheet.size,
-            total_items=self.config.sheet.total_items,
-            start_item=self.config.sheet.start_item,
-            workspace=self.config.workspace,
-        )
-
-        # Populate fan-out metadata for template variables
-        fan_meta = self.config.sheet.get_fan_out_metadata(sheet_num)
-        context.stage = fan_meta.stage
-        context.instance = fan_meta.instance
-        context.fan_count = fan_meta.fan_count
-        context.total_stages = self.config.sheet.total_stages
-
-        # Populate cross-sheet context if configured
-        if self.config.cross_sheet and state:
-            cross_sheet = self.config.cross_sheet
-            self._populate_cross_sheet_context(context, state, sheet_num, cross_sheet)
-
-        return context
-
-    def _populate_cross_sheet_context(
-        self,
-        context: SheetContext,
-        state: CheckpointState,
-        sheet_num: int,
-        cross_sheet: CrossSheetConfig,
-    ) -> None:
-        """Populate cross-sheet context from previous sheet outputs.
-
-        Adds previous_outputs and previous_files to the context based on
-        CrossSheetConfig settings.
-
-        Args:
-            context: SheetContext to populate.
-            state: Current job state with sheet history.
-            sheet_num: Current sheet number.
-            cross_sheet: Cross-sheet configuration.
-        """
-        # Auto-capture stdout from previous sheets
-        if cross_sheet.auto_capture_stdout:
-            if cross_sheet.lookback_sheets > 0:
-                start_sheet = max(1, sheet_num - cross_sheet.lookback_sheets)
-            else:
-                start_sheet = 1
-
-            max_chars = cross_sheet.max_output_chars
-
-            for prev_num in range(start_sheet, sheet_num):
-                prev_state = state.sheets.get(prev_num)
-                if prev_state and prev_state.stdout_tail:
-                    output = prev_state.stdout_tail
-                    if len(output) > max_chars:
-                        output = output[:max_chars] + "\n... [truncated]"
-                    context.previous_outputs[prev_num] = output
-
-        # Read configured file patterns
-        if cross_sheet.capture_files:
-            self._capture_cross_sheet_files(context, state, sheet_num, cross_sheet)
-
-    def _capture_cross_sheet_files(
-        self,
-        context: SheetContext,
-        state: CheckpointState,
-        sheet_num: int,
-        cross_sheet: CrossSheetConfig,
-    ) -> None:
-        """Capture file contents for cross-sheet context.
-
-        Reads files matching the configured patterns and adds their contents
-        to context.previous_files. Pattern variables are expanded using Jinja2.
-
-        Files modified before the current job's started_at are considered stale
-        (leftover from a previous run) and are skipped with a warning.
-
-        Args:
-            context: SheetContext to populate.
-            state: Current job state (used for stale file detection).
-            sheet_num: Current sheet number.
-            cross_sheet: Cross-sheet configuration.
-        """
-        import glob
-
-        template_vars = {
-            "workspace": str(self.config.workspace),
-            "sheet_num": sheet_num,
-        }
-
-        # Stale file threshold: files older than job start are from a previous run
-        job_start_ts = state.started_at.timestamp() if state.started_at else None
-
-        for pattern in cross_sheet.capture_files:
-            try:
-                expanded_pattern = pattern
-                for var, val in template_vars.items():
-                    expanded_pattern = expanded_pattern.replace(
-                        f"{{{{ {var} }}}}", str(val)
-                    )
-                    expanded_pattern = expanded_pattern.replace(
-                        f"{{{{{var}}}}}", str(val)
-                    )
-
-                if not Path(expanded_pattern).is_absolute():
-                    expanded_pattern = str(self.config.workspace / expanded_pattern)
-
-                for file_path in glob.glob(expanded_pattern):
-                    path = Path(file_path)
-                    if path.is_file():
-                        # Skip stale files from previous runs
-                        if job_start_ts is not None:
-                            file_mtime = path.stat().st_mtime
-                            if file_mtime < job_start_ts:
-                                self._logger.debug(
-                                    "cross_sheet.stale_file_skipped",
-                                    path=str(path),
-                                    file_mtime=file_mtime,
-                                    job_started_at=job_start_ts,
-                                )
-                                continue
-                        try:
-                            content = path.read_text(encoding="utf-8")
-                            max_chars = cross_sheet.max_output_chars
-                            if len(content) > max_chars:
-                                content = content[:max_chars] + "\n... [truncated]"
-                            context.previous_files[str(path)] = content
-                        except (OSError, UnicodeDecodeError) as e:
-                            self._logger.warning(
-                                "cross_sheet.file_read_error",
-                                path=str(path),
-                                error=str(e),
-                            )
-            except Exception as e:
-                self._logger.warning(
-                    "cross_sheet.pattern_error",
-                    pattern=pattern,
-                    error=str(e),
-                )
 
     def _extract_agent_feedback(
         self,
@@ -2195,12 +2152,12 @@ class SheetExecutionMixin:
             completion_attempts: Number of completion-mode attempts used.
 
         Returns:
-            Tuple of (outcome_category, first_attempt_success).
+            Tuple of (outcome_category, success_without_retry).
         """
         # normal_attempts counts executions (first run = 1), not retries.
         # A first-attempt success means exactly 1 normal attempt and 0 completion attempts.
-        first_attempt_success = normal_attempts <= 1 and completion_attempts == 0
-        if first_attempt_success:
+        success_without_retry = normal_attempts <= 1 and completion_attempts == 0
+        if success_without_retry:
             return OutcomeCategory.SUCCESS_FIRST_TRY, True
         elif completion_attempts > 0:
             return OutcomeCategory.SUCCESS_COMPLETION, False
@@ -2298,7 +2255,7 @@ class SheetExecutionMixin:
         execution_duration: float,
         normal_attempts: int,
         completion_attempts: int,
-        first_attempt_success: bool,
+        success_without_retry: bool,
         final_status: SheetStatus,
     ) -> None:
         """Record sheet outcome for learning if outcome store is available.
@@ -2310,7 +2267,7 @@ class SheetExecutionMixin:
             execution_duration: Total execution time in seconds.
             normal_attempts: Number of normal/retry attempts.
             completion_attempts: Number of completion mode attempts.
-            first_attempt_success: Whether sheet succeeded on first attempt.
+            success_without_retry: Whether sheet succeeded on first attempt.
             final_status: Final sheet status.
         """
         if self.outcome_store is None:
@@ -2327,7 +2284,7 @@ class SheetExecutionMixin:
             completion_mode_used=completion_attempts > 0,
             final_status=final_status,
             validation_pass_rate=validation_result.pass_percentage,
-            first_attempt_success=first_attempt_success,
+            success_without_retry=success_without_retry,
             patterns_detected=[],
             timestamp=utc_now(),
         )
@@ -2364,6 +2321,7 @@ class SheetExecutionMixin:
                 escalation_id=escalation_record_id,
                 outcome_after_action=outcome,
             )
+            self._escalation_update_failures = 0
             if updated:
                 self._logger.info(
                     "escalation.outcome_updated",
@@ -2379,12 +2337,13 @@ class SheetExecutionMixin:
                     outcome=outcome,
                 )
         except Exception as e:
-            self._logger.warning(
+            self._log_swallowed_error(
+                "_escalation_update_failures",
                 "escalation.outcome_update_failed",
+                e,
                 sheet_num=sheet_num,
                 escalation_id=escalation_record_id,
                 outcome=outcome,
-                error=str(e),
             )
 
     def _is_escalation_available(self) -> bool:

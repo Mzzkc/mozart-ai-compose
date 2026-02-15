@@ -278,9 +278,9 @@ class SheetState(BaseModel):
         default=0,
         description="Deprecated: always 0. Retained for SQLite schema compatibility.",
     )
-    first_attempt_success: bool = Field(
+    success_without_retry: bool = Field(
         default=False,
-        description="Whether sheet succeeded on first attempt (no retries/completion)",
+        description="Whether sheet succeeded without needing any retry or completion mode",
     )
     outcome_category: OutcomeCategory | None = Field(
         default=None,

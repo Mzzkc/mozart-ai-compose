@@ -46,8 +46,8 @@ def learning_stats(
         output = {
             "executions": {
                 "total": stats.get("total_executions", 0),
-                "first_attempt_success_rate": round(
-                    stats.get("first_attempt_success_rate", 0) * 100, 1
+                "success_without_retry_rate": round(
+                    stats.get("success_without_retry_rate", 0) * 100, 1
                 ),
             },
             "patterns": {
@@ -70,7 +70,7 @@ def learning_stats(
 
     console.print("[bold cyan]Executions[/bold cyan]")
     console.print(f"  Total recorded: [green]{stats.get('total_executions', 0)}[/green]")
-    success_rate = stats.get("first_attempt_success_rate", 0) * 100
+    success_rate = stats.get("success_without_retry_rate", 0) * 100
     color = 'green' if success_rate > 70 else 'yellow'
     console.print(f"  First-attempt success: [{color}]{success_rate:.1f}%[/]")
 
@@ -195,8 +195,8 @@ def learning_activity(
         output: dict[str, Any] = {
             "period_hours": hours,
             "recent_executions": recent_count,
-            "first_attempt_success_rate": round(
-                stats.get("first_attempt_success_rate", 0) * 100, 1
+            "success_without_retry_rate": round(
+                stats.get("success_without_retry_rate", 0) * 100, 1
             ),
             "patterns_active": stats.get("total_patterns", 0),
             "optimal_hours": window.get("optimal_hours", []),
@@ -210,7 +210,7 @@ def learning_activity(
 
     console.print("[bold cyan]Recent Executions[/bold cyan]")
     console.print(f"  Executions in period: [green]{recent_count}[/green]")
-    success_rate = stats.get("first_attempt_success_rate", 0) * 100
+    success_rate = stats.get("success_without_retry_rate", 0) * 100
     console.print(
         f"  First-attempt success: "
         f"[{'green' if success_rate > 70 else 'yellow'}]{success_rate:.1f}%[/]"

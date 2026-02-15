@@ -73,7 +73,7 @@ def sample_outcome() -> SheetOutcome:
         completion_mode_used=False,
         final_status=SheetStatus.COMPLETED,
         validation_pass_rate=1.0,
-        first_attempt_success=True,
+        success_without_retry=True,
     )
 
 
@@ -91,7 +91,7 @@ def sample_failed_outcome() -> SheetOutcome:
         completion_mode_used=True,
         final_status=SheetStatus.FAILED,
         validation_pass_rate=0.0,
-        first_attempt_success=False,
+        success_without_retry=False,
     )
 
 
@@ -220,7 +220,7 @@ class TestGlobalLearningStore:
         stats = global_store.get_execution_stats()
 
         assert stats["total_executions"] == 2
-        assert stats["first_attempt_success_rate"] == 0.5
+        assert stats["success_without_retry_rate"] == 0.5
         assert stats["unique_workspaces"] == 1
 
     def test_workspace_hash_stability(self) -> None:
@@ -443,7 +443,7 @@ class TestPatternAggregator:
                     completion_mode_used=False,
                     final_status=SheetStatus.FAILED,
                     validation_pass_rate=0.0,
-                    first_attempt_success=False,
+                    success_without_retry=False,
                 )
             )
 
@@ -739,7 +739,7 @@ class TestLearningActivationIntegration:
             completion_mode_used=False,
             final_status=SheetStatus.COMPLETED,
             validation_pass_rate=1.0,
-            first_attempt_success=True,
+            success_without_retry=True,
         )
         exec_id = global_store.record_outcome(outcome, workspace_path)
 
@@ -1171,7 +1171,7 @@ class TestPatternTypeEnumOutputPattern:
             "VALIDATION_FAILURE",
             "RETRY_SUCCESS",
             "COMPLETION_MODE",
-            "FIRST_ATTEMPT_SUCCESS",
+            "SUCCESS_WITHOUT_RETRY",
             "HIGH_CONFIDENCE",
             "LOW_CONFIDENCE",
             "SEMANTIC_FAILURE",
@@ -1214,7 +1214,7 @@ class TestErrorCodePatterns:
                 completion_mode_used=False,
                 final_status=SheetStatus.COMPLETED,
                 validation_pass_rate=1.0,
-                first_attempt_success=True,
+                success_without_retry=True,
             )
         ]
 
@@ -1238,7 +1238,7 @@ class TestErrorCodePatterns:
                 completion_mode_used=False,
                 final_status=SheetStatus.FAILED,
                 validation_pass_rate=0.0,
-                first_attempt_success=False,
+                success_without_retry=False,
             )
         ]
 
@@ -1263,7 +1263,7 @@ class TestErrorCodePatterns:
                 completion_mode_used=False,
                 final_status=SheetStatus.FAILED,
                 validation_pass_rate=0.0,
-                first_attempt_success=False,
+                success_without_retry=False,
             ),
             SheetOutcome(
                 sheet_id="test-2",
@@ -1276,7 +1276,7 @@ class TestErrorCodePatterns:
                 completion_mode_used=False,
                 final_status=SheetStatus.FAILED,
                 validation_pass_rate=0.0,
-                first_attempt_success=False,
+                success_without_retry=False,
             ),
         ]
 
@@ -1311,7 +1311,7 @@ class TestErrorCodePatterns:
                     completion_mode_used=False,
                     final_status=SheetStatus.FAILED,
                     validation_pass_rate=0.0,
-                    first_attempt_success=False,
+                    success_without_retry=False,
                 )
             )
 
@@ -1341,7 +1341,7 @@ class TestErrorCodePatterns:
                 completion_mode_used=False,
                 final_status=SheetStatus.FAILED,
                 validation_pass_rate=0.0,
-                first_attempt_success=False,
+                success_without_retry=False,
             ),
             SheetOutcome(
                 sheet_id="test-2",
@@ -1354,7 +1354,7 @@ class TestErrorCodePatterns:
                 completion_mode_used=False,
                 final_status=SheetStatus.FAILED,
                 validation_pass_rate=0.0,
-                first_attempt_success=False,
+                success_without_retry=False,
             ),
         ]
 
@@ -1414,7 +1414,7 @@ class TestEnhancedPatternAggregator:
             completion_mode_used=False,
             final_status=SheetStatus.FAILED,
             validation_pass_rate=0.0,
-            first_attempt_success=False,
+            success_without_retry=False,
         )
         # Add stdout_tail with error patterns
         outcome.stdout_tail = """Error: rate limit exceeded
@@ -1484,7 +1484,7 @@ class TestFullDataCollectionPipeline:
                 completion_mode_used=False,
                 final_status=SheetStatus.FAILED,
                 validation_pass_rate=0.0,
-                first_attempt_success=False,
+                success_without_retry=False,
             ),
             SheetOutcome(
                 sheet_id="test:2",
@@ -1503,7 +1503,7 @@ class TestFullDataCollectionPipeline:
                 completion_mode_used=True,
                 final_status=SheetStatus.FAILED,
                 validation_pass_rate=0.0,
-                first_attempt_success=False,
+                success_without_retry=False,
             ),
             SheetOutcome(
                 sheet_id="test:3",
@@ -1519,7 +1519,7 @@ class TestFullDataCollectionPipeline:
                 completion_mode_used=False,
                 final_status=SheetStatus.COMPLETED,
                 validation_pass_rate=1.0,
-                first_attempt_success=True,
+                success_without_retry=True,
             ),
         ]
 
@@ -1589,7 +1589,7 @@ class TestFullDataCollectionPipeline:
                 completion_mode_used=False,
                 final_status=SheetStatus.FAILED,
                 validation_pass_rate=0.0,
-                first_attempt_success=False,
+                success_without_retry=False,
             )
             for i in range(3)  # 3 outcomes with same failure category
         ]
@@ -1664,7 +1664,7 @@ class TestGroundingPatternIntegration:
             completion_mode_used=False,
             final_status=SheetStatus.COMPLETED,
             validation_pass_rate=1.0,
-            first_attempt_success=True,
+            success_without_retry=True,
             grounding_passed=True,
             grounding_confidence=0.95,
             grounding_guidance=None,
@@ -1685,7 +1685,7 @@ class TestGroundingPatternIntegration:
             completion_mode_used=False,
             final_status=SheetStatus.COMPLETED,
             validation_pass_rate=1.0,
-            first_attempt_success=True,
+            success_without_retry=True,
         )
 
         assert outcome.grounding_passed is None
@@ -1703,7 +1703,7 @@ class TestGroundingPatternIntegration:
             completion_mode_used=False,
             final_status=SheetStatus.FAILED,
             validation_pass_rate=0.0,
-            first_attempt_success=False,
+            success_without_retry=False,
             grounding_passed=False,
             grounding_confidence=0.6,
             grounding_guidance="Re-generate the file; checksum mismatch detected",
@@ -1729,7 +1729,7 @@ class TestGroundingPatternIntegration:
                 completion_mode_used=False,
                 final_status=SheetStatus.COMPLETED,
                 validation_pass_rate=1.0,
-                first_attempt_success=True,
+                success_without_retry=True,
                 grounding_passed=True,
                 grounding_confidence=0.95,
                 grounding_guidance=None,
@@ -1743,7 +1743,7 @@ class TestGroundingPatternIntegration:
                 completion_mode_used=True,
                 final_status=SheetStatus.FAILED,
                 validation_pass_rate=0.0,
-                first_attempt_success=False,
+                success_without_retry=False,
                 grounding_passed=False,
                 grounding_confidence=0.5,
                 grounding_guidance="File integrity check failed",
@@ -1787,7 +1787,7 @@ class TestGroundingPatternIntegration:
                     completion_mode_used=False,
                     final_status=SheetStatus.COMPLETED,
                     validation_pass_rate=1.0,
-                    first_attempt_success=True,
+                    success_without_retry=True,
                     grounding_passed=True,
                     grounding_confidence=0.87,
                     grounding_guidance="Check passed with note",

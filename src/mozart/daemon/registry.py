@@ -218,6 +218,12 @@ class JobRegistry:
         """Close the database connection."""
         self._conn.close()
 
+    def __enter__(self) -> JobRegistry:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
     @staticmethod
     def _row_to_record(row: sqlite3.Row) -> JobRecord:
         return JobRecord(

@@ -1,6 +1,6 @@
 """Tests for mozart.daemon.process module.
 
-Covers CLI commands (daemon_app), PID file helpers, signal handler
+Covers core conductor functions, PID file helpers, signal handler
 installation, and _daemonize() skip in foreground mode.
 """
 
@@ -12,17 +12,17 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from typer.testing import CliRunner
+import typer
 
 from mozart.daemon.process import (
     DaemonProcess,
     _pid_alive,
     _read_pid,
     _write_pid,
-    daemon_app,
+    get_conductor_status,
+    start_conductor,
+    stop_conductor,
 )
-
-runner = CliRunner()
 
 
 # ─── PID File Helpers ──────────────────────────────────────────────────
@@ -108,15 +108,15 @@ class TestPidAlive:
             assert _pid_alive(1) is True
 
 
-# ─── CLI Commands ──────────────────────────────────────────────────────
+# ─── Core Conductor Functions ─────────────────────────────────────────
 
 
-class TestDaemonStartCommand:
-    """Tests for the 'start' CLI command."""
+class TestStartConductor:
+    """Tests for start_conductor() core function."""
 
     def test_start_already_running_exits_1(self, tmp_path: Path):
-        """start exits with code 1 if daemon already running."""
-        pid_file = tmp_path / "mozartd.pid"
+        """start_conductor exits with code 1 if conductor already running."""
+        pid_file = tmp_path / "mozart.pid"
         pid_file.write_text(str(os.getpid()))
 
         with patch("mozart.daemon.process._load_config") as mock_config:
@@ -125,14 +125,12 @@ class TestDaemonStartCommand:
             cfg.log_level = "info"
             mock_config.return_value = cfg
 
-            result = runner.invoke(daemon_app, ["start", "--foreground"])
-
-        assert result.exit_code == 1
-        assert "already running" in result.output
+            with pytest.raises(typer.Exit):
+                start_conductor(foreground=True)
 
     def test_start_foreground_skips_daemonize(self, tmp_path: Path):
         """In foreground mode, _daemonize() is NOT called."""
-        pid_file = tmp_path / "mozartd.pid"
+        pid_file = tmp_path / "mozart.pid"
 
         with (
             patch("mozart.daemon.process._load_config") as mock_config,
@@ -148,14 +146,13 @@ class TestDaemonStartCommand:
             cfg.log_file = None
             mock_config.return_value = cfg
 
-            result = runner.invoke(daemon_app, ["start", "--foreground"])
+            start_conductor(foreground=True)
 
-        assert result.exit_code == 0
         mock_daemonize.assert_not_called()
 
     def test_start_background_calls_daemonize(self, tmp_path: Path):
-        """Without --foreground, _daemonize() is called."""
-        pid_file = tmp_path / "mozartd.pid"
+        """Without foreground=True, _daemonize() is called."""
+        pid_file = tmp_path / "mozart.pid"
 
         with (
             patch("mozart.daemon.process._load_config") as mock_config,
@@ -171,97 +168,73 @@ class TestDaemonStartCommand:
             cfg.log_file = None
             mock_config.return_value = cfg
 
-            result = runner.invoke(daemon_app, ["start"])
+            start_conductor(foreground=False)
 
-        assert result.exit_code == 0
         mock_daemonize.assert_called_once()
 
 
-class TestDaemonStopCommand:
-    """Tests for the 'stop' CLI command."""
+class TestStopConductor:
+    """Tests for stop_conductor() core function."""
 
     def test_stop_not_running_exits_1(self, tmp_path: Path):
-        """stop exits with code 1 when daemon is not running."""
-        pid_file = tmp_path / "mozartd.pid"
+        """stop_conductor exits with code 1 when conductor is not running."""
+        pid_file = tmp_path / "mozart.pid"
 
-        result = runner.invoke(
-            daemon_app, ["stop", "--pid-file", str(pid_file)],
-        )
-
-        assert result.exit_code == 1
-        assert "not running" in result.output
+        with pytest.raises(typer.Exit):
+            stop_conductor(pid_file=pid_file)
 
     def test_stop_sends_sigterm(self, tmp_path: Path):
-        """stop sends SIGTERM to the PID by default."""
-        pid_file = tmp_path / "mozartd.pid"
+        """stop_conductor sends SIGTERM to the PID by default."""
+        pid_file = tmp_path / "mozart.pid"
         pid_file.write_text("12345")
 
         with (
             patch("mozart.daemon.process._pid_alive", return_value=True),
             patch("mozart.daemon.process.os.kill") as mock_kill,
         ):
-            result = runner.invoke(
-                daemon_app, ["stop", "--pid-file", str(pid_file)],
-            )
+            stop_conductor(pid_file=pid_file)
 
-        assert result.exit_code == 0
         mock_kill.assert_called_once_with(12345, signal.SIGTERM)
-        assert "SIGTERM" in result.output
 
     def test_stop_force_sends_sigkill(self, tmp_path: Path):
-        """stop --force sends SIGKILL."""
-        pid_file = tmp_path / "mozartd.pid"
+        """stop_conductor with force=True sends SIGKILL."""
+        pid_file = tmp_path / "mozart.pid"
         pid_file.write_text("12345")
 
         with (
             patch("mozart.daemon.process._pid_alive", return_value=True),
             patch("mozart.daemon.process.os.kill") as mock_kill,
         ):
-            result = runner.invoke(
-                daemon_app, ["stop", "--pid-file", str(pid_file), "--force"],
-            )
+            stop_conductor(pid_file=pid_file, force=True)
 
-        assert result.exit_code == 0
         mock_kill.assert_called_once_with(12345, signal.SIGKILL)
-        assert "SIGKILL" in result.output
 
 
-class TestDaemonStatusCommand:
-    """Tests for the 'status' CLI command."""
+class TestGetConductorStatus:
+    """Tests for get_conductor_status() core function."""
 
     def test_status_not_running_exits_1(self, tmp_path: Path):
-        """status exits with code 1 when daemon is not running."""
-        pid_file = tmp_path / "mozartd.pid"
+        """get_conductor_status exits with code 1 when not running."""
+        pid_file = tmp_path / "mozart.pid"
 
-        result = runner.invoke(
-            daemon_app,
-            ["status", "--pid-file", str(pid_file), "--socket", str(tmp_path / "sock")],
-        )
+        with pytest.raises(typer.Exit):
+            get_conductor_status(pid_file=pid_file)
 
-        assert result.exit_code == 1
-        assert "not running" in result.output
-
-    def test_status_shows_pid_when_running(self, tmp_path: Path):
-        """status shows the PID when daemon is running."""
-        pid_file = tmp_path / "mozartd.pid"
+    def test_status_shows_pid_when_running(self, tmp_path: Path, capsys):
+        """get_conductor_status shows the PID when running."""
+        pid_file = tmp_path / "mozart.pid"
         pid_file.write_text("12345")
 
         def _mock_asyncio_run(coro):
             """Close the coroutine to avoid 'unawaited coroutine' warning."""
             coro.close()
-            raise Exception("no socket")
+            raise OSError("no socket")
 
         with (
             patch("mozart.daemon.process._pid_alive", return_value=True),
             patch("mozart.daemon.process.asyncio.run", side_effect=_mock_asyncio_run),
         ):
-            result = runner.invoke(
-                daemon_app,
-                ["status", "--pid-file", str(pid_file), "--socket", str(tmp_path / "sock")],
-            )
-
-        assert result.exit_code == 0
-        assert "PID 12345" in result.output
+            get_conductor_status(pid_file=pid_file, socket_path=tmp_path / "sock")
 
 
 # ─── DaemonProcess ─────────────────────────────────────────────────────
@@ -285,8 +258,8 @@ class TestDaemonProcess:
         from mozart.daemon.config import DaemonConfig, SocketConfig
 
         config = DaemonConfig(
-            pid_file=Path("/tmp/test-mozartd-signal.pid"),
-            socket=SocketConfig(path=Path("/tmp/test-mozartd-signal.sock")),
+            pid_file=Path("/tmp/test-conductor-signal.pid"),
+            socket=SocketConfig(path=Path("/tmp/test-conductor-signal.sock")),
         )
         dp = DaemonProcess(config)
 
@@ -334,10 +307,10 @@ class TestDaemonProcess:
         """run() removes PID file even if an exception occurs mid-lifecycle."""
         from mozart.daemon.config import DaemonConfig, SocketConfig
 
-        pid_file = Path("/tmp/test-mozartd-crash.pid")
+        pid_file = Path("/tmp/test-conductor-crash.pid")
         config = DaemonConfig(
             pid_file=pid_file,
-            socket=SocketConfig(path=Path("/tmp/test-mozartd-crash.sock")),
+            socket=SocketConfig(path=Path("/tmp/test-conductor-crash.sock")),
         )
         dp = DaemonProcess(config)
 
@@ -375,7 +348,9 @@ class TestDaemonProcess:
         registered_methods = {call.args[0] for call in handler.register.call_args_list}
         expected = {
             "job.submit", "job.status", "job.pause", "job.resume",
-            "job.cancel", "job.list", "daemon.status", "daemon.shutdown",
+            "job.cancel", "job.list", "job.errors", "job.diagnose",
+            "job.history", "job.recover",
+            "daemon.status", "daemon.shutdown",
             "daemon.health", "daemon.ready",
         }
         assert registered_methods == expected

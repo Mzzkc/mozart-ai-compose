@@ -101,6 +101,32 @@ class SystemProbe:
         return SystemProbe._scan_zombies(reap=True)
 
     @staticmethod
+    def _reap_pid(pid: int) -> None:
+        """Reap a single zombie process by PID."""
+        try:
+            os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            pass
+
+    @staticmethod
+    def _check_child_zombie(child: object, *, reap: bool, found: list[int]) -> None:
+        """Check if a psutil child process is a zombie and optionally reap it.
+
+        Args:
+            child: A psutil.Process instance (typed as object since psutil is optional).
+            reap: If True, reap the zombie via os.waitpid().
+            found: Accumulator list for zombie PIDs.
+        """
+        assert _psutil is not None  # caller guards this
+        try:
+            if child.status() == _psutil.STATUS_ZOMBIE:  # type: ignore[attr-defined]
+                if reap:
+                    SystemProbe._reap_pid(child.pid)  # type: ignore[attr-defined]
+                found.append(child.pid)  # type: ignore[attr-defined]
+        except (_psutil.NoSuchProcess, _psutil.AccessDenied):
+            pass
+
+    @staticmethod
     def _scan_zombies(*, reap: bool) -> list[int]:
         """Shared implementation for zombie detection and reaping.
 
@@ -116,16 +142,7 @@ class SystemProbe:
             try:
                 current = _psutil.Process()
                 for child in current.children(recursive=True):
-                    try:
-                        if child.status() == _psutil.STATUS_ZOMBIE:
-                            if reap:
-                                try:
-                                    os.waitpid(child.pid, os.WNOHANG)
-                                except ChildProcessError:
-                                    pass
-                            found.append(child.pid)
-                    except (_psutil.NoSuchProcess, _psutil.AccessDenied):
-                        continue
+                    SystemProbe._check_child_zombie(child, reap=reap, found=found)
                 return found
             except (_psutil.NoSuchProcess, _psutil.AccessDenied, OSError, AttributeError):
                 _logger.warning("zombie_scan_failed", exc_info=True)

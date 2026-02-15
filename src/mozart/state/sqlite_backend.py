@@ -25,7 +25,7 @@ from mozart.utils.time import utc_now
 _logger = get_logger("state.sqlite")
 
 # Current schema version for migration support
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 class SQLiteStateBackend(StateBackend):
@@ -99,6 +99,10 @@ class SQLiteStateBackend(StateBackend):
             await self._migrate_v3(db)
             _logger.info("schema_migrated", from_version=2, to_version=3)
 
+        if current_version < 4:
+            await self._migrate_v4(db)
+            _logger.info("schema_migrated", from_version=3, to_version=4)
+
     async def _migrate_v1(self, db: aiosqlite.Connection) -> None:
         """Initial schema migration (version 1)."""
         await db.execute("""
@@ -150,7 +154,7 @@ class SQLiteStateBackend(StateBackend):
                 confidence_score REAL,
                 learned_patterns TEXT,
                 similar_outcomes_count INTEGER NOT NULL DEFAULT 0,
-                first_attempt_success INTEGER NOT NULL DEFAULT 0,
+                success_without_retry INTEGER NOT NULL DEFAULT 0,
                 outcome_category TEXT,
                 started_at TEXT,
                 completed_at TEXT,
@@ -249,6 +253,27 @@ class SQLiteStateBackend(StateBackend):
 
         await db.commit()
 
+    async def _migrate_v4(self, db: aiosqlite.Connection) -> None:
+        """Schema migration v4: Rename first_attempt_success → success_without_retry.
+
+        Renames the column in the sheets table to match the updated Python
+        model field name. Idempotent: checks column existence before ALTER.
+        """
+        cursor = await db.execute("PRAGMA table_info(sheets)")
+        columns = {row[1] for row in await cursor.fetchall()}
+
+        if "first_attempt_success" in columns and "success_without_retry" not in columns:
+            await db.execute(
+                "ALTER TABLE sheets RENAME COLUMN first_attempt_success TO success_without_retry"
+            )
+
+        await db.execute(
+            "INSERT OR IGNORE INTO schema_version (version, applied_at) VALUES (?, ?)",
+            (4, utc_now().isoformat()),
+        )
+
+        await db.commit()
+
     def _datetime_to_str(self, dt: datetime | None) -> str | None:
         """Convert datetime to ISO format string."""
         return dt.isoformat() if dt else None
@@ -342,7 +367,7 @@ class SQLiteStateBackend(StateBackend):
                     confidence_score=row["confidence_score"],
                     learned_patterns=self._json_loads(row["learned_patterns"]) or [],
                     similar_outcomes_count=row["similar_outcomes_count"],
-                    first_attempt_success=bool(row["first_attempt_success"]),
+                    success_without_retry=bool(row["success_without_retry"]),
                     outcome_category=row["outcome_category"],
                     execution_duration_seconds=(
                         row["execution_duration_seconds"]
@@ -486,7 +511,7 @@ class SQLiteStateBackend(StateBackend):
                             validation_details, completion_attempts, passed_validations,
                             failed_validations, last_pass_percentage, execution_mode,
                             outcome_data, confidence_score, learned_patterns,
-                            similar_outcomes_count, first_attempt_success,
+                            similar_outcomes_count, success_without_retry,
                             outcome_category, started_at, completed_at,
                             execution_duration_seconds, exit_signal, exit_reason
                         ) VALUES (
@@ -510,7 +535,7 @@ class SQLiteStateBackend(StateBackend):
                             confidence_score = excluded.confidence_score,
                             learned_patterns = excluded.learned_patterns,
                             similar_outcomes_count = excluded.similar_outcomes_count,
-                            first_attempt_success = excluded.first_attempt_success,
+                            success_without_retry = excluded.success_without_retry,
                             outcome_category = excluded.outcome_category,
                             started_at = excluded.started_at,
                             completed_at = excluded.completed_at,
@@ -539,7 +564,7 @@ class SQLiteStateBackend(StateBackend):
                             sheet.confidence_score,
                             self._json_dumps(sheet.learned_patterns),
                             sheet.similar_outcomes_count,
-                            1 if sheet.first_attempt_success else 0,
+                            1 if sheet.success_without_retry else 0,
                             sheet.outcome_category,
                             self._datetime_to_str(sheet.started_at),
                             self._datetime_to_str(sheet.completed_at),
@@ -628,6 +653,10 @@ class SQLiteStateBackend(StateBackend):
         await self.save(state)
 
     # Extended methods for dashboard and analytics
+
+    @property
+    def supports_execution_history(self) -> bool:  # noqa: D102
+        return True
 
     async def record_execution(
         self,

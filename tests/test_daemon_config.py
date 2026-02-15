@@ -75,14 +75,14 @@ class TestSocketConfig:
     def test_defaults(self):
         """Test default values are applied."""
         config = SocketConfig()
-        assert config.path == Path("/tmp/mozartd.sock")
+        assert config.path == Path("/tmp/mozart.sock")
         assert config.permissions == 0o660
         assert config.backlog == 5
 
     def test_custom_path(self):
         """Test custom socket path."""
-        config = SocketConfig(path=Path("/run/user/1000/mozartd.sock"))
-        assert config.path == Path("/run/user/1000/mozartd.sock")
+        config = SocketConfig(path=Path("/run/user/1000/mozart.sock"))
+        assert config.path == Path("/run/user/1000/mozart.sock")
 
     def test_custom_permissions(self):
         """Test custom socket permissions."""
@@ -114,7 +114,7 @@ class TestDaemonConfig:
     def test_defaults(self):
         """Test default values are applied."""
         config = DaemonConfig()
-        assert config.pid_file == Path("/tmp/mozartd.pid")
+        assert config.pid_file == Path("/tmp/mozart.pid")
         assert config.max_concurrent_jobs == 5
         assert config.max_concurrent_sheets == 10
         assert config.state_backend_type == "sqlite"
@@ -126,7 +126,7 @@ class TestDaemonConfig:
         """Test socket config is initialized with defaults."""
         config = DaemonConfig()
         assert isinstance(config.socket, SocketConfig)
-        assert config.socket.path == Path("/tmp/mozartd.sock")
+        assert config.socket.path == Path("/tmp/mozart.sock")
 
     def test_nested_resource_limits_defaults(self):
         """Test resource limits config is initialized with defaults."""
@@ -183,8 +183,8 @@ class TestDaemonConfig:
 
     def test_custom_pid_file(self):
         """Test custom PID file path."""
-        config = DaemonConfig(pid_file=Path("/run/mozartd.pid"))
-        assert config.pid_file == Path("/run/mozartd.pid")
+        config = DaemonConfig(pid_file=Path("/run/mozart.pid"))
+        assert config.pid_file == Path("/run/mozart.pid")
 
     def test_custom_state_db_path(self):
         """Test custom state DB path."""
@@ -198,18 +198,18 @@ class TestDaemonConfig:
 
     def test_custom_log_file(self):
         """Test custom log file path."""
-        config = DaemonConfig(log_file=Path("/var/log/mozartd.log"))
-        assert config.log_file == Path("/var/log/mozartd.log")
+        config = DaemonConfig(log_file=Path("/var/log/mozart.log"))
+        assert config.log_file == Path("/var/log/mozart.log")
 
     def test_full_custom_config(self):
         """Test fully customized daemon config."""
         config = DaemonConfig(
             socket=SocketConfig(
-                path=Path("/run/user/1000/mozartd.sock"),
+                path=Path("/run/user/1000/mozart.sock"),
                 permissions=0o600,
                 backlog=10,
             ),
-            pid_file=Path("/run/mozartd.pid"),
+            pid_file=Path("/run/mozart.pid"),
             max_concurrent_jobs=10,
             max_concurrent_sheets=20,
             resource_limits=ResourceLimitConfig(
@@ -220,12 +220,12 @@ class TestDaemonConfig:
             state_backend_type="sqlite",
             state_db_path=Path("/data/mozart.db"),
             log_level="debug",
-            log_file=Path("/var/log/mozartd.log"),
+            log_file=Path("/var/log/mozart.log"),
         )
-        assert config.socket.path == Path("/run/user/1000/mozartd.sock")
+        assert config.socket.path == Path("/run/user/1000/mozart.sock")
         assert config.socket.permissions == 0o600
         assert config.socket.backlog == 10
-        assert config.pid_file == Path("/run/mozartd.pid")
+        assert config.pid_file == Path("/run/mozart.pid")
         assert config.max_concurrent_jobs == 10
         assert config.max_concurrent_sheets == 20
         assert config.resource_limits.max_memory_mb == 4096
@@ -234,7 +234,7 @@ class TestDaemonConfig:
         assert config.state_backend_type == "sqlite"
         assert config.state_db_path == Path("/data/mozart.db")
         assert config.log_level == "debug"
-        assert config.log_file == Path("/var/log/mozartd.log")
+        assert config.log_file == Path("/var/log/mozart.log")
 
     def test_serialization_roundtrip(self):
         """Test config survives model_dump -> model_validate roundtrip."""

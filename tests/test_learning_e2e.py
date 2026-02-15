@@ -446,7 +446,7 @@ class TestSuccessFactorsE2E:
                 completion_mode_used=False,
                 final_status=SheetStatus.COMPLETED,
                 validation_pass_rate=1.0,
-                first_attempt_success=True,
+                success_without_retry=True,
                 patterns_applied=[],
             )
 
@@ -490,7 +490,7 @@ class TestMultiRunMeasurementE2E:
             completion_mode_used=True,
             final_status=SheetStatus.FAILED,
             validation_pass_rate=0.0,
-            first_attempt_success=False,
+            success_without_retry=False,
             patterns_applied=[],
         )
         store.record_outcome(
@@ -535,7 +535,7 @@ class TestMultiRunMeasurementE2E:
             completion_mode_used=False,
             final_status=SheetStatus.COMPLETED,
             validation_pass_rate=1.0,
-            first_attempt_success=True,
+            success_without_retry=True,
             patterns_applied=[applicable[0].description or ""],
         )
         store.record_outcome(

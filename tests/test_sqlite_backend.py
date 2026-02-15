@@ -189,7 +189,7 @@ class TestSheetStatePreservation:
             confidence_score=0.85,
             learned_patterns=["pattern1", "pattern2"],
             similar_outcomes_count=5,
-            first_attempt_success=True,
+            success_without_retry=True,
             outcome_category="success_first_try",
             outcome_data={"escalation_record_id": "esc-001"},
         )
@@ -202,7 +202,7 @@ class TestSheetStatePreservation:
         assert sheet.confidence_score == 0.85
         assert sheet.learned_patterns == ["pattern1", "pattern2"]
         assert sheet.similar_outcomes_count == 5
-        assert sheet.first_attempt_success is True
+        assert sheet.success_without_retry is True
         assert sheet.outcome_category == "success_first_try"
         assert sheet.outcome_data == {"escalation_record_id": "esc-001"}
 
@@ -555,8 +555,8 @@ class TestSchemaMigration:
             )
             row = await cursor.fetchone()
             assert row is not None
-            # Updated to v3 for execution_duration_seconds, exit_signal, exit_reason
-            assert row[0] == 3
+            # Updated to v4 for first_attempt_success → success_without_retry rename
+            assert row[0] == 4
 
     async def test_migration_is_idempotent(
         self, sqlite_backend: SQLiteStateBackend

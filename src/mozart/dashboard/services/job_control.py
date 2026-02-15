@@ -60,8 +60,8 @@ class JobControlService:
     """Service for controlling job lifecycle.
 
     Supports two execution modes:
-    - **Daemon mode**: When mozartd is running, routes operations through
-      the daemon via DaemonClient IPC for centralized management.
+    - **Conductor mode**: When the conductor is running, routes operations through
+      it via DaemonClient IPC for centralized management.
     - **Subprocess mode**: Falls back to direct subprocess execution
       when the daemon is not available (original behavior).
     """
@@ -76,7 +76,7 @@ class JobControlService:
         self._daemon_client = DaemonClient(DaemonConfig().socket.path)
 
     async def is_daemon_available(self) -> bool:
-        """Check if the Mozart daemon (mozartd) is running and reachable."""
+        """Check if the Mozart conductor is running and reachable."""
         try:
             return await self._daemon_client.is_daemon_running()
         except (ConnectionRefusedError, FileNotFoundError, OSError):

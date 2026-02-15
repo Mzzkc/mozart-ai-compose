@@ -59,7 +59,7 @@ def dict_to_sheet_outcome(d: dict) -> SheetOutcome | None:
             completion_mode_used=d.get("completion_mode_used", False),
             final_status=status,
             validation_pass_rate=d.get("validation_pass_rate", 0.0),
-            first_attempt_success=d.get("first_attempt_success", True),
+            success_without_retry=d.get("success_without_retry", d.get("first_attempt_success", True)),
             patterns_detected=d.get("patterns_detected", []),
             timestamp=datetime.fromisoformat(d["timestamp"]) if "timestamp" in d else datetime.now(),
         )

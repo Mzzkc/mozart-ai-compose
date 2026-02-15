@@ -41,6 +41,18 @@ Mozart uses Claude CLI as its default backend. Ensure you have:
 2. **API access configured**: Claude CLI should be authenticated
 3. **Daemon support installed**: `pip install -e ".[daemon]"` or `./setup.sh --daemon`
 
+## How Sheets Work
+
+Mozart splits work into **sheets** — chunks of items processed one at a time. You write one prompt template, and Mozart runs it once per sheet with different variables:
+
+| Config | Meaning |
+|--------|---------|
+| `total_items: 30` | You have 30 items to process |
+| `size: 10` | Each sheet handles 10 items |
+| Result | 3 sheets: items 1-10, 11-20, 21-30 |
+
+Each sheet gets its own `{{ sheet_num }}`, `{{ start_item }}`, and `{{ end_item }}` — so one template produces multiple runs.
+
 ## Your First Job
 
 ### Step 1: Create a Configuration File
@@ -69,7 +81,7 @@ prompt:
     Please:
     1. Review the items
     2. Generate a summary
-    3. Save to output/sheet{{ sheet_num }}.md
+    3. Save to {{ workspace }}/output/sheet{{ sheet_num }}.md
 
     {{ stakes }}
 
@@ -80,9 +92,11 @@ retry:
 
 validations:
   - type: file_exists
-    path: "output/sheet{{ sheet_num }}.md"
+    path: "{workspace}/output/sheet{sheet_num}.md"
     description: "Output file created"
 ```
+
+> **Template syntax note:** Prompts use Jinja2 syntax (`{{ sheet_num }}`). Validation paths use a different expansion syntax (`{sheet_num}` — single braces, no spaces). This is because prompts go through Jinja2 rendering while validation paths use Python string formatting.
 
 ### Step 2: Validate Your Configuration
 
@@ -117,8 +131,8 @@ This shows:
 The Mozart daemon is required for job execution:
 
 ```bash
-mozartd start
-mozartd status   # Verify it's running
+mozart start
+mozart conductor-status   # Verify it's running
 ```
 
 ### Step 5: Run the Job
@@ -178,6 +192,10 @@ Mozart continues from where it left off.
 name: "code-review"
 description: "Review PRs in sheets"
 
+backend:
+  type: claude_cli
+  skip_permissions: true
+
 sheet:
   size: 5
   total_items: 25
@@ -191,11 +209,11 @@ prompt:
     - Identify potential bugs
     - Suggest improvements
 
-    Save results to reviews/sheet{{ sheet_num }}.md
+    Save results to {{ workspace }}/reviews/sheet{{ sheet_num }}.md
 
 validations:
   - type: file_exists
-    path: "reviews/sheet{{ sheet_num }}.md"
+    path: "{workspace}/reviews/sheet{sheet_num}.md"
 ```
 
 ### Pattern 2: Documentation Generation
@@ -203,6 +221,10 @@ validations:
 ```yaml
 name: "generate-docs"
 description: "Generate API documentation"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
 
 sheet:
   size: 10
@@ -218,13 +240,13 @@ prompt:
     - Return values
     - Examples
 
-    Output: docs/api-{{ sheet_num }}.md
+    Output: {{ workspace }}/api-docs/sheet{{ sheet_num }}.md
 
 validations:
   - type: file_exists
-    path: "docs/api-{{ sheet_num }}.md"
+    path: "{workspace}/api-docs/sheet{sheet_num}.md"
   - type: content_contains
-    path: "docs/api-{{ sheet_num }}.md"
+    path: "{workspace}/api-docs/sheet{sheet_num}.md"
     pattern: "## Parameters"
 ```
 
@@ -233,6 +255,10 @@ validations:
 ```yaml
 name: "process-data"
 description: "Process data with robust error handling"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
 
 sheet:
   size: 20
@@ -252,14 +278,16 @@ prompt:
     Process data sheet {{ sheet_num }}.
     Items: {{ start_item }} to {{ end_item }}.
 
+    Save results to {{ workspace }}/processed/sheet{{ sheet_num }}.json
+
 validations:
-  - type: file_modified
-    path: "data/processed.json"
+  - type: file_exists
+    path: "{workspace}/processed/sheet{sheet_num}.json"
 ```
 
 ## Template Variables
 
-Available in prompts:
+Available in prompts and validation paths (see syntax note below):
 
 | Variable | Example | Description |
 |----------|---------|-------------|
@@ -274,6 +302,23 @@ Available in prompts:
 | `instance` | `1` | Instance within fan-out group |
 | `fan_count` | `3` | Total instances in stage |
 | `total_stages` | `7` | Original stage count |
+
+### Syntax Difference: Prompts vs Validation Paths
+
+Prompts and validation paths use different template syntax:
+
+```yaml
+prompt:
+  template: |
+    Save to {{ workspace }}/output/sheet{{ sheet_num }}.md   # Jinja2: double braces
+
+validations:
+  - type: file_exists
+    path: "{workspace}/output/sheet{sheet_num}.md"           # Python format: single braces
+```
+
+- **Prompts** use Jinja2 (`{{ variable }}`) — supports filters, conditionals, loops
+- **Validation paths** use Python format strings (`{variable}`) — simple substitution only
 
 ## Monitoring with Dashboard
 
@@ -312,9 +357,10 @@ mozart dashboard --port 3000
 
 ### Validation Failing
 
-1. Check file paths are correct
-2. Verify template variables expand properly
-3. Use `--dry-run` to see generated prompts
+1. Check validation paths use `{single_braces}`, not `{{ double_braces }}`
+2. Ensure validation paths start with `{workspace}/` so files are found inside the workspace
+3. Verify the prompt tells Claude to save files into `{{ workspace }}/` (not relative paths)
+4. Use `--dry-run` to see the generated prompt and check that paths look correct
 
 ### Rate Limits
 

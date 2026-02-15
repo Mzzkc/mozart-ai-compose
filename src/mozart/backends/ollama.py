@@ -218,11 +218,20 @@ class OllamaBackend(HttpxClientMixin, Backend):
 
         Args:
             prompt: The prompt to send to Ollama
-            timeout_seconds: Per-call timeout override (not currently used by Ollama backend).
+            timeout_seconds: Per-call timeout override. Ollama uses the httpx
+                client-level timeout from ``__init__``; per-call override is
+                logged but not enforced.
 
         Returns:
             ExecutionResult with output and metadata
         """
+        if timeout_seconds is not None:
+            _logger.debug(
+                "timeout_override_ignored",
+                backend="ollama",
+                requested=timeout_seconds,
+                actual=self.timeout,
+            )
         start_time = time.monotonic()
         started_at = utc_now()
 
@@ -333,7 +342,7 @@ class OllamaBackend(HttpxClientMixin, Backend):
 
         payload = {
             "model": self.model,
-            "messages": [m.to_dict() for m in messages],
+            "messages": [msg.to_dict() for msg in messages],
             "stream": False,
             "options": {
                 "num_ctx": self.num_ctx,
@@ -389,7 +398,7 @@ class OllamaBackend(HttpxClientMixin, Backend):
 
             payload = {
                 "model": self.model,
-                "messages": [m.to_dict() for m in messages],
+                "messages": [msg.to_dict() for msg in messages],
                 "tools": tools,
                 "stream": False,
                 "options": {
@@ -691,15 +700,15 @@ class OllamaBackend(HttpxClientMixin, Backend):
             # Check if our model is available
             model_base = self.model.split(":")[0]
             available = any(
-                m.get("name", "").startswith(model_base)
-                for m in models
+                entry.get("name", "").startswith(model_base)
+                for entry in models
             )
 
             if not available:
                 _logger.warning(
                     "ollama_model_not_found",
                     model=self.model,
-                    available_models=[m.get("name") for m in models],
+                    available_models=[entry.get("name") for entry in models],
                 )
 
             return available

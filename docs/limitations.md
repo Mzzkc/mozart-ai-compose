@@ -6,18 +6,18 @@ An honest accounting of what Mozart doesn't do, what's incomplete, and where sha
 
 ## Execution Model
 
-### Daemon Required for Execution
+### Conductor Required for Execution
 
-`mozart run` routes all jobs through the `mozartd` daemon. There is no standalone execution mode.
+`mozart run` routes all jobs through the conductor. There is no standalone execution mode.
 
-**What this means:** You must start the daemon (`mozartd start`) before running any job. Only `mozart validate` and `mozart run --dry-run` work without a running daemon.
+**What this means:** You must start the conductor (`mozart start`) before running any job. Only `mozart validate` and `mozart run --dry-run` work without a running conductor.
 
-**Why:** Centralized resource management, rate-limit coordination, and backpressure control require a single process to track all active jobs. The daemon also enables the persistent job registry and crash recovery.
+**Why:** Centralized resource management, rate-limit coordination, and backpressure control require a single process to track all active jobs. The conductor also enables the persistent job registry and crash recovery.
 
-**Workaround:** None. Start the daemon first:
+**Workaround:** None. Start the conductor first:
 
 ```bash
-mozartd start           # background
+mozart start            # background
 mozart run my-job.yaml  # now works
 ```
 

@@ -136,7 +136,7 @@ def setup_notifications(
 
     if notification_manager is not None and not quiet and is_verbose() and console:
         console.print(
-            f"[dim]Notifications enabled[/dim]"
+            "[dim]Notifications enabled[/dim]"
         )
     return notification_manager
 
@@ -303,10 +303,10 @@ def display_run_summary(summary: RunSummary) -> None:
             "",
             "[bold]Execution[/bold]",
         ])
-        if summary.first_attempt_successes > 0:
+        if summary.successes_without_retry > 0:
             lines.append(
-                f"  First Attempt Success: {summary.first_attempt_rate:.0f}% "
-                f"({summary.first_attempt_successes}/{summary.completed_sheets})"
+                f"  Success Without Retry: {summary.success_without_retry_rate:.0f}% "
+                f"({summary.successes_without_retry}/{summary.completed_sheets})"
             )
         if summary.total_retries > 0:
             lines.append(f"  Retries Used: {summary.total_retries}")

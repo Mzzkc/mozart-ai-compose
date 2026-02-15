@@ -19,6 +19,23 @@ from mozart.state import SQLiteStateBackend
 runner = CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure CLI tests never route through a real conductor.
+
+    Tests that need conductor behavior should mock try_daemon_route
+    explicitly with the desired return value.
+    """
+    async def _fake_route(
+        method: str, params: dict, *, socket_path=None
+    ) -> tuple[bool, None]:
+        return False, None
+
+    monkeypatch.setattr(
+        "mozart.daemon.detect.try_daemon_route", _fake_route,
+    )
+
+
 class TestVersionCommand:
     """Tests for the --version flag."""
 
@@ -158,7 +175,7 @@ class TestListCommand:
         with self._mock_route_down():
             result = runner.invoke(app, ["list"])
         assert result.exit_code == 1
-        assert "daemon is not running" in result.stdout
+        assert "conductor is not running" in result.stdout
 
 
 class TestRunCommand:

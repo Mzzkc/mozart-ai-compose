@@ -295,7 +295,7 @@ class OutcomeMigrator:
                     )
                     imported_count += 1
             except Exception as e:
-                _logger.debug("skipping_invalid_outcome", error=str(e))
+                _logger.warning("skipping_invalid_outcome", error=str(e), exc_info=True)
                 continue
 
         # Mark workspace as imported
@@ -360,7 +360,9 @@ class OutcomeMigrator:
                 completion_mode_used=data.get("completion_mode_used", False),
                 final_status=final_status,
                 validation_pass_rate=validation_pass_rate,
-                first_attempt_success=data.get("first_attempt_success", False),
+                success_without_retry=bool(
+                    data.get("success_without_retry", data.get("first_attempt_success", False))
+                ),
                 timestamp=parsed_timestamp,
             )
         except Exception as e:

@@ -867,17 +867,35 @@ class LifecycleMixin:
                 # No more sheets to execute
                 break
 
+            # Evaluate skip conditions before executing (GH#71 fix)
+            # Same logic as sequential mode but applied to the batch
+            runnable: list[int] = []
+            for sheet_num in batch:
+                skip_reason = await self._should_skip_sheet(sheet_num, state)
+                if skip_reason:
+                    state.mark_sheet_skipped(sheet_num, reason=skip_reason)
+                    await self.state_backend.save(state)
+                    self.console.print(
+                        f"[yellow]Sheet {sheet_num}: Skipped ({skip_reason})[/yellow]"
+                    )
+                else:
+                    runnable.append(sheet_num)
+
+            if not runnable:
+                # All sheets in this batch were skipped; loop to get next batch
+                continue
+
             batch_count += 1
             batch_start = time.monotonic()
 
             self._logger.info(
                 "parallel.batch_executing",
                 batch_number=batch_count,
-                sheets=batch,
+                sheets=runnable,
             )
 
             # Execute the batch
-            result = await self._parallel_executor.execute_batch(batch, state)
+            result = await self._parallel_executor.execute_batch(runnable, state)
 
             # Track timing (average per sheet in batch)
             batch_duration = time.monotonic() - batch_start

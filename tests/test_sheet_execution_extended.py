@@ -159,11 +159,12 @@ class _MockMixin:
         return False, None
 
 
+from mozart.execution.runner.context import ContextBuildingMixin
 from mozart.execution.runner.recovery import RecoveryMixin
 from mozart.execution.runner.sheet import SheetExecutionMixin
 
 
-class _TestableSheetMixin(_MockMixin, SheetExecutionMixin, RecoveryMixin):
+class _TestableSheetMixin(_MockMixin, SheetExecutionMixin, ContextBuildingMixin, RecoveryMixin):
     """Concrete class that combines the mixin with mock infrastructure."""
     pass
 
@@ -206,13 +207,13 @@ def _make_mock_vr(results: list[MagicMock] | None = None) -> MagicMock:
 class TestClassifySuccessOutcome:
     """Tests for the static _classify_success_outcome method."""
 
-    def test_first_attempt_success_zero_attempts(self) -> None:
+    def test_success_without_retry_zero_attempts(self) -> None:
         """0 normal attempts + 0 completion = first try success."""
         outcome, first = SheetExecutionMixin._classify_success_outcome(0, 0)
         assert outcome == OutcomeCategory.SUCCESS_FIRST_TRY
         assert first is True
 
-    def test_first_attempt_success_one_attempt(self) -> None:
+    def test_success_without_retry_one_attempt(self) -> None:
         """1 normal attempt + 0 completion = first try success."""
         outcome, first = SheetExecutionMixin._classify_success_outcome(1, 0)
         assert outcome == OutcomeCategory.SUCCESS_FIRST_TRY

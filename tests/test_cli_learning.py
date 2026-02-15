@@ -32,7 +32,7 @@ def _make_mock_store() -> MagicMock:
     store = MagicMock()
     store.get_execution_stats.return_value = {
         "total_executions": 42,
-        "first_attempt_success_rate": 0.85,
+        "success_without_retry_rate": 0.85,
         "total_patterns": 7,
         "avg_pattern_effectiveness": 0.72,
         "unique_workspaces": 3,

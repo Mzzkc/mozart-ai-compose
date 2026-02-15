@@ -99,7 +99,7 @@ class PatternFeedbackContext:
     """
 
     validation_passed: bool
-    first_attempt_success: bool
+    success_without_retry: bool
     sheet_num: int
     grounding_confidence: float | None = None
     validation_types: list[str] | None = None
@@ -372,7 +372,7 @@ class PatternsMixin:
 
         try:
             stats = self._global_learning_store.get_execution_stats()
-            first_attempt_rate = stats.get("first_attempt_success_rate", 0.0)
+            first_attempt_rate = stats.get("success_without_retry_rate", 0.0)
             total_executions = stats.get("total_executions", 0)
 
             # Assess risk based on historical success rate
@@ -458,9 +458,9 @@ class PatternsMixin:
             return
 
         # Determine if the pattern led to execution success:
-        # - True if validation passed AND first_attempt (pattern worked)
+        # - True if validation passed AND succeeded without retry (pattern worked)
         # - False if validation failed or retries needed (pattern didn't help)
-        pattern_led_to_success = context.validation_passed and context.first_attempt_success
+        pattern_led_to_success = context.validation_passed and context.success_without_retry
 
         for pattern_id in pattern_ids:
             try:
@@ -475,7 +475,7 @@ class PatternsMixin:
                     execution_id=f"sheet_{context.sheet_num}",
                     pattern_led_to_success=pattern_led_to_success,
                     retry_count_before=0,  # We don't track this per-pattern
-                    retry_count_after=0 if context.first_attempt_success else 1,
+                    retry_count_after=0 if context.success_without_retry else 1,
                     application_mode=application_mode,
                     validation_passed=context.validation_passed,
                     grounding_confidence=context.grounding_confidence,
@@ -507,7 +507,7 @@ class PatternsMixin:
                     sheet_num=context.sheet_num,
                     pattern_led_to_success=pattern_led_to_success,
                     validation_passed=context.validation_passed,
-                    first_attempt_success=context.first_attempt_success,
+                    success_without_retry=context.success_without_retry,
                     application_mode=application_mode,
                     grounding_confidence=context.grounding_confidence,
                 )

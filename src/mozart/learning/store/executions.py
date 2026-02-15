@@ -89,7 +89,7 @@ class ExecutionMixin:
                 INSERT INTO executions (
                     id, workspace_hash, job_hash, sheet_num,
                     started_at, completed_at, duration_seconds,
-                    status, retry_count, first_attempt_success,
+                    status, retry_count, success_without_retry,
                     validation_pass_rate, confidence_score, model, error_codes
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -103,7 +103,7 @@ class ExecutionMixin:
                     outcome.execution_duration,
                     outcome.final_status.value,
                     outcome.retry_count,
-                    outcome.first_attempt_success,
+                    outcome.success_without_retry,
                     outcome.validation_pass_rate,
                     self._calculate_confidence(outcome),
                     model,
@@ -142,8 +142,8 @@ class ExecutionMixin:
         retry_penalty = 0.1 * min(outcome.retry_count, 5)
         base_confidence -= retry_penalty
 
-        # Boost first-attempt success
-        if outcome.first_attempt_success:
+        # Boost success without retry
+        if outcome.success_without_retry:
             base_confidence = min(1.0, base_confidence + 0.1)
 
         return max(0.0, min(1.0, base_confidence))
@@ -165,16 +165,16 @@ class ExecutionMixin:
             cursor = conn.execute(
                 """
                 SELECT
-                    SUM(CASE WHEN first_attempt_success THEN 1 ELSE 0 END) as successes,
+                    SUM(CASE WHEN success_without_retry THEN 1 ELSE 0 END) as successes,
                     COUNT(*) as total
                 FROM executions
                 """
             )
             row = cursor.fetchone()
             if row["total"] > 0:
-                stats["first_attempt_success_rate"] = row["successes"] / row["total"]
+                stats["success_without_retry_rate"] = row["successes"] / row["total"]
             else:
-                stats["first_attempt_success_rate"] = 0.0
+                stats["success_without_retry_rate"] = 0.0
 
             # Total patterns
             cursor = conn.execute("SELECT COUNT(*) as count FROM patterns")
@@ -251,7 +251,7 @@ class ExecutionMixin:
                         duration_seconds=row["duration_seconds"] or 0.0,
                         status=row["status"] or "",
                         retry_count=row["retry_count"] or 0,
-                        first_attempt_success=bool(row["first_attempt_success"]),
+                        success_without_retry=bool(row["success_without_retry"]),
                         validation_pass_rate=row["validation_pass_rate"] or 0.0,
                         confidence_score=row["confidence_score"] or 0.0,
                         model=row["model"],
@@ -323,7 +323,7 @@ class ExecutionMixin:
                         duration_seconds=row["duration_seconds"] or 0.0,
                         status=row["status"] or "",
                         retry_count=row["retry_count"] or 0,
-                        first_attempt_success=bool(row["first_attempt_success"]),
+                        success_without_retry=bool(row["success_without_retry"]),
                         validation_pass_rate=row["validation_pass_rate"] or 0.0,
                         confidence_score=row["confidence_score"] or 0.0,
                         model=row["model"],

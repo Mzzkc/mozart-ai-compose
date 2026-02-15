@@ -180,7 +180,7 @@ class TestRunDaemonRequired:
                 ["run", str(sample_yaml_config)],
             )
         assert result.exit_code == 1
-        assert "daemon is not running" in result.stdout.lower()
+        assert "conductor is not running" in result.stdout.lower()
 
     def test_run_without_daemon_json_error(self, sample_yaml_config: Path) -> None:
         """Running without daemon + --json should produce JSON error."""
@@ -195,7 +195,7 @@ class TestRunDaemonRequired:
             )
         assert result.exit_code == 1
         data = json.loads(result.stdout)
-        assert "daemon" in data["error"].lower()
+        assert "conductor" in data["error"].lower()
 
     def test_run_routes_through_daemon(self, sample_yaml_config: Path) -> None:
         """Successful daemon submission should report acceptance."""

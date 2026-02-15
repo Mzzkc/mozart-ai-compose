@@ -1,4 +1,4 @@
-"""Configuration models for the Mozart daemon (mozartd).
+"""Configuration models for the Mozart conductor (daemon).
 
 Defines Pydantic v2 models for daemon-specific settings: socket configuration,
 resource limits, concurrency controls, and state backend selection.
@@ -63,7 +63,7 @@ class SocketConfig(BaseModel):
     """
 
     path: Path = Field(
-        default=Path("/tmp/mozartd.sock"),
+        default=Path("/tmp/mozart.sock"),
         description="Unix domain socket path for client-daemon communication",
     )
     permissions: int = Field(
@@ -79,7 +79,7 @@ class SocketConfig(BaseModel):
 
 
 class DaemonConfig(BaseModel):
-    """Top-level configuration for the Mozart daemon (mozartd).
+    """Top-level configuration for the Mozart conductor.
 
     Controls socket binding, PID file location, concurrency limits,
     resource constraints, and state backend selection. Follows the
@@ -91,7 +91,7 @@ class DaemonConfig(BaseModel):
         description="Unix domain socket configuration for IPC",
     )
     pid_file: Path = Field(
-        default=Path("/tmp/mozartd.pid"),
+        default=Path("/tmp/mozart.pid"),
         description="PID file for daemon process management. "
         "Used to detect already-running daemons and for signal delivery.",
     )
@@ -135,11 +135,11 @@ class DaemonConfig(BaseModel):
         description="Log file path. None means log to stderr only.",
     )
     job_timeout_seconds: float = Field(
-        default=21600.0,
+        default=86400.0,
         ge=60.0,
         description="Maximum wall-clock time for a single job task. "
         "Jobs exceeding this limit are cancelled with FAILED status. "
-        "Default is 6 hours (21600s). Set higher for known long-running jobs.",
+        "Default is 24 hours (86400s). Set higher for known long-running jobs.",
     )
     shutdown_timeout_seconds: float = Field(
         default=300.0,

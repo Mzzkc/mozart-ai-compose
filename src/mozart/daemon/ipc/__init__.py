@@ -1,4 +1,4 @@
-"""IPC layer for mozartd — Unix socket + JSON-RPC 2.0."""
+"""IPC layer for the conductor — Unix socket + JSON-RPC 2.0."""
 
 from mozart.daemon.ipc.client import DaemonClient
 from mozart.daemon.ipc.server import DaemonServer

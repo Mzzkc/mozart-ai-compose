@@ -33,9 +33,12 @@ from mozart.core.config import JobConfig
 from mozart.state import StateBackend
 
 from ..helpers import (
+    _find_job_state_direct as require_job_state,
+)
+from ..helpers import (
     configure_global_logging,
     is_quiet,
-    require_job_state,
+    require_conductor,
 )
 from ..output import console, format_duration
 from ._shared import (
@@ -61,7 +64,8 @@ def resume(
         None,
         "--workspace",
         "-w",
-        help="Workspace directory to search for job state",
+        help="Workspace directory to search for job state (debug override)",
+        hidden=True,
     ),
     force: bool = typer.Option(
         False,
@@ -273,6 +277,10 @@ async def _resume_job(
 ) -> None:
     """Resume a paused or failed job.
 
+    Routes through the conductor by default. The conductor's
+    ``JobManager.resume_job()`` handles the full execution lifecycle.
+    Falls back to direct execution only with explicit --workspace.
+
     Args:
         job_id: Job ID to resume.
         config_file: Optional path to config file.
@@ -283,9 +291,71 @@ async def _resume_job(
         self_healing: Enable automatic diagnosis and remediation.
         auto_confirm: Auto-confirm suggested fixes.
     """
-    from mozart.execution.runner import FatalError, GracefulShutdownError, JobRunner
+    from mozart.daemon.detect import try_daemon_route
 
     configure_global_logging(console)
+
+    # Try conductor first (unless workspace override forces direct execution)
+    ws_str = str(workspace) if workspace else None
+    params = {"job_id": job_id, "workspace": ws_str}
+    try:
+        routed, result = await try_daemon_route("job.resume", params)
+    except Exception as exc:
+        # Business logic error from conductor (e.g., job not found)
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1) from None
+
+    if routed:
+        # Conductor handled the resume
+        if isinstance(result, dict):
+            status = result.get("status", "unknown")
+            message = result.get("message", "")
+            if status == "accepted":
+                console.print(
+                    f"[green]Resume accepted for job '[cyan]{job_id}[/cyan]'.[/green]"
+                )
+                if message:
+                    console.print(f"[dim]{message}[/dim]")
+                console.print(
+                    f"\nMonitor progress: [bold]mozart status {job_id}[/bold]"
+                )
+                return
+            else:
+                console.print(
+                    f"[red]Error:[/red] {message or f'Resume rejected for {job_id!r}'}"
+                )
+                raise typer.Exit(1)
+        return
+
+    # Conductor not available
+    if workspace is None:
+        # No workspace override — conductor is required
+        require_conductor(routed)
+        return  # unreachable
+
+    # Fallback to direct execution with workspace override
+    await _resume_job_direct(
+        job_id, config_file, workspace, force, escalation,
+        reload_config, self_healing, auto_confirm,
+    )
+
+
+async def _resume_job_direct(
+    job_id: str,
+    config_file: Path | None,
+    workspace: Path | None,
+    force: bool,
+    escalation: bool = False,
+    reload_config: bool = False,
+    self_healing: bool = False,
+    auto_confirm: bool = False,
+) -> None:
+    """Direct resume execution (fallback when conductor is unavailable).
+
+    This is the original resume logic, used when --workspace is explicitly
+    provided as a debug override.
+    """
+    from mozart.execution.runner import FatalError, GracefulShutdownError, JobRunner
 
     # Phase 1: Find and validate job state
     found_state, found_backend = await _find_job_state(job_id, workspace, force)

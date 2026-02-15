@@ -32,7 +32,7 @@ class TestResolveSocketPath:
     def test_falls_back_to_socket_config_default(self):
         """None triggers fallback to SocketConfig().path."""
         result = _resolve_socket_path(None)
-        assert result == Path("/tmp/mozartd.sock")
+        assert result == Path("/tmp/mozart.sock")
 
 
 # =============================================================================
@@ -126,7 +126,7 @@ class TestIsDaemonAvailable:
 
         assert result is True
         # Client was created with the default path
-        MockClient.assert_called_once_with(Path("/tmp/mozartd.sock"))
+        MockClient.assert_called_once_with(Path("/tmp/mozart.sock"))
 
 
 # =============================================================================

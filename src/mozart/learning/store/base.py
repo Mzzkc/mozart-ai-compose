@@ -90,7 +90,8 @@ class GlobalLearningStoreBase:
     # v9: Added exploration_budget and entropy_responses tables for v23 evolutions
     # v10: Added proper column migration for existing tables
     # v11: Renamed outcome_improved → pattern_led_to_success in pattern_applications
-    SCHEMA_VERSION = 11
+    # v12: Renamed first_attempt_success → success_without_retry in executions
+    SCHEMA_VERSION = 12
 
     # Expected columns for tables that may need migration
     # Format: {table_name: [(column_name, column_definition), ...]}
@@ -123,6 +124,11 @@ class GlobalLearningStoreBase:
             # v11: Clarify semantics — not "did outcome improve vs baseline"
             # but "did the pattern lead to execution success"
             ("outcome_improved", "pattern_led_to_success"),
+        ],
+        "executions": [
+            # v12: Clarify semantics — succeeded without needing any retry,
+            # not necessarily "first attempt"
+            ("first_attempt_success", "success_without_retry"),
         ],
     }
 
@@ -293,7 +299,7 @@ class GlobalLearningStoreBase:
                 duration_seconds REAL,
                 status TEXT,
                 retry_count INTEGER DEFAULT 0,
-                first_attempt_success BOOLEAN,
+                success_without_retry BOOLEAN,
                 validation_pass_rate REAL,
                 confidence_score REAL,
                 model TEXT,

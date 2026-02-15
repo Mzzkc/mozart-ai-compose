@@ -240,5 +240,37 @@ class DaemonClient:
         """Readiness probe — is the daemon accepting new jobs?"""
         return cast(dict[str, Any], await self.call("daemon.ready"))
 
+    async def get_errors(self, job_id: str, workspace: str | None = None) -> dict[str, Any]:
+        """Get errors for a specific job."""
+        result = await self.call("job.errors", {"job_id": job_id, "workspace": workspace})
+        return cast(dict[str, Any], result)
+
+    async def diagnose(self, job_id: str, workspace: str | None = None) -> dict[str, Any]:
+        """Get diagnostic data for a specific job."""
+        result = await self.call("job.diagnose", {"job_id": job_id, "workspace": workspace})
+        return cast(dict[str, Any], result)
+
+    async def get_execution_history(
+        self, job_id: str, workspace: str | None = None,
+        sheet_num: int | None = None, limit: int = 50,
+    ) -> dict[str, Any]:
+        """Get execution history for a specific job."""
+        result = await self.call("job.history", {
+            "job_id": job_id, "workspace": workspace,
+            "sheet_num": sheet_num, "limit": limit,
+        })
+        return cast(dict[str, Any], result)
+
+    async def recover_job(
+        self, job_id: str, workspace: str | None = None,
+        sheet_num: int | None = None, dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Request recovery data for a specific job."""
+        result = await self.call("job.recover", {
+            "job_id": job_id, "workspace": workspace,
+            "sheet_num": sheet_num, "dry_run": dry_run,
+        })
+        return cast(dict[str, Any], result)
+
 
 __all__ = ["DaemonClient"]

@@ -319,7 +319,11 @@ class SlackNotifier:
                 _logger.debug("slack_notification_sent", title=context.format_title())
                 return True
             else:
-                _logger.warning("slack_webhook_error", status_code=response.status_code, body=response.text[:200])
+                _logger.warning(
+                    "slack_webhook_error",
+                    status_code=response.status_code,
+                    body=response.text[:200],
+                )
                 return False
 
         except httpx.TimeoutException:

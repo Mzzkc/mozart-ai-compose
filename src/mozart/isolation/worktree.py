@@ -520,7 +520,6 @@ class GitWorktreeManager:
                 "worktree", "list", "--porcelain", check=False,
             )
             # Parse lock reason to extract PID
-            import re
             for block in lock_reason.split("\n\n"):
                 if str(worktree_path) in block and "locked" in block:
                     pid_match = re.search(r"pid=(\d+)", block)
@@ -782,7 +781,7 @@ class GitWorktreeManager:
         # Apply prefix filter
         if prefix_filter:
             prefix = f"{prefix_filter}/"
-            worktrees = [w for w in worktrees if w.branch.startswith(prefix)]
+            worktrees = [wt for wt in worktrees if wt.branch.startswith(prefix)]
 
         _logger.debug("worktrees_found", count=len(worktrees))
         return worktrees

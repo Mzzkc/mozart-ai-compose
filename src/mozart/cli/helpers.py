@@ -267,36 +267,23 @@ from mozart.notifications.factory import (
 )
 
 # =============================================================================
-# State discovery helpers
+# Filesystem fallback helpers (private — used by CLI command fallback paths)
 # =============================================================================
 
 
-def find_job_workspace(job_id: str, hint: Path | None = None) -> Path | None:
+def _find_job_workspace(job_id: str, hint: Path | None = None) -> Path | None:
     """Find workspace containing a job's state file.
 
-    Search order:
-    1. Provided hint path
-    2. Current directory
-    3. Common workspace patterns (./workspace, ./{job_id}-workspace)
-
-    Args:
-        job_id: Job identifier to search for.
-        hint: Optional hint path to check first.
-
-    Returns:
-        Path to workspace containing job state, or None if not found.
+    Private fallback used when conductor is unavailable and --workspace
+    is explicitly provided.
     """
     search_paths: list[Path] = []
 
-    # Priority 1: Provided hint
     if hint:
         search_paths.append(hint)
 
-    # Priority 2: Current directory
     cwd = Path.cwd()
     search_paths.append(cwd)
-
-    # Priority 3: Common workspace patterns
     search_paths.append(cwd / "workspace")
     search_paths.append(cwd / f"{job_id}-workspace")
 
@@ -304,33 +291,24 @@ def find_job_workspace(job_id: str, hint: Path | None = None) -> Path | None:
         if not path.exists():
             continue
 
-        # Check for JSON state file
         json_state = path / f"{job_id}.json"
         if json_state.exists():
             return path
 
-        # Check for SQLite backend
         sqlite_state = path / ".mozart-state.db"
         if sqlite_state.exists():
-            # SQLite backend exists, check if it contains this job
-            # We defer actual job lookup to the caller
             return path
 
     return None
 
 
-async def find_job_state(
+async def _find_job_state_fs(
     job_id: str,
     workspace: Path | None,
 ) -> tuple[CheckpointState | None, StateBackend | None]:
-    """Find job state in available backends.
+    """Find job state in available backends (filesystem fallback).
 
-    Args:
-        job_id: Job ID to find.
-        workspace: Optional workspace directory to search.
-
-    Returns:
-        Tuple of (CheckpointState, StateBackend) or (None, None) if not found.
+    Private helper used when conductor is unavailable.
     """
     backends: list[StateBackend] = []
 
@@ -366,24 +344,16 @@ async def find_job_state(
     return None, None
 
 
-async def require_job_state(
+async def _find_job_state_direct(
     job_id: str,
     workspace: Path | None,
     *,
     json_output: bool = False,
 ) -> tuple[CheckpointState, StateBackend]:
-    """Find job state or exit with a formatted error.
+    """Find job state or exit with error (filesystem fallback).
 
-    Combines the repeated workspace-check → find-state → error-on-missing
-    pattern used across CLI commands (status, resume, pause, diagnose, errors).
-
-    Args:
-        job_id: Job ID to find.
-        workspace: Optional workspace directory to search.
-        json_output: If True, format error as JSON; otherwise use Rich markup.
-
-    Returns:
-        Tuple of (CheckpointState, StateBackend).
+    Private helper combining find + error handling, used by CLI
+    command fallback paths when conductor is unavailable.
 
     Raises:
         typer.Exit(1): If workspace doesn't exist or job not found.
@@ -399,7 +369,7 @@ async def require_job_state(
         )
         raise typer.Exit(1)
 
-    found_state, found_backend = await find_job_state(job_id, workspace)
+    found_state, found_backend = await _find_job_state_fs(job_id, workspace)
 
     if found_state is None or found_backend is None:
         output_error(
@@ -417,77 +387,26 @@ async def require_job_state(
     return found_state, found_backend
 
 
-def get_state_backends(workspace: Path | None) -> list[StateBackend]:
-    """Get list of state backends to search.
-
-    Args:
-        workspace: Optional workspace directory to search.
-
-    Returns:
-        List of StateBackend instances to query.
-    """
-    backends: list[StateBackend] = []
-
-    if workspace:
-        if workspace.exists():
-            sqlite_path = workspace / ".mozart-state.db"
-            if sqlite_path.exists():
-                backends.append(SQLiteStateBackend(sqlite_path))
-            backends.append(JsonStateBackend(workspace))
-    else:
-        cwd = Path.cwd()
-        backends.append(JsonStateBackend(cwd))
-        sqlite_cwd = cwd / ".mozart-state.db"
-        if sqlite_cwd.exists():
-            backends.append(SQLiteStateBackend(sqlite_cwd))
-
-    return backends
-
-
 # =============================================================================
-# Pause signal helpers
+# Pause signal helpers (private — used by pause.py filesystem fallback)
 # =============================================================================
 
 
-def create_pause_signal(workspace: Path, job_id: str) -> Path:
-    """Create pause signal file for a job.
-
-    Args:
-        workspace: Workspace directory.
-        job_id: Job identifier.
-
-    Returns:
-        Path to created signal file.
-
-    Raises:
-        PermissionError: If workspace is not writable.
-        OSError: If signal file cannot be created.
-    """
+def _create_pause_signal(workspace: Path, job_id: str) -> Path:
+    """Create pause signal file for a job (filesystem fallback)."""
     signal_file = workspace / f".mozart-pause-{job_id}"
     signal_file.touch()
     return signal_file
 
 
-async def wait_for_pause_ack(
+async def _wait_for_pause_ack(
     state_backend: StateBackend,
     job_id: str,
     timeout: int,
 ) -> bool:
-    """Wait for job to acknowledge pause signal.
-
-    Polls the state backend until the job status changes to PAUSED
-    or the timeout is reached.
-
-    Args:
-        state_backend: State backend to poll.
-        job_id: Job identifier.
-        timeout: Maximum seconds to wait.
-
-    Returns:
-        True if job paused successfully, False if timeout reached.
-    """
+    """Wait for job to acknowledge pause signal (filesystem fallback)."""
     start_time = asyncio.get_event_loop().time()
-    poll_interval = 1.0  # Poll every second
+    poll_interval = 1.0
 
     while True:
         elapsed = asyncio.get_event_loop().time() - start_time
@@ -499,13 +418,48 @@ async def wait_for_pause_ack(
             if state and state.status == JobStatus.PAUSED:
                 return True
             if state and state.status not in {JobStatus.RUNNING, JobStatus.PAUSED}:
-                # Job changed to a non-running/paused state (completed, failed, etc.)
-                # Consider this as "acknowledged" since it's no longer running
                 return True
         except Exception:
             _logger.warning("Error polling pause state", exc_info=True)
 
         await asyncio.sleep(poll_interval)
+
+
+# =============================================================================
+# Conductor routing helpers
+# =============================================================================
+
+
+def require_conductor(
+    routed: bool,
+    *,
+    json_output: bool = False,
+) -> None:
+    """Exit with a clear error when the conductor is not running.
+
+    Used by CLI commands that route through the conductor IPC. If the
+    conductor was not reachable, this prints a helpful message directing
+    the user to ``mozart start``.
+
+    Args:
+        routed: Whether ``try_daemon_route`` succeeded.
+        json_output: If True, output error as JSON instead of Rich markup.
+
+    Raises:
+        typer.Exit(1): If the conductor is not running.
+    """
+    if routed:
+        return
+
+    from .output import console as _console
+
+    msg = "Mozart conductor is not running. Start it with: mozart start"
+    if json_output:
+        import json
+        _console.print(json.dumps({"error": msg}, indent=2))
+    else:
+        _console.print(f"[red]Error:[/red] {msg}")
+    raise typer.Exit(1)
 
 
 # =============================================================================
@@ -570,16 +524,16 @@ __all__ = [
     "create_state_backend_from_config",
     "get_default_state_backend",
     "create_notifiers_from_config",
-    # State discovery
-    "find_job_workspace",
-    "find_job_state",
-    "require_job_state",
-    "get_state_backends",
-    # Pause signals
-    "create_pause_signal",
-    "wait_for_pause_ack",
+    # Conductor helpers
+    "require_conductor",
     # Utilities
     "get_last_activity_time",
+    # Private filesystem fallbacks (used by command fallback paths)
+    "_find_job_workspace",
+    "_find_job_state_fs",
+    "_find_job_state_direct",
+    "_create_pause_signal",
+    "_wait_for_pause_ack",
     # Logger
     "_logger",
 ]

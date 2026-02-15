@@ -109,14 +109,22 @@ class RecursiveLightBackend(HttpxClientMixin, Backend):
 
         Args:
             prompt: The prompt to send to Recursive Light.
-            timeout_seconds: Per-call timeout override (not currently used by RL backend,
-                which uses its own HTTP timeout).
+            timeout_seconds: Per-call timeout override. RL backend uses its
+                own HTTP timeout from ``__init__``; per-call override is
+                logged but not enforced.
 
         Returns:
             ExecutionResult with output text and RL metadata populated.
             On connection errors, returns a failed result with graceful
             error handling (not raising exceptions).
         """
+        if timeout_seconds is not None:
+            _logger.debug(
+                "timeout_override_ignored",
+                backend="recursive_light",
+                requested=timeout_seconds,
+                actual=self.timeout,
+            )
         start_time = time.monotonic()
         started_at = utc_now()
 

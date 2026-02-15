@@ -135,7 +135,7 @@ def no_daemon_detection() -> Generator[None, None, None]:
     """Prevent dashboard tests from connecting to a real daemon.
 
     The dashboard's JobControlService.is_daemon_available() checks for a
-    Unix socket, which succeeds if mozartd happens to be running. Patching
+    Unix socket, which succeeds if the conductor happens to be running. Patching
     it globally ensures dashboard API tests always take the subprocess path.
 
     Note: CLI commands that use ``try_daemon_route()`` from

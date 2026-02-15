@@ -45,7 +45,7 @@ from mozart.core.logging import find_log_files, get_default_log_path
 from ..helpers import (
     configure_global_logging,
     is_quiet,
-    require_job_state,
+    require_conductor,
 )
 from ..output import (
     StatusColors,
@@ -268,7 +268,8 @@ def logs(
         None,
         "--workspace",
         "-w",
-        help="Workspace directory to find logs (defaults to current directory)",
+        help="Workspace directory to find logs (debug override)",
+        hidden=True,
     ),
     log_file: Path | None = typer.Option(
         None,
@@ -404,7 +405,8 @@ def errors(
         None,
         "--workspace",
         "-w",
-        help="Workspace directory to search for job state",
+        help="Workspace directory to search for job state (debug override)",
+        hidden=True,
     ),
     json_output: bool = typer.Option(
         False,
@@ -442,8 +444,32 @@ async def _errors_job(
     """Asynchronously display errors for a job."""
     configure_global_logging(console)
 
-    # Find job state
-    found_job, _ = await require_job_state(job_id, workspace, json_output=json_output)
+    # Route through conductor
+    from mozart.daemon.detect import try_daemon_route
+
+    ws_str = str(workspace) if workspace else None
+    params = {"job_id": job_id, "workspace": ws_str}
+    routed, result = await try_daemon_route("job.errors", params)
+
+    found_job: CheckpointState | None = None
+    if routed and result:
+        state_data = result.get("state")
+        if state_data:
+            found_job = CheckpointState.model_validate(state_data)
+    elif not routed and workspace is not None:
+        # Fallback to filesystem with workspace override
+        from ..helpers import _find_job_state_direct
+        found_job, _ = await _find_job_state_direct(job_id, workspace, json_output=json_output)
+    else:
+        require_conductor(routed, json_output=json_output)
+        return
+
+    if found_job is None:
+        if json_output:
+            console.print(json_module.dumps({"error": f"Job not found: {job_id}"}))
+        else:
+            console.print(f"[red]Job not found:[/red] {job_id}")
+        raise typer.Exit(1)
 
     # Collect all errors from sheet states
     all_errors: list[tuple[int, ErrorRecord]] = []
@@ -596,7 +622,8 @@ def diagnose(
         None,
         "--workspace",
         "-w",
-        help="Workspace directory to search for job state",
+        help="Workspace directory to search for job state (debug override)",
+        hidden=True,
     ),
     json_output: bool = typer.Option(
         False,
@@ -642,11 +669,42 @@ async def _diagnose_job(
     """Asynchronously generate diagnostic report for a job."""
     configure_global_logging(console)
 
-    # Find job state
-    found_job, found_backend = await require_job_state(job_id, workspace, json_output=json_output)
+    # Route through conductor
+    from mozart.daemon.detect import try_daemon_route
+
+    ws_str = str(workspace) if workspace else None
+    params = {"job_id": job_id, "workspace": ws_str}
+    routed, result = await try_daemon_route("job.diagnose", params)
+
+    found_job: CheckpointState | None = None
+    found_backend = None
+    effective_workspace = workspace
+
+    if routed and result:
+        state_data = result.get("state")
+        if state_data:
+            found_job = CheckpointState.model_validate(state_data)
+        if result.get("workspace"):
+            effective_workspace = Path(result["workspace"])
+    elif not routed and workspace is not None:
+        # Fallback to filesystem with workspace override
+        from ..helpers import _find_job_state_direct
+        found_job, found_backend = await _find_job_state_direct(
+            job_id, workspace, json_output=json_output,
+        )
+    else:
+        require_conductor(routed, json_output=json_output)
+        return
+
+    if found_job is None:
+        if json_output:
+            console.print(json_module.dumps({"error": f"Job not found: {job_id}"}))
+        else:
+            console.print(f"[red]Job not found:[/red] {job_id}")
+        raise typer.Exit(1)
 
     # Build diagnostic report
-    report: dict[str, Any] = _build_diagnostic_report(found_job, workspace=workspace)
+    report: dict[str, Any] = _build_diagnostic_report(found_job, workspace=effective_workspace)
 
     # Inline log content if requested
     if include_logs:
@@ -654,7 +712,7 @@ async def _diagnose_job(
 
     # Add execution history count if backend supports it
     report["execution_history_count"] = None
-    if hasattr(found_backend, 'get_execution_history_count'):
+    if found_backend is not None and hasattr(found_backend, 'get_execution_history_count'):
         try:
             report["execution_history_count"] = await found_backend.get_execution_history_count(
                 job_id
@@ -1124,7 +1182,8 @@ def history(
         None,
         "--workspace",
         "-w",
-        help="Workspace directory to search for job state",
+        help="Workspace directory to search for job state (debug override)",
+        hidden=True,
     ),
     json_output: bool = typer.Option(
         False,
@@ -1160,11 +1219,44 @@ async def _history_job(
     """Asynchronously display execution history for a job."""
     configure_global_logging(console)
 
-    # Find job state and backend
-    _, found_backend = await require_job_state(job_id, workspace, json_output=json_output)
+    # Route through conductor
+    from mozart.daemon.detect import try_daemon_route
+
+    ws_str = str(workspace) if workspace else None
+    params = {
+        "job_id": job_id, "workspace": ws_str,
+        "sheet_num": sheet_filter, "limit": limit,
+    }
+    routed, result = await try_daemon_route("job.history", params)
+
+    records: list[dict[str, Any]] = []
+    has_history = True
+
+    if routed and result:
+        records = result.get("records", [])
+        has_history = result.get("has_history", False)
+    elif not routed and workspace is not None:
+        # Fallback to filesystem — load from SQLite backend directly
+        from mozart.state import SQLiteStateBackend
+
+        sqlite_path = workspace / ".mozart-state.db"
+        if sqlite_path.exists():
+            backend = SQLiteStateBackend(sqlite_path)
+            try:
+                if hasattr(backend, 'get_execution_history'):
+                    records = await backend.get_execution_history(
+                        job_id=job_id, sheet_num=sheet_filter, limit=limit,
+                    )
+            finally:
+                await backend.close()
+        else:
+            has_history = False
+    else:
+        require_conductor(routed, json_output=json_output)
+        return
 
     # Check if backend supports execution history
-    if not hasattr(found_backend, 'get_execution_history'):
+    if not has_history:
         if json_output:
             console.print(json_module.dumps({
                 "error": "Execution history requires SQLite state backend",
@@ -1176,13 +1268,6 @@ async def _history_job(
                 "[dim]History is only recorded when using SQLite state storage.[/dim]"
             )
         raise typer.Exit(1)
-
-    # Query execution history
-    records = await found_backend.get_execution_history(
-        job_id=job_id,
-        sheet_num=sheet_filter,
-        limit=limit,
-    )
 
     # Output as JSON if requested
     if json_output:

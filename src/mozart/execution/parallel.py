@@ -176,6 +176,24 @@ class _LockingStateBackend:
             job_id, workspace, artifact_pattern
         )
 
+    async def record_execution(
+        self,
+        job_id: str,
+        sheet_num: int,
+        attempt_num: int,
+        prompt: str | None = None,
+        output: str | None = None,
+        exit_code: int | None = None,
+        duration_seconds: float | None = None,
+    ) -> int | None:
+        """Delegate execution recording under lock to prevent data loss."""
+        async with self._lock:
+            return await self._inner.record_execution(
+                job_id, sheet_num, attempt_num,
+                prompt=prompt, output=output,
+                exit_code=exit_code, duration_seconds=duration_seconds,
+            )
+
     async def close(self) -> None:
         """Delegate close to the inner backend to release connections."""
         await self._inner.close()
@@ -409,11 +427,13 @@ class ParallelExecutor:
                     return [sheet_num]
             return []
 
-        # Get completed sheets by iterating stored state directly
+        # Get completed and skipped sheets by iterating stored state directly.
+        # Skipped sheets count as "done" for dependency resolution so
+        # downstream sheets aren't blocked by skipped ancestors (GH#71).
         completed: set[int] = {
             num
             for num, s in state.sheets.items()
-            if s.status == SheetStatus.COMPLETED
+            if s.status in (SheetStatus.COMPLETED, SheetStatus.SKIPPED)
         }
 
         # Treat permanently failed sheets as "done" for dependency resolution

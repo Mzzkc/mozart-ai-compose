@@ -194,8 +194,10 @@ class GitDiffProvider:
             _logger.warning("Git diff timed out")
             return ""
         except FileNotFoundError:
-            _logger.debug("Git not found")
-            return ""
+            raise RuntimeError(
+                "Git is not installed or not found on PATH. "
+                "Git is required for code review scoring."
+            ) from None
         except Exception as e:
             _logger.warning("git_diff_error", error=str(e))
             return ""

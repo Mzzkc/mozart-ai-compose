@@ -452,7 +452,7 @@ class TestFinalizeSummary:
 
         # Sheet 1: completed on first attempt
         state.mark_sheet_started(1)
-        state.sheets[1].first_attempt_success = True
+        state.sheets[1].success_without_retry = True
         state.mark_sheet_completed(1, validation_passed=True)
 
         # Sheet 2: completed with retries
@@ -479,7 +479,7 @@ class TestFinalizeSummary:
         assert mixin._summary.completed_sheets == 2
         assert mixin._summary.failed_sheets == 1
         assert mixin._summary.skipped_sheets == 1
-        assert mixin._summary.first_attempt_successes == 1
+        assert mixin._summary.successes_without_retry == 1
         assert mixin._summary.total_duration_seconds == pytest.approx(10.0)
 
     def test_counts_retries_correctly(self, mixin: _TestableLifecycleMixin):

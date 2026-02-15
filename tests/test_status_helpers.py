@@ -1,7 +1,7 @@
 """Tests for status command helper functions and CLI integration.
 
 Covers internal helper functions (_collect_recent_errors, _infer_circuit_breaker_state,
-_get_last_activity_time, _infer_error_type, _format_daemon_timestamp), list_jobs
+get_last_activity_time, _infer_error_type, _format_daemon_timestamp), list_jobs
 command, JSON output schema, cost/hook/synthesis rendering, and additional CLI edge cases.
 """
 
@@ -17,10 +17,10 @@ from mozart.cli import app
 from mozart.cli.commands.status import (
     _collect_recent_errors,
     _format_daemon_timestamp,
-    _get_last_activity_time,
     _infer_circuit_breaker_state,
     _infer_error_type,
 )
+from mozart.cli.helpers import get_last_activity_time
 from mozart.core.checkpoint import (
     CheckpointState,
     ErrorRecord,
@@ -29,7 +29,22 @@ from mozart.core.checkpoint import (
     SheetStatus,
 )
 
+import pytest
+
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prevent status helper tests from reaching a real conductor."""
+    async def _fake_route(
+        method: str, params: dict, *, socket_path=None
+    ) -> tuple[bool, None]:
+        return False, None
+
+    monkeypatch.setattr(
+        "mozart.daemon.detect.try_daemon_route", _fake_route,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -206,19 +221,19 @@ class TestCollectRecentErrors:
 
 
 # ---------------------------------------------------------------------------
-# _get_last_activity_time tests
+# get_last_activity_time tests
 # ---------------------------------------------------------------------------
 
 
 class TestGetLastActivityTime:
-    """Tests for the _get_last_activity_time() helper."""
+    """Tests for the get_last_activity_time() helper."""
 
     def test_returns_updated_at_for_empty_job(self) -> None:
         """Even a minimal job has updated_at, so it should return that."""
         job = _make_job(total_sheets=1, sheets={})
         job.last_completed_sheet = 0
         # updated_at is always set (non-optional), so result should be non-None
-        result = _get_last_activity_time(job)
+        result = get_last_activity_time(job)
         assert result is not None
         assert result == job.updated_at
 
@@ -226,7 +241,7 @@ class TestGetLastActivityTime:
         now = datetime.now(UTC)
         job = _make_job()
         job.updated_at = now
-        result = _get_last_activity_time(job)
+        result = get_last_activity_time(job)
         assert result == now
 
     def test_prefers_most_recent_activity(self) -> None:
@@ -242,7 +257,7 @@ class TestGetLastActivityTime:
         }
         job = _make_job(sheets=sheets, total_sheets=1)
         job.updated_at = now
-        result = _get_last_activity_time(job)
+        result = get_last_activity_time(job)
         assert result == sheet_activity
 
 

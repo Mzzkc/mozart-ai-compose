@@ -40,11 +40,12 @@ class WorkspaceArchiver:
         """
         try:
             return self._do_archive()
-        except Exception as e:
+        except (OSError, ValueError) as e:
             _logger.warning(
                 "workspace_archive_failed",
                 workspace=str(self.workspace),
                 error=str(e),
+                exc_info=True,
             )
             return None
 

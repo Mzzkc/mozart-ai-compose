@@ -26,7 +26,7 @@ The musical metaphor runs deep. Jobs are "scores" (sheet music), units of work a
 └─────────────────────┬───────────────────────────────────────────┘
                       │
 ┌─────────────────────▼───────────────────────────────────────────┐
-│                  Daemon (mozartd)                                │
+│                  Conductor (mozart start)                        │
 │  Long-running process managing concurrent jobs via Unix socket  │
 │  ┌──────────┬───────────┬──────────┬──────────┬──────────┐     │
 │  │ Manager  │ Registry  │Scheduler │  Rate    │Backpress.│     │
@@ -105,31 +105,31 @@ When you run `mozart run job.yaml`:
 
 ---
 
-## The Daemon (mozartd)
+## The Conductor (mozart start)
 
-Mozart runs all jobs through a long-running daemon process. The daemon manages concurrent jobs, coordinates rate limits across jobs, and provides a Unix socket IPC interface.
+Mozart runs all jobs through a long-running conductor process. The conductor manages concurrent jobs, coordinates rate limits across jobs, and provides a Unix socket IPC interface.
 
 ### Quick Start
 
 ```bash
-# Start the daemon (foreground, for development)
-mozartd start --foreground
+# Start the conductor (foreground, for development)
+mozart start --foreground
 
-# Start the daemon (background, production)
-mozartd start
+# Start the conductor (background, production)
+mozart start
 
-# Submit a job (auto-routes through daemon)
+# Submit a job (auto-routes through conductor)
 mozart run my-job.yaml
 
-# Check daemon status
-mozartd status
+# Check conductor status
+mozart conductor-status
 
 # List jobs
 mozart list          # Active jobs only
 mozart list --all    # Include completed/failed
 
-# Stop the daemon
-mozartd stop
+# Stop the conductor
+mozart stop
 ```
 
 ### Key Components
@@ -349,7 +349,7 @@ Key validation features:
 |--------|-------|
 | Source files | 182 Python files |
 | Test files | 115 |
-| CLI commands | 26 mozart + 3 mozartd = 29 |
+| CLI commands | 29 mozart commands |
 | Packages | 20 under src/mozart/ |
 | Config models | 40+ Pydantic models |
 | Error codes | 50 across 9 categories |

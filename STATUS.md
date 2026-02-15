@@ -1,6 +1,6 @@
 # Mozart AI Compose - Status
 
-**Overall:** Daemon Symphony Concert Launched (2026-02-11)
+**Overall:** Post-daemon stabilization + documentation (2026-02-14)
 **Tests:** 3384+ passing (+ 249 observability tests)
 **Vision:** Mozart + Recursive Light = Federated AGI Architecture
 **GitHub:** https://github.com/Mzzkc/mozart-ai-compose
@@ -9,21 +9,43 @@
 
 ---
 
-## Current: Daemon Symphony Concert (2026-02-11)
+## Current: Issue Solver Score + skip_when_command (2026-02-14)
 
-### Mozart is building its own daemon (Issue #39)
+### Two features shipped, daemon chain bug filed
 
-5-phase, 57-sheet concert transforming Mozart from CLI-per-job to long-running daemon (mozartd).
+- **skip_when_command (#71)** — Command-based conditional sheet execution with fail-open semantics
+- **issue-solver score (#72)** — 17-stage self-chaining score for auto-solving roadmap issues
+- **#74 filed** — Chained jobs bypass daemon (Tier 0, top priority for next work)
 
-| Phase | Sheets | Creates | Status |
-|-------|--------|---------|--------|
-| P0: Scaffold | 11 | DaemonConfig, OutputProtocol, JobService | COMPLETE |
-| P1: IPC | 11 | Unix socket, JSON-RPC 2.0, DaemonClient | COMPLETE |
-| P2: Service | 12 | mozartd, JobManager, ResourceMonitor | COMPLETE |
-| P3: Scheduler | 11 | GlobalScheduler, RateLimitCoordinator | COMPLETE |
-| P4: Integration | 12 | E2E tests, dashboard/MCP wiring, PR | COMPLETE |
+**Commits:** `4612a78` (score), `85e7bd8` (template tests), `5a64b05` (quality fixes), `5266e1a` (roadmap priority)
 
-**Merged to main** — all 5 phases complete.
+---
+
+## Previous: Documentation Overhaul Complete (2026-02-14)
+
+### Comprehensive docs generated and verified
+
+14-stage documentation score produced 4 new docs + 6 updates. TDF-aligned multi-agent review found 29 issues — all fixed.
+
+| Doc | Status |
+|-----|--------|
+| score-writing-guide.md | NEW — 6 archetypes, template vars, validation |
+| daemon-guide.md | NEW — architecture, config, troubleshooting |
+| limitations.md | NEW — honest known weaknesses |
+| configuration-reference.md | NEW — every Pydantic field |
+| cli-reference.md | UPDATED — all commands verified |
+| README.md | UPDATED — examples, MCP link, daemon requirement |
+| mkdocs.yml + gen_ref_pages.py | NEW — browsable doc site infrastructure |
+
+**Commits:** `e5314cd` (generation), `99a1db6` (29 accuracy fixes)
+
+---
+
+## Previous: Daemon Symphony Concert (2026-02-11)
+
+### Daemon complete and merged
+
+5-phase, 57-sheet concert. All phases COMPLETE, merged to main.
 
 ---
 
@@ -279,4 +301,4 @@ Score vN → Discovery → Synthesis → Evolution → Validation → Score v(N+
 
 ---
 
-*Last Updated: 2026-02-14 - Documentation refresh, daemon complete, CLI/test count updates*
+*Last Updated: 2026-02-14 - Documentation overhaul complete, 29 accuracy fixes, daemon complete*

@@ -29,6 +29,23 @@ from mozart.state.json_backend import JsonStateBackend
 runner = CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure integration tests never route through a real conductor.
+
+    Individual tests that need conductor behavior override with
+    unittest.mock.patch (which takes precedence during its context).
+    """
+    async def _fake_route(
+        method: str, params: dict, *, socket_path=None
+    ) -> tuple[bool, None]:
+        return False, None
+
+    monkeypatch.setattr(
+        "mozart.daemon.detect.try_daemon_route", _fake_route,
+    )
+
+
 # ============================================================================
 # Fixtures
 # ============================================================================
@@ -767,7 +784,7 @@ class TestErrorHandlingIntegration:
         with patch("mozart.daemon.detect.try_daemon_route", side_effect=_fake_route):
             result = runner.invoke(app, ["list"])
         assert result.exit_code == 1
-        assert "daemon is not running" in result.stdout.lower()
+        assert "conductor is not running" in result.stdout.lower()
 
     def test_missing_job_error(self, tmp_path: Path) -> None:
         """Missing job produces helpful error."""

@@ -25,7 +25,7 @@ import asyncio
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 import typer
 from rich.panel import Panel
@@ -35,9 +35,19 @@ from rich.progress import (
     TextColumn,
 )
 
-from mozart.core.checkpoint import ErrorRecord, JobStatus, SheetStatus
+from mozart.core.checkpoint import CheckpointState, ErrorRecord, JobStatus, SheetStatus
 
-from ..helpers import ErrorMessages, find_job_state, require_job_state
+from ..helpers import (
+    ErrorMessages,
+    get_last_activity_time,
+    require_conductor,
+)
+from ..helpers import (
+    _find_job_state_direct as require_job_state,
+)
+from ..helpers import (
+    _find_job_state_fs as find_job_state,
+)
 from ..output import (
     StatusColors,
     console,
@@ -47,9 +57,6 @@ from ..output import (
     format_timestamp,
     format_validation_status,
 )
-
-if TYPE_CHECKING:
-    from mozart.core.checkpoint import CheckpointState
 
 # Default circuit breaker failure threshold from CircuitBreakerConfig
 _DEFAULT_CB_THRESHOLD: int = 5  # Must match CircuitBreakerConfig.failure_threshold default
@@ -94,7 +101,8 @@ def status(
         None,
         "--workspace",
         "-w",
-        help="Workspace directory to search for job state",
+        help="Workspace directory to search for job state (debug override)",
+        hidden=True,
     ),
 ) -> None:
     """Show detailed status of a specific job.
@@ -160,8 +168,48 @@ async def _status_job(
     json_output: bool,
     workspace: Path | None,
 ) -> None:
-    """Asynchronously get and display status for a specific job."""
-    found_job, _ = await require_job_state(job_id, workspace, json_output=json_output)
+    """Asynchronously get and display status for a specific job.
+
+    Routes through the conductor by default. Falls back to direct filesystem
+    access only if --workspace is explicitly provided (debug override).
+    """
+    from mozart.daemon.detect import try_daemon_route
+
+    # Try conductor first (unless workspace override is given)
+    ws_str = str(workspace) if workspace else None
+
+    params = {"job_id": job_id, "workspace": ws_str}
+    try:
+        routed, result = await try_daemon_route("job.status", params)
+    except Exception:
+        # Business logic error from conductor (e.g., job not found).
+        # Treat as "job not found" from the conductor.
+        if json_output:
+            console.print(json.dumps({"error": f"Job not found: {job_id}"}, indent=2))
+        else:
+            console.print(f"[red]{ErrorMessages.JOB_NOT_FOUND}:[/red] {job_id}")
+        raise typer.Exit(1) from None
+
+    if routed and result:
+        # Reconstruct CheckpointState from conductor response
+        found_job = CheckpointState.model_validate(result)
+    elif routed and not result:
+        # Conductor returned None — shouldn't happen with current protocol,
+        # but handle gracefully.
+        if json_output:
+            console.print(json.dumps({"error": f"Job not found: {job_id}"}, indent=2))
+        else:
+            console.print(f"[red]{ErrorMessages.JOB_NOT_FOUND}:[/red] {job_id}")
+        raise typer.Exit(1)
+    else:
+        # Conductor not available — require it unless workspace is given
+        if workspace is None:
+            require_conductor(routed, json_output=json_output)
+            return  # unreachable, require_conductor raises
+        # Fallback to direct filesystem access with workspace override
+        found_job, _ = await require_job_state(
+            job_id, workspace, json_output=json_output,
+        )
 
     # Output as JSON if requested
     if json_output:
@@ -180,18 +228,40 @@ async def _status_job_watch(
 ) -> None:
     """Continuously monitor job status with live updates.
 
+    Routes through the conductor for each poll. Falls back to direct
+    filesystem access only if --workspace is explicitly provided.
+
     Args:
         job_id: Job ID to monitor.
         json_output: Output as JSON instead of rich formatting.
         interval: Refresh interval in seconds.
         workspace: Optional workspace directory to search.
     """
+    from mozart.daemon.detect import try_daemon_route
+
     console.print(f"[dim]Watching job [bold]{job_id}[/bold] (Ctrl+C to stop)[/dim]\n")
 
     try:
         while True:
-            # Find and load job state
-            found_job, _ = await find_job_state(job_id, workspace)
+            found_job: CheckpointState | None = None
+
+            # Try conductor first
+            ws_str = str(workspace) if workspace else None
+            params = {"job_id": job_id, "workspace": ws_str}
+            try:
+                routed, result = await try_daemon_route("job.status", params)
+            except Exception:
+                # Business logic error (e.g., job not found) — show not found
+                routed, result = True, None
+
+            if routed and result:
+                found_job = CheckpointState.model_validate(result)
+            elif not routed and workspace is not None:
+                # Fallback to filesystem with workspace override
+                found_job, _ = await find_job_state(job_id, workspace)
+            elif not routed:
+                require_conductor(routed, json_output=json_output)
+                return  # unreachable
 
             # Clear screen and show status
             console.clear()
@@ -202,10 +272,6 @@ async def _status_job_watch(
                     console.print(json.dumps({"error": err_msg}, indent=2))
                 else:
                     console.print(f"[red]{ErrorMessages.JOB_NOT_FOUND}:[/red] {job_id}")
-                    console.print(
-                        "\n[dim]Hint: Use --workspace to specify the directory "
-                        "containing the job state.[/dim]"
-                    )
             else:
                 if json_output:
                     _output_status_json(found_job)
@@ -248,8 +314,8 @@ async def _list_jobs(
     routed, result = await try_daemon_route("job.list", {})
     if not routed:
         console.print(
-            "[red]Error:[/red] Mozart daemon is not running.\n"
-            "Start it with: [bold]mozartd start[/bold]"
+            "[red]Error:[/red] Mozart conductor is not running.\n"
+            "Start it with: [bold]mozart start[/bold]"
         )
         raise typer.Exit(1)
 
@@ -295,13 +361,13 @@ async def _list_jobs(
             _format_daemon_timestamp(dj.get("submitted_at")),
         ))
 
-    widths = [len(h) for h in headers]
+    widths = [len(hdr) for hdr in headers]
     for row in rows:
         for i, val in enumerate(row):
             widths[i] = max(widths[i], len(val))
 
     gap = "   "
-    fmt = gap.join(f"{{:<{w}}}" for w in widths)
+    fmt = gap.join(f"{{:<{col_w}}}" for col_w in widths)
 
     # Header
     console.print(f"[bold]{fmt.format(*headers)}[/bold]", soft_wrap=True)
@@ -354,7 +420,7 @@ def _output_status_json(job: CheckpointState) -> None:
         })
 
     # Get last activity time
-    last_activity = _get_last_activity_time(job)
+    last_activity = get_last_activity_time(job)
 
     # Infer circuit breaker state
     cb_state = _infer_circuit_breaker_state(job)
@@ -582,7 +648,7 @@ def _render_hook_results(job: CheckpointState) -> None:
                   f"[red]Failed: {failed}[/red]")
 
     # Show details for failed hooks (most useful for diagnostics)
-    failed_hooks = [h for h in job.hook_results if not h.get("success", False)]
+    failed_hooks = [hr for hr in job.hook_results if not hr.get("success", False)]
     for hook in failed_hooks[-3:]:  # Last 3 failures
         hook_name = hook.get("hook_name", hook.get("name", "unknown"))
         event = hook.get("event", "?")
@@ -720,7 +786,7 @@ def _output_status_rich(job: CheckpointState) -> None:
     _render_recent_errors(job)
 
     # Last activity timestamp
-    last_activity = _get_last_activity_time(job)
+    last_activity = get_last_activity_time(job)
     if last_activity:
         console.print("\n[bold]Last Activity[/bold]")
         console.print(f"  {format_timestamp(last_activity)}")
@@ -787,33 +853,6 @@ def _collect_recent_errors(
     # Sort by timestamp (most recent first) and take limit
     all_errors.sort(key=lambda x: x[1].timestamp, reverse=True)
     return all_errors[:limit]
-
-
-def _get_last_activity_time(job: CheckpointState) -> datetime | None:
-    """Get the most recent activity timestamp from the job.
-
-    Checks sheet last_activity_at fields and updated_at.
-
-    Args:
-        job: CheckpointState to check.
-
-    Returns:
-        datetime of last activity, or None if not available.
-    """
-    candidates: list[datetime] = []
-
-    # Check updated_at
-    if job.updated_at:
-        candidates.append(job.updated_at)
-
-    # Check sheet-level last_activity_at
-    for sheet in job.sheets.values():
-        if sheet.last_activity_at:
-            candidates.append(sheet.last_activity_at)
-
-    if candidates:
-        return max(candidates)
-    return None
 
 
 def _infer_error_type(

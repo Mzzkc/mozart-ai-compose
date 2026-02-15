@@ -237,6 +237,10 @@ class JobRunnerBase:
         # Monotonic timestamp of last progress callback (for stale detection)
         self._last_progress_monotonic: float = 0.0
 
+        # Consecutive failure counters for swallowed errors (Q005/Q006)
+        self._record_execution_failures: int = 0
+        self._escalation_update_failures: int = 0
+
         # Structured logging (Task 8: Logging Integration)
         self._logger: MozartLogger = get_logger("runner")
         self._execution_context: ExecutionContext | None = None

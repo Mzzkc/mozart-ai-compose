@@ -202,24 +202,13 @@ class TestValidationAPI:
         assert response.status_code == 200
         data = response.json()
 
-        # Basic parsing should succeed
+        # YAML parsing should succeed but schema validation now catches
+        # invalid regex at construction time (TD-VR01 fix)
         assert data["yaml_syntax_valid"] is True
-        assert data["schema_valid"] is True
+        assert data["schema_valid"] is False
 
-        # Should have validation issues
-        assert len(data["issues"]) > 0
-
-        # Count issues by severity
-        error_count = data["counts"]["ERROR"]
-
-        # Should have validation issues (errors for missing file, invalid regex, etc.)
-        assert error_count >= 1  # At least missing template file error
-
-        # Config is invalid due to ERROR-level issues
+        # Config is invalid due to schema-level rejection of invalid regex
         assert data["valid"] is False
-
-        # Should still have config summary (schema was valid)
-        assert data["config_summary"] is not None
 
     def test_validate_issue_structure(self, client, config_with_validation_warnings):
         """Test that validation issues have correct structure."""
@@ -243,11 +232,11 @@ class TestValidationAPI:
         for field in required_fields:
             assert field in issue
 
-        # Check severity is valid (lowercase in response)
-        assert issue["severity"] in ["error", "warning", "info"]
+        # Check severity is valid (may be lowercase from V-codes or uppercase from SCHEMA)
+        assert issue["severity"].lower() in ["error", "warning", "info"]
 
-        # Check_id should follow Mozart pattern (e.g., V001)
-        assert issue["check_id"].startswith("V")
+        # Check_id should follow Mozart pattern (V001) or be SCHEMA for schema errors
+        assert issue["check_id"].startswith("V") or issue["check_id"] == "SCHEMA"
 
     def test_validate_with_workspace_path(self, client, valid_yaml_config):
         """Test validation with workspace path for relative file resolution."""

@@ -6,6 +6,7 @@ splitting the original 4615 LOC runner.py into focused modules:
     - models.py:     Data models (RunSummary, contexts, exceptions)
     - base.py:       Initialization, properties, signal handling
     - lifecycle.py:  run(), resume(), finalize_job()
+    - context.py:    Template context construction
     - sheet.py:      Sheet execution state machine
     - patterns.py:   Pattern query and feedback
     - recovery.py:   Error recovery, rate limits, self-healing
@@ -17,13 +18,14 @@ Architecture:
     super() calls. The mixin order matters for Python's MRO:
 
     class JobRunner(
-        SheetExecutionMixin,  # Highest level: sheet execution orchestration
-        LifecycleMixin,       # Job run lifecycle
-        RecoveryMixin,        # Error recovery (used by sheet)
-        PatternsMixin,        # Pattern management (used by sheet)
-        CostMixin,            # Cost tracking (used by sheet)
-        IsolationMixin,       # Worktree isolation (used by lifecycle)
-        JobRunnerBase,        # Base initialization (last = first in MRO)
+        SheetExecutionMixin,      # Highest level: sheet execution orchestration
+        ContextBuildingMixin,     # Template context construction
+        LifecycleMixin,           # Job run lifecycle
+        RecoveryMixin,            # Error recovery (used by sheet)
+        PatternsMixin,            # Pattern management (used by sheet)
+        CostMixin,                # Cost tracking (used by sheet)
+        IsolationMixin,           # Worktree isolation (used by lifecycle)
+        JobRunnerBase,            # Base initialization (last = first in MRO)
     ): pass
 
     With this order, JobRunnerBase.__init__ runs first (it's last in the
@@ -41,6 +43,7 @@ from __future__ import annotations
 
 # Import mixins from modular submodules
 from mozart.execution.runner.base import JobRunnerBase
+from mozart.execution.runner.context import ContextBuildingMixin
 from mozart.execution.runner.cost import CostMixin
 from mozart.execution.runner.isolation import IsolationMixin
 from mozart.execution.runner.lifecycle import LifecycleMixin
@@ -58,13 +61,14 @@ from mozart.execution.runner.sheet import SheetExecutionMixin
 
 
 class JobRunner(
-    SheetExecutionMixin,  # Sheet execution orchestration
-    LifecycleMixin,       # Job run lifecycle (run, resume)
-    RecoveryMixin,        # Error recovery and rate limits
-    PatternsMixin,        # Pattern query and feedback
-    CostMixin,            # Token tracking and cost limits
-    IsolationMixin,       # Git worktree isolation
-    JobRunnerBase,        # Base initialization (last = first in MRO)
+    SheetExecutionMixin,      # Sheet execution orchestration
+    ContextBuildingMixin,     # Template context construction
+    LifecycleMixin,           # Job run lifecycle (run, resume)
+    RecoveryMixin,            # Error recovery and rate limits
+    PatternsMixin,            # Pattern query and feedback
+    CostMixin,                # Token tracking and cost limits
+    IsolationMixin,           # Git worktree isolation
+    JobRunnerBase,            # Base initialization (last = first in MRO)
 ):
     """Orchestrates sheet execution with validation and recovery.
 
@@ -119,6 +123,7 @@ __all__ = [
     "GracefulShutdownError",
     # Mixins (for advanced composition or testing)
     "JobRunnerBase",
+    "ContextBuildingMixin",
     "LifecycleMixin",
     "SheetExecutionMixin",
     "RecoveryMixin",

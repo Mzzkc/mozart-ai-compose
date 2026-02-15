@@ -181,7 +181,7 @@
     {% endif %}
 
     <!-- Quality Metrics -->
-    {% if confidence_score or outcome_category or first_attempt_success is not none %}
+    {% if confidence_score or outcome_category or success_without_retry is not none %}
     <div class="mb-6">
         <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-3">Quality Metrics</h4>
         <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
@@ -197,11 +197,11 @@
                 <dd class="font-medium text-gray-900 dark:text-white capitalize">{{ outcome_category.replace('_', ' ') }}</dd>
             </div>
             {% endif %}
-            {% if first_attempt_success is not none %}
+            {% if success_without_retry is not none %}
             <div>
                 <dt class="text-gray-500 dark:text-gray-400">First Attempt</dt>
                 <dd class="font-medium text-gray-900 dark:text-white">
-                    {% if first_attempt_success %}
+                    {% if success_without_retry %}
                         <span class="text-green-600 dark:text-green-400">Success</span>
                     {% else %}
                         <span class="text-orange-600 dark:text-orange-400">Retry Needed</span>

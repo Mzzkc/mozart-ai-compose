@@ -1,4 +1,4 @@
-"""Mozart daemon service — long-running orchestration (mozartd)."""
+"""Mozart daemon service — long-running orchestration conductor."""
 
 from mozart.daemon.backpressure import BackpressureController, PressureLevel
 from mozart.daemon.config import DaemonConfig

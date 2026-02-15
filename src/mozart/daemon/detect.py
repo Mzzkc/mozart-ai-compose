@@ -1,12 +1,12 @@
-"""Daemon detection and CLI routing — safe fallback to direct execution.
+"""Conductor detection and CLI routing — safe fallback to direct execution.
 
-This module is used by CLI commands to auto-detect a running mozartd
-daemon and route operations through it. When no daemon is detected,
+This module is used by CLI commands to auto-detect a running Mozart
+conductor and route operations through it. When no conductor is detected,
 the caller falls back to direct execution (existing behavior).
 
 SAFETY: Every public function catches ALL exceptions and returns a
-"not routed" result. This ensures that daemon bugs never break the CLI.
-The CLI wiring (Phase 4) wraps calls in try/except as a second layer.
+"not routed" result. This ensures that conductor bugs never break the CLI.
+The CLI wiring wraps calls in try/except as a second layer.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ def _resolve_socket_path(socket_path: Path | None) -> Path:
 
 
 async def is_daemon_available(socket_path: Path | None = None) -> bool:
-    """Check if mozartd is running. Safe: returns False on any error."""
+    """Check if the Mozart conductor is running. Safe: returns False on any error."""
     try:
         from mozart.daemon.ipc.client import DaemonClient
 
@@ -37,7 +37,7 @@ async def is_daemon_available(socket_path: Path | None = None) -> bool:
         client = DaemonClient(resolved)
         return await client.is_daemon_running()
     except (OSError, ConnectionError) as e:
-        # Connection/socket errors — daemon not reachable.
+        # Connection/socket errors — conductor not reachable.
         resolved = _resolve_socket_path(socket_path)
         level = "info" if resolved.exists() else "debug"
         getattr(_logger, level)("daemon_detection_failed", error=str(e))
@@ -46,7 +46,12 @@ async def is_daemon_available(socket_path: Path | None = None) -> bool:
         _logger.debug("daemon_detection_import_error")
         return False
     except Exception as e:
-        _logger.warning("daemon_detection_unexpected", error=str(e), exc_info=True)
+        from mozart.daemon.exceptions import DaemonError
+
+        if isinstance(e, DaemonError):
+            _logger.debug("daemon_detection_failed", error=str(e))
+        else:
+            _logger.warning("daemon_detection_unexpected", error=str(e), exc_info=True)
         return False
 
 
@@ -56,13 +61,18 @@ async def try_daemon_route(
     *,
     socket_path: Path | None = None,
 ) -> tuple[bool, Any]:
-    """Try routing a CLI command through the daemon.
+    """Try routing a CLI command through the conductor.
 
     Returns:
-        (True, result) if daemon handled the request.
-        (False, None) if daemon is not running or any error occurred.
+        (True, result) if conductor handled the request.
+        (False, None) if conductor is not running or a connection error occurred.
 
-    This function NEVER raises — any exception returns (False, None).
+    Raises:
+        JobSubmissionError, ResourceExhaustedError: Business logic errors from
+            a running conductor are re-raised so callers can handle them
+            (e.g., "job not found" is different from "daemon not running").
+
+    Connection-level errors never raise — they return (False, None).
     """
     try:
         from mozart.daemon.ipc.client import DaemonClient
@@ -76,6 +86,22 @@ async def try_daemon_route(
         _logger.debug("daemon_route_failed", method=method, error=str(e))
         return False, None
     except Exception as e:
+        from mozart.daemon.exceptions import JobSubmissionError, ResourceExhaustedError
+
+        if isinstance(e, (JobSubmissionError, ResourceExhaustedError)):
+            # Business logic errors from a *running* conductor — re-raise so
+            # callers can distinguish "daemon unavailable" from "daemon rejected
+            # the request" (e.g., "job not found" vs "conductor not running").
+            raise
+
+        from mozart.daemon.exceptions import DaemonError
+
+        if isinstance(e, DaemonError):
+            # All other daemon errors (not running, already running, unknown
+            # method, protocol errors) — treat as "daemon not reachable".
+            _logger.debug("daemon_route_failed", method=method, error=str(e))
+            return False, None
+
         _logger.warning(
             "daemon_route_unexpected_error",
             method=method,

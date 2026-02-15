@@ -1022,6 +1022,12 @@ class TestRunnerEscalationOutcomeIntegration:
         runner = MagicMock(spec=JobRunner)
         runner._global_learning_store = mock_store
         runner._logger = MagicMock()
+        runner._escalation_update_failures = 0
+        runner._CONSECUTIVE_FAILURE_ERROR_THRESHOLD = 3
+        # Bind the real helper so counter increment and log selection work
+        runner._log_swallowed_error = (
+            lambda *a, **kw: JobRunner._log_swallowed_error(runner, *a, **kw)
+        )
 
         sheet_state = SheetState(
             sheet_num=1,
@@ -1031,10 +1037,12 @@ class TestRunnerEscalationOutcomeIntegration:
 
         JobRunner._update_escalation_outcome(runner, sheet_state, "success", 1)
 
-        # Verify warning was logged
+        # Verify warning was logged (first failure uses warning, not error)
         runner._logger.warning.assert_called_once()
         call_args = runner._logger.warning.call_args
         assert call_args[0][0] == "escalation.outcome_update_failed"
+        # Verify consecutive failure counter was incremented
+        assert runner._escalation_update_failures == 1
 
     def test_update_escalation_outcome_success_after_retry(
         self, global_store: GlobalLearningStore

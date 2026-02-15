@@ -137,12 +137,20 @@ class AnthropicApiBackend(Backend):
 
         Args:
             prompt: The prompt to send to Claude
-            timeout_seconds: Per-call timeout override (not currently used by API backend,
-                which uses its own HTTP timeout).
+            timeout_seconds: Per-call timeout override. API backend uses its
+                own HTTP timeout from ``__init__``; per-call override is
+                logged but not enforced.
 
         Returns:
             ExecutionResult with API response and metadata
         """
+        if timeout_seconds is not None:
+            _logger.debug(
+                "timeout_override_ignored",
+                backend="anthropic_api",
+                requested=timeout_seconds,
+                actual=self.timeout_seconds,
+            )
         start_time = time.monotonic()
 
         # Log API request at DEBUG level (never log prompt content or API keys)

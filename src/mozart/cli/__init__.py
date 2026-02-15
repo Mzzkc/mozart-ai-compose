@@ -47,6 +47,8 @@ import typer
 
 from mozart import __version__
 
+# Re-export helpers module for direct access to internal state (conftest.py needs this)
+from . import helpers as helpers
 from .commands import (
     # diagnose.py
     diagnose,
@@ -68,6 +70,12 @@ from .commands import (
     # validate.py
     validate,
 )
+from .commands.conductor import (
+    conductor_status,
+    restart,
+    start,
+    stop,
+)
 from .commands.config_cmd import config_app
 from .commands.dashboard import dashboard, mcp
 from .commands.learning import (
@@ -84,28 +92,17 @@ from .commands.learning import (
 )
 from .commands.status import _output_status_rich
 
-# Import helper functions for re-export with backward-compatible names
+# Import helper functions for re-export
 from .helpers import (
     OutputLevel,
     configure_global_logging,
     create_notifiers_from_config,
-    create_pause_signal,
-    find_job_workspace,
     set_log_file,
     set_log_format,
     set_log_level,
     set_output_level,
-    wait_for_pause_ack,
 )
 from .output import console
-
-# Backward-compatible aliases (tests use underscore-prefixed names)
-_find_job_workspace = find_job_workspace
-_create_pause_signal = create_pause_signal
-_wait_for_pause_ack = wait_for_pause_ack
-
-# Re-export helpers module for direct access to internal state (conftest.py needs this)
-from . import helpers as helpers
 
 # =============================================================================
 # Typer app definition
@@ -251,6 +248,12 @@ app.command()(history)
 app.command()(dashboard)
 app.command()(mcp)
 
+# Conductor lifecycle commands
+app.command()(start)
+app.command()(stop)
+app.command()(restart)
+app.command(name="conductor-status")(conductor_status)
+
 # Daemon configuration
 app.add_typer(config_app)
 
@@ -287,12 +290,5 @@ __all__ = [
     "OutputLevel",
     # Helper functions (used by tests)
     "create_notifiers_from_config",
-    "create_pause_signal",
-    "find_job_workspace",
-    "wait_for_pause_ack",
     "_output_status_rich",
-    # Backward-compatible aliases
-    "_find_job_workspace",
-    "_create_pause_signal",
-    "_wait_for_pause_ack",
 ]

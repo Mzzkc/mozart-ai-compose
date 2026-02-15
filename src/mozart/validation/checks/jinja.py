@@ -236,11 +236,13 @@ class JinjaUndefinedVariableCheck:
                     )
                     issues.extend(var_issues)
                 except Exception as exc:
-                    _logger.debug(
-                        "template_file_read_failed",
-                        path=str(template_path),
-                        error=str(exc),
-                    )
+                    issues.append(ValidationIssue(
+                        check_id="V101",
+                        severity=ValidationSeverity.WARNING,
+                        message=f"Cannot read template file '{template_path.name}' "
+                                f"for undefined variable check: {exc}",
+                        suggestion="Ensure the template file is readable.",
+                    ))
 
         return issues
 

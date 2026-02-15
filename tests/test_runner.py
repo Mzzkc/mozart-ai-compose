@@ -678,20 +678,20 @@ class TestRunSummary:
         # No validations = 100% pass
         assert summary.validation_pass_rate == 100.0
 
-    def test_first_attempt_rate_calculation(self) -> None:
-        """Test first attempt success rate calculation."""
+    def test_success_without_retry_rate_calculation(self) -> None:
+        """Test success without retry rate calculation."""
         summary = RunSummary(
             job_id="test-job",
             job_name="Test Job",
             total_sheets=10,
             completed_sheets=8,
-            first_attempt_successes=6,
+            successes_without_retry=6,
         )
 
-        assert summary.first_attempt_rate == 75.0
+        assert summary.success_without_retry_rate == 75.0
 
-    def test_first_attempt_rate_no_completions(self) -> None:
-        """Test first attempt rate with no completed sheets returns 0."""
+    def test_success_without_retry_rate_no_completions(self) -> None:
+        """Test success without retry rate with no completed sheets returns 0."""
         summary = RunSummary(
             job_id="test-job",
             job_name="Test Job",
@@ -699,7 +699,7 @@ class TestRunSummary:
             completed_sheets=0,
         )
 
-        assert summary.first_attempt_rate == 0.0
+        assert summary.success_without_retry_rate == 0.0
 
     def test_to_dict_structure(self) -> None:
         """Test to_dict returns correct structure."""
@@ -716,7 +716,7 @@ class TestRunSummary:
             rate_limit_waits=1,
             validation_pass_count=8,
             validation_fail_count=0,
-            first_attempt_successes=6,
+            successes_without_retry=6,
             final_status=JobStatus.COMPLETED,
         )
 
@@ -741,8 +741,8 @@ class TestRunSummary:
         assert result["execution"]["total_retries"] == 3
         assert result["execution"]["completion_attempts"] == 2
         assert result["execution"]["rate_limit_waits"] == 1
-        assert result["execution"]["first_attempt_successes"] == 6
-        assert result["execution"]["first_attempt_rate"] == 75.0
+        assert result["execution"]["successes_without_retry"] == 6
+        assert result["execution"]["success_without_retry_rate"] == 75.0
 
     def test_format_duration_seconds(self) -> None:
         """Test duration formatting for seconds."""
@@ -806,12 +806,12 @@ class TestRunnerReturnsRunSummary:
             state_backend=mock_state_backend,
         )
 
-        # Mock sheet execution to succeed with first_attempt_success
+        # Mock sheet execution to succeed with success_without_retry
         with patch.object(runner, "_execute_sheet_with_recovery") as mock_exec:
             async def complete_sheet(state: CheckpointState, sheet_num: int) -> None:
                 state.mark_sheet_started(sheet_num)
                 sheet_state = state.sheets[sheet_num]
-                sheet_state.first_attempt_success = True
+                sheet_state.success_without_retry = True
                 state.mark_sheet_completed(sheet_num, validation_passed=True)
 
             mock_exec.side_effect = complete_sheet

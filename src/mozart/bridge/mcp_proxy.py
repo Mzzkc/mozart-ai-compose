@@ -185,8 +185,14 @@ class MCPProxyService:
                     error=str(e),
                 )
                 failed_servers.append(config.name)
-                # Remove partially-initialized connection
-                self._connections.pop(config.name, None)
+                # Terminate orphaned subprocess before removing connection
+                partial_conn = self._connections.pop(config.name, None)
+                if partial_conn is not None and partial_conn.process.returncode is None:
+                    try:
+                        partial_conn.process.kill()
+                        await partial_conn.process.wait()
+                    except (ProcessLookupError, OSError):
+                        pass
                 # Continue with other servers - don't fail entirely
 
         if failed_servers:

@@ -37,7 +37,7 @@ def sample_successful_outcome() -> SheetOutcome:
         completion_mode_used=False,
         final_status=SheetStatus.COMPLETED,
         validation_pass_rate=1.0,
-        first_attempt_success=True,
+        success_without_retry=True,
     )
 
 
@@ -56,7 +56,7 @@ def sample_failed_outcome() -> SheetOutcome:
         completion_mode_used=True,
         final_status=SheetStatus.FAILED,
         validation_pass_rate=0.5,
-        first_attempt_success=False,
+        success_without_retry=False,
     )
 
 
@@ -74,7 +74,7 @@ def sample_retry_success_outcome() -> SheetOutcome:
         completion_mode_used=False,
         final_status=SheetStatus.COMPLETED,
         validation_pass_rate=1.0,
-        first_attempt_success=False,
+        success_without_retry=False,
     )
 
 
@@ -102,7 +102,7 @@ def multiple_outcomes(
                 completion_mode_used=False,
                 final_status=SheetStatus.FAILED,
                 validation_pass_rate=0.0,
-                first_attempt_success=False,
+                success_without_retry=False,
             )
         )
 
@@ -120,7 +120,7 @@ def multiple_outcomes(
                 completion_mode_used=False,
                 final_status=SheetStatus.COMPLETED,
                 validation_pass_rate=1.0,
-                first_attempt_success=True,
+                success_without_retry=True,
             )
         )
 
@@ -166,7 +166,7 @@ class TestPatternDetector:
                 completion_mode_used=False,
                 final_status=SheetStatus.COMPLETED,
                 validation_pass_rate=1.0,
-                first_attempt_success=False,
+                success_without_retry=False,
             )
         ]
 
@@ -196,7 +196,7 @@ class TestPatternDetector:
         patterns = detector.detect_all()
 
         success_patterns = [
-            p for p in patterns if p.pattern_type == PatternType.FIRST_ATTEMPT_SUCCESS
+            p for p in patterns if p.pattern_type == PatternType.SUCCESS_WITHOUT_RETRY
         ]
         # Should detect first-attempt success pattern (5 successes)
         assert len(success_patterns) >= 1
@@ -213,7 +213,7 @@ class TestPatternDetector:
                 completion_mode_used=True,
                 final_status=SheetStatus.COMPLETED,
                 validation_pass_rate=1.0,
-                first_attempt_success=False,
+                success_without_retry=False,
             )
             for i in range(3)
         ]
@@ -241,7 +241,7 @@ class TestPatternDetector:
                 completion_mode_used=False,
                 final_status=SheetStatus.COMPLETED,
                 validation_pass_rate=1.0,
-                first_attempt_success=True,
+                success_without_retry=True,
             )
             for i in range(3)
         ]
@@ -285,7 +285,7 @@ class TestPatternMatcher:
                 confidence=0.6,
             ),
             DetectedPattern(
-                pattern_type=PatternType.FIRST_ATTEMPT_SUCCESS,
+                pattern_type=PatternType.SUCCESS_WITHOUT_RETRY,
                 description="First-attempt success rate: 70%",
                 frequency=7,
                 success_rate=0.7,
@@ -423,7 +423,7 @@ class TestPatternApplicator:
                 success_rate=0.9,
             ),
             DetectedPattern(
-                pattern_type=PatternType.FIRST_ATTEMPT_SUCCESS,
+                pattern_type=PatternType.SUCCESS_WITHOUT_RETRY,
                 description="Test success pattern",
                 frequency=5,
             ),
@@ -475,10 +475,10 @@ class TestDetectedPattern:
         assert "Tip" in guidance
         assert "85%" in guidance
 
-    def test_to_prompt_guidance_first_attempt_success(self) -> None:
+    def test_to_prompt_guidance_success_without_retry(self) -> None:
         """Test prompt guidance for first-attempt success pattern."""
         pattern = DetectedPattern(
-            pattern_type=PatternType.FIRST_ATTEMPT_SUCCESS,
+            pattern_type=PatternType.SUCCESS_WITHOUT_RETRY,
             description="Following spec exactly works",
             frequency=10,
         )
@@ -543,7 +543,7 @@ class TestSemanticPatterns:
                 completion_mode_used=False,
                 final_status=SheetStatus.FAILED,
                 validation_pass_rate=0.0,
-                first_attempt_success=False,
+                success_without_retry=False,
             )
             for i in range(3)
         ]
@@ -586,7 +586,7 @@ class TestSemanticPatterns:
                 completion_mode_used=False,
                 final_status=SheetStatus.FAILED,
                 validation_pass_rate=0.0,
-                first_attempt_success=False,
+                success_without_retry=False,
             )
             for i in range(3)
         ]
@@ -628,7 +628,7 @@ class TestSemanticPatterns:
                 completion_mode_used=False,
                 final_status=SheetStatus.FAILED,
                 validation_pass_rate=0.0,
-                first_attempt_success=False,
+                success_without_retry=False,
             )
             for i in range(4)  # Need >= 3 to trigger pattern
         ]
@@ -659,7 +659,7 @@ class TestSemanticPatterns:
             completion_mode_used=False,
             final_status=SheetStatus.COMPLETED,
             validation_pass_rate=1.0,
-            first_attempt_success=True,
+            success_without_retry=True,
             failure_category_counts={"missing": 2, "stale": 1},
             semantic_patterns=["file not created", "content empty"],
             fix_suggestions=["Add proper import", "Create directory first"],
@@ -743,7 +743,7 @@ class TestSemanticPatterns:
                 completion_mode_used=False,
                 final_status=SheetStatus.FAILED,
                 validation_pass_rate=0.0,
-                first_attempt_success=False,
+                success_without_retry=False,
                 failure_category_counts={"stale": 3},
                 semantic_patterns=["file not modified"],
             ),
@@ -756,7 +756,7 @@ class TestSemanticPatterns:
                 completion_mode_used=False,
                 final_status=SheetStatus.FAILED,
                 validation_pass_rate=0.0,
-                first_attempt_success=False,
+                success_without_retry=False,
                 failure_category_counts={"stale": 2},
                 semantic_patterns=["file not modified"],
             ),
@@ -864,7 +864,7 @@ class TestPatternEffectiveness:
                 completion_mode_used=False,
                 final_status=SheetStatus.COMPLETED,
                 validation_pass_rate=0.0,
-                first_attempt_success=True,
+                success_without_retry=True,
                 patterns_applied=[pattern_desc],
             ),
             # Outcome 2: pattern applied, succeeded
@@ -879,7 +879,7 @@ class TestPatternEffectiveness:
                 completion_mode_used=False,
                 final_status=SheetStatus.COMPLETED,
                 validation_pass_rate=0.0,
-                first_attempt_success=True,
+                success_without_retry=True,
                 patterns_applied=[pattern_desc],
             ),
             # Outcome 3: pattern applied, failed
@@ -894,7 +894,7 @@ class TestPatternEffectiveness:
                 completion_mode_used=False,
                 final_status=SheetStatus.FAILED,
                 validation_pass_rate=0.0,
-                first_attempt_success=False,
+                success_without_retry=False,
                 patterns_applied=[pattern_desc],
             ),
             # Outcome 4: pattern applied, succeeded
@@ -909,7 +909,7 @@ class TestPatternEffectiveness:
                 completion_mode_used=False,
                 final_status=SheetStatus.COMPLETED,
                 validation_pass_rate=0.0,
-                first_attempt_success=True,
+                success_without_retry=True,
                 patterns_applied=[pattern_desc],
             ),
         ]
@@ -973,7 +973,7 @@ class TestPatternEffectiveness:
             completion_mode_used=False,
             final_status=SheetStatus.COMPLETED,
             validation_pass_rate=1.0,
-            first_attempt_success=True,
+            success_without_retry=True,
             patterns_applied=[
                 "⚠️ Common issue: test pattern (seen 3x)",
                 "✓ Tip: another pattern (works 80% of the time)",

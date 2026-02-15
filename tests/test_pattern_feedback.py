@@ -73,7 +73,7 @@ class TestSheetStatePatternFields:
         data = {
             "sheet_num": 1,
             "status": "completed",
-            "first_attempt_success": True,
+            "success_without_retry": True,
             # No applied_pattern_ids or applied_pattern_descriptions
         }
 
@@ -110,10 +110,10 @@ class TestPatternFeedbackRecording:
     async def test_pattern_led_to_success_logic_success_first_attempt(self):
         """Test pattern_led_to_success is True when validation passed AND first attempt."""
         validation_passed = True
-        first_attempt_success = True
+        success_without_retry = True
 
-        # From the code: pattern_led_to_success = validation_passed and first_attempt_success
-        pattern_led_to_success = validation_passed and first_attempt_success
+        # From the code: pattern_led_to_success = validation_passed and success_without_retry
+        pattern_led_to_success = validation_passed and success_without_retry
 
         assert pattern_led_to_success is True
 
@@ -121,9 +121,9 @@ class TestPatternFeedbackRecording:
     async def test_pattern_led_to_success_logic_success_with_retry(self):
         """Test pattern_led_to_success is False when validation passed but not first attempt."""
         validation_passed = True
-        first_attempt_success = False
+        success_without_retry = False
 
-        pattern_led_to_success = validation_passed and first_attempt_success
+        pattern_led_to_success = validation_passed and success_without_retry
 
         assert pattern_led_to_success is False
 
@@ -131,9 +131,9 @@ class TestPatternFeedbackRecording:
     async def test_pattern_led_to_success_logic_failure(self):
         """Test pattern_led_to_success is False when validation failed."""
         validation_passed = False
-        first_attempt_success = False
+        success_without_retry = False
 
-        pattern_led_to_success = validation_passed and first_attempt_success
+        pattern_led_to_success = validation_passed and success_without_retry
 
         assert pattern_led_to_success is False
 
@@ -169,14 +169,14 @@ class TestPatternFeedbackIntegration:
         pattern_id = "test-pattern-id"
         sheet_num = 5
         pattern_led_to_success = True
-        first_attempt_success = True
+        success_without_retry = True
 
         mock_global_store.record_pattern_application(
             pattern_id=pattern_id,
             execution_id=f"sheet_{sheet_num}",
             pattern_led_to_success=pattern_led_to_success,
             retry_count_before=0,
-            retry_count_after=0 if first_attempt_success else 1,
+            retry_count_after=0 if success_without_retry else 1,
         )
 
         mock_global_store.record_pattern_application.assert_called_once_with(
@@ -228,7 +228,7 @@ class TestSheetOutcomePatternFields:
             completion_mode_used=False,
             final_status=SheetStatus.COMPLETED,
             validation_pass_rate=100.0,
-            first_attempt_success=True,
+            success_without_retry=True,
             patterns_applied=["Pattern: Check file", "Pattern: Validate format"],
         )
 
@@ -247,7 +247,7 @@ class TestSheetOutcomePatternFields:
             completion_mode_used=False,
             final_status=SheetStatus.COMPLETED,
             validation_pass_rate=100.0,
-            first_attempt_success=True,
+            success_without_retry=True,
         )
 
         assert outcome.patterns_applied == []
@@ -270,7 +270,7 @@ class TestAggregatorPatternTracking:
             completion_mode_used=False,
             final_status=SheetStatus.COMPLETED,
             validation_pass_rate=100.0,
-            first_attempt_success=True,
+            success_without_retry=True,
             patterns_applied=["Pattern A", "Pattern B"],
         )
 
@@ -288,7 +288,7 @@ class TestPatternFeedbackEndToEnd:
         state = SheetState(
             sheet_num=1,
             status=SheetStatus.COMPLETED,
-            first_attempt_success=True,
+            success_without_retry=True,
             outcome_category="success_first_try",
             applied_pattern_ids=["uuid-pattern-1", "uuid-pattern-2"],
             applied_pattern_descriptions=[
@@ -314,12 +314,12 @@ class TestPatternFeedbackEndToEnd:
             completion_mode_used=False,
             final_status=state.status,
             validation_pass_rate=100.0,
-            first_attempt_success=state.first_attempt_success,
+            success_without_retry=state.success_without_retry,
             patterns_applied=state.applied_pattern_descriptions,
         )
 
         # Verify the data flow
-        assert outcome.first_attempt_success is True
+        assert outcome.success_without_retry is True
         assert len(outcome.patterns_applied) == 2
         assert "file_exists validation" in outcome.patterns_applied[0]
 

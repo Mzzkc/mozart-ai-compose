@@ -1,47 +1,47 @@
-# Daemon Guide
+# Conductor Guide
 
-Mozart uses a daemon process (`mozartd`) to manage job execution, similar to how Docker requires `dockerd`. The daemon centralizes resource management, maintains a persistent job registry, and provides health monitoring with backpressure.
+Mozart uses a conductor process to manage job execution, similar to how Docker requires `dockerd`. The conductor centralizes resource management, maintains a persistent job registry, and provides health monitoring with backpressure.
 
-## Why a Daemon?
+## Why a Conductor?
 
-Running jobs through a long-lived daemon process provides several advantages over direct CLI execution:
+Running jobs through a long-lived conductor process provides several advantages over direct CLI execution:
 
-- **Centralized resource management.** The daemon monitors memory and child process counts, applying backpressure when the system is under load. Jobs submitted during high pressure are rejected rather than allowed to destabilize the system.
-- **Persistent job registry.** A SQLite-backed registry tracks all submitted jobs across daemon restarts. Jobs left running when a daemon crashes are automatically marked as failed on the next startup.
+- **Centralized resource management.** The conductor monitors memory and child process counts, applying backpressure when the system is under load. Jobs submitted during high pressure are rejected rather than allowed to destabilize the system.
+- **Persistent job registry.** A SQLite-backed registry tracks all submitted jobs across conductor restarts. Jobs left running when a conductor crashes are automatically marked as failed on the next startup.
 - **Cross-job learning.** A single `GlobalLearningStore` instance is shared across all concurrent jobs. Pattern discoveries in one job are immediately available to others — no cross-process SQLite locking contention.
-- **Health monitoring.** Liveness and readiness probes are available over the IPC socket, enabling external monitoring tools to check daemon health.
+- **Health monitoring.** Liveness and readiness probes are available over the IPC socket, enabling external monitoring tools to check conductor health.
 
 ## Quick Start
 
 ```bash
-# 1. Start the daemon
-mozartd start --foreground    # Foreground (logs to console)
-mozartd start                 # Background (double-fork, logs to file)
+# 1. Start the conductor
+mozart start --foreground    # Foreground (logs to console)
+mozart start                 # Background (double-fork, logs to file)
 
-# 2. Run a job (routed through daemon)
+# 2. Run a job (routed through conductor)
 mozart run my-score.yaml
 
-# 3. Check daemon status
-mozartd status
+# 3. Check conductor status
+mozart conductor-status
 
-# 4. Stop the daemon
-mozartd stop
+# 4. Stop the conductor
+mozart stop
 ```
 
-## The Daemon Requirement
+## The Conductor Requirement
 
-`mozart run` **requires a running daemon**. If no daemon is detected, the command exits with an error:
+`mozart run` **requires a running conductor**. If no conductor is detected, the command exits with an error:
 
 ```
-Error: Mozart daemon is not running.
-Start it with: mozartd start
+Error: Mozart conductor is not running.
+Start it with: mozart start
 ```
 
-**Exceptions that work without a daemon:**
+**Exceptions that work without a conductor:**
 
-| Command | Daemon Required? | Why |
+| Command | Conductor Required? | Why |
 |---------|-----------------|-----|
-| `mozart run config.yaml` | Yes | Job execution goes through daemon |
+| `mozart run config.yaml` | Yes | Job execution goes through conductor |
 | `mozart run --dry-run config.yaml` | No | Only validates and displays the job plan |
 | `mozart validate config.yaml` | No | Static config validation, no execution |
 
@@ -50,16 +50,16 @@ Start it with: mozartd start
 When `mozart run` is invoked:
 
 1. The CLI calls `is_daemon_available()` from `mozart.daemon.detect`
-2. This resolves the socket path (default: `/tmp/mozartd.sock`)
+2. This resolves the socket path (default: `/tmp/mozart.sock`)
 3. A `DaemonClient` attempts to open a Unix socket connection
 4. If the connection succeeds, the job is submitted via JSON-RPC
-5. If the connection fails (socket missing, refused, timeout), the CLI reports the daemon is not running
+5. If the connection fails (socket missing, refused, timeout), the CLI reports the conductor is not running
 
-The detection is **fail-safe**: any exception during detection returns `False`, ensuring daemon bugs never break the CLI. The CLI simply falls through to the "daemon not running" error message.
+The detection is **fail-safe**: any exception during detection returns `False`, ensuring conductor bugs never break the CLI. The CLI simply falls through to the "conductor not running" error message.
 
 ## Architecture
 
-The daemon is composed of several layers:
+The conductor is composed of several layers:
 
 ```
 ┌──────────────────────────────────────────────────┐
@@ -90,11 +90,11 @@ The daemon is composed of several layers:
 - **DaemonServer** — Listens on a Unix domain socket. Each client connection is handled as an asyncio task. Messages are newline-delimited JSON (NDJSON), each containing a JSON-RPC 2.0 request or response.
 - **JobManager** — Tracks jobs as `asyncio.Task` instances. Uses a `Semaphore` to enforce the `max_concurrent_jobs` limit. Jobs exceeding `job_timeout_seconds` are cancelled.
 - **JobService** — Decoupled execution engine (no CLI dependencies). Handles the full run/resume/pause/status lifecycle for individual jobs.
-- **JobRegistry** — SQLite-backed persistent storage. Survives daemon restarts. On startup, orphaned jobs (status `queued` or `running` from a previous daemon) are marked as `failed`.
+- **JobRegistry** — SQLite-backed persistent storage. Survives conductor restarts. On startup, orphaned jobs (status `queued` or `running` from a previous conductor) are marked as `failed`.
 
 ### IPC Protocol
 
-The daemon uses **JSON-RPC 2.0** over a **Unix domain socket** with newline-delimited JSON framing:
+The conductor uses **JSON-RPC 2.0** over a **Unix domain socket** with newline-delimited JSON framing:
 
 ```json
 {"jsonrpc":"2.0","method":"job.submit","params":{"config_path":"/path/to/config.yaml"},"id":1}
@@ -110,8 +110,12 @@ Registered RPC methods:
 | `job.resume` | Resume a paused job |
 | `job.cancel` | Cancel a running job |
 | `job.list` | List all known jobs |
-| `daemon.status` | Get daemon status summary (PID, uptime, memory, version) |
-| `daemon.shutdown` | Initiate daemon shutdown |
+| `job.diagnose` | Get diagnostic report for a job |
+| `job.errors` | Get error details for a job |
+| `job.history` | Get execution history for a job |
+| `job.recover` | Recover failed sheets for a job |
+| `daemon.status` | Get conductor status summary (PID, uptime, memory, version) |
+| `daemon.shutdown` | Initiate conductor shutdown |
 | `daemon.health` | Liveness probe |
 | `daemon.ready` | Readiness probe |
 
@@ -131,16 +135,16 @@ When `should_accept_job()` returns `False` (HIGH or CRITICAL pressure), the JobM
 
 ## Configuration
 
-The daemon is configured via a YAML file passed to `mozartd start --config <path>`. Without a config file, all defaults are used.
+The conductor is configured via a YAML file passed to `mozart start --config <path>`. Without a config file, all defaults are used.
 
 ### DaemonConfig Fields
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `socket.path` | `Path` | `/tmp/mozartd.sock` | Unix domain socket path |
+| `socket.path` | `Path` | `/tmp/mozart.sock` | Unix domain socket path |
 | `socket.permissions` | `int` | `0o660` | Socket file permissions (octal) |
 | `socket.backlog` | `int` | `5` | Max pending connections |
-| `pid_file` | `Path` | `/tmp/mozartd.pid` | PID file path |
+| `pid_file` | `Path` | `/tmp/mozart.pid` | PID file path |
 | `max_concurrent_jobs` | `int` | `5` | Max simultaneous jobs (1–50) |
 | `job_timeout_seconds` | `float` | `21600.0` | Max wall-clock time per job (6 hours) |
 | `shutdown_timeout_seconds` | `float` | `300.0` | Max wait for graceful shutdown (5 min) |
@@ -164,22 +168,22 @@ These fields are accepted but produce warnings if set to non-default values:
 | Field | Default | Status |
 |-------|---------|--------|
 | `max_concurrent_sheets` | `10` | Reserved for Phase 3 scheduler |
-| `state_backend_type` | `"sqlite"` | Reserved for persistent daemon state |
-| `state_db_path` | `~/.mozart/daemon-state.db` | Reserved for persistent daemon state |
+| `state_backend_type` | `"sqlite"` | Reserved for persistent conductor state |
+| `state_db_path` | `~/.mozart/daemon-state.db` | Reserved for persistent conductor state |
 | `config_file` | `None` | Reserved for SIGHUP config reload |
 
 ### Example Config File
 
 ```yaml
 socket:
-  path: /tmp/mozartd.sock
+  path: /tmp/mozart.sock
   permissions: 0o660
 
-pid_file: /tmp/mozartd.pid
+pid_file: /tmp/mozart.pid
 max_concurrent_jobs: 3
 job_timeout_seconds: 43200  # 12 hours for long jobs
 log_level: debug
-log_file: ~/.mozart/mozartd.log
+log_file: ~/.mozart/mozart.log
 
 resource_limits:
   max_memory_mb: 4096
@@ -188,12 +192,12 @@ resource_limits:
 
 ## Monitoring
 
-### `mozartd status`
+### `mozart conductor-status`
 
-The primary monitoring command. Queries the daemon via IPC and displays:
+The primary monitoring command. Queries the conductor via IPC and displays:
 
 ```
-mozartd is running (PID 12345)
+Mozart conductor is running (PID 12345)
   Uptime: 2h 15m 30s
   [+] Readiness: ready
   Running jobs: 2
@@ -203,23 +207,23 @@ mozartd is running (PID 12345)
   Version: 0.1.0
 ```
 
-Readiness shows `[+] ready` when the daemon is accepting jobs, or `[-] not_ready` when under pressure, shutting down, experiencing elevated failure rates, or notification delivery is degraded.
+Readiness shows `[+] ready` when the conductor is accepting jobs, or `[-] not_ready` when under pressure, shutting down, experiencing elevated failure rates, or notification delivery is degraded.
 
-### Daemon Logs
+### Conductor Logs
 
 In foreground mode, logs go to stderr in console format. In background mode, logs are structured JSON. If `log_file` is configured, logs are written there:
 
 ```bash
-# View daemon logs (if log_file is set)
-tail -f ~/.mozart/mozartd.log
+# View conductor logs (if log_file is set)
+tail -f ~/.mozart/mozart.log
 ```
 
 ### Programmatic Health Probes
 
-The `daemon.health` and `daemon.ready` IPC methods are available for integration with external monitoring. They are used internally by `mozartd status`:
+The `daemon.health` and `daemon.ready` IPC methods are available for integration with external monitoring. They are used internally by `mozart conductor-status`:
 
-- **Liveness** (`daemon.health`): Returns OK if the daemon can execute the handler — minimal cost, no resource checks.
-- **Readiness** (`daemon.ready`): Returns `ready` when memory is within limits, failure rate is normal, notifications are functional, and the daemon is not shutting down.
+- **Liveness** (`daemon.health`): Returns OK if the conductor can execute the handler — minimal cost, no resource checks.
+- **Readiness** (`daemon.ready`): Returns `ready` when memory is within limits, failure rate is normal, notifications are functional, and the conductor is not shutting down.
 
 ## What's Built But NOT Yet Wired (Phase 3)
 
@@ -247,87 +251,87 @@ Located in `daemon/rate_coordinator.py`. Shares rate limit state across all conc
 
 **Current state:** The write path is active — `JobManager._on_rate_limit` feeds rate limit events from job runners into the coordinator via `RunnerContext.rate_limit_callback`. The read path (`is_rate_limited()`) is consumed by the GlobalSheetScheduler, which is not yet driving execution.
 
-## Migration from Pre-Daemon Usage
+## Migration from Pre-Conductor Usage
 
-If you previously ran Mozart without a daemon:
+If you previously ran Mozart without a conductor:
 
 **Before (direct execution, no longer supported for `mozart run`):**
 ```bash
 mozart run my-score.yaml
 ```
 
-**After (daemon required):**
+**After (conductor required):**
 ```bash
-# One-time: start the daemon
-mozartd start
+# One-time: start the conductor
+mozart start
 
 # Then run jobs as before
 mozart run my-score.yaml
 
-# The daemon stays running — no need to restart per job
+# The conductor stays running — no need to restart per job
 ```
 
 ### setup.sh
 
-The `setup.sh` script includes a `--daemon` flag that installs daemon dependencies (psutil for resource monitoring):
+The `setup.sh` script includes a `--daemon` flag that installs conductor dependencies (psutil for resource monitoring):
 
 ```bash
-./setup.sh --daemon          # Install with daemon support
-./setup.sh --dev --daemon    # Dev + daemon
+./setup.sh --daemon          # Install with conductor support
+./setup.sh --dev --daemon    # Dev + conductor
 ```
 
 This installs the `daemon` extras group, which includes `psutil` for the `ResourceMonitor` and `SystemProbe` components.
 
 ## Troubleshooting
 
-### "Mozart daemon is not running"
+### "Mozart conductor is not running"
 
-The daemon is not reachable at the default socket path (`/tmp/mozartd.sock`).
+The conductor is not reachable at the default socket path (`/tmp/mozart.sock`).
 
 ```bash
-# Start the daemon
-mozartd start
+# Start the conductor
+mozart start
 
 # Verify it's running
-mozartd status
+mozart conductor-status
 ```
 
-### "mozartd is already running"
+### "Conductor is already running"
 
-A daemon instance is already active. Check with:
+A conductor instance is already active. Check with:
 
 ```bash
-mozartd status
+mozart conductor-status
 ```
 
-If the daemon is unresponsive but the PID file exists, it may have crashed:
+If the conductor is unresponsive but the PID file exists, it may have crashed:
 
 ```bash
 # Stop cleans up stale PID files
-mozartd stop
-mozartd start
+mozart stop
+mozart start
 ```
 
 ### Stale PID File
 
-If `mozartd stop` reports "mozartd is not running" but a PID file exists, the file is automatically cleaned up. If it persists:
+If `mozart stop` reports "conductor is not running" but a PID file exists, the file is automatically cleaned up. If it persists:
 
 ```bash
-rm /tmp/mozartd.pid
-mozartd start
+rm /tmp/mozart.pid
+mozart start
 ```
 
 ### Permission Errors on Socket
 
-The socket is created with `0o660` permissions by default (owner + group read/write). If another user needs access, adjust `socket.permissions` in the daemon config. The daemon also rejects symlinked socket paths as a security measure.
+The socket is created with `0o660` permissions by default (owner + group read/write). If another user needs access, adjust `socket.permissions` in the conductor config. The conductor also rejects symlinked socket paths as a security measure.
 
-### "--escalation incompatible with daemon"
+### "--escalation incompatible with conductor"
 
-The `--escalation` flag requires interactive console prompts which are not available in daemon mode. Escalation is not currently supported when running through the daemon.
+The `--escalation` flag requires interactive console prompts which are not available in conductor mode. Escalation is not currently supported when running through the conductor.
 
 ### Orphan Recovery on Restart
 
-When the daemon starts, it checks the persistent registry for jobs that were `queued` or `running` during the previous daemon session. These orphaned jobs are automatically marked as `failed` with the error message "Daemon restarted while job was active." Check for recovered orphans in the daemon logs:
+When the conductor starts, it checks the persistent registry for jobs that were `queued` or `running` during the previous conductor session. These orphaned jobs are automatically marked as `failed` with the error message "Conductor restarted while job was active." Check for recovered orphans in the conductor logs:
 
 ```
 manager.orphans_recovered count=2
@@ -335,14 +339,14 @@ manager.orphans_recovered count=2
 
 ### Advisory Lock Conflicts
 
-The daemon uses `fcntl.flock()` on the PID file to prevent concurrent starts. If you see "PID file locked" errors, another `mozartd start` is in progress. Wait a moment and retry.
+The conductor uses `fcntl.flock()` on the PID file to prevent concurrent starts. If you see "PID file locked" errors, another `mozart start` is in progress. Wait a moment and retry.
 
 ### Force Stop
 
-If the daemon is unresponsive to graceful shutdown:
+If the conductor is unresponsive to graceful shutdown:
 
 ```bash
-mozartd stop --force    # Sends SIGKILL instead of SIGTERM
+mozart stop --force    # Sends SIGKILL instead of SIGTERM
 ```
 
 This kills the process immediately without waiting for running jobs to complete. Use as a last resort — running jobs will not checkpoint cleanly.

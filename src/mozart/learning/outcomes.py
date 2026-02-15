@@ -27,7 +27,7 @@ class SheetOutcome:
     completion_mode_used: bool
     final_status: SheetStatus
     validation_pass_rate: float
-    first_attempt_success: bool
+    success_without_retry: bool
     patterns_detected: list[str] = field(default_factory=list)
     timestamp: datetime = field(default_factory=lambda: datetime.now(tz=UTC))
 
@@ -57,7 +57,7 @@ class SheetOutcome:
 
     These are the patterns from get_relevant_patterns() that were included
     in the prompt. Used for effectiveness tracking: correlate patterns_applied
-    with first_attempt_success to measure which patterns actually help.
+    with success_without_retry to measure which patterns actually help.
 
     Example: ['⚠️ Common issue: file_exists validation tends to fail (seen 3x)']
     """
@@ -98,7 +98,7 @@ class SheetOutcome:
     """Average confidence across grounding hooks (0.0-1.0, None if not enabled).
 
     Higher confidence means external validators had high certainty in their results.
-    Can be correlated with first_attempt_success to identify reliable grounding sources.
+    Can be correlated with success_without_retry to identify reliable grounding sources.
     """
 
     grounding_guidance: str | None = None
@@ -292,7 +292,7 @@ class JsonOutcomeStore:
                     "completion_mode_used": o.completion_mode_used,
                     "final_status": o.final_status.value,
                     "validation_pass_rate": o.validation_pass_rate,
-                    "first_attempt_success": o.first_attempt_success,
+                    "success_without_retry": o.success_without_retry,
                     "patterns_detected": o.patterns_detected,
                     "timestamp": o.timestamp.isoformat(),
                     # Semantic validation fields (Evolution: Deep Validation-Learning)
@@ -355,7 +355,9 @@ class JsonOutcomeStore:
                 completion_mode_used=o["completion_mode_used"],
                 final_status=SheetStatus(o["final_status"]),
                 validation_pass_rate=o["validation_pass_rate"],
-                first_attempt_success=o["first_attempt_success"],
+                success_without_retry=o.get(
+                    "success_without_retry", o.get("first_attempt_success", False)
+                ),
                 patterns_detected=o.get("patterns_detected", []),
                 timestamp=datetime.fromisoformat(o["timestamp"]),
                 # Semantic validation fields (Evolution: Deep Validation-Learning)
