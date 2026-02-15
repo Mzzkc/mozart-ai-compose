@@ -134,7 +134,7 @@ class TestSetupNotifications:
         config = _make_config(
             base_config_dict,
             notifications=[
-                {"type": "webhook", "url": "https://example.com/hook"},
+                {"type": "webhook", "config": {"url": "https://example.com/hook"}},
             ],
         )
         manager = setup_notifications(config)
@@ -169,14 +169,14 @@ class TestSetupGrounding:
         engine = setup_grounding(config)
         assert engine is not None
 
-    def test_invalid_hook_logs_warning(self, base_config_dict: dict) -> None:
-        """Invalid hook config should log warning but not crash."""
-        config = _make_config(
-            base_config_dict,
-            grounding={"enabled": True, "hooks": []},
-        )
-        engine = setup_grounding(config)
-        assert engine is not None
+    def test_enabled_without_hooks_raises(self, base_config_dict: dict) -> None:
+        """Enabled grounding with no hooks should raise at config time."""
+        import pytest
+        with pytest.raises(Exception, match="no hooks configured"):
+            _make_config(
+                base_config_dict,
+                grounding={"enabled": True, "hooks": []},
+            )
 
 
 # ── create_state_backend ────────────────────────────────────────────────

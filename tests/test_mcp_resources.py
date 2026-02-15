@@ -369,21 +369,10 @@ class TestConfigResources:
     ):
         """Test error handling in resource reading."""
         # Make state backend raise an exception
-        mock_state_backend.load.side_effect = Exception("Database error")
+        mock_state_backend.load.side_effect = OSError("Database error")
 
         result = await config_resources_with_backend.read_resource("mozart://jobs")
 
         # Should return error message instead of crashing
         content = result["contents"][0]
         assert content["mimeType"] == "application/json" or content["mimeType"] == "text/plain"
-
-
-# Code Review During Implementation:
-# ✓ Comprehensive test coverage for all resource types
-# ✓ Both with and without state backend configurations tested
-# ✓ JSON schema validation for structured resources
-# ✓ Error handling and edge cases covered
-# ✓ Mock state backend provides realistic test scenarios
-# ✓ Template structure validation ensures templates are useful
-# ✓ Resource URI routing tested thoroughly
-# ✓ Async/await patterns correct throughout

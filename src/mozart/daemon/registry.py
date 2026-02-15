@@ -6,20 +6,29 @@ Survives daemon restarts so ``mozart list`` always shows job history.
 Separate from the learning store (which tracks patterns across jobs).
 This DB tracks operational state: which jobs exist, their workspaces,
 PIDs, and statuses.
+
+All database methods are async (via ``aiosqlite``) so they never block
+the daemon's asyncio event loop — even under heavy concurrent load.
 """
 
 from __future__ import annotations
 
-import sqlite3
 import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
+import aiosqlite
+
 from mozart.core.logging import get_logger
 
 _logger = get_logger("daemon.registry")
+
+# Statuses that represent a finished job (used for completed_at timestamps,
+# orphan detection, and delete_jobs safety checks).
+_TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
+_ACTIVE_STATUSES = frozenset({"queued", "running"})
 
 
 class DaemonJobStatus(str, Enum):
@@ -69,29 +78,55 @@ class JobRecord:
 
 
 class JobRegistry:
-    """SQLite-backed persistent job registry.
+    """Async SQLite-backed persistent job registry.
 
-    Thread-safe: SQLite handles concurrency. The daemon is single-threaded
-    (asyncio) so contention is minimal, but the DB is safe for external
-    readers (e.g. a monitoring tool reading the same file).
+    Uses ``aiosqlite`` so all I/O happens off the event loop thread.
+    The daemon is single-threaded (asyncio) so contention is minimal,
+    but the DB is safe for external readers (e.g. a monitoring tool
+    reading the same file).
+
+    Usage::
+
+        registry = JobRegistry(db_path)
+        await registry.open()   # creates tables, sets WAL mode
+        ...
+        await registry.close()
+
+    Or as an async context manager::
+
+        async with JobRegistry(db_path) as registry:
+            await registry.register_job(...)
     """
 
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(db_path))
-        try:
-            self._conn.row_factory = sqlite3.Row
-            self._conn.execute("PRAGMA journal_mode=WAL")
-            self._create_tables()
-        except Exception:
-            self._conn.close()
-            raise
-        _logger.info("registry.opened", path=str(db_path))
+        self._conn: aiosqlite.Connection | None = None
 
-    def _create_tables(self) -> None:
+    async def open(self) -> None:
+        """Open the database connection and create tables."""
+        conn = await aiosqlite.connect(str(self._db_path))
+        try:
+            conn.row_factory = aiosqlite.Row
+            await conn.execute("PRAGMA journal_mode=WAL")
+            await self._create_tables(conn)
+        except Exception:
+            await conn.close()
+            raise
+        self._conn = conn
+        _logger.info("registry.opened", path=str(self._db_path))
+
+    @property
+    def _db(self) -> aiosqlite.Connection:
+        """Get the active connection, raising if not opened."""
+        if self._conn is None:
+            raise RuntimeError("JobRegistry not opened — call open() first")
+        return self._conn
+
+    @staticmethod
+    async def _create_tables(conn: aiosqlite.Connection) -> None:
         """Create tables if they don't exist."""
-        self._conn.execute("""
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS jobs (
                 job_id TEXT PRIMARY KEY,
                 config_path TEXT NOT NULL,
@@ -104,24 +139,24 @@ class JobRegistry:
                 error_message TEXT
             )
         """)
-        self._conn.execute("""
+        await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_jobs_status
             ON jobs (status)
         """)
-        self._conn.execute("""
+        await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_jobs_submitted
             ON jobs (submitted_at DESC)
         """)
-        self._conn.commit()
+        await conn.commit()
 
-    def register_job(
+    async def register_job(
         self,
         job_id: str,
         config_path: Path,
         workspace: Path,
     ) -> None:
         """Register a newly submitted job."""
-        self._conn.execute(
+        await self._db.execute(
             """
             INSERT OR REPLACE INTO jobs
                 (job_id, config_path, workspace, status, submitted_at)
@@ -129,9 +164,9 @@ class JobRegistry:
             """,
             (job_id, str(config_path), str(workspace), time.time()),
         )
-        self._conn.commit()
+        await self._db.commit()
 
-    def update_status(
+    async def update_status(
         self,
         job_id: str,
         status: str,
@@ -151,7 +186,7 @@ class JobRegistry:
             updates.append("started_at = ?")
             params.append(time.time())
 
-        if status in ("completed", "failed", "cancelled"):
+        if status in _TERMINAL_STATUSES:
             updates.append("completed_at = ?")
             params.append(time.time())
 
@@ -160,22 +195,23 @@ class JobRegistry:
             params.append(error_message)
 
         params.append(job_id)
-        self._conn.execute(
+        await self._db.execute(
             f"UPDATE jobs SET {', '.join(updates)} WHERE job_id = ?",
             params,
         )
-        self._conn.commit()
+        await self._db.commit()
 
-    def get_job(self, job_id: str) -> JobRecord | None:
+    async def get_job(self, job_id: str) -> JobRecord | None:
         """Get a single job by ID."""
-        row = self._conn.execute(
+        cursor = await self._db.execute(
             "SELECT * FROM jobs WHERE job_id = ?", (job_id,)
-        ).fetchone()
+        )
+        row = await cursor.fetchone()
         if row is None:
             return None
         return self._row_to_record(row)
 
-    def list_jobs(
+    async def list_jobs(
         self,
         *,
         status: str | None = None,
@@ -183,43 +219,46 @@ class JobRegistry:
     ) -> list[JobRecord]:
         """List jobs, most recent first."""
         if status:
-            rows = self._conn.execute(
+            cursor = await self._db.execute(
                 "SELECT * FROM jobs WHERE status = ? ORDER BY submitted_at DESC LIMIT ?",
                 (status, limit),
-            ).fetchall()
+            )
         else:
-            rows = self._conn.execute(
+            cursor = await self._db.execute(
                 "SELECT * FROM jobs ORDER BY submitted_at DESC LIMIT ?",
                 (limit,),
-            ).fetchall()
+            )
+        rows = await cursor.fetchall()
         return [self._row_to_record(r) for r in rows]
 
-    def has_active_job(self, job_id: str) -> bool:
+    async def has_active_job(self, job_id: str) -> bool:
         """Check if a job ID exists and is in an active state."""
-        row = self._conn.execute(
+        cursor = await self._db.execute(
             "SELECT 1 FROM jobs WHERE job_id = ? AND status IN ('queued', 'running')",
             (job_id,),
-        ).fetchone()
+        )
+        row = await cursor.fetchone()
         return row is not None
 
-    def get_orphaned_jobs(self) -> list[JobRecord]:
+    async def get_orphaned_jobs(self) -> list[JobRecord]:
         """Find jobs that were running when the daemon last stopped.
 
         These are jobs with status 'queued' or 'running' — after a daemon
         restart they're orphans since their asyncio tasks no longer exist.
         """
-        rows = self._conn.execute(
+        cursor = await self._db.execute(
             "SELECT * FROM jobs WHERE status IN ('queued', 'running') "
             "ORDER BY submitted_at DESC"
-        ).fetchall()
+        )
+        rows = await cursor.fetchall()
         return [self._row_to_record(r) for r in rows]
 
-    def mark_orphans_failed(self) -> int:
+    async def mark_orphans_failed(self) -> int:
         """Mark all orphaned jobs as failed on daemon startup.
 
         Returns the number of jobs marked.
         """
-        cursor = self._conn.execute(
+        cursor = await self._db.execute(
             """
             UPDATE jobs SET
                 status = 'failed',
@@ -229,13 +268,13 @@ class JobRegistry:
             """,
             (time.time(),),
         )
-        self._conn.commit()
+        await self._db.commit()
         count = cursor.rowcount
         if count > 0:
             _logger.warning("registry.orphans_marked_failed", count=count)
         return count
 
-    def delete_jobs(
+    async def delete_jobs(
         self,
         *,
         statuses: list[str] | None = None,
@@ -253,8 +292,8 @@ class JobRegistry:
         Returns:
             Number of deleted rows.
         """
-        safe = set(statuses or ["completed", "failed", "cancelled"])
-        safe -= {"queued", "running"}
+        safe = set(statuses or _TERMINAL_STATUSES)
+        safe -= _ACTIVE_STATUSES
 
         conditions = ["status IN ({})".format(",".join("?" for _ in safe))]
         params: list[Any] = list(safe)
@@ -264,30 +303,33 @@ class JobRegistry:
             params.append(time.time() - older_than_seconds)
 
         sql = "DELETE FROM jobs WHERE " + " AND ".join(conditions)
-        cursor = self._conn.execute(sql, params)
-        self._conn.commit()
+        cursor = await self._db.execute(sql, params)
+        await self._db.commit()
         count = cursor.rowcount
         if count > 0:
             _logger.info("registry.delete_jobs", deleted=count)
         return count
 
-    def close(self) -> None:
+    async def close(self) -> None:
         """Close the database connection."""
-        self._conn.close()
+        if self._conn is not None:
+            await self._conn.close()
+            self._conn = None
 
-    def __enter__(self) -> JobRegistry:
+    async def __aenter__(self) -> JobRegistry:
+        await self.open()
         return self
 
-    def __exit__(self, *exc: object) -> None:
-        self.close()
+    async def __aexit__(self, *exc: object) -> None:
+        await self.close()
 
     @staticmethod
-    def _row_to_record(row: sqlite3.Row) -> JobRecord:
+    def _row_to_record(row: aiosqlite.Row) -> JobRecord:
         return JobRecord(
             job_id=row["job_id"],
             config_path=row["config_path"],
             workspace=row["workspace"],
-            status=row["status"],
+            status=DaemonJobStatus(row["status"]),
             pid=row["pid"],
             submitted_at=row["submitted_at"],
             started_at=row["started_at"],

@@ -154,6 +154,8 @@ class JsonOutcomeStore:
         self.store_path = store_path
         self._outcomes: list[SheetOutcome] = []
         self._loaded: bool = False
+        self._cached_patterns: list[DetectedPattern] | None = None
+        self._patterns_outcome_count: int = 0
 
     async def record(self, outcome: SheetOutcome) -> None:
         """Record a sheet outcome to the store.
@@ -176,6 +178,9 @@ class JsonOutcomeStore:
             self._outcomes[existing_idx] = outcome
         else:
             self._outcomes.append(outcome)
+
+        # Invalidate cached patterns when outcomes change
+        self._cached_patterns = None
 
         # Detect patterns after accumulating enough data
         if len(self._outcomes) >= 5:
@@ -231,6 +236,7 @@ class JsonOutcomeStore:
 
         Uses PatternDetector to analyze historical outcomes and
         identify recurring patterns that can inform future executions.
+        Results are cached and invalidated when outcomes change (record/load).
 
         Returns:
             List of DetectedPattern objects sorted by confidence.
@@ -241,8 +247,17 @@ class JsonOutcomeStore:
         if not self._outcomes:
             return []
 
+        # Return cached patterns if outcome list hasn't changed
+        if (
+            self._cached_patterns is not None
+            and self._patterns_outcome_count == len(self._outcomes)
+        ):
+            return self._cached_patterns
+
         detector = PatternDetector(self._outcomes)
-        return detector.detect_all()
+        self._cached_patterns = detector.detect_all()
+        self._patterns_outcome_count = len(self._outcomes)
+        return self._cached_patterns
 
     async def get_relevant_patterns(
         self,

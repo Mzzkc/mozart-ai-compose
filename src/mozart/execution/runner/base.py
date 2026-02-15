@@ -361,9 +361,11 @@ class JobRunnerBase:
                 loop = asyncio.get_running_loop()
                 for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
                     loop.add_signal_handler(sig, self._signal_handler)
-            except (RuntimeError, NotImplementedError):
-                # Running in a thread or platform doesn't support signals
-                pass
+            except (RuntimeError, NotImplementedError) as exc:
+                self._logger.debug(
+                    "signal_handler_setup_skipped",
+                    reason=str(exc),
+                )
 
     def _remove_signal_handlers(self) -> None:
         """Remove signal handlers."""

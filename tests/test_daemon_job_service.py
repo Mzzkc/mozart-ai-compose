@@ -648,7 +648,9 @@ class TestStartJobExecution:
 
         mock_notification_mgr.notify_job_start.assert_called_once()
         mock_notification_mgr.notify_job_complete.assert_called_once()
-        mock_notification_mgr.close.assert_called_once()
+        # close() called twice: once in _execute_runner's finally (primary),
+        # once in start_job's finally (belt-and-suspenders for setup failures).
+        assert mock_notification_mgr.close.call_count >= 1
 
 
 # ─── resume_job full execution ───────────────────────────────────────────

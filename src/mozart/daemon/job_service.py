@@ -164,24 +164,31 @@ class JobService:
 
         # Setup all execution components (backend, learning, notifications, etc.)
         components = self._setup_components(config)
-
-        runner = self._create_runner(
-            config, components, state_backend,
-            job_id=job_id,
-            self_healing=self_healing,
-            self_healing_auto_confirm=self_healing_auto_confirm,
-        )
+        notification_manager = components["notification_manager"]
 
         try:
+            runner = self._create_runner(
+                config, components, state_backend,
+                job_id=job_id,
+                self_healing=self_healing,
+                self_healing_auto_confirm=self_healing_auto_confirm,
+            )
+
             return await self._execute_runner(
                 runner=runner,
                 job_id=job_id,
                 job_name=config.name,
                 total_sheets=config.sheet.total_sheets,
-                notification_manager=components["notification_manager"],
+                notification_manager=notification_manager,
                 start_sheet=start_sheet,
             )
         finally:
+            if notification_manager:
+                await self._safe_notify(
+                    notification_manager,
+                    notification_manager.close(),
+                    "notification_cleanup_on_setup_failure",
+                )
             await state_backend.close()
 
     async def resume_job(
@@ -266,13 +273,7 @@ class JobService:
 
         # Phase 3: Setup components and run
         components = self._setup_components(resolved_config)
-
-        runner = self._create_runner(
-            resolved_config, components, found_backend,
-            job_id=job_id,
-            self_healing=self_healing,
-            self_healing_auto_confirm=self_healing_auto_confirm,
-        )
+        notification_manager = components["notification_manager"]
 
         remaining = found_state.total_sheets - found_state.last_completed_sheet
         stored_config_path = (
@@ -280,17 +281,30 @@ class JobService:
         )
 
         try:
+            runner = self._create_runner(
+                resolved_config, components, found_backend,
+                job_id=job_id,
+                self_healing=self_healing,
+                self_healing_auto_confirm=self_healing_auto_confirm,
+            )
+
             return await self._execute_runner(
                 runner=runner,
                 job_id=job_id,
                 job_name=resolved_config.name,
                 total_sheets=resolved_config.sheet.total_sheets,
-                notification_manager=components["notification_manager"],
+                notification_manager=notification_manager,
                 notify_total_sheets=remaining,
                 start_sheet=resume_sheet,
                 config_path=stored_config_path,
             )
         finally:
+            if notification_manager:
+                await self._safe_notify(
+                    notification_manager,
+                    notification_manager.close(),
+                    "notification_cleanup_on_setup_failure",
+                )
             await found_backend.close()
 
     async def pause_job(self, job_id: str, workspace: Path) -> bool:

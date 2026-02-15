@@ -6,7 +6,6 @@ notifications, and post-success hooks.
 
 from __future__ import annotations
 
-import warnings
 from enum import Enum
 from pathlib import Path
 from typing import Any, ClassVar, Literal
@@ -136,7 +135,7 @@ class NotificationConfig(BaseModel):
         if requirement is not None:
             key_a, key_b, message = requirement
             if not self.config.get(key_a) and not self.config.get(key_b):
-                warnings.warn(message, UserWarning, stacklevel=2)
+                raise ValueError(message)
         return self
 
 

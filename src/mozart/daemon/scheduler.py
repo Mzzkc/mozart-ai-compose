@@ -376,7 +376,7 @@ class GlobalSheetScheduler:
                             entry.info.backend_type,
                             model=entry.info.model,
                         )
-                    except Exception as e:
+                    except (RuntimeError, ValueError, OSError) as e:
                         entry.rate_limit_skip_count += 1
                         if entry.rate_limit_skip_count >= self._max_rate_limit_skips:
                             _logger.error(

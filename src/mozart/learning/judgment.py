@@ -195,9 +195,12 @@ class JudgmentClient:
         except (ValueError, KeyError, TypeError) as e:
             return self._default_retry_response(f"Response parsing error: {e}")
 
-        except Exception as e:
+        except (httpx.HTTPError, OSError, OverflowError) as e:
             _logger.warning("judgment_unexpected_error: %s", e, exc_info=True)
             return self._default_retry_response(f"Unexpected error: {e}")
+        except ExceptionGroup as eg:
+            _logger.warning("judgment_exception_group: %s", eg, exc_info=True)
+            return self._default_retry_response(f"Connection error group: {eg}")
 
     def _parse_judgment_response(self, data: dict[str, Any]) -> JudgmentResponse:
         """Parse RL API response into JudgmentResponse.

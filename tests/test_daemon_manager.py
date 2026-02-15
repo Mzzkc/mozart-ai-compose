@@ -8,6 +8,7 @@ pruning.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -15,7 +16,7 @@ import pytest
 
 from mozart.daemon.config import DaemonConfig
 from mozart.daemon.exceptions import JobSubmissionError
-from mozart.daemon.manager import JobManager, JobMeta
+from mozart.daemon.manager import DaemonJobStatus, JobManager, JobMeta
 from mozart.daemon.types import JobRequest
 
 # ─── Fixtures ──────────────────────────────────────────────────────────
@@ -32,11 +33,13 @@ def daemon_config(tmp_path: Path) -> DaemonConfig:
 
 
 @pytest.fixture
-def manager(daemon_config: DaemonConfig) -> JobManager:
-    """Create a JobManager with mocked JobService."""
+async def manager(daemon_config: DaemonConfig) -> AsyncIterator[JobManager]:
+    """Create a JobManager with mocked JobService and opened registry."""
     mgr = JobManager(daemon_config)
+    await mgr._registry.open()
     mgr._service = MagicMock()
-    return mgr
+    yield mgr
+    await mgr._registry.close()
 
 
 @pytest.fixture
@@ -149,37 +152,41 @@ class TestConcurrencyLimit:
     async def test_concurrency_limits_parallel_execution(self, daemon_config: DaemonConfig):
         """Only max_concurrent_jobs tasks can run simultaneously."""
         mgr = JobManager(daemon_config)
+        await mgr._registry.open()
         mgr._service = MagicMock()
 
-        # Track concurrent execution count
-        max_concurrent = 0
-        current_concurrent = 0
-        execution_started = asyncio.Event()
+        try:
+            # Track concurrent execution count
+            max_concurrent = 0
+            current_concurrent = 0
+            execution_started = asyncio.Event()
 
-        async def slow_start_job(config, **kwargs):
-            nonlocal max_concurrent, current_concurrent
-            current_concurrent += 1
-            max_concurrent = max(max_concurrent, current_concurrent)
-            execution_started.set()
-            await asyncio.sleep(0.05)
-            current_concurrent -= 1
+            async def slow_start_job(config, **kwargs):
+                nonlocal max_concurrent, current_concurrent
+                current_concurrent += 1
+                max_concurrent = max(max_concurrent, current_concurrent)
+                execution_started.set()
+                await asyncio.sleep(0.05)
+                current_concurrent -= 1
 
-        mgr._service.start_job = slow_start_job
+            mgr._service.start_job = slow_start_job
 
-        # Submit 4 jobs (limit is 2)
-        tasks = []
-        for i in range(4):
-            config_file = Path(f"/tmp/test-concurrency-{i}.yaml")
-            with patch.object(Path, "exists", return_value=True):
-                request = JobRequest(config_path=config_file)
-                response = await mgr.submit_job(request)
-                tasks.append(response.job_id)
+            # Submit 4 jobs (limit is 2)
+            tasks = []
+            for i in range(4):
+                config_file = Path(f"/tmp/test-concurrency-{i}.yaml")
+                with patch.object(Path, "exists", return_value=True):
+                    request = JobRequest(config_path=config_file)
+                    response = await mgr.submit_job(request)
+                    tasks.append(response.job_id)
 
-        # Wait for all tasks to complete
-        await asyncio.sleep(0.3)
+            # Wait for all tasks to complete
+            await asyncio.sleep(0.3)
 
-        # Max concurrent should not exceed the limit of 2
-        assert max_concurrent <= 2
+            # Max concurrent should not exceed the limit of 2
+            assert max_concurrent <= 2
+        finally:
+            await mgr._registry.close()
 
 
 # ─── Cancel Job ────────────────────────────────────────────────────────
@@ -207,7 +214,7 @@ class TestCancelJob:
             job_id="test-job-1",
             config_path=Path("/tmp/test.yaml"),
             workspace=Path("/tmp/workspace"),
-            status="running",
+            status=DaemonJobStatus.RUNNING,
         )
 
         result = await manager.cancel_job("test-job-1")
@@ -244,7 +251,7 @@ class TestShutdown:
             job_id="job-1",
             config_path=Path("/tmp/test.yaml"),
             workspace=Path("/tmp/workspace"),
-            status="running",
+            status=DaemonJobStatus.RUNNING,
         )
 
         await manager.shutdown(graceful=True)
@@ -264,7 +271,7 @@ class TestShutdown:
             job_id="job-1",
             config_path=Path("/tmp/test.yaml"),
             workspace=Path("/tmp/workspace"),
-            status="running",
+            status=DaemonJobStatus.RUNNING,
         )
 
         await manager.shutdown(graceful=False)
@@ -284,6 +291,7 @@ class TestShutdown:
         """Graceful shutdown cancels tasks that exceed timeout."""
         daemon_config.shutdown_timeout_seconds = 0.05
         mgr = JobManager(daemon_config)
+        await mgr._registry.open()
         mgr._service = MagicMock()
 
         async def stuck_task():
@@ -295,7 +303,7 @@ class TestShutdown:
             job_id="stuck-job",
             config_path=Path("/tmp/test.yaml"),
             workspace=Path("/tmp/workspace"),
-            status="running",
+            status=DaemonJobStatus.RUNNING,
         )
 
         await mgr.shutdown(graceful=True)
@@ -322,7 +330,7 @@ class TestOnTaskDone:
             job_id="job-done",
             config_path=Path("/tmp/test.yaml"),
             workspace=Path("/tmp/workspace"),
-            status="running",
+            status=DaemonJobStatus.RUNNING,
         )
 
         await task  # Let it finish
@@ -342,7 +350,7 @@ class TestOnTaskDone:
             job_id="job-fail",
             config_path=Path("/tmp/test.yaml"),
             workspace=Path("/tmp/workspace"),
-            status="running",
+            status=DaemonJobStatus.RUNNING,
         )
 
         # Wait for task to fail (suppress the exception)
@@ -368,7 +376,7 @@ class TestOnTaskDone:
             job_id="job-cancel",
             config_path=Path("/tmp/test.yaml"),
             workspace=Path("/tmp/workspace"),
-            status="cancelled",
+            status=DaemonJobStatus.CANCELLED,
         )
 
         task.cancel()
@@ -410,19 +418,19 @@ class TestGetDaemonStatus:
             job_id="job-a",
             config_path=Path("/tmp/a.yaml"),
             workspace=Path("/tmp/wa"),
-            status="running",
+            status=DaemonJobStatus.RUNNING,
         )
         manager._job_meta["job-b"] = JobMeta(
             job_id="job-b",
             config_path=Path("/tmp/b.yaml"),
             workspace=Path("/tmp/wb"),
-            status="completed",
+            status=DaemonJobStatus.COMPLETED,
         )
         manager._job_meta["job-c"] = JobMeta(
             job_id="job-c",
             config_path=Path("/tmp/c.yaml"),
             workspace=Path("/tmp/wc"),
-            status="running",
+            status=DaemonJobStatus.RUNNING,
         )
 
         status = await manager.get_daemon_status()
@@ -448,13 +456,13 @@ class TestListJobs:
             job_id="job-1",
             config_path=Path("/tmp/a.yaml"),
             workspace=Path("/tmp/wa"),
-            status="running",
+            status=DaemonJobStatus.RUNNING,
         )
         manager._job_meta["job-2"] = JobMeta(
             job_id="job-2",
             config_path=Path("/tmp/b.yaml"),
             workspace=Path("/tmp/wb"),
-            status="completed",
+            status=DaemonJobStatus.COMPLETED,
         )
 
         result = await manager.list_jobs()
@@ -482,7 +490,7 @@ class TestGetJobStatus:
             job_id="job-1",
             config_path=Path("/tmp/a.yaml"),
             workspace=Path("/tmp/wa"),
-            status="running",
+            status=DaemonJobStatus.RUNNING,
         )
         # Mock async get_status to return None (no checkpoint state found)
         manager._service.get_status = AsyncMock(return_value=None)
@@ -512,7 +520,7 @@ class TestPauseJob:
             job_id="job-done",
             config_path=Path("/tmp/test.yaml"),
             workspace=Path("/tmp/workspace"),
-            status="completed",
+            status=DaemonJobStatus.COMPLETED,
         )
 
         with pytest.raises(JobSubmissionError, match="completed"):
@@ -525,7 +533,7 @@ class TestPauseJob:
             job_id="job-1",
             config_path=Path("/tmp/test.yaml"),
             workspace=Path("/tmp/workspace"),
-            status="running",
+            status=DaemonJobStatus.RUNNING,
         )
         manager._service.pause_job = AsyncMock(return_value=True)
 
@@ -543,7 +551,7 @@ class TestPauseJob:
             job_id="job-1",
             config_path=Path("/tmp/test.yaml"),
             workspace=Path("/tmp/meta-workspace"),
-            status="running",
+            status=DaemonJobStatus.RUNNING,
         )
         manager._service.pause_job = AsyncMock(return_value=True)
 
@@ -573,7 +581,7 @@ class TestResumeJob:
             job_id="job-paused",
             config_path=Path("/tmp/test.yaml"),
             workspace=Path("/tmp/workspace"),
-            status="paused",
+            status=DaemonJobStatus.PAUSED,
         )
         manager._service.resume_job = AsyncMock()
 
@@ -597,7 +605,7 @@ class TestResumeJob:
             job_id="job-paused",
             config_path=Path("/tmp/test.yaml"),
             workspace=Path("/tmp/workspace"),
-            status="paused",
+            status=DaemonJobStatus.PAUSED,
         )
         manager._service.resume_job = AsyncMock()
 
@@ -628,27 +636,31 @@ class TestJobHistoryPruning:
             state_db_path=tmp_path / "reg.db",
         )
         mgr = JobManager(config)
+        await mgr._registry.open()
         mgr._service = MagicMock()
 
-        # Add 13 completed jobs with increasing submit times
-        for i in range(13):
-            mgr._job_meta[f"job-{i}"] = JobMeta(
-                job_id=f"job-{i}",
-                config_path=Path(f"/tmp/{i}.yaml"),
-                workspace=Path(f"/tmp/ws-{i}"),
-                status="completed",
-                submitted_at=float(i),
-            )
+        try:
+            # Add 13 completed jobs with increasing submit times
+            for i in range(13):
+                mgr._job_meta[f"job-{i}"] = JobMeta(
+                    job_id=f"job-{i}",
+                    config_path=Path(f"/tmp/{i}.yaml"),
+                    workspace=Path(f"/tmp/ws-{i}"),
+                    status=DaemonJobStatus.COMPLETED,
+                    submitted_at=float(i),
+                )
 
-        mgr._prune_job_history()
+            mgr._prune_job_history()
 
-        # Should keep only the 10 newest (job-3 through job-12)
-        assert len(mgr._job_meta) == 10
-        assert "job-0" not in mgr._job_meta
-        assert "job-1" not in mgr._job_meta
-        assert "job-2" not in mgr._job_meta
-        assert "job-3" in mgr._job_meta
-        assert "job-12" in mgr._job_meta
+            # Should keep only the 10 newest (job-3 through job-12)
+            assert len(mgr._job_meta) == 10
+            assert "job-0" not in mgr._job_meta
+            assert "job-1" not in mgr._job_meta
+            assert "job-2" not in mgr._job_meta
+            assert "job-3" in mgr._job_meta
+            assert "job-12" in mgr._job_meta
+        finally:
+            await mgr._registry.close()
 
     @pytest.mark.asyncio
     async def test_prune_preserves_running_jobs(self, tmp_path: Path):
@@ -659,36 +671,40 @@ class TestJobHistoryPruning:
             state_db_path=tmp_path / "reg.db",
         )
         mgr = JobManager(config)
+        await mgr._registry.open()
         mgr._service = MagicMock()
 
-        # 12 completed + 2 running
-        for i in range(12):
-            mgr._job_meta[f"done-{i}"] = JobMeta(
-                job_id=f"done-{i}",
-                config_path=Path(f"/tmp/{i}.yaml"),
-                workspace=Path(f"/tmp/ws-{i}"),
-                status="completed",
-                submitted_at=float(i),
-            )
-        for i in range(2):
-            mgr._job_meta[f"run-{i}"] = JobMeta(
-                job_id=f"run-{i}",
-                config_path=Path(f"/tmp/run-{i}.yaml"),
-                workspace=Path(f"/tmp/ws-run-{i}"),
-                status="running",
-                submitted_at=float(i),
-            )
+        try:
+            # 12 completed + 2 running
+            for i in range(12):
+                mgr._job_meta[f"done-{i}"] = JobMeta(
+                    job_id=f"done-{i}",
+                    config_path=Path(f"/tmp/{i}.yaml"),
+                    workspace=Path(f"/tmp/ws-{i}"),
+                    status=DaemonJobStatus.COMPLETED,
+                    submitted_at=float(i),
+                )
+            for i in range(2):
+                mgr._job_meta[f"run-{i}"] = JobMeta(
+                    job_id=f"run-{i}",
+                    config_path=Path(f"/tmp/run-{i}.yaml"),
+                    workspace=Path(f"/tmp/ws-run-{i}"),
+                    status=DaemonJobStatus.RUNNING,
+                    submitted_at=float(i),
+                )
 
-        mgr._prune_job_history()
+            mgr._prune_job_history()
 
-        # Running jobs must be preserved (not terminal, so not pruned)
-        assert "run-0" in mgr._job_meta
-        assert "run-1" in mgr._job_meta
-        # Only 10 terminal allowed, oldest 2 (done-0, done-1) evicted
-        assert "done-0" not in mgr._job_meta
-        assert "done-1" not in mgr._job_meta
-        assert "done-2" in mgr._job_meta
-        assert "done-11" in mgr._job_meta
+            # Running jobs must be preserved (not terminal, so not pruned)
+            assert "run-0" in mgr._job_meta
+            assert "run-1" in mgr._job_meta
+            # Only 10 terminal allowed, oldest 2 (done-0, done-1) evicted
+            assert "done-0" not in mgr._job_meta
+            assert "done-1" not in mgr._job_meta
+            assert "done-2" in mgr._job_meta
+            assert "done-11" in mgr._job_meta
+        finally:
+            await mgr._registry.close()
 
     @pytest.mark.asyncio
     async def test_prune_noop_when_under_limit(self, manager: JobManager):
@@ -697,7 +713,7 @@ class TestJobHistoryPruning:
             job_id="job-1",
             config_path=Path("/tmp/a.yaml"),
             workspace=Path("/tmp/wa"),
-            status="completed",
+            status=DaemonJobStatus.COMPLETED,
         )
 
         manager._prune_job_history()
@@ -713,32 +729,36 @@ class TestJobHistoryPruning:
             state_db_path=tmp_path / "reg.db",
         )
         mgr = JobManager(config)
+        await mgr._registry.open()
         mgr._service = MagicMock()
 
-        # Pre-fill with 11 completed jobs so pruning kicks in
-        for i in range(11):
-            mgr._job_meta[f"old-{i}"] = JobMeta(
-                job_id=f"old-{i}",
-                config_path=Path(f"/tmp/old-{i}.yaml"),
-                workspace=Path(f"/tmp/ws-old-{i}"),
-                status="completed",
-                submitted_at=float(i),
-            )
+        try:
+            # Pre-fill with 11 completed jobs so pruning kicks in
+            for i in range(11):
+                mgr._job_meta[f"old-{i}"] = JobMeta(
+                    job_id=f"old-{i}",
+                    config_path=Path(f"/tmp/old-{i}.yaml"),
+                    workspace=Path(f"/tmp/ws-old-{i}"),
+                    status=DaemonJobStatus.COMPLETED,
+                    submitted_at=float(i),
+                )
 
-        # Simulate a task-done callback (the task itself doesn't matter —
-        # the pruning is triggered by the callback)
-        async def done():
-            pass
+            # Simulate a task-done callback (the task itself doesn't matter --
+            # the pruning is triggered by the callback)
+            async def done():
+                pass
 
-        task = asyncio.create_task(done())
-        mgr._jobs["trigger"] = task
-        await task
-        mgr._on_task_done("trigger", task)
+            task = asyncio.create_task(done())
+            mgr._jobs["trigger"] = task
+            await task
+            mgr._on_task_done("trigger", task)
 
-        # 11 terminal jobs, max 10 → oldest (old-0) should be evicted
-        assert "old-0" not in mgr._job_meta
-        assert "old-1" in mgr._job_meta
-        assert "old-10" in mgr._job_meta
+            # 11 terminal jobs, max 10 -> oldest (old-0) should be evicted
+            assert "old-0" not in mgr._job_meta
+            assert "old-1" in mgr._job_meta
+            assert "old-10" in mgr._job_meta
+        finally:
+            await mgr._registry.close()
 
 
 # ─── Failure Rate ────────────────────────────────────────────────────
@@ -800,72 +820,78 @@ class TestJobTimeout:
         """A job that exceeds job_timeout_seconds is marked FAILED."""
         config = DaemonConfig(max_concurrent_jobs=2, state_db_path=tmp_path / "reg.db")
         mgr = JobManager(config)
+        await mgr._registry.open()
         # Override for test speed (Pydantic ge=60 prevents construction with low values)
         mgr._config = config.model_copy(update={"job_timeout_seconds": 0.2})
 
-        from mozart.daemon.manager import DaemonJobStatus, JobMeta
+        try:
+            meta = JobMeta(
+                job_id="timeout-test",
+                config_path=Path("/tmp/test.yaml"),
+                workspace=Path("/tmp/workspace"),
+            )
+            mgr._job_meta["timeout-test"] = meta
 
-        meta = JobMeta(
-            job_id="timeout-test",
-            config_path=Path("/tmp/test.yaml"),
-            workspace=Path("/tmp/workspace"),
-        )
-        mgr._job_meta["timeout-test"] = meta
+            async def _slow():
+                await asyncio.sleep(5.0)
 
-        async def _slow():
-            await asyncio.sleep(5.0)
+            await mgr._run_managed_task("timeout-test", _slow())
 
-        await mgr._run_managed_task("timeout-test", _slow())
-
-        assert meta.status == DaemonJobStatus.FAILED
-        assert "exceeded timeout" in (meta.error_message or "").lower()
+            assert meta.status == DaemonJobStatus.FAILED
+            assert "exceeded timeout" in (meta.error_message or "").lower()
+        finally:
+            await mgr._registry.close()
 
     @pytest.mark.asyncio
     async def test_job_within_timeout_completes(self, tmp_path: Path):
         """A job that finishes before job_timeout_seconds completes normally."""
         config = DaemonConfig(max_concurrent_jobs=2, state_db_path=tmp_path / "reg.db")
         mgr = JobManager(config)
+        await mgr._registry.open()
 
-        from mozart.daemon.manager import DaemonJobStatus, JobMeta
+        try:
+            meta = JobMeta(
+                job_id="fast-test",
+                config_path=Path("/tmp/test.yaml"),
+                workspace=Path("/tmp/workspace"),
+            )
+            mgr._job_meta["fast-test"] = meta
 
-        meta = JobMeta(
-            job_id="fast-test",
-            config_path=Path("/tmp/test.yaml"),
-            workspace=Path("/tmp/workspace"),
-        )
-        mgr._job_meta["fast-test"] = meta
+            async def _fast():
+                await asyncio.sleep(0.01)
+                return None  # Default -> COMPLETED
 
-        async def _fast():
-            await asyncio.sleep(0.01)
-            return None  # Default → COMPLETED
+            await mgr._run_managed_task("fast-test", _fast())
 
-        await mgr._run_managed_task("fast-test", _fast())
-
-        assert meta.status == DaemonJobStatus.COMPLETED
+            assert meta.status == DaemonJobStatus.COMPLETED
+        finally:
+            await mgr._registry.close()
 
     @pytest.mark.asyncio
     async def test_timeout_records_failure(self, tmp_path: Path):
         """Timeout adds to the recent_failures deque (affects failure_rate_elevated)."""
         config = DaemonConfig(max_concurrent_jobs=2, state_db_path=tmp_path / "reg.db")
         mgr = JobManager(config)
+        await mgr._registry.open()
         mgr._config = config.model_copy(update={"job_timeout_seconds": 0.1})
 
-        from mozart.daemon.manager import JobMeta
+        try:
+            meta = JobMeta(
+                job_id="fail-rate-test",
+                config_path=Path("/tmp/test.yaml"),
+                workspace=Path("/tmp/workspace"),
+            )
+            mgr._job_meta["fail-rate-test"] = meta
 
-        meta = JobMeta(
-            job_id="fail-rate-test",
-            config_path=Path("/tmp/test.yaml"),
-            workspace=Path("/tmp/workspace"),
-        )
-        mgr._job_meta["fail-rate-test"] = meta
+            async def _slow():
+                await asyncio.sleep(5.0)
 
-        async def _slow():
-            await asyncio.sleep(5.0)
+            initial_failures = len(mgr._recent_failures)
+            await mgr._run_managed_task("fail-rate-test", _slow())
 
-        initial_failures = len(mgr._recent_failures)
-        await mgr._run_managed_task("fail-rate-test", _slow())
-
-        assert len(mgr._recent_failures) == initial_failures + 1
+            assert len(mgr._recent_failures) == initial_failures + 1
+        finally:
+            await mgr._registry.close()
 
 
 # ─── Exception Narrowing Tests (Q006) ─────────────────────────────────

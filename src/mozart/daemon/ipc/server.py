@@ -195,7 +195,7 @@ class DaemonServer:
             _logger.debug("client_disconnected", peer=str(peer), reason="reset")
         except asyncio.CancelledError:
             _logger.debug("client_disconnected", peer=str(peer), reason="cancelled")
-        except Exception as exc:
+        except (OSError, RuntimeError) as exc:
             _logger.warning(
                 "connection_error",
                 peer=str(peer),
@@ -205,7 +205,7 @@ class DaemonServer:
             try:
                 writer.close()
                 await writer.wait_closed()
-            except Exception:
+            except (OSError, RuntimeError):
                 _logger.debug("writer_close_failed", peer=str(peer), exc_info=True)
             _logger.debug("client_disconnected", peer=str(peer))
 

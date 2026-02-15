@@ -75,6 +75,7 @@ class ResourceMonitor:
         self._degraded = False
         self._prune_consecutive_failures = 0
         self._prune_disabled = False
+        self._last_successful_check: float = 0.0
 
     async def start(self, interval_seconds: float = 15.0) -> None:
         """Start the periodic monitoring loop."""
@@ -120,6 +121,17 @@ class ResourceMonitor:
             probe_failed=probe_failed,
         )
         return snapshot
+
+    @property
+    def seconds_since_last_check(self) -> float:
+        """Seconds since the last successful monitoring check.
+
+        Returns ``float('inf')`` if no check has succeeded yet.
+        Consumers can use this to detect stale resource data.
+        """
+        if self._last_successful_check == 0.0:
+            return float("inf")
+        return time.monotonic() - self._last_successful_check
 
     def is_accepting_work(self) -> bool:
         """Check if resource usage is below warning thresholds.
@@ -202,6 +214,7 @@ class ResourceMonitor:
             try:
                 snapshot = await self.check_now()
                 await self._evaluate(snapshot)
+                self._last_successful_check = time.monotonic()
                 if self._consecutive_failures > 0:
                     _logger.info(
                         "monitor.recovered",
@@ -214,7 +227,7 @@ class ResourceMonitor:
                 await asyncio.sleep(interval)
             except asyncio.CancelledError:
                 break
-            except Exception:
+            except (OSError, RuntimeError, ValueError):
                 self._consecutive_failures += 1
                 _logger.exception(
                     "monitor.check_failed",
@@ -309,7 +322,7 @@ class ResourceMonitor:
                         after_failures=self._prune_consecutive_failures,
                     )
                     self._prune_consecutive_failures = 0
-            except Exception:
+            except (OSError, RuntimeError, ValueError):
                 self._prune_consecutive_failures += 1
                 _logger.warning(
                     "monitor.prune_stale_failed",

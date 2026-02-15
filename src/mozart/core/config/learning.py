@@ -404,6 +404,16 @@ class GroundingConfig(BaseModel):
         description="Maximum time to wait for each grounding hook",
     )
 
+    @model_validator(mode="after")
+    def _validate_hooks_when_enabled(self) -> GroundingConfig:
+        """Ensure hooks are provided when grounding is enabled."""
+        if self.enabled and not self.hooks:
+            raise ValueError(
+                "GroundingConfig has enabled=True but no hooks configured. "
+                "Add at least one hook or set enabled=False."
+            )
+        return self
+
 
 class CheckpointTriggerConfig(BaseModel):
     """Configuration for a proactive checkpoint trigger.
@@ -450,10 +460,7 @@ class CheckpointTriggerConfig(BaseModel):
     @model_validator(mode="after")
     def _require_at_least_one_condition(self) -> CheckpointTriggerConfig:
         """Ensure trigger has at least one non-empty matching condition."""
-        has_sheet_nums = self.sheet_nums is not None and len(self.sheet_nums) > 0
-        has_prompt_contains = self.prompt_contains is not None and len(self.prompt_contains) > 0
-        has_min_retry = self.min_retry_count is not None
-        if not (has_sheet_nums or has_prompt_contains or has_min_retry):
+        if not (self.sheet_nums or self.prompt_contains or self.min_retry_count is not None):
             raise ValueError(
                 f"CheckpointTrigger '{self.name}' must have at least one non-empty condition "
                 "(sheet_nums, prompt_contains, or min_retry_count)"
@@ -484,3 +491,13 @@ class CheckpointConfig(BaseModel):
         default_factory=list,
         description="List of checkpoint triggers to evaluate before each sheet",
     )
+
+    @model_validator(mode="after")
+    def _validate_triggers_when_enabled(self) -> CheckpointConfig:
+        """Ensure triggers are provided when checkpoints are enabled."""
+        if self.enabled and not self.triggers:
+            raise ValueError(
+                "CheckpointConfig has enabled=True but no triggers configured. "
+                "Add at least one trigger or set enabled=False."
+            )
+        return self

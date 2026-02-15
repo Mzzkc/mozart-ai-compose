@@ -120,8 +120,8 @@ class ConfigResources:
 
             raise ValueError(f"Unknown resource URI: {uri}")
 
-        except Exception as e:
-            logger.exception(f"Error reading resource {uri}")
+        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as e:
+            logger.warning("Error reading resource %s: %s", uri, e)
             return {
                 "contents": [
                     {
@@ -469,7 +469,7 @@ notifications:
                 counter_key = self._STATUS_COUNTER_KEYS.get(job_info["status"])
                 if counter_key:
                     jobs_overview["summary"][counter_key] += 1
-        except Exception as e:
+        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as e:
             jobs_overview["error"] = f"Error scanning jobs: {str(e)}"
 
         return {
@@ -491,7 +491,7 @@ notifications:
         assert self.state_backend is not None  # guaranteed by caller
         try:
             state = await self.state_backend.load(job_id)
-        except Exception as e:
+        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as e:
             logger.warning("Skipping invalid state file %s: %s", job_id, e)
             return None
 
@@ -584,7 +584,7 @@ notifications:
 
             return self._mcp_json_content(uri, job_details)
 
-        except Exception as e:
+        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as e:
             return self._mcp_json_content(uri, {
                 "error": f"Error loading job details: {str(e)}",
                 "job_id": job_id,
@@ -855,12 +855,3 @@ def _build_template_usage_guide() -> dict[str, Any]:
         ],
     }
 
-
-# Code Review During Implementation:
-# ✓ Resource URIs follow consistent naming scheme (config://*)
-# ✓ MIME types properly specified for different content types
-# ✓ Error handling with graceful degradation
-# ✓ JSON schema generation for configuration validation
-# ✓ Comprehensive examples and documentation
-# ✓ Security consideration: read-only resource access
-# ✓ Proper async/await patterns

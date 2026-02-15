@@ -278,16 +278,16 @@ class SQLiteStateBackend(StateBackend):
         """Convert datetime to ISO format string."""
         return dt.isoformat() if dt else None
 
-    def _str_to_datetime(self, s: str | None) -> datetime | None:
+    def _str_to_datetime(self, value: str | None) -> datetime | None:
         """Convert ISO format string to datetime."""
-        if not s:
+        if not value:
             return None
         try:
-            return datetime.fromisoformat(s)
+            return datetime.fromisoformat(value)
         except ValueError:
             _logger.warning(
                 "corrupt_timestamp",
-                value=s,
+                value=value,
                 message="Could not parse ISO timestamp — returning None",
             )
             return None
@@ -298,20 +298,34 @@ class SQLiteStateBackend(StateBackend):
             return None
         return json.dumps(obj, default=str)
 
-    def _json_loads(self, s: str | None) -> Any:
+    def _json_loads(self, raw: str | None) -> Any:
         """Deserialize JSON string to object."""
-        if not s:
+        if not raw:
             return None
         try:
-            return json.loads(s)
+            return json.loads(raw)
         except json.JSONDecodeError as exc:
             _logger.warning(
                 "json_parse_failed",
-                raw_length=len(s) if s else 0,
-                raw_preview=s[:100] if s else "",
+                raw_length=len(raw),
+                raw_preview=raw[:100],
                 error=str(exc),
             )
             return None
+
+    @staticmethod
+    def _bool_to_int(value: bool | None) -> int | None:
+        """Convert tri-state bool to SQLite integer (True->1, False->0, None->None)."""
+        if value is None:
+            return None
+        return 1 if value else 0
+
+    @staticmethod
+    def _int_to_bool(value: int | None) -> bool | None:
+        """Convert SQLite integer to tri-state bool (1->True, 0->False, None->None)."""
+        if value is None:
+            return None
+        return bool(value)
 
     async def load(self, job_id: str) -> CheckpointState | None:
         """Load state for a job from SQLite.
@@ -354,9 +368,7 @@ class SQLiteStateBackend(StateBackend):
                     exit_code=row["exit_code"],
                     error_message=row["error_message"],
                     error_category=row["error_category"],
-                    validation_passed=bool(row["validation_passed"])
-                    if row["validation_passed"] is not None
-                    else None,
+                    validation_passed=self._int_to_bool(row["validation_passed"]),
                     validation_details=self._json_loads(row["validation_details"]),
                     completion_attempts=row["completion_attempts"],
                     passed_validations=self._json_loads(row["passed_validations"]) or [],
@@ -551,9 +563,7 @@ class SQLiteStateBackend(StateBackend):
                             sheet.exit_code,
                             sheet.error_message,
                             sheet.error_category,
-                            1 if sheet.validation_passed else 0
-                            if sheet.validation_passed is not None
-                            else None,
+                            self._bool_to_int(sheet.validation_passed),
                             self._json_dumps(sheet.validation_details),
                             sheet.completion_attempts,
                             self._json_dumps(sheet.passed_validations),

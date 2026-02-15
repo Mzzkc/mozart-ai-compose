@@ -292,13 +292,13 @@ class DaemonProcess:
             from collections.abc import Callable
 
             def _make_signal_callback(
-                s: signal.Signals,
+                signum: signal.Signals,
             ) -> Callable[[], None]:
-                """Create a signal callback that captures ``s`` by value."""
+                """Create a signal callback that captures ``signum`` by value."""
                 def _cb() -> None:
                     self._track_signal_task(
                         asyncio.create_task(
-                            self._handle_signal(s, self._manager, server),
+                            self._handle_signal(signum, self._manager, server),
                         ),
                     )
                 return _cb

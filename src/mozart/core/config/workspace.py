@@ -159,6 +159,22 @@ class WorkspaceLifecycleConfig(BaseModel):
         "Matched against paths relative to workspace root.",
     )
 
+    @field_validator("preserve_patterns")
+    @classmethod
+    def _validate_glob_patterns(cls, v: list[str]) -> list[str]:
+        import fnmatch
+
+        for pattern in v:
+            if not pattern:
+                raise ValueError("preserve_patterns must not contain empty strings")
+            try:
+                fnmatch.translate(pattern)
+            except re.error as e:
+                raise ValueError(
+                    f"Invalid glob pattern {pattern!r}: {e}"
+                ) from e
+        return v
+
 
 class LogConfig(BaseModel):
     """Configuration for structured logging.

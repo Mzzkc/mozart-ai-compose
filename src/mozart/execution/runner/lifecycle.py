@@ -710,7 +710,7 @@ class LifecycleMixin:
             return None
 
         skip_cmd = cmd_conditions[sheet_num]
-        command = skip_cmd.command.replace("{workspace}", str(self.config.workspace))
+        command = skip_cmd.command.replace("{workspace}", str(self.config.workspace), 1)
 
         proc = None
         try:
@@ -1052,78 +1052,62 @@ class LifecycleMixin:
         from mozart.learning.aggregator import EnhancedPatternAggregator
         from mozart.learning.outcomes import SheetOutcome
 
-        try:
-            # Build SheetOutcome objects from state
-            outcomes: list[SheetOutcome] = []
-            for sheet_num, sheet_state in state.sheets.items():
-                outcome = SheetOutcome(
-                    sheet_id=f"{state.job_id}_sheet_{sheet_num}",
-                    job_id=state.job_id,
-                    validation_results=sheet_state.validation_details or [],
-                    execution_duration=sheet_state.execution_duration_seconds or 0.0,
-                    retry_count=max(0, sheet_state.attempt_count - 1),
-                    completion_mode_used=sheet_state.completion_attempts > 0,
-                    final_status=sheet_state.status,
-                    validation_pass_rate=(
-                        100.0
-                        if sheet_state.validation_passed
-                        else 0.0
-                        if sheet_state.validation_passed is False
-                        else 50.0  # Unknown
-                    ),
-                    success_without_retry=sheet_state.success_without_retry,
-                    timestamp=sheet_state.completed_at or utc_now(),
-                    # Output capture for pattern extraction (Evolution: Learning Data Collection)
-                    stdout_tail=sheet_state.stdout_tail or "",
-                    stderr_tail=sheet_state.stderr_tail or "",
-                    # v9 Evolution: Pattern Feedback Loop - pass applied pattern descriptions
-                    patterns_applied=sheet_state.applied_pattern_descriptions,
-                    # Error history for recurring error pattern detection
-                    error_history=[e.model_dump() for e in sheet_state.error_history],
-                    # v11 Evolution: Grounding→Pattern Integration - pass grounding context
-                    grounding_passed=sheet_state.grounding_passed,
-                    grounding_confidence=sheet_state.grounding_confidence,
-                    grounding_guidance=sheet_state.grounding_guidance,
-                )
-                outcomes.append(outcome)
+        # Build SheetOutcome objects from state
+        outcomes: list[SheetOutcome] = []
+        for sheet_num, sheet_state in state.sheets.items():
+            # Map tri-state validation (True/False/None) to pass rate
+            if sheet_state.validation_passed is True:
+                pass_rate = 100.0
+            elif sheet_state.validation_passed is False:
+                pass_rate = 0.0
+            else:
+                pass_rate = 50.0  # Unknown
 
-            if not outcomes:
-                return
-
-            # Create aggregator and aggregate outcomes (use enhanced for output pattern extraction)
-            aggregator = EnhancedPatternAggregator(self._global_learning_store)
-            result = aggregator.aggregate_outcomes(
-                outcomes=outcomes,
-                workspace_path=self.config.workspace,
-                model=self.config.backend.model,
-            )
-
-            # Log aggregation results
-            self._logger.info(
-                "learning.global_aggregation",
+            outcome = SheetOutcome(
+                sheet_id=f"{state.job_id}_sheet_{sheet_num}",
                 job_id=state.job_id,
-                outcomes_recorded=result.outcomes_recorded,
-                patterns_detected=result.patterns_detected,
-                patterns_merged=result.patterns_merged,
-                priorities_updated=result.priorities_updated,
+                validation_results=sheet_state.validation_details or [],
+                execution_duration=sheet_state.execution_duration_seconds or 0.0,
+                retry_count=max(0, sheet_state.attempt_count - 1),
+                completion_mode_used=sheet_state.completion_attempts > 0,
+                final_status=sheet_state.status,
+                validation_pass_rate=pass_rate,
+                success_without_retry=sheet_state.success_without_retry,
+                timestamp=sheet_state.completed_at or utc_now(),
+                stdout_tail=sheet_state.stdout_tail or "",
+                stderr_tail=sheet_state.stderr_tail or "",
+                patterns_applied=sheet_state.applied_pattern_descriptions,
+                error_history=[e.model_dump() for e in sheet_state.error_history],
+                grounding_passed=sheet_state.grounding_passed,
+                grounding_confidence=sheet_state.grounding_confidence,
+                grounding_guidance=sheet_state.grounding_guidance,
             )
+            outcomes.append(outcome)
 
-            if result.outcomes_recorded > 0:
-                self.console.print(
-                    f"[dim]Global learning: {result.outcomes_recorded} outcomes recorded, "
-                    f"{result.patterns_detected} patterns detected[/dim]"
-                )
+        if not outcomes:
+            return
 
-        except (sqlite3.Error, OSError, ValueError, RuntimeError) as e:
-            # Global learning failures should not block job completion.
-            # Narrowed from bare Exception to let programming errors
-            # (TypeError, AttributeError, NameError) propagate.
-            self._logger.warning(
-                "learning.global_aggregation_failed",
-                job_id=state.job_id,
-                error=str(e),
-                error_type=type(e).__name__,
-                exc_info=True,
+        # Aggregate outcomes (enhanced aggregator extracts output patterns)
+        aggregator = EnhancedPatternAggregator(self._global_learning_store)
+        result = aggregator.aggregate_outcomes(
+            outcomes=outcomes,
+            workspace_path=self.config.workspace,
+            model=self.config.backend.model,
+        )
+
+        self._logger.info(
+            "learning.global_aggregation",
+            job_id=state.job_id,
+            outcomes_recorded=result.outcomes_recorded,
+            patterns_detected=result.patterns_detected,
+            patterns_merged=result.patterns_merged,
+            priorities_updated=result.priorities_updated,
+        )
+
+        if result.outcomes_recorded > 0:
+            self.console.print(
+                f"[dim]Global learning: {result.outcomes_recorded} outcomes recorded, "
+                f"{result.patterns_detected} patterns detected[/dim]"
             )
 
 

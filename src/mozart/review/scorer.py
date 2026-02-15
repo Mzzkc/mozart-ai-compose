@@ -198,7 +198,7 @@ class GitDiffProvider:
                 "Git is not installed or not found on PATH. "
                 "Git is required for code review scoring."
             ) from None
-        except Exception as e:
+        except (subprocess.SubprocessError, OSError) as e:
             _logger.warning("git_diff_error", error=str(e))
             return ""
 
@@ -273,7 +273,7 @@ class AIReviewer:
                     error=result.error_message or "Review execution failed",
                     summary="Failed to execute review",
                 )
-        except Exception as e:
+        except (OSError, TimeoutError, RuntimeError) as e:
             _logger.error("ai_review_failed", error=str(e))
             return AIReviewResult(
                 score=0,
@@ -347,7 +347,7 @@ class AIReviewer:
                 raw_response=response,
                 summary="Review response was malformed",
             )
-        except Exception as e:
+        except (ValueError, TypeError, KeyError) as e:
             _logger.warning("review_response_parse_error", error=str(e))
             return AIReviewResult(
                 score=0,

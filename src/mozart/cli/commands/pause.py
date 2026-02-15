@@ -23,11 +23,15 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from typing import Any
 
 import typer
+import yaml
+from pydantic import ValidationError
 
 from mozart.core.checkpoint import JobStatus
 from mozart.core.config import JobConfig
+from mozart.daemon.exceptions import DaemonError
 
 from ..helpers import (
     _find_job_workspace,
@@ -105,7 +109,7 @@ async def _pause_job(
     params = {"job_id": job_id, "workspace": ws_str}
     try:
         routed, result = await try_daemon_route("job.pause", params)
-    except Exception as exc:
+    except (OSError, ConnectionError, DaemonError) as exc:
         # Business logic error from conductor (e.g., job not found)
         if json_output:
             err_result = {
@@ -292,6 +296,124 @@ async def _pause_job_direct(
         )
 
 
+async def _pause_via_conductor(
+    job_id: str,
+    params: dict[str, str | None],
+    json_output: bool,
+) -> None:
+    """Pause a running job via the conductor RPC.
+
+    Raises typer.Exit on failure.
+    """
+    from mozart.daemon.detect import try_daemon_route
+
+    try:
+        pause_routed, pause_result = await try_daemon_route(
+            "job.pause", params,
+        )
+    except (OSError, ConnectionError, DaemonError) as exc:
+        if json_output:
+            result = {
+                "success": False,
+                "error_code": "E503",
+                "job_id": job_id,
+                "message": str(exc),
+            }
+            console.print(json.dumps(result, indent=2))
+        else:
+            console.print(f"[red]Error [E503]:[/red] {exc}")
+        raise typer.Exit(1) from None
+
+    if not pause_routed:
+        return
+
+    paused = (
+        pause_result.get("paused", False)
+        if isinstance(pause_result, dict) else False
+    )
+    if paused and not json_output:
+        console.print(
+            f"Pause signal sent to job '[cyan]{job_id}[/cyan]'."
+        )
+    elif not paused:
+        error_msg = (
+            pause_result.get("error", "")
+            if isinstance(pause_result, dict) else ""
+        )
+        if json_output:
+            result = {
+                "success": False,
+                "error_code": "E503",
+                "job_id": job_id,
+                "message": error_msg or f"Failed to pause job '{job_id}'",
+            }
+            console.print(json.dumps(result, indent=2))
+        else:
+            console.print(f"[red]Error [E503]:[/red] Failed to pause job '{job_id}'")
+        raise typer.Exit(1)
+
+
+async def _pause_via_filesystem(
+    job_id: str,
+    workspace: Path,
+    wait: bool,
+    resume_flag: bool,
+    timeout: int,
+    json_output: bool,
+    found_backend: Any,
+) -> None:
+    """Pause a running job via filesystem signal file.
+
+    Raises typer.Exit on failure.
+    """
+    from ..helpers import (
+        _create_pause_signal as create_pause_signal,
+    )
+    from ..helpers import (
+        _wait_for_pause_ack as wait_for_pause_ack,
+    )
+
+    try:
+        create_pause_signal(workspace, job_id)
+        if not json_output:
+            console.print(
+                f"Pause signal sent to job '[cyan]{job_id}[/cyan]'."
+            )
+    except (PermissionError, OSError) as e:
+        if json_output:
+            result = {
+                "success": False,
+                "error_code": "E503",
+                "job_id": job_id,
+                "message": f"Cannot create pause signal: {e}",
+            }
+            console.print(json.dumps(result, indent=2))
+        else:
+            console.print(f"[red]Error [E503]:[/red] Cannot create pause signal: {e}")
+        raise typer.Exit(1) from None
+
+    if wait and resume_flag and found_backend:
+        if not json_output:
+            console.print(
+                f"[dim]Waiting for job to pause (timeout: {timeout}s)...[/dim]"
+            )
+        was_acknowledged = await wait_for_pause_ack(found_backend, job_id, timeout)
+        if not was_acknowledged:
+            if json_output:
+                result = {
+                    "success": False,
+                    "error_code": "E504",
+                    "job_id": job_id,
+                    "message": f"Pause not acknowledged within {timeout}s",
+                }
+                console.print(json.dumps(result, indent=2))
+            else:
+                console.print(
+                    f"[yellow]Warning:[/yellow] Pause not acknowledged within {timeout}s"
+                )
+            raise typer.Exit(2)
+
+
 def modify(
     job_id: str = typer.Argument(..., help="Job ID to modify"),
     config: Path = typer.Option(
@@ -377,7 +499,7 @@ async def _modify_job(
     # Validate the new config file first
     try:
         new_config = JobConfig.from_yaml(config_file)
-    except Exception as e:
+    except (OSError, ValueError, yaml.YAMLError, ValidationError) as e:
         if json_output:
             result = {
                 "success": False,
@@ -394,13 +516,7 @@ async def _modify_job(
     from mozart.daemon.detect import try_daemon_route
 
     from ..helpers import (
-        _create_pause_signal as create_pause_signal,
-    )
-    from ..helpers import (
         _find_job_state_direct as require_job_state,
-    )
-    from ..helpers import (
-        _wait_for_pause_ack as wait_for_pause_ack,
     )
 
     # Try conductor first for status check
@@ -408,7 +524,7 @@ async def _modify_job(
     params = {"job_id": job_id, "workspace": ws_str}
     try:
         routed, status_result = await try_daemon_route("job.status", params)
-    except Exception as exc:
+    except (OSError, ConnectionError, DaemonError) as exc:
         # Business logic error (e.g., job not found)
         output_error(
             str(exc),
@@ -442,88 +558,12 @@ async def _modify_job(
     if job_was_running:
         # Pause through conductor if available, otherwise filesystem
         if routed:
-            try:
-                pause_routed, pause_result = await try_daemon_route(
-                    "job.pause", params,
-                )
-            except Exception as exc:
-                if json_output:
-                    result = {
-                        "success": False,
-                        "error_code": "E503",
-                        "job_id": job_id,
-                        "message": str(exc),
-                    }
-                    console.print(json.dumps(result, indent=2))
-                else:
-                    console.print(f"[red]Error [E503]:[/red] {exc}")
-                raise typer.Exit(1) from None
-            if pause_routed:
-                paused = (
-                    pause_result.get("paused", False)
-                    if isinstance(pause_result, dict) else False
-                )
-                if paused and not json_output:
-                    console.print(
-                        f"Pause signal sent to job '[cyan]{job_id}[/cyan]'."
-                    )
-                elif not paused:
-                    error_msg = (
-                        pause_result.get("error", "")
-                        if isinstance(pause_result, dict) else ""
-                    )
-                    if json_output:
-                        result = {
-                            "success": False,
-                            "error_code": "E503",
-                            "job_id": job_id,
-                            "message": error_msg or f"Failed to pause job '{job_id}'",
-                        }
-                        console.print(json.dumps(result, indent=2))
-                    else:
-                        console.print(f"[red]Error [E503]:[/red] Failed to pause job '{job_id}'")
-                    raise typer.Exit(1)
+            await _pause_via_conductor(job_id, params, json_output)
         else:
-            # Filesystem-based pause
-            try:
-                create_pause_signal(found_workspace, job_id)
-                if not json_output:
-                    console.print(
-                        f"Pause signal sent to job '[cyan]{job_id}[/cyan]'."
-                    )
-            except (PermissionError, OSError) as e:
-                if json_output:
-                    result = {
-                        "success": False,
-                        "error_code": "E503",
-                        "job_id": job_id,
-                        "message": f"Cannot create pause signal: {e}",
-                    }
-                    console.print(json.dumps(result, indent=2))
-                else:
-                    console.print(f"[red]Error [E503]:[/red] Cannot create pause signal: {e}")
-                raise typer.Exit(1) from None
-
-            if wait and resume_flag and found_backend:
-                if not json_output:
-                    console.print(
-                        f"[dim]Waiting for job to pause (timeout: {timeout}s)...[/dim]"
-                    )
-                was_acknowledged = await wait_for_pause_ack(found_backend, job_id, timeout)
-                if not was_acknowledged:
-                    if json_output:
-                        result = {
-                            "success": False,
-                            "error_code": "E504",
-                            "job_id": job_id,
-                            "message": f"Pause not acknowledged within {timeout}s",
-                        }
-                        console.print(json.dumps(result, indent=2))
-                    else:
-                        console.print(
-                            f"[yellow]Warning:[/yellow] Pause not acknowledged within {timeout}s"
-                        )
-                    raise typer.Exit(2)
+            await _pause_via_filesystem(
+                job_id, found_workspace, wait, resume_flag,
+                timeout, json_output, found_backend,
+            )
 
     elif found_state.status not in {JobStatus.PAUSED, JobStatus.FAILED}:
         # Job is in a state that can't be modified (completed, pending)

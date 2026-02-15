@@ -149,6 +149,13 @@ class ExecutionRecord:
     model: str | None
     error_codes: list[str] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        """Clamp fields to valid ranges."""
+        self.duration_seconds = max(0.0, self.duration_seconds)
+        self.retry_count = max(0, self.retry_count)
+        self.validation_pass_rate = max(0.0, min(1.0, self.validation_pass_rate))
+        self.confidence_score = max(0.0, min(1.0, self.confidence_score))
+
 
 @dataclass
 class PatternRecord:
@@ -209,8 +216,11 @@ class PatternRecord:
     """When success_factors were last updated."""
 
     def __post_init__(self) -> None:
-        """Clamp trust_score to valid range [0.0, 1.0]."""
+        """Clamp scored fields to valid ranges."""
         self.trust_score = max(0.0, min(1.0, self.trust_score))
+        self.effectiveness_score = max(0.0, min(1.0, self.effectiveness_score))
+        self.variance = max(0.0, self.variance)
+        self.priority_score = max(0.0, self.priority_score)
 
 
 @dataclass

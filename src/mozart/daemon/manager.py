@@ -22,7 +22,7 @@ import mozart
 from mozart.core.logging import get_logger
 from mozart.daemon.backpressure import BackpressureController
 from mozart.daemon.config import DaemonConfig
-from mozart.daemon.exceptions import JobSubmissionError
+from mozart.daemon.exceptions import DaemonError, JobSubmissionError
 from mozart.daemon.job_service import JobService
 from mozart.daemon.learning_hub import LearningHub
 from mozart.daemon.monitor import ResourceMonitor
@@ -134,8 +134,11 @@ class JobManager:
 
     async def start(self) -> None:
         """Start daemon subsystems (learning hub, monitor, etc.)."""
+        # Open the async registry connection (tables + WAL mode)
+        await self._registry.open()
+
         # Mark any jobs left running from a previous daemon as failed
-        orphan_count = self._registry.mark_orphans_failed()
+        orphan_count = await self._registry.mark_orphans_failed()
         if orphan_count:
             _logger.info("manager.orphans_recovered", count=orphan_count)
 
@@ -216,20 +219,20 @@ class JobManager:
 
     # ─── Helpers ───────────────────────────────────────────────────────
 
-    def _generate_job_id(self, base_name: str) -> str:
+    async def _generate_job_id(self, base_name: str) -> str:
         """Generate a human-friendly job ID from config file stem.
 
         Uses the name directly (e.g. ``quality-continuous``). If a job
         with that name is already active (in-memory or registry),
         appends ``-2``, ``-3``, etc.
         """
-        def _is_active(name: str) -> bool:
-            return name in self._job_meta or self._registry.has_active_job(name)
+        async def _is_active(name: str) -> bool:
+            return name in self._job_meta or await self._registry.has_active_job(name)
 
-        if not _is_active(base_name):
+        if not await _is_active(base_name):
             return base_name
         suffix = 2
-        while _is_active(f"{base_name}-{suffix}"):
+        while await _is_active(f"{base_name}-{suffix}"):
             suffix += 1
         return f"{base_name}-{suffix}"
 
@@ -251,7 +254,7 @@ class JobManager:
                 message="System under high pressure — try again later",
             )
 
-        job_id = self._generate_job_id(request.config_path.stem)
+        job_id = await self._generate_job_id(request.config_path.stem)
 
         # Validate config exists and resolve workspace from it
         if not request.config_path.exists():
@@ -315,7 +318,7 @@ class JobManager:
             chain_depth=request.chain_depth,
         )
         self._job_meta[job_id] = meta
-        self._registry.register_job(job_id, request.config_path, workspace)
+        await self._registry.register_job(job_id, request.config_path, workspace)
 
         try:
             task = asyncio.create_task(
@@ -326,7 +329,7 @@ class JobManager:
             # Clean up metadata if task creation fails
             # RuntimeError is raised by asyncio when no running event loop
             self._job_meta.pop(job_id, None)
-            self._registry.update_status(
+            await self._registry.update_status(
                 job_id, DaemonJobStatus.FAILED, error_message="Task creation failed",
             )
             raise
@@ -381,7 +384,7 @@ class JobManager:
             raise JobSubmissionError(f"Job '{job_id}' not found")
         if meta.status != DaemonJobStatus.RUNNING:
             raise JobSubmissionError(
-                f"Job '{job_id}' is {meta.status}, not running"
+                f"Job '{job_id}' is {meta.status.value}, not running"
             )
 
         ws = workspace or meta.workspace
@@ -397,6 +400,11 @@ class JobManager:
         meta = self._job_meta.get(job_id)
         if meta is None:
             raise JobSubmissionError(f"Job '{job_id}' not found")
+        if meta.status not in (DaemonJobStatus.PAUSED, DaemonJobStatus.FAILED):
+            raise JobSubmissionError(
+                f"Job '{job_id}' is {meta.status.value}, "
+                "only PAUSED or FAILED jobs can be resumed"
+            )
 
         # Cancel stale task to prevent detached execution
         old_task = self._jobs.pop(job_id, None)
@@ -434,9 +442,10 @@ class JobManager:
         meta = self._job_meta.get(job_id)
         if meta:
             meta.status = DaemonJobStatus.CANCELLED
-        self._registry.update_status(job_id, "cancelled")
+        await self._registry.update_status(job_id, "cancelled")
 
-        await self._scheduler.deregister_job(job_id)
+        if self._scheduler_instance is not None:
+            await self._scheduler_instance.deregister_job(job_id)
         _logger.info("job.cancelled", job_id=job_id)
         return True
 
@@ -455,7 +464,7 @@ class JobManager:
             seen.add(meta.job_id)
 
         # Historical jobs from registry
-        for record in self._registry.list_jobs():
+        for record in await self._registry.list_jobs():
             if record.job_id not in seen:
                 result.append(record.to_dict())
 
@@ -491,7 +500,7 @@ class JobManager:
         for jid in to_remove:
             self._job_meta.pop(jid, None)
 
-        deleted = self._registry.delete_jobs(
+        deleted = await self._registry.delete_jobs(
             statuses=list(safe_statuses),
             older_than_seconds=older_than_seconds,
         )
@@ -680,15 +689,17 @@ class JobManager:
         # heap entries, running-sheet tracking, and dependency data.
         # Uses _job_meta (not _jobs) because task done-callbacks may
         # have already cleared entries from _jobs during cancellation.
-        for job_id in list(self._job_meta.keys()):
-            await self._scheduler.deregister_job(job_id)
+        # Guard: only touch the scheduler if it was ever initialized.
+        if self._scheduler_instance is not None:
+            for job_id in list(self._job_meta.keys()):
+                await self._scheduler_instance.deregister_job(job_id)
 
         self._jobs.clear()
 
         # Stop centralized learning hub (final persist + cleanup)
         await self._learning_hub.stop()
 
-        self._registry.close()
+        await self._registry.close()
         self._shutdown_event.set()
         _logger.info("manager.shutdown_complete")
 
@@ -821,8 +832,8 @@ class JobManager:
 
         async with self._concurrency_semaphore:
             meta.status = DaemonJobStatus.RUNNING
-            meta.started_at = time.monotonic()
-            self._registry.update_status(
+            meta.started_at = time.time()
+            await self._registry.update_status(
                 job_id, "running", pid=os.getpid(),
             )
             _logger.info(start_event, job_id=job_id, timeout_seconds=timeout)
@@ -833,7 +844,7 @@ class JobManager:
                     meta.status = result_status
                 else:
                     meta.status = DaemonJobStatus.COMPLETED
-                self._registry.update_status(job_id, meta.status.value)
+                await self._registry.update_status(job_id, meta.status.value)
                 _logger.info(
                     "job.paused" if meta.status == DaemonJobStatus.PAUSED
                     else "job.completed",
@@ -847,7 +858,7 @@ class JobManager:
                     f"Job exceeded timeout of {timeout:.0f}s "
                     f"(ran for {elapsed:.0f}s)"
                 )
-                self._registry.update_status(
+                await self._registry.update_status(
                     job_id, "failed", error_message=meta.error_message,
                 )
                 self._recent_failures.append(time.monotonic())
@@ -860,19 +871,34 @@ class JobManager:
 
             except asyncio.CancelledError:
                 meta.status = DaemonJobStatus.CANCELLED
-                self._registry.update_status(job_id, "cancelled")
+                await self._registry.update_status(job_id, "cancelled")
                 _logger.info("job.cancelled_during_execution", job_id=job_id)
                 raise
 
-            except Exception as exc:
+            except (OSError, ValueError, DaemonError) as exc:
+                # Expected operational errors: workspace issues, config errors,
+                # permission denied, missing directories, etc.
                 meta.status = DaemonJobStatus.FAILED
                 meta.error_message = str(exc)
                 meta.error_traceback = traceback.format_exc()
-                self._registry.update_status(
+                await self._registry.update_status(
                     job_id, "failed", error_message=meta.error_message,
                 )
                 self._recent_failures.append(time.monotonic())
-                _logger.exception(fail_event, job_id=job_id)
+                _logger.error(fail_event, job_id=job_id, error=str(exc))
+
+            except Exception as exc:
+                # Unexpected programming bugs — log with full traceback
+                meta.status = DaemonJobStatus.FAILED
+                meta.error_message = f"Unexpected internal error: {exc}"
+                meta.error_traceback = traceback.format_exc()
+                await self._registry.update_status(
+                    job_id, "failed", error_message=meta.error_message,
+                )
+                self._recent_failures.append(time.monotonic())
+                _logger.exception(
+                    "job.unexpected_error", job_id=job_id,
+                )
 
     async def _run_job_task(self, job_id: str, request: JobRequest) -> None:
         """Task coroutine that runs a single job.
@@ -945,19 +971,29 @@ class JobManager:
 
         Wrapped in try/except because asyncio silently drops exceptions
         in Task.add_done_callback handlers.
+
+        Since the registry is async, any needed status updates are
+        scheduled as fire-and-forget coroutines via create_task().
         """
         try:
             self._jobs.pop(job_id, None)
-            log_task_exception(task, _logger, "job.task_failed")
+            exc = log_task_exception(task, _logger, "job.task_failed")
 
-            exc = task.exception() if not task.cancelled() else None
             if exc:
                 meta = self._job_meta.get(job_id)
                 if meta and meta.status == DaemonJobStatus.RUNNING:
                     meta.status = DaemonJobStatus.FAILED
                     meta.error_message = str(exc)
-                    self._registry.update_status(
-                        job_id, "failed", error_message=str(exc),
+                    update_task = asyncio.create_task(
+                        self._registry.update_status(
+                            job_id, "failed", error_message=str(exc),
+                        ),
+                        name=f"registry-update-{job_id}",
+                    )
+                    update_task.add_done_callback(
+                        lambda t: log_task_exception(
+                            t, _logger, "registry.update_failed",
+                        ),
                     )
 
             self._prune_job_history()

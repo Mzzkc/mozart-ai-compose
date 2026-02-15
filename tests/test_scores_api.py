@@ -362,6 +362,11 @@ learning:
 
 grounding:
   enabled: true
+  hooks:
+    - type: file_checksum
+      name: artifact_check
+      expected_checksums:
+        output.txt: "placeholder"
 
 cost_limits:
   max_cost_usd: 50.0
