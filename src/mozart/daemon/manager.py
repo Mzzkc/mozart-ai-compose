@@ -950,6 +950,8 @@ class JobManager:
 
             if summary.final_status == JobStatus.PAUSED:
                 return DaemonJobStatus.PAUSED
+            if summary.final_status == JobStatus.FAILED:
+                return DaemonJobStatus.FAILED
             return DaemonJobStatus.COMPLETED
 
         await self._run_managed_task(job_id, _execute())
@@ -957,8 +959,15 @@ class JobManager:
     async def _resume_job_task(self, job_id: str, workspace: Path) -> None:
         """Task coroutine that resumes a paused job."""
 
-        async def _execute() -> None:
-            await self._checked_service.resume_job(job_id, workspace)
+        async def _execute() -> DaemonJobStatus:
+            from mozart.core.checkpoint import JobStatus
+
+            summary = await self._checked_service.resume_job(job_id, workspace)
+            if summary.final_status == JobStatus.PAUSED:
+                return DaemonJobStatus.PAUSED
+            if summary.final_status == JobStatus.FAILED:
+                return DaemonJobStatus.FAILED
+            return DaemonJobStatus.COMPLETED
 
         await self._run_managed_task(
             job_id, _execute(),
