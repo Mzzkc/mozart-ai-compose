@@ -218,7 +218,7 @@ mozart resume hello-world --workspace ./workspace/hello-world
 | `mozart validate <config>` | Validate configuration file |
 | `mozart list` | List active jobs (requires daemon; use `--all` for all jobs) |
 | `mozart history <job-id>` | Show execution history from SQLite |
-| `mozart config <subcommand>` | Manage Mozart configuration (`show`, `set`, `path`, `init`) |
+| `mozart config <subcommand>` | Manage Mozart configuration (`show`, `set`, `path`, `init`, `check`) |
 
 ### Diagnostic Commands
 

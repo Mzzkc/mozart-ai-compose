@@ -46,12 +46,12 @@ class TestSheetStatePatternFields:
             applied_pattern_descriptions=["desc-1", "desc-2"],
         )
 
-        # Pydantic model_dump should include the fields
+        # After Q029: model_dump emits structured applied_patterns
         data = state.model_dump()
-        assert "applied_pattern_ids" in data
-        assert "applied_pattern_descriptions" in data
-        assert data["applied_pattern_ids"] == ["id-1", "id-2"]
-        assert data["applied_pattern_descriptions"] == ["desc-1", "desc-2"]
+        assert "applied_patterns" in data
+        assert len(data["applied_patterns"]) == 2
+        assert data["applied_patterns"][0] == {"id": "id-1", "description": "desc-1"}
+        assert data["applied_patterns"][1] == {"id": "id-2", "description": "desc-2"}
 
     def test_pattern_fields_load_from_dict(self):
         """Test pattern fields can be loaded from dict (checkpoint recovery)."""

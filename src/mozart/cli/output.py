@@ -279,14 +279,20 @@ def create_sheet_plan_table() -> Table:
     return table
 
 
-def create_sheet_details_table() -> Table:
+def create_sheet_details_table(*, has_descriptions: bool = False) -> Table:
     """Create a styled table for detailed sheet status.
+
+    Args:
+        has_descriptions: When True, adds a Description column after the
+            sheet number.  Populated from ``SheetConfig.descriptions`` (GH#75).
 
     Returns:
         Rich Table configured for sheet details display.
     """
     table = Table(show_header=True, header_style="bold")
     table.add_column("#", justify="right", style="cyan", width=4)
+    if has_descriptions:
+        table.add_column("Description", style="dim", width=20, no_wrap=True)
     table.add_column("Status", width=12)
     table.add_column("Attempts", justify="right", width=8)
     table.add_column("Validation", width=10)

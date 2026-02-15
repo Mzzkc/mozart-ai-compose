@@ -528,16 +528,12 @@ class TestGracefulShutdownErrorException:
 
     def test_graceful_shutdown_can_be_caught(self) -> None:
         """Test GracefulShutdownError can be caught separately from other exceptions."""
-        caught = False
-
         try:
             raise GracefulShutdownError("User interrupt")
         except GracefulShutdownError:
-            caught = True
+            pass  # Expected: caught by specific handler
         except Exception:
-            pass
-
-        assert caught
+            pytest.fail("GracefulShutdownError was not caught by its specific handler")
 
 
 class TestSheetTiming:
@@ -1793,10 +1789,6 @@ class TestActiveBroadcastPolling:
         await runner._poll_broadcast_discoveries("test-job", sheet_num=1)
         assert runner._global_learning_store is None
 
-
-# =============================================================================
-# TestCostTracking
-# =============================================================================
 
 
 class TestCostTracking:

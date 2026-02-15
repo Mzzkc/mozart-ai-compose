@@ -300,7 +300,7 @@ class TestDaemonProcess:
 
         assert signal.SIGTERM in handlers_added
         assert signal.SIGINT in handlers_added
-        # SIGHUP intentionally not registered — config reload not yet implemented
+        assert signal.SIGHUP in handlers_added
 
     @pytest.mark.asyncio
     async def test_run_cleans_pid_file_on_crash(self):
@@ -348,12 +348,76 @@ class TestDaemonProcess:
         registered_methods = {call.args[0] for call in handler.register.call_args_list}
         expected = {
             "job.submit", "job.status", "job.pause", "job.resume",
-            "job.cancel", "job.list", "job.errors", "job.diagnose",
-            "job.history", "job.recover",
-            "daemon.status", "daemon.shutdown",
+            "job.cancel", "job.list", "job.clear", "job.errors",
+            "job.diagnose", "job.history", "job.recover",
+            "daemon.status", "daemon.shutdown", "daemon.config",
             "daemon.health", "daemon.ready",
         }
         assert registered_methods == expected
+
+    @pytest.mark.asyncio
+    async def test_handle_sighup_reloads_config(self, tmp_path: Path):
+        """_handle_sighup reloads config from disk and applies changes."""
+        from mozart.daemon.config import DaemonConfig
+
+        # Create a config file with initial settings
+        import yaml
+        cfg_path = tmp_path / "daemon.yaml"
+        cfg_path.write_text(yaml.dump({"max_concurrent_jobs": 3}))
+
+        config = DaemonConfig(max_concurrent_jobs=3)
+        config.config_file = cfg_path
+        dp = DaemonProcess(config)
+
+        # Simulate running state with mock manager/monitor
+        mock_manager = MagicMock()
+        mock_monitor = MagicMock()
+        dp._manager = mock_manager
+        dp._monitor = mock_monitor
+
+        # Update config file with new value
+        cfg_path.write_text(yaml.dump({"max_concurrent_jobs": 8}))
+
+        await dp._handle_sighup()
+
+        mock_manager.apply_config.assert_called_once()
+        mock_monitor.update_limits.assert_called_once()
+        assert dp._config.max_concurrent_jobs == 8
+
+    @pytest.mark.asyncio
+    async def test_handle_sighup_no_config_file(self):
+        """_handle_sighup does nothing when no config file was recorded."""
+        from mozart.daemon.config import DaemonConfig
+
+        config = DaemonConfig()  # config_file defaults to None
+        dp = DaemonProcess(config)
+
+        # Should not raise — just logs a warning
+        await dp._handle_sighup()
+
+    @pytest.mark.asyncio
+    async def test_handle_sighup_warns_non_reloadable(self, tmp_path: Path):
+        """_handle_sighup logs warnings when non-reloadable fields change."""
+        from mozart.daemon.config import DaemonConfig, SocketConfig
+
+        import yaml
+        cfg_path = tmp_path / "daemon.yaml"
+        cfg_path.write_text(yaml.dump({
+            "socket": {"path": "/tmp/new-mozart.sock"},
+        }))
+
+        config = DaemonConfig(
+            socket=SocketConfig(path=Path("/tmp/old-mozart.sock")),
+        )
+        config.config_file = cfg_path
+        dp = DaemonProcess(config)
+        dp._manager = MagicMock()
+        dp._monitor = MagicMock()
+
+        # Should not raise — applies config and logs warning for socket.path
+        await dp._handle_sighup()
+        # Config is updated despite non-reloadable warning
+        assert dp._config.socket.path == Path("/tmp/new-mozart.sock")
 
     @pytest.mark.asyncio
     async def test_register_methods_without_health(self):
@@ -374,3 +438,78 @@ class TestDaemonProcess:
         # But core methods are still there
         assert "job.submit" in registered_methods
         assert "daemon.status" in registered_methods
+
+    @pytest.mark.asyncio
+    async def test_handle_sighup_corrupt_yaml_keeps_current_config(self, tmp_path: Path):
+        """_handle_sighup keeps current config when the file contains invalid YAML."""
+        from mozart.daemon.config import DaemonConfig
+
+        cfg_path = tmp_path / "daemon.yaml"
+        cfg_path.write_text("max_concurrent_jobs: 5")
+
+        config = DaemonConfig(max_concurrent_jobs=5)
+        config.config_file = cfg_path
+        dp = DaemonProcess(config)
+        dp._manager = MagicMock()
+        dp._monitor = MagicMock()
+
+        # Corrupt the file with invalid YAML that will cause model_validate to fail
+        cfg_path.write_text("max_concurrent_jobs: not-a-number")
+
+        await dp._handle_sighup()
+
+        # Config should be unchanged — reload failed, kept current
+        assert dp._config.max_concurrent_jobs == 5
+        # Manager/monitor should NOT have been called
+        dp._manager.apply_config.assert_not_called()
+        dp._monitor.update_limits.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_handle_sighup_deleted_file_keeps_current_config(self, tmp_path: Path):
+        """_handle_sighup keeps current config when the config file is deleted."""
+        from mozart.daemon.config import DaemonConfig
+
+        cfg_path = tmp_path / "daemon.yaml"
+        cfg_path.write_text("max_concurrent_jobs: 5")
+
+        config = DaemonConfig(max_concurrent_jobs=5)
+        config.config_file = cfg_path
+        dp = DaemonProcess(config)
+        dp._manager = MagicMock()
+        dp._monitor = MagicMock()
+
+        # Delete the config file
+        cfg_path.unlink()
+
+        await dp._handle_sighup()
+
+        # _load_config returns defaults when file is missing — config IS replaced
+        # with defaults (max_concurrent_jobs=5 is the default anyway)
+        # But apply_config and update_limits ARE called because _load_config
+        # successfully returns a DaemonConfig (defaults).
+        dp._manager.apply_config.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_daemon_config_rpc_handler_returns_config(self):
+        """The daemon.config RPC handler returns the current config as dict."""
+        from mozart.daemon.config import DaemonConfig
+
+        config = DaemonConfig(max_concurrent_jobs=7)
+        dp = DaemonProcess(config)
+
+        handler = MagicMock()
+        manager = MagicMock()
+
+        dp._register_methods(handler, manager, health=None)
+
+        # Find the daemon.config handler
+        config_handler = None
+        for call in handler.register.call_args_list:
+            if call.args[0] == "daemon.config":
+                config_handler = call.args[1]
+                break
+
+        assert config_handler is not None
+        result = await config_handler({}, None)
+        assert isinstance(result, dict)
+        assert result["max_concurrent_jobs"] == 7

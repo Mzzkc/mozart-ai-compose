@@ -97,10 +97,9 @@ def stop_conductor(
 ) -> None:
     """Stop the running Mozart conductor (daemon) process.
 
-    This is the core implementation shared by ``mozart stop`` and
     Called by ``mozart stop`` via ``cli/commands/conductor.py``.
     """
-    resolved_pid_file = pid_file or Path("/tmp/mozart.pid")
+    resolved_pid_file = pid_file or DaemonConfig().pid_file
     pid = _read_pid(resolved_pid_file)
     if pid is None or not _pid_alive(pid):
         typer.echo("Mozart conductor is not running")
@@ -120,11 +119,11 @@ def get_conductor_status(
 ) -> None:
     """Check Mozart conductor (daemon) status via health probes.
 
-    This is the core implementation shared by ``mozart conductor-status``
     Called by ``mozart conductor-status`` via ``cli/commands/conductor.py``.
     """
-    resolved_pid_file = pid_file or Path("/tmp/mozart.pid")
-    resolved_socket = socket_path or Path("/tmp/mozart.sock")
+    _defaults = DaemonConfig()
+    resolved_pid_file = pid_file or _defaults.pid_file
+    resolved_socket = socket_path or _defaults.socket.path
 
     pid = _read_pid(resolved_pid_file)
     if pid is None or not _pid_alive(pid):
@@ -217,18 +216,18 @@ class DaemonProcess:
             from mozart.daemon.monitor import ResourceMonitor
 
             # Create monitor first (without manager ref — set after).
-            monitor = ResourceMonitor(
+            self._monitor = ResourceMonitor(
                 self._config.resource_limits, pgroup=self._pgroup,
             )
             # Pass the single monitor into JobManager for backpressure.
-            manager = JobManager(
+            self._manager = JobManager(
                 self._config,
                 start_time=self._start_time,
-                monitor=monitor,
+                monitor=self._monitor,
             )
             # Now wire the manager back into the monitor for job counts.
-            monitor.set_manager(manager)
-            await manager.start()
+            self._monitor.set_manager(self._manager)
+            await self._manager.start()
 
             # Warn about unenforced / reserved config fields.
             # Each entry: (field, current_value, default, event, message)
@@ -273,10 +272,10 @@ class DaemonProcess:
             # 4. Create health checker
             from mozart.daemon.health import HealthChecker
 
-            health = HealthChecker(manager, monitor, start_time=self._start_time)
+            health = HealthChecker(self._manager, self._monitor, start_time=self._start_time)
 
             # 5. Register RPC methods (adapt JobManager to handler signature)
-            self._register_methods(handler, manager, health)
+            self._register_methods(handler, self._manager, health)
 
             # 6. Start server
             server = DaemonServer(
@@ -299,20 +298,24 @@ class DaemonProcess:
                 def _cb() -> None:
                     self._track_signal_task(
                         asyncio.create_task(
-                            self._handle_signal(s, manager, server),
+                            self._handle_signal(s, self._manager, server),
                         ),
                     )
                 return _cb
 
             for sig in (signal.SIGTERM, signal.SIGINT):
                 loop.add_signal_handler(sig, _make_signal_callback(sig))
-            # SIGHUP handler intentionally NOT registered — config reload
-            # is not yet implemented.  Registering a no-op handler would
-            # create false expectations for ops teams.
+
+            def _sighup_callback() -> None:
+                self._track_signal_task(
+                    asyncio.create_task(self._handle_sighup()),
+                )
+
+            loop.add_signal_handler(signal.SIGHUP, _sighup_callback)
 
             # 8. Start resource monitor
             interval = self._config.monitor_interval_seconds
-            await monitor.start(interval_seconds=interval)
+            await self._monitor.start(interval_seconds=interval)
 
             # 9. Run until shutdown
             _logger.info(
@@ -320,10 +323,10 @@ class DaemonProcess:
                 pid=os.getpid(),
                 socket=str(self._config.socket.path),
             )
-            await manager.wait_for_shutdown()
+            await self._manager.wait_for_shutdown()
 
             # 10. Cleanup
-            await monitor.stop()
+            await self._monitor.stop()
             await server.stop()
 
             # 11. Kill remaining children in process group (issue #38)
@@ -433,18 +436,30 @@ class DaemonProcess:
                 dry_run=params.get("dry_run", False),
             )
 
+        async def handle_config(_p: dict[str, Any], _w: Any) -> dict[str, Any]:
+            return self._config.model_dump(mode="json")
+
+        async def handle_clear_jobs(params: dict[str, Any], _w: Any) -> dict[str, Any]:
+            return await manager.clear_jobs(
+                statuses=params.get("statuses"),
+                older_than_seconds=params.get("older_than_seconds"),
+            )
+
         handler.register("job.submit", handle_submit)
         handler.register("job.status", handle_job_status)
         handler.register("job.pause", handle_pause)
         handler.register("job.resume", handle_resume)
         handler.register("job.cancel", handle_cancel)
         handler.register("job.list", handle_list)
+        handler.register("job.clear", handle_clear_jobs)
         handler.register("job.errors", handle_errors)
         handler.register("job.diagnose", handle_diagnose)
         handler.register("job.history", handle_history)
         handler.register("job.recover", handle_recover)
+
         handler.register("daemon.status", handle_daemon_status)
         handler.register("daemon.shutdown", handle_shutdown)
+        handler.register("daemon.config", handle_config)
 
         # Health check probes
         if health is not None:
@@ -486,18 +501,95 @@ class DaemonProcess:
         _logger.info("daemon.signal_received", signal=sig.name)
         await manager.shutdown(graceful=True)
 
+    async def _handle_sighup(self) -> None:
+        """Handle SIGHUP by reloading config from disk.
+
+        Re-reads the config file and hot-applies reloadable fields to
+        running components.  Non-reloadable fields (socket.*, pid_file)
+        are detected and logged as warnings.
+        """
+        config_file = self._config.config_file
+        if config_file is None:
+            _logger.warning(
+                "daemon.sighup_no_config_file",
+                message="No config file recorded — started with defaults. "
+                "SIGHUP reload has no effect.",
+            )
+            return
+
+        _logger.info("daemon.sighup_reload_start", config_file=str(config_file))
+
+        try:
+            new_config = _load_config(config_file)
+        except Exception:
+            _logger.exception(
+                "daemon.sighup_reload_failed",
+                config_file=str(config_file),
+                message="Config reload failed — keeping current config.",
+            )
+            return
+
+        # Warn about non-reloadable field changes
+        _non_reloadable = [
+            ("socket.path", self._config.socket.path, new_config.socket.path),
+            ("socket.permissions", self._config.socket.permissions, new_config.socket.permissions),
+            ("socket.backlog", self._config.socket.backlog, new_config.socket.backlog),
+            ("pid_file", self._config.pid_file, new_config.pid_file),
+        ]
+        for field_name, old_val, new_val in _non_reloadable:
+            if old_val != new_val:
+                _logger.warning(
+                    "daemon.sighup_non_reloadable_changed",
+                    field=field_name,
+                    old_value=str(old_val),
+                    new_value=str(new_val),
+                    message=f"{field_name} changed but requires restart to take effect.",
+                )
+
+        # Hot-apply reloadable fields
+        if hasattr(self, '_manager') and self._manager is not None:
+            self._manager.apply_config(new_config)
+
+        if hasattr(self, '_monitor') and self._monitor is not None:
+            self._monitor.update_limits(new_config.resource_limits)
+
+        # Reconfigure logging if log_level changed
+        if new_config.log_level != self._config.log_level:
+            from mozart.core.logging import configure_logging
+
+            configure_logging(
+                level=new_config.log_level.upper(),  # type: ignore[arg-type]
+                file_path=new_config.log_file,
+                include_timestamps=True,
+            )
+            _logger.info(
+                "daemon.sighup_log_level_changed",
+                old_level=self._config.log_level,
+                new_level=new_config.log_level,
+            )
+
+        self._config = new_config
+        _logger.info("daemon.sighup_reload_complete")
+
 
 # ─── Helpers ──────────────────────────────────────────────────────────
 
 
 def _load_config(config_file: Path | None) -> DaemonConfig:
-    """Load DaemonConfig from YAML file or return defaults."""
+    """Load DaemonConfig from YAML file or return defaults.
+
+    When loading from a file, the resulting config's ``config_file``
+    field is set to the resolved path so that SIGHUP reload knows
+    which file to re-read.
+    """
     if config_file and config_file.exists():
         import yaml
 
         with open(config_file) as f:
             data = yaml.safe_load(f) or {}
-        return DaemonConfig.model_validate(data)
+        config = DaemonConfig.model_validate(data)
+        config.config_file = config_file.resolve()
+        return config
     return DaemonConfig()
 
 

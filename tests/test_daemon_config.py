@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from mozart.daemon.config import DaemonConfig, ResourceLimitConfig, SocketConfig
@@ -267,3 +268,135 @@ class TestDaemonConfig:
         assert config.resource_limits.max_memory_mb == 2048
         # Non-specified fields should get defaults
         assert config.resource_limits.max_processes == 50
+
+    def test_config_file_field_accepts_path(self):
+        """config_file can be set to a Path without triggering warnings."""
+        config = DaemonConfig(config_file=Path("/tmp/test.yaml"))
+        assert config.config_file == Path("/tmp/test.yaml")
+
+    def test_config_file_default_is_none(self):
+        """config_file defaults to None."""
+        config = DaemonConfig()
+        assert config.config_file is None
+
+
+class TestLoadConfig:
+    """Tests for _load_config() helper."""
+
+    def test_load_from_yaml_sets_config_file(self, tmp_path: Path):
+        """_load_config sets config_file to the resolved path of the loaded file."""
+        from mozart.daemon.process import _load_config
+
+        cfg_path = tmp_path / "daemon.yaml"
+        cfg_path.write_text(yaml.dump({"max_concurrent_jobs": 3}))
+
+        config = _load_config(cfg_path)
+        assert config.config_file == cfg_path.resolve()
+        assert config.max_concurrent_jobs == 3
+
+    def test_load_with_none_returns_defaults(self):
+        """_load_config(None) returns default config with config_file=None."""
+        from mozart.daemon.process import _load_config
+
+        config = _load_config(None)
+        assert config.config_file is None
+        assert config.max_concurrent_jobs == 5  # default
+
+    def test_load_nonexistent_file_returns_defaults(self, tmp_path: Path):
+        """_load_config with non-existent file returns defaults."""
+        from mozart.daemon.process import _load_config
+
+        config = _load_config(tmp_path / "nope.yaml")
+        assert config.config_file is None
+
+
+class TestJobManagerApplyConfig:
+    """Tests for JobManager.apply_config() hot-reload method."""
+
+    def test_apply_config_rebuilds_semaphore_on_change(self):
+        """apply_config creates a new semaphore when max_concurrent_jobs changes."""
+        from mozart.daemon.manager import JobManager
+
+        config = DaemonConfig(max_concurrent_jobs=5)
+        manager = JobManager(config)
+        old_sem = manager._concurrency_semaphore
+
+        new_config = DaemonConfig(max_concurrent_jobs=10)
+        manager.apply_config(new_config)
+
+        assert manager._concurrency_semaphore is not old_sem
+        assert manager._config.max_concurrent_jobs == 10
+
+    def test_apply_config_no_semaphore_change_when_unchanged(self):
+        """apply_config keeps the same semaphore when max_concurrent_jobs is unchanged."""
+        from mozart.daemon.manager import JobManager
+
+        config = DaemonConfig(max_concurrent_jobs=5)
+        manager = JobManager(config)
+        old_sem = manager._concurrency_semaphore
+
+        new_config = DaemonConfig(max_concurrent_jobs=5)
+        manager.apply_config(new_config)
+
+        assert manager._concurrency_semaphore is old_sem
+
+    def test_apply_config_updates_config_reference(self):
+        """apply_config replaces the _config reference."""
+        from mozart.daemon.manager import JobManager
+
+        old_config = DaemonConfig(job_timeout_seconds=3600.0)
+        manager = JobManager(old_config)
+
+        new_config = DaemonConfig(job_timeout_seconds=7200.0)
+        manager.apply_config(new_config)
+
+        assert manager._config is new_config
+        assert manager._config.job_timeout_seconds == 7200.0
+
+    def test_apply_config_noop_when_identical(self):
+        """apply_config with identical config does not rebuild semaphore."""
+        from mozart.daemon.manager import JobManager
+
+        config = DaemonConfig()
+        manager = JobManager(config)
+        old_sem = manager._concurrency_semaphore
+
+        identical_config = DaemonConfig()
+        manager.apply_config(identical_config)
+
+        assert manager._concurrency_semaphore is old_sem
+        assert manager._config is identical_config
+
+
+class TestResourceMonitorUpdateLimits:
+    """Tests for ResourceMonitor.update_limits() hot-reload method."""
+
+    def test_update_limits_replaces_config(self):
+        """update_limits replaces the internal config reference."""
+        from mozart.daemon.monitor import ResourceMonitor
+
+        old_limits = ResourceLimitConfig(max_memory_mb=4096)
+        monitor = ResourceMonitor(old_limits)
+
+        new_limits = ResourceLimitConfig(max_memory_mb=8192)
+        monitor.update_limits(new_limits)
+
+        assert monitor._config is new_limits
+        assert monitor._config.max_memory_mb == 8192
+
+    def test_update_limits_preserves_other_state(self):
+        """update_limits does not affect degraded/failure state."""
+        from mozart.daemon.monitor import ResourceMonitor
+
+        limits = ResourceLimitConfig()
+        monitor = ResourceMonitor(limits)
+        monitor._degraded = True
+        monitor._consecutive_failures = 3
+
+        new_limits = ResourceLimitConfig(max_memory_mb=2048)
+        monitor.update_limits(new_limits)
+
+        # Internal state untouched
+        assert monitor._degraded is True
+        assert monitor._consecutive_failures == 3
+        assert monitor._config is new_limits

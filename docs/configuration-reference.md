@@ -219,6 +219,7 @@ Defines how the work is divided into sheets (execution units).
 | `dependencies` | `dict[int, list[int]]` | `{}` | No self-references | Sheet dependency declarations. Map of `sheet_num -> [prerequisites]`. Sheets without entries are independent. |
 | `skip_when` | `dict[int, str]` | `{}` | | Conditional skip rules. Map of `sheet_num -> condition`. Expression accesses `sheets` dict and `job` state. If truthy, sheet is skipped. |
 | `skip_when_command` | `dict[int, SkipWhenCommand]` | `{}` | | Command-based conditional skip rules. Map of `sheet_num -> SkipWhenCommand`. The command runs via shell; exit 0 = skip the sheet, non-zero = run it. Fail-open on timeout or error. |
+| `prompt_extensions` | `dict[int, list[str]]` | `{}` | | Per-sheet prompt extensions. Map of `sheet_num -> list of extension strings`. Applied in addition to score-level `prompt.prompt_extensions`. |
 | `fan_out` | `dict[int, int]` | `{}` | Requires `size=1`, `start_item=1` | Fan-out declarations. Map of `stage_num -> instance_count`. Creates parallel instances of stages. Cleared after expansion. |
 | `fan_out_stage_map` | `dict[int, dict[str, int]] \| None` | `None` | | Per-sheet fan-out metadata, populated by expansion. Survives serialization for resume support. |
 
@@ -286,6 +287,7 @@ sheet:
 | `variables` | `dict[str, Any]` | `{}` | | Static variables available in template |
 | `stakes` | `str \| None` | `None` | | Motivational stakes section appended to prompt |
 | `thinking_method` | `str \| None` | `None` | | Thinking methodology injected into prompt |
+| `prompt_extensions` | `list[str]` | `[]` | | Additional directives injected after the Mozart default preamble for all sheets. Each entry is inline text or a file path (.md/.txt). |
 
 For template variable reference, see the [Score Writing Guide](score-writing-guide.md#template-variables-reference).
 
@@ -298,6 +300,9 @@ prompt:
     focus_area: "error handling"
   stakes: "This code will be deployed to production."
   thinking_method: "Think step by step."
+  prompt_extensions:
+    - "Always write unit tests for new code."
+    - "Follow the existing code style in the project."
 ```
 
 ---
@@ -987,7 +992,7 @@ Top-level configuration for the Mozart daemon process. Configured separately fro
 | `shutdown_timeout_seconds` | `float` | `300.0` | `>= 10` | Max seconds for graceful shutdown |
 | `monitor_interval_seconds` | `float` | `15.0` | `>= 5` | Interval between resource monitor checks |
 | `max_job_history` | `int` | `1000` | `>= 10` | Completed/failed/cancelled jobs to keep in memory |
-| `config_file` | `Path \| None` | `None` | **Reserved — SIGHUP reload not implemented.** | Future config reload path |
+| `config_file` | `Path \| None` | `None` | | Path to the YAML config file. Set automatically on startup; used by SIGHUP reload to re-read config from disk. |
 
 ### Socket Sub-Config
 

@@ -288,6 +288,16 @@ class LearningConfig(BaseModel):
     )
 
     @model_validator(mode="after")
+    def _validate_confidence_thresholds(self) -> LearningConfig:
+        """Ensure min_confidence_threshold < high_confidence_threshold."""
+        if self.min_confidence_threshold >= self.high_confidence_threshold:
+            raise ValueError(
+                f"min_confidence_threshold ({self.min_confidence_threshold}) "
+                f"must be less than high_confidence_threshold ({self.high_confidence_threshold})"
+            )
+        return self
+
+    @model_validator(mode="after")
     def _sync_auto_apply_fields(self) -> LearningConfig:
         """Sync flat auto_apply_enabled/threshold with structured auto_apply config.
 
@@ -428,14 +438,13 @@ class CheckpointTriggerConfig(BaseModel):
 
     @model_validator(mode="after")
     def _require_at_least_one_condition(self) -> CheckpointTriggerConfig:
-        """Ensure trigger has at least one matching condition."""
-        if (
-            self.sheet_nums is None
-            and self.prompt_contains is None
-            and self.min_retry_count is None
-        ):
+        """Ensure trigger has at least one non-empty matching condition."""
+        has_sheet_nums = self.sheet_nums is not None and len(self.sheet_nums) > 0
+        has_prompt_contains = self.prompt_contains is not None and len(self.prompt_contains) > 0
+        has_min_retry = self.min_retry_count is not None
+        if not (has_sheet_nums or has_prompt_contains or has_min_retry):
             raise ValueError(
-                f"CheckpointTrigger '{self.name}' must have at least one condition "
+                f"CheckpointTrigger '{self.name}' must have at least one non-empty condition "
                 "(sheet_nums, prompt_contains, or min_retry_count)"
             )
         return self

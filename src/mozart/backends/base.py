@@ -230,6 +230,20 @@ class Backend(ABC):
         )
         return classified.category == ErrorCategory.RATE_LIMIT
 
+    def set_prompt_extensions(self, _extensions: list[str]) -> None:  # noqa: B027
+        """Set prompt extensions for the next execution.
+
+        Extensions are additional directive blocks injected after the default
+        preamble. Called per-sheet by the runner to apply score-level and
+        sheet-level prompt extensions (GH#76).
+
+        Override in subclasses that support prompt injection.
+        Default implementation is a no-op for backends without this capability.
+
+        Args:
+            _extensions: List of extension text blocks.
+        """
+
     def set_output_log_path(self, _path: Path | None) -> None:  # noqa: B027
         """Set base path for real-time output logging.
 

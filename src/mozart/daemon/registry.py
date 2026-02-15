@@ -214,6 +214,42 @@ class JobRegistry:
             _logger.warning("registry.orphans_marked_failed", count=count)
         return count
 
+    def delete_jobs(
+        self,
+        *,
+        statuses: list[str] | None = None,
+        older_than_seconds: float | None = None,
+    ) -> int:
+        """Delete terminal jobs from the registry.
+
+        Never deletes active jobs (queued/running) regardless of filter.
+
+        Args:
+            statuses: Only delete jobs with these statuses.
+                      Defaults to all terminal statuses.
+            older_than_seconds: Only delete jobs older than this many seconds.
+
+        Returns:
+            Number of deleted rows.
+        """
+        safe = set(statuses or ["completed", "failed", "cancelled"])
+        safe -= {"queued", "running"}
+
+        conditions = ["status IN ({})".format(",".join("?" for _ in safe))]
+        params: list[Any] = list(safe)
+
+        if older_than_seconds is not None:
+            conditions.append("submitted_at < ?")
+            params.append(time.time() - older_than_seconds)
+
+        sql = "DELETE FROM jobs WHERE " + " AND ".join(conditions)
+        cursor = self._conn.execute(sql, params)
+        self._conn.commit()
+        count = cursor.rowcount
+        if count > 0:
+            _logger.info("registry.delete_jobs", deleted=count)
+        return count
+
     def close(self) -> None:
         """Close the database connection."""
         self._conn.close()

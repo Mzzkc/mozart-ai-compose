@@ -21,10 +21,6 @@ if TYPE_CHECKING:
     from typing import Any
 
 
-# =============================================================================
-# Signal Helpers (needed for ClassifiedError.signal_name)
-# =============================================================================
-
 
 def _get_signal_name(sig_num: int) -> str:
     """Get human-readable signal name.
@@ -34,23 +30,10 @@ def _get_signal_name(sig_num: int) -> str:
     """
     import signal
 
-    signal_names: dict[int, str] = {
-        signal.SIGTERM: "SIGTERM",
-        signal.SIGKILL: "SIGKILL",
-        signal.SIGINT: "SIGINT",
-        signal.SIGSEGV: "SIGSEGV",
-        signal.SIGABRT: "SIGABRT",
-        signal.SIGBUS: "SIGBUS",
-        signal.SIGFPE: "SIGFPE",
-        signal.SIGHUP: "SIGHUP",
-        signal.SIGPIPE: "SIGPIPE",
-    }
-    return signal_names.get(sig_num, f"signal {sig_num}")
-
-
-# =============================================================================
-# Parsed CLI Error (from JSON output)
-# =============================================================================
+    try:
+        return signal.Signals(sig_num).name
+    except ValueError:
+        return f"signal {sig_num}"
 
 
 @dataclass
@@ -89,11 +72,6 @@ class ParsedCliError:
 
     metadata: dict[str, Any] = field(default_factory=dict)
     """Additional structured metadata."""
-
-
-# =============================================================================
-# Error Info (Google AIP-193 inspired)
-# =============================================================================
 
 
 @dataclass
@@ -135,11 +113,6 @@ class ErrorInfo:
     """Dynamic contextual information.
     Example: {"binary_path": "/usr/bin/claude", "exit_code": "127"}
     """
-
-
-# =============================================================================
-# Classified Error
-# =============================================================================
 
 
 @dataclass
@@ -195,11 +168,6 @@ class ClassifiedError:
         return self.error_code.get_severity()
 
 
-# =============================================================================
-# Error Chain (for multi-error scenarios)
-# =============================================================================
-
-
 @dataclass
 class ErrorChain:
     """Represents a chain of errors from symptom to root cause.
@@ -228,10 +196,8 @@ class ErrorChain:
     confidence: float = 1.0
     """0.0-1.0 confidence in root cause identification."""
 
-
-# =============================================================================
-# Classification Result (new multi-error result type)
-# =============================================================================
+    def __post_init__(self) -> None:
+        self.confidence = max(0.0, min(1.0, self.confidence))
 
 
 @dataclass
@@ -275,6 +241,9 @@ class ClassificationResult:
 
     classification_method: str = "structured"
     """How classification was done: "structured", "exit_code", "regex_fallback"."""
+
+    def __post_init__(self) -> None:
+        self.confidence = max(0.0, min(1.0, self.confidence))
 
     @property
     def all_errors(self) -> list[ClassifiedError]:

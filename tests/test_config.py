@@ -132,6 +132,39 @@ class TestSheetConfig:
         assert 3 in config.sheet.skip_when_command
         assert config.sheet.skip_when_command[3].timeout_seconds == 10.0
 
+    def test_prompt_extensions_default_empty(self):
+        """Test sheet prompt_extensions defaults to empty dict."""
+        config = SheetConfig(size=1, total_items=5)
+        assert config.prompt_extensions == {}
+
+    def test_prompt_extensions_accepts_per_sheet(self):
+        """Test sheet prompt_extensions accepts per-sheet directives."""
+        config = SheetConfig(
+            size=1, total_items=5,
+            prompt_extensions={
+                2: ["Be careful with imports"],
+                4: ["Run linter before committing", "Check type annotations"],
+            },
+        )
+        assert 2 in config.prompt_extensions
+        assert len(config.prompt_extensions[2]) == 1
+        assert len(config.prompt_extensions[4]) == 2
+
+    def test_prompt_extensions_in_jobconfig(self):
+        """Test sheet prompt_extensions works in full JobConfig."""
+        config = JobConfig.model_validate({
+            "name": "test",
+            "sheet": {
+                "size": 1, "total_items": 3,
+                "prompt_extensions": {
+                    2: ["Extra directive for sheet 2"],
+                },
+            },
+            "prompt": {"template": "{{ sheet_num }}"},
+        })
+        assert 2 in config.sheet.prompt_extensions
+        assert "Extra directive for sheet 2" in config.sheet.prompt_extensions[2]
+
 
 class TestValidationRule:
     """Tests for ValidationRule model."""
@@ -570,6 +603,30 @@ class TestPromptConfig:
             variables={"greeting": "Hello!"},
         )
         assert config.variables["greeting"] == "Hello!"
+
+    def test_prompt_extensions_default_empty(self):
+        """Test prompt_extensions defaults to empty list."""
+        config = PromptConfig(template="test")
+        assert config.prompt_extensions == []
+
+    def test_prompt_extensions_accepts_list(self):
+        """Test prompt_extensions accepts a list of strings."""
+        config = PromptConfig(
+            template="test",
+            prompt_extensions=["Be thorough", "Follow coding standards"],
+        )
+        assert len(config.prompt_extensions) == 2
+        assert config.prompt_extensions[0] == "Be thorough"
+
+    def test_prompt_extensions_in_jobconfig(self, sample_config_dict: dict):
+        """Test prompt_extensions flows through to JobConfig."""
+        sample_config_dict["prompt"]["prompt_extensions"] = [
+            "Always write tests",
+            "Use type hints",
+        ]
+        config = JobConfig(**sample_config_dict)
+        assert len(config.prompt.prompt_extensions) == 2
+        assert "Always write tests" in config.prompt.prompt_extensions
 
 
 class TestJobConfig:

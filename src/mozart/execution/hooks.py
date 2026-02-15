@@ -124,7 +124,7 @@ async def _try_daemon_submit(
         _logger.warning("hook.daemon_submit_rejected", status=response.status)
         return False, None
     except Exception as exc:
-        _logger.debug("hook.daemon_submit_failed", error=str(exc))
+        _logger.warning("hook.daemon_submit_failed", error=str(exc), exc_info=True)
         return False, None
 
 

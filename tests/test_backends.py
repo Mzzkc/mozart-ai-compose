@@ -672,56 +672,55 @@ class TestClaudeCliBackendRateLimitDetection:
         assert backend._detect_rate_limit("", "429 Too Many Requests", exit_code=None) is False
 
 
-class TestClaudeCliBackendOperatorImperative:
-    """Test Mozart operator imperative injection."""
+class TestClaudeCliBackendPreamble:
+    """Test Mozart default preamble injection."""
 
     @pytest.fixture
     def backend(self) -> ClaudeCliBackend:
         """Create backend for testing."""
         return ClaudeCliBackend()
 
-    def test_operator_imperative_injected(self, backend: ClaudeCliBackend) -> None:
-        """Test that operator imperative is injected into prompts."""
+    def test_preamble_injected(self, backend: ClaudeCliBackend) -> None:
+        """Test that preamble is injected into prompts."""
         original_prompt = "Do something interesting"
-        result = backend._inject_operator_imperative(original_prompt)
+        result = backend._inject_preamble(original_prompt)
 
         # Should contain the original prompt
         assert original_prompt in result
 
-        # Should contain the operator imperative markers
-        assert "<mozart-operator-imperative>" in result
-        assert "</mozart-operator-imperative>" in result
+        # Should contain the preamble markers
+        assert "<mozart-preamble>" in result
+        assert "</mozart-preamble>" in result
 
-        # Should contain the critical timeout warning
-        assert "NEVER WRAP MOZART WITH TIMEOUT" in result
+        # Should contain key directives
+        assert "Mozart AI Compose" in result
 
-    def test_operator_imperative_contains_correct_examples(
+    def test_preamble_contains_correct_directives(
         self, backend: ClaudeCliBackend
     ) -> None:
-        """Test that operator imperative includes correct Mozart usage examples."""
-        result = backend._inject_operator_imperative("test")
+        """Test that preamble includes correct directives."""
+        result = backend._inject_preamble("test")
 
-        # Should show wrong examples
-        assert "timeout 600 mozart run" in result
-        assert "NEVER DO THIS" in result
+        # Should instruct on timeout handling
+        assert "timeout" in result.lower()
 
-        # Should show correct examples
-        assert "mozart run config.yaml" in result
-        assert "mozart resume" in result
+        # Should mention workspace and validation
+        assert "workspace" in result.lower()
+        assert "validation" in result.lower()
 
-    def test_operator_imperative_explains_consequences(
+    def test_preamble_is_concise(
         self, backend: ClaudeCliBackend
     ) -> None:
-        """Test that operator imperative explains why the rules matter."""
-        result = backend._inject_operator_imperative("test")
+        """Test that preamble is concise (GH#76 replaced verbose imperative)."""
+        result = backend._inject_preamble("test")
 
-        # Should explain the consequences
-        assert "SIGKILL" in result
-        assert "checkpoint" in result.lower() or "state" in result.lower()
-        assert "corrupt" in result.lower() or "crash" in result.lower()
+        # The concise preamble should be under 500 chars (was ~2000+ before)
+        preamble_end = result.index("</mozart-preamble>") + len("</mozart-preamble>")
+        preamble = result[:preamble_end]
+        assert len(preamble) < 600
 
-    def test_build_command_includes_imperative(self, backend: ClaudeCliBackend) -> None:
-        """Test that _build_command injects the operator imperative."""
+    def test_build_command_includes_preamble(self, backend: ClaudeCliBackend) -> None:
+        """Test that _build_command injects the preamble."""
         # Mock claude path to avoid "not found" error
         backend._claude_path = "/usr/bin/claude"
 
@@ -730,9 +729,56 @@ class TestClaudeCliBackendOperatorImperative:
         # The prompt should be in the command (second element after -p)
         prompt_arg = cmd[cmd.index("-p") + 1]
 
-        # Should contain both imperative and original prompt
-        assert "<mozart-operator-imperative>" in prompt_arg
+        # Should contain both preamble and original prompt
+        assert "<mozart-preamble>" in prompt_arg
         assert "My original prompt" in prompt_arg
+
+
+class TestClaudeCliBackendPromptExtensions:
+    """Test prompt extension injection (GH#76)."""
+
+    @pytest.fixture
+    def backend(self) -> ClaudeCliBackend:
+        """Create backend for testing."""
+        return ClaudeCliBackend()
+
+    def test_extensions_default_empty(self, backend: ClaudeCliBackend) -> None:
+        """Backend starts with no prompt extensions."""
+        assert backend._prompt_extensions == []
+
+    def test_set_prompt_extensions(self, backend: ClaudeCliBackend) -> None:
+        """set_prompt_extensions stores non-empty extensions."""
+        backend.set_prompt_extensions(["Be thorough", "Write tests"])
+        assert len(backend._prompt_extensions) == 2
+
+    def test_set_prompt_extensions_filters_empty(self, backend: ClaudeCliBackend) -> None:
+        """set_prompt_extensions filters out empty/whitespace-only strings."""
+        backend.set_prompt_extensions(["Valid", "", "  ", "Also valid"])
+        assert len(backend._prompt_extensions) == 2
+        assert "Valid" in backend._prompt_extensions
+
+    def test_extensions_injected_into_prompt(self, backend: ClaudeCliBackend) -> None:
+        """Extensions appear in the injected prompt."""
+        backend.set_prompt_extensions(["Always review edge cases"])
+        result = backend._inject_preamble("Do the task")
+        assert "Always review edge cases" in result
+        assert "Do the task" in result
+        assert "<mozart-preamble>" in result
+
+    def test_no_extensions_no_extra_content(self, backend: ClaudeCliBackend) -> None:
+        """Without extensions, only preamble + prompt."""
+        result = backend._inject_preamble("Do the task")
+        assert "Do the task" in result
+        assert "<mozart-preamble>" in result
+
+    def test_extensions_in_build_command(self, backend: ClaudeCliBackend) -> None:
+        """Extensions flow through _build_command to the CLI args."""
+        backend._claude_path = "/usr/bin/claude"
+        backend.set_prompt_extensions(["Custom directive"])
+        cmd = backend._build_command("My prompt")
+        prompt_arg = cmd[cmd.index("-p") + 1]
+        assert "Custom directive" in prompt_arg
+        assert "My prompt" in prompt_arg
 
 
 class TestClaudeCliBackendHealthCheck:
@@ -748,8 +794,6 @@ class TestClaudeCliBackendHealthCheck:
     @pytest.mark.asyncio
     async def test_health_check_success(self) -> None:
         """health_check returns True when CLI responds with 'ready'."""
-        from mozart.backends.base import ExecutionResult
-
         backend = ClaudeCliBackend()
         backend._claude_path = "/usr/bin/claude"
         mock_result = ExecutionResult(
@@ -761,8 +805,6 @@ class TestClaudeCliBackendHealthCheck:
     @pytest.mark.asyncio
     async def test_health_check_failure_not_ready(self) -> None:
         """health_check returns False when CLI responds without 'ready'."""
-        from mozart.backends.base import ExecutionResult
-
         backend = ClaudeCliBackend()
         backend._claude_path = "/usr/bin/claude"
         mock_result = ExecutionResult(
@@ -1190,13 +1232,13 @@ class TestBuildCommand:
         with pytest.raises(RuntimeError, match="claude CLI not found"):
             backend._build_command("test")
 
-    def test_operator_imperative_injected(self) -> None:
-        """Verify the operator imperative is injected into the prompt."""
+    def test_preamble_injected(self) -> None:
+        """Verify the preamble is injected into the prompt."""
         backend = self._make_backend()
         cmd = backend._build_command("user prompt")
         p_idx = cmd.index("-p")
         full_prompt = cmd[p_idx + 1]
-        assert "NEVER WRAP MOZART" in full_prompt
+        assert "<mozart-preamble>" in full_prompt
         assert "user prompt" in full_prompt
 
 

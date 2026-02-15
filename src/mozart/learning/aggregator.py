@@ -129,9 +129,10 @@ class PatternAggregator:
             self._record_pattern_applications(outcome, execution_ids)
 
         _logger.info(
-            f"Aggregated {result.outcomes_recorded} outcomes, "
-            f"detected {result.patterns_detected} patterns, "
-            f"merged {result.patterns_merged}"
+            "aggregation_complete",
+            outcomes=result.outcomes_recorded,
+            patterns_detected=result.patterns_detected,
+            patterns_merged=result.patterns_merged,
         )
 
         return result
@@ -254,7 +255,9 @@ class PatternAggregator:
         # Sum occurrence counts
         merged_count = existing.occurrence_count + new.frequency
 
-        # Weighted average for effectiveness
+        # Weighted average for effectiveness.
+        # Both effectiveness_score and success_rate are on the same 0.0-1.0
+        # scale, representing how often the pattern leads to success.
         total = existing.occurrence_count + new.frequency
         if total > 0:
             weighted_effectiveness = (
@@ -267,9 +270,11 @@ class PatternAggregator:
         # Max for timestamps
         merged_last_seen = max(existing.last_seen, new.last_seen)
 
-        # Determine suggested action
+        # Determine suggested action — use merged effectiveness to decide.
+        # If the merged effectiveness improved over the existing score,
+        # the new pattern contributed positively, so adopt its guidance.
         merged_action: str | None
-        if new.success_rate > existing.effectiveness_score:
+        if weighted_effectiveness > existing.effectiveness_score:
             merged_action = new.to_prompt_guidance()
         else:
             merged_action = existing.suggested_action
@@ -453,9 +458,12 @@ class EnhancedPatternAggregator(PatternAggregator):
             self._record_pattern_applications(outcome, execution_ids)
 
         _logger.info(
-            f"Enhanced aggregation: {result.outcomes_recorded} outcomes, "
-            f"{result.patterns_detected} patterns (incl. {len(output_detected)} from output), "
-            f"{result.patterns_merged} merged, {len(all_output_patterns)} output patterns extracted"
+            "enhanced_aggregation_complete",
+            outcomes=result.outcomes_recorded,
+            patterns_detected=result.patterns_detected,
+            output_patterns_detected=len(output_detected),
+            patterns_merged=result.patterns_merged,
+            output_patterns_extracted=len(all_output_patterns),
         )
 
         return result

@@ -522,7 +522,7 @@ class TestStartJobExecution:
 
         with (
             patch.object(Path, "mkdir"),
-            patch.object(JobService, "_create_state_backend", return_value=MagicMock()),
+            patch.object(JobService, "_create_state_backend", return_value=MagicMock(close=AsyncMock())),
             patch.object(JobService, "_setup_components", return_value={
                 "backend": MagicMock(),
                 "outcome_store": None,
@@ -560,7 +560,7 @@ class TestStartJobExecution:
 
         with (
             patch.object(Path, "mkdir"),
-            patch.object(JobService, "_create_state_backend", return_value=MagicMock()),
+            patch.object(JobService, "_create_state_backend", return_value=MagicMock(close=AsyncMock())),
             patch.object(JobService, "_setup_components", return_value={
                 "backend": MagicMock(),
                 "outcome_store": None,
@@ -591,7 +591,7 @@ class TestStartJobExecution:
 
         with (
             patch.object(Path, "mkdir"),
-            patch.object(JobService, "_create_state_backend", return_value=MagicMock()),
+            patch.object(JobService, "_create_state_backend", return_value=MagicMock(close=AsyncMock())),
             patch.object(JobService, "_setup_components", return_value={
                 "backend": MagicMock(),
                 "outcome_store": None,
@@ -633,7 +633,7 @@ class TestStartJobExecution:
 
         with (
             patch.object(Path, "mkdir"),
-            patch.object(JobService, "_create_state_backend", return_value=MagicMock()),
+            patch.object(JobService, "_create_state_backend", return_value=MagicMock(close=AsyncMock())),
             patch.object(JobService, "_setup_components", return_value={
                 "backend": MagicMock(),
                 "outcome_store": None,

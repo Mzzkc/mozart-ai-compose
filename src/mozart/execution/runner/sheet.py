@@ -1541,6 +1541,12 @@ class SheetExecutionMixin:
             output_log_base = self.config.workspace / "logs" / f"sheet-{sheet_num:02d}"
             self.backend.set_output_log_path(output_log_base)
 
+            # Apply prompt extensions (GH#76): score-level + sheet-level
+            extensions = list(self.config.prompt.prompt_extensions)
+            sheet_extensions = self.config.sheet.prompt_extensions.get(sheet_num, [])
+            extensions.extend(sheet_extensions)
+            self.backend.set_prompt_extensions(extensions)
+
             # Resolve per-sheet timeout override (if configured)
             sheet_timeout = self.config.backend.timeout_overrides.get(sheet_num)
 

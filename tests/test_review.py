@@ -206,8 +206,8 @@ class TestAIReviewer:
         reviewer = AIReviewer(mock_backend, config, mock_diff_provider)
         result = await reviewer.review(Path("/tmp"))
 
-        # Should return default uncertain score
-        assert result.score == 50
+        # Parse failures return score=0 (not a misleading middling score)
+        assert result.score == 0
         assert result.error is not None
 
     def test_evaluate_result_high_quality(self, mock_backend, config):

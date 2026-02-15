@@ -159,8 +159,9 @@ class DaemonConfig(BaseModel):
     )
     config_file: Path | None = Field(
         default=None,
-        description="Reserved for future config reload support. "
-        "Not yet functional — SIGHUP reload is not implemented.",
+        description="Path to the YAML config file this config was loaded from. "
+        "Set automatically by _load_config(); used by SIGHUP reload to "
+        "know which file to re-read.",
     )
 
     @model_validator(mode="after")
@@ -172,12 +173,5 @@ class DaemonConfig(BaseModel):
                 field="max_concurrent_sheets",
                 value=self.max_concurrent_sheets,
                 message="reserved for Phase 3 scheduler — not yet enforced",
-            )
-        if self.config_file is not None:
-            _logger.warning(
-                "reserved_field_set",
-                field="config_file",
-                value=str(self.config_file),
-                message="reserved for future config reload — not yet functional",
             )
         return self

@@ -70,7 +70,7 @@ class ValidationRunner:
                 all_issues.append(
                     ValidationIssue(
                         check_id=check.check_id,
-                        severity=ValidationSeverity.WARNING,
+                        severity=ValidationSeverity.ERROR,
                         message=f"Check {check.check_id} failed to execute: {e}",
                         suggestion="This may be a bug in Mozart validation",
                     )
@@ -93,10 +93,7 @@ class ValidationRunner:
             0: No errors (warnings/info OK)
             1: One or more ERROR-severity issues
         """
-        for issue in issues:
-            if issue.severity == ValidationSeverity.ERROR:
-                return 1
-        return 0
+        return 1 if self.has_errors(issues) else 0
 
     def has_errors(self, issues: list[ValidationIssue]) -> bool:
         """Check if any issues are errors."""
@@ -112,7 +109,7 @@ class ValidationRunner:
             ValidationSeverity.INFO: 0,
         }
         for issue in issues:
-            counts[issue.severity] = counts.get(issue.severity, 0) + 1
+            counts[issue.severity] += 1
         return counts
 
 

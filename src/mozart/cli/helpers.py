@@ -7,19 +7,6 @@ This module contains helpers used across multiple CLI command modules:
 - Console/Rich setup
 - State backend discovery
 - Common utility functions
-
-★ Insight ─────────────────────────────────────
-1. **Module-level state pattern**: Global state (_output_level, _log_level, etc.)
-   is used to share CLI configuration across commands without passing it through
-   every function. This trades explicit dependencies for convenience.
-
-2. **Factory pattern for backends**: `create_state_backend_from_config` and
-   `create_notifiers_from_config` encapsulate the creation logic, making it
-   easy to add new backend types without modifying command code.
-
-3. **Error message constants**: Using a class (`ErrorMessages`) for error strings
-   enables consistent user-facing messages and makes localization easier.
-─────────────────────────────────────────────────
 """
 
 from __future__ import annotations
@@ -42,16 +29,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
 
-# =============================================================================
-# Module-level logger
-# =============================================================================
-
 _logger = get_logger("cli")
-
-
-# =============================================================================
-# Error message constants
-# =============================================================================
 
 
 class ErrorMessages:
@@ -65,11 +43,6 @@ class ErrorMessages:
     CONFIG_LOAD_ERROR = "Error loading config"
     WORKSPACE_NOT_FOUND = "Workspace not found"
     STATE_FILE_NOT_FOUND = "State file not found"
-
-
-# =============================================================================
-# Output level management
-# =============================================================================
 
 
 class OutputLevel(str, Enum):
@@ -107,11 +80,6 @@ def is_verbose() -> bool:
 def is_quiet() -> bool:
     """Check if quiet output is enabled."""
     return _output_level == OutputLevel.QUIET
-
-
-# =============================================================================
-# Logging configuration
-# =============================================================================
 
 
 @dataclass
@@ -219,17 +187,8 @@ def reset_logging_state() -> None:
     _log_config.configured = False
 
 
-# =============================================================================
-# Default paths
-# =============================================================================
-
 # Default state directory when no config is available
 DEFAULT_STATE_DIR = Path.home() / ".mozart" / "state"
-
-
-# =============================================================================
-# Backend creation helpers
-# =============================================================================
 
 
 def create_state_backend_from_config(config: JobConfig) -> StateBackend:
@@ -265,10 +224,6 @@ def get_default_state_backend() -> StateBackend:
 from mozart.notifications.factory import (
     create_notifiers_from_config as create_notifiers_from_config,  # noqa: F401, E501
 )
-
-# =============================================================================
-# Filesystem fallback helpers (private — used by CLI command fallback paths)
-# =============================================================================
 
 
 def _find_job_workspace(job_id: str, hint: Path | None = None) -> Path | None:
@@ -331,9 +286,18 @@ async def _find_job_state_fs(
             job = await backend.load(job_id)
             if job:
                 return job, backend
-        except Exception as e:
+        except (OSError, ValueError, KeyError) as e:
             _logger.warning(
                 "error_querying_backend",
+                job_id=job_id,
+                backend=type(backend).__name__,
+                error=str(e),
+                exc_info=True,
+            )
+            continue
+        except Exception as e:
+            _logger.error(
+                "unexpected_error_querying_backend",
                 job_id=job_id,
                 backend=type(backend).__name__,
                 error=str(e),
@@ -387,11 +351,6 @@ async def _find_job_state_direct(
     return found_state, found_backend
 
 
-# =============================================================================
-# Pause signal helpers (private — used by pause.py filesystem fallback)
-# =============================================================================
-
-
 def _create_pause_signal(workspace: Path, job_id: str) -> Path:
     """Create pause signal file for a job (filesystem fallback)."""
     signal_file = workspace / f".mozart-pause-{job_id}"
@@ -423,11 +382,6 @@ async def _wait_for_pause_ack(
             _logger.warning("Error polling pause state", exc_info=True)
 
         await asyncio.sleep(poll_interval)
-
-
-# =============================================================================
-# Conductor routing helpers
-# =============================================================================
 
 
 def require_conductor(
@@ -462,11 +416,6 @@ def require_conductor(
     raise typer.Exit(1)
 
 
-# =============================================================================
-# Last activity time
-# =============================================================================
-
-
 def get_last_activity_time(job: CheckpointState) -> datetime | None:
     """Get the most recent activity timestamp from the job.
 
@@ -478,27 +427,15 @@ def get_last_activity_time(job: CheckpointState) -> datetime | None:
     Returns:
         datetime of last activity, or None if not available.
     """
-    from datetime import datetime as dt
+    candidates = [
+        ts for ts in (
+            job.updated_at,
+            *(sheet.last_activity_at for sheet in job.sheets.values()),
+        )
+        if ts is not None
+    ]
+    return max(candidates) if candidates else None
 
-    candidates: list[dt] = []
-
-    # Check updated_at
-    if job.updated_at:
-        candidates.append(job.updated_at)
-
-    # Check sheet-level last_activity_at
-    for sheet in job.sheets.values():
-        if sheet.last_activity_at:
-            candidates.append(sheet.last_activity_at)
-
-    if candidates:
-        return max(candidates)
-    return None
-
-
-# =============================================================================
-# Public API
-# =============================================================================
 
 __all__ = [
     # Error messages
@@ -528,12 +465,4 @@ __all__ = [
     "require_conductor",
     # Utilities
     "get_last_activity_time",
-    # Private filesystem fallbacks (used by command fallback paths)
-    "_find_job_workspace",
-    "_find_job_state_fs",
-    "_find_job_state_direct",
-    "_create_pause_signal",
-    "_wait_for_pause_ack",
-    # Logger
-    "_logger",
 ]

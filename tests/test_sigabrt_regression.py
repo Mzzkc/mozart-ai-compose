@@ -23,10 +23,6 @@ import pytest
 from mozart.backends.claude_cli import ClaudeCliBackend
 
 
-# =============================================================================
-# Helpers
-# =============================================================================
-
 
 def _make_mock_process(
     returncode: int | None = None,
@@ -61,10 +57,6 @@ def _make_backend(**kwargs) -> ClaudeCliBackend:
     backend._claude_path = "/usr/local/bin/claude"
     return backend
 
-
-# =============================================================================
-# Test 1: CancelledError triggers subprocess cleanup in _execute_impl
-# =============================================================================
 
 
 class TestCancelledErrorTriggersCleanup:
@@ -143,10 +135,6 @@ class TestCancelledErrorTriggersCleanup:
                 await backend._execute_impl("test prompt")
 
 
-# =============================================================================
-# Test 2: _stream_with_progress CancelledError handler reaps zombie
-# =============================================================================
-
 
 class TestStreamCancelledErrorReapsZombie:
     """Verify that _stream_with_progress kills AND waits on the process.
@@ -184,10 +172,6 @@ class TestStreamCancelledErrorReapsZombie:
         # Must call process.wait() to reap the zombie
         proc.wait.assert_called_once()
 
-
-# =============================================================================
-# Test 3: _kill_orphaned_process accepts BaseException
-# =============================================================================
 
 
 class TestKillOrphanedProcessAcceptsBaseException:
@@ -255,10 +239,6 @@ class TestKillOrphanedProcessAcceptsBaseException:
             # Should not raise
             await backend._kill_orphaned_process(proc, asyncio.CancelledError())
 
-
-# =============================================================================
-# Test 4: Parallel cancellation doesn't crash Mozart
-# =============================================================================
 
 
 class TestParallelCancellationNoCrash:
@@ -351,10 +331,6 @@ class TestParallelCancellationNoCrash:
         assert not result.success
 
 
-# =============================================================================
-# Test 5: find_job_state handles backend errors gracefully
-# =============================================================================
-
 
 class TestFindJobStateBackendErrors:
     """Verify that find_job_state falls back to the next backend when one errors.
@@ -431,10 +407,6 @@ class TestFindJobStateBackendErrors:
         assert found_backend is None
 
 
-# =============================================================================
-# Test 6: Logger keyword args (specific regression for helpers.py line 400)
-# =============================================================================
-
 
 class TestLoggerKeywordArgs:
     """Verify that the specific logger call fixed in the brief uses keyword args.
@@ -479,10 +451,10 @@ class TestLoggerKeywordArgs:
         ):
             await find_job_state("test-job", workspace)
 
-        # Find the error_querying_backend log entry
+        # Find the backend error log entry (unexpected errors use a different event name)
         error_logs = [
             log for log in captured_logs
-            if log.get("event") == "error_querying_backend"
+            if log.get("event") in ("error_querying_backend", "unexpected_error_querying_backend")
         ]
 
         # Should have logged with keyword args

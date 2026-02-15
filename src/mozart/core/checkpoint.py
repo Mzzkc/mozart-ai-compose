@@ -101,6 +101,17 @@ class ErrorContextDict(TypedDict, total=False):
     category: str | None
 
 
+class AppliedPatternDict(TypedDict):
+    """Schema for a single applied pattern in SheetState.applied_patterns.
+
+    Replaces the parallel ``applied_pattern_ids`` / ``applied_pattern_descriptions``
+    lists with a single structured list for safety and clarity.
+    """
+
+    id: str
+    description: str
+
+
 class OutcomeDataDict(TypedDict, total=False):
     """Schema for structured outcome data in SheetState.outcome_data.
 
@@ -189,7 +200,9 @@ class CheckpointErrorRecord(BaseModel):
     )
     context: dict[str, Any] = Field(
         default_factory=dict,
-        description="Additional context (exit_code, signal, category, etc.)",
+        description="Additional context — see ErrorContextDict for common keys "
+        "(exit_code: int, signal: int, category: str). Accepts arbitrary values "
+        "for extensibility.",
     )
     stdout_tail: str | None = Field(
         default=None,
@@ -328,14 +341,50 @@ class SheetState(BaseModel):
     )
 
     # Pattern feedback loop tracking (v9 evolution: Pattern Feedback Loop Closure)
-    applied_pattern_ids: list[str] = Field(
+    applied_patterns: list[AppliedPatternDict] = Field(
         default_factory=list,
-        description="IDs of patterns that were applied/injected for this sheet execution",
+        description="Patterns applied/injected for this sheet execution (structured list).",
     )
-    applied_pattern_descriptions: list[str] = Field(
-        default_factory=list,
-        description="Descriptions of patterns that were applied/injected (for display/logging)",
-    )
+
+    @property
+    def applied_pattern_ids(self) -> list[str]:
+        """Backward-compatible accessor for pattern IDs."""
+        return [p["id"] for p in self.applied_patterns]
+
+    @applied_pattern_ids.setter
+    def applied_pattern_ids(self, value: list[str]) -> None:
+        """Backward-compatible setter: rebuilds applied_patterns from IDs.
+
+        Preserves existing descriptions where indices match.
+        """
+        existing_descs = [p["description"] for p in self.applied_patterns]
+        self.applied_patterns = [
+            AppliedPatternDict(
+                id=pid,
+                description=existing_descs[i] if i < len(existing_descs) else "",
+            )
+            for i, pid in enumerate(value)
+        ]
+
+    @property
+    def applied_pattern_descriptions(self) -> list[str]:
+        """Backward-compatible accessor for pattern descriptions."""
+        return [p["description"] for p in self.applied_patterns]
+
+    @applied_pattern_descriptions.setter
+    def applied_pattern_descriptions(self, value: list[str]) -> None:
+        """Backward-compatible setter: rebuilds applied_patterns from descriptions.
+
+        Preserves existing IDs where indices match.
+        """
+        existing_ids = [p["id"] for p in self.applied_patterns]
+        self.applied_patterns = [
+            AppliedPatternDict(
+                id=existing_ids[i] if i < len(existing_ids) else "",
+                description=desc,
+            )
+            for i, desc in enumerate(value)
+        ]
 
     # Grounding integration (v11 evolution: Grounding→Pattern Integration)
     grounding_passed: bool | None = Field(
@@ -382,6 +431,24 @@ class SheetState(BaseModel):
             "Typically includes keys like 'confidence', 'blockers', 'notes'."
         ),
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_patterns(cls, data: Any) -> Any:
+        """Convert legacy parallel lists to structured applied_patterns."""
+        if isinstance(data, dict):
+            ids = data.pop("applied_pattern_ids", None)
+            descs = data.pop("applied_pattern_descriptions", None)
+            if (ids or descs) and "applied_patterns" not in data:
+                ids = ids or []
+                descs = descs or []
+                max_len = max(len(ids), len(descs))
+                data["applied_patterns"] = [
+                    {"id": ids[i] if i < len(ids) else "",
+                     "description": descs[i] if i < len(descs) else ""}
+                    for i in range(max_len)
+                ]
+        return data
 
     @model_validator(mode="after")
     def _enforce_status_invariants(self) -> SheetState:

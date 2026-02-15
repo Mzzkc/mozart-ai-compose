@@ -57,6 +57,9 @@ from ..output import (
     format_timestamp,
     format_validation_status,
 )
+from ..output import (
+    infer_error_type as _infer_error_type,
+)
 
 # Default circuit breaker failure threshold from CircuitBreakerConfig
 _DEFAULT_CB_THRESHOLD: int = 5  # Must match CircuitBreakerConfig.failure_threshold default
@@ -544,12 +547,24 @@ def _render_sheet_details(job: CheckpointState) -> None:
     """Render the sheet details table for rich status output.
 
     Shows elapsed time for in-progress sheets and duration for completed ones.
+    When the job config includes sheet descriptions (GH#75), a Description
+    column is added between the sheet number and status columns.
     """
     if not job.sheets:
         return
 
+    # Extract descriptions from config snapshot (GH#75)
+    descriptions: dict[int, str] = {}
+    if job.config_snapshot:
+        sheet_cfg = job.config_snapshot.get("sheet", {})
+        raw_descs = sheet_cfg.get("descriptions", {})
+        # Keys may be strings after JSON round-trip
+        descriptions = {int(k): v for k, v in raw_descs.items()}
+
+    has_descriptions = bool(descriptions)
+
     console.print("\n[bold]Sheet Details[/bold]")
-    sheet_table = create_sheet_details_table()
+    sheet_table = create_sheet_details_table(has_descriptions=has_descriptions)
 
     for sheet_num in sorted(job.sheets.keys()):
         sheet = job.sheets[sheet_num]
@@ -570,13 +585,12 @@ def _render_sheet_details(job: CheckpointState) -> None:
             if len(sheet.error_message) > 50:
                 error_str += "..."
 
-        sheet_table.add_row(
-            str(sheet_num),
-            status_str,
-            str(sheet.attempt_count),
-            val_str,
-            error_str,
-        )
+        row: list[str] = [str(sheet_num)]
+        if has_descriptions:
+            row.append(descriptions.get(sheet_num, ""))
+        row.extend([status_str, str(sheet.attempt_count), val_str, error_str])
+
+        sheet_table.add_row(*row)
 
     console.print(sheet_table)
 
@@ -900,28 +914,6 @@ def _collect_recent_errors(
     # Sort by timestamp (most recent first) and take limit
     all_errors.sort(key=lambda x: x[1].timestamp, reverse=True)
     return all_errors[:limit]
-
-
-def _infer_error_type(
-    error_category: str | None,
-) -> Literal["transient", "rate_limit", "permanent"]:
-    """Infer error type from error category string.
-
-    Args:
-        error_category: Error category from sheet state.
-
-    Returns:
-        Error type literal: transient, rate_limit, or permanent.
-    """
-    if error_category is None:
-        return "permanent"
-
-    category_lower = error_category.lower()
-    if "rate" in category_lower or "limit" in category_lower:
-        return "rate_limit"
-    if category_lower in ("transient", "timeout", "network", "signal"):
-        return "transient"
-    return "permanent"
 
 
 def _infer_circuit_breaker_state(job: CheckpointState) -> CircuitBreakerInference | None:

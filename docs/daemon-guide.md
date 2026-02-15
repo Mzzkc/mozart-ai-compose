@@ -170,7 +170,6 @@ These fields are accepted but produce warnings if set to non-default values:
 | `max_concurrent_sheets` | `10` | Reserved for Phase 3 scheduler |
 | `state_backend_type` | `"sqlite"` | Reserved for persistent conductor state |
 | `state_db_path` | `~/.mozart/daemon-state.db` | Reserved for persistent conductor state |
-| `config_file` | `None` | Reserved for SIGHUP config reload |
 
 ### Example Config File
 
@@ -188,6 +187,40 @@ log_file: ~/.mozart/mozart.log
 resource_limits:
   max_memory_mb: 4096
   max_processes: 30
+```
+
+### Live Config Reload (SIGHUP)
+
+The conductor supports hot-reloading configuration without a restart. Send `SIGHUP` to the conductor process and it will re-read the config file from disk:
+
+```bash
+# Reload config after editing ~/.mozart/conductor.yaml
+kill -SIGHUP $(cat /tmp/mozart.pid)
+```
+
+**Reloadable fields** (take effect immediately):
+- `max_concurrent_jobs` — concurrency semaphore is rebuilt
+- `resource_limits.*` — memory/process limits updated
+- `log_level` — logging reconfigured
+- `job_timeout_seconds`, `shutdown_timeout_seconds`, `monitor_interval_seconds`
+
+**Non-reloadable fields** (require conductor restart):
+- `socket.*` (path, permissions, backlog)
+- `pid_file`
+
+If a non-reloadable field differs from the running config, the conductor logs a warning but continues with the old value.
+
+### Live Config Display
+
+`mozart config show` automatically queries the running conductor for its in-memory config. This reflects any SIGHUP reloads. When the conductor is not running, it falls back to reading from disk.
+
+```bash
+# Shows [live] source when conductor is running
+mozart config show
+
+# Validate a config file without starting the conductor
+mozart config check
+mozart config check --config /path/to/custom.yaml
 ```
 
 ## Monitoring

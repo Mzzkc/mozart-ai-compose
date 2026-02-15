@@ -12,6 +12,7 @@ Subcommands:
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,8 @@ import yaml
 from rich.table import Table
 
 from ..output import console
+
+_logger = logging.getLogger(__name__)
 
 config_app = typer.Typer(
     name="config",
@@ -78,11 +81,12 @@ def _set_nested(data: dict[str, Any], dotted_key: str, value: Any) -> None:
 
 def _coerce_value(raw: str) -> Any:
     """Coerce a string value to the appropriate Python type."""
-    if raw.lower() in ("true", "yes"):
+    lowered = raw.lower()
+    if lowered in ("true", "yes"):
         return True
-    if raw.lower() in ("false", "no"):
+    if lowered in ("false", "no"):
         return False
-    if raw.lower() in ("null", "none", "~"):
+    if lowered in ("null", "none", "~"):
         return None
     try:
         return int(raw)
@@ -104,6 +108,29 @@ def config_callback(ctx: typer.Context) -> None:
         raise typer.Exit(0)
 
 
+def _try_live_config() -> dict[str, Any] | None:
+    """Attempt to fetch live config from a running conductor via IPC.
+
+    Returns the config dict on success, or None if the conductor is
+    not running or the IPC call fails.
+    """
+    import asyncio
+
+    from mozart.daemon.config import DaemonConfig
+    from mozart.daemon.ipc.client import DaemonClient
+
+    defaults = DaemonConfig()
+    client = DaemonClient(defaults.socket.path)
+
+    async def _fetch() -> dict[str, Any] | None:
+        try:
+            return await client.config()
+        except Exception:
+            return None
+
+    return asyncio.run(_fetch())
+
+
 @config_app.command()
 def show(
     config_file: Path | None = typer.Option(
@@ -116,7 +143,9 @@ def show(
     """Display current daemon configuration as a table.
 
     Shows all configuration values with their current and default settings.
-    Values loaded from the config file are highlighted; defaults shown in dim.
+    When the conductor is running, displays the live in-memory config
+    (reflecting any SIGHUP reloads). Falls back to disk-based display
+    when the conductor is not running.
 
     Examples:
         mozart config show
@@ -124,17 +153,33 @@ def show(
     """
     from mozart.daemon.config import DaemonConfig
 
-    path = _resolve_config_path(config_file)
-    file_data = _load_config_data(path)
+    # Try live config from running conductor first
+    live_data = _try_live_config()
+    effective = DaemonConfig()  # Overwritten by live or disk path
+    is_live = False
 
-    # Build the effective config (file values + defaults)
-    try:
-        effective = DaemonConfig.model_validate(file_data)
-    except Exception as e:
-        console.print(f"[red]Error loading config:[/red] {e}")
-        raise typer.Exit(1) from None
+    if live_data is not None:
+        try:
+            effective = DaemonConfig.model_validate(live_data)
+            is_live = True
+        except Exception:
+            _logger.debug("live config validation failed, falling back to disk", exc_info=True)
 
-    source_label = f"[dim]{path}[/dim]" if path.exists() else "[dim](defaults)[/dim]"
+    if is_live:
+        source_label = "[bold green][live][/bold green] from running conductor"
+        file_data = live_data or {}
+    else:
+        path = _resolve_config_path(config_file)
+        file_data = _load_config_data(path)
+
+        try:
+            effective = DaemonConfig.model_validate(file_data)
+        except Exception as e:
+            console.print(f"[red]Error loading config:[/red] {e}")
+            raise typer.Exit(1) from None
+
+        source_label = f"[dim]{path}[/dim]" if path.exists() else "[dim](defaults)[/dim]"
+
     console.print(f"\nDaemon configuration — {source_label}\n")
 
     table = Table(show_header=True, header_style="bold cyan", padding=(0, 1))
@@ -146,21 +191,24 @@ def show(
     flat = _flatten_model(effective.model_dump(), prefix="")
 
     for key, value in flat.items():
-        file_value = _get_nested(file_data, key)
-        source = "file" if file_value is not None else "default"
-        source_display = f"[dim]{source}[/dim]" if source == "default" else source
+        if is_live:
+            source_display = "[green]live[/green]"
+        else:
+            file_value = _get_nested(file_data, key)
+            source = "file" if file_value is not None else "default"
+            source_display = f"[dim]{source}[/dim]" if source == "default" else source
         table.add_row(key, str(value), source_display)
 
     console.print(table)
 
 
 def _flatten_model(
-    data: dict[str, Any], prefix: str,
+    data: dict[str, Any], prefix: str = "",
 ) -> dict[str, Any]:
     """Flatten a nested dict into dot-notation keys."""
     result: dict[str, Any] = {}
     for key, value in data.items():
-        full_key = f"{prefix}{key}" if not prefix else f"{prefix}.{key}"
+        full_key = f"{prefix}.{key}" if prefix else key
         if isinstance(value, dict):
             result.update(_flatten_model(value, full_key))
         else:
@@ -285,6 +333,43 @@ def init(
     console.print(f"[green]Created default config:[/green] {resolved}")
 
 
+@config_app.command("check")
+def check(
+    config_file: Path | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to daemon config file to validate",
+    ),
+) -> None:
+    """Validate a daemon config file against the DaemonConfig schema.
+
+    Loads the YAML file, validates all fields, and reports the result.
+    Exits 0 if valid, 1 if invalid or the file cannot be loaded.
+
+    Examples:
+        mozart config check --config my-daemon.yaml
+        mozart config check
+    """
+    from mozart.daemon.config import DaemonConfig
+
+    path = _resolve_config_path(config_file)
+    if not path.exists():
+        console.print(f"[red]Config file not found:[/red] {path}")
+        raise typer.Exit(1)
+
+    data = _load_config_data(path)
+
+    try:
+        DaemonConfig.model_validate(data)
+    except Exception as e:
+        console.print(f"[red]Invalid config:[/red] {path}")
+        console.print(f"  {e}")
+        raise typer.Exit(1) from None
+
+    console.print(f"[green]Valid config:[/green] {path}")
+
+
 def _stringify_paths(data: dict[str, Any]) -> None:
     """Recursively convert Path values to strings for YAML output."""
     for key, value in data.items():
@@ -293,10 +378,6 @@ def _stringify_paths(data: dict[str, Any]) -> None:
         elif isinstance(value, dict):
             _stringify_paths(value)
 
-
-# =============================================================================
-# Public API
-# =============================================================================
 
 __all__ = [
     "config_app",

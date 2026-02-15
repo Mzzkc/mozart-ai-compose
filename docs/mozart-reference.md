@@ -301,7 +301,7 @@ Key validation features:
 - Zombie detection via PID checking (not time-based — jobs can run for days)
 - Atomic state saves (temp file + rename)
 - Circuit breaker prevents cascading failures
-- Graceful shutdown on SIGINT/SIGTERM/SIGHUP
+- Graceful shutdown on SIGINT/SIGTERM; live config reload on SIGHUP
 - Self-healing: auto-diagnosis + remediation when retries exhausted
 
 ### Observability

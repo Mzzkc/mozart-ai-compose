@@ -297,8 +297,9 @@ class AIReviewer:
             json_end = response.rfind("}") + 1
 
             if json_start == -1 or json_end <= json_start:
+                _logger.warning("review_no_json_in_response", response_length=len(response))
                 return AIReviewResult(
-                    score=50,  # Default uncertain score
+                    score=0,
                     error="Could not find JSON in response",
                     raw_response=response,
                     summary="Review response parsing failed",
@@ -308,7 +309,13 @@ class AIReviewer:
             data = json.loads(json_str)
 
             # Extract fields
-            score = int(data.get("score", 50))
+            raw_score = data.get("score")
+            if raw_score is None:
+                _logger.warning(
+                    "review_missing_score_field",
+                    response_keys=list(data.keys()),
+                )
+            score = int(raw_score) if raw_score is not None else 0
             components = data.get("components", {})
             summary = data.get("summary", "")
 
@@ -335,7 +342,7 @@ class AIReviewer:
         except json.JSONDecodeError as e:
             _logger.warning("review_json_parse_failed", error=str(e))
             return AIReviewResult(
-                score=50,
+                score=0,
                 error=f"JSON parse error: {e}",
                 raw_response=response,
                 summary="Review response was malformed",
@@ -343,7 +350,7 @@ class AIReviewer:
         except Exception as e:
             _logger.warning("review_response_parse_error", error=str(e))
             return AIReviewResult(
-                score=50,
+                score=0,
                 error=str(e),
                 raw_response=response,
                 summary="Review parsing failed",

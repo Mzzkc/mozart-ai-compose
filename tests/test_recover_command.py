@@ -13,6 +13,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from mozart.cli import app
@@ -86,6 +87,19 @@ def _write_state(state: CheckpointState, directory: Path) -> Path:
     state_file = directory / f"{state.job_id}.json"
     state_file.write_text(json.dumps(state.model_dump(mode="json"), default=str))
     return state_file
+
+
+@pytest.fixture(autouse=True)
+def _no_daemon_route(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prevent CLI tests from routing through a live conductor."""
+    async def _fake_route(
+        method: str, params: dict, *, socket_path=None,
+    ) -> tuple[bool, None]:
+        return False, None
+
+    monkeypatch.setattr(
+        "mozart.daemon.detect.try_daemon_route", _fake_route,
+    )
 
 
 class TestRecoverCommand:

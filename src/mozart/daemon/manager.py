@@ -183,6 +183,51 @@ class JobManager:
             raise RuntimeError("JobManager not started — call start() first")
         return self._service
 
+    def apply_config(self, new_config: DaemonConfig) -> None:
+        """Hot-apply reloadable config fields from a SIGHUP reload.
+
+        Compares the new config against the current one and applies
+        changes that can be safely updated at runtime.  Rebuilds the
+        concurrency semaphore if ``max_concurrent_jobs`` changed.
+
+        Safe because asyncio is single-threaded — this runs in the
+        event loop, so no concurrent access to ``_config`` or
+        ``_concurrency_semaphore`` is possible.
+        """
+        old = self._config
+
+        # Rebuild semaphore if concurrency limit changed
+        if new_config.max_concurrent_jobs != old.max_concurrent_jobs:
+            _logger.info(
+                "manager.config_reloaded",
+                field="max_concurrent_jobs",
+                old_value=old.max_concurrent_jobs,
+                new_value=new_config.max_concurrent_jobs,
+            )
+            self._concurrency_semaphore = asyncio.Semaphore(
+                new_config.max_concurrent_jobs,
+            )
+
+        # Log other changed reloadable fields
+        _reloadable_fields = [
+            "job_timeout_seconds",
+            "shutdown_timeout_seconds",
+            "max_job_history",
+            "monitor_interval_seconds",
+        ]
+        for field_name in _reloadable_fields:
+            old_val = getattr(old, field_name)
+            new_val = getattr(new_config, field_name)
+            if old_val != new_val:
+                _logger.info(
+                    "manager.config_reloaded",
+                    field=field_name,
+                    old_value=old_val,
+                    new_value=new_val,
+                )
+
+        self._config = new_config
+
     # ─── Helpers ───────────────────────────────────────────────────────
 
     def _generate_job_id(self, base_name: str) -> str:
@@ -238,7 +283,20 @@ class JobManager:
                 config = JobConfig.from_yaml(request.config_path)
                 workspace = config.workspace
             except Exception:
-                workspace = Path(f"workspace/{job_id}")
+                _logger.error(
+                    "manager.config_parse_failed",
+                    job_id=job_id,
+                    config_path=str(request.config_path),
+                    exc_info=True,
+                )
+                return JobResponse(
+                    job_id=job_id,
+                    status="rejected",
+                    message=(
+                        f"Failed to parse config file: {request.config_path}. "
+                        "Cannot determine workspace. Fix the config or pass --workspace explicitly."
+                    ),
+                )
 
         meta = JobMeta(
             job_id=job_id,
@@ -286,7 +344,7 @@ class JobManager:
             if state:
                 return state.model_dump(mode="json")
         except Exception:
-            _logger.debug(
+            _logger.warning(
                 "manager.get_job_status_state_load_failed",
                 job_id=job_id,
                 workspace=str(ws),
@@ -382,6 +440,48 @@ class JobManager:
                 result.append(record.to_dict())
 
         return result
+
+    async def clear_jobs(
+        self,
+        statuses: list[str] | None = None,
+        older_than_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        """Clear terminal jobs from registry and in-memory metadata.
+
+        Args:
+            statuses: Status filter (defaults to terminal statuses).
+            older_than_seconds: Age filter in seconds.
+
+        Returns:
+            Dict with "deleted" count.
+        """
+        safe_statuses = set(statuses or ["completed", "failed", "cancelled"])
+        safe_statuses -= {"queued", "running"}  # Never clear active jobs
+
+        to_remove: list[str] = []
+        now = time.time()
+        for jid, meta in self._job_meta.items():
+            if meta.status.value not in safe_statuses:
+                continue
+            if older_than_seconds is not None:
+                if (now - meta.submitted_at) < older_than_seconds:
+                    continue
+            to_remove.append(jid)
+
+        for jid in to_remove:
+            self._job_meta.pop(jid, None)
+
+        deleted = self._registry.delete_jobs(
+            statuses=list(safe_statuses),
+            older_than_seconds=older_than_seconds,
+        )
+
+        _logger.info(
+            "manager.clear_jobs",
+            in_memory_removed=len(to_remove),
+            registry_deleted=deleted,
+        )
+        return {"deleted": deleted}
 
     async def get_job_errors(self, job_id: str, workspace: Path | None = None) -> dict[str, Any]:
         """Get errors for a specific job.

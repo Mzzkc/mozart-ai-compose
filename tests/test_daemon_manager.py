@@ -44,7 +44,14 @@ def manager(daemon_config: DaemonConfig) -> JobManager:
 def sample_config_file(tmp_path: Path) -> Path:
     """Create a minimal config YAML file for submit tests."""
     config = tmp_path / "test-job.yaml"
-    config.write_text("name: test-job\n")
+    config.write_text(
+        "name: test-job\n"
+        "sheet:\n"
+        "  size: 1\n"
+        "  total_items: 1\n"
+        "prompt:\n"
+        "  template: test prompt\n"
+    )
     return config
 
 
@@ -56,10 +63,10 @@ class TestSubmitJob:
 
     @pytest.mark.asyncio
     async def test_submit_returns_accepted(
-        self, manager: JobManager, sample_config_file: Path,
+        self, manager: JobManager, sample_config_file: Path, tmp_path: Path,
     ):
         """Submitting a valid job returns accepted response."""
-        request = JobRequest(config_path=sample_config_file)
+        request = JobRequest(config_path=sample_config_file, workspace=tmp_path / "ws")
         response = await manager.submit_job(request)
 
         assert response.status == "accepted"
@@ -68,10 +75,10 @@ class TestSubmitJob:
 
     @pytest.mark.asyncio
     async def test_submit_creates_task(
-        self, manager: JobManager, sample_config_file: Path,
+        self, manager: JobManager, sample_config_file: Path, tmp_path: Path,
     ):
         """submit_job creates an asyncio.Task tracked in _jobs."""
-        request = JobRequest(config_path=sample_config_file)
+        request = JobRequest(config_path=sample_config_file, workspace=tmp_path / "ws")
         response = await manager.submit_job(request)
 
         # Task was created (may have already completed/failed due to mock)
@@ -89,6 +96,19 @@ class TestSubmitJob:
         assert "not found" in (response.message or "")
 
     @pytest.mark.asyncio
+    async def test_submit_unparseable_config_without_workspace_rejected(
+        self, manager: JobManager, tmp_path: Path,
+    ):
+        """Submitting a job with unparseable config and no workspace is rejected."""
+        bad_config = tmp_path / "bad-job.yaml"
+        bad_config.write_text("name: bad-job\n")
+        request = JobRequest(config_path=bad_config)
+        response = await manager.submit_job(request)
+
+        assert response.status == "rejected"
+        assert "Failed to parse" in (response.message or "")
+
+    @pytest.mark.asyncio
     async def test_submit_during_shutdown_rejected(
         self, manager: JobManager, sample_config_file: Path,
     ):
@@ -102,11 +122,11 @@ class TestSubmitJob:
 
     @pytest.mark.asyncio
     async def test_submit_generates_unique_ids(
-        self, manager: JobManager, sample_config_file: Path,
+        self, manager: JobManager, sample_config_file: Path, tmp_path: Path,
     ):
         """Each submission gets a unique job ID."""
-        r1 = JobRequest(config_path=sample_config_file)
-        r2 = JobRequest(config_path=sample_config_file)
+        r1 = JobRequest(config_path=sample_config_file, workspace=tmp_path / "ws1")
+        r2 = JobRequest(config_path=sample_config_file, workspace=tmp_path / "ws2")
 
         resp1 = await manager.submit_job(r1)
         resp2 = await manager.submit_job(r2)

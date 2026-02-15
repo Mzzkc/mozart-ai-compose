@@ -32,10 +32,6 @@ from mozart.execution.retry_strategy import (
     RetryStrategyConfig,
 )
 
-# ============================================================================
-# ErrorRecord Tests
-# ============================================================================
-
 
 class TestErrorRecord:
     """Tests for ErrorRecord dataclass."""
@@ -106,7 +102,7 @@ class TestErrorRecord:
         assert d["suggested_wait"] == 60.0
         assert d["sheet_num"] == 3
         assert d["attempt_num"] == 2
-        assert "2024-01-15" in d["timestamp"]
+        assert "2024-01-15" in str(d["timestamp"])
 
     def test_from_classification_result_captures_root_cause_info(self) -> None:
         """Test creating ErrorRecord from ClassificationResult captures confidence."""
@@ -191,8 +187,8 @@ class TestErrorRecord:
         assert d["root_cause_confidence"] == 0.751  # Should be rounded to 3 decimals
         assert d["secondary_error_count"] == 2
 
-    def test_from_classification_result_invalid_confidence_raises(self) -> None:
-        """Test that invalid confidence values raise ValueError."""
+    def test_from_classification_result_confidence_clamped(self) -> None:
+        """Test that out-of-range confidence values are clamped to [0.0, 1.0]."""
         primary = ClassifiedError(
             category=ErrorCategory.TIMEOUT,
             message="Command timed out",
@@ -200,21 +196,27 @@ class TestErrorRecord:
             exit_code=124,
             retriable=True,
         )
-        # Create result with invalid confidence > 1.0
+        # Create result with confidence > 1.0 — should be clamped by __post_init__
         result = ClassificationResult(
             primary=primary,
             secondary=[],
-            confidence=1.5,  # Invalid!
+            confidence=1.5,
             classification_method="structured",
         )
+        assert result.confidence == 1.0  # Clamped by __post_init__
 
-        with pytest.raises(ValueError, match="root_cause_confidence must be 0.0-1.0"):
-            ErrorRecord.from_classification_result(result=result)
+        record = ErrorRecord.from_classification_result(result=result)
+        assert record.root_cause_confidence == 1.0
 
+        # Test negative confidence is clamped to 0.0
+        result_neg = ClassificationResult(
+            primary=primary,
+            secondary=[],
+            confidence=-0.5,
+            classification_method="structured",
+        )
+        assert result_neg.confidence == 0.0
 
-# ============================================================================
-# RetryRecommendation Tests
-# ============================================================================
 
 
 class TestRetryRecommendation:
@@ -287,10 +289,6 @@ class TestRetryRecommendation:
         assert d["strategy_used"] == "rapid_failure_backoff"
 
 
-# ============================================================================
-# RetryStrategyConfig Tests
-# ============================================================================
-
 
 class TestRetryStrategyConfig:
     """Tests for RetryStrategyConfig."""
@@ -336,10 +334,6 @@ class TestRetryStrategyConfig:
         with pytest.raises(ValueError, match="exponential_base must be > 1"):
             RetryStrategyConfig(exponential_base=exp_base)
 
-
-# ============================================================================
-# AdaptiveRetryStrategy Pattern Detection Tests
-# ============================================================================
 
 
 class TestPatternDetection:
@@ -521,10 +515,6 @@ class TestPatternDetection:
         assert rec.confidence >= 0.9  # High confidence in not retrying
 
 
-# ============================================================================
-# AdaptiveRetryStrategy Recommendation Tests
-# ============================================================================
-
 
 class TestRetryRecommendations:
     """Tests for retry recommendations."""
@@ -701,10 +691,6 @@ class TestRetryRecommendations:
         assert rec.delay_seconds <= 1800.0 * 1.15  # 10% buffer + some margin
 
 
-# ============================================================================
-# Integration Tests
-# ============================================================================
-
 
 class TestIntegration:
     """Integration tests for AdaptiveRetryStrategy."""
@@ -808,10 +794,6 @@ class TestIntegration:
         assert rec.should_retry is True
         assert rec.delay_seconds >= 10.0  # At least base delay
 
-
-# ============================================================================
-# ErrorCode.get_retry_behavior Tests
-# ============================================================================
 
 
 class TestRetryBehavior:
@@ -928,10 +910,6 @@ class TestRetryBehavior:
             assert isinstance(behavior.reason, str)
             assert len(behavior.reason) > 0
 
-
-# ============================================================================
-# ErrorCode-Specific Retry Strategy Tests
-# ============================================================================
 
 
 class TestErrorCodeSpecificRetry:
@@ -1084,10 +1062,6 @@ class TestErrorCodeSpecificRetry:
         # Delay should be at least the ErrorCode-specific base
         assert rec3.delay_seconds >= 30.0
 
-
-# ============================================================================
-# Delay Learning Tests (Evolution: Dynamic Retry Delay Learning)
-# ============================================================================
 
 
 class TestDelayOutcome:

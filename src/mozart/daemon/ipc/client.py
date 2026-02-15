@@ -232,6 +232,31 @@ class DaemonClient:
         """List all jobs known to the daemon."""
         return cast(list[dict[str, Any]], await self.call("job.list"))
 
+    async def clear_jobs(
+        self,
+        statuses: list[str] | None = None,
+        older_than_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        """Clear terminal jobs from the daemon registry.
+
+        Args:
+            statuses: Status filter (defaults to terminal statuses).
+            older_than_seconds: Only clear jobs older than this.
+
+        Returns:
+            Dict with "deleted" count.
+        """
+        params: dict[str, Any] = {}
+        if statuses is not None:
+            params["statuses"] = statuses
+        if older_than_seconds is not None:
+            params["older_than_seconds"] = older_than_seconds
+        return cast(dict[str, Any], await self.call("job.clear", params))
+
+    async def config(self) -> dict[str, Any]:
+        """Get the conductor's live running configuration."""
+        return cast(dict[str, Any], await self.call("daemon.config"))
+
     async def health(self) -> dict[str, Any]:
         """Liveness probe — is the daemon process alive?"""
         return cast(dict[str, Any], await self.call("daemon.health"))

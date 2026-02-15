@@ -768,7 +768,7 @@ Usage: mozart config COMMAND [OPTIONS]
 
 ##### `mozart config show`
 
-Display current conductor configuration as a table. Values loaded from config file are highlighted; defaults shown in dim.
+Display current daemon configuration as a table. When the conductor is running, displays the **live in-memory config** (reflecting any SIGHUP reloads) with `[live]` source indicators. Falls back to disk-based display when the conductor is not running.
 
 ```bash
 mozart config show
@@ -777,7 +777,7 @@ mozart config show --config /etc/mozart/daemon.yaml
 
 | Option | Short | Description |
 |--------|-------|-------------|
-| `--config` | `-c` | Path to daemon config file (default: `~/.mozart/daemon.yaml`) |
+| `--config` | `-c` | Path to daemon config file (default: `~/.mozart/daemon.yaml`). Ignored when live config is available from a running conductor. |
 
 ##### `mozart config set`
 
@@ -821,6 +821,19 @@ mozart config init --config /etc/mozart/daemon.yaml
 |--------|-------|-------------|
 | `--config` | `-c` | Path to create config file (default: `~/.mozart/daemon.yaml`) |
 | `--force` | `-f` | Overwrite existing config file |
+
+##### `mozart config check`
+
+Validate a daemon config file against the `DaemonConfig` schema without starting the conductor. Exits 0 if valid, 1 if invalid or the file cannot be loaded.
+
+```bash
+mozart config check
+mozart config check --config /path/to/custom.yaml
+```
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--config` | `-c` | Path to daemon config file to validate (default: `~/.mozart/daemon.yaml`) |
 
 ---
 

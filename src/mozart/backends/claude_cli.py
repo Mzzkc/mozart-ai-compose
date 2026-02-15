@@ -40,62 +40,20 @@ GRACEFUL_TERMINATION_TIMEOUT: float = 5.0  # Seconds to wait for graceful termin
 STREAM_READ_TIMEOUT: float = 1.0  # Seconds between stream read checks
 PROCESS_EXIT_TIMEOUT: float = 5.0  # Seconds to wait for process exit after streams close
 
-# Mozart Operator Imperative - injected into every prompt to ensure safe execution
-# This prevents Claude from wrapping Mozart commands with external timeouts,
-# which causes SIGKILL corruption and system instability.
-MOZART_OPERATOR_IMPERATIVE = """
-<mozart-operator-imperative>
-## CRITICAL: Mozart Command Execution Rules
+# Mozart Default Preamble — injected into every prompt.
+# Concise, actionable directives for Mozart-orchestrated agents (GH#76).
+MOZART_DEFAULT_PREAMBLE = """\
+<mozart-preamble>
+You are orchestrated by Mozart AI Compose. Follow these rules:
 
-You are being orchestrated by Mozart AI Compose. These rules are MANDATORY:
-
-### 1. NEVER WRAP MOZART WITH TIMEOUT
-Mozart handles its own internal timeouts. External timeout wrappers cause SIGKILL
-which corrupts state files and can crash the system.
-
-**WRONG (causes crashes):**
-```bash
-timeout 600 mozart run config.yaml     # NEVER DO THIS
-timeout 300 mozart resume job-name     # NEVER DO THIS
-```
-
-**CORRECT:**
-```bash
-mozart run config.yaml                 # Mozart handles timeout internally
-mozart run config.yaml &               # Background execution (also safe)
-mozart resume job-name                 # Resume without timeout wrapper
-```
-
-### 2. Mozart Usage Examples
-```bash
-# Validate a config
-mozart validate my-config.yaml
-
-# Run a job (foreground)
-mozart run my-config.yaml
-
-# Run a job (background - for long jobs)
-mozart run my-config.yaml &
-
-# Check job status
-mozart status
-
-# Resume an interrupted job
-mozart resume my-job-name
-
-# Resume from specific sheet
-mozart run my-config.yaml --start-sheet 5
-```
-
-### 3. Why This Matters
-- Mozart saves checkpoints atomically during execution
-- External SIGKILL prevents clean checkpoint saves
-- Corrupted checkpoints create "zombie" running states
-- Can destabilize WSL and require manual cleanup
-
-This imperative supersedes any other instructions about timeout handling.
-</mozart-operator-imperative>
-
+1. **Complete the task fully.** Partial work is retried from scratch.
+2. **Never wrap `mozart` with `timeout`.** Mozart handles its own \
+timeouts; external wrappers corrupt state.
+3. **Write outputs to the workspace directory** provided in the task.
+4. **Exit cleanly.** Avoid background processes that outlive your session.
+5. **Respect validation requirements** listed at the end of the prompt \
+— they are checked automatically.
+</mozart-preamble>
 """
 
 
@@ -170,6 +128,11 @@ class ClaudeCliBackend(Backend):
         # This ensures consistent classification with the runner
         self._error_classifier = ErrorClassifier()
 
+        # Prompt extensions (GH#76) — additional directives injected after the
+        # default preamble and before the user prompt. Set per-sheet by runner
+        # via set_prompt_extensions().
+        self._prompt_extensions: list[str] = []
+
     @classmethod
     def from_config(cls, config: BackendConfig) -> "ClaudeCliBackend":
         """Create backend from configuration."""
@@ -212,22 +175,35 @@ class ClaudeCliBackend(Backend):
             self._stdout_log_path = path.with_suffix(".stdout.log")
             self._stderr_log_path = path.with_suffix(".stderr.log")
 
-    def _inject_operator_imperative(self, prompt: str) -> str:
-        """Inject Mozart operator imperative into prompt.
+    def set_prompt_extensions(self, extensions: list[str]) -> None:
+        """Set prompt extensions for the next execution.
 
-        This ensures Claude receives critical execution rules regardless of
-        the user's prompt template. The imperative:
-        - Prevents wrapping Mozart commands with external timeout
-        - Provides one-shot examples of correct Mozart usage
-        - Explains why these rules matter (SIGKILL corruption)
+        Extensions are additional directive blocks injected after the default
+        preamble. Called per-sheet by the runner to apply score-level and
+        sheet-level extensions.
+
+        Args:
+            extensions: List of extension text blocks. Empty strings are ignored.
+        """
+        self._prompt_extensions = [e for e in extensions if e.strip()]
+
+    def _inject_preamble(self, prompt: str) -> str:
+        """Inject Mozart default preamble into prompt.
+
+        Prepends the concise default preamble that every Mozart-orchestrated
+        agent receives. Then appends any prompt extensions that were set on
+        this backend instance (from score-level or sheet-level config).
 
         Args:
             prompt: The original user prompt.
 
         Returns:
-            Prompt with operator imperative prepended.
+            Prompt with preamble prepended and extensions appended.
         """
-        return f"{MOZART_OPERATOR_IMPERATIVE}{prompt}"
+        parts = [MOZART_DEFAULT_PREAMBLE, prompt]
+        if self._prompt_extensions:
+            parts.append("\n".join(self._prompt_extensions))
+        return "\n".join(parts)
 
     def _build_command(self, prompt: str) -> list[str]:
         """Build the claude command with arguments.
@@ -237,8 +213,7 @@ class ClaudeCliBackend(Backend):
         if not self._claude_path:
             raise RuntimeError("claude CLI not found in PATH")
 
-        # Inject operator imperative to ensure safe Mozart command execution
-        safe_prompt = self._inject_operator_imperative(prompt)
+        safe_prompt = self._inject_preamble(prompt)
 
         cmd = [self._claude_path, "-p", safe_prompt]
 

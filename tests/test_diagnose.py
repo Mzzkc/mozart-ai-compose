@@ -9,6 +9,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from mozart.cli import app
@@ -282,6 +283,19 @@ class TestBuildDiagnosticReport:
 # ---------------------------------------------------------------------------
 # CLI integration tests via CliRunner
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _no_daemon_route(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prevent CLI tests from routing through a live conductor."""
+    async def _fake_route(
+        method: str, params: dict, *, socket_path=None,
+    ) -> tuple[bool, None]:
+        return False, None
+
+    monkeypatch.setattr(
+        "mozart.daemon.detect.try_daemon_route", _fake_route,
+    )
 
 
 class TestDiagnoseCommand:

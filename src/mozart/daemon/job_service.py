@@ -172,14 +172,17 @@ class JobService:
             self_healing_auto_confirm=self_healing_auto_confirm,
         )
 
-        return await self._execute_runner(
-            runner=runner,
-            job_id=job_id,
-            job_name=config.name,
-            total_sheets=config.sheet.total_sheets,
-            notification_manager=components["notification_manager"],
-            start_sheet=start_sheet,
-        )
+        try:
+            return await self._execute_runner(
+                runner=runner,
+                job_id=job_id,
+                job_name=config.name,
+                total_sheets=config.sheet.total_sheets,
+                notification_manager=components["notification_manager"],
+                start_sheet=start_sheet,
+            )
+        finally:
+            await state_backend.close()
 
     async def resume_job(
         self,
@@ -276,16 +279,19 @@ class JobService:
             str(config_path) if config_path else found_state.config_path
         )
 
-        return await self._execute_runner(
-            runner=runner,
-            job_id=job_id,
-            job_name=resolved_config.name,
-            total_sheets=resolved_config.sheet.total_sheets,
-            notification_manager=components["notification_manager"],
-            notify_total_sheets=remaining,
-            start_sheet=resume_sheet,
-            config_path=stored_config_path,
-        )
+        try:
+            return await self._execute_runner(
+                runner=runner,
+                job_id=job_id,
+                job_name=resolved_config.name,
+                total_sheets=resolved_config.sheet.total_sheets,
+                notification_manager=components["notification_manager"],
+                notify_total_sheets=remaining,
+                start_sheet=resume_sheet,
+                config_path=stored_config_path,
+            )
+        finally:
+            await found_backend.close()
 
     async def pause_job(self, job_id: str, workspace: Path) -> bool:
         """Pause a running job via signal file.

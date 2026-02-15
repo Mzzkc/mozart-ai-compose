@@ -64,6 +64,16 @@ class SheetConfig(BaseModel):
     total_items: int = Field(ge=1, description="Total number of items to process")
     start_item: int = Field(default=1, ge=1, description="First item number (1-indexed)")
 
+    # Sheet descriptions for status display (GH#75)
+    descriptions: dict[int, str] = Field(
+        default_factory=dict,
+        description=(
+            "Human-readable labels for sheets. Map of sheet_num -> description. "
+            "Displayed in 'mozart status' output. Sheets without entries show no description. "
+            "Example: {1: 'Setup environment', 2: 'Build project', 3: 'Run tests'}"
+        ),
+    )
+
     # Sheet dependencies (v17 evolution: Sheet Dependency DAG)
     dependencies: dict[int, list[int]] = Field(
         default_factory=dict,
@@ -84,6 +94,17 @@ class SheetConfig(BaseModel):
             "If the expression evaluates to truthy, the sheet is SKIPPED. "
             "Example: {5: \"sheets.get(3) and sheets[3].validation_passed\"} "
             "skips sheet 5 when sheet 3's validations passed (only run on failure)."
+        ),
+    )
+
+    # Per-sheet prompt extensions (GH#76) — additional directives for specific sheets
+    prompt_extensions: dict[int, list[str]] = Field(
+        default_factory=dict,
+        description=(
+            "Per-sheet prompt extensions. Map of sheet_num -> list of extension strings. "
+            "Each entry is inline text or a file path (.md/.txt). "
+            "Applied in addition to score-level prompt.prompt_extensions. "
+            "Example: {2: ['Review the code carefully before making changes']}"
         ),
     )
 
@@ -277,6 +298,17 @@ class PromptConfig(BaseModel):
         default=None,
         description="Thinking methodology to inject into prompt",
     )
+    # Prompt extension points (GH#76) — additional directives injected after
+    # the default preamble. Can be inline text or file paths.
+    prompt_extensions: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Additional prompt directives applied to all sheets in this score. "
+            "Each entry is either inline text or a file path ending in .md/.txt. "
+            "File paths are resolved relative to the config file location. "
+            "Extensions are injected after the Mozart default preamble."
+        ),
+    )
 
     @model_validator(mode="after")
     def at_least_one_template(self) -> PromptConfig:
@@ -284,6 +316,13 @@ class PromptConfig(BaseModel):
         if self.template is not None and self.template_file is not None:
             raise ValueError(
                 "PromptConfig accepts 'template' or 'template_file', not both"
+            )
+        if self.template is None and self.template_file is None:
+            warnings.warn(
+                "PromptConfig has neither 'template' nor 'template_file'. "
+                "The default preamble prompt will be used.",
+                UserWarning,
+                stacklevel=2,
             )
         return self
 

@@ -692,13 +692,17 @@ class LifecycleMixin:
                 if result:
                     return f"Condition met: {condition}"
             except Exception as e:
-                self._logger.warning(
+                self._logger.error(
                     "skip_condition_eval_failed",
                     sheet_num=sheet_num,
                     condition=condition,
                     error=str(e),
+                    exc_info=True,
                 )
-                return f"Condition evaluation failed (fail-closed): {condition}"
+                return (
+                    f"[EVAL ERROR] Condition evaluation failed (fail-closed, sheet SKIPPED): "
+                    f"{condition} — error: {e}"
+                )
 
         # --- Phase 2: Check command-based skip_when_command ---
         cmd_conditions = self.config.sheet.skip_when_command

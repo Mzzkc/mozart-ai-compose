@@ -156,6 +156,27 @@ class ResourceMonitor:
         """Whether the monitor has entered degraded mode due to repeated failures."""
         return self._degraded
 
+    def update_limits(self, new_limits: ResourceLimitConfig) -> None:
+        """Hot-apply new resource limits from a SIGHUP config reload.
+
+        Replaces the internal ``_config`` reference.  Safe because the
+        monitor only reads ``_config`` during periodic checks, and
+        asyncio's single-threaded event loop prevents concurrent access.
+        """
+        old = self._config
+        if (
+            old.max_memory_mb != new_limits.max_memory_mb
+            or old.max_processes != new_limits.max_processes
+        ):
+            _logger.info(
+                "monitor.limits_updated",
+                old_memory_mb=old.max_memory_mb,
+                new_memory_mb=new_limits.max_memory_mb,
+                old_max_processes=old.max_processes,
+                new_max_processes=new_limits.max_processes,
+            )
+        self._config = new_limits
+
     def set_manager(self, manager: JobManager) -> None:
         """Wire up the job manager reference after construction.
 
