@@ -785,6 +785,88 @@ class TestGetNextSheetDagAware:
         # Sheet 3 remains pending — blocked by sheet 2 not being completed
         assert 3 not in state.sheets or state.sheets[3].status == SheetStatus.PENDING
 
+    def test_skipped_sheets_satisfy_dependencies(
+        self, mixin: _TestableLifecycleMixin
+    ):
+        """Skipped sheets (e.g. skip_when_command) satisfy downstream deps.
+
+        When a sheet is SKIPPED (not needed), its dependents should be able
+        to proceed — a skip means "this work wasn't needed", not "this work
+        failed."
+        """
+        # Sheet 2 depends on 1, sheet 3 depends on 2
+        dag = DependencyDAG.from_dependencies(
+            total_sheets=3,
+            dependencies={2: [1], 3: [2]},
+        )
+        mixin._dependency_dag = dag
+
+        state = _make_state(total_sheets=3)
+        state.mark_sheet_started(1)
+        state.mark_sheet_completed(1)
+        # Sheet 2 was skipped (e.g. skip_when_command condition met)
+        state.mark_sheet_skipped(2, reason="Skip — condition not met")
+
+        next_sheet = mixin._get_next_sheet_dag_aware(state)
+        # Sheet 3 should be ready because sheet 2 (skipped) satisfies deps
+        assert next_sheet == 3
+
+    def test_skipped_sheets_not_falsely_blocked(
+        self, mixin: _TestableLifecycleMixin
+    ):
+        """Skipped sheets should not be reported as 'blocked by failed deps'.
+
+        This is the exact bug from issue-solver: sheets 8-11 were correctly
+        skipped by skip_when_command but reported as blocked because SKIPPED
+        was not recognized as a terminal state.
+        """
+        # 4 sheets: 2 depends on 1, 3 has no deps, 4 depends on 3
+        dag = DependencyDAG.from_dependencies(
+            total_sheets=4,
+            dependencies={2: [1], 4: [3]},
+        )
+        mixin._dependency_dag = dag
+
+        state = _make_state(total_sheets=4)
+        state.mark_sheet_started(1)
+        state.mark_sheet_completed(1)
+        state.mark_sheet_started(2)
+        state.mark_sheet_completed(2)
+        state.mark_sheet_skipped(3, reason="Skip — plan has fewer than 3 phases")
+        state.mark_sheet_skipped(4, reason="Skip — plan has fewer than 4 phases")
+
+        next_sheet = mixin._get_next_sheet_dag_aware(state)
+        # All sheets are done (completed or skipped) — should return None
+        assert next_sheet is None
+        # Sheets 3 and 4 should remain SKIPPED with their original reason,
+        # NOT re-marked as "Blocked by failed dependencies"
+        assert state.sheets[3].status == SheetStatus.SKIPPED
+        assert "Blocked" not in (state.sheets[3].error_message or "")
+        assert state.sheets[4].status == SheetStatus.SKIPPED
+        assert "Blocked" not in (state.sheets[4].error_message or "")
+
+    def test_resume_with_skipped_dependency(
+        self, mixin: _TestableLifecycleMixin
+    ):
+        """In-progress sheet can resume when a dependency was skipped."""
+        dag = DependencyDAG.from_dependencies(
+            total_sheets=3,
+            dependencies={2: [1], 3: [1, 2]},
+        )
+        mixin._dependency_dag = dag
+
+        state = _make_state(total_sheets=3)
+        state.mark_sheet_started(1)
+        state.mark_sheet_completed(1)
+        state.mark_sheet_skipped(2, reason="Not needed")
+        state.mark_sheet_started(3)
+        # Simulates crash mid-execution of sheet 3
+        state.current_sheet = 3
+
+        next_sheet = mixin._get_next_sheet_dag_aware(state)
+        # Sheet 3 should resume — deps 1 (completed) and 2 (skipped) satisfied
+        assert next_sheet == 3
+
 
 # ===========================================================================
 # Tests: run() integration

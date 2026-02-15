@@ -565,15 +565,23 @@ class LifecycleMixin:
         if self._dependency_dag is None:
             return state.get_next_sheet()
 
-        # Build set of completed and failed sheet numbers
+        # Build sets of completed, failed, and skipped sheet numbers.
+        # Skipped sheets (e.g. from skip_when_command) are terminal — they
+        # satisfy dependencies so downstream sheets can proceed.
         completed: set[int] = set()
         failed: set[int] = set()
+        skipped: set[int] = set()
         for sheet_num in range(1, state.total_sheets + 1):
             sheet_state = state.sheets.get(sheet_num)
             if sheet_state and sheet_state.status == SheetStatus.COMPLETED:
                 completed.add(sheet_num)
             elif sheet_state and sheet_state.status == SheetStatus.FAILED:
                 failed.add(sheet_num)
+            elif sheet_state and sheet_state.status == SheetStatus.SKIPPED:
+                skipped.add(sheet_num)
+
+        # Sheets that satisfy dependencies: completed + skipped
+        satisfied = completed | skipped
 
         # Check for in-progress sheet (resume from crash)
         if state.current_sheet is not None:
@@ -588,20 +596,20 @@ class LifecycleMixin:
                         sheet_num=state.current_sheet,
                         failed_deps=sorted(d for d in deps if d in failed),
                     )
-                elif all(d in completed for d in deps):
+                elif all(d in satisfied for d in deps):
                     return state.current_sheet
 
         # Get ready sheets (all dependencies satisfied)
-        ready_sheets = self._dependency_dag.get_ready_sheets(completed)
+        ready_sheets = self._dependency_dag.get_ready_sheets(satisfied)
 
-        # Filter out sheets that are already complete
-        pending_ready = [s for s in ready_sheets if s not in completed]
+        # Filter out sheets that are already done
+        pending_ready = [s for s in ready_sheets if s not in satisfied]
 
         if pending_ready:
             return pending_ready[0]
 
         # No ready sheets — distinguish "all done" from "blocked by failed deps"
-        all_processed = completed | failed
+        all_processed = completed | failed | skipped
         remaining = set(range(1, state.total_sheets + 1)) - all_processed
         if not remaining:
             # All sheets completed or failed — job is done
