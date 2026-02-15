@@ -1,6 +1,6 @@
 # Mozart AI Compose - Status
 
-**Overall:** Post-daemon stabilization + documentation (2026-02-14)
+**Overall:** Daemon stabilized, scores running in production (2026-02-15)
 **Tests:** 3384+ passing (+ 249 observability tests)
 **Vision:** Mozart + Recursive Light = Federated AGI Architecture
 **GitHub:** https://github.com/Mzzkc/mozart-ai-compose
@@ -9,15 +9,19 @@
 
 ---
 
-## Current: Issue Solver Score + skip_when_command (2026-02-14)
+## Current: Daemon Bug Fixes + Autonomous Score Execution (2026-02-15)
 
-### Two features shipped, daemon chain bug filed
+### 5 bugs fixed, 2 scores ran autonomously
 
-- **skip_when_command (#71)** — Command-based conditional sheet execution with fail-open semantics
-- **issue-solver score (#72)** — 17-stage self-chaining score for auto-solving roadmap issues
-- **#74 filed** — Chained jobs bypass daemon (Tier 0, top priority for next work)
+- **#74 FIXED** — Chained jobs now route through daemon IPC (`e89d58d`)
+- **#50 FIXED** — Conductor-first architecture for all CLI operations (`c7a90df`)
+- **#51 FIXED** — SIGHUP config reload, solved autonomously by issue-solver score (`1e3faad`)
+- **State tracking bug FIXED** — Sheet completions silently lost when learning ops threw (`908db66`)
+- **Registry status bug FIXED** — Failed jobs reported as "completed" in daemon (`77989b2`)
+- **Quality iterations 9-10** committed by quality-continuous score (`6b83b77`, `f9b00bc`)
+- **Self-chaining verified** — quality-continuous ran 4 autonomous iterations
 
-**Commits:** `4612a78` (score), `85e7bd8` (template tests), `5a64b05` (quality fixes), `5266e1a` (roadmap priority)
+**Commits:** `77989b2`, `f9b00bc`, `6b83b77`, `1e3faad`, `908db66`, `3893287`, `c7a90df`, `e89d58d`
 
 ---
 
@@ -145,14 +149,14 @@ None (all resolved or closed in v24)
 
 | Job | Progress | Status | Notes |
 |-----|----------|--------|-------|
-| **Evolution v24** | **100% (9/9)** | **COMPLETE** | Ready for v25 chain |
-| Dashboard v2 | 67% (24/36) | Rate limit wait | Sheet 25 |
+| issue-solver | 15/19 | Failed | Sheets [8,9,10,11] blocked by failed deps |
+| quality-continuous | 18/18 | Completed | Chained 4 times (iterations 6-10) |
+| quality-continuous-4 | 1/18 | Cancelled | 4th chain iteration, cancelled |
 
-### Next: Run v25 Chain
-```bash
-mkdir -p evolution-workspace-v25
-setsid mozart run mozart-opus-evolution-v25.yaml > evolution-workspace-v25/mozart.log 2>&1 &
-```
+### Next Steps
+1. Investigate issue-solver dependency failures (sheets 8-11)
+2. Fix concert depth tracking (TODO #37)
+3. Re-run issue-solver after fixing DAG issue
 
 ---
 
@@ -301,4 +305,4 @@ Score vN → Discovery → Synthesis → Evolution → Validation → Score v(N+
 
 ---
 
-*Last Updated: 2026-02-14 - Documentation overhaul complete, 29 accuracy fixes, daemon complete*
+*Last Updated: 2026-02-15 - 5 daemon bugs fixed, scores running autonomously, self-chaining verified*
