@@ -179,7 +179,18 @@ class JudgmentClient:
             return self._default_retry_response(f"Timeout: {e}")
 
         except httpx.HTTPStatusError as e:
-            return self._default_retry_response(f"HTTP error: {e}")
+            if e.response.status_code < 500:
+                # 4xx client errors are permanent — retrying won't help.
+                _logger.warning(
+                    "judgment_client_error: HTTP %s — not retrying",
+                    e.response.status_code,
+                )
+                return JudgmentResponse(
+                    recommended_action="retry",
+                    confidence=0.1,
+                    reasoning=f"RL client error (HTTP {e.response.status_code}), unavailable",
+                )
+            return self._default_retry_response(f"HTTP server error: {e}")
 
         except (ValueError, KeyError, TypeError) as e:
             return self._default_retry_response(f"Response parsing error: {e}")

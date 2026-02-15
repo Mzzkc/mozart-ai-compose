@@ -664,10 +664,12 @@ def _daemonize(config: DaemonConfig) -> None:
 
     # Redirect stdio to /dev/null
     devnull = os.open(os.devnull, os.O_RDWR)
-    os.dup2(devnull, 0)
-    os.dup2(devnull, 1)
-    os.dup2(devnull, 2)
-    os.close(devnull)
+    try:
+        os.dup2(devnull, 0)
+        os.dup2(devnull, 1)
+        os.dup2(devnull, 2)
+    finally:
+        os.close(devnull)
 
     _logger.info(
         "daemon.daemonized",

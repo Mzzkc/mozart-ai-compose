@@ -13,9 +13,10 @@ import traceback
 from collections import deque
 from collections.abc import Coroutine
 from dataclasses import dataclass, field
-from enum import Enum
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 import mozart
 from mozart.core.logging import get_logger
@@ -27,27 +28,12 @@ from mozart.daemon.learning_hub import LearningHub
 from mozart.daemon.monitor import ResourceMonitor
 from mozart.daemon.output import StructuredOutput
 from mozart.daemon.rate_coordinator import RateLimitCoordinator
-from mozart.daemon.registry import JobRegistry
+from mozart.daemon.registry import DaemonJobStatus, JobRegistry
 from mozart.daemon.scheduler import GlobalSheetScheduler
 from mozart.daemon.task_utils import log_task_exception
 from mozart.daemon.types import JobRequest, JobResponse
 
 _logger = get_logger("daemon.manager")
-
-
-class DaemonJobStatus(str, Enum):
-    """Status values for daemon-managed jobs.
-
-    Inherits from ``str`` so ``meta.status`` serializes directly as
-    a plain string in JSON/dict output — no ``.value`` calls needed.
-    """
-
-    QUEUED = "queued"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    PAUSED = "paused"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
 
 
 @dataclass
@@ -282,7 +268,7 @@ class JobManager:
             try:
                 config = JobConfig.from_yaml(request.config_path)
                 workspace = config.workspace
-            except Exception:
+            except (ValueError, OSError, KeyError, yaml.YAMLError) as exc:
                 _logger.error(
                     "manager.config_parse_failed",
                     job_id=job_id,
@@ -293,10 +279,34 @@ class JobManager:
                     job_id=job_id,
                     status="rejected",
                     message=(
-                        f"Failed to parse config file: {request.config_path}. "
+                        f"Failed to parse config file: {request.config_path} ({exc}). "
                         "Cannot determine workspace. Fix the config or pass --workspace explicitly."
                     ),
                 )
+
+        # Early workspace validation: reject jobs whose workspace parent
+        # doesn't exist or isn't writable, instead of failing deep in
+        # JobService.start_job(). Workspace itself may not exist yet —
+        # it gets created by JobService — but the parent must be valid.
+        ws_parent = workspace.parent
+        if not ws_parent.exists():
+            return JobResponse(
+                job_id=job_id,
+                status="rejected",
+                message=(
+                    f"Workspace parent directory does not exist: {ws_parent}. "
+                    "Create the parent directory or change the workspace path."
+                ),
+            )
+        if not os.access(ws_parent, os.W_OK):
+            return JobResponse(
+                job_id=job_id,
+                status="rejected",
+                message=(
+                    f"Workspace parent directory is not writable: {ws_parent}. "
+                    "Fix permissions or change the workspace path."
+                ),
+            )
 
         meta = JobMeta(
             job_id=job_id,
@@ -307,10 +317,19 @@ class JobManager:
         self._job_meta[job_id] = meta
         self._registry.register_job(job_id, request.config_path, workspace)
 
-        task = asyncio.create_task(
-            self._run_job_task(job_id, request),
-            name=f"job-{job_id}",
-        )
+        try:
+            task = asyncio.create_task(
+                self._run_job_task(job_id, request),
+                name=f"job-{job_id}",
+            )
+        except RuntimeError:
+            # Clean up metadata if task creation fails
+            # RuntimeError is raised by asyncio when no running event loop
+            self._job_meta.pop(job_id, None)
+            self._registry.update_status(
+                job_id, DaemonJobStatus.FAILED, error_message="Task creation failed",
+            )
+            raise
         self._jobs[job_id] = task
         task.add_done_callback(lambda t: self._on_task_done(job_id, t))
 
@@ -343,11 +362,12 @@ class JobManager:
             state = await self._checked_service.get_status(meta.job_id, ws)
             if state:
                 return state.model_dump(mode="json")
-        except Exception:
+        except (OSError, ValueError, KeyError) as exc:
             _logger.warning(
                 "manager.get_job_status_state_load_failed",
                 job_id=job_id,
                 workspace=str(ws),
+                error=str(exc),
                 exc_info=True,
             )
 
@@ -879,6 +899,20 @@ class JobManager:
                     update={"workspace": request.workspace},
                 )
 
+            # Apply daemon-level default thinking method if the job
+            # doesn't specify its own (GH#77).
+            if (
+                self._config.default_thinking_method
+                and not config.prompt.thinking_method
+            ):
+                config = config.model_copy(
+                    update={
+                        "prompt": config.prompt.model_copy(
+                            update={"thinking_method": self._config.default_thinking_method},
+                        ),
+                    },
+                )
+
             summary = await self._checked_service.start_job(
                 config,
                 fresh=request.fresh,
@@ -927,7 +961,7 @@ class JobManager:
                     )
 
             self._prune_job_history()
-        except Exception:
+        except (KeyError, OSError, RuntimeError):
             _logger.error(
                 "task_done_callback_failed", job_id=job_id, exc_info=True,
             )

@@ -423,6 +423,11 @@ class JobService:
         coroutine.  The None check here is a defensive fallback only.
         """
         if manager is None:
+            _logger.warning(
+                "notification_manager_none",
+                context=context,
+                hint="Caller should check `if manager:` before creating coroutine",
+            )
             coro.close()
             return
         try:

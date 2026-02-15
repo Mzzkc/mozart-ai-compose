@@ -1434,3 +1434,90 @@ class TestExecuteImpl:
         assert result.exit_reason == "error"
         assert result.exit_code is None
         assert result.exit_signal is None
+
+
+# ============================================================================
+# Per-Sheet Backend Override Tests (GH#78)
+# ============================================================================
+
+
+class TestAnthropicApiBackendOverrides:
+    """Test per-sheet override application for AnthropicApiBackend."""
+
+    def test_apply_overrides_model(self) -> None:
+        """Apply model override changes model attribute."""
+        backend = AnthropicApiBackend(model="claude-sonnet-4-20250514")
+        backend.apply_overrides({"model": "claude-opus-4-6"})
+        assert backend.model == "claude-opus-4-6"
+
+    def test_clear_overrides_restores_original(self) -> None:
+        """Clear overrides restores original model."""
+        backend = AnthropicApiBackend(model="claude-sonnet-4-20250514", temperature=0.7)
+        backend.apply_overrides({"model": "claude-opus-4-6", "temperature": 0.2})
+        assert backend.model == "claude-opus-4-6"
+        assert backend.temperature == 0.2
+        backend.clear_overrides()
+        assert backend.model == "claude-sonnet-4-20250514"
+        assert backend.temperature == 0.7
+
+    def test_apply_overrides_partial(self) -> None:
+        """Apply only some overrides leaves others unchanged."""
+        backend = AnthropicApiBackend(model="claude-sonnet-4-20250514", temperature=0.7)
+        backend.apply_overrides({"temperature": 0.0})
+        assert backend.model == "claude-sonnet-4-20250514"  # Unchanged
+        assert backend.temperature == 0.0
+
+    def test_clear_overrides_noop_without_apply(self) -> None:
+        """Clearing overrides without applying is a no-op."""
+        backend = AnthropicApiBackend(model="claude-sonnet-4-20250514")
+        backend.clear_overrides()  # Should not raise
+        assert backend.model == "claude-sonnet-4-20250514"
+
+    def test_apply_overrides_max_tokens(self) -> None:
+        """Apply max_tokens override."""
+        backend = AnthropicApiBackend(max_tokens=8192)
+        backend.apply_overrides({"max_tokens": 16384})
+        assert backend.max_tokens == 16384
+        backend.clear_overrides()
+        assert backend.max_tokens == 8192
+
+    def test_apply_empty_overrides_noop(self) -> None:
+        """Empty overrides dict is a no-op."""
+        backend = AnthropicApiBackend(model="claude-sonnet-4-20250514")
+        backend.apply_overrides({})
+        assert backend.model == "claude-sonnet-4-20250514"
+        assert not backend._has_overrides
+
+
+class TestClaudeCliBackendOverrides:
+    """Test per-sheet override application for ClaudeCliBackend."""
+
+    def _make_backend(self, **kwargs: Any) -> ClaudeCliBackend:
+        return ClaudeCliBackend(**kwargs)
+
+    def test_apply_overrides_cli_model(self) -> None:
+        """Apply cli_model override changes model attribute."""
+        backend = self._make_backend(cli_model="claude-sonnet-4-20250514")
+        backend.apply_overrides({"cli_model": "claude-opus-4-6"})
+        assert backend.cli_model == "claude-opus-4-6"
+
+    def test_clear_overrides_restores_cli_model(self) -> None:
+        """Clear overrides restores original cli_model."""
+        backend = self._make_backend(cli_model="claude-sonnet-4-20250514")
+        backend.apply_overrides({"cli_model": "claude-opus-4-6"})
+        assert backend.cli_model == "claude-opus-4-6"
+        backend.clear_overrides()
+        assert backend.cli_model == "claude-sonnet-4-20250514"
+
+    def test_clear_overrides_noop_without_apply(self) -> None:
+        """Clearing overrides without applying is a no-op."""
+        backend = self._make_backend(cli_model="claude-sonnet-4-20250514")
+        backend.clear_overrides()
+        assert backend.cli_model == "claude-sonnet-4-20250514"
+
+    def test_apply_empty_overrides_noop(self) -> None:
+        """Empty overrides dict is a no-op."""
+        backend = self._make_backend(cli_model="claude-sonnet-4-20250514")
+        backend.apply_overrides({})
+        assert backend.cli_model == "claude-sonnet-4-20250514"
+        assert not backend._has_overrides

@@ -230,6 +230,27 @@ class Backend(ABC):
         )
         return classified.category == ErrorCategory.RATE_LIMIT
 
+    def apply_overrides(self, overrides: dict[str, object]) -> None:  # noqa: B027
+        """Apply per-sheet parameter overrides for the next execution.
+
+        Called per-sheet by the runner when ``sheet_overrides`` is configured.
+        Subclasses store the overrides and apply them in ``execute()``.
+        ``clear_overrides()`` is called after execution to restore defaults.
+
+        Default implementation is a no-op for backends without override support.
+
+        Args:
+            overrides: Dict of parameter name → value. Only non-None values
+                from ``SheetBackendOverride`` are included.
+        """
+
+    def clear_overrides(self) -> None:  # noqa: B027
+        """Clear per-sheet parameter overrides, restoring defaults.
+
+        Called after each sheet execution to ensure the next sheet uses
+        global config. Default implementation is a no-op.
+        """
+
     def set_prompt_extensions(self, _extensions: list[str]) -> None:  # noqa: B027
         """Set prompt extensions for the next execution.
 

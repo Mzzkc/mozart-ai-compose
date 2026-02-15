@@ -68,6 +68,12 @@ class AnthropicApiBackend(Backend):
         # Use shared ErrorClassifier for consistent error detection
         self._error_classifier = ErrorClassifier()
 
+        # Per-sheet overrides (GH#78) — saved originals for clear_overrides()
+        self._saved_model: str | None = None
+        self._saved_temperature: float | None = None
+        self._saved_max_tokens: int | None = None
+        self._has_overrides: bool = False
+
     @classmethod
     def from_config(cls, config: BackendConfig) -> "AnthropicApiBackend":
         """Create backend from configuration."""
@@ -82,6 +88,33 @@ class AnthropicApiBackend(Backend):
     @property
     def name(self) -> str:
         return "anthropic-api"
+
+    def apply_overrides(self, overrides: dict[str, object]) -> None:
+        """Apply per-sheet overrides for the next execution."""
+        if not overrides:
+            return
+        self._saved_model = self.model
+        self._saved_temperature = self.temperature
+        self._saved_max_tokens = self.max_tokens
+        self._has_overrides = True
+        if "model" in overrides:
+            self.model = str(overrides["model"])
+        if "temperature" in overrides:
+            self.temperature = float(overrides["temperature"])  # type: ignore[arg-type]
+        if "max_tokens" in overrides:
+            self.max_tokens = int(overrides["max_tokens"])  # type: ignore[call-overload]
+
+    def clear_overrides(self) -> None:
+        """Restore original backend parameters after per-sheet execution."""
+        if not self._has_overrides:
+            return
+        self.model = self._saved_model  # type: ignore[assignment]
+        self.temperature = self._saved_temperature  # type: ignore[assignment]
+        self.max_tokens = self._saved_max_tokens  # type: ignore[assignment]
+        self._saved_model = None
+        self._saved_temperature = None
+        self._saved_max_tokens = None
+        self._has_overrides = False
 
     def set_output_log_path(self, path: Path | None) -> None:
         """Set base path for real-time output logging.

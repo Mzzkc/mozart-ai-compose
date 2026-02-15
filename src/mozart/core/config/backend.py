@@ -216,6 +216,56 @@ class BridgeConfig(BaseModel):
     )
 
 
+class SheetBackendOverride(BaseModel):
+    """Per-sheet backend parameter overrides.
+
+    Allows individual sheets to use different models, temperatures,
+    or timeouts without changing the global backend config.
+
+    Example YAML::
+
+        backend:
+          type: anthropic_api
+          model: claude-sonnet-4-20250514
+          sheet_overrides:
+            1:
+              model: claude-opus-4-6
+              temperature: 0.0
+            5:
+              timeout_seconds: 600
+    """
+
+    # CLI-specific overrides
+    cli_model: str | None = Field(
+        default=None,
+        description="[claude_cli] Override model for this sheet",
+    )
+
+    # API-specific overrides
+    model: str | None = Field(
+        default=None,
+        description="[anthropic_api] Override model for this sheet",
+    )
+    temperature: float | None = Field(
+        default=None,
+        ge=0,
+        le=1,
+        description="[anthropic_api] Override sampling temperature for this sheet",
+    )
+    max_tokens: int | None = Field(
+        default=None,
+        ge=1,
+        description="[anthropic_api] Override max_tokens for this sheet",
+    )
+
+    # General overrides
+    timeout_seconds: float | None = Field(
+        default=None,
+        gt=0,
+        description="Override timeout for this sheet",
+    )
+
+
 class BackendConfig(BaseModel):
     """Configuration for the execution backend.
 
@@ -280,6 +330,12 @@ class BackendConfig(BaseModel):
         default_factory=dict,
         description="Per-sheet timeout overrides. Map of sheet_num -> timeout in seconds. "
         "Sheets not listed use the global timeout_seconds.",
+    )
+    sheet_overrides: dict[int, SheetBackendOverride] = Field(
+        default_factory=dict,
+        description="Per-sheet backend parameter overrides. Map of sheet_num -> override. "
+        "Allows individual sheets to use different models, temperatures, etc. "
+        "Timeout in sheet_overrides takes precedence over timeout_overrides.",
     )
     cli_extra_args: list[str] = Field(
         default_factory=list,

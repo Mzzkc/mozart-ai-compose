@@ -161,7 +161,7 @@ class JobControlService:
                     with open(temp_fd, 'w') as f:
                         f.write(config_content)
                     cmd_args.append(temp_path)
-                except BaseException:
+                except Exception:
                     os.close(temp_fd)
                     raise
             else:

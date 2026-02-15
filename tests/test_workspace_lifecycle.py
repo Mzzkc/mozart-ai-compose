@@ -1,6 +1,8 @@
 """Tests for mozart.workspace.lifecycle module."""
 
+import shutil
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -320,6 +322,64 @@ class TestErrorTolerance:
 
         # Should return None, not raise
         assert result is None
+
+    def test_item_move_failure_continues_other_items(
+        self, workspace: Path, default_config: WorkspaceLifecycleConfig
+    ):
+        """When one file fails to move, other files are still archived."""
+
+        (workspace / ".iteration").write_text("1")
+        (workspace / "file-a.md").write_text("aaa")
+        (workspace / "file-b.md").write_text("bbb")
+
+        original_move = shutil.move
+
+        def failing_move(src, dst, *args, **kwargs):
+            if "file-a.md" in str(src):
+                raise OSError("Permission denied (mock)")
+            return original_move(src, dst, *args, **kwargs)
+
+        archiver = WorkspaceArchiver(workspace, default_config)
+        with patch("shutil.move", side_effect=failing_move):
+            result = archiver.archive()
+
+        # file-b should have been archived despite file-a failing
+        assert result is not None
+        assert (result / "file-b.md").exists()
+
+    def test_programming_error_in_item_move_propagates(
+        self, workspace: Path, default_config: WorkspaceLifecycleConfig
+    ):
+        """TypeError/ValueError during move propagate (not caught by narrowed handler)."""
+
+        (workspace / ".iteration").write_text("1")
+        (workspace / "file.md").write_text("data")
+
+        archiver = WorkspaceArchiver(workspace, default_config)
+        with patch("shutil.move", side_effect=TypeError("unexpected type")), \
+             pytest.raises(TypeError, match="unexpected type"):
+            archiver._do_archive()
+
+    def test_programming_error_in_rotation_propagates(
+        self, workspace: Path,
+    ):
+        """TypeError during rotation propagates (not caught by narrowed handler)."""
+
+        config = WorkspaceLifecycleConfig(archive_on_fresh=True, max_archives=1)
+
+        # Create two existing archives and a new file to trigger rotation
+        archive_base = workspace / "archive"
+        (archive_base / "iteration-1").mkdir(parents=True)
+        (archive_base / "iteration-1" / "data.md").write_text("old")
+        (archive_base / "iteration-2").mkdir(parents=True)
+        (archive_base / "iteration-2" / "data.md").write_text("mid")
+        (workspace / ".iteration").write_text("3")
+        (workspace / "report.md").write_text("new")
+
+        archiver = WorkspaceArchiver(workspace, config)
+        with patch("shutil.rmtree", side_effect=TypeError("unexpected type")), \
+             pytest.raises(TypeError, match="unexpected type"):
+            archiver._do_archive()
 
 
 class TestConfigDefaults:

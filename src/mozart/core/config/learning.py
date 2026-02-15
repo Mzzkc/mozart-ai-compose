@@ -355,6 +355,17 @@ class GroundingHookConfig(BaseModel):
         description="For file_checksum: algorithm for checksums",
     )
 
+    @model_validator(mode="after")
+    def _validate_expected_checksums(self) -> GroundingHookConfig:
+        if self.type == "file_checksum" and not self.expected_checksums:
+            warnings.warn(
+                "GroundingHookConfig type='file_checksum' with empty "
+                "expected_checksums will not validate any files.",
+                UserWarning,
+                stacklevel=2,
+            )
+        return self
+
 
 class GroundingConfig(BaseModel):
     """Configuration for external grounding hooks.

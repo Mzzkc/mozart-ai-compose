@@ -6,6 +6,7 @@ Supports custom headers, retries, and flexible JSON payloads.
 Phase 5 of Mozart implementation: Missing README features.
 """
 
+import asyncio
 import os
 import re
 from dataclasses import asdict
@@ -259,8 +260,6 @@ class WebhookNotifier:
         Returns:
             Tuple of (success, error_message).
         """
-        import asyncio
-
         last_error: str | None = None
 
         # Type narrowing: _url is verified non-None by caller (send method)
@@ -273,19 +272,31 @@ class WebhookNotifier:
                     json=payload,
                 )
 
-                if response.status_code >= 200 and response.status_code < 300:
+                if response.is_success:
                     return True, None
-                elif response.status_code >= 500:
+                if response.status_code >= 500:
                     # Server error - retry
                     last_error = f"HTTP {response.status_code}: {response.text[:100]}"
+                    _logger.debug(
+                        "webhook_retry_server_error",
+                        attempt=attempt + 1,
+                        status_code=response.status_code,
+                    )
                 else:
                     # Client error - don't retry
                     return False, f"HTTP {response.status_code}: {response.text[:100]}"
 
             except httpx.TimeoutException:
                 last_error = "Request timed out"
+                _logger.debug("webhook_retry_timeout", attempt=attempt + 1)
             except httpx.RequestError as e:
                 last_error = str(e)
+                _logger.debug(
+                    "webhook_retry_request_error",
+                    attempt=attempt + 1,
+                    error=last_error,
+                    exc_info=True,
+                )
 
             # Wait before retry (except on last attempt)
             if attempt < self._max_retries:
@@ -332,7 +343,11 @@ class WebhookNotifier:
             return success
 
         except Exception as e:
-            _logger.warning("webhook_notification_unexpected_error", error=str(e))
+            _logger.warning(
+                "webhook_notification_unexpected_error",
+                error=str(e),
+                exc_info=True,
+            )
             return False
 
     async def close(self) -> None:

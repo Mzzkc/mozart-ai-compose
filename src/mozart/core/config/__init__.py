@@ -13,6 +13,7 @@ from mozart.core.config.backend import (
     MCPServerConfig,
     OllamaConfig,
     RecursiveLightConfig,
+    SheetBackendOverride,
 )
 
 # Execution configuration
@@ -74,6 +75,7 @@ __all__ = [
     "MCPServerConfig",
     "OllamaConfig",
     "RecursiveLightConfig",
+    "SheetBackendOverride",
     # Execution
     "CircuitBreakerConfig",
     "CostLimitConfig",

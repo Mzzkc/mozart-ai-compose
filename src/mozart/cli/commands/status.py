@@ -36,6 +36,7 @@ from rich.progress import (
 )
 
 from mozart.core.checkpoint import CheckpointState, ErrorRecord, JobStatus, SheetStatus
+from mozart.core.logging import get_logger
 
 from ..helpers import (
     ErrorMessages,
@@ -60,6 +61,8 @@ from ..output import (
 from ..output import (
     infer_error_type as _infer_error_type,
 )
+
+_logger = get_logger("cli.status")
 
 # Default circuit breaker failure threshold from CircuitBreakerConfig
 _DEFAULT_CB_THRESHOLD: int = 5  # Must match CircuitBreakerConfig.failure_threshold default
@@ -177,6 +180,7 @@ async def _status_job(
     access only if --workspace is explicitly provided (debug override).
     """
     from mozart.daemon.detect import try_daemon_route
+    from mozart.daemon.exceptions import JobSubmissionError
 
     # Try conductor first (unless workspace override is given)
     ws_str = str(workspace) if workspace else None
@@ -184,13 +188,21 @@ async def _status_job(
     params = {"job_id": job_id, "workspace": ws_str}
     try:
         routed, result = await try_daemon_route("job.status", params)
-    except Exception:
-        # Business logic error from conductor (e.g., job not found).
-        # Treat as "job not found" from the conductor.
+    except JobSubmissionError:
+        # Conductor confirmed: job not found.
         if json_output:
             console.print(json.dumps({"error": f"Job not found: {job_id}"}, indent=2))
         else:
             console.print(f"[red]{ErrorMessages.JOB_NOT_FOUND}:[/red] {job_id}")
+        raise typer.Exit(1) from None
+    except Exception as exc:
+        # Conductor error (crash, resource exhaustion, etc.) — report truthfully.
+        error_detail = f"{type(exc).__name__}: {exc}"
+        _logger.error("status_conductor_error", error=error_detail, exc_info=True)
+        if json_output:
+            console.print(json.dumps({"error": f"Conductor error: {error_detail}"}, indent=2))
+        else:
+            console.print(f"[red]Conductor error:[/red] {error_detail}")
         raise typer.Exit(1) from None
 
     if routed and result:
@@ -246,6 +258,7 @@ async def _status_job_watch(
         workspace: Optional workspace directory to search.
     """
     from mozart.daemon.detect import try_daemon_route
+    from mozart.daemon.exceptions import JobSubmissionError
 
     console.print(f"[dim]Watching job [bold]{job_id}[/bold] (Ctrl+C to stop)[/dim]\n")
 
@@ -258,9 +271,17 @@ async def _status_job_watch(
             params = {"job_id": job_id, "workspace": ws_str}
             try:
                 routed, result = await try_daemon_route("job.status", params)
-            except Exception:
-                # Business logic error (e.g., job not found) — show not found
+            except JobSubmissionError:
+                # Conductor confirmed: job not found
                 routed, result = True, None
+            except Exception as exc:
+                # Conductor error — show the real error, not "not found"
+                error_detail = f"{type(exc).__name__}: {exc}"
+                _logger.warning("watch_daemon_error", error=error_detail)
+                console.clear()
+                console.print(f"[red]Conductor error:[/red] {error_detail}")
+                await asyncio.sleep(interval)
+                continue
 
             if routed and result:
                 try:

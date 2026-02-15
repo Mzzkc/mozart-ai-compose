@@ -6,9 +6,10 @@ notifications, and post-success hooks.
 
 from __future__ import annotations
 
+import warnings
 from enum import Enum
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -115,6 +116,28 @@ class NotificationConfig(BaseModel):
     config: dict[str, Any] = Field(
         default_factory=dict, description="Channel-specific configuration"
     )
+
+    # Required config keys per notification type: (key_a, key_b, message)
+    _REQUIRED_CONFIG_KEYS: ClassVar[dict[str, tuple[str, str, str]]] = {
+        "webhook": (
+            "url", "url_env",
+            "Webhook notification requires 'url' or 'url_env' in config",
+        ),
+        "slack": (
+            "webhook_url", "webhook_url_env",
+            "Slack notification requires 'webhook_url' or 'webhook_url_env' in config",
+        ),
+    }
+
+    @model_validator(mode="after")
+    def _validate_type_specific_config(self) -> NotificationConfig:
+        """Validate that type-specific required config fields are present."""
+        requirement = self._REQUIRED_CONFIG_KEYS.get(self.type)
+        if requirement is not None:
+            key_a, key_b, message = requirement
+            if not self.config.get(key_a) and not self.config.get(key_b):
+                warnings.warn(message, UserWarning, stacklevel=2)
+        return self
 
 
 class PostSuccessHookConfig(BaseModel):

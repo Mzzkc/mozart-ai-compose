@@ -16,8 +16,8 @@ from mozart.core.errors.codes import ErrorCategory, ExitReason
 from mozart.core.logging import get_logger
 from mozart.utils.time import utc_now
 
-# Isolation modes supported by worktree isolation
-IsolationMode = Literal["worktree", "none"]
+# Literal variant to avoid shadowing the IsolationMode enum in core.config.workspace.
+IsolationModeLiteral = Literal["worktree", "none"]
 
 # Module-level logger for checkpoint operations
 _logger = get_logger("checkpoint")
@@ -119,6 +119,7 @@ class OutcomeDataDict(TypedDict, total=False):
     """
 
     escalation_record_id: str
+    escalation_skipped: bool
 
 
 class SynthesisResultDict(TypedDict, total=False):
@@ -642,7 +643,7 @@ class CheckpointState(BaseModel):
         default=None,
         description="Commit SHA the worktree was created from",
     )
-    isolation_mode: IsolationMode | None = Field(
+    isolation_mode: IsolationModeLiteral | None = Field(
         default=None,
         description="Isolation mode used: 'worktree', 'none', or None (not configured)",
     )

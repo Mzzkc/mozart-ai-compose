@@ -20,6 +20,7 @@ every JobService.  This provides three benefits:
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from pathlib import Path
 
 from mozart.core.logging import get_logger
@@ -113,7 +114,7 @@ class LearningHub:
                     )
             except asyncio.CancelledError:
                 break
-            except Exception:
+            except (OSError, sqlite3.Error):
                 _logger.warning("learning_hub.heartbeat_error", exc_info=True)
 
 

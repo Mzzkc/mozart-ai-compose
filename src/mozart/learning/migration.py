@@ -42,7 +42,7 @@ class _OutcomeDict(TypedDict, total=False):
     execution_duration: float
     retry_count: int
     completion_mode_used: bool
-    first_attempt_success: bool
+    first_attempt_success: bool  # Deprecated: renamed to success_without_retry in DB
     timestamp: str
 
 if TYPE_CHECKING:
@@ -282,6 +282,7 @@ class OutcomeMigrator:
             return 0
 
         imported_count = 0
+        skipped_count = 0
 
         for outcome_data in outcomes:
             try:
@@ -295,12 +296,21 @@ class OutcomeMigrator:
                     )
                     imported_count += 1
             except Exception as e:
+                skipped_count += 1
                 _logger.warning("skipping_invalid_outcome", error=str(e), exc_info=True)
                 continue
 
         # Mark workspace as imported
         self._imported_workspace_hashes.add(workspace_hash)
 
+        if skipped_count > 0:
+            _logger.warning(
+                "outcomes_import_incomplete",
+                imported=imported_count,
+                skipped=skipped_count,
+                total=len(outcomes),
+                workspace=workspace_path.name,
+            )
         _logger.info("outcomes_imported", count=imported_count, workspace=workspace_path.name)
 
         return imported_count

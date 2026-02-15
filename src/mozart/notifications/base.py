@@ -14,6 +14,7 @@ from enum import Enum
 from typing import Any, Protocol, runtime_checkable
 
 from mozart.core.logging import get_logger
+from mozart.utils.time import utc_now
 
 # Module-level logger
 _logger = get_logger("notifications")
@@ -59,7 +60,7 @@ class NotificationContext:
     job_name: str
     """Human-readable job name."""
 
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=utc_now)
     """When the event occurred."""
 
     # Optional fields populated based on event type

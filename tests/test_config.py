@@ -366,6 +366,88 @@ class TestBackendConfig:
         assert config.cli_extra_args == ["--verbose"]
 
 
+class TestSheetBackendOverride:
+    """Tests for SheetBackendOverride per-sheet backend control (GH#78)."""
+
+    def test_sheet_overrides_default_empty(self):
+        """Test sheet_overrides defaults to empty dict."""
+        config = BackendConfig()
+        assert config.sheet_overrides == {}
+
+    def test_sheet_overrides_model_override(self):
+        """Test per-sheet model override."""
+        from mozart.core.config.backend import SheetBackendOverride
+
+        config = BackendConfig(
+            type="anthropic_api",
+            model="claude-sonnet-4-20250514",
+            sheet_overrides={
+                1: SheetBackendOverride(model="claude-opus-4-6"),
+            },
+        )
+        override = config.sheet_overrides[1]
+        assert override.model == "claude-opus-4-6"
+        assert override.temperature is None  # Not overridden
+
+    def test_sheet_overrides_temperature_validation(self):
+        """Test temperature must be 0-1 in sheet overrides."""
+        from mozart.core.config.backend import SheetBackendOverride
+
+        import pytest
+
+        with pytest.raises(Exception):  # noqa: B017
+            SheetBackendOverride(temperature=1.5)
+
+    def test_sheet_overrides_cli_model(self):
+        """Test per-sheet CLI model override."""
+        from mozart.core.config.backend import SheetBackendOverride
+
+        config = BackendConfig(
+            type="claude_cli",
+            sheet_overrides={
+                3: SheetBackendOverride(cli_model="claude-opus-4-6"),
+            },
+        )
+        assert config.sheet_overrides[3].cli_model == "claude-opus-4-6"
+
+    def test_sheet_overrides_timeout_override(self):
+        """Test per-sheet timeout via sheet_overrides."""
+        from mozart.core.config.backend import SheetBackendOverride
+
+        config = BackendConfig(
+            sheet_overrides={
+                5: SheetBackendOverride(timeout_seconds=600.0),
+            },
+        )
+        assert config.sheet_overrides[5].timeout_seconds == 600.0
+
+    def test_sheet_overrides_multiple_sheets(self):
+        """Test overrides for multiple sheets simultaneously."""
+        from mozart.core.config.backend import SheetBackendOverride
+
+        config = BackendConfig(
+            type="anthropic_api",
+            sheet_overrides={
+                1: SheetBackendOverride(model="claude-opus-4-6", temperature=0.0),
+                5: SheetBackendOverride(max_tokens=16384),
+                10: SheetBackendOverride(timeout_seconds=3600.0),
+            },
+        )
+        assert len(config.sheet_overrides) == 3
+        assert config.sheet_overrides[1].model == "claude-opus-4-6"
+        assert config.sheet_overrides[1].temperature == 0.0
+        assert config.sheet_overrides[5].max_tokens == 16384
+        assert config.sheet_overrides[10].timeout_seconds == 3600.0
+
+    def test_sheet_overrides_model_dump_excludes_none(self):
+        """Test model_dump only includes non-None fields for override application."""
+        from mozart.core.config.backend import SheetBackendOverride
+
+        override = SheetBackendOverride(model="claude-opus-4-6", temperature=0.2)
+        dumped = {k: v for k, v in override.model_dump().items() if v is not None}
+        assert dumped == {"model": "claude-opus-4-6", "temperature": 0.2}
+
+
 import warnings as _warnings_mod
 
 

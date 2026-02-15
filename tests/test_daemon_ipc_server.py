@@ -124,8 +124,11 @@ class TestDaemonServerLifecycle:
         sock = tmp_path / "test.sock"
         server = DaemonServer(sock, _make_handler())
         await server.start()
+        assert server.is_running
         await server.stop()
+        assert not server.is_running
         await server.stop()  # Should not raise
+        assert not server.is_running
 
     @pytest.mark.asyncio
     async def test_start_removes_stale_socket(self, tmp_path: Path):

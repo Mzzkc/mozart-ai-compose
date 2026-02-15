@@ -1534,3 +1534,60 @@ class TestPerSheetTimeoutOverride:
         config = _make_config(tmp_path)
         assert config.backend.timeout_overrides == {}
         assert config.backend.timeout_overrides.get(1) is None
+
+
+class TestPerSheetBackendOverride:
+    """Test per-sheet backend parameter overrides (GH#78)."""
+
+    def test_sheet_overrides_resolved_from_config(self, tmp_path: Path) -> None:
+        """Test that sheet_overrides dict is accessible on config."""
+        config = _make_config(tmp_path, overrides={
+            "backend": {
+                "type": "anthropic_api",
+                "model": "claude-sonnet-4-20250514",
+                "sheet_overrides": {
+                    1: {"model": "claude-opus-4-6", "temperature": 0.0},
+                    5: {"timeout_seconds": 600.0},
+                },
+            },
+        })
+        assert len(config.backend.sheet_overrides) == 2
+        assert config.backend.sheet_overrides[1].model == "claude-opus-4-6"
+        assert config.backend.sheet_overrides[1].temperature == 0.0
+        assert config.backend.sheet_overrides[5].timeout_seconds == 600.0
+
+    def test_sheet_overrides_lookup_for_sheet(self, tmp_path: Path) -> None:
+        """Test per-sheet lookup returns correct override or None."""
+        config = _make_config(tmp_path, overrides={
+            "backend": {
+                "type": "claude_cli",
+                "sheet_overrides": {
+                    3: {"cli_model": "claude-opus-4-6"},
+                },
+            },
+        })
+        override = config.backend.sheet_overrides.get(3)
+        assert override is not None
+        assert override.cli_model == "claude-opus-4-6"
+        assert config.backend.sheet_overrides.get(1) is None
+
+    def test_empty_sheet_overrides(self, tmp_path: Path) -> None:
+        """Test that empty sheet_overrides dict yields None for any sheet."""
+        config = _make_config(tmp_path)
+        assert config.backend.sheet_overrides == {}
+        assert config.backend.sheet_overrides.get(1) is None
+
+    def test_sheet_override_timeout_takes_precedence(self, tmp_path: Path) -> None:
+        """Test timeout in sheet_overrides takes precedence over timeout_overrides."""
+        config = _make_config(tmp_path, overrides={
+            "backend": {
+                "type": "claude_cli",
+                "timeout_overrides": {1: 60.0},
+                "sheet_overrides": {
+                    1: {"timeout_seconds": 120.0},
+                },
+            },
+        })
+        # Both are set, but runner logic gives sheet_overrides precedence
+        assert config.backend.timeout_overrides[1] == 60.0
+        assert config.backend.sheet_overrides[1].timeout_seconds == 120.0

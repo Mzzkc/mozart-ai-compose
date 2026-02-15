@@ -63,7 +63,7 @@ if TYPE_CHECKING:
     from mozart.execution.escalation import ConsoleCheckpointHandler, ConsoleEscalationHandler
     from mozart.execution.grounding import GroundingEngine
     from mozart.execution.preflight import PreflightChecker
-    from mozart.execution.retry_strategy import AdaptiveRetryStrategy
+    from mozart.execution.retry_strategy import AdaptiveRetryStrategy, RetryRecommendation
     from mozart.execution.validation import SheetValidationResult
     from mozart.healing.coordinator import HealingReport, SelfHealingCoordinator
     from mozart.learning.global_store import GlobalLearningStore
@@ -653,6 +653,11 @@ class SheetExecutionMixin:
                             validation_details=validation_result.to_dict_list(),
                         )
                         grounding_sheet_state = state.sheets[sheet_num]
+                        # Tag outcome so learning store can distinguish
+                        # escalation skips from genuine validation failures.
+                        if grounding_sheet_state.outcome_data is None:
+                            grounding_sheet_state.outcome_data = {}
+                        grounding_sheet_state.outcome_data["escalation_skipped"] = True
                         self._update_escalation_outcome(
                             grounding_sheet_state, "skipped", sheet_num
                         )
@@ -692,6 +697,12 @@ class SheetExecutionMixin:
         sheet_state = state.sheets.get(sheet_num)
         if sheet_state is None:
             self._logger.error("sheet_state_missing", sheet_num=sheet_num)
+            state.mark_sheet_failed(
+                sheet_num,
+                error_message="Internal error: sheet state missing after execution",
+                execution_duration_seconds=execution_duration,
+            )
+            await self.state_backend.save(state)
             return "break"
         sheet_state.success_without_retry = success_without_retry
         sheet_state.outcome_category = outcome_category
@@ -950,7 +961,7 @@ class SheetExecutionMixin:
     async def _handle_rate_limit_failure(
         self,
         context: ExecutionFailureContext,
-        error: Any,
+        error: ClassifiedError,
         normal_attempts: int,
         healing_attempts: int,
         pending_recovery: dict[str, Any] | None,
@@ -972,7 +983,7 @@ class SheetExecutionMixin:
     async def _handle_fatal_error(
         self,
         context: ExecutionFailureContext,
-        error: Any,
+        error: ClassifiedError,
         normal_attempts: int,
         healing_attempts: int,
         pending_recovery: dict[str, Any] | None,
@@ -1026,7 +1037,7 @@ class SheetExecutionMixin:
     async def _handle_retries_exhausted(
         self,
         context: ExecutionFailureContext,
-        error: Any,
+        error: ClassifiedError,
         normal_attempts: int,
         healing_attempts: int,
         pending_recovery: dict[str, Any] | None,
@@ -1116,8 +1127,8 @@ class SheetExecutionMixin:
     async def _handle_adaptive_abort(
         self,
         context: ExecutionFailureContext,
-        error: Any,
-        retry_recommendation: Any,
+        error: ClassifiedError,
+        retry_recommendation: RetryRecommendation,
         normal_attempts: int,
         healing_attempts: int,
         pending_recovery: dict[str, Any] | None,
@@ -1154,8 +1165,8 @@ class SheetExecutionMixin:
     async def _handle_transient_retry(
         self,
         context: ExecutionFailureContext,
-        error: Any,
-        retry_recommendation: Any,
+        error: ClassifiedError,
+        retry_recommendation: RetryRecommendation,
         normal_attempts: int,
         healing_attempts: int,
         pending_recovery: dict[str, Any] | None,
@@ -1510,6 +1521,11 @@ class SheetExecutionMixin:
         # Evolution #3: Track pending recovery outcome for global learning store
         pending_recovery: dict[str, Any] | None = None
 
+        # Snapshot mtimes before execution (for file_modified checks).
+        # Must be outside the retry loop so retries compare against the
+        # *pre-execution* baseline, not the post-previous-attempt state.
+        validation_engine.snapshot_mtime_files(self.config.validations)
+
         while True:
             # Mark sheet started
             state.mark_sheet_started(sheet_num)
@@ -1527,9 +1543,6 @@ class SheetExecutionMixin:
             # Initialize execution progress tracking (Task 4)
             self._current_sheet_num = sheet_num
             self._execution_progress_snapshots.clear()
-
-            # Snapshot mtimes before execution (for file_modified checks)
-            validation_engine.snapshot_mtime_files(self.config.validations)
 
             # Check pre-execution guards (circuit breaker + rate limits)
             if await self._check_execution_guards(sheet_num):
@@ -1550,12 +1563,29 @@ class SheetExecutionMixin:
             # Resolve per-sheet timeout override (if configured)
             sheet_timeout = self.config.backend.timeout_overrides.get(sheet_num)
 
+            # Apply per-sheet backend overrides (GH#78)
+            sheet_override = self.config.backend.sheet_overrides.get(sheet_num)
+            if sheet_override:
+                overrides = {
+                    k: v
+                    for k, v in sheet_override.model_dump().items()
+                    if v is not None
+                }
+                # timeout from sheet_overrides takes precedence
+                if "timeout_seconds" in overrides:
+                    sheet_timeout = overrides.pop("timeout_seconds")
+                self.backend.apply_overrides(overrides)
+
             self.console.print(
                 f"[blue]Sheet {sheet_num}: {current_mode.value} execution[/blue]"
             )
-            result = await self._execute_with_stale_detection(
-                current_prompt, timeout_seconds=sheet_timeout,
-            )
+            try:
+                result = await self._execute_with_stale_detection(
+                    current_prompt, timeout_seconds=sheet_timeout,
+                )
+            finally:
+                if sheet_override:
+                    self.backend.clear_overrides()
 
             # Store execution progress snapshots in sheet state (Task 4)
             if self._execution_progress_snapshots:

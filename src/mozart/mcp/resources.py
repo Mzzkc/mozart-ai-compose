@@ -492,7 +492,7 @@ notifications:
         try:
             state = await self.state_backend.load(job_id)
         except Exception as e:
-            logger.debug(f"Skipping invalid state file {job_id}: {e}")
+            logger.warning("Skipping invalid state file %s: %s", job_id, e)
             return None
 
         if not state:

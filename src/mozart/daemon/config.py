@@ -157,6 +157,13 @@ class DaemonConfig(BaseModel):
         description="Maximum completed/failed/cancelled jobs to keep in memory. "
         "Oldest terminal jobs are evicted when the limit is reached.",
     )
+    default_thinking_method: str | None = Field(
+        default=None,
+        description="Default thinking methodology directive injected into prompts "
+        "for all jobs managed by this conductor. Individual jobs can override "
+        "this via their own prompt.thinking_method setting. "
+        "Example: 'Use structured reasoning with explicit step numbering.'",
+    )
     config_file: Path | None = Field(
         default=None,
         description="Path to the YAML config file this config was loaded from. "

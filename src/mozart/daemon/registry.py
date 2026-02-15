@@ -13,12 +13,29 @@ from __future__ import annotations
 import sqlite3
 import time
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
 from mozart.core.logging import get_logger
 
 _logger = get_logger("daemon.registry")
+
+
+class DaemonJobStatus(str, Enum):
+    """Status values for daemon-managed jobs.
+
+    Inherits from ``str`` so ``meta.status`` serializes directly as
+    a plain string in JSON/dict output — no ``.value`` calls needed.
+    """
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    PAUSED = "paused"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
 
 @dataclass
 class JobRecord:
@@ -27,7 +44,7 @@ class JobRecord:
     job_id: str
     config_path: str
     workspace: str
-    status: str = "queued"
+    status: DaemonJobStatus = DaemonJobStatus.QUEUED
     pid: int | None = None
     submitted_at: float = field(default_factory=time.time)
     started_at: float | None = None
@@ -63,9 +80,13 @@ class JobRegistry:
         self._db_path = db_path
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(db_path))
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._create_tables()
+        try:
+            self._conn.row_factory = sqlite3.Row
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._create_tables()
+        except Exception:
+            self._conn.close()
+            raise
         _logger.info("registry.opened", path=str(db_path))
 
     def _create_tables(self) -> None:

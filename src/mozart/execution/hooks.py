@@ -101,15 +101,29 @@ async def _try_daemon_submit(
 ) -> tuple[bool, str | None]:
     """Attempt to submit a chained job through the daemon IPC.
 
-    Lazy imports avoid circular deps (hooks → daemon → runner → hooks).
-    Fail-open: any error returns (False, None) to fall back to Popen.
-    """
-    try:
-        from mozart.daemon.config import SocketConfig
-        from mozart.daemon.detect import is_daemon_available
-        from mozart.daemon.ipc.client import DaemonClient
-        from mozart.daemon.types import JobRequest
+    Lazy imports avoid circular deps (hooks -> daemon -> runner -> hooks).
 
+    Error handling strategy:
+    - Daemon unavailable (DaemonNotRunningError, OSError): fall back to Popen.
+    - Daemon rejected the job (JobSubmissionError, ResourceExhaustedError):
+      re-raise so the caller reports the real error instead of silently
+      falling back and losing rate limiting/registry tracking.
+    - Other DaemonError subclasses: fall back with warning (protocol issues).
+    - Non-daemon exceptions: re-raise (programming bugs must not be swallowed).
+    """
+    # Lazy imports — avoid circular deps (hooks -> daemon -> runner -> hooks)
+    from mozart.daemon.config import SocketConfig
+    from mozart.daemon.detect import is_daemon_available
+    from mozart.daemon.exceptions import (
+        DaemonError,
+        DaemonNotRunningError,
+        JobSubmissionError,
+        ResourceExhaustedError,
+    )
+    from mozart.daemon.ipc.client import DaemonClient
+    from mozart.daemon.types import JobRequest
+
+    try:
         if not await is_daemon_available():
             return False, None
         client = DaemonClient(SocketConfig().path)
@@ -123,8 +137,27 @@ async def _try_daemon_submit(
             return True, response.job_id
         _logger.warning("hook.daemon_submit_rejected", status=response.status)
         return False, None
-    except Exception as exc:
-        _logger.warning("hook.daemon_submit_failed", error=str(exc), exc_info=True)
+
+    except (OSError, ConnectionError, TimeoutError, DaemonNotRunningError) as exc:
+        # Daemon unreachable or not running — safe to fall back to Popen
+        _logger.warning("hook.daemon_submit_unavailable", error=str(exc))
+        return False, None
+
+    except (JobSubmissionError, ResourceExhaustedError) as exc:
+        # Daemon is running but REJECTED the job — do NOT fall back.
+        # Re-raise so the caller reports the real error.
+        _logger.error(
+            "hook.daemon_submit_rejected_error",
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+        raise
+
+    except DaemonError as exc:
+        # Other daemon protocol errors — fall back with warning
+        _logger.warning(
+            "hook.daemon_submit_failed", error=str(exc), exc_info=True,
+        )
         return False, None
 
 
@@ -361,6 +394,8 @@ class HookExecutor:
         # Run the chained job using subprocess_exec (safe, no shell)
         # Use parent process cwd (not workspace) so relative job_path finds the config
         # This allows on_success hooks to reference sibling config files correctly
+        import mozart.daemon.exceptions as _daemon_exc  # lazy: circular dep avoidance
+
         try:
             # For detached mode, try routing through the daemon first.
             # This keeps chained jobs within the daemon's management scope
@@ -526,6 +561,19 @@ class HookExecutor:
                 success=False,
                 error_message="mozart command not found in PATH",
                 chained_job_path=job_path,
+            )
+        except (
+            _daemon_exc.JobSubmissionError,
+            _daemon_exc.ResourceExhaustedError,
+        ) as exc:
+            # Daemon rejected the job — report as hook failure
+            return HookResult(
+                hook_type="run_job",
+                description=hook.description,
+                success=False,
+                error_message=f"Daemon rejected job: {exc}",
+                chained_job_path=job_path,
+                chained_job_workspace=chained_workspace,
             )
 
     async def _execute_shell_command(self, hook: PostSuccessHookConfig) -> HookResult:

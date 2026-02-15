@@ -81,7 +81,7 @@ class WorkspaceArchiver:
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(item), str(dest))
                 archived_count += 1
-            except Exception as e:
+            except (OSError, shutil.Error) as e:
                 _logger.warning(
                     "workspace_archive_item_failed",
                     item=str(item),
@@ -191,7 +191,7 @@ class WorkspaceArchiver:
                     "workspace_archive_rotated",
                     removed=str(oldest),
                 )
-            except Exception as e:
+            except (OSError, shutil.Error) as e:
                 _logger.warning(
                     "workspace_archive_rotation_failed",
                     path=str(oldest),

@@ -21,7 +21,7 @@ from mozart.learning.store.models import QuarantineStatus
 MIN_PATTERN_FREQUENCY: int = 2  # Minimum occurrences before a pattern is created
 MIN_ERROR_CATEGORY_FREQUENCY: int = 3  # Minimum for error category aggregation
 MIN_FIX_SUGGESTION_FREQUENCY: int = 3  # Minimum for fix suggestion patterns
-MIN_FIRST_ATTEMPT_SUCCESSES: int = 3  # Minimum first-attempt successes for pattern
+MIN_SUCCESSES_WITHOUT_RETRY: int = 3  # Minimum successes-without-retry for pattern
 MIN_EFFECTIVENESS_APPLICATIONS: int = 3  # Minimum apps before trusting effectiveness
 DEFAULT_EFFECTIVENESS_RATE: float = 0.4  # Rate for untested patterns (< 3 apps)
 EFFECTIVENESS_FULL_WEIGHT_APPS: float = 5.0  # Applications for full effectiveness weight
@@ -451,30 +451,30 @@ class PatternDetector:
         return patterns
 
     def _detect_success_patterns(self) -> list[DetectedPattern]:
-        """Detect positive patterns from successful first attempts.
+        """Detect positive patterns from successes without retry.
 
-        Identifies what leads to first-attempt success.
+        Identifies what leads to success without needing any retry.
 
         Returns:
-            List of first-attempt success patterns.
+            List of success-without-retry patterns.
         """
         patterns: list[DetectedPattern] = []
 
-        # Find first-attempt successes
-        first_attempt_successes = [
+        # Find successes without retry
+        successes_without_retry = [
             o for o in self.outcomes if o.success_without_retry
         ]
 
-        if len(first_attempt_successes) >= MIN_FIRST_ATTEMPT_SUCCESSES:
-            success_rate = len(first_attempt_successes) / len(self.outcomes)
+        if len(successes_without_retry) >= MIN_SUCCESSES_WITHOUT_RETRY:
+            success_rate = len(successes_without_retry) / len(self.outcomes)
             patterns.append(
                 DetectedPattern(
                     pattern_type=PatternType.SUCCESS_WITHOUT_RETRY,
                     description=f"First-attempt success rate: {success_rate:.0%}",
-                    frequency=len(first_attempt_successes),
+                    frequency=len(successes_without_retry),
                     success_rate=success_rate,
                     context_tags=["success:first_attempt"],
-                    evidence=[o.sheet_id for o in first_attempt_successes[:5]],
+                    evidence=[o.sheet_id for o in successes_without_retry[:5]],
                     confidence=min(0.9, 0.6 + (success_rate * 0.3)),
                 )
             )

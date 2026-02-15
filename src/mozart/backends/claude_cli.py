@@ -133,6 +133,10 @@ class ClaudeCliBackend(Backend):
         # via set_prompt_extensions().
         self._prompt_extensions: list[str] = []
 
+        # Per-sheet overrides (GH#78) — saved originals for clear_overrides()
+        self._saved_cli_model: str | None = None
+        self._has_overrides: bool = False
+
     @classmethod
     def from_config(cls, config: BackendConfig) -> "ClaudeCliBackend":
         """Create backend from configuration."""
@@ -151,6 +155,23 @@ class ClaudeCliBackend(Backend):
     @property
     def name(self) -> str:
         return "claude-cli"
+
+    def apply_overrides(self, overrides: dict[str, object]) -> None:
+        """Apply per-sheet overrides for the next execution."""
+        if not overrides:
+            return
+        self._saved_cli_model = self.cli_model
+        self._has_overrides = True
+        if "cli_model" in overrides:
+            self.cli_model = str(overrides["cli_model"])
+
+    def clear_overrides(self) -> None:
+        """Restore original backend parameters after per-sheet execution."""
+        if not self._has_overrides:
+            return
+        self.cli_model = self._saved_cli_model
+        self._saved_cli_model = None
+        self._has_overrides = False
 
     def set_output_log_path(self, path: Path | None) -> None:
         """Set base path for real-time output logging.

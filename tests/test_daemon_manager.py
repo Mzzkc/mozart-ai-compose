@@ -16,8 +16,7 @@ import pytest
 from mozart.daemon.config import DaemonConfig
 from mozart.daemon.exceptions import JobSubmissionError
 from mozart.daemon.manager import JobManager, JobMeta
-from mozart.daemon.types import JobRequest, JobResponse
-
+from mozart.daemon.types import JobRequest
 
 # ─── Fixtures ──────────────────────────────────────────────────────────
 
@@ -485,6 +484,8 @@ class TestGetJobStatus:
             workspace=Path("/tmp/wa"),
             status="running",
         )
+        # Mock async get_status to return None (no checkpoint state found)
+        manager._service.get_status = AsyncMock(return_value=None)
 
         status = await manager.get_job_status("job-1")
         assert status["job_id"] == "job-1"
@@ -865,3 +866,112 @@ class TestJobTimeout:
         await mgr._run_managed_task("fail-rate-test", _slow())
 
         assert len(mgr._recent_failures) == initial_failures + 1
+
+
+# ─── Exception Narrowing Tests (Q006) ─────────────────────────────────
+
+
+class TestExceptionNarrowing:
+    """Test that manager exception handlers catch specific types, not broad Exception."""
+
+    @pytest.mark.asyncio
+    async def test_config_parse_catches_value_error(
+        self, manager: JobManager, tmp_path: Path,
+    ) -> None:
+        """Config parse failure (ValueError) returns rejected JobResponse."""
+        config_path = tmp_path / "bad.yaml"
+        config_path.write_text("invalid: yaml: content: [")
+
+        request = JobRequest(
+            config_path=config_path,
+            workspace=None,
+        )
+        response = await manager.submit_job(request)
+        assert response.status == "rejected"
+        assert "Failed to parse config file" in (response.message or "")
+
+    @pytest.mark.asyncio
+    async def test_config_parse_catches_os_error(
+        self, manager: JobManager, tmp_path: Path,
+    ) -> None:
+        """Config parse failure (OSError) returns rejected JobResponse."""
+        config_path = tmp_path / "unreadable.yaml"
+        config_path.write_text("name: test\n")
+        config_path.chmod(0o000)
+
+        try:
+            request = JobRequest(config_path=config_path, workspace=None)
+            response = await manager.submit_job(request)
+            assert response.status == "rejected"
+            assert "Failed to parse config file" in (response.message or "")
+        finally:
+            config_path.chmod(0o644)
+
+    @pytest.mark.asyncio
+    async def test_on_task_done_handles_expected_exceptions(
+        self, manager: JobManager,
+    ) -> None:
+        """_on_task_done handles KeyError/OSError/RuntimeError without crashing."""
+        task = MagicMock(spec=asyncio.Task)
+        task.cancelled.return_value = False
+        task.exception.return_value = None
+
+        # Should not raise even with missing job_id
+        manager._on_task_done("nonexistent-job", task)
+
+
+# ─── Workspace Validation (Q007 partial) ──────────────────────────────
+
+
+class TestWorkspaceValidation:
+    """Tests for early workspace validation in submit_job()."""
+
+    @pytest.mark.asyncio
+    async def test_submit_rejects_nonexistent_workspace_parent(
+        self, manager: JobManager, sample_config_file: Path,
+    ):
+        """Jobs are rejected when workspace parent directory doesn't exist."""
+        request = JobRequest(
+            config_path=sample_config_file,
+            workspace=Path("/nonexistent/parent/workspace"),
+        )
+        response = await manager.submit_job(request)
+
+        assert response.status == "rejected"
+        assert "parent directory does not exist" in (response.message or "")
+
+    @pytest.mark.asyncio
+    async def test_submit_rejects_unwritable_workspace_parent(
+        self, manager: JobManager, sample_config_file: Path, tmp_path: Path,
+    ):
+        """Jobs are rejected when workspace parent directory is not writable."""
+        # Create a read-only directory
+        readonly_dir = tmp_path / "readonly"
+        readonly_dir.mkdir()
+        readonly_dir.chmod(0o444)
+
+        try:
+            request = JobRequest(
+                config_path=sample_config_file,
+                workspace=readonly_dir / "workspace",
+            )
+            response = await manager.submit_job(request)
+
+            assert response.status == "rejected"
+            assert "not writable" in (response.message or "")
+        finally:
+            # Restore write permission so tmp_path cleanup works
+            readonly_dir.chmod(0o755)
+
+    @pytest.mark.asyncio
+    async def test_submit_accepts_valid_workspace_parent(
+        self, manager: JobManager, sample_config_file: Path, tmp_path: Path,
+    ):
+        """Jobs with a valid, writable workspace parent are accepted."""
+        request = JobRequest(
+            config_path=sample_config_file,
+            workspace=tmp_path / "new-workspace",
+        )
+        response = await manager.submit_job(request)
+
+        assert response.status == "accepted"

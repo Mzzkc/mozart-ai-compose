@@ -626,7 +626,7 @@ class TestSharedHelpers:
         summary = MagicMock()
         summary.final_status = JobStatus.COMPLETED
 
-        with patch("mozart.cli.commands._shared.display_run_summary"):
+        with patch("mozart.cli.commands._shared.display_run_summary") as mock_display:
             await handle_job_completion(
                 state=state,
                 summary=summary,
@@ -634,4 +634,5 @@ class TestSharedHelpers:
                 job_id="test-job",
                 job_name="Test",
             )
-        # Should complete without error
+        # Verify it completed and called display_run_summary
+        assert mock_display.called
