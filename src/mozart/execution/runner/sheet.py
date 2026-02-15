@@ -664,38 +664,22 @@ class SheetExecutionMixin:
 
         # Record success in circuit breaker (Task 12)
         if self._circuit_breaker is not None:
-            await self._circuit_breaker.record_success()
-            # Persist CB state change for observability
-            cb_stats = await self._circuit_breaker.get_stats()
-            cb_state_val = (await self._circuit_breaker.get_state()).value
-            state.record_circuit_breaker_change(
-                state=cb_state_val,
-                trigger="success_recorded",
-                consecutive_failures=cb_stats.consecutive_failures,
-            )
-
-        # Evolution #3: Record recovery outcome if we had a pending retry
-        if pending_recovery is not None and self._global_learning_store is not None:
             try:
-                self._global_learning_store.record_error_recovery(
-                    error_code=pending_recovery["error_code"],
-                    suggested_wait=pending_recovery["suggested_wait"],
-                    actual_wait=pending_recovery["actual_wait"],
-                    recovery_success=True,
-                    model=self.config.backend.model,
+                await self._circuit_breaker.record_success()
+                # Persist CB state change for observability
+                cb_stats = await self._circuit_breaker.get_stats()
+                cb_state_val = (await self._circuit_breaker.get_state()).value
+                state.record_circuit_breaker_change(
+                    state=cb_state_val,
+                    trigger="success_recorded",
+                    consecutive_failures=cb_stats.consecutive_failures,
                 )
-                self._logger.debug(
-                    "learning.recovery_recorded",
-                    sheet_num=sheet_num,
-                    error_code=pending_recovery["error_code"],
-                    actual_wait=pending_recovery["actual_wait"],
-                    recovery_success=True,
-                )
-            except (sqlite3.Error, OSError) as e:
+            except Exception as e:
                 self._logger.warning(
-                    "learning.recovery_record_failed",
+                    "circuit_breaker.success_record_failed",
                     sheet_num=sheet_num,
                     error=str(e),
+                    exc_info=True,
                 )
 
         execution_duration = time.monotonic() - execution_start_time
@@ -719,6 +703,55 @@ class SheetExecutionMixin:
             sheet_state.grounding_confidence = grounding_ctx.confidence
             sheet_state.grounding_guidance = grounding_ctx.recovery_guidance
 
+        escalation_pending = bool(
+            sheet_state.outcome_data
+            and sheet_state.outcome_data.get("escalation_record_id")
+        )
+
+        # ===== CRITICAL: Mark completed and save BEFORE auxiliary learning =====
+        # Learning store operations (_record_pattern_feedback, _record_sheet_outcome)
+        # must never prevent the completion state from being persisted. If any
+        # auxiliary operation throws, the sheet would stay "in_progress" forever
+        # despite validations passing.
+        state.mark_sheet_completed(
+            sheet_num,
+            validation_passed=True,
+            validation_details=validation_result.to_dict_list(),
+            execution_duration_seconds=execution_duration,
+        )
+
+        sheet_state = state.sheets[sheet_num]
+        self._update_escalation_outcome(sheet_state, "success", sheet_num)
+
+        await self.state_backend.save(state)
+
+        # ===== AUXILIARY: Learning store operations (non-critical) =====
+        # These improve future runs but must not block state persistence.
+
+        # Record recovery outcome if we had a pending retry
+        if pending_recovery is not None and self._global_learning_store is not None:
+            try:
+                self._global_learning_store.record_error_recovery(
+                    error_code=pending_recovery["error_code"],
+                    suggested_wait=pending_recovery["suggested_wait"],
+                    actual_wait=pending_recovery["actual_wait"],
+                    recovery_success=True,
+                    model=self.config.backend.model,
+                )
+                self._logger.debug(
+                    "learning.recovery_recorded",
+                    sheet_num=sheet_num,
+                    error_code=pending_recovery["error_code"],
+                    actual_wait=pending_recovery["actual_wait"],
+                    recovery_success=True,
+                )
+            except (sqlite3.Error, OSError) as e:
+                self._logger.warning(
+                    "learning.recovery_record_failed",
+                    sheet_num=sheet_num,
+                    error=str(e),
+                )
+
         # Record pattern feedback to global store (v9/v12/v22 Evolution)
         prior_status = None
         if sheet_num > 1 and (sheet_num - 1) in state.sheets:
@@ -732,52 +765,51 @@ class SheetExecutionMixin:
             sorted(validation_types_set) if validation_types_set else None
         )
 
-        escalation_pending = bool(
-            sheet_state.outcome_data
-            and sheet_state.outcome_data.get("escalation_record_id")
-        )
-
-        await self._record_pattern_feedback(
-            pattern_ids=self._applied_pattern_ids,
-            context=PatternFeedbackContext(
-                validation_passed=True,
-                success_without_retry=success_without_retry,
-                sheet_num=sheet_num,
-                grounding_confidence=(
-                    grounding_ctx.confidence
-                    if grounding_ctx.hooks_executed > 0
-                    else None
+        try:
+            await self._record_pattern_feedback(
+                pattern_ids=self._applied_pattern_ids,
+                context=PatternFeedbackContext(
+                    validation_passed=True,
+                    success_without_retry=success_without_retry,
+                    sheet_num=sheet_num,
+                    grounding_confidence=(
+                        grounding_ctx.confidence
+                        if grounding_ctx.hooks_executed > 0
+                        else None
+                    ),
+                    validation_types=validation_types_list,
+                    prior_sheet_status=prior_status,
+                    retry_iteration=normal_attempts - 1 if normal_attempts > 0 else 0,
+                    escalation_was_pending=escalation_pending,
                 ),
-                validation_types=validation_types_list,
-                prior_sheet_status=prior_status,
-                retry_iteration=normal_attempts - 1 if normal_attempts > 0 else 0,
-                escalation_was_pending=escalation_pending,
-            ),
-        )
-
-        state.mark_sheet_completed(
-            sheet_num,
-            validation_passed=True,
-            validation_details=validation_result.to_dict_list(),
-            execution_duration_seconds=execution_duration,
-        )
-
-        sheet_state = state.sheets[sheet_num]
-        self._update_escalation_outcome(sheet_state, "success", sheet_num)
+            )
+        except Exception as e:
+            self._logger.warning(
+                "learning.pattern_feedback_failed_post_save",
+                sheet_num=sheet_num,
+                error=str(e),
+                exc_info=True,
+            )
 
         # Record outcome for learning if store is available
-        await self._record_sheet_outcome(
-            sheet_num=sheet_num,
-            job_id=state.job_id,
-            validation_result=validation_result,
-            execution_duration=execution_duration,
-            normal_attempts=normal_attempts,
-            completion_attempts=completion_attempts,
-            success_without_retry=success_without_retry,
-            final_status=SheetStatus.COMPLETED,
-        )
-
-        await self.state_backend.save(state)
+        try:
+            await self._record_sheet_outcome(
+                sheet_num=sheet_num,
+                job_id=state.job_id,
+                validation_result=validation_result,
+                execution_duration=execution_duration,
+                normal_attempts=normal_attempts,
+                completion_attempts=completion_attempts,
+                success_without_retry=success_without_retry,
+                final_status=SheetStatus.COMPLETED,
+            )
+        except Exception as e:
+            self._logger.warning(
+                "learning.sheet_outcome_failed_post_save",
+                sheet_num=sheet_num,
+                error=str(e),
+                exc_info=True,
+            )
         self._logger.info(
             "sheet.completed",
             sheet_num=sheet_num,
