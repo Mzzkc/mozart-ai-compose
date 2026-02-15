@@ -191,8 +191,13 @@ async def _status_job(
         raise typer.Exit(1) from None
 
     if routed and result:
-        # Reconstruct CheckpointState from conductor response
-        found_job = CheckpointState.model_validate(result)
+        # Conductor returns CheckpointState when state file exists,
+        # or JobMeta dict for queued jobs before first sheet runs.
+        try:
+            found_job = CheckpointState.model_validate(result)
+        except Exception:
+            _output_meta_status(result, json_output)
+            return
     elif routed and not result:
         # Conductor returned None — shouldn't happen with current protocol,
         # but handle gracefully.
@@ -255,7 +260,13 @@ async def _status_job_watch(
                 routed, result = True, None
 
             if routed and result:
-                found_job = CheckpointState.model_validate(result)
+                try:
+                    found_job = CheckpointState.model_validate(result)
+                except Exception:
+                    console.clear()
+                    _output_meta_status(result, json_output)
+                    await asyncio.sleep(interval)
+                    continue
             elif not routed and workspace is not None:
                 # Fallback to filesystem with workspace override
                 found_job, _ = await find_job_state(job_id, workspace)
@@ -398,6 +409,42 @@ def _format_daemon_timestamp(ts: float | None) -> str:
 # =============================================================================
 # Output Formatters
 # =============================================================================
+
+
+def _output_meta_status(meta: dict[str, Any], json_output: bool) -> None:
+    """Render basic status from JobMeta when full CheckpointState is unavailable.
+
+    This happens when the conductor has the job registered but the state file
+    hasn't been written yet (job just started) or the workspace path doesn't
+    resolve to a loadable state backend.
+    """
+    if json_output:
+        console.print(json.dumps(meta, indent=2, default=str))
+        return
+
+    job_id = meta.get("job_id", "unknown")
+    status = meta.get("status", "unknown")
+    color = {"running": "green", "queued": "blue", "failed": "red"}.get(status, "yellow")
+
+    console.print(Panel(
+        f"[bold]{job_id}[/bold]\n"
+        f"ID: {job_id}\n"
+        f"Status: [{color}]{status.upper()}[/{color}]",
+        title="Job Status",
+        border_style=color,
+    ))
+
+    submitted = meta.get("submitted_at")
+    config_path = meta.get("config_path", "-")
+
+    console.print(f"\n  Config: {config_path}")
+    if submitted:
+        console.print(f"  Submitted: {_format_daemon_timestamp(submitted)}")
+
+    console.print(
+        "\n[dim]Full status unavailable — state file not yet written "
+        "or workspace path mismatch.[/dim]"
+    )
 
 
 def _output_status_json(job: CheckpointState) -> None:

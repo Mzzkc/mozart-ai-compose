@@ -222,7 +222,7 @@ class JobManager:
 
         job_id = self._generate_job_id(request.config_path.stem)
 
-        # Validate config exists
+        # Validate config exists and resolve workspace from it
         if not request.config_path.exists():
             return JobResponse(
                 job_id=job_id,
@@ -230,7 +230,15 @@ class JobManager:
                 message=f"Config file not found: {request.config_path}",
             )
 
-        workspace = request.workspace or Path(f"workspace/{job_id}")
+        if request.workspace:
+            workspace = request.workspace
+        else:
+            from mozart.core.config import JobConfig
+            try:
+                config = JobConfig.from_yaml(request.config_path)
+                workspace = config.workspace
+            except Exception:
+                workspace = Path(f"workspace/{job_id}")
 
         meta = JobMeta(
             job_id=job_id,

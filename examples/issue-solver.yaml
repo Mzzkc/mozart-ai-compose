@@ -1050,6 +1050,26 @@ prompt:
     mozart --help >/dev/null 2>&1 && echo "CLI OK" || echo "CLI BROKEN"
     ```
 
+    **Step 6: Live conductor smoke tests**
+
+    These tests verify that CLI commands work against the running conductor.
+    DO NOT stop, restart, or kill the conductor — it is managing this job.
+
+    ```bash
+    # Verify conductor is responsive
+    mozart conductor-status 2>&1 && echo "CONDUCTOR OK" || echo "CONDUCTOR UNREACHABLE"
+
+    # Verify job listing works (this job should appear)
+    mozart list 2>&1 && echo "LIST OK" || echo "LIST BROKEN"
+
+    # Verify status command doesn't crash (may show basic or full status)
+    mozart status issue-solver 2>&1 && echo "STATUS OK" || echo "STATUS BROKEN"
+    ```
+
+    If ANY smoke test fails, debug and fix the issue. These are real runtime
+    tests — a crash here means the command is broken for users even if unit
+    tests pass. Fix the code, reinstall (`pip install -e ".[dev]"`), and re-run.
+
     **If ANY check fails:** Debug and fix the issue before proceeding.
     Re-run ALL checks after fixing to verify the fix doesn't break anything else.
 
@@ -1067,6 +1087,9 @@ prompt:
     | mypy | pass/fail | N errors |
     | import check | pass/fail | |
     | CLI check | pass/fail | |
+    | conductor-status | pass/fail | |
+    | mozart list | pass/fail | |
+    | mozart status | pass/fail | |
 
     ## All Checks Passed
     YES / NO
