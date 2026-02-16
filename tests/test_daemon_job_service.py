@@ -208,27 +208,28 @@ class TestGetStatus:
         )
 
         mock_backend = AsyncMock()
-        mock_backend.load = AsyncMock(return_value=state)
 
         with patch.object(
-            JobService, "_create_state_backend", return_value=mock_backend
+            JobService, "_find_job_state", return_value=(state, mock_backend)
         ):
             result = await job_service.get_status("test-job", tmp_path)
 
         assert result is not None
         assert result.job_id == "test-job"
         assert result.status == JobStatus.RUNNING
+        mock_backend.close.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_returns_none_when_not_found(
         self, job_service: JobService, tmp_path: Path
     ):
         """Test get_status returns None when job doesn't exist."""
-        mock_backend = AsyncMock()
-        mock_backend.load = AsyncMock(return_value=None)
+        from mozart.daemon.exceptions import JobSubmissionError
 
         with patch.object(
-            JobService, "_create_state_backend", return_value=mock_backend
+            JobService,
+            "_find_job_state",
+            side_effect=JobSubmissionError("No state found"),
         ):
             result = await job_service.get_status("nonexistent", tmp_path)
 

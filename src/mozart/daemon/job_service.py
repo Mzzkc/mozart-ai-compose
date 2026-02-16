@@ -354,6 +354,10 @@ class JobService:
     ) -> CheckpointState | None:
         """Get job status from state backend.
 
+        Auto-detects the backend type (SQLite or JSON) by checking which
+        state files exist in the workspace, matching the discovery logic
+        in ``_find_job_state()``.
+
         Args:
             job_id: Job identifier.
             workspace: Workspace directory containing job state.
@@ -361,11 +365,12 @@ class JobService:
         Returns:
             CheckpointState if found, None if job doesn't exist.
         """
-        state_backend = self._create_state_backend(workspace)
         try:
-            return await state_backend.load(job_id)
-        finally:
-            await state_backend.close()
+            state, backend = await self._find_job_state(job_id, workspace)
+            await backend.close()
+            return state
+        except JobSubmissionError:
+            return None
 
     # ─── Internal Helpers ────────────────────────────────────────────────
 
