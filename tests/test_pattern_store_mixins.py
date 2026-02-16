@@ -13,17 +13,16 @@ GlobalLearningStore instance with a temporary SQLite database.
 
 from __future__ import annotations
 
+import json
 import tempfile
 from collections.abc import Generator
-from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from mozart.learning.store import GlobalLearningStore
-from mozart.learning.store.models import QuarantineStatus, SuccessFactors
+from mozart.learning.store.models import QuarantineStatus
 from mozart.learning.store.patterns_crud import PatternCrudMixin
-
 
 # =============================================================================
 # Fixtures
@@ -31,33 +30,29 @@ from mozart.learning.store.patterns_crud import PatternCrudMixin
 
 
 @pytest.fixture
-def temp_db_path() -> Path:
-    """Create a temporary database path for testing."""
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-        return Path(f.name)
-
-
-@pytest.fixture
-def store(temp_db_path: Path) -> Generator[GlobalLearningStore, None, None]:
+def store() -> Generator[GlobalLearningStore, None, None]:
     """Create a GlobalLearningStore with a temporary database."""
-    s = GlobalLearningStore(temp_db_path)
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = Path(f.name)
+    s = GlobalLearningStore(db_path)
     yield s
-    if temp_db_path.exists():
-        temp_db_path.unlink()
+    if db_path.exists():
+        db_path.unlink()
 
 
 def _seed_pattern(
     store: GlobalLearningStore,
     pattern_name: str = "test pattern",
     pattern_type: str = "validation_failure",
-    **kwargs: object,
+    description: str = "A test pattern",
+    context_tags: list[str] | None = None,
 ) -> str:
     """Helper to create a pattern and return its ID."""
     return store.record_pattern(
         pattern_type=pattern_type,
         pattern_name=pattern_name,
-        description=kwargs.get("description", "A test pattern"),
-        context_tags=kwargs.get("context_tags", ["test"]),
+        description=description,
+        context_tags=context_tags if context_tags is not None else ["test"],
     )
 
 
@@ -477,7 +472,7 @@ class TestQuarantineLifecycle:
         self, store: GlobalLearningStore
     ) -> None:
         """get_quarantined_patterns returns only QUARANTINED patterns."""
-        p1 = _seed_pattern(store, pattern_name="good pattern")
+        _seed_pattern(store, pattern_name="good pattern")
         p2 = _seed_pattern(store, pattern_name="bad pattern")
         p3 = _seed_pattern(store, pattern_name="retired pattern")
 
@@ -768,7 +763,7 @@ class TestPatternQuery:
         self, store: GlobalLearningStore
     ) -> None:
         """get_patterns respects min_priority threshold."""
-        pid = _seed_pattern(store)
+        _seed_pattern(store)
         # Default priority is 0.5 (initial value)
         results = store.get_patterns(min_priority=0.6)
         # New patterns have priority 0.5, so filtered out at 0.6
@@ -822,3 +817,152 @@ class TestPatternQuery:
     ) -> None:
         """get_pattern_provenance returns None for missing patterns."""
         assert store.get_pattern_provenance("nonexistent") is None
+
+    def test_get_patterns_exclude_quarantined(
+        self, store: GlobalLearningStore
+    ) -> None:
+        """get_patterns with exclude_quarantined=True omits QUARANTINED patterns."""
+        p1 = _seed_pattern(store, pattern_name="healthy")
+        p2 = _seed_pattern(store, pattern_name="suspect")
+        store.quarantine_pattern(p2, reason="testing")
+
+        results = store.get_patterns(
+            min_priority=0.0, exclude_quarantined=True
+        )
+        result_ids = [r.id for r in results]
+        assert p1 in result_ids
+        assert p2 not in result_ids
+
+    def test_get_patterns_trust_score_filtering(
+        self, store: GlobalLearningStore
+    ) -> None:
+        """get_patterns with min_trust/max_trust filters by trust_score."""
+        p1 = _seed_pattern(store, pattern_name="high trust")
+        p2 = _seed_pattern(store, pattern_name="low trust")
+        store.update_trust_score(p1, 0.4)   # Trust = 0.9
+        store.update_trust_score(p2, -0.3)  # Trust = 0.2
+
+        high = store.get_patterns(min_priority=0.0, min_trust=0.7)
+        assert any(r.id == p1 for r in high)
+        assert not any(r.id == p2 for r in high)
+
+        low = store.get_patterns(min_priority=0.0, max_trust=0.3)
+        assert any(r.id == p2 for r in low)
+        assert not any(r.id == p1 for r in low)
+
+
+# =============================================================================
+# PatternSuccessFactorsMixin — Extended WHY coverage (Q012)
+# =============================================================================
+
+
+class TestSuccessFactorsExtended:
+    """Extended tests for success factor update branches and analysis edge cases."""
+
+    def test_update_merges_error_categories(
+        self, store: GlobalLearningStore
+    ) -> None:
+        """Second update merges error_categories into existing factors."""
+        pid = _seed_pattern(store)
+        store.update_success_factors(pid, error_categories=["auth"])
+        factors = store.update_success_factors(pid, error_categories=["timeout"])
+        assert factors is not None
+        assert "auth" in factors.error_categories
+        assert "timeout" in factors.error_categories
+
+    def test_update_sets_prior_sheet_status(
+        self, store: GlobalLearningStore
+    ) -> None:
+        """Second update with prior_sheet_status replaces existing value."""
+        pid = _seed_pattern(store)
+        store.update_success_factors(pid, prior_sheet_status="completed")
+        factors = store.update_success_factors(pid, prior_sheet_status="failed")
+        assert factors is not None
+        assert factors.prior_sheet_status == "failed"
+
+    def test_update_sets_grounding_confidence(
+        self, store: GlobalLearningStore
+    ) -> None:
+        """Second update with grounding_confidence updates existing value."""
+        pid = _seed_pattern(store)
+        store.update_success_factors(pid, grounding_confidence=0.5)
+        factors = store.update_success_factors(pid, grounding_confidence=0.95)
+        assert factors is not None
+        assert factors.grounding_confidence == 0.95
+
+    def test_update_computes_success_rate_from_applications(
+        self, store: GlobalLearningStore
+    ) -> None:
+        """Second update recalculates success_rate from pattern application counts."""
+        pid = _seed_pattern(store)
+        # Record applications to set led_to_success/failure counts
+        store.record_pattern_application(pid, "exec-1", True)
+        store.record_pattern_application(pid, "exec-2", False)
+        store.record_pattern_application(pid, "exec-3", True)
+
+        # First update
+        store.update_success_factors(pid, validation_types=["file"])
+        # Second update triggers the branch that reads counts
+        factors = store.update_success_factors(pid, validation_types=["regex"])
+        assert factors is not None
+        # 2 successes / 3 total = 0.666...
+        assert 0.6 < factors.success_rate < 0.7
+
+    def test_get_success_factors_nonexistent_pattern(
+        self, store: GlobalLearningStore
+    ) -> None:
+        """get_success_factors returns None for nonexistent pattern."""
+        result = store.get_success_factors("nonexistent-id")
+        assert result is None
+
+    def test_analyze_pattern_why_time_of_day_in_summary(
+        self, store: GlobalLearningStore
+    ) -> None:
+        """analyze_pattern_why includes time_of_day_bucket in factors_summary."""
+        pid = _seed_pattern(store)
+        store.update_success_factors(pid, validation_types=["file"])
+        # Factors will have a time_of_day_bucket from datetime.now()
+        analysis = store.analyze_pattern_why(pid)
+        assert analysis["has_factors"] is True
+        # time_of_day_bucket is always set, so summary should include it
+        assert "typically succeeds in" in analysis["factors_summary"]
+
+    def test_analyze_pattern_why_prior_sheet_status_in_summary(
+        self, store: GlobalLearningStore
+    ) -> None:
+        """analyze_pattern_why includes prior_sheet_status in factors_summary."""
+        pid = _seed_pattern(store)
+        store.update_success_factors(pid, prior_sheet_status="completed")
+        analysis = store.analyze_pattern_why(pid)
+        assert "prior sheet was: completed" in analysis["factors_summary"]
+
+    def test_analyze_pattern_why_retry_iteration_gt_zero(
+        self, store: GlobalLearningStore
+    ) -> None:
+        """analyze_pattern_why shows retry count when retry_iteration > 0."""
+        pid = _seed_pattern(store)
+        store.update_success_factors(pid, retry_iteration=3)
+        analysis = store.analyze_pattern_why(pid)
+        assert any("retries" in c for c in analysis["key_conditions"])
+
+    def test_analyze_pattern_why_low_success_rate_recommendation(
+        self, store: GlobalLearningStore
+    ) -> None:
+        """analyze_pattern_why recommends review when success_rate < 0.5."""
+        pid = _seed_pattern(store)
+        # Create factors with low success rate
+        store.update_success_factors(pid, validation_types=["file"])
+        # Manually set low success rate via DB
+        with store._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT success_factors FROM patterns WHERE id = ?", (pid,)
+            )
+            row = cursor.fetchone()
+            data = json.loads(row[0])
+            data["success_rate"] = 0.3
+            conn.execute(
+                "UPDATE patterns SET success_factors = ? WHERE id = ?",
+                (json.dumps(data), pid),
+            )
+        analysis = store.analyze_pattern_why(pid)
+        assert any("Low success rate" in r for r in analysis["recommendations"])

@@ -116,8 +116,8 @@ class StateBackend(ABC):
     ) -> int | None:
         """Record an execution attempt in history.
 
-        Optional method — backends that support execution recording (e.g. SQLite)
-        override this. The default logs at DEBUG level so silent data
+        Optional method -- backends that support execution recording (e.g. SQLite)
+        override this. The default logs at WARNING level so silent data
         loss is traceable, then returns None.
 
         Args:

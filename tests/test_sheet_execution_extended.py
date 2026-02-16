@@ -19,6 +19,7 @@ This module fills gaps in test_sheet_execution.py, covering:
 from __future__ import annotations
 
 import json
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -32,11 +33,15 @@ from mozart.core.checkpoint import (
     OutcomeCategory,
 )
 from mozart.core.config import JobConfig
+from mozart.execution.escalation import ConsoleEscalationHandler, EscalationResponse
+from mozart.execution.preflight import PreflightResult, PromptMetrics
 from mozart.execution.runner.models import (
     FatalError,
     GracefulShutdownError,
     SheetExecutionMode,
+    ValidationSuccessContext,
 )
+from mozart.prompts.templating import PromptBuilder
 
 # ---------------------------------------------------------------------------
 # Fixtures (reusing the pattern from test_sheet_execution.py)
@@ -83,7 +88,6 @@ class _MockMixin:
         from mozart.core.logging import get_logger
         from mozart.execution.preflight import PreflightChecker
         from mozart.execution.retry_strategy import AdaptiveRetryStrategy, RetryStrategyConfig
-        from mozart.prompts.templating import PromptBuilder
 
         self.config = config
         self.backend = MagicMock()
@@ -149,7 +153,9 @@ class _MockMixin:
     async def _try_self_healing(self, *args: Any, **kwargs: Any) -> None:
         return None
 
-    async def _handle_rate_limit(self, state: Any, error_code: str = "E101", suggested_wait_seconds: Any = None) -> None:
+    async def _handle_rate_limit(
+        self, state: Any, error_code: str = "E101", suggested_wait_seconds: Any = None,
+    ) -> None:
         pass
 
     async def _track_cost(self, result: Any, sheet_state: Any, state: Any) -> None:
@@ -159,9 +165,9 @@ class _MockMixin:
         return False, None
 
     async def _fire_event(
-        self, event: str, sheet_num: int, data: dict | None = None
+        self, event: str, sheet_num: int, data: dict | None = None,
     ) -> None:
-        """No-op stub for the base class event method."""
+        pass
 
 
 from mozart.execution.runner.context import ContextBuildingMixin
@@ -378,8 +384,6 @@ class TestExtractAgentFeedback:
     def test_json_format_extraction(self, mixin: _TestableSheetMixin) -> None:
         mixin.config.feedback.enabled = True
         mixin.config.feedback.format = "json"
-        # Default pattern captures content between FEEDBACK markers
-        pattern = mixin.config.feedback.pattern
         feedback_data = {"quality": "good", "score": 8}
         stdout = f"start\n<FEEDBACK>{json.dumps(feedback_data)}</FEEDBACK>\nend"
         # Update pattern to match the test data
@@ -465,14 +469,18 @@ class TestLogIncompleteValidations:
 class TestEnforceCostLimits:
     """Tests for the _enforce_cost_limits method."""
 
+    @staticmethod
+    def _ok_result() -> ExecutionResult:
+        return ExecutionResult(
+            success=True, exit_code=0, stdout="", stderr="",
+            duration_seconds=1.0,
+        )
+
     @pytest.mark.asyncio
     async def test_disabled_does_nothing(self, mixin: _TestableSheetMixin) -> None:
         mixin.config.cost_limits.enabled = False
         state = _make_state()
-        result = ExecutionResult(success=True, exit_code=0, stdout="", stderr="", duration_seconds=1.0)
-        sheet_state = MagicMock()
-        # Should not raise
-        await mixin._enforce_cost_limits(result, sheet_state, state, 1)
+        await mixin._enforce_cost_limits(self._ok_result(), MagicMock(), state, 1)
 
     @pytest.mark.asyncio
     async def test_raises_on_cost_exceeded(self, mixin: _TestableSheetMixin) -> None:
@@ -480,11 +488,9 @@ class TestEnforceCostLimits:
         mixin._check_cost_limits = MagicMock(return_value=(True, "Max cost $5.00 exceeded"))
         state = _make_state()
         state.total_estimated_cost = 6.0
-        result = ExecutionResult(success=True, exit_code=0, stdout="", stderr="", duration_seconds=1.0)
-        sheet_state = MagicMock()
 
         with pytest.raises(GracefulShutdownError, match="Cost limit exceeded"):
-            await mixin._enforce_cost_limits(result, sheet_state, state, 1)
+            await mixin._enforce_cost_limits(self._ok_result(), MagicMock(), state, 1)
 
         assert state.cost_limit_reached is True
 
@@ -493,10 +499,7 @@ class TestEnforceCostLimits:
         mixin.config.cost_limits.enabled = True
         mixin._check_cost_limits = MagicMock(return_value=(False, None))
         state = _make_state()
-        result = ExecutionResult(success=True, exit_code=0, stdout="", stderr="", duration_seconds=1.0)
-        sheet_state = MagicMock()
-        # Should not raise
-        await mixin._enforce_cost_limits(result, sheet_state, state, 1)
+        await mixin._enforce_cost_limits(self._ok_result(), MagicMock(), state, 1)
 
 
 # ===========================================================================
@@ -560,7 +563,9 @@ class TestCheckExecutionGuards:
 class TestPopulateCrossSheetContext:
     """Tests for the _populate_cross_sheet_context method."""
 
-    def test_auto_capture_stdout_from_prior_sheets(self, mixin: _TestableSheetMixin, tmp_path: Path) -> None:
+    def test_auto_capture_stdout_from_prior_sheets(
+        self, mixin: _TestableSheetMixin, tmp_path: Path,
+    ) -> None:
         config = _make_config(tmp_path, overrides={
             "cross_sheet": {
                 "auto_capture_stdout": True,
@@ -583,7 +588,9 @@ class TestPopulateCrossSheetContext:
         context.previous_outputs = {}
         context.previous_files = {}
 
-        mixin._populate_cross_sheet_context(context, state, sheet_num=3, cross_sheet=config.cross_sheet)
+        mixin._populate_cross_sheet_context(
+            context, state, sheet_num=3, cross_sheet=config.cross_sheet,
+        )
         assert 1 in context.previous_outputs
         assert 2 in context.previous_outputs
         assert context.previous_outputs[1] == "Sheet 1 output here"
@@ -608,7 +615,9 @@ class TestPopulateCrossSheetContext:
         context.previous_outputs = {}
         context.previous_files = {}
 
-        mixin._populate_cross_sheet_context(context, state, sheet_num=3, cross_sheet=config.cross_sheet)
+        mixin._populate_cross_sheet_context(
+            context, state, sheet_num=3, cross_sheet=config.cross_sheet,
+        )
         # lookback_sheets=1 → only sheet 2 (max(1, 3-1) = 2)
         assert 1 not in context.previous_outputs
         assert 2 in context.previous_outputs
@@ -631,7 +640,9 @@ class TestPopulateCrossSheetContext:
         context.previous_outputs = {}
         context.previous_files = {}
 
-        mixin._populate_cross_sheet_context(context, state, sheet_num=2, cross_sheet=config.cross_sheet)
+        mixin._populate_cross_sheet_context(
+            context, state, sheet_num=2, cross_sheet=config.cross_sheet,
+        )
         assert context.previous_outputs[1].endswith("... [truncated]")
         # First 10 chars + truncation marker
         assert context.previous_outputs[1].startswith("This is a ")
@@ -665,7 +676,9 @@ class TestCaptureCrossSheetFiles:
         context = MagicMock()
         context.previous_files = {}
 
-        mixin._capture_cross_sheet_files(context, state, sheet_num=2, cross_sheet=config.cross_sheet)
+        mixin._capture_cross_sheet_files(
+            context, state, sheet_num=2, cross_sheet=config.cross_sheet,
+        )
         assert str(test_file) in context.previous_files
         assert context.previous_files[str(test_file)] == "file content here"
 
@@ -689,7 +702,9 @@ class TestCaptureCrossSheetFiles:
         context = MagicMock()
         context.previous_files = {}
 
-        mixin._capture_cross_sheet_files(context, state, sheet_num=2, cross_sheet=config.cross_sheet)
+        mixin._capture_cross_sheet_files(
+            context, state, sheet_num=2, cross_sheet=config.cross_sheet,
+        )
         assert str(test_file) not in context.previous_files
 
     def test_truncates_large_files(self, mixin: _TestableSheetMixin, tmp_path: Path) -> None:
@@ -711,7 +726,9 @@ class TestCaptureCrossSheetFiles:
         context = MagicMock()
         context.previous_files = {}
 
-        mixin._capture_cross_sheet_files(context, state, sheet_num=2, cross_sheet=config.cross_sheet)
+        mixin._capture_cross_sheet_files(
+            context, state, sheet_num=2, cross_sheet=config.cross_sheet,
+        )
         assert context.previous_files[str(test_file)].endswith("... [truncated]")
 
 
@@ -739,7 +756,7 @@ class TestRunPreflightChecks:
     def test_stores_metrics_in_sheet_state(self, mixin: _TestableSheetMixin) -> None:
         state = _make_state()
         state.mark_sheet_started(1)
-        result = mixin._run_preflight_checks(
+        mixin._run_preflight_checks(
             prompt="Process items 1-5",
             sheet_context={"sheet_num": 1, "workspace": str(mixin.config.workspace)},
             sheet_num=1,
@@ -775,7 +792,9 @@ class TestBuildSheetContextEdgeCases:
         # Should not crash — no prior sheets to cross-reference
         assert context is not None
 
-    def test_context_with_cross_sheet_config(self, mixin: _TestableSheetMixin, tmp_path: Path) -> None:
+    def test_context_with_cross_sheet_config(
+        self, mixin: _TestableSheetMixin, tmp_path: Path,
+    ) -> None:
         """When cross_sheet is configured and state has prior data, context is enriched."""
         config = _make_config(tmp_path, overrides={
             "cross_sheet": {
@@ -785,7 +804,7 @@ class TestBuildSheetContextEdgeCases:
             },
         })
         mixin.config = config
-        mixin.prompt_builder = __import__("mozart.prompts.templating", fromlist=["PromptBuilder"]).PromptBuilder(config.prompt)
+        mixin.prompt_builder = PromptBuilder(config.prompt)
 
         state = _make_state(total_sheets=3)
         state.mark_sheet_started(1)
@@ -816,9 +835,6 @@ class TestPrepareSheetExecution:
     @pytest.mark.asyncio
     async def test_preflight_error_raises_fatal(self, mixin: _TestableSheetMixin) -> None:
         """When preflight has fatal errors, raises FatalError."""
-        from mozart.execution.preflight import PreflightResult, PromptMetrics
-
-        # Mock preflight_checker to return errors
         bad_result = PreflightResult(
             errors=["Critical: workspace does not exist"],
             warnings=[],
@@ -846,10 +862,8 @@ def _make_validation_success_context(
     sheet_num: int = 1,
     success: bool = True,
     exit_code: int = 0,
-) -> "ValidationSuccessContext":
+) -> ValidationSuccessContext:
     """Build a ValidationSuccessContext for testing."""
-    from mozart.execution.runner.models import ValidationSuccessContext
-
     result = ExecutionResult(
         success=success, exit_code=exit_code, stdout="done", stderr="",
         duration_seconds=5.0,
@@ -877,13 +891,9 @@ class TestHandleValidationSuccess:
     @pytest.mark.asyncio
     async def test_success_path_returns_none(self, mixin: _TestableSheetMixin) -> None:
         """Normal success returns None (sheet complete)."""
-        import time
-        from unittest.mock import patch as _patch
-
         state = _make_state()
         state.mark_sheet_started(1)
         ctx = _make_validation_success_context(state, sheet_num=1)
-        # Set execution_start_time to a recent monotonic time
         ctx.execution_start_time = time.monotonic()
 
         result = await mixin._handle_validation_success(ctx)
@@ -894,8 +904,6 @@ class TestHandleValidationSuccess:
     @pytest.mark.asyncio
     async def test_nonzero_exit_code_still_completes(self, mixin: _TestableSheetMixin) -> None:
         """Non-zero exit code with all validations passed still completes."""
-        import time
-
         state = _make_state()
         state.mark_sheet_started(1)
         ctx = _make_validation_success_context(state, sheet_num=1, success=False, exit_code=1)
@@ -908,8 +916,6 @@ class TestHandleValidationSuccess:
     @pytest.mark.asyncio
     async def test_state_saved_after_completion(self, mixin: _TestableSheetMixin) -> None:
         """State backend save is called after marking completed."""
-        import time
-
         state = _make_state()
         state.mark_sheet_started(1)
         ctx = _make_validation_success_context(state, sheet_num=1)
@@ -921,8 +927,6 @@ class TestHandleValidationSuccess:
     @pytest.mark.asyncio
     async def test_missing_sheet_state_returns_break(self, mixin: _TestableSheetMixin) -> None:
         """Missing sheet state after execution returns 'break'."""
-        import time
-
         state = _make_state()
         # Don't mark sheet in progress => sheets dict won't have entry
         ctx = _make_validation_success_context(state, sheet_num=1)
@@ -962,8 +966,6 @@ class TestHandleEscalation:
     @pytest.mark.asyncio
     async def test_missing_sheet_state_raises_fatal(self, mixin: _TestableSheetMixin) -> None:
         """Missing sheet state raises FatalError."""
-        from mozart.execution.escalation import ConsoleEscalationHandler
-
         mixin.escalation_handler = AsyncMock(spec=ConsoleEscalationHandler)
         state = _make_state()
         # Don't mark sheet in progress => no sheet state
@@ -984,8 +986,6 @@ class TestHandleEscalation:
     @pytest.mark.asyncio
     async def test_handler_returns_response(self, mixin: _TestableSheetMixin) -> None:
         """Escalation handler response is returned."""
-        from mozart.execution.escalation import EscalationResponse
-
         mock_handler = AsyncMock()
         mock_response = EscalationResponse(action="retry", guidance="try again")
         mock_handler.escalate.return_value = mock_response
@@ -1013,8 +1013,6 @@ class TestHandleEscalation:
         self, mixin: _TestableSheetMixin,
     ) -> None:
         """Failed lookup of similar escalations doesn't prevent escalation."""
-        from mozart.execution.escalation import EscalationResponse
-
         mock_handler = AsyncMock()
         mock_handler.escalate.return_value = EscalationResponse(action="skip")
         mixin.escalation_handler = mock_handler

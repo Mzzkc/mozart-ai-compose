@@ -19,7 +19,9 @@ Architecture:
     - CostMixin: _track_cost(), _check_cost_limits()
 
     It provides:
-    - _execute_sheet_with_recovery(): Core sheet execution
+    - _execute_sheet_with_recovery(): Core sheet execution state machine
+    - _configure_and_execute_sheet(): Backend config + execution per sheet
+    - _record_execution_bookkeeping(): Post-execution output/cost/history
     - _run_preflight_checks(): Pre-execution validation
     - _update_sheet_validation_state(): State update after validation
     - _run_grounding_hooks(): External grounding hook execution
@@ -1494,95 +1496,16 @@ class SheetExecutionMixin:
             if await self._check_execution_guards(sheet_num):
                 continue
 
-            # Execute
-            # Set per-sheet output log base path for real-time visibility
-            # Backend creates: sheet-01.stdout.log and sheet-01.stderr.log
-            output_log_base = self.config.workspace / "logs" / f"sheet-{sheet_num:02d}"
-            self.backend.set_output_log_path(output_log_base)
-
-            # Apply prompt extensions (GH#76): score-level + sheet-level
-            extensions = list(self.config.prompt.prompt_extensions)
-            sheet_extensions = self.config.sheet.prompt_extensions.get(sheet_num, [])
-            extensions.extend(sheet_extensions)
-            self.backend.set_prompt_extensions(extensions)
-
-            # Resolve per-sheet timeout override (if configured)
-            sheet_timeout = self.config.backend.timeout_overrides.get(sheet_num)
-
-            # Apply per-sheet backend overrides (GH#78)
-            # Lock protects the apply → execute → clear cycle against
-            # concurrent sheets stomping on each other's saved originals.
-            sheet_override = self.config.backend.sheet_overrides.get(sheet_num)
-            override_params: dict[str, object] | None = None
-            if sheet_override:
-                override_params = {
-                    k: v
-                    for k, v in sheet_override.model_dump().items()
-                    if v is not None
-                }
-                # timeout from sheet_overrides takes precedence
-                if "timeout_seconds" in override_params:
-                    sheet_timeout = float(override_params.pop("timeout_seconds"))  # type: ignore[arg-type]
-
-            self.console.print(
-                f"[blue]Sheet {sheet_num}: {current_mode.value} execution[/blue]"
+            # Execute backend with per-sheet configuration
+            result = await self._configure_and_execute_sheet(
+                sheet_num, current_prompt, current_mode,
             )
 
-            if override_params:
-                async with self.backend.override_lock:
-                    self.backend.apply_overrides(override_params)
-                    try:
-                        result = await self._execute_with_stale_detection(
-                            current_prompt, timeout_seconds=sheet_timeout,
-                        )
-                    finally:
-                        self.backend.clear_overrides()
-            else:
-                result = await self._execute_with_stale_detection(
-                    current_prompt, timeout_seconds=sheet_timeout,
-                )
-
-            # Store execution progress snapshots in sheet state (Task 4)
-            if self._execution_progress_snapshots:
-                sheet_state.progress_snapshots = self._execution_progress_snapshots.copy()
-                sheet_state.last_activity_at = utc_now()
-
-            # Capture raw output for debugging (Task 1: Raw Output Capture)
-            sheet_state.capture_output(
-                result.stdout,
-                result.stderr,
-                max_bytes=self.config.backend.max_output_capture_bytes,
+            # Post-execution bookkeeping: snapshots, output, cost, history
+            await self._record_execution_bookkeeping(
+                state, sheet_num, sheet_state, result,
+                current_prompt, execution_history,
             )
-
-            # Extract agent feedback if configured (GH#15)
-            self._extract_agent_feedback(sheet_state, result.stdout)
-
-            # Track cost (v4 evolution: Cost Circuit Breaker)
-            await self._enforce_cost_limits(result, sheet_state, state, sheet_num)
-
-            # Track execution result for judgment (Phase 4)
-            execution_history.append(result)
-
-            # Record execution in history (no-op for backends that don't support it)
-            try:
-                await self.state_backend.record_execution(
-                    job_id=self.config.name,
-                    sheet_num=sheet_num,
-                    attempt_num=sheet_state.attempt_count,
-                    prompt=current_prompt[:2000] if current_prompt else None,
-                    output=result.stdout[-5000:] if result and result.stdout else None,
-                    exit_code=result.exit_code if result else None,
-                    duration_seconds=result.duration_seconds if result else None,
-                )
-                self._record_execution_failures = 0
-            except Exception as e:
-                self._log_swallowed_error(
-                    "_record_execution_failures",
-                    "record_execution_failed",
-                    e,
-                    sheet_num=sheet_num,
-                    attempt_num=sheet_state.attempt_count,
-                )
 
             # ===== VALIDATION-FIRST APPROACH =====
             validation_start = time.monotonic()
@@ -1733,6 +1656,128 @@ class SheetExecutionMixin:
                 raise FatalError(
                     f"Unknown mode_result action: {mode_result.action!r}"
                 )
+
+    async def _configure_and_execute_sheet(
+        self,
+        sheet_num: int,
+        current_prompt: str,
+        current_mode: SheetExecutionMode,
+    ) -> ExecutionResult:
+        """Configure per-sheet backend settings and execute the prompt.
+
+        Handles output log paths, prompt extensions, timeout overrides, and
+        per-sheet backend overrides (GH#76, GH#78). Uses the override lock
+        to prevent concurrent sheets from stomping on each other's settings.
+
+        Args:
+            sheet_num: Sheet number being executed.
+            current_prompt: The prompt to execute.
+            current_mode: Current execution mode (for display).
+
+        Returns:
+            ExecutionResult from the backend.
+        """
+        # Per-sheet output log for real-time visibility
+        output_log_base = self.config.workspace / "logs" / f"sheet-{sheet_num:02d}"
+        self.backend.set_output_log_path(output_log_base)
+
+        # Prompt extensions (GH#76): score-level + sheet-level
+        extensions = [
+            *self.config.prompt.prompt_extensions,
+            *self.config.sheet.prompt_extensions.get(sheet_num, []),
+        ]
+        self.backend.set_prompt_extensions(extensions)
+
+        sheet_timeout = self.config.backend.timeout_overrides.get(sheet_num)
+
+        # Per-sheet backend overrides (GH#78).
+        # Lock protects the apply → execute → clear cycle against
+        # concurrent sheets stomping on each other's saved originals.
+        sheet_override = self.config.backend.sheet_overrides.get(sheet_num)
+        override_params: dict[str, object] | None = None
+        if sheet_override:
+            override_params = {
+                k: v
+                for k, v in sheet_override.model_dump().items()
+                if v is not None
+            }
+            if "timeout_seconds" in override_params:  # sheet_overrides takes precedence
+                sheet_timeout = float(override_params.pop("timeout_seconds"))  # type: ignore[arg-type]
+
+        self.console.print(
+            f"[blue]Sheet {sheet_num}: {current_mode.value} execution[/blue]"
+        )
+
+        if override_params:
+            async with self.backend.override_lock:
+                self.backend.apply_overrides(override_params)
+                try:
+                    return await self._execute_with_stale_detection(
+                        current_prompt, timeout_seconds=sheet_timeout,
+                    )
+                finally:
+                    self.backend.clear_overrides()
+        else:
+            return await self._execute_with_stale_detection(
+                current_prompt, timeout_seconds=sheet_timeout,
+            )
+
+    async def _record_execution_bookkeeping(
+        self,
+        state: CheckpointState,
+        sheet_num: int,
+        sheet_state: SheetState,
+        result: ExecutionResult,
+        current_prompt: str,
+        execution_history: deque[ExecutionResult],
+    ) -> None:
+        """Post-execution bookkeeping: progress, output, cost, and history.
+
+        Captures execution progress snapshots, raw output for debugging,
+        agent feedback, cost tracking, and records the execution in the
+        state backend history.
+
+        Args:
+            state: Current job state.
+            sheet_num: Sheet number that was executed.
+            sheet_state: Sheet-specific state object.
+            result: Execution result from the backend.
+            current_prompt: The prompt that was executed.
+            execution_history: Deque to append the result to.
+        """
+        if self._execution_progress_snapshots:
+            sheet_state.progress_snapshots = self._execution_progress_snapshots.copy()
+            sheet_state.last_activity_at = utc_now()
+
+        sheet_state.capture_output(
+            result.stdout,
+            result.stderr,
+            max_bytes=self.config.backend.max_output_capture_bytes,
+        )
+        self._extract_agent_feedback(sheet_state, result.stdout)
+        await self._enforce_cost_limits(result, sheet_state, state, sheet_num)
+        execution_history.append(result)
+
+        # Record in history (no-op for backends that don't support it)
+        try:
+            await self.state_backend.record_execution(
+                job_id=self.config.name,
+                sheet_num=sheet_num,
+                attempt_num=sheet_state.attempt_count,
+                prompt=current_prompt[:2000] if current_prompt else None,
+                output=result.stdout[-5000:] if result.stdout else None,
+                exit_code=result.exit_code,
+                duration_seconds=result.duration_seconds,
+            )
+            self._record_execution_failures = 0
+        except Exception as e:
+            self._log_swallowed_error(
+                "_record_execution_failures",
+                "record_execution_failed",
+                e,
+                sheet_num=sheet_num,
+                attempt_num=sheet_state.attempt_count,
+            )
 
     async def _gather_learned_patterns(
         self,

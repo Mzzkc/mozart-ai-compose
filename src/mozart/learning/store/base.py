@@ -236,17 +236,13 @@ class GlobalLearningStoreBase:
             self._batch_conn.reset(token)
             conn.close()
 
-    def close(self) -> None:
+    def close(self) -> None:  # noqa: B027 — intentional concrete no-op default
         """Close any persistent resources.
 
-        This method exists for API compatibility. The actual connection
-        management is handled per-operation via the context manager
-        pattern in _get_connection(). This ensures connections are not
-        held open between operations, which is safer for concurrent access.
+        No-op: connections are managed per-operation via _get_connection().
+        This method exists for API compatibility so callers can unconditionally
+        call ``store.close()`` without checking the backend type.
         """
-        # Connections are managed per-operation via context manager
-        # This method is a no-op but provides a clean API
-        pass
 
     def _migrate_if_needed(self) -> None:
         """Create or migrate the database schema.
@@ -629,36 +625,49 @@ class GlobalLearningStoreBase:
             "ON pattern_entropy_history(calculated_at DESC)"
         )
 
+    @staticmethod
+    def _get_existing_columns(
+        conn: sqlite3.Connection, table_name: str,
+    ) -> set[str] | None:
+        """Get the column names for a table, or None if the table does not exist.
+
+        Args:
+            conn: Active database connection.
+            table_name: Name of the table to inspect.
+
+        Returns:
+            Set of column names, or None if the table has not been created yet.
+        """
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (table_name,),
+        )
+        if not cursor.fetchone():
+            return None
+        cursor = conn.execute(f"PRAGMA table_info({table_name})")
+        return {row["name"] for row in cursor.fetchall()}
+
     def _migrate_columns(self, conn: sqlite3.Connection) -> None:
-        """Add missing columns to existing tables.
+        """Add missing columns and rename outdated columns in existing tables.
 
         This handles the case where a database was created with an older schema
         and needs new columns added. Uses ALTER TABLE which is idempotent-safe
         (we check for column existence before adding).
 
-        Only migrates tables that already exist - new tables are handled by
+        Only migrates tables that already exist -- new tables are handled by
         _create_schema which runs after this method.
 
         Args:
             conn: Active database connection.
         """
+        # Phase 1: Add missing columns
         for table_name, columns in self._COLUMN_MIGRATIONS.items():
-            # Check if table exists first
-            cursor = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-                (table_name,),
-            )
-            if not cursor.fetchone():
-                # Table doesn't exist yet - _create_schema will create it
+            existing = self._get_existing_columns(conn, table_name)
+            if existing is None:
                 continue
 
-            # Get existing columns for this table
-            cursor = conn.execute(f"PRAGMA table_info({table_name})")
-            existing_columns = {row["name"] for row in cursor.fetchall()}
-
-            # Add any missing columns
             for column_name, column_def in columns:
-                if column_name not in existing_columns:
+                if column_name not in existing:
                     try:
                         conn.execute(
                             f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}"
@@ -667,24 +676,17 @@ class GlobalLearningStoreBase:
                             f"Added column {column_name} to {table_name}"
                         )
                     except sqlite3.OperationalError as e:
-                        # Column might already exist (race condition) - that's fine
                         if "duplicate column name" not in str(e).lower():
                             raise
 
         # Phase 2: Column renames (SQLite 3.25.0+)
         for table_name, renames in self._COLUMN_RENAMES.items():
-            cursor = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-                (table_name,),
-            )
-            if not cursor.fetchone():
+            existing = self._get_existing_columns(conn, table_name)
+            if existing is None:
                 continue
 
-            cursor = conn.execute(f"PRAGMA table_info({table_name})")
-            existing_columns = {row["name"] for row in cursor.fetchall()}
-
             for old_name, new_name in renames:
-                if old_name in existing_columns and new_name not in existing_columns:
+                if old_name in existing and new_name not in existing:
                     try:
                         conn.execute(
                             f"ALTER TABLE {table_name} RENAME COLUMN {old_name} TO {new_name}"
@@ -696,8 +698,6 @@ class GlobalLearningStoreBase:
                         err_msg = str(e).lower()
                         if "near" in err_msg or "syntax error" in err_msg:
                             # SQLite < 3.25.0: RENAME COLUMN not supported.
-                            # Column keeps old name; SQL queries use new name in DDL
-                            # but SELECT by old name still works via existing data.
                             self._logger.warning(
                                 f"Cannot rename {old_name} → {new_name} in {table_name} "
                                 f"(SQLite too old). Column will keep old name."
