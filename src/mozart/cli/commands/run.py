@@ -210,10 +210,8 @@ async def _try_daemon_submit(
                 console.print(f"[green]Job submitted to daemon:[/green] {job_id}")
                 if msg:
                     console.print(f"  {msg}")
-                # Monitoring guidance
-                ws = workspace or config_file.parent / "workspace"
                 console.print(
-                    f"\n[dim]Monitor with:[/dim] mozart status {job_id} -w {ws} --watch"
+                    f"\n[dim]Monitor with:[/dim] mozart status {job_id} --watch"
                 )
             else:
                 console.print(f"[yellow]Daemon rejected job:[/yellow] {msg}")

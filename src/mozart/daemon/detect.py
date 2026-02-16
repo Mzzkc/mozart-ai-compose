@@ -30,15 +30,14 @@ def _resolve_socket_path(socket_path: Path | None) -> Path:
 
 async def is_daemon_available(socket_path: Path | None = None) -> bool:
     """Check if the Mozart conductor is running. Safe: returns False on any error."""
+    resolved = _resolve_socket_path(socket_path)
     try:
         from mozart.daemon.ipc.client import DaemonClient
 
-        resolved = _resolve_socket_path(socket_path)
         client = DaemonClient(resolved)
         return await client.is_daemon_running()
     except (OSError, ConnectionError) as e:
         # Connection/socket errors — conductor not reachable.
-        resolved = _resolve_socket_path(socket_path)
         level = "info" if resolved.exists() else "debug"
         getattr(_logger, level)("daemon_detection_failed", error=str(e))
         return False
@@ -80,15 +79,16 @@ async def try_daemon_route(
 
     Connection-level errors never raise — they return (False, None).
     """
+    resolved = _resolve_socket_path(socket_path)
     try:
         from mozart.daemon.ipc.client import DaemonClient
 
-        client = DaemonClient(_resolve_socket_path(socket_path))
+        client = DaemonClient(resolved)
         if not await client.is_daemon_running():
             return False, None
         result = await client.call(method, params)
         return True, result
-    except (OSError, ConnectionError, TimeoutError, ValueError) as e:
+    except (OSError, ConnectionError, TimeoutError) as e:
         _logger.debug("daemon_route_failed", method=method, error=str(e))
         return False, None
     except Exception as e:

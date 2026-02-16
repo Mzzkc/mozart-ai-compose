@@ -104,7 +104,13 @@ class JobManager:
         # Live CheckpointState per running job — populated by
         # _PublishingBackend on every state_backend.save() so the
         # conductor can serve status from memory, not disk.
+        # Keyed by conductor job_id (which may be deduplicated, e.g.
+        # "issue-solver-2"), not the config's name field.
         self._live_states: dict[str, CheckpointState] = {}
+        # Maps config name → conductor job_id for deduped jobs
+        # (e.g. "issue-solver" → "issue-solver-2") so _on_state_published
+        # can store under the conductor's ID.
+        self._config_to_conductor_id: dict[str, str] = {}
         self._concurrency_semaphore = asyncio.Semaphore(
             config.max_concurrent_jobs,
         )
@@ -894,8 +900,15 @@ class JobManager:
         Called synchronously by ``_PublishingBackend.save()`` on every
         checkpoint.  Stores the latest state so ``get_job_status()`` can
         serve it from memory instead of re-reading from the workspace.
+
+        Uses ``_config_to_conductor_id`` to resolve deduped job IDs:
+        ``state.job_id`` is the config name (e.g. "issue-solver") but the
+        conductor may track the job under a deduped name (e.g. "issue-solver-2").
         """
-        self._live_states[state.job_id] = state
+        conductor_id = self._config_to_conductor_id.get(
+            state.job_id, state.job_id,
+        )
+        self._live_states[conductor_id] = state
 
     async def _on_event(
         self,
@@ -1101,6 +1114,11 @@ class JobManager:
                     update={"workspace": request.workspace},
                 )
 
+            # Map config name → conductor ID for deduped jobs so that
+            # _on_state_published() stores under the conductor's ID.
+            if config.name != job_id:
+                self._config_to_conductor_id[config.name] = job_id
+
             # Apply daemon-level default thinking method if the job
             # doesn't specify its own (GH#77).
             if (
@@ -1162,6 +1180,10 @@ class JobManager:
         # 1. Remove from active jobs and live state — always runs first
         self._jobs.pop(job_id, None)
         self._live_states.pop(job_id, None)
+        # Clean up config-name → conductor-ID mapping entries for this job
+        self._config_to_conductor_id = {
+            k: v for k, v in self._config_to_conductor_id.items() if v != job_id
+        }
 
         # 2. Check for task exception and update metadata/registry
         try:

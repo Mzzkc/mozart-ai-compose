@@ -27,6 +27,10 @@ from mozart.daemon.types import DaemonStatus, JobRequest, JobResponse
 
 _logger = get_logger("daemon.ipc.client")
 
+# Match the server's limit so large status responses (CheckpointState with
+# many sheets) aren't rejected by the StreamReader.
+_MAX_MESSAGE_BYTES = 1_048_576  # 1 MiB — same as server.MAX_MESSAGE_BYTES
+
 
 class DaemonClient:
     """Async client for the Mozart daemon Unix socket IPC.
@@ -74,7 +78,9 @@ class DaemonClient:
 
         try:
             reader, writer = await asyncio.wait_for(
-                asyncio.open_unix_connection(str(self._socket_path)),
+                asyncio.open_unix_connection(
+                    str(self._socket_path), limit=_MAX_MESSAGE_BYTES,
+                ),
                 timeout=5.0,
             )
         except TimeoutError as exc:
