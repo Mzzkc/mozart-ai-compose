@@ -1219,244 +1219,246 @@ class SheetExecutionMixin:
         Handles completion mode, escalation mode, and retry mode after
         validation has determined the sheet is not fully passing.
 
-        Args:
-            ctx: ModeDecisionContext with all execution state needed
-                for mode selection.
-
-        Returns:
-            ModeDecisionResult with flow control action and updated state.
+        Delegates to specialized handlers for each mode:
+        - _apply_completion_mode: Build completion prompt and retry
+        - _apply_escalation_mode: Invoke escalation handler and dispatch response
+        - _apply_retry_mode: Retry or mark fatal if retries exhausted
         """
-        # Unpack context for local use
-        state = ctx.state
-        sheet_num = ctx.sheet_num
-        validation_result = ctx.validation_result
-        execution_history = ctx.execution_history
-        original_prompt = ctx.original_prompt
-        current_prompt = ctx.current_prompt
-        current_mode = ctx.current_mode
-        normal_attempts = ctx.normal_attempts
-        completion_attempts = ctx.completion_attempts
-        max_retries = ctx.max_retries
-        max_completion = ctx.max_completion
-        pass_pct = ctx.pass_pct
-
         next_mode, decision_reason, prompt_modifications = await self._decide_with_judgment(
-            sheet_num=sheet_num,
-            validation_result=validation_result,
-            execution_history=execution_history,
-            normal_attempts=normal_attempts,
-            completion_attempts=completion_attempts,
+            sheet_num=ctx.sheet_num,
+            validation_result=ctx.validation_result,
+            execution_history=ctx.execution_history,
+            normal_attempts=ctx.normal_attempts,
+            completion_attempts=ctx.completion_attempts,
         )
 
         self.console.print(
-            f"[dim]Sheet {sheet_num}: Decision: {next_mode.value} - {decision_reason}[/dim]"
+            f"[dim]Sheet {ctx.sheet_num}: Decision: {next_mode.value} - {decision_reason}[/dim]"
         )
 
-        # Apply prompt modifications from judgment if provided
+        if next_mode == SheetExecutionMode.COMPLETION:
+            return await self._apply_completion_mode(ctx, prompt_modifications)
+
+        # Apply prompt modifications from judgment when retrying
+        current_prompt = ctx.current_prompt
         if prompt_modifications and next_mode == SheetExecutionMode.RETRY:
             modification_text = "\n".join(prompt_modifications)
             current_prompt = (
-                original_prompt + "\n\n---\nJudgment modifications:\n" + modification_text
+                ctx.original_prompt + "\n\n---\nJudgment modifications:\n" + modification_text
             )
             self.console.print(
-                f"[blue]Sheet {sheet_num}: Applying {len(prompt_modifications)} "
+                f"[blue]Sheet {ctx.sheet_num}: Applying {len(prompt_modifications)} "
                 f"prompt modifications from judgment[/blue]"
             )
 
-        if next_mode == SheetExecutionMode.COMPLETION:
-            completion_attempts += 1
-            sheet_state = state.sheets[sheet_num]
-            sheet_state.completion_attempts = completion_attempts
+        if next_mode == SheetExecutionMode.ESCALATE:
+            return await self._apply_escalation_mode(ctx, current_prompt)
 
-            completion_ctx = CompletionContext(
-                sheet_num=sheet_num,
-                total_sheets=state.total_sheets,
-                passed_validations=validation_result.get_passed_results(),
-                failed_validations=validation_result.get_failed_results(),
-                completion_attempt=completion_attempts,
-                max_completion_attempts=max_completion,
-                original_prompt=original_prompt,
-                workspace=self.config.workspace,
-            )
-            current_prompt = self.prompt_builder.build_completion_prompt(
-                completion_ctx,
-                semantic_hints=prompt_modifications,
-            )
+        # RETRY MODE (default)
+        return await self._apply_retry_mode(ctx, current_prompt)
 
-            self.console.print(
-                f"[yellow]Sheet {sheet_num}: Entering completion mode "
-                f"({validation_result.passed_count}/{len(validation_result.results)} passed, "
-                f"{pass_pct:.0f}%). Attempt {completion_attempts}/{max_completion}[/yellow]"
-            )
+    async def _apply_completion_mode(
+        self,
+        ctx: ModeDecisionContext,
+        prompt_modifications: list[str] | None,
+    ) -> ModeDecisionResult:
+        """Handle COMPLETION mode: build completion prompt and continue."""
+        completion_attempts = ctx.completion_attempts + 1
+        ctx.state.sheets[ctx.sheet_num].completion_attempts = completion_attempts
 
-            await asyncio.sleep(self.config.retry.completion_delay_seconds)
-            return ModeDecisionResult(
-                action="continue",
-                current_prompt=current_prompt,
-                current_mode=SheetExecutionMode.COMPLETION,
-                normal_attempts=normal_attempts,
-                completion_attempts=completion_attempts,
-            )
+        completion_ctx = CompletionContext(
+            sheet_num=ctx.sheet_num,
+            total_sheets=ctx.state.total_sheets,
+            passed_validations=ctx.validation_result.get_passed_results(),
+            failed_validations=ctx.validation_result.get_failed_results(),
+            completion_attempt=completion_attempts,
+            max_completion_attempts=ctx.max_completion,
+            original_prompt=ctx.original_prompt,
+            workspace=self.config.workspace,
+        )
+        current_prompt = self.prompt_builder.build_completion_prompt(
+            completion_ctx,
+            semantic_hints=prompt_modifications,
+        )
 
-        elif next_mode == SheetExecutionMode.ESCALATE:
-            escalation_error_history: list[str] = []
-            sheet_state = state.sheets[sheet_num]
-            if sheet_state.error_message:
-                escalation_error_history.append(sheet_state.error_message)
+        self.console.print(
+            f"[yellow]Sheet {ctx.sheet_num}: Entering completion mode "
+            f"({ctx.validation_result.passed_count}/{len(ctx.validation_result.results)} passed, "
+            f"{ctx.pass_pct:.0f}%). Attempt {completion_attempts}/{ctx.max_completion}[/yellow]"
+        )
 
-            response = await self._handle_escalation(
-                state=state,
-                sheet_num=sheet_num,
-                validation_result=validation_result,
-                current_prompt=current_prompt,
-                error_history=escalation_error_history,
-                normal_attempts=normal_attempts,
-            )
+        await asyncio.sleep(self.config.retry.completion_delay_seconds)
+        return ModeDecisionResult(
+            action="continue",
+            current_prompt=current_prompt,
+            current_mode=SheetExecutionMode.COMPLETION,
+            normal_attempts=ctx.normal_attempts,
+            completion_attempts=completion_attempts,
+        )
 
-            if response.action == "retry":
-                normal_attempts += 1
-                if normal_attempts >= max_retries:
-                    state.mark_sheet_failed(
-                        sheet_num,
-                        f"Escalation retry exhausted after {max_retries} attempts",
-                        "escalation",
-                    )
-                    sheet_state = state.sheets[sheet_num]
-                    self._update_escalation_outcome(sheet_state, "failed", sheet_num)
-                    await self.state_backend.save(state)
-                    return ModeDecisionResult(
-                        action="fatal",
-                        current_prompt=original_prompt,
-                        current_mode=SheetExecutionMode.RETRY,
-                        normal_attempts=normal_attempts,
-                        completion_attempts=completion_attempts,
-                        fatal_message=f"Sheet {sheet_num} exhausted retries after escalation",
-                    )
-                await asyncio.sleep(self._get_retry_delay(normal_attempts))
-                return ModeDecisionResult(
-                    action="continue",
-                    current_prompt=original_prompt,
-                    current_mode=SheetExecutionMode.RETRY,
-                    normal_attempts=normal_attempts,
-                    completion_attempts=completion_attempts,
-                )
+    async def _apply_escalation_mode(
+        self,
+        ctx: ModeDecisionContext,
+        current_prompt: str,
+    ) -> ModeDecisionResult:
+        """Handle ESCALATE mode: invoke escalation and dispatch response action."""
+        sheet_num = ctx.sheet_num
+        state = ctx.state
+        normal_attempts = ctx.normal_attempts
+        sheet_state = state.sheets[sheet_num]
 
-            elif response.action == "skip":
-                state.mark_sheet_completed(
-                    sheet_num,
-                    validation_passed=False,
-                    validation_details=validation_result.to_dict_list(),
-                )
-                sheet_state = state.sheets[sheet_num]
-                sheet_state.outcome_category = OutcomeCategory.SKIPPED_BY_ESCALATION
-                self._update_escalation_outcome(sheet_state, "skipped", sheet_num)
-                await self.state_backend.save(state)
-                self.console.print(
-                    f"[yellow]Sheet {sheet_num}: Skipped via escalation[/yellow]"
-                )
-                return ModeDecisionResult(
-                    action="return",
-                    current_prompt=current_prompt,
-                    current_mode=current_mode,
-                    normal_attempts=normal_attempts,
-                    completion_attempts=completion_attempts,
-                )
+        error_history = [sheet_state.error_message] if sheet_state.error_message else []
 
-            elif response.action == "abort":
+        response = await self._handle_escalation(
+            state=state,
+            sheet_num=sheet_num,
+            validation_result=ctx.validation_result,
+            current_prompt=current_prompt,
+            error_history=error_history,
+            normal_attempts=normal_attempts,
+        )
+
+        if response.action == "retry":
+            normal_attempts += 1
+            if normal_attempts >= ctx.max_retries:
                 state.mark_sheet_failed(
                     sheet_num,
-                    "Aborted via escalation",
+                    f"Escalation retry exhausted after {ctx.max_retries} attempts",
                     "escalation",
                 )
-                sheet_state = state.sheets[sheet_num]
-                self._update_escalation_outcome(sheet_state, "aborted", sheet_num)
+                self._update_escalation_outcome(state.sheets[sheet_num], "failed", sheet_num)
                 await self.state_backend.save(state)
                 return ModeDecisionResult(
                     action="fatal",
-                    current_prompt=current_prompt,
-                    current_mode=current_mode,
-                    normal_attempts=normal_attempts,
-                    completion_attempts=completion_attempts,
-                    fatal_message=f"Sheet {sheet_num}: Job aborted via escalation",
-                )
-
-            elif response.action == "modify_prompt":
-                if response.modified_prompt is None:
-                    self.console.print(
-                        f"[yellow]Sheet {sheet_num}: No modified prompt provided, "
-                        f"falling back to retry[/yellow]"
-                    )
-                    normal_attempts += 1
-                    current_prompt = original_prompt
-                else:
-                    current_prompt = response.modified_prompt
-                    self.console.print(
-                        f"[blue]Sheet {sheet_num}: Retrying with modified prompt[/blue]"
-                    )
-                await asyncio.sleep(self._get_retry_delay(normal_attempts))
-                return ModeDecisionResult(
-                    action="continue",
-                    current_prompt=current_prompt,
+                    current_prompt=ctx.original_prompt,
                     current_mode=SheetExecutionMode.RETRY,
                     normal_attempts=normal_attempts,
-                    completion_attempts=completion_attempts,
+                    completion_attempts=ctx.completion_attempts,
+                    fatal_message=f"Sheet {sheet_num} exhausted retries after escalation",
                 )
+            await asyncio.sleep(self._get_retry_delay(normal_attempts))
+            return ModeDecisionResult(
+                action="continue",
+                current_prompt=ctx.original_prompt,
+                current_mode=SheetExecutionMode.RETRY,
+                normal_attempts=normal_attempts,
+                completion_attempts=ctx.completion_attempts,
+            )
 
-        # RETRY MODE (default)
-        normal_attempts += 1
-        if normal_attempts >= max_retries:
-            sheet_state = state.sheets[sheet_num]
+        if response.action == "skip":
+            state.mark_sheet_completed(
+                sheet_num,
+                validation_passed=False,
+                validation_details=ctx.validation_result.to_dict_list(),
+            )
+            state.sheets[sheet_num].outcome_category = OutcomeCategory.SKIPPED_BY_ESCALATION
+            self._update_escalation_outcome(state.sheets[sheet_num], "skipped", sheet_num)
+            await self.state_backend.save(state)
+            self.console.print(
+                f"[yellow]Sheet {sheet_num}: Skipped via escalation[/yellow]"
+            )
+            return ModeDecisionResult(
+                action="return",
+                current_prompt=current_prompt,
+                current_mode=ctx.current_mode,
+                normal_attempts=normal_attempts,
+                completion_attempts=ctx.completion_attempts,
+            )
+
+        if response.action == "abort":
+            state.mark_sheet_failed(
+                sheet_num,
+                "Aborted via escalation",
+                "escalation",
+            )
+            self._update_escalation_outcome(state.sheets[sheet_num], "aborted", sheet_num)
+            await self.state_backend.save(state)
+            return ModeDecisionResult(
+                action="fatal",
+                current_prompt=current_prompt,
+                current_mode=ctx.current_mode,
+                normal_attempts=normal_attempts,
+                completion_attempts=ctx.completion_attempts,
+                fatal_message=f"Sheet {sheet_num}: Job aborted via escalation",
+            )
+
+        # response.action == "modify_prompt" (or unknown -- treated as modify)
+        if response.modified_prompt is None:
+            self.console.print(
+                f"[yellow]Sheet {sheet_num}: No modified prompt provided, "
+                f"falling back to retry[/yellow]"
+            )
+            normal_attempts += 1
+            current_prompt = ctx.original_prompt
+        else:
+            current_prompt = response.modified_prompt
+            self.console.print(
+                f"[blue]Sheet {sheet_num}: Retrying with modified prompt[/blue]"
+            )
+        await asyncio.sleep(self._get_retry_delay(normal_attempts))
+        return ModeDecisionResult(
+            action="continue",
+            current_prompt=current_prompt,
+            current_mode=SheetExecutionMode.RETRY,
+            normal_attempts=normal_attempts,
+            completion_attempts=ctx.completion_attempts,
+        )
+
+    async def _apply_retry_mode(
+        self,
+        ctx: ModeDecisionContext,
+        current_prompt: str,
+    ) -> ModeDecisionResult:
+        """Handle RETRY mode: retry or mark fatal if retries exhausted."""
+        sheet_num = ctx.sheet_num
+        normal_attempts = ctx.normal_attempts + 1
+
+        if normal_attempts >= ctx.max_retries:
+            sheet_state = ctx.state.sheets[sheet_num]
             sheet_state.applied_pattern_ids = self._applied_pattern_ids.copy()
             sheet_state.applied_pattern_descriptions = self._current_sheet_patterns.copy()
-            grounding_ctx = GroundingDecisionContext(
-                passed=True, message="No grounding hooks executed", hooks_executed=0,
-            )
             await self._record_pattern_feedback(
                 pattern_ids=self._applied_pattern_ids,
                 context=PatternFeedbackContext(
                     validation_passed=False,
                     success_without_retry=False,
                     sheet_num=sheet_num,
-                    grounding_confidence=(
-                        grounding_ctx.confidence
-                        if grounding_ctx.hooks_executed > 0
-                        else None
-                    ),
+                    grounding_confidence=None,
                 ),
             )
 
-            state.mark_sheet_failed(
+            ctx.state.mark_sheet_failed(
                 sheet_num,
-                f"Validation failed after {max_retries} retries and "
-                f"{completion_attempts} completion attempts "
-                f"({validation_result.failed_count} validations still failing)",
+                f"Validation failed after {ctx.max_retries} retries and "
+                f"{ctx.completion_attempts} completion attempts "
+                f"({ctx.validation_result.failed_count} validations still failing)",
                 "validation",
             )
-            await self.state_backend.save(state)
+            await self.state_backend.save(ctx.state)
             return ModeDecisionResult(
                 action="fatal",
-                current_prompt=original_prompt,
+                current_prompt=ctx.original_prompt,
                 current_mode=SheetExecutionMode.RETRY,
                 normal_attempts=normal_attempts,
-                completion_attempts=completion_attempts,
+                completion_attempts=ctx.completion_attempts,
                 fatal_message=(
                     f"Sheet {sheet_num} exhausted all retry options "
-                    f"({validation_result.failed_count} validations failing)"
+                    f"({ctx.validation_result.failed_count} validations failing)"
                 ),
             )
 
         self.console.print(
-            f"[red]Sheet {sheet_num}: {validation_result.failed_count} validations failed "
-            f"({pass_pct:.0f}% passed). Full retry {normal_attempts}/{max_retries}[/red]"
+            f"[red]Sheet {sheet_num}: {ctx.validation_result.failed_count} validations failed "
+            f"({ctx.pass_pct:.0f}% passed). Full retry {normal_attempts}/{ctx.max_retries}[/red]"
         )
 
         await asyncio.sleep(self._get_retry_delay(normal_attempts))
         return ModeDecisionResult(
             action="continue",
-            current_prompt=original_prompt,
+            current_prompt=ctx.original_prompt,
             current_mode=SheetExecutionMode.RETRY,
             normal_attempts=normal_attempts,
-            completion_attempts=completion_attempts,
+            completion_attempts=ctx.completion_attempts,
         )
 
     async def _execute_sheet_with_recovery(
@@ -1800,6 +1802,11 @@ class SheetExecutionMixin:
                     },
                     limit=3,
                 )
+                # Track local pattern IDs so the feedback loop can observe them.
+                # Local patterns don't exist in the global store, so we generate
+                # synthetic IDs with a "local:" prefix for traceability.
+                for idx, _desc in enumerate(relevant_patterns):
+                    self._applied_pattern_ids.append(f"local:{sheet_num}:{idx}")
             except Exception as e:
                 self._logger.warning(
                     "patterns.query_local_failed",
@@ -2728,30 +2735,24 @@ class SheetExecutionMixin:
             FatalError: If action is 'abort'.
         """
         action = response.recommended_action
-        max_completion = self.config.retry.max_completion_attempts
 
-        if action == "proceed":
-            return SheetExecutionMode.NORMAL
-
-        elif action == "retry":
-            return SheetExecutionMode.RETRY
-
-        elif action == "completion":
-            if completion_attempts < max_completion:
-                return SheetExecutionMode.COMPLETION
-            else:
-                return SheetExecutionMode.RETRY
-
-        elif action == "escalate":
-            return SheetExecutionMode.ESCALATE
-
-        elif action == "abort":
+        # Handle abort (raises) and completion (conditional) separately
+        if action == "abort":
             raise FatalError(
                 f"RL judgment recommends abort: {response.reasoning}"
             )
-
-        else:
+        if action == "completion":
+            max_completion = self.config.retry.max_completion_attempts
+            if completion_attempts < max_completion:
+                return SheetExecutionMode.COMPLETION
             return SheetExecutionMode.RETRY
+
+        _ACTION_TO_MODE: dict[str, SheetExecutionMode] = {
+            "proceed": SheetExecutionMode.NORMAL,
+            "retry": SheetExecutionMode.RETRY,
+            "escalate": SheetExecutionMode.ESCALATE,
+        }
+        return _ACTION_TO_MODE.get(action, SheetExecutionMode.RETRY)
 
     async def _check_proactive_checkpoint(
         self,

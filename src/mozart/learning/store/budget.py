@@ -57,6 +57,25 @@ class EntropyResponseConfig:
     """Amount to boost budget by."""
 
 
+@dataclass
+class EntropyTriggerContext:
+    """Runtime context for an entropy response trigger.
+
+    Bundles the positional parameters of ``trigger_entropy_response()`` into a
+    single typed object, keeping the method signature manageable when combined
+    with ``EntropyResponseConfig``.
+    """
+
+    job_hash: str
+    """Hash of the job that triggered the response."""
+
+    entropy_at_trigger: float
+    """Entropy value that crossed the threshold."""
+
+    threshold_used: float
+    """The threshold that was crossed."""
+
+
 class BudgetMixin:
     """Mixin providing exploration budget and entropy response functionality.
 
@@ -484,10 +503,11 @@ class BudgetMixin:
 
     def trigger_entropy_response(
         self,
-        job_hash: str,
-        entropy_at_trigger: float,
-        threshold_used: float,
+        job_hash: str = "",
+        entropy_at_trigger: float = 0.0,
+        threshold_used: float = 0.0,
         *,
+        trigger: EntropyTriggerContext | None = None,
         config: EntropyResponseConfig | None = None,
         boost_budget: bool | None = None,
         revisit_quarantine: bool | None = None,
@@ -501,10 +521,19 @@ class BudgetMixin:
         v23 Evolution: Automatic Entropy Response - performs the actual response
         actions when entropy has dropped below threshold.
 
+        Supports two calling conventions:
+            1. **Positional** (legacy):
+               ``trigger_entropy_response(job_hash, entropy, threshold, ...)``
+            2. **Bundled** (preferred): ``trigger_entropy_response(trigger=ctx, config=cfg)``
+
+        When *trigger* is supplied, its fields take precedence over
+        positional arguments.
+
         Args:
-            job_hash: Hash of the job triggering response.
-            entropy_at_trigger: Entropy value that triggered this response.
-            threshold_used: The threshold that was crossed.
+            job_hash: Hash of the job triggering response (legacy positional).
+            entropy_at_trigger: Entropy value that triggered this response (legacy positional).
+            threshold_used: The threshold that was crossed (legacy positional).
+            trigger: Bundled trigger context (preferred over positional args).
             config: Configuration object grouping all response tuning params.
                 Individual keyword arguments override config values when both
                 are provided.
@@ -518,6 +547,12 @@ class BudgetMixin:
         Returns:
             The EntropyResponseRecord documenting the response.
         """
+        # Resolve trigger context: prefer bundled object, fall back to positional args
+        if trigger is not None:
+            job_hash = trigger.job_hash
+            entropy_at_trigger = trigger.entropy_at_trigger
+            threshold_used = trigger.threshold_used
+
         # Build effective config: start from config (or defaults), then apply
         # any explicit keyword overrides without mutating the caller's object.
         overrides: dict[str, Any] = {

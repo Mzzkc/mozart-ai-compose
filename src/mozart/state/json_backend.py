@@ -5,6 +5,7 @@ approach in the original bash script.
 """
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -137,6 +138,8 @@ class JsonStateBackend(StateBackend):
                 indent=2,
                 default=str,  # Handle datetime serialization
             )
+            f.flush()
+            os.fsync(f.fileno())
         temp_file.replace(state_file)
 
         _logger.info(

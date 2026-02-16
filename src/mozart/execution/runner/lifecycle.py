@@ -109,6 +109,9 @@ class LifecycleMixin:
             self, state: CheckpointState, current_sheet: int
         ) -> None: ...
         def _update_progress(self, state: CheckpointState) -> None: ...
+        async def _fire_event(
+            self, event: str, sheet_num: int, data: dict[str, Any] | None = None,
+        ) -> None: ...
         async def _interruptible_sleep(self, seconds: float) -> None: ...
 
         # Methods from IsolationMixin
@@ -184,6 +187,10 @@ class LifecycleMixin:
             resume_from=start_sheet,
             config=config_summary,
         )
+        await self._fire_event("job.started", 0, {
+            "total_sheets": state.total_sheets,
+            "resume_from": start_sheet,
+        })
 
         # Set up worktree isolation if configured (v2 evolution: Worktree Isolation)
         # Store original working directory for restoration if needed
@@ -242,6 +249,12 @@ class LifecycleMixin:
                 validation_pass_rate=round(summary.validation_pass_rate, 1),
                 total_retries=summary.total_retries,
             )
+            await self._fire_event("job.completed", 0, {
+                "status": state.status.value,
+                "completed_sheets": summary.completed_sheets,
+                "failed_sheets": summary.failed_sheets,
+                "duration_seconds": round(summary.total_duration_seconds, 2),
+            })
 
             # Execute post-success hooks if job completed successfully.
             # Skip hooks if the job was already COMPLETED when we loaded state,

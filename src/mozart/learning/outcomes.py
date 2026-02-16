@@ -171,7 +171,10 @@ class JsonOutcomeStore:
 
         # Check if this sheet already has an outcome (update rather than duplicate)
         existing_idx = next(
-            (i for i, o in enumerate(self._outcomes) if o.sheet_id == outcome.sheet_id),
+            (
+                i for i, existing in enumerate(self._outcomes)
+                if existing.sheet_id == outcome.sheet_id
+            ),
             None,
         )
         if existing_idx is not None:
@@ -212,7 +215,7 @@ class JsonOutcomeStore:
         if not job_id:
             return self._outcomes[-limit:]
 
-        matching = [o for o in self._outcomes if o.job_id == job_id]
+        matching = [outcome for outcome in self._outcomes if outcome.job_id == job_id]
         return matching[-limit:]
 
     async def get_patterns(self, job_name: str) -> list[str]:
@@ -299,33 +302,33 @@ class JsonOutcomeStore:
         data = {
             "outcomes": [
                 {
-                    "sheet_id": o.sheet_id,
-                    "job_id": o.job_id,
-                    "validation_results": o.validation_results,
-                    "execution_duration": o.execution_duration,
-                    "retry_count": o.retry_count,
-                    "completion_mode_used": o.completion_mode_used,
-                    "final_status": o.final_status.value,
-                    "validation_pass_rate": o.validation_pass_rate,
-                    "success_without_retry": o.success_without_retry,
-                    "patterns_detected": o.patterns_detected,
-                    "timestamp": o.timestamp.isoformat(),
+                    "sheet_id": outcome.sheet_id,
+                    "job_id": outcome.job_id,
+                    "validation_results": outcome.validation_results,
+                    "execution_duration": outcome.execution_duration,
+                    "retry_count": outcome.retry_count,
+                    "completion_mode_used": outcome.completion_mode_used,
+                    "final_status": outcome.final_status.value,
+                    "validation_pass_rate": outcome.validation_pass_rate,
+                    "success_without_retry": outcome.success_without_retry,
+                    "patterns_detected": outcome.patterns_detected,
+                    "timestamp": outcome.timestamp.isoformat(),
                     # Semantic validation fields (Evolution: Deep Validation-Learning)
-                    "failure_category_counts": o.failure_category_counts,
-                    "semantic_patterns": o.semantic_patterns,
-                    "fix_suggestions": o.fix_suggestions,
+                    "failure_category_counts": outcome.failure_category_counts,
+                    "semantic_patterns": outcome.semantic_patterns,
+                    "fix_suggestions": outcome.fix_suggestions,
                     # Effectiveness tracking field (Evolution: Pattern Effectiveness)
-                    "patterns_applied": o.patterns_applied,
+                    "patterns_applied": outcome.patterns_applied,
                     # Output capture fields (Evolution: Learning Data Collection)
-                    "stdout_tail": o.stdout_tail,
-                    "stderr_tail": o.stderr_tail,
-                    "error_history": o.error_history,
+                    "stdout_tail": outcome.stdout_tail,
+                    "stderr_tail": outcome.stderr_tail,
+                    "error_history": outcome.error_history,
                     # Grounding integration fields (Evolution v11: Grounding→Pattern Integration)
-                    "grounding_passed": o.grounding_passed,
-                    "grounding_confidence": o.grounding_confidence,
-                    "grounding_guidance": o.grounding_guidance,
+                    "grounding_passed": outcome.grounding_passed,
+                    "grounding_confidence": outcome.grounding_confidence,
+                    "grounding_guidance": outcome.grounding_guidance,
                 }
-                for o in self._outcomes
+                for outcome in self._outcomes
             ]
         }
 
@@ -362,33 +365,33 @@ class JsonOutcomeStore:
 
         self._outcomes = [
             SheetOutcome(
-                sheet_id=o["sheet_id"],
-                job_id=o["job_id"],
-                validation_results=o["validation_results"],
-                execution_duration=o["execution_duration"],
-                retry_count=o["retry_count"],
-                completion_mode_used=o["completion_mode_used"],
-                final_status=SheetStatus(o["final_status"]),
-                validation_pass_rate=o["validation_pass_rate"],
-                success_without_retry=o.get(
-                    "success_without_retry", o.get("first_attempt_success", False)
+                sheet_id=raw["sheet_id"],
+                job_id=raw["job_id"],
+                validation_results=raw["validation_results"],
+                execution_duration=raw["execution_duration"],
+                retry_count=raw["retry_count"],
+                completion_mode_used=raw["completion_mode_used"],
+                final_status=SheetStatus(raw["final_status"]),
+                validation_pass_rate=raw["validation_pass_rate"],
+                success_without_retry=raw.get(
+                    "success_without_retry", raw.get("first_attempt_success", False)
                 ),
-                patterns_detected=o.get("patterns_detected", []),
-                timestamp=datetime.fromisoformat(o["timestamp"]),
+                patterns_detected=raw.get("patterns_detected", []),
+                timestamp=datetime.fromisoformat(raw["timestamp"]),
                 # Semantic validation fields (Evolution: Deep Validation-Learning)
-                failure_category_counts=o.get("failure_category_counts", {}),
-                semantic_patterns=o.get("semantic_patterns", []),
-                fix_suggestions=o.get("fix_suggestions", []),
+                failure_category_counts=raw.get("failure_category_counts", {}),
+                semantic_patterns=raw.get("semantic_patterns", []),
+                fix_suggestions=raw.get("fix_suggestions", []),
                 # Effectiveness tracking field (Evolution: Pattern Effectiveness)
-                patterns_applied=o.get("patterns_applied", []),
+                patterns_applied=raw.get("patterns_applied", []),
                 # Output capture fields (Evolution: Learning Data Collection)
-                stdout_tail=o.get("stdout_tail", ""),
-                stderr_tail=o.get("stderr_tail", ""),
-                error_history=o.get("error_history", []),
+                stdout_tail=raw.get("stdout_tail", ""),
+                stderr_tail=raw.get("stderr_tail", ""),
+                error_history=raw.get("error_history", []),
                 # Grounding integration fields (Evolution v11: Grounding→Pattern Integration)
-                grounding_passed=o.get("grounding_passed"),
-                grounding_confidence=o.get("grounding_confidence"),
-                grounding_guidance=o.get("grounding_guidance"),
+                grounding_passed=raw.get("grounding_passed"),
+                grounding_confidence=raw.get("grounding_confidence"),
+                grounding_guidance=raw.get("grounding_guidance"),
             )
-            for o in data.get("outcomes", [])
+            for raw in data.get("outcomes", [])
         ]

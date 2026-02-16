@@ -37,6 +37,24 @@ def _get_signal_name(sig_num: int) -> str:
 
 
 @dataclass
+class ClassificationInput:
+    """Bundled inputs for ``ErrorClassifier.classify_execution()``.
+
+    Groups the execution result fields that the classifier needs, reducing the
+    method's parameter count from 8 to 2 (``self`` + ``input``).  Callers can
+    still pass individual keyword arguments for backward compatibility.
+    """
+
+    stdout: str = ""
+    stderr: str = ""
+    exit_code: int | None = None
+    exit_signal: int | None = None
+    exit_reason: ExitReason | None = None
+    exception: Exception | None = None
+    output_format: str | None = None
+
+
+@dataclass
 class ParsedCliError:
     """A single error extracted from CLI JSON output.
 

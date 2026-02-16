@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 import typer
@@ -46,6 +47,20 @@ from ._shared import (
     handle_job_completion,
     setup_all,
 )
+
+
+@dataclass
+class ResumeContext:
+    """Bundled parameters for direct resume execution."""
+
+    job_id: str
+    config_file: Path | None
+    workspace: Path | None
+    force: bool
+    escalation: bool = False
+    reload_config: bool = False
+    self_healing: bool = False
+    auto_confirm: bool = False
 
 _logger = logging.getLogger(__name__)
 
@@ -334,22 +349,20 @@ async def _resume_job(
         return  # unreachable
 
     # Fallback to direct execution with workspace override
-    await _resume_job_direct(
-        job_id, config_file, workspace, force, escalation,
-        reload_config, self_healing, auto_confirm,
+    ctx = ResumeContext(
+        job_id=job_id,
+        config_file=config_file,
+        workspace=workspace,
+        force=force,
+        escalation=escalation,
+        reload_config=reload_config,
+        self_healing=self_healing,
+        auto_confirm=auto_confirm,
     )
+    await _resume_job_direct(ctx)
 
 
-async def _resume_job_direct(
-    job_id: str,
-    config_file: Path | None,
-    workspace: Path | None,
-    force: bool,
-    escalation: bool = False,
-    reload_config: bool = False,
-    self_healing: bool = False,
-    auto_confirm: bool = False,
-) -> None:
+async def _resume_job_direct(ctx: ResumeContext) -> None:
     """Direct resume execution (fallback when conductor is unavailable).
 
     This is the original resume logic, used when --workspace is explicitly
@@ -358,11 +371,11 @@ async def _resume_job_direct(
     from mozart.execution.runner import FatalError, GracefulShutdownError, JobRunner
 
     # Phase 1: Find and validate job state
-    found_state, found_backend = await _find_job_state(job_id, workspace, force)
+    found_state, found_backend = await _find_job_state(ctx.job_id, ctx.workspace, ctx.force)
 
     # Phase 2: Reconstruct config
     config, config_was_reloaded = _reconstruct_config(
-        found_state, config_file, reload_config
+        found_state, ctx.config_file, ctx.reload_config
     )
 
     # Update config_snapshot in state if config was reloaded
@@ -373,7 +386,7 @@ async def _resume_job_direct(
     # Calculate resume point
     resume_sheet = found_state.last_completed_sheet + 1
     if resume_sheet > found_state.total_sheets:
-        if force:
+        if ctx.force:
             # For force resume, restart from last sheet
             resume_sheet = found_state.total_sheets
             console.print(
@@ -399,7 +412,7 @@ async def _resume_job_direct(
 
     # Phase 3: Setup backends and features for execution (shared with run.py)
     components = setup_all(
-        config, escalation=escalation, console=console,
+        config, escalation=ctx.escalation, console=console,
     )
     backend = components.backend
     outcome_store = components.outcome_store
@@ -435,8 +448,8 @@ async def _resume_job_direct(
         progress_callback=update_progress,
         global_learning_store=global_learning_store,
         grounding_engine=grounding_engine,
-        self_healing_enabled=self_healing,
-        self_healing_auto_confirm=auto_confirm,
+        self_healing_enabled=ctx.self_healing,
+        self_healing_auto_confirm=ctx.auto_confirm,
     )
 
     # Create runner with progress callback
@@ -452,7 +465,7 @@ async def _resume_job_direct(
         if notification_manager:
             remaining_sheets = found_state.total_sheets - found_state.last_completed_sheet
             await notification_manager.notify_job_start(
-                job_id=job_id,
+                job_id=ctx.job_id,
                 job_name=config.name,
                 total_sheets=remaining_sheets,
             )
@@ -471,7 +484,7 @@ async def _resume_job_direct(
             console.print(f"\n[green]Resuming from sheet {resume_sheet}...[/green]")
         state, summary = await runner.run(
             start_sheet=resume_sheet,
-            config_path=str(config_file) if config_file else found_state.config_path,
+            config_path=str(ctx.config_file) if ctx.config_file else found_state.config_path,
         )
 
         # Stop progress and show final state
@@ -481,7 +494,7 @@ async def _resume_job_direct(
             state=state,
             summary=summary,
             notification_manager=notification_manager,
-            job_id=job_id,
+            job_id=ctx.job_id,
             job_name=config.name,
             console=console,
         )
@@ -500,7 +513,7 @@ async def _resume_job_direct(
         if notification_manager:
             try:
                 await notification_manager.notify_job_failed(
-                    job_id=job_id,
+                    job_id=ctx.job_id,
                     job_name=config.name,
                     error_message=str(e),
                 )
@@ -518,7 +531,7 @@ async def _resume_job_direct(
             try:
                 await notification_manager.close()
             except OSError:
-                pass  # Don't mask errors during final cleanup
+                _logger.debug("notification manager close failed", exc_info=True)
 
 
 # =============================================================================

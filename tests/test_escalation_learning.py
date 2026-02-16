@@ -20,6 +20,7 @@ from unittest.mock import patch
 
 import pytest
 
+from mozart.core.checkpoint import SheetState
 from mozart.execution.escalation import (
     CheckpointContext,
     CheckpointResponse,
@@ -29,6 +30,7 @@ from mozart.execution.escalation import (
     EscalationContext,
     HistoricalSuggestion,
 )
+from mozart.execution.validation import SheetValidationResult
 from mozart.learning.global_store import (
     EscalationDecisionRecord,
     GlobalLearningStore,
@@ -2151,3 +2153,258 @@ class TestCheckpointConfig:
                 name="invalid",
                 min_retry_count=-1,
             )
+
+
+# =============================================================================
+# TestEscalationDecisionLogic (Q012: coverage gap)
+# =============================================================================
+
+
+class TestEscalationDecisionLogic:
+    """Tests for ConsoleEscalationHandler.should_escalate decision logic.
+
+    Q012: Covers the escalation decision branching that determines
+    whether a sheet should be escalated based on confidence, attempt
+    count, and auto-retry configuration.
+    """
+
+    @pytest.fixture
+    def handler(self) -> ConsoleEscalationHandler:
+        return ConsoleEscalationHandler(
+            confidence_threshold=0.6,
+            auto_retry_on_first_failure=True,
+        )
+
+    @pytest.fixture
+    def handler_no_auto_retry(self) -> ConsoleEscalationHandler:
+        return ConsoleEscalationHandler(
+            confidence_threshold=0.6,
+            auto_retry_on_first_failure=False,
+        )
+
+    def _make_sheet_state(self, attempt_count: int = 1) -> SheetState:
+        from mozart.core.checkpoint import SheetStatus
+        return SheetState(
+            sheet_num=1,
+            status=SheetStatus.IN_PROGRESS,
+            attempt_count=attempt_count,
+        )
+
+    def _make_validation_result(self) -> SheetValidationResult:
+        return SheetValidationResult(
+            sheet_num=1,
+            results=[],
+        )
+
+    @pytest.mark.asyncio
+    async def test_high_confidence_no_escalation(
+        self, handler: ConsoleEscalationHandler
+    ) -> None:
+        """Confidence above threshold should never escalate."""
+        result = await handler.should_escalate(
+            self._make_sheet_state(attempt_count=5),
+            self._make_validation_result(),
+            confidence=0.8,
+        )
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_low_confidence_first_attempt_auto_retry(
+        self, handler: ConsoleEscalationHandler
+    ) -> None:
+        """First attempt with auto-retry enabled should NOT escalate."""
+        result = await handler.should_escalate(
+            self._make_sheet_state(attempt_count=1),
+            self._make_validation_result(),
+            confidence=0.3,
+        )
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_low_confidence_second_attempt_escalates(
+        self, handler: ConsoleEscalationHandler
+    ) -> None:
+        """Second attempt with low confidence should escalate."""
+        result = await handler.should_escalate(
+            self._make_sheet_state(attempt_count=2),
+            self._make_validation_result(),
+            confidence=0.3,
+        )
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_low_confidence_first_attempt_no_auto_retry_escalates(
+        self, handler_no_auto_retry: ConsoleEscalationHandler
+    ) -> None:
+        """First attempt without auto-retry should escalate on low confidence."""
+        result = await handler_no_auto_retry.should_escalate(
+            self._make_sheet_state(attempt_count=1),
+            self._make_validation_result(),
+            confidence=0.3,
+        )
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_exact_threshold_no_escalation(
+        self, handler: ConsoleEscalationHandler
+    ) -> None:
+        """Confidence exactly at threshold should NOT escalate."""
+        result = await handler.should_escalate(
+            self._make_sheet_state(attempt_count=5),
+            self._make_validation_result(),
+            confidence=0.6,
+        )
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_just_below_threshold_escalates(
+        self, handler: ConsoleEscalationHandler
+    ) -> None:
+        """Confidence just below threshold should escalate (after first attempt)."""
+        result = await handler.should_escalate(
+            self._make_sheet_state(attempt_count=2),
+            self._make_validation_result(),
+            confidence=0.59,
+        )
+        assert result is True
+
+
+# =============================================================================
+# TestCheckpointTriggerMatching (Q012: coverage gap)
+# =============================================================================
+
+
+class TestCheckpointTriggerMatching:
+    """Tests for ConsoleCheckpointHandler.should_checkpoint trigger matching.
+
+    Q012: Covers checkpoint trigger evaluation logic including sheet number
+    matching, keyword matching, retry count thresholds, and multiple triggers.
+    """
+
+    @pytest.fixture
+    def handler(self) -> ConsoleCheckpointHandler:
+        return ConsoleCheckpointHandler()
+
+    @pytest.mark.asyncio
+    async def test_no_triggers_returns_none(
+        self, handler: ConsoleCheckpointHandler
+    ) -> None:
+        """Empty trigger list means no checkpoint needed."""
+        result = await handler.should_checkpoint(
+            sheet_num=1,
+            prompt="test prompt",
+            retry_count=0,
+            triggers=[],
+        )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_sheet_num_match(
+        self, handler: ConsoleCheckpointHandler
+    ) -> None:
+        """Trigger matches when sheet_num is in the list."""
+        trigger = CheckpointTrigger(name="sheets", sheet_nums=[3, 5])
+        result = await handler.should_checkpoint(
+            sheet_num=5,
+            prompt="anything",
+            retry_count=0,
+            triggers=[trigger],
+        )
+        assert result is trigger
+
+    @pytest.mark.asyncio
+    async def test_sheet_num_no_match(
+        self, handler: ConsoleCheckpointHandler
+    ) -> None:
+        """Trigger doesn't match when sheet_num not in the list."""
+        trigger = CheckpointTrigger(name="sheets", sheet_nums=[3, 5])
+        result = await handler.should_checkpoint(
+            sheet_num=2,
+            prompt="anything",
+            retry_count=0,
+            triggers=[trigger],
+        )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_prompt_keyword_match_case_insensitive(
+        self, handler: ConsoleCheckpointHandler
+    ) -> None:
+        """Keywords match case-insensitively in prompt text."""
+        trigger = CheckpointTrigger(name="deploy", prompt_contains=["DEPLOY"])
+        result = await handler.should_checkpoint(
+            sheet_num=1,
+            prompt="Please deploy the application",
+            retry_count=0,
+            triggers=[trigger],
+        )
+        assert result is trigger
+
+    @pytest.mark.asyncio
+    async def test_prompt_keyword_no_match(
+        self, handler: ConsoleCheckpointHandler
+    ) -> None:
+        """No match when keywords aren't in the prompt."""
+        trigger = CheckpointTrigger(
+            name="deploy", prompt_contains=["deploy", "production"]
+        )
+        result = await handler.should_checkpoint(
+            sheet_num=1,
+            prompt="Run unit tests",
+            retry_count=0,
+            triggers=[trigger],
+        )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_retry_count_threshold(
+        self, handler: ConsoleCheckpointHandler
+    ) -> None:
+        """Trigger matches when retry count meets minimum."""
+        trigger = CheckpointTrigger(name="retries", min_retry_count=3)
+        # Below threshold
+        result = await handler.should_checkpoint(
+            sheet_num=1, prompt="test", retry_count=2, triggers=[trigger]
+        )
+        assert result is None
+
+        # At threshold
+        result = await handler.should_checkpoint(
+            sheet_num=1, prompt="test", retry_count=3, triggers=[trigger]
+        )
+        assert result is trigger
+
+    @pytest.mark.asyncio
+    async def test_combined_conditions_all_must_match(
+        self, handler: ConsoleCheckpointHandler
+    ) -> None:
+        """When trigger has multiple conditions, all must match."""
+        trigger = CheckpointTrigger(
+            name="combined",
+            sheet_nums=[5],
+            prompt_contains=["deploy"],
+            min_retry_count=2,
+        )
+        # Only sheet matches
+        result = await handler.should_checkpoint(
+            sheet_num=5, prompt="test", retry_count=0, triggers=[trigger]
+        )
+        assert result is None
+
+        # All match
+        result = await handler.should_checkpoint(
+            sheet_num=5, prompt="deploy now", retry_count=2, triggers=[trigger]
+        )
+        assert result is trigger
+
+    @pytest.mark.asyncio
+    async def test_first_matching_trigger_returned(
+        self, handler: ConsoleCheckpointHandler
+    ) -> None:
+        """Returns the first matching trigger, not all."""
+        trigger1 = CheckpointTrigger(name="first", sheet_nums=[1])
+        trigger2 = CheckpointTrigger(name="second", sheet_nums=[1, 2])
+        result = await handler.should_checkpoint(
+            sheet_num=1, prompt="test", retry_count=0, triggers=[trigger1, trigger2]
+        )
+        assert result is trigger1

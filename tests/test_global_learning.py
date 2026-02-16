@@ -2926,6 +2926,160 @@ class TestGoalDriftDetection:
         assert metrics_10.window_size == 10
         assert metrics_10.applications_analyzed == 20
 
+    def test_drift_nonexistent_pattern_returns_none(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that querying drift for a nonexistent pattern returns None."""
+        metrics = global_store.calculate_effectiveness_drift("nonexistent-id")
+        assert metrics is None
+
+    def test_drift_no_grounding_confidence_defaults_to_one(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that avg_grounding defaults to 1.0 when no confidence values present."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="no_grounding_test",
+        )
+
+        # Create 10 applications with no grounding confidence
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"old_{i}",
+                pattern_led_to_success=True,
+                # No grounding_confidence — defaults to None
+            )
+
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"new_{i}",
+                pattern_led_to_success=False,
+            )
+
+        metrics = global_store.calculate_effectiveness_drift(pattern_id)
+        assert metrics is not None
+        # When no grounding confidence, defaults to 1.0
+        assert metrics.grounding_confidence_avg == 1.0
+
+    def test_epistemic_drift_nonexistent_pattern_returns_none(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that querying epistemic drift for nonexistent pattern returns None."""
+        metrics = global_store.calculate_epistemic_drift("nonexistent-id")
+        assert metrics is None
+
+    def test_epistemic_drift_insufficient_confidence_data(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that epistemic drift returns None with insufficient confidence data."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="insufficient_confidence",
+        )
+
+        # Record 10 applications but none with grounding confidence
+        for i in range(10):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"no_conf_{i}",
+                pattern_led_to_success=True,
+                # No grounding_confidence
+            )
+
+        # Epistemic drift requires grounding_confidence; should return None
+        metrics = global_store.calculate_epistemic_drift(pattern_id)
+        assert metrics is None
+
+    def test_epistemic_drift_stable_confidence(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test that stable confidence values produce 'stable' drift direction."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="stable_confidence",
+        )
+
+        # All applications with same confidence
+        for i in range(10):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"stable_{i}",
+                pattern_led_to_success=True,
+                grounding_confidence=0.8,
+            )
+
+        metrics = global_store.calculate_epistemic_drift(pattern_id)
+        assert metrics is not None
+        assert metrics.drift_direction == "stable"
+        assert abs(metrics.belief_change) < 0.05
+
+    def test_epistemic_drift_weakening_belief(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test detection of weakening confidence (epistemic drift)."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="weakening_confidence",
+        )
+
+        # Older apps with high confidence
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"old_high_{i}",
+                pattern_led_to_success=True,
+                grounding_confidence=0.9,
+            )
+
+        # Recent apps with low confidence
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"new_low_{i}",
+                pattern_led_to_success=True,
+                grounding_confidence=0.3,
+            )
+
+        metrics = global_store.calculate_epistemic_drift(pattern_id)
+        assert metrics is not None
+        assert metrics.drift_direction == "weakening"
+        assert metrics.belief_change < -0.05
+        assert metrics.threshold_exceeded is True
+
+    def test_epistemic_drift_strengthening_belief(
+        self, global_store: GlobalLearningStore
+    ) -> None:
+        """Test detection of strengthening confidence (positive epistemic drift)."""
+        pattern_id = global_store.record_pattern(
+            pattern_type="test",
+            pattern_name="strengthening_confidence",
+        )
+
+        # Older apps with low confidence
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"old_low_{i}",
+                pattern_led_to_success=True,
+                grounding_confidence=0.3,
+            )
+
+        # Recent apps with high confidence
+        for i in range(5):
+            global_store.record_pattern_application(
+                pattern_id=pattern_id,
+                execution_id=f"new_high_{i}",
+                pattern_led_to_success=True,
+                grounding_confidence=0.9,
+            )
+
+        metrics = global_store.calculate_epistemic_drift(pattern_id)
+        assert metrics is not None
+        assert metrics.drift_direction == "strengthening"
+        assert metrics.belief_change > 0.05
+
 
 class TestPatternAutoRetirement:
     """Tests for pattern auto-retirement.

@@ -147,6 +147,7 @@ class JobRunnerBase:
         global_learning_store: GlobalLearningStore | None = None
         grounding_engine: GroundingEngine | None = None
         rate_limit_callback: Callable[[str, float, str, int], Any] | None = None
+        event_callback: Callable[[str, int, str, dict[str, Any] | None], Any] | None = None
         self_healing_enabled = False
         self_healing_auto_confirm = False
         if context is not None:
@@ -159,6 +160,7 @@ class JobRunnerBase:
             global_learning_store = context.global_learning_store
             grounding_engine = context.grounding_engine
             rate_limit_callback = context.rate_limit_callback
+            event_callback = context.event_callback
             self_healing_enabled = context.self_healing_enabled
             self_healing_auto_confirm = context.self_healing_auto_confirm
 
@@ -180,6 +182,7 @@ class JobRunnerBase:
 
         # Daemon integration
         self.rate_limit_callback = rate_limit_callback
+        self.event_callback = event_callback
 
         # Prompt building and error classification
         self.prompt_builder = PromptBuilder(config.prompt)
@@ -519,6 +522,31 @@ class JobRunnerBase:
         )
 
         raise GracefulShutdownError(f"Job {state.job_id} paused at sheet {current_sheet}")
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Event Callbacks (Issue #49: Live Job Progress Reporting)
+    # ─────────────────────────────────────────────────────────────────────
+
+    async def _fire_event(
+        self,
+        event: str,
+        sheet_num: int,
+        data: dict[str, Any] | None = None,
+    ) -> None:
+        """Fire a lifecycle event to the daemon via event_callback."""
+        if self.event_callback is None:
+            return
+        try:
+            result = self.event_callback(self.config.name, sheet_num, event, data)
+            if asyncio.iscoroutine(result):
+                await result
+        except Exception:
+            self._logger.warning(
+                "event_callback.error",
+                event_name=event,
+                sheet_num=sheet_num,
+                exc_info=True,
+            )
 
     # ─────────────────────────────────────────────────────────────────────
     # Progress Tracking

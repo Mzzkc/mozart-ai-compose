@@ -78,6 +78,30 @@ class SocketConfig(BaseModel):
     )
 
 
+class ObserverConfig(BaseModel):
+    """Configuration for the job observer and event bus."""
+
+    enabled: bool = Field(
+        default=True,
+        description="Enable event bus and observer infrastructure.",
+    )
+    watch_interval_seconds: float = Field(
+        default=2.0,
+        ge=0.5,
+        description="Interval between observer filesystem checks.",
+    )
+    snapshot_ttl_hours: int = Field(
+        default=168,
+        ge=1,
+        description="Hours to keep completion snapshots (default 1 week).",
+    )
+    max_queue_size: int = Field(
+        default=1000,
+        ge=100,
+        description="Maximum events per subscriber before drop-oldest.",
+    )
+
+
 class DaemonConfig(BaseModel):
     """Top-level configuration for the Mozart conductor.
 
@@ -163,6 +187,10 @@ class DaemonConfig(BaseModel):
         "for all jobs managed by this conductor. Individual jobs can override "
         "this via their own prompt.thinking_method setting. "
         "Example: 'Use structured reasoning with explicit step numbering.'",
+    )
+    observer: ObserverConfig = Field(
+        default_factory=ObserverConfig,
+        description="Observer and event bus configuration.",
     )
     config_file: Path | None = Field(
         default=None,

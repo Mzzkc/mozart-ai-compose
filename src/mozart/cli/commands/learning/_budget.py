@@ -64,15 +64,17 @@ def patterns_budget(
 
         if json_output:
             budget_hist_output: list[dict[str, object]] = []
-            for h in history_records:
+            for record in history_records:
                 budget_hist_output.append({
-                    "id": h.id,
-                    "job_hash": h.job_hash,
-                    "recorded_at": h.recorded_at.isoformat(),
-                    "budget_value": round(h.budget_value, 4),
-                    "entropy_at_time": round(h.entropy_at_time, 4) if h.entropy_at_time else None,
-                    "adjustment_type": h.adjustment_type,
-                    "adjustment_reason": h.adjustment_reason,
+                    "id": record.id,
+                    "job_hash": record.job_hash,
+                    "recorded_at": record.recorded_at.isoformat(),
+                    "budget_value": round(record.budget_value, 4),
+                    "entropy_at_time": (
+                        round(record.entropy_at_time, 4) if record.entropy_at_time else None
+                    ),
+                    "adjustment_type": record.adjustment_type,
+                    "adjustment_reason": record.adjustment_reason,
                 })
             console.print(json_lib.dumps(budget_hist_output, indent=2))
             return
@@ -92,18 +94,18 @@ def patterns_budget(
         table.add_column("Type", width=12)
         table.add_column("Reason", width=35)
 
-        for h in history_records:
-            if h.budget_value <= 0.10:
+        for record in history_records:
+            if record.budget_value <= 0.10:
                 budget_color = "yellow"
-            elif h.budget_value >= 0.30:
+            elif record.budget_value >= 0.30:
                 budget_color = "cyan"
             else:
                 budget_color = "green"
-            budget_str = f"[{budget_color}]{h.budget_value:.1%}[/{budget_color}]"
+            budget_str = f"[{budget_color}]{record.budget_value:.1%}[/{budget_color}]"
 
-            if h.entropy_at_time is not None:
-                ent_color = "red" if h.entropy_at_time < 0.3 else "green"
-                ent_str = f"[{ent_color}]{h.entropy_at_time:.3f}[/{ent_color}]"
+            if record.entropy_at_time is not None:
+                ent_color = "red" if record.entropy_at_time < 0.3 else "green"
+                ent_str = f"[{ent_color}]{record.entropy_at_time:.3f}[/{ent_color}]"
             else:
                 ent_str = "[dim]—[/dim]"
 
@@ -114,15 +116,15 @@ def patterns_budget(
                 "floor_enforced": "yellow",
                 "ceiling_enforced": "yellow",
             }
-            type_color = type_colors.get(h.adjustment_type, "white")
-            type_str = f"[{type_color}]{h.adjustment_type}[/{type_color}]"
+            type_color = type_colors.get(record.adjustment_type, "white")
+            type_str = f"[{type_color}]{record.adjustment_type}[/{type_color}]"
 
             table.add_row(
-                h.recorded_at.strftime("%m-%d %H:%M:%S"),
+                record.recorded_at.strftime("%m-%d %H:%M:%S"),
                 budget_str,
                 ent_str,
                 type_str,
-                h.adjustment_reason or "",
+                record.adjustment_reason or "",
             )
 
         console.print(table)

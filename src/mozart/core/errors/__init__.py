@@ -13,6 +13,7 @@ from mozart.core.errors.codes import (
     Severity,
 )
 from mozart.core.errors.models import (
+    ClassificationInput,
     ClassificationResult,
     ClassifiedError,
     ErrorChain,
@@ -38,6 +39,7 @@ __all__ = [
     "RetryBehavior",
     "RetryDelays",
     "Severity",
+    "ClassificationInput",
     "ClassificationResult",
     "ClassifiedError",
     "ErrorChain",

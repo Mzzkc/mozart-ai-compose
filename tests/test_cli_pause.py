@@ -1113,5 +1113,169 @@ class TestModifyEdgeCases:
         assert "Resuming with new config" in result.output or "Resume Job" in result.output
 
 
+# ============================================================================
+# Conductor-Routed Pause Tests
+# ============================================================================
+
+
+class TestPauseConductorRouted:
+    """Tests for pause command when conductor handles the request.
+
+    These tests override the autouse _no_daemon fixture to simulate
+    a running conductor that routes the pause RPC.
+    """
+
+    @staticmethod
+    async def _mock_route_success(
+        method: str, params: dict, **kw: object,
+    ) -> tuple[bool, dict]:
+        return True, {"paused": True, "job_id": "test-job"}
+
+    @staticmethod
+    async def _mock_route_refused(
+        method: str, params: dict, **kw: object,
+    ) -> tuple[bool, dict]:
+        return True, {"paused": False, "error": "Job is completed"}
+
+    @staticmethod
+    async def _mock_route_error(
+        method: str, params: dict, **kw: object,
+    ) -> tuple[bool, dict]:
+        raise ConnectionError("socket refused")
+
+    def test_conductor_pause_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Conductor reports successful pause."""
+        monkeypatch.setattr("mozart.daemon.detect.try_daemon_route", self._mock_route_success)
+
+        result = runner.invoke(app, ["pause", "test-job"])
+        assert result.exit_code == 0
+        assert "Pause signal sent" in result.output
+
+    def test_conductor_pause_success_json(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Conductor pause success with JSON output."""
+        monkeypatch.setattr("mozart.daemon.detect.try_daemon_route", self._mock_route_success)
+
+        result = runner.invoke(app, ["pause", "test-job", "--json"])
+        assert result.exit_code == 0
+        output = _parse_json_output(result.stdout)
+        assert output["success"] is True
+
+    def test_conductor_pause_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Conductor reports job cannot be paused (not running)."""
+        monkeypatch.setattr("mozart.daemon.detect.try_daemon_route", self._mock_route_refused)
+
+        result = runner.invoke(app, ["pause", "test-job"])
+        assert result.exit_code == 1
+
+    def test_conductor_pause_refused_json(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Conductor refusal with JSON output includes E502."""
+        monkeypatch.setattr("mozart.daemon.detect.try_daemon_route", self._mock_route_refused)
+
+        result = runner.invoke(app, ["pause", "test-job", "--json"])
+        assert result.exit_code == 1
+        output = _parse_json_output(result.stdout)
+        assert output["success"] is False
+        assert output["error_code"] == "E502"
+
+    def test_conductor_connection_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Connection error to conductor produces E501."""
+        monkeypatch.setattr("mozart.daemon.detect.try_daemon_route", self._mock_route_error)
+
+        result = runner.invoke(app, ["pause", "test-job"])
+        assert result.exit_code == 1
+
+    def test_conductor_connection_error_json(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Connection error with JSON output."""
+        monkeypatch.setattr("mozart.daemon.detect.try_daemon_route", self._mock_route_error)
+
+        result = runner.invoke(app, ["pause", "test-job", "--json"])
+        assert result.exit_code == 1
+        output = _parse_json_output(result.stdout)
+        assert output["success"] is False
+        assert output["error_code"] == "E501"
+
+
+# ============================================================================
+# Filesystem Pause JSON Edge Cases
+# ============================================================================
+
+
+class TestPauseJsonEdgeCases:
+    """Tests for JSON output edge cases in filesystem-based pause."""
+
+    def test_pause_paused_job_json_has_hints(
+        self, paused_job_state: tuple[CheckpointState, Path],
+    ) -> None:
+        """JSON output for already-paused job includes resume hint."""
+        state, workspace = paused_job_state
+
+        result = runner.invoke(app, [
+            "pause", state.job_id,
+            "--workspace", str(workspace),
+            "--json",
+        ])
+
+        assert result.exit_code == 1
+        output = _parse_json_output(result.stdout)
+        assert output["error_code"] == "E502"
+        assert any("resume" in h.lower() for h in output.get("hints", []))
+
+    def test_pause_completed_job_json_has_hints(
+        self, completed_job_state: tuple[CheckpointState, Path],
+    ) -> None:
+        """JSON output for completed job includes appropriate hint."""
+        state, workspace = completed_job_state
+
+        result = runner.invoke(app, [
+            "pause", state.job_id,
+            "--workspace", str(workspace),
+            "--json",
+        ])
+
+        assert result.exit_code == 1
+        output = _parse_json_output(result.stdout)
+        assert output["error_code"] == "E502"
+        assert any("completed" in h.lower() for h in output.get("hints", []))
+
+    def test_pause_pending_job_json_has_hints(
+        self, pending_job_state: tuple[CheckpointState, Path],
+    ) -> None:
+        """JSON output for pending job includes 'use mozart run' hint."""
+        state, workspace = pending_job_state
+
+        result = runner.invoke(app, [
+            "pause", state.job_id,
+            "--workspace", str(workspace),
+            "--json",
+        ])
+
+        assert result.exit_code == 1
+        output = _parse_json_output(result.stdout)
+        assert output["error_code"] == "E502"
+        assert any("run" in h.lower() for h in output.get("hints", []))
+
+    def test_pause_wait_timeout_json(
+        self, running_job_state: tuple[CheckpointState, Path],
+    ) -> None:
+        """JSON output for wait timeout includes signal_file."""
+        state, workspace = running_job_state
+
+        async def mock_wait(*_: object, **__: object) -> bool:
+            return False
+
+        with patch("mozart.cli.helpers._wait_for_pause_ack", mock_wait):
+            result = runner.invoke(app, [
+                "pause", state.job_id,
+                "--workspace", str(workspace),
+                "--wait", "--timeout", "1",
+                "--json",
+            ])
+
+        assert result.exit_code == 2
+        output = _parse_json_output(result.stdout)
+        assert output["error_code"] == "E504"
+        assert "signal_file" in output
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

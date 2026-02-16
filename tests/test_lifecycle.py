@@ -160,6 +160,11 @@ class _MockLifecycleHost:
     def _get_config_summary(self) -> dict[str, Any]:
         return {"backend_type": "claude_cli", "sheet_size": 5}
 
+    async def _fire_event(
+        self, event: str, sheet_num: int, data: dict[str, Any] | None = None,
+    ) -> None:
+        pass  # no-op in tests
+
     # ---- Methods required by LifecycleMixin from IsolationMixin ----
 
     async def _setup_isolation(self, state: CheckpointState) -> Path | None:

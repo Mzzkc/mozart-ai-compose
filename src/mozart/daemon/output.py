@@ -10,7 +10,10 @@ Implementations:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from mozart.daemon.event_bus import EventBus
 
 
 class OutputProtocol(ABC):
@@ -92,10 +95,11 @@ class StructuredOutput(OutputProtocol):
     that daemon consumers (SSE, gRPC, log aggregators) can parse.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, event_bus: EventBus | None = None) -> None:
         from mozart.core.logging import get_logger
 
         self._logger = get_logger("daemon.output")
+        self._event_bus = event_bus
 
     def log(self, level: str, message: str, **context: Any) -> None:
         getattr(self._logger, level, self._logger.info)(message, **context)

@@ -8,7 +8,7 @@ serialization over IPC.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal, Required, TypedDict
+from typing import Any, Literal, Required, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -114,6 +114,16 @@ class JobResponse(BaseModel):
         default=None,
         description="Human-readable detail about the submission result",
     )
+
+
+class ObserverEvent(TypedDict):
+    """Structured event emitted by the runner and routed through the daemon."""
+
+    job_id: str
+    sheet_num: int
+    event: str
+    data: dict[str, Any] | None
+    timestamp: float
 
 
 class DaemonStatus(BaseModel):

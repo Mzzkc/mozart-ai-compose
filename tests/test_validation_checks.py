@@ -554,6 +554,305 @@ class TestTimeoutRangeCheck:
         assert issues[0].check_id == "V103"
         assert issues[0].severity == ValidationSeverity.WARNING
 
+    def test_warns_very_long_timeout(self, tmp_path: Path) -> None:
+        """Info severity for timeout exceeding 2 hours (V104)."""
+        yaml_content = dedent("""
+            name: test-job
+            sheet:
+              size: 10
+              total_items: 100
+            prompt:
+              template: "Test"
+            backend:
+              type: claude_cli
+              timeout_seconds: 10800
+        """).strip()
+
+        config_path = tmp_path / "test.yaml"
+        config_path.write_text(yaml_content)
+        config = JobConfig.from_yaml(config_path)
+
+        check = TimeoutRangeCheck()
+        issues = check.check(config, config_path, yaml_content)
+
+        assert len(issues) == 1
+        assert issues[0].check_id == "V104"
+        assert issues[0].severity == ValidationSeverity.INFO
+        assert "3.0h" in issues[0].message
+
+    def test_boundary_timeout_at_min(self, tmp_path: Path) -> None:
+        """Timeout exactly at MIN_REASONABLE_TIMEOUT (60s) passes."""
+        yaml_content = dedent("""
+            name: test-job
+            sheet:
+              size: 10
+              total_items: 100
+            prompt:
+              template: "Test"
+            backend:
+              type: claude_cli
+              timeout_seconds: 60
+        """).strip()
+
+        config_path = tmp_path / "test.yaml"
+        config_path.write_text(yaml_content)
+        config = JobConfig.from_yaml(config_path)
+
+        check = TimeoutRangeCheck()
+        issues = check.check(config, config_path, yaml_content)
+
+        assert not any(i.check_id == "V103" for i in issues)
+
+    def test_boundary_timeout_at_max(self, tmp_path: Path) -> None:
+        """Timeout exactly at MAX_REASONABLE_TIMEOUT (7200s) passes."""
+        yaml_content = dedent("""
+            name: test-job
+            sheet:
+              size: 10
+              total_items: 100
+            prompt:
+              template: "Test"
+            backend:
+              type: claude_cli
+              timeout_seconds: 7200
+        """).strip()
+
+        config_path = tmp_path / "test.yaml"
+        config_path.write_text(yaml_content)
+        config = JobConfig.from_yaml(config_path)
+
+        check = TimeoutRangeCheck()
+        issues = check.check(config, config_path, yaml_content)
+
+        assert not any(i.check_id == "V104" for i in issues)
+
+
+# ============================================================================
+# VersionReferenceCheck Tests (Q007 — GH#82)
+# ============================================================================
+
+
+class TestVersionReferenceCheck:
+    """Tests for VersionReferenceCheck (V009)."""
+
+    def test_non_versioned_file_skipped(self, tmp_path: Path) -> None:
+        """Non-versioned file names produce no issues."""
+        from mozart.validation.checks.config import VersionReferenceCheck
+
+        yaml_content = dedent("""
+            name: test-job
+            sheet:
+              size: 10
+              total_items: 100
+            prompt:
+              template: "Test"
+        """).strip()
+
+        config_path = tmp_path / "test-job.yaml"
+        config_path.write_text(yaml_content)
+        config = JobConfig.from_yaml(config_path)
+
+        check = VersionReferenceCheck()
+        issues = check.check(config, config_path, yaml_content)
+
+        assert len(issues) == 0
+
+    def test_v1_file_skipped(self, tmp_path: Path) -> None:
+        """v1 files have no previous version to check against."""
+        from mozart.validation.checks.config import VersionReferenceCheck
+
+        yaml_content = dedent("""
+            name: evolution-v1
+            sheet:
+              size: 10
+              total_items: 100
+            prompt:
+              template: "Test"
+        """).strip()
+
+        config_path = tmp_path / "evolution-v1.yaml"
+        config_path.write_text(yaml_content)
+        config = JobConfig.from_yaml(config_path)
+
+        check = VersionReferenceCheck()
+        issues = check.check(config, config_path, yaml_content)
+
+        assert len(issues) == 0
+
+    def test_detects_stale_name_reference(self, tmp_path: Path) -> None:
+        """Detects when job name references previous version."""
+        from mozart.validation.checks.config import VersionReferenceCheck
+
+        yaml_content = dedent("""
+            name: evolution-v2
+            workspace: /tmp/workspace-v3
+            sheet:
+              size: 10
+              total_items: 100
+            prompt:
+              template: "Test"
+        """).strip()
+
+        config_path = tmp_path / "evolution-v3.yaml"
+        config_path.write_text(yaml_content)
+        config = JobConfig.from_yaml(config_path)
+
+        check = VersionReferenceCheck()
+        issues = check.check(config, config_path, yaml_content)
+
+        name_issues = [i for i in issues if i.metadata and i.metadata.get("field") == "name"]
+        assert len(name_issues) == 1
+        assert "v2" in name_issues[0].message
+
+    def test_detects_stale_workspace_reference(self, tmp_path: Path) -> None:
+        """Detects when workspace path references previous version."""
+        from mozart.validation.checks.config import VersionReferenceCheck
+
+        yaml_content = dedent("""
+            name: evolution-v3
+            workspace: /tmp/workspace-v2
+            sheet:
+              size: 10
+              total_items: 100
+            prompt:
+              template: "Test"
+        """).strip()
+
+        config_path = tmp_path / "evolution-v3.yaml"
+        config_path.write_text(yaml_content)
+        config = JobConfig.from_yaml(config_path)
+
+        check = VersionReferenceCheck()
+        issues = check.check(config, config_path, yaml_content)
+
+        ws_issues = [i for i in issues if i.metadata and i.metadata.get("field") == "workspace"]
+        assert len(ws_issues) == 1
+        assert "v2" in ws_issues[0].message
+
+    def test_clean_versioned_file_passes(self, tmp_path: Path) -> None:
+        """Properly versioned file produces no issues."""
+        from mozart.validation.checks.config import VersionReferenceCheck
+
+        yaml_content = dedent("""
+            name: evolution-v3
+            workspace: /tmp/workspace-v3
+            sheet:
+              size: 10
+              total_items: 100
+            prompt:
+              template: "Test"
+        """).strip()
+
+        config_path = tmp_path / "evolution-v3.yaml"
+        config_path.write_text(yaml_content)
+        config = JobConfig.from_yaml(config_path)
+
+        check = VersionReferenceCheck()
+        issues = check.check(config, config_path, yaml_content)
+
+        assert len(issues) == 0
+
+
+# ============================================================================
+# EmptyPatternCheck Tests (Q007 — GH#82)
+# ============================================================================
+
+
+class TestEmptyPatternCheck:
+    """Tests for EmptyPatternCheck (V106)."""
+
+    def test_no_validations_passes(self, minimal_config: tuple[JobConfig, Path, str]) -> None:
+        """Config with no validations produces no issues."""
+        from mozart.validation.checks.config import EmptyPatternCheck
+
+        config, config_path, raw_yaml = minimal_config
+        check = EmptyPatternCheck()
+        issues = check.check(config, config_path, raw_yaml)
+
+        assert len(issues) == 0
+
+    def test_non_empty_pattern_passes(self, tmp_path: Path) -> None:
+        """Validation with non-empty pattern is fine."""
+        from mozart.validation.checks.config import EmptyPatternCheck
+
+        yaml_content = dedent("""
+            name: test-job
+            sheet:
+              size: 10
+              total_items: 100
+            prompt:
+              template: "Test"
+            validations:
+              - type: content_regex
+                path: output.txt
+                pattern: "SUCCESS"
+                description: "Check for success"
+        """).strip()
+
+        config_path = tmp_path / "test.yaml"
+        config_path.write_text(yaml_content)
+        config = JobConfig.from_yaml(config_path)
+
+        check = EmptyPatternCheck()
+        issues = check.check(config, config_path, yaml_content)
+
+        assert len(issues) == 0
+
+    def test_detects_empty_pattern(self, tmp_path: Path) -> None:
+        """Flags validation rules with empty/whitespace-only patterns."""
+        from mozart.validation.checks.config import EmptyPatternCheck
+
+        yaml_content = dedent("""
+            name: test-job
+            sheet:
+              size: 10
+              total_items: 100
+            prompt:
+              template: "Test"
+            validations:
+              - type: content_regex
+                path: output.txt
+                pattern: "   "
+                description: "Bad pattern"
+        """).strip()
+
+        config_path = tmp_path / "test.yaml"
+        config_path.write_text(yaml_content)
+        config = JobConfig.from_yaml(config_path)
+
+        check = EmptyPatternCheck()
+        issues = check.check(config, config_path, yaml_content)
+
+        assert len(issues) == 1
+        assert issues[0].check_id == "V106"
+        assert "empty" in issues[0].message.lower()
+
+    def test_ignores_file_exists_type(self, tmp_path: Path) -> None:
+        """file_exists validations don't have patterns, so no issue."""
+        from mozart.validation.checks.config import EmptyPatternCheck
+
+        yaml_content = dedent("""
+            name: test-job
+            sheet:
+              size: 10
+              total_items: 100
+            prompt:
+              template: "Test"
+            validations:
+              - type: file_exists
+                path: output.txt
+                description: "Check file"
+        """).strip()
+
+        config_path = tmp_path / "test.yaml"
+        config_path.write_text(yaml_content)
+        config = JobConfig.from_yaml(config_path)
+
+        check = EmptyPatternCheck()
+        issues = check.check(config, config_path, yaml_content)
+
+        assert len(issues) == 0
+
 
 # ============================================================================
 # ValidationRunner Tests

@@ -211,6 +211,7 @@ async def _status_job(
         try:
             found_job = CheckpointState.model_validate(result)
         except Exception:
+            _logger.debug("checkpoint_model_validate_fallback", exc_info=True)
             _output_meta_status(result, json_output)
             return
     elif routed and not result:
@@ -287,6 +288,7 @@ async def _status_job_watch(
                 try:
                     found_job = CheckpointState.model_validate(result)
                 except Exception:
+                    _logger.debug("watch_checkpoint_model_validate_fallback", exc_info=True)
                     console.clear()
                     _output_meta_status(result, json_output)
                     await asyncio.sleep(interval)

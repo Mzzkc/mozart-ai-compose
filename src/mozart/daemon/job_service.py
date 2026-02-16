@@ -37,6 +37,9 @@ _logger = get_logger("daemon.job_service")
 # Matches RunnerContext.rate_limit_callback signature.
 RateLimitCallback = Callable[[str, float, str, int], Any]
 
+# Type alias for event callbacks: (job_id, sheet_num, event, data)
+EventCallback = Callable[[str, int, str, dict[str, Any] | None], Any]
+
 
 class _JobComponents(TypedDict):
     """Typed container for execution components created by _setup_components."""
@@ -69,10 +72,12 @@ class JobService:
         output: OutputProtocol | None = None,
         global_learning_store: GlobalLearningStore | None = None,
         rate_limit_callback: RateLimitCallback | None = None,
+        event_callback: EventCallback | None = None,
     ) -> None:
         self._output = output or NullOutput()
         self._learning_store = global_learning_store
         self._rate_limit_callback = rate_limit_callback
+        self._event_callback = event_callback
         self._notification_consecutive_failures = 0
         self._notifications_degraded = False
 
@@ -388,6 +393,7 @@ class JobService:
             global_learning_store=components["global_learning_store"] or self._learning_store,
             grounding_engine=components["grounding_engine"],
             rate_limit_callback=self._rate_limit_callback,
+            event_callback=self._event_callback,
             self_healing_enabled=self_healing,
             self_healing_auto_confirm=self_healing_auto_confirm,
         )

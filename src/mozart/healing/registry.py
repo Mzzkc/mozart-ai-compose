@@ -78,6 +78,10 @@ class RemedyRegistry:
         return a diagnosis. Results are sorted by diagnosis
         confidence (highest first).
 
+        Remedy diagnosis crashes are logged and recorded in
+        ``self.diagnosis_errors`` so callers can report them
+        instead of showing misleading "NO ACTION NEEDED" messages.
+
         Args:
             context: Error context with diagnostic information.
 
@@ -85,19 +89,23 @@ class RemedyRegistry:
             List of (remedy, diagnosis) tuples sorted by confidence.
         """
         applicable: list[tuple[Remedy, Diagnosis]] = []
+        self.diagnosis_errors: list[tuple[str, str]] = []
 
         for remedy in self._remedies:
             try:
                 diagnosis = remedy.diagnose(context)
                 if diagnosis is not None:
                     applicable.append((remedy, diagnosis))
-            except Exception:
-                # Individual remedy failures shouldn't block finding others
+            except Exception as exc:
+                # Individual remedy failures shouldn't block finding others,
+                # but we must record them so the HealingReport doesn't show
+                # "NO ACTION NEEDED" when a remedy actually crashed.
                 _logger.warning(
                     "Remedy %s.diagnose() raised exception",
                     remedy.name,
                     exc_info=True,
                 )
+                self.diagnosis_errors.append((remedy.name, str(exc)))
 
         # Sort by diagnosis confidence, highest first
         applicable.sort(key=lambda x: x[1].confidence, reverse=True)

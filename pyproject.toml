@@ -45,7 +45,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-daemon = ["psutil>=5.9"]
+daemon = ["psutil>=5.9", "watchfiles>=0.21"]
 docs = [
     "mkdocs-material>=9.5",
     "mkdocstrings[python]>=0.24",

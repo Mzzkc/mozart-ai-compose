@@ -123,15 +123,15 @@ class DelayHistory:
                 from collections import defaultdict
 
                 by_code: defaultdict[ErrorCode, list[DelayOutcome]] = defaultdict(list)
-                for o in self._history:
-                    by_code[o.error_code].append(o)
+                for delay_outcome in self._history:
+                    by_code[delay_outcome.error_code].append(delay_outcome)
 
                 self._history = []
                 for outcomes in by_code.values():
                     self._history.extend(outcomes[-self._max_history :])
 
                 # Restore chronological order after grouping by error code
-                self._history.sort(key=lambda o: o.timestamp)
+                self._history.sort(key=lambda delay_outcome: delay_outcome.timestamp)
 
     def query_for_error_code(self, code: ErrorCode) -> list[DelayOutcome]:
         """Query outcomes for a specific error code.
@@ -142,7 +142,10 @@ class DelayHistory:
         Returns:
             List of DelayOutcome for this error code.
         """
-        return [o for o in self._history if o.error_code == code]
+        return [
+            delay_outcome for delay_outcome in self._history
+            if delay_outcome.error_code == code
+        ]
 
     def get_average_successful_delay(self, code: ErrorCode) -> float | None:
         """Get average delay that led to success for an error code.
@@ -153,10 +156,13 @@ class DelayHistory:
         Returns:
             Average successful delay in seconds, or None if no successful samples.
         """
-        successful = [o for o in self._history if o.error_code == code and o.succeeded_after]
+        successful = [
+            delay_outcome for delay_outcome in self._history
+            if delay_outcome.error_code == code and delay_outcome.succeeded_after
+        ]
         if not successful:
             return None
-        return sum(o.delay_seconds for o in successful) / len(successful)
+        return sum(d.delay_seconds for d in successful) / len(successful)
 
     def get_sample_count(self, code: ErrorCode) -> int:
         """Get number of samples for an error code.
@@ -167,7 +173,10 @@ class DelayHistory:
         Returns:
             Number of delay outcomes recorded for this code.
         """
-        return len([o for o in self._history if o.error_code == code])
+        return sum(
+            1 for delay_outcome in self._history
+            if delay_outcome.error_code == code
+        )
 
 # Module-level logger
 _logger = get_logger("retry_strategy")
@@ -1080,6 +1089,7 @@ class AdaptiveRetryStrategy:
                 "retry_strategy.global_store_error",
                 error_code=error_code.value,
                 error=str(e),
+                exc_info=True,
             )
             return None
 

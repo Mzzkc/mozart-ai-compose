@@ -94,6 +94,18 @@ class PatternType(Enum):
     """
 
 
+# Template strings for formatting pattern guidance in prompts.
+# Keyed by PatternType; types not listed fall through to a plain description.
+_GUIDANCE_TEMPLATES: dict[PatternType, str] = {
+    PatternType.VALIDATION_FAILURE: "⚠️ Common issue: {desc} (seen {freq}x){trust}",
+    PatternType.RETRY_SUCCESS: "✓ Tip: {desc} (works {rate} of the time){trust}",
+    PatternType.COMPLETION_MODE: "📝 Partial completion: {desc}{trust}",
+    PatternType.SUCCESS_WITHOUT_RETRY: "✓ Best practice: {desc}{trust}",
+    PatternType.LOW_CONFIDENCE: "⚠️ Needs attention: {desc}{trust}",
+    PatternType.SEMANTIC_FAILURE: "🔍 Semantic insight: {desc} (seen {freq}x){trust}",
+}
+
+
 @dataclass
 class ExtractedPattern:
     """A pattern extracted from stdout/stderr output analysis.
@@ -236,22 +248,16 @@ class DetectedPattern:
         if self.is_quarantined:
             return f"⚠️ [QUARANTINED] {self.description}{trust_indicator}"
 
-        if self.pattern_type == PatternType.VALIDATION_FAILURE:
-            return f"⚠️ Common issue: {self.description} (seen {self.frequency}x){trust_indicator}"
-        elif self.pattern_type == PatternType.RETRY_SUCCESS:
-            rate = f"works {self.success_rate:.0%} of the time"
-            return f"✓ Tip: {self.description} ({rate}){trust_indicator}"
-        elif self.pattern_type == PatternType.COMPLETION_MODE:
-            return f"📝 Partial completion: {self.description}{trust_indicator}"
-        elif self.pattern_type == PatternType.SUCCESS_WITHOUT_RETRY:
-            return f"✓ Best practice: {self.description}{trust_indicator}"
-        elif self.pattern_type == PatternType.LOW_CONFIDENCE:
-            return f"⚠️ Needs attention: {self.description}{trust_indicator}"
-        elif self.pattern_type == PatternType.SEMANTIC_FAILURE:
-            seen = f"seen {self.frequency}x"
-            return f"🔍 Semantic insight: {self.description} ({seen}){trust_indicator}"
-        else:
+        template = _GUIDANCE_TEMPLATES.get(self.pattern_type)
+        if template is None:
             return f"{self.description}{trust_indicator}"
+
+        return template.format(
+            desc=self.description,
+            freq=self.frequency,
+            rate=f"{self.success_rate:.0%}",
+            trust=trust_indicator,
+        )
 
 
 @dataclass
@@ -391,13 +397,14 @@ class PatternDetector:
 
         # Find outcomes with retries that eventually succeeded
         retry_successes = [
-            o for o in self.outcomes
-            if o.retry_count > 0 and o.validation_pass_rate == 1.0
+            outcome for outcome in self.outcomes
+            if outcome.retry_count > 0 and outcome.validation_pass_rate == 1.0
         ]
 
         if len(retry_successes) >= MIN_PATTERN_FREQUENCY:
             # Calculate average retries needed
-            avg_retries = sum(o.retry_count for o in retry_successes) / len(retry_successes)
+            total_retries = sum(outcome.retry_count for outcome in retry_successes)
+            avg_retries = total_retries / len(retry_successes)
             patterns.append(
                 DetectedPattern(
                     pattern_type=PatternType.RETRY_SUCCESS,
@@ -405,7 +412,7 @@ class PatternDetector:
                     frequency=len(retry_successes),
                     success_rate=1.0,
                     context_tags=["retry:effective"],
-                    evidence=[o.sheet_id for o in retry_successes[:5]],
+                    evidence=[outcome.sheet_id for outcome in retry_successes[:5]],
                     confidence=min(0.8, 0.5 + (len(retry_successes) * 0.1)),
                 )
             )
@@ -423,12 +430,12 @@ class PatternDetector:
         patterns: list[DetectedPattern] = []
 
         # Find outcomes where completion mode was used
-        completion_used = [o for o in self.outcomes if o.completion_mode_used]
+        completion_used = [outcome for outcome in self.outcomes if outcome.completion_mode_used]
 
         if len(completion_used) >= MIN_PATTERN_FREQUENCY:
             success_in_completion = [
-                o for o in completion_used
-                if o.validation_pass_rate == 1.0
+                outcome for outcome in completion_used
+                if outcome.validation_pass_rate == 1.0
             ]
             success_rate = (
                 len(success_in_completion) / len(completion_used)
@@ -443,7 +450,7 @@ class PatternDetector:
                     frequency=len(completion_used),
                     success_rate=success_rate,
                     context_tags=["completion:used"],
-                    evidence=[o.sheet_id for o in completion_used[:5]],
+                    evidence=[outcome.sheet_id for outcome in completion_used[:5]],
                     confidence=min(0.7, 0.4 + (len(completion_used) * 0.1)),
                 )
             )
@@ -462,7 +469,7 @@ class PatternDetector:
 
         # Find successes without retry
         successes_without_retry = [
-            o for o in self.outcomes if o.success_without_retry
+            outcome for outcome in self.outcomes if outcome.success_without_retry
         ]
 
         if len(successes_without_retry) >= MIN_SUCCESSES_WITHOUT_RETRY:
@@ -474,7 +481,7 @@ class PatternDetector:
                     frequency=len(successes_without_retry),
                     success_rate=success_rate,
                     context_tags=["success:first_attempt"],
-                    evidence=[o.sheet_id for o in successes_without_retry[:5]],
+                    evidence=[outcome.sheet_id for outcome in successes_without_retry[:5]],
                     confidence=min(0.9, 0.6 + (success_rate * 0.3)),
                 )
             )
@@ -847,7 +854,7 @@ class PatternDetector:
         if not outcomes:
             return 0.0
 
-        successful = sum(1 for o in outcomes if o.validation_pass_rate == 1.0)
+        successful = sum(1 for outcome in outcomes if outcome.validation_pass_rate == 1.0)
         return successful / len(outcomes)
 
 

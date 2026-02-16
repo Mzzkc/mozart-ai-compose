@@ -163,7 +163,12 @@ class PatternAggregator:
             )
             return pattern_id
         except Exception as e:
-            _logger.warning("pattern_merge_failed", pattern_name=pattern_name, error=str(e))
+            _logger.warning(
+                "pattern_merge_failed",
+                pattern_name=pattern_name,
+                error=str(e),
+                exc_info=True,
+            )
             return None
 
     def _generate_pattern_name(self, pattern: DetectedPattern) -> str:

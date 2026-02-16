@@ -70,17 +70,17 @@ def patterns_entropy(
 
         if json_output:
             hist_output: list[dict[str, Any]] = []
-            for h in history_records:
+            for entry in history_records:
                 hist_output.append({
-                    "calculated_at": h.calculated_at.isoformat(),
-                    "shannon_entropy": round(h.shannon_entropy, 4),
-                    "max_possible_entropy": round(h.max_possible_entropy, 4),
-                    "diversity_index": round(h.diversity_index, 4),
-                    "unique_pattern_count": h.unique_pattern_count,
-                    "effective_pattern_count": h.effective_pattern_count,
-                    "total_applications": h.total_applications,
-                    "dominant_pattern_share": round(h.dominant_pattern_share, 4),
-                    "threshold_exceeded": h.threshold_exceeded,
+                    "calculated_at": entry.calculated_at.isoformat(),
+                    "shannon_entropy": round(entry.shannon_entropy, 4),
+                    "max_possible_entropy": round(entry.max_possible_entropy, 4),
+                    "diversity_index": round(entry.diversity_index, 4),
+                    "unique_pattern_count": entry.unique_pattern_count,
+                    "effective_pattern_count": entry.effective_pattern_count,
+                    "total_applications": entry.total_applications,
+                    "dominant_pattern_share": round(entry.dominant_pattern_share, 4),
+                    "threshold_exceeded": entry.threshold_exceeded,
                 })
             console.print(json_lib.dumps(hist_output, indent=2))
             return
@@ -99,25 +99,25 @@ def patterns_entropy(
         table.add_column("Applications", justify="right", width=12)
         table.add_column("Dominant %", justify="right", width=10)
 
-        for h in history_records:
-            div_color = "green" if h.diversity_index >= alert_threshold else "red"
-            div_str = f"[{div_color}]{h.diversity_index:.3f}[/{div_color}]"
+        for entry in history_records:
+            div_color = "green" if entry.diversity_index >= alert_threshold else "red"
+            div_str = f"[{div_color}]{entry.diversity_index:.3f}[/{div_color}]"
 
-            if h.dominant_pattern_share > 0.5:
+            if entry.dominant_pattern_share > 0.5:
                 dom_color = "red"
-            elif h.dominant_pattern_share > 0.3:
+            elif entry.dominant_pattern_share > 0.3:
                 dom_color = "yellow"
             else:
                 dom_color = "green"
-            dom_str = f"[{dom_color}]{h.dominant_pattern_share:.1%}[/{dom_color}]"
+            dom_str = f"[{dom_color}]{entry.dominant_pattern_share:.1%}[/{dom_color}]"
 
             table.add_row(
-                h.calculated_at.strftime("%Y-%m-%d %H:%M"),
-                f"{h.shannon_entropy:.3f}",
+                entry.calculated_at.strftime("%Y-%m-%d %H:%M"),
+                f"{entry.shannon_entropy:.3f}",
                 div_str,
-                str(h.unique_pattern_count),
-                str(h.effective_pattern_count),
-                str(h.total_applications),
+                str(entry.unique_pattern_count),
+                str(entry.effective_pattern_count),
+                str(entry.total_applications),
                 dom_str,
             )
 
@@ -282,16 +282,16 @@ def entropy_status(
 
         if json_output:
             resp_hist_output: list[dict[str, Any]] = []
-            for h in history_records:
+            for record in history_records:
                 resp_hist_output.append({
-                    "id": h.id,
-                    "job_hash": h.job_hash,
-                    "recorded_at": h.recorded_at.isoformat(),
-                    "entropy_at_trigger": round(h.entropy_at_trigger, 4),
-                    "threshold_used": round(h.threshold_used, 4),
-                    "actions_taken": h.actions_taken,
-                    "budget_boosted": h.budget_boosted,
-                    "quarantine_revisits": h.quarantine_revisits,
+                    "id": record.id,
+                    "job_hash": record.job_hash,
+                    "recorded_at": record.recorded_at.isoformat(),
+                    "entropy_at_trigger": round(record.entropy_at_trigger, 4),
+                    "threshold_used": round(record.threshold_used, 4),
+                    "actions_taken": record.actions_taken,
+                    "budget_boosted": record.budget_boosted,
+                    "quarantine_revisits": record.quarantine_revisits,
                 })
             console.print(json_lib.dumps(resp_hist_output, indent=2))
             return
@@ -312,18 +312,20 @@ def entropy_status(
         table.add_column("Revisits", justify="right", width=8)
         table.add_column("Actions", width=25)
 
-        for h in history_records:
-            budget_str = "[green]Yes[/green]" if h.budget_boosted else "[dim]No[/dim]"
-            if h.quarantine_revisits > 0:
-                revisit_str = f"[cyan]{h.quarantine_revisits}[/cyan]"
+        for record in history_records:
+            budget_str = "[green]Yes[/green]" if record.budget_boosted else "[dim]No[/dim]"
+            if record.quarantine_revisits > 0:
+                revisit_str = f"[cyan]{record.quarantine_revisits}[/cyan]"
             else:
                 revisit_str = "[dim]0[/dim]"
-            actions_str = ", ".join(h.actions_taken) if h.actions_taken else "[dim]none[/dim]"
+            actions_str = (
+                ", ".join(record.actions_taken) if record.actions_taken else "[dim]none[/dim]"
+            )
 
             table.add_row(
-                h.recorded_at.strftime("%m-%d %H:%M:%S"),
-                f"[red]{h.entropy_at_trigger:.3f}[/red]",
-                f"{h.threshold_used:.3f}",
+                record.recorded_at.strftime("%m-%d %H:%M:%S"),
+                f"[red]{record.entropy_at_trigger:.3f}[/red]",
+                f"{record.threshold_used:.3f}",
                 budget_str,
                 revisit_str,
                 actions_str,

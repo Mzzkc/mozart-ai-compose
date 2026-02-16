@@ -18,7 +18,7 @@ from mozart.core.constants import (
 from mozart.core.logging import get_logger
 
 from .codes import ErrorCategory, ErrorCode, ExitReason
-from .models import ClassificationResult, ClassifiedError, ParsedCliError
+from .models import ClassificationInput, ClassificationResult, ClassifiedError, ParsedCliError
 from .parsers import classify_single_json_error, select_root_cause, try_parse_json_errors
 from .signals import FATAL_SIGNALS, RETRIABLE_SIGNALS, get_signal_name
 
@@ -839,6 +839,8 @@ class ErrorClassifier:
         exit_reason: ExitReason | None = None,
         exception: Exception | None = None,
         output_format: str | None = None,
+        *,
+        input: ClassificationInput | None = None,
     ) -> ClassificationResult:
         """Classify execution errors using structured JSON parsing with fallback.
 
@@ -853,6 +855,13 @@ class ErrorClassifier:
         all detected errors while maintaining backward compatibility through
         the `primary` attribute.
 
+        Supports two calling conventions:
+            1. **Keyword args** (legacy): ``classify_execution(stdout=..., stderr=..., ...)``
+            2. **Bundled** (preferred): ``classify_execution(input=ClassificationInput(...))``
+
+        When *input* is supplied, its fields take precedence over
+        individual keyword arguments.
+
         Args:
             stdout: Standard output from the command (may contain JSON).
             stderr: Standard error from the command.
@@ -860,6 +869,8 @@ class ErrorClassifier:
             exit_signal: Signal number if killed by signal.
             exit_reason: Why execution ended (completed, timeout, killed, error).
             exception: Optional exception that was raised.
+            output_format: Expected output format (e.g. "json").
+            input: Bundled classification input (preferred over individual kwargs).
 
         Returns:
             ClassificationResult with primary error, secondary errors, and metadata.
@@ -877,6 +888,14 @@ class ErrorClassifier:
                 logger.info(f"{error.error_code.value}: {error.message}")
             ```
         """
+        if input is not None:
+            stdout = input.stdout
+            stderr = input.stderr
+            exit_code = input.exit_code
+            exit_signal = input.exit_signal
+            exit_reason = input.exit_reason
+            exception = input.exception
+            output_format = input.output_format
         all_errors: list[ClassifiedError] = []
         raw_errors: list[ParsedCliError] = []
         classification_method = "structured"

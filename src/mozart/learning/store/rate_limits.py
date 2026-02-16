@@ -221,7 +221,7 @@ class RateLimitMixin:
         Returns:
             Number of expired records deleted.
         """
-        now = datetime.now()
+        now = datetime.now(UTC)
 
         with self._get_connection() as conn:
             cursor = conn.execute(

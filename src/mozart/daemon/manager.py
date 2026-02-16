@@ -22,16 +22,19 @@ import mozart
 from mozart.core.logging import get_logger
 from mozart.daemon.backpressure import BackpressureController
 from mozart.daemon.config import DaemonConfig
+from mozart.daemon.event_bus import EventBus
 from mozart.daemon.exceptions import DaemonError, JobSubmissionError
 from mozart.daemon.job_service import JobService
 from mozart.daemon.learning_hub import LearningHub
 from mozart.daemon.monitor import ResourceMonitor
+from mozart.daemon.observer import JobObserver
 from mozart.daemon.output import StructuredOutput
 from mozart.daemon.rate_coordinator import RateLimitCoordinator
 from mozart.daemon.registry import DaemonJobStatus, JobRegistry
 from mozart.daemon.scheduler import GlobalSheetScheduler
+from mozart.daemon.snapshot import SnapshotManager
 from mozart.daemon.task_utils import log_task_exception
-from mozart.daemon.types import JobRequest, JobResponse
+from mozart.daemon.types import JobRequest, JobResponse, ObserverEvent
 
 _logger = get_logger("daemon.manager")
 
@@ -49,6 +52,7 @@ class JobMeta:
     error_message: str | None = None
     error_traceback: str | None = None
     chain_depth: int | None = None
+    observer: JobObserver | None = field(default=None, repr=False)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dict suitable for JSON-RPC responses."""
@@ -130,6 +134,15 @@ class JobManager:
         db_path = config.state_db_path.expanduser()
         self._registry = JobRegistry(db_path)
 
+        # Event bus for routing runner and observer events to consumers.
+        self._event_bus = EventBus(
+            max_queue_size=config.observer.max_queue_size,
+        )
+
+        # Phase 4: Completion snapshots — captures workspace artifacts
+        # at job completion with TTL-based cleanup.
+        self._snapshot_manager = SnapshotManager()
+
     # ─── Lifecycle ────────────────────────────────────────────────────
 
     async def start(self) -> None:
@@ -143,11 +156,13 @@ class JobManager:
             _logger.info("manager.orphans_recovered", count=orphan_count)
 
         await self._learning_hub.start()
+        await self._event_bus.start()
         # Create service with shared store now that the hub is initialized
         self._service = JobService(
-            output=StructuredOutput(),
+            output=StructuredOutput(event_bus=self._event_bus),
             global_learning_store=self._learning_hub.store,
             rate_limit_callback=self._on_rate_limit,
+            event_callback=self._on_event,
         )
         _logger.info(
             "manager.started",
@@ -696,6 +711,13 @@ class JobManager:
 
         self._jobs.clear()
 
+        # Stop all observers for any remaining jobs
+        for jid in list(self._job_meta.keys()):
+            await self._stop_observer(jid)
+
+        # Shutdown event bus
+        await self._event_bus.shutdown()
+
         # Stop centralized learning hub (final persist + cleanup)
         await self._learning_hub.stop()
 
@@ -778,7 +800,77 @@ class JobManager:
         """Access the centralized learning hub."""
         return self._learning_hub
 
+    @property
+    def event_bus(self) -> EventBus:
+        """Access the event bus for subscribing to events."""
+        return self._event_bus
+
     # ─── Internal ─────────────────────────────────────────────────────
+
+    async def _start_observer(self, job_id: str) -> None:
+        """Start a JobObserver co-task for a running job.
+
+        Called when a job transitions to RUNNING state. The observer
+        monitors the workspace filesystem and process tree independently
+        of the runner's self-reports.
+        """
+        meta = self._job_meta.get(job_id)
+        if meta is None or not self._config.observer.enabled:
+            return
+
+        observer = JobObserver(
+            job_id=job_id,
+            workspace=meta.workspace,
+            pid=os.getpid(),
+            event_bus=self._event_bus,
+            watch_interval=self._config.observer.watch_interval_seconds,
+        )
+        meta.observer = observer
+        await observer.start()
+
+    async def _stop_observer(self, job_id: str) -> None:
+        """Stop the JobObserver co-task for a job."""
+        meta = self._job_meta.get(job_id)
+        if meta is None or meta.observer is None:
+            return
+        await meta.observer.stop()
+        meta.observer = None
+
+    async def _on_event(
+        self,
+        job_id: str,
+        sheet_num: int,
+        event: str,
+        data: dict[str, Any] | None,
+    ) -> None:
+        """Handle runner lifecycle events for registry updates, logging, and bus."""
+        _logger.info(
+            "runner.event",
+            job_id=job_id,
+            sheet_num=sheet_num,
+            event_type=event,
+        )
+
+        # Publish to event bus for downstream consumers
+        bus_event: ObserverEvent = {
+            "job_id": job_id,
+            "sheet_num": sheet_num,
+            "event": event,
+            "data": data,
+            "timestamp": time.time(),
+        }
+        await self._event_bus.publish(bus_event)
+
+        # Update registry progress on sheet events
+        if event.startswith("sheet."):
+            meta = self._job_meta.get(job_id)
+            if meta:
+                total = data.get("total_sheets") if data else None
+                await self._registry.update_progress(
+                    job_id,
+                    current_sheet=sheet_num,
+                    total_sheets=total or 0,
+                )
 
     async def _on_rate_limit(
         self,
@@ -838,13 +930,27 @@ class JobManager:
             )
             _logger.info(start_event, job_id=job_id, timeout_seconds=timeout)
 
+            # Start observer co-task for filesystem/process monitoring
+            await self._start_observer(job_id)
+
             try:
                 result_status = await asyncio.wait_for(coro, timeout=timeout)
                 if isinstance(result_status, DaemonJobStatus):
                     meta.status = result_status
                 else:
                     meta.status = DaemonJobStatus.COMPLETED
-                await self._registry.update_status(job_id, meta.status.value)
+
+                # Capture completion snapshot for terminal statuses
+                snapshot_path: str | None = None
+                if meta.status in (DaemonJobStatus.COMPLETED, DaemonJobStatus.FAILED):
+                    snapshot_path = self._snapshot_manager.capture(
+                        job_id, meta.workspace,
+                    )
+
+                await self._registry.update_status(
+                    job_id, meta.status.value,
+                    snapshot_path=snapshot_path,
+                )
                 _logger.info(
                     "job.paused" if meta.status == DaemonJobStatus.PAUSED
                     else "job.completed",
@@ -899,6 +1005,10 @@ class JobManager:
                 _logger.exception(
                     "job.unexpected_error", job_id=job_id,
                 )
+
+            finally:
+                # Stop observer co-task regardless of outcome
+                await self._stop_observer(job_id)
 
     async def _run_job_task(self, job_id: str, request: JobRequest) -> None:
         """Task coroutine that runs a single job.
@@ -1004,6 +1114,11 @@ class JobManager:
                             t, _logger, "registry.update_failed",
                         ),
                     )
+
+            # TTL-based snapshot cleanup (runs synchronously, fast)
+            self._snapshot_manager.cleanup(
+                max_age_hours=self._config.observer.snapshot_ttl_hours,
+            )
 
             self._prune_job_history()
         except (KeyError, OSError, RuntimeError):

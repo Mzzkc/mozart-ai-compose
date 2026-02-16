@@ -59,6 +59,11 @@ class JobRecord:
     started_at: float | None = None
     completed_at: float | None = None
     error_message: str | None = None
+    current_sheet: int | None = None
+    total_sheets: int | None = None
+    last_event_at: float | None = None
+    log_path: str | None = None
+    snapshot_path: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize for JSON-RPC responses."""
@@ -71,9 +76,15 @@ class JobRecord:
             "submitted_at": self.submitted_at,
             "started_at": self.started_at,
             "completed_at": self.completed_at,
+            "current_sheet": self.current_sheet,
+            "total_sheets": self.total_sheets,
         }
         if self.error_message:
             result["error_message"] = self.error_message
+        if self.log_path:
+            result["log_path"] = self.log_path
+        if self.snapshot_path:
+            result["snapshot_path"] = self.snapshot_path
         return result
 
 
@@ -136,7 +147,12 @@ class JobRegistry:
                 submitted_at REAL NOT NULL,
                 started_at REAL,
                 completed_at REAL,
-                error_message TEXT
+                error_message TEXT,
+                current_sheet INTEGER,
+                total_sheets INTEGER,
+                last_event_at REAL,
+                log_path TEXT,
+                snapshot_path TEXT
             )
         """)
         await conn.execute("""
@@ -147,7 +163,26 @@ class JobRegistry:
             CREATE INDEX IF NOT EXISTS idx_jobs_submitted
             ON jobs (submitted_at DESC)
         """)
+        await JobRegistry._migrate_schema(conn)
         await conn.commit()
+
+    @staticmethod
+    async def _migrate_schema(conn: aiosqlite.Connection) -> None:
+        """Add columns that may be missing from older databases."""
+        new_columns = [
+            ("current_sheet", "INTEGER"),
+            ("total_sheets", "INTEGER"),
+            ("last_event_at", "REAL"),
+            ("log_path", "TEXT"),
+            ("snapshot_path", "TEXT"),
+        ]
+        for col_name, col_type in new_columns:
+            try:
+                await conn.execute(
+                    f"ALTER TABLE jobs ADD COLUMN {col_name} {col_type}"
+                )
+            except Exception:
+                _logger.debug("registry.migrate_column_exists", column=col_name, exc_info=True)
 
     async def register_job(
         self,
@@ -173,6 +208,7 @@ class JobRegistry:
         *,
         pid: int | None = None,
         error_message: str | None = None,
+        snapshot_path: str | None = None,
     ) -> None:
         """Update a job's status and optional fields."""
         updates = ["status = ?"]
@@ -194,10 +230,28 @@ class JobRegistry:
             updates.append("error_message = ?")
             params.append(error_message)
 
+        if snapshot_path is not None:
+            updates.append("snapshot_path = ?")
+            params.append(snapshot_path)
+
         params.append(job_id)
         await self._db.execute(
             f"UPDATE jobs SET {', '.join(updates)} WHERE job_id = ?",
             params,
+        )
+        await self._db.commit()
+
+    async def update_progress(
+        self,
+        job_id: str,
+        current_sheet: int,
+        total_sheets: int,
+    ) -> None:
+        """Update per-sheet progress counters for a running job."""
+        await self._db.execute(
+            "UPDATE jobs SET current_sheet = ?, total_sheets = ?, "
+            "last_event_at = ? WHERE job_id = ?",
+            (current_sheet, total_sheets, time.time(), job_id),
         )
         await self._db.commit()
 
@@ -335,4 +389,9 @@ class JobRegistry:
             started_at=row["started_at"],
             completed_at=row["completed_at"],
             error_message=row["error_message"],
+            current_sheet=row["current_sheet"],
+            total_sheets=row["total_sheets"],
+            last_event_at=row["last_event_at"],
+            log_path=row["log_path"],
+            snapshot_path=row["snapshot_path"],
         )

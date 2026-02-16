@@ -541,3 +541,151 @@ class TestDefenseInDepth:
         assert should_fire_hooks_old is False, (
             "Non-fresh run of completed job must block hooks to prevent infinite loop"
         )
+
+
+# =========================================================================
+# _execute_post_success_hooks direct tests (Q022: coverage gap)
+# =========================================================================
+
+
+class TestExecutePostSuccessHooksDirect:
+    """Tests for LifecycleMixin._execute_post_success_hooks.
+
+    Q022: Concert/nested execution 0% coverage. These tests exercise the
+    actual method rather than mocking it away, covering the summary update
+    logic and concert_context=None behavior.
+    """
+
+    @pytest.mark.asyncio
+    async def test_no_hooks_returns_early(self, tmp_path: Path) -> None:
+        """Method returns immediately when on_success is empty."""
+        from mozart.execution.runner import JobRunner, RunnerContext
+
+        config = JobConfig.model_validate({
+            "name": "no-hooks",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 1, "total_items": 1},
+            "prompt": {"template": "test {{ sheet_num }}"},
+            "workspace": str(tmp_path / "ws"),
+        })
+
+        runner = JobRunner(
+            config=config,
+            backend=AsyncMock(),
+            state_backend=AsyncMock(),
+            context=RunnerContext(console=MagicMock()),
+        )
+
+        state = CheckpointState(
+            job_id="no-hooks", job_name="no-hooks", total_sheets=1
+        )
+        state.status = JobStatus.COMPLETED
+
+        # Should not raise
+        await runner._execute_post_success_hooks(state)
+
+    @pytest.mark.asyncio
+    async def test_hooks_update_summary(self, tmp_path: Path) -> None:
+        """Hook execution results are reflected in the run summary."""
+        from mozart.execution.hooks import HookResult
+        from mozart.execution.runner import JobRunner, RunnerContext
+        from mozart.execution.runner.models import RunSummary
+
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+
+        config = JobConfig.model_validate({
+            "name": "summary-hooks",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 1, "total_items": 1},
+            "prompt": {"template": "test {{ sheet_num }}"},
+            "workspace": str(workspace),
+            "on_success": [
+                {"type": "run_command", "command": "echo ok"},
+                {"type": "run_command", "command": "false"},
+            ],
+        })
+
+        runner = JobRunner(
+            config=config,
+            backend=AsyncMock(),
+            state_backend=AsyncMock(),
+            context=RunnerContext(console=MagicMock()),
+        )
+
+        # Pre-populate summary to test update path
+        runner._summary = RunSummary(
+            job_id="summary-hooks",
+            job_name="summary-hooks",
+            total_sheets=1,
+            completed_sheets=1,
+        )
+
+        state = CheckpointState(
+            job_id="summary-hooks", job_name="summary-hooks", total_sheets=1
+        )
+        state.status = JobStatus.COMPLETED
+
+        # Mock HookExecutor to return controlled results
+        mock_results = [
+            HookResult(hook_type="run_command", description="echo", success=True),
+            HookResult(hook_type="run_command", description="false", success=False),
+        ]
+        with patch(
+            "mozart.execution.runner.lifecycle.HookExecutor"
+        ) as MockExecutorClass:
+            mock_executor = AsyncMock()
+            mock_executor.execute_hooks = AsyncMock(return_value=mock_results)
+            MockExecutorClass.return_value = mock_executor
+
+            await runner._execute_post_success_hooks(state)
+
+        assert runner._summary.hooks_executed == 2
+        assert runner._summary.hooks_succeeded == 1
+        assert runner._summary.hooks_failed == 1
+        assert runner._summary.hook_results == mock_results
+
+    @pytest.mark.asyncio
+    async def test_concert_context_is_none(self, tmp_path: Path) -> None:
+        """Verify concert_context=None is passed to HookExecutor (TODO #37)."""
+        from mozart.execution.runner import JobRunner, RunnerContext
+
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+
+        config = JobConfig.model_validate({
+            "name": "concert-test",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 1, "total_items": 1},
+            "prompt": {"template": "test {{ sheet_num }}"},
+            "workspace": str(workspace),
+            "on_success": [
+                {"type": "run_command", "command": "echo ok"},
+            ],
+        })
+
+        runner = JobRunner(
+            config=config,
+            backend=AsyncMock(),
+            state_backend=AsyncMock(),
+            context=RunnerContext(console=MagicMock()),
+        )
+
+        state = CheckpointState(
+            job_id="concert-test", job_name="concert-test", total_sheets=1
+        )
+        state.status = JobStatus.COMPLETED
+
+        with patch(
+            "mozart.execution.runner.lifecycle.HookExecutor"
+        ) as MockExecutorClass:
+            mock_executor = AsyncMock()
+            mock_executor.execute_hooks = AsyncMock(return_value=[])
+            MockExecutorClass.return_value = mock_executor
+
+            await runner._execute_post_success_hooks(state)
+
+            # Verify concert_context=None (TODO #37)
+            MockExecutorClass.assert_called_once()
+            call_kwargs = MockExecutorClass.call_args
+            assert call_kwargs.kwargs.get("concert_context") is None

@@ -534,6 +534,12 @@ class RunnerContext:
     RateLimitCoordinator receives live data for cross-job coordination.
     """
 
+    event_callback: Callable[[str, int, str, dict[str, Any] | None], Any] | None = None
+    """Async callback to notify daemon of runner lifecycle events.
+
+    Signature: (job_id, sheet_num, event, data) -> Awaitable[None].
+    """
+
     # Self-healing configuration (v11 Evolution: Self-Healing)
     self_healing_enabled: bool = False
     """Enable automatic diagnosis and remediation when retries are exhausted."""

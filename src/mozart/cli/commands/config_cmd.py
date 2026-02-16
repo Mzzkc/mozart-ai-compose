@@ -126,6 +126,7 @@ def _try_live_config() -> dict[str, Any] | None:
         try:
             return await client.config()
         except Exception:
+            _logger.debug("live config fetch failed", exc_info=True)
             return None
 
     return asyncio.run(_fetch())
@@ -163,7 +164,7 @@ def show(
             effective = DaemonConfig.model_validate(live_data)
             is_live = True
         except Exception:
-            _logger.debug("live config validation failed, falling back to disk", exc_info=True)
+            _logger.warning("live config validation failed, falling back to disk", exc_info=True)
 
     if is_live:
         source_label = "[bold green][live][/bold green] from running conductor"

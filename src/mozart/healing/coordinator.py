@@ -219,6 +219,12 @@ class SelfHealingCoordinator:
         # Find applicable remedies
         applicable = self.registry.find_applicable(context)
 
+        # Surface any remedy diagnosis crashes so the report doesn't mislead
+        for remedy_name, error_msg in getattr(self.registry, "diagnosis_errors", []):
+            report.actions_skipped.append(
+                (remedy_name, f"Diagnosis crashed: {error_msg}")
+            )
+
         for remedy, diagnosis in applicable:
             report.diagnoses.append(diagnosis)
 

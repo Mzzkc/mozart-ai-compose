@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -308,21 +309,30 @@ class HttpxClientMixin:
         import httpx as _httpx
 
         self._client = None
+        self._client_lock: asyncio.Lock | None = None
         self._httpx_base_url = base_url
         self._httpx_timeout = _httpx.Timeout(timeout, connect=connect_timeout)
         self._httpx_headers = headers or {}
 
     async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client with connection pooling."""
+        """Get or create HTTP client with connection pooling.
+
+        Uses an asyncio.Lock to prevent duplicate client creation when
+        multiple coroutines call this concurrently.
+        """
         import httpx as _httpx
 
-        if self._client is None or self._client.is_closed:
-            self._client = _httpx.AsyncClient(
-                base_url=self._httpx_base_url,
-                timeout=self._httpx_timeout,
-                headers=self._httpx_headers if self._httpx_headers else None,
-            )
-        return self._client
+        if self._client_lock is None:
+            self._client_lock = asyncio.Lock()
+
+        async with self._client_lock:
+            if self._client is None or self._client.is_closed:
+                self._client = _httpx.AsyncClient(
+                    base_url=self._httpx_base_url,
+                    timeout=self._httpx_timeout,
+                    headers=self._httpx_headers if self._httpx_headers else None,
+                )
+            return self._client
 
     async def _close_httpx_client(self) -> None:
         """Close the HTTP client if open."""
