@@ -42,8 +42,11 @@ Orchestration tool for Claude AI sessions — define multi-stage workflows as YA
 ### Learning & Internals
 
 - [**Distributed Learning Architecture**](DISTRIBUTED-LEARNING-ARCHITECTURE.md) — Cross-job pattern learning system
-- [**Opus Convergence Analysis**](OPUS-CONVERGENCE-ANALYSIS.md) — Claude Opus 4.6 behavior analysis
-- [**Token Compression Strategies**](TOKEN-COMPRESSION-STRATEGIES.md) — Optimizing score context size
+
+### Research (Internal)
+
+- [**Token Compression Strategies**](research/TOKEN-COMPRESSION-STRATEGIES.md) — Research into reducing token costs (not yet implemented)
+- [**Opus Convergence Analysis**](research/OPUS-CONVERGENCE-ANALYSIS.md) — Meta-analysis comparing Mozart and RLF evolution patterns
 
 ### Examples
 
