@@ -631,52 +631,90 @@ Focus on completing the missing items. Do not start over from scratch."""
         """Format a single validation result using legacy type-based formatting.
 
         Called when semantic failure info (failure_category/failure_reason) is not
-        available. Formats based on rule.type for backwards compatibility.
+        available. Uses per-type formatters for readability.
         """
         expanded_path = result.expected_value or result.actual_value
+        fmt = _LEGACY_FORMATTERS.get(rule.type)
+        if fmt is not None:
+            fmt(lines, index, desc, result, rule, expanded_path)
 
-        if rule.type == "file_exists":
-            lines.append(f"  {index}. [MISSING] {desc}")
-            if expanded_path:
-                lines.append(f"     Expected file: {expanded_path}")
-                lines.append("     Action: Create this file with the required content")
 
-        elif rule.type == "file_modified":
-            lines.append(f"  {index}. [NOT UPDATED] {desc}")
-            actual_path = None
-            if result.error_message and ":" in result.error_message:
-                actual_path = result.error_message.split(": ", 1)[-1]
-            display_path = actual_path or expanded_path or rule.path
-            if display_path:
-                lines.append(f"     File needs modification: {display_path}")
-                lines.append(
-                    "     Action: You MUST append/write new content to this file."
-                )
+def _fmt_file_exists(
+    lines: list[str], index: int, desc: str,
+    result: "ValidationResult", rule: "ValidationRule",
+    expanded_path: str | None,
+) -> None:
+    lines.append(f"  {index}. [MISSING] {desc}")
+    if expanded_path:
+        lines.append(f"     Expected file: {expanded_path}")
+        lines.append("     Action: Create this file with the required content")
 
-        elif rule.type == "content_contains":
-            lines.append(f"  {index}. [CONTENT MISSING] {desc}")
-            if rule.pattern:
-                lines.append(f"     Required text: {rule.pattern}")
-            if expanded_path:
-                lines.append(f"     In file: {expanded_path}")
-            lines.append("     Action: Add the required content to the file")
 
-        elif rule.type == "content_regex":
-            lines.append(f"  {index}. [PATTERN NOT MATCHED] {desc}")
-            if rule.pattern:
-                lines.append(f"     Required pattern: {rule.pattern}")
-            if expanded_path:
-                lines.append(f"     In file: {expanded_path}")
-            lines.append("     Action: Ensure file content matches the pattern")
+def _fmt_file_modified(
+    lines: list[str], index: int, desc: str,
+    result: "ValidationResult", rule: "ValidationRule",
+    expanded_path: str | None,
+) -> None:
+    lines.append(f"  {index}. [NOT UPDATED] {desc}")
+    actual_path = None
+    if result.error_message and ":" in result.error_message:
+        actual_path = result.error_message.split(": ", 1)[-1]
+    display_path = actual_path or expanded_path or rule.path
+    if display_path:
+        lines.append(f"     File needs modification: {display_path}")
+        lines.append(
+            "     Action: You MUST append/write new content to this file."
+        )
 
-        elif rule.type == "command_succeeds":
-            lines.append(f"  {index}. [COMMAND FAILED] {desc}")
-            if result.error_message:
-                err_summary = result.error_message[:200]
-                if len(result.error_message) > 200:
-                    err_summary += "..."
-                lines.append(f"     Error: {err_summary}")
-            lines.append("     Action: Fix the command errors")
+
+def _fmt_content_contains(
+    lines: list[str], index: int, desc: str,
+    result: "ValidationResult", rule: "ValidationRule",
+    expanded_path: str | None,
+) -> None:
+    lines.append(f"  {index}. [CONTENT MISSING] {desc}")
+    if rule.pattern:
+        lines.append(f"     Required text: {rule.pattern}")
+    if expanded_path:
+        lines.append(f"     In file: {expanded_path}")
+    lines.append("     Action: Add the required content to the file")
+
+
+def _fmt_content_regex(
+    lines: list[str], index: int, desc: str,
+    result: "ValidationResult", rule: "ValidationRule",
+    expanded_path: str | None,
+) -> None:
+    lines.append(f"  {index}. [PATTERN NOT MATCHED] {desc}")
+    if rule.pattern:
+        lines.append(f"     Required pattern: {rule.pattern}")
+    if expanded_path:
+        lines.append(f"     In file: {expanded_path}")
+    lines.append("     Action: Ensure file content matches the pattern")
+
+
+def _fmt_command_succeeds(
+    lines: list[str], index: int, desc: str,
+    result: "ValidationResult", rule: "ValidationRule",
+    expanded_path: str | None,
+) -> None:
+    lines.append(f"  {index}. [COMMAND FAILED] {desc}")
+    if result.error_message:
+        err_summary = result.error_message[:200]
+        if len(result.error_message) > 200:
+            err_summary += "..."
+        lines.append(f"     Error: {err_summary}")
+    lines.append("     Action: Fix the command errors")
+
+
+# Dispatch table for legacy validation formatters — avoids nested if/elif chain.
+_LEGACY_FORMATTERS = {
+    "file_exists": _fmt_file_exists,
+    "file_modified": _fmt_file_modified,
+    "content_contains": _fmt_content_contains,
+    "content_regex": _fmt_content_regex,
+    "command_succeeds": _fmt_command_succeeds,
+}
 
 
 def build_sheet_prompt_simple(

@@ -73,10 +73,12 @@ class JsonStateBackend(StateBackend):
                 data = json.load(f)
             state = CheckpointState.model_validate(data)
 
-            # Check for zombie state and auto-recover
+            # Detect zombie state (running but process dead) without saving.
+            # Callers that need persistence (e.g. runner lifecycle) save
+            # explicitly — load() remains read-only for dashboard/CLI callers.
             if state.is_zombie():
                 _logger.warning(
-                    "zombie_auto_recovery",
+                    "zombie_detected_on_load",
                     job_id=job_id,
                     pid=state.pid,
                     status=state.status.value,
@@ -84,8 +86,6 @@ class JsonStateBackend(StateBackend):
                 state.mark_zombie_detected(
                     reason="Detected on state load - process no longer running"
                 )
-                # Save the recovered state
-                await self.save(state)
 
             _logger.debug(
                 "checkpoint_loaded",
@@ -95,32 +95,19 @@ class JsonStateBackend(StateBackend):
                 total_sheets=state.total_sheets,
             )
             return state
-        except json.JSONDecodeError as e:
+        except (json.JSONDecodeError, ValueError) as e:
+            error_type = "json_decode" if isinstance(e, json.JSONDecodeError) else "validation"
             _logger.error(
                 "checkpoint_corruption_detected",
                 job_id=job_id,
                 path=str(state_file),
-                error_type="json_decode",
+                error_type=error_type,
                 error=str(e),
             )
             raise StateCorruptionError(
                 job_id=job_id,
                 path=str(state_file),
-                error_type="json_decode",
-                detail=str(e),
-            ) from e
-        except ValueError as e:
-            _logger.error(
-                "checkpoint_corruption_detected",
-                job_id=job_id,
-                path=str(state_file),
-                error_type="validation",
-                error=str(e),
-            )
-            raise StateCorruptionError(
-                job_id=job_id,
-                path=str(state_file),
-                error_type="validation",
+                error_type=error_type,
                 detail=str(e),
             ) from e
 

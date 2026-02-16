@@ -248,19 +248,23 @@ class OllamaBackend(HttpxClientMixin, Backend):
 
             # Get tools if MCP proxy is available
             tools: list[OllamaToolDef] = []
+            mcp_degraded: str | None = None
             if self.mcp_proxy:
                 try:
                     mcp_tools = await self.mcp_proxy.list_tools()
                     tools = self._translate_tools_to_ollama(mcp_tools)
                     _logger.debug("tools_loaded", tool_count=len(tools))
                 except Exception as e:
+                    mcp_degraded = (
+                        f"[MCP DEGRADED] Tool loading failed ({type(e).__name__}: {e}); "
+                        "running in non-agentic mode. "
+                        "Check MCP server connectivity and configuration."
+                    )
                     _logger.warning(
                         "mcp_tool_load_failed.falling_back_to_non_agentic",
                         error=str(e),
                         error_type=type(e).__name__,
-                        hint="MCP proxy configured but tool loading failed; "
-                             "running in non-agentic mode (no tool calls). "
-                             "Check MCP server connectivity and configuration.",
+                        hint=mcp_degraded,
                     )
 
             # Run agentic loop if tools available, else simple completion
@@ -273,6 +277,15 @@ class OllamaBackend(HttpxClientMixin, Backend):
             result.duration_seconds = duration
             result.started_at = started_at
             result.model = self.model
+
+            # Surface MCP degradation in result so callers can detect it
+            if mcp_degraded:
+                result.stderr = (
+                    f"{result.stderr}\n{mcp_degraded}" if result.stderr
+                    else mcp_degraded
+                )
+                if not result.error_message:
+                    result.error_message = mcp_degraded
 
             _logger.info(
                 "ollama_execute_complete",
@@ -580,7 +593,7 @@ class OllamaBackend(HttpxClientMixin, Backend):
             List of parsed ToolCall objects
         """
         tool_calls = []
-        for raw in raw_calls:
+        for idx, raw in enumerate(raw_calls):
             try:
                 # Ollama uses function.name/arguments format
                 func = raw.get("function", {})
@@ -601,6 +614,7 @@ class OllamaBackend(HttpxClientMixin, Backend):
                             _logger.warning(
                                 "tool_call_skipped_empty_args",
                                 tool_name=name,
+                                index=idx,
                             )
                             continue
 
@@ -610,7 +624,9 @@ class OllamaBackend(HttpxClientMixin, Backend):
                 tool_calls.append(ToolCall(id=call_id, name=name, arguments=args))
 
             except Exception as e:
-                _logger.warning("tool_call_parse_error", error=str(e), raw=str(raw))
+                _logger.warning(
+                    "tool_call_parse_error", error=str(e), index=idx, raw=str(raw),
+                )
 
         return tool_calls
 

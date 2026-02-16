@@ -26,6 +26,7 @@ Architecture:
 
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 import time
 from pathlib import Path
@@ -759,11 +760,12 @@ class LifecycleMixin:
                     pass
             return None
         except Exception as e:
-            self._logger.warning(
+            self._logger.error(
                 "skip_when_command_error",
                 sheet_num=sheet_num,
                 command=command,
                 error=str(e),
+                exc_info=True,
             )
             return None
 
@@ -809,6 +811,19 @@ class LifecycleMixin:
 
             try:
                 await self._execute_sheet_with_recovery(state, next_sheet)
+            except asyncio.CancelledError:
+                # Roll back in-progress sheet so it can be resumed later
+                sheet_state = state.sheets.get(next_sheet)
+                if sheet_state and sheet_state.status == SheetStatus.IN_PROGRESS:
+                    sheet_state.status = SheetStatus.PENDING
+                state.mark_job_paused()
+                await self.state_backend.save(state)
+                self._logger.warning(
+                    "job.cancelled",
+                    job_id=state.job_id,
+                    sheet_num=next_sheet,
+                )
+                raise
             except FatalError as e:
                 state.mark_job_failed(str(e))
                 await self.state_backend.save(state)
@@ -935,11 +950,11 @@ class LifecycleMixin:
             # Synthesize batch outputs (v18 evolution: Result Synthesizer)
             await self._synthesize_batch_outputs(result, state)
 
-            # Save state after batch completion (fix: parallel batches weren't persisting)
-            # This ensures completed sheets are recorded even if later batches fail
-            # or the job is interrupted. Individual sheets also save, but this provides
-            # a batch-level checkpoint for resilience.
-            if result.completed:
+            # Save state after every batch (fix: failed-only batches weren't persisting)
+            # This ensures both completed and failed sheets are recorded even if later
+            # batches fail or the job is interrupted. Individual sheets also save, but
+            # this provides a batch-level checkpoint for resilience.
+            if result.completed or result.failed:
                 await self.state_backend.save(state)
                 self._logger.debug(
                     "parallel.batch_state_saved",

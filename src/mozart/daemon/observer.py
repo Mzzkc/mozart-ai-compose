@@ -54,6 +54,7 @@ class JobObserver:
         self._fs_task: asyncio.Task[None] | None = None
         self._proc_task: asyncio.Task[None] | None = None
         self._running = False
+        self._start_lock = asyncio.Lock()
 
     @property
     def running(self) -> bool:
@@ -62,10 +63,11 @@ class JobObserver:
 
     async def start(self) -> None:
         """Start filesystem and process monitoring tasks."""
-        if self._running:
-            return
-        self._running = True
-        self._stop_event.clear()
+        async with self._start_lock:
+            if self._running:
+                return
+            self._running = True
+            self._stop_event.clear()
 
         self._fs_task = asyncio.create_task(
             self._watch_filesystem(),
@@ -113,47 +115,75 @@ class JobObserver:
 
     # ── Filesystem monitoring ──────────────────────────────────────────
 
+    _FS_WATCH_MAX_RETRIES = 3
+    _FS_WATCH_BASE_DELAY = 2.0  # seconds, doubled each retry
+
     async def _watch_filesystem(self) -> None:
-        """Watch workspace for file changes using watchfiles."""
+        """Watch workspace for file changes using watchfiles.
+
+        Retries with exponential backoff on transient errors so that a
+        temporary filesystem hiccup doesn't permanently kill monitoring.
+        """
         try:
             import watchfiles
-
-            event_map = {
-                watchfiles.Change.added: "observer.file_created",
-                watchfiles.Change.modified: "observer.file_modified",
-                watchfiles.Change.deleted: "observer.file_deleted",
-            }
-
-            async for changes in watchfiles.awatch(
-                self._workspace,
-                stop_event=self._stop_event,
-                step=int(self._watch_interval * 1000),
-            ):
-                if not self._running:
-                    break
-                for change_type, path_str in changes:
-                    try:
-                        rel_path = str(Path(path_str).relative_to(self._workspace))
-                    except ValueError:
-                        rel_path = path_str
-
-                    event_name = event_map.get(change_type, "observer.file_changed")
-                    await self._publish(event_name, {"path": rel_path})
-
-        except asyncio.CancelledError:
-            return
         except ImportError:
             _logger.warning(
                 "observer.watchfiles_unavailable",
                 job_id=self._job_id,
                 message="watchfiles not installed — filesystem monitoring disabled",
             )
-        except Exception:
-            _logger.warning(
-                "observer.fs_watch_error",
-                job_id=self._job_id,
-                exc_info=True,
-            )
+            return
+
+        event_map = {
+            watchfiles.Change.added: "observer.file_created",
+            watchfiles.Change.modified: "observer.file_modified",
+            watchfiles.Change.deleted: "observer.file_deleted",
+        }
+
+        retries = 0
+        while self._running:
+            try:
+                async for changes in watchfiles.awatch(
+                    self._workspace,
+                    stop_event=self._stop_event,
+                    step=int(self._watch_interval * 1000),
+                ):
+                    if not self._running:
+                        return
+                    retries = 0  # reset on successful iteration
+                    for change_type, path_str in changes:
+                        try:
+                            rel_path = str(Path(path_str).relative_to(self._workspace))
+                        except ValueError:
+                            rel_path = path_str
+
+                        event_name = event_map.get(change_type, "observer.file_changed")
+                        await self._publish(event_name, {"path": rel_path})
+                # awatch iterator exhausted normally (stop_event set)
+                return
+
+            except asyncio.CancelledError:
+                return
+            except Exception:
+                retries += 1
+                if retries >= self._FS_WATCH_MAX_RETRIES:
+                    _logger.error(
+                        "observer.fs_watch_retries_exhausted",
+                        job_id=self._job_id,
+                        retries=retries,
+                        exc_info=True,
+                    )
+                    return
+                delay = self._FS_WATCH_BASE_DELAY * (2 ** (retries - 1))
+                _logger.warning(
+                    "observer.fs_watch_error_retrying",
+                    job_id=self._job_id,
+                    retry=retries,
+                    max_retries=self._FS_WATCH_MAX_RETRIES,
+                    backoff_seconds=delay,
+                    exc_info=True,
+                )
+                await asyncio.sleep(delay)
 
     # ── Process tree monitoring ────────────────────────────────────────
 

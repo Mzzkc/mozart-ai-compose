@@ -19,6 +19,9 @@ from mozart.state.base import StateBackend
 
 logger = logging.getLogger(__name__)
 
+# Content type constant to avoid magic string repetition
+_CONTENT_TYPE_JSON = "application/json"
+
 
 class ConfigResources:
     """Mozart configuration resources.
@@ -43,7 +46,7 @@ class ConfigResources:
                 "uri": "config://schema",
                 "name": "Mozart Configuration Schema",
                 "description": "Complete JSON schema for Mozart job configuration files",
-                "mimeType": "application/json"
+                "mimeType": _CONTENT_TYPE_JSON
             },
             {
                 "uri": "config://example",
@@ -55,32 +58,32 @@ class ConfigResources:
                 "uri": "config://backend-options",
                 "name": "Backend Configuration Options",
                 "description": "Available backend types and their configuration options",
-                "mimeType": "application/json"
+                "mimeType": _CONTENT_TYPE_JSON
             },
             {
                 "uri": "config://validation-types",
                 "name": "Validation Types Reference",
                 "description": "Available validation types and their parameters",
-                "mimeType": "application/json"
+                "mimeType": _CONTENT_TYPE_JSON
             },
             {
                 "uri": "config://learning-options",
                 "name": "Learning Configuration Options",
                 "description": "Learning system configuration parameters and patterns",
-                "mimeType": "application/json"
+                "mimeType": _CONTENT_TYPE_JSON
             },
             # Job management resources
             {
                 "uri": "mozart://jobs",
                 "name": "Mozart Jobs Overview",
                 "description": "List of all Mozart jobs with status and metadata",
-                "mimeType": "application/json"
+                "mimeType": _CONTENT_TYPE_JSON
             },
             {
                 "uri": "mozart://templates",
                 "name": "Mozart Job Templates",
                 "description": "Collection of Mozart job configuration templates",
-                "mimeType": "application/json"
+                "mimeType": _CONTENT_TYPE_JSON
             }
         ]
 
@@ -90,7 +93,7 @@ class ConfigResources:
                 "uri": "mozart://jobs/{job_id}",
                 "name": "Mozart Job Details (Template)",
                 "description": "Detailed information about a specific Mozart job",
-                "mimeType": "application/json"
+                "mimeType": _CONTENT_TYPE_JSON
             })
 
         return resources
@@ -138,17 +141,7 @@ class ConfigResources:
         Uses JobConfig.model_json_schema() to generate a schema that stays
         in sync with the actual Pydantic models, avoiding manual drift.
         """
-        schema = JobConfig.model_json_schema()
-
-        return {
-            "contents": [
-                {
-                    "uri": "config://schema",
-                    "mimeType": "application/json",
-                    "text": json.dumps(schema, indent=2)
-                }
-            ]
-        }
+        return self._mcp_json_content("config://schema", JobConfig.model_json_schema())
 
     async def _get_config_example(self) -> dict[str, Any]:
         """Get example Mozart configuration."""
@@ -270,15 +263,7 @@ notifications:
             }
         }
 
-        return {
-            "contents": [
-                {
-                    "uri": "config://backend-options",
-                    "mimeType": "application/json",
-                    "text": json.dumps(backend_options, indent=2)
-                }
-            ]
-        }
+        return self._mcp_json_content("config://backend-options", backend_options)
 
     async def _get_validation_types(self) -> dict[str, Any]:
         """Get validation types reference."""
@@ -356,15 +341,7 @@ notifications:
             }
         }
 
-        return {
-            "contents": [
-                {
-                    "uri": "config://validation-types",
-                    "mimeType": "application/json",
-                    "text": json.dumps(validation_types, indent=2)
-                }
-            ]
-        }
+        return self._mcp_json_content("config://validation-types", validation_types)
 
     async def _get_learning_options(self) -> dict[str, Any]:
         """Get learning configuration options."""
@@ -411,15 +388,7 @@ notifications:
             ]
         }
 
-        return {
-            "contents": [
-                {
-                    "uri": "config://learning-options",
-                    "mimeType": "application/json",
-                    "text": json.dumps(learning_options, indent=2)
-                }
-            ]
-        }
+        return self._mcp_json_content("config://learning-options", learning_options)
 
     # Mapping from job status value to summary counter key
     _STATUS_COUNTER_KEYS: dict[str, str] = {
@@ -432,18 +401,10 @@ notifications:
     async def _get_jobs_overview(self) -> dict[str, Any]:
         """Get overview of all Mozart jobs."""
         if not self.state_backend:
-            return {
-                "contents": [
-                    {
-                        "uri": "mozart://jobs",
-                        "mimeType": "application/json",
-                        "text": json.dumps({
-                            "error": "Jobs overview requires state backend initialization",
-                            "note": "Configure MCP server with workspace_root to enable job listing"
-                        }, indent=2)
-                    }
-                ]
-            }
+            return self._mcp_json_content("mozart://jobs", {
+                "error": "Jobs overview requires state backend initialization",
+                "note": "Configure MCP server with workspace_root to enable job listing",
+            })
 
         jobs_overview: dict[str, Any] = {
             "jobs": [],
@@ -454,7 +415,7 @@ notifications:
                 "failed_jobs": 0,
                 "paused_jobs": 0
             },
-            "last_updated": json.dumps(datetime.now().isoformat())
+            "last_updated": datetime.now().isoformat()
         }
 
         try:
@@ -472,15 +433,7 @@ notifications:
         except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as e:
             jobs_overview["error"] = f"Error scanning jobs: {str(e)}"
 
-        return {
-            "contents": [
-                {
-                    "uri": "mozart://jobs",
-                    "mimeType": "application/json",
-                    "text": json.dumps(jobs_overview, indent=2)
-                }
-            ]
-        }
+        return self._mcp_json_content("mozart://jobs", jobs_overview)
 
     async def _load_job_summary(self, job_id: str) -> dict[str, Any] | None:
         """Load a single job's summary from state backend.
@@ -517,7 +470,7 @@ notifications:
             "contents": [
                 {
                     "uri": uri,
-                    "mimeType": "application/json",
+                    "mimeType": _CONTENT_TYPE_JSON,
                     "text": json.dumps(data, indent=2),
                 }
             ]
@@ -602,15 +555,7 @@ notifications:
             "usage": _build_template_usage_guide(),
         }
 
-        return {
-            "contents": [
-                {
-                    "uri": "mozart://templates",
-                    "mimeType": "application/json",
-                    "text": json.dumps(templates, indent=2)
-                }
-            ]
-        }
+        return self._mcp_json_content("mozart://templates", templates)
 
 
 def _build_code_analysis_template() -> dict[str, Any]:

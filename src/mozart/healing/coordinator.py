@@ -11,9 +11,12 @@ Orchestrates the healing process:
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from mozart.core.logging import get_logger
 from mozart.healing.diagnosis import Diagnosis, DiagnosisEngine
 from mozart.healing.registry import RemedyRegistry
 from mozart.healing.remedies.base import RemedyCategory, RemedyResult
+
+_logger = get_logger("healing.coordinator")
 
 if TYPE_CHECKING:
     from mozart.healing.context import ErrorContext
@@ -243,7 +246,14 @@ class SelfHealingCoordinator:
                         (remedy.name, f"Dry run: would {preview}")
                     )
                 else:
+                    # remedy.apply() is synchronous — safe for fast I/O ops
                     result = remedy.apply(context)
+                    if not result.success:
+                        _logger.warning(
+                            "healing.remedy_failed",
+                            remedy=remedy.name,
+                            message=result.message,
+                        )
                     report.actions_taken.append((remedy.name, result))
 
             elif remedy.category == RemedyCategory.SUGGESTED:
@@ -256,6 +266,12 @@ class SelfHealingCoordinator:
                         )
                     else:
                         result = remedy.apply(context)
+                        if not result.success:
+                            _logger.warning(
+                                "healing.remedy_failed",
+                                remedy=remedy.name,
+                                message=result.message,
+                            )
                         report.actions_taken.append((remedy.name, result))
                 else:
                     report.actions_skipped.append(

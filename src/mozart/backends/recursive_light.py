@@ -221,36 +221,6 @@ class RecursiveLightBackend(HttpxClientMixin, Backend):
                 error_message=f"Timed out after {self.timeout}s",
             )
 
-        except httpx.HTTPStatusError as e:
-            duration = time.monotonic() - start_time
-            is_rate_limited = e.response.status_code == 429
-            if is_rate_limited:
-                _logger.warning(
-                    "rate_limit_error",
-                    duration_seconds=duration,
-                    status_code=e.response.status_code,
-                    endpoint=self.rl_endpoint,
-                )
-            else:
-                _logger.error(
-                    "http_status_error",
-                    duration_seconds=duration,
-                    status_code=e.response.status_code,
-                    endpoint=self.rl_endpoint,
-                    error_message=str(e),
-                )
-            return ExecutionResult(
-                success=False,
-                exit_code=e.response.status_code,
-                stdout="",
-                stderr=f"HTTP error: {e}",
-                duration_seconds=duration,
-                started_at=started_at,
-                error_type="http_error",
-                error_message=str(e),
-                rate_limited=is_rate_limited,
-            )
-
         except Exception as e:
             duration = time.monotonic() - start_time
             _logger.exception(

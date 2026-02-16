@@ -667,25 +667,7 @@ class SheetExecutionMixin:
                     raise
             return "continue"
 
-        # Record success in circuit breaker (Task 12)
-        if self._circuit_breaker is not None:
-            try:
-                await self._circuit_breaker.record_success()
-                # Persist CB state change for observability
-                cb_stats = await self._circuit_breaker.get_stats()
-                cb_state_val = (await self._circuit_breaker.get_state()).value
-                state.record_circuit_breaker_change(
-                    state=cb_state_val,
-                    trigger="success_recorded",
-                    consecutive_failures=cb_stats.consecutive_failures,
-                )
-            except Exception as e:
-                self._logger.warning(
-                    "circuit_breaker.success_record_failed",
-                    sheet_num=sheet_num,
-                    error=str(e),
-                    exc_info=True,
-                )
+        await self._record_circuit_breaker_success(state, sheet_num)
 
         execution_duration = time.monotonic() - execution_start_time
 
@@ -738,89 +720,18 @@ class SheetExecutionMixin:
 
         # ===== AUXILIARY: Learning store operations (non-critical) =====
         # These improve future runs but must not block state persistence.
-
-        # Record recovery outcome if we had a pending retry
-        if pending_recovery is not None and self._global_learning_store is not None:
-            try:
-                self._global_learning_store.record_error_recovery(
-                    error_code=pending_recovery["error_code"],
-                    suggested_wait=pending_recovery["suggested_wait"],
-                    actual_wait=pending_recovery["actual_wait"],
-                    recovery_success=True,
-                    model=self.config.backend.model,
-                )
-                self._logger.debug(
-                    "learning.recovery_recorded",
-                    sheet_num=sheet_num,
-                    error_code=pending_recovery["error_code"],
-                    actual_wait=pending_recovery["actual_wait"],
-                    recovery_success=True,
-                )
-            except (sqlite3.Error, OSError) as e:
-                self._logger.warning(
-                    "learning.recovery_record_failed",
-                    sheet_num=sheet_num,
-                    error=str(e),
-                )
-
-        # Record pattern feedback to global store (v9/v12/v22 Evolution)
-        prior_status = None
-        if sheet_num > 1 and (sheet_num - 1) in state.sheets:
-            prior_state = state.sheets[sheet_num - 1]
-            prior_status = prior_state.status.value if prior_state.status else None
-
-        validation_types_set = {
-            r.rule.type for r in validation_result.results if r.rule and r.rule.type
-        }
-        validation_types_list: list[str] | None = (
-            sorted(validation_types_set) if validation_types_set else None
+        await self._record_success_learning(
+            state=state,
+            sheet_num=sheet_num,
+            validation_result=validation_result,
+            grounding_ctx=grounding_ctx,
+            execution_duration=execution_duration,
+            normal_attempts=normal_attempts,
+            completion_attempts=completion_attempts,
+            success_without_retry=success_without_retry,
+            escalation_pending=escalation_pending,
+            pending_recovery=pending_recovery,
         )
-
-        try:
-            await self._record_pattern_feedback(
-                pattern_ids=self._applied_pattern_ids,
-                context=PatternFeedbackContext(
-                    validation_passed=True,
-                    success_without_retry=success_without_retry,
-                    sheet_num=sheet_num,
-                    grounding_confidence=(
-                        grounding_ctx.confidence
-                        if grounding_ctx.hooks_executed > 0
-                        else None
-                    ),
-                    validation_types=validation_types_list,
-                    prior_sheet_status=prior_status,
-                    retry_iteration=normal_attempts - 1 if normal_attempts > 0 else 0,
-                    escalation_was_pending=escalation_pending,
-                ),
-            )
-        except Exception as e:
-            self._logger.warning(
-                "learning.pattern_feedback_failed_post_save",
-                sheet_num=sheet_num,
-                error=str(e),
-                exc_info=True,
-            )
-
-        # Record outcome for learning if store is available
-        try:
-            await self._record_sheet_outcome(
-                sheet_num=sheet_num,
-                job_id=state.job_id,
-                validation_result=validation_result,
-                execution_duration=execution_duration,
-                normal_attempts=normal_attempts,
-                completion_attempts=completion_attempts,
-                success_without_retry=success_without_retry,
-                final_status=SheetStatus.COMPLETED,
-            )
-        except Exception as e:
-            self._logger.warning(
-                "learning.sheet_outcome_failed_post_save",
-                sheet_num=sheet_num,
-                error=str(e),
-                exc_info=True,
-            )
         self._logger.info(
             "sheet.completed",
             sheet_num=sheet_num,
@@ -1566,28 +1477,37 @@ class SheetExecutionMixin:
             sheet_timeout = self.config.backend.timeout_overrides.get(sheet_num)
 
             # Apply per-sheet backend overrides (GH#78)
+            # Lock protects the apply → execute → clear cycle against
+            # concurrent sheets stomping on each other's saved originals.
             sheet_override = self.config.backend.sheet_overrides.get(sheet_num)
+            override_params: dict[str, object] | None = None
             if sheet_override:
-                overrides = {
+                override_params = {
                     k: v
                     for k, v in sheet_override.model_dump().items()
                     if v is not None
                 }
                 # timeout from sheet_overrides takes precedence
-                if "timeout_seconds" in overrides:
-                    sheet_timeout = overrides.pop("timeout_seconds")
-                self.backend.apply_overrides(overrides)
+                if "timeout_seconds" in override_params:
+                    sheet_timeout = float(override_params.pop("timeout_seconds"))  # type: ignore[arg-type]
 
             self.console.print(
                 f"[blue]Sheet {sheet_num}: {current_mode.value} execution[/blue]"
             )
-            try:
+
+            if override_params:
+                async with self.backend.override_lock:
+                    self.backend.apply_overrides(override_params)
+                    try:
+                        result = await self._execute_with_stale_detection(
+                            current_prompt, timeout_seconds=sheet_timeout,
+                        )
+                    finally:
+                        self.backend.clear_overrides()
+            else:
                 result = await self._execute_with_stale_detection(
                     current_prompt, timeout_seconds=sheet_timeout,
                 )
-            finally:
-                if sheet_override:
-                    self.backend.clear_overrides()
 
             # Store execution progress snapshots in sheet state (Task 4)
             if self._execution_progress_snapshots:
@@ -2239,6 +2159,129 @@ class SheetExecutionMixin:
         else:
             return OutcomeCategory.SUCCESS_RETRY, False
 
+    async def _record_circuit_breaker_success(
+        self,
+        state: CheckpointState,
+        sheet_num: int,
+    ) -> None:
+        """Record a success event in the circuit breaker if enabled."""
+        if self._circuit_breaker is None:
+            return
+        try:
+            await self._circuit_breaker.record_success()
+            cb_stats = await self._circuit_breaker.get_stats()
+            cb_state_val = (await self._circuit_breaker.get_state()).value
+            state.record_circuit_breaker_change(
+                state=cb_state_val,
+                trigger="success_recorded",
+                consecutive_failures=cb_stats.consecutive_failures,
+            )
+        except Exception as e:
+            self._logger.warning(
+                "circuit_breaker.success_record_failed",
+                sheet_num=sheet_num,
+                error=str(e),
+                exc_info=True,
+            )
+
+    async def _record_success_learning(
+        self,
+        *,
+        state: CheckpointState,
+        sheet_num: int,
+        validation_result: SheetValidationResult,
+        grounding_ctx: GroundingDecisionContext,
+        execution_duration: float,
+        normal_attempts: int,
+        completion_attempts: int,
+        success_without_retry: bool,
+        escalation_pending: bool,
+        pending_recovery: dict[str, Any] | None,
+    ) -> None:
+        """Record auxiliary learning data after a successful sheet completion.
+
+        Called after the sheet is already marked completed and saved.
+        All operations here are non-critical — failures are logged but
+        do not affect sheet completion status.
+        """
+        # Record recovery outcome if we had a pending retry
+        if pending_recovery is not None and self._global_learning_store is not None:
+            try:
+                self._global_learning_store.record_error_recovery(
+                    error_code=pending_recovery["error_code"],
+                    suggested_wait=pending_recovery["suggested_wait"],
+                    actual_wait=pending_recovery["actual_wait"],
+                    recovery_success=True,
+                    model=self.config.backend.model,
+                )
+                self._logger.debug(
+                    "learning.recovery_recorded",
+                    sheet_num=sheet_num,
+                    error_code=pending_recovery["error_code"],
+                    actual_wait=pending_recovery["actual_wait"],
+                    recovery_success=True,
+                )
+            except (sqlite3.Error, OSError) as e:
+                self._logger.warning(
+                    "learning.recovery_record_failed",
+                    sheet_num=sheet_num,
+                    error=str(e),
+                )
+
+        # Record pattern feedback to global store
+        prior_sheet = state.sheets.get(sheet_num - 1) if sheet_num > 1 else None
+        prior_status = prior_sheet.status.value if prior_sheet and prior_sheet.status else None
+
+        validation_types: list[str] | None = sorted({
+            r.rule.type for r in validation_result.results if r.rule and r.rule.type
+        }) or None
+
+        try:
+            await self._record_pattern_feedback(
+                pattern_ids=self._applied_pattern_ids,
+                context=PatternFeedbackContext(
+                    validation_passed=True,
+                    success_without_retry=success_without_retry,
+                    sheet_num=sheet_num,
+                    grounding_confidence=(
+                        grounding_ctx.confidence
+                        if grounding_ctx.hooks_executed > 0
+                        else None
+                    ),
+                    validation_types=validation_types,
+                    prior_sheet_status=prior_status,
+                    retry_iteration=max(normal_attempts - 1, 0),
+                    escalation_was_pending=escalation_pending,
+                ),
+            )
+        except Exception as e:
+            self._logger.warning(
+                "learning.pattern_feedback_failed_post_save",
+                sheet_num=sheet_num,
+                error=str(e),
+                exc_info=True,
+            )
+
+        # Record outcome for learning if store is available
+        try:
+            await self._record_sheet_outcome(
+                sheet_num=sheet_num,
+                job_id=state.job_id,
+                validation_result=validation_result,
+                execution_duration=execution_duration,
+                normal_attempts=normal_attempts,
+                completion_attempts=completion_attempts,
+                success_without_retry=success_without_retry,
+                final_status=SheetStatus.COMPLETED,
+            )
+        except Exception as e:
+            self._logger.warning(
+                "learning.sheet_outcome_failed_post_save",
+                sheet_num=sheet_num,
+                error=str(e),
+                exc_info=True,
+            )
+
     # _classify_execution() and _classify_error() are provided by RecoveryMixin
 
     def _get_retry_delay(self, attempt: int) -> float:
@@ -2599,6 +2642,7 @@ class SheetExecutionMixin:
             self._logger.warning(
                 "auto_apply.check_failed",
                 error=str(e),
+                trust_threshold=trust_threshold,
                 exc_info=True,
             )
             return False

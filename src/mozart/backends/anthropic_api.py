@@ -8,6 +8,7 @@ SENSITIVE_PATTERNS to automatically redact fields containing 'api_key', 'token',
 'secret', etc.
 """
 
+import asyncio
 import os
 import time
 from pathlib import Path
@@ -64,6 +65,7 @@ class AnthropicApiBackend(Backend):
 
         # Create async client (lazily initialized in execute)
         self._client: anthropic.AsyncAnthropic | None = None
+        self._client_lock = asyncio.Lock()
 
         # Use shared ErrorClassifier for consistent error detection
         self._error_classifier = ErrorClassifier()
@@ -150,18 +152,23 @@ class AnthropicApiBackend(Backend):
         except OSError as e:
             _logger.warning("log_write_failed", path=str(log_path), error=str(e))
 
-    def _get_client(self) -> anthropic.AsyncAnthropic:
-        """Get or create the async Anthropic client."""
-        if self._client is None:
-            if not self._api_key:
-                raise RuntimeError(
-                    f"API key not found in environment variable: {self.api_key_env}"
+    async def _get_client(self) -> anthropic.AsyncAnthropic:
+        """Get or create the async Anthropic client.
+
+        Uses an asyncio.Lock to prevent concurrent coroutines from
+        creating duplicate clients (race on lazy initialization).
+        """
+        async with self._client_lock:
+            if self._client is None:
+                if not self._api_key:
+                    raise RuntimeError(
+                        f"API key not found in environment variable: {self.api_key_env}"
+                    )
+                self._client = anthropic.AsyncAnthropic(
+                    api_key=self._api_key,
+                    timeout=self.timeout_seconds,
                 )
-            self._client = anthropic.AsyncAnthropic(
-                api_key=self._api_key,
-                timeout=self.timeout_seconds,
-            )
-        return self._client
+            return self._client
 
     async def execute(
         self, prompt: str, *, timeout_seconds: float | None = None,
@@ -197,7 +204,7 @@ class AnthropicApiBackend(Backend):
         )
 
         try:
-            client = self._get_client()
+            client = await self._get_client()
 
             response = await client.messages.create(
                 model=self.model,
@@ -440,7 +447,7 @@ class AnthropicApiBackend(Backend):
             return False
 
         try:
-            client = self._get_client()
+            client = await self._get_client()
             # Minimal prompt to verify API access
             response = await client.messages.create(
                 model=self.model,
@@ -454,7 +461,11 @@ class AnthropicApiBackend(Backend):
             return False
 
     async def close(self) -> None:
-        """Close the async client connection."""
+        """Close the async client connection (idempotent)."""
         if self._client is not None:
-            await self._client.close()
+            client = self._client
             self._client = None
+            try:
+                await client.close()
+            except Exception:
+                _logger.debug("client_close_error", exc_info=True)

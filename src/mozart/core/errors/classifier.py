@@ -25,6 +25,9 @@ from .signals import FATAL_SIGNALS, RETRIABLE_SIGNALS, get_signal_name
 # Module-level logger for error classification
 _logger = get_logger("errors")
 
+# Log event name constant to avoid repetition across classify methods
+_EVT_ERROR_CLASSIFIED = "error_classified"
+
 
 # =============================================================================
 # Default pattern strings for ErrorClassifier.
@@ -315,7 +318,7 @@ class ErrorClassifier:
                 stderr=stderr,
             )
             _logger.warning(
-                "error_classified",
+                _EVT_ERROR_CLASSIFIED,
                 category=result.category.value,
                 error_code=result.error_code.value,
                 exit_signal=exit_signal,
@@ -339,7 +342,7 @@ class ErrorClassifier:
                 suggested_wait_seconds=60.0,
             )
             _logger.warning(
-                "error_classified",
+                _EVT_ERROR_CLASSIFIED,
                 category=result.category.value,
                 error_code=result.error_code.value,
                 exit_code=exit_code,
@@ -375,7 +378,7 @@ class ErrorClassifier:
             retriable=False,
         )
         _logger.warning(
-            "error_classified",
+            _EVT_ERROR_CLASSIFIED,
             category=result.category.value,
             error_code=result.error_code.value,
             exit_code=exit_code,
@@ -445,7 +448,7 @@ class ErrorClassifier:
                 suggested_wait_seconds=DEFAULT_RATE_LIMIT_WAIT_SECONDS,
             )
             _logger.warning(
-                "error_classified",
+                _EVT_ERROR_CLASSIFIED,
                 category=result.category.value,
                 error_code=result.error_code.value,
                 exit_code=exit_code,
@@ -488,7 +491,7 @@ class ErrorClassifier:
                     suggested_wait_seconds=wait_secs,
                 )
                 _logger.warning(
-                    "error_classified",
+                    _EVT_ERROR_CLASSIFIED,
                     category=result.category.value,
                     error_code=result.error_code.value,
                     exit_code=exit_code,
@@ -534,7 +537,7 @@ class ErrorClassifier:
                     suggested_wait_seconds=30.0,
                 )
                 _logger.warning(
-                    "error_classified",
+                    _EVT_ERROR_CLASSIFIED,
                     category=result.category.value,
                     error_code=result.error_code.value,
                     exit_code=exit_code,
@@ -597,7 +600,7 @@ class ErrorClassifier:
                     suggested_wait_seconds=None,
                 )
                 _logger.info(
-                    "error_classified",
+                    _EVT_ERROR_CLASSIFIED,
                     category=result.category.value,
                     error_code=result.error_code.value,
                     exit_code=exit_code,
@@ -638,7 +641,7 @@ class ErrorClassifier:
                 suggested_wait_seconds=suggested_wait,
             )
             _logger.warning(
-                "error_classified",
+                _EVT_ERROR_CLASSIFIED,
                 category=result.category.value,
                 error_code=result.error_code.value,
                 exit_code=exit_code,
@@ -660,7 +663,7 @@ class ErrorClassifier:
                 suggested_wait_seconds=60.0,
             )
             _logger.warning(
-                "error_classified",
+                _EVT_ERROR_CLASSIFIED,
                 category=result.category.value,
                 error_code=result.error_code.value,
                 exit_code=exit_code,
@@ -682,7 +685,7 @@ class ErrorClassifier:
                 retriable=False,
             )
             _logger.warning(
-                "error_classified",
+                _EVT_ERROR_CLASSIFIED,
                 category=result.category.value,
                 error_code=result.error_code.value,
                 exit_code=exit_code,

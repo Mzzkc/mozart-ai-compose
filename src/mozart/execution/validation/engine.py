@@ -255,6 +255,35 @@ class ValidationEngine:
         "eval ", "> /etc/", "| sh", "| bash",
     )
 
+    # Maps validation type → checker method name. `command_succeeds` is async.
+    _VALIDATION_DISPATCH: dict[str, str] = {
+        "file_exists": "_check_file_exists",
+        "file_modified": "_check_file_modified",
+        "content_contains": "_check_content_contains",
+        "content_regex": "_check_content_regex",
+        "command_succeeds": "_check_command_succeeds",
+    }
+
+    _ERROR_TYPE_MAP: dict[type, tuple[str, str]] = {
+        OSError: ("I/O error", "io_error"),
+        re.error: ("Regex error", "regex_error"),
+    }
+
+    async def _dispatch_validation(self, rule: ValidationRule) -> ValidationResult:
+        """Dispatch a validation rule to the appropriate checker method."""
+        method_name = self._VALIDATION_DISPATCH.get(rule.type)
+        if method_name is None:
+            return ValidationResult(
+                rule=rule,
+                passed=False,
+                error_message=f"Unknown validation type: {rule.type}",
+            )
+        method = getattr(self, method_name)
+        result = method(rule)
+        if asyncio.iscoroutine(result):
+            result = await result
+        return result  # type: ignore[no-any-return]
+
     async def _run_single_validation(self, rule: ValidationRule) -> ValidationResult:
         """Execute a single validation rule with optional retry logic."""
         start = time.monotonic()
@@ -270,62 +299,32 @@ class ValidationEngine:
 
         for attempt in range(max_attempts):
             try:
-                if rule.type == "file_exists":
-                    result = self._check_file_exists(rule)
-                elif rule.type == "file_modified":
-                    result = self._check_file_modified(rule)
-                elif rule.type == "content_contains":
-                    result = self._check_content_contains(rule)
-                elif rule.type == "content_regex":
-                    result = self._check_content_regex(rule)
-                elif rule.type == "command_succeeds":
-                    result = await self._check_command_succeeds(rule)
-                else:
-                    result = ValidationResult(
-                        rule=rule,
-                        passed=False,
-                        error_message=f"Unknown validation type: {rule.type}",
-                    )
+                result = await self._dispatch_validation(rule)
 
                 if result.passed:
                     result.check_duration_ms = (time.monotonic() - start) * 1000
                     return result
 
                 last_result = result
-
-                if attempt < max_attempts - 1:
-                    await asyncio.sleep(delay_seconds)
-
-            except OSError as e:
-                last_result = ValidationResult(
-                    rule=rule,
-                    passed=False,
-                    expected_value=rule.path or rule.pattern,
-                    error_message=f"I/O error: {e}",
-                    error_type="io_error",
-                )
-                if attempt < max_attempts - 1:
-                    await asyncio.sleep(delay_seconds)
-            except re.error as e:
-                last_result = ValidationResult(
-                    rule=rule,
-                    passed=False,
-                    expected_value=rule.path or rule.pattern,
-                    error_message=f"Regex error: {e}",
-                    error_type="regex_error",
-                )
-                if attempt < max_attempts - 1:
-                    await asyncio.sleep(delay_seconds)
             except Exception as e:
+                # Classify exception into a known error type, else internal_error
+                for exc_type, (label, error_type) in self._ERROR_TYPE_MAP.items():
+                    if isinstance(e, exc_type):
+                        msg, etype = f"{label}: {e}", error_type
+                        break
+                else:
+                    msg, etype = f"Validation error: {e}", "internal_error"
+
                 last_result = ValidationResult(
                     rule=rule,
                     passed=False,
                     expected_value=rule.path or rule.pattern,
-                    error_message=f"Validation error: {e}",
-                    error_type="internal_error",
+                    error_message=msg,
+                    error_type=etype,
                 )
-                if attempt < max_attempts - 1:
-                    await asyncio.sleep(delay_seconds)
+
+            if attempt < max_attempts - 1:
+                await asyncio.sleep(delay_seconds)
 
         if last_result:
             last_result.check_duration_ms = (time.monotonic() - start) * 1000

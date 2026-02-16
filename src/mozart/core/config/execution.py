@@ -147,6 +147,12 @@ class CircuitBreakerConfig(BaseModel):
         ),
     )
 
+    @model_validator(mode="after")
+    def _validate_cross_field(self) -> CircuitBreakerConfig:
+        if self.honor_other_jobs_rate_limits and not self.cross_workspace_coordination:
+            self.honor_other_jobs_rate_limits = False
+        return self
+
 
 class CostLimitConfig(BaseModel):
     """Configuration for cost tracking and limits.

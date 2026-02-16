@@ -68,6 +68,8 @@ class SocketConfig(BaseModel):
     )
     permissions: int = Field(
         default=0o660,
+        ge=0,
+        le=0o777,
         description="File permissions for the socket (octal). "
         "0o660 = owner+group read/write, no world access.",
     )

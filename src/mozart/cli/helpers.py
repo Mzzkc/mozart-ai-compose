@@ -257,6 +257,17 @@ def _find_job_workspace(job_id: str, hint: Path | None = None) -> Path | None:
     return None
 
 
+async def _close_backends(
+    backends: list[StateBackend],
+    *,
+    keep: StateBackend | None = None,
+) -> None:
+    """Close backends, optionally keeping one open."""
+    for backend in backends:
+        if backend is not keep:
+            await backend.close()
+
+
 async def _find_job_state_fs(
     job_id: str,
     workspace: Path | None,
@@ -285,6 +296,7 @@ async def _find_job_state_fs(
         try:
             job = await backend.load(job_id)
             if job:
+                await _close_backends(backends, keep=backend)
                 return job, backend
         except (OSError, ValueError, KeyError) as e:
             _logger.warning(
@@ -305,6 +317,7 @@ async def _find_job_state_fs(
             )
             continue
 
+    await _close_backends(backends)
     return None, None
 
 

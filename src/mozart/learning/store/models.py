@@ -10,7 +10,7 @@ Extracted from global_store.py as part of the modularization effort.
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 
 
 class QuarantineStatus(str, Enum):
@@ -236,6 +236,9 @@ class ErrorRecoveryRecord:
     model: str | None
     time_of_day: int  # Hour 0-23
 
+    def __post_init__(self) -> None:
+        self.time_of_day = max(0, min(23, self.time_of_day))
+
 
 @dataclass
 class RateLimitEvent:
@@ -252,6 +255,10 @@ class RateLimitEvent:
     expires_at: datetime
     source_job_hash: str
     duration_seconds: float
+
+    def __post_init__(self) -> None:
+        if self.expires_at < self.recorded_at:
+            self.expires_at = self.recorded_at
 
 
 @dataclass
@@ -295,6 +302,15 @@ class EscalationDecisionRecord:
 
     model: str | None = None
     """Model used for execution (if relevant)."""
+
+    _VALID_ACTIONS: ClassVar[frozenset[str]] = frozenset(
+        {"retry", "skip", "abort", "modify_prompt"}
+    )
+
+    def __post_init__(self) -> None:
+        self.confidence = max(0.0, min(1.0, self.confidence))
+        if self.action not in self._VALID_ACTIONS:
+            self.action = "abort"
 
 
 @dataclass

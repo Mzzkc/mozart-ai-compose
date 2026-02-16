@@ -231,12 +231,27 @@ class Backend(ABC):
         )
         return classified.category == ErrorCategory.RATE_LIMIT
 
+    @property
+    def override_lock(self) -> asyncio.Lock:
+        """Lock for serializing apply_overrides → execute → clear_overrides cycles.
+
+        Parallel sheet execution must acquire this lock around the entire
+        override lifecycle to prevent concurrent sheets from stomping on each
+        other's saved originals.
+        """
+        if not hasattr(self, "_override_lock"):
+            self._override_lock = asyncio.Lock()
+        return self._override_lock
+
     def apply_overrides(self, overrides: dict[str, object]) -> None:  # noqa: B027
         """Apply per-sheet parameter overrides for the next execution.
 
         Called per-sheet by the runner when ``sheet_overrides`` is configured.
         Subclasses store the overrides and apply them in ``execute()``.
         ``clear_overrides()`` is called after execution to restore defaults.
+
+        Callers MUST hold ``override_lock`` for the entire
+        apply → execute → clear window when parallel execution is possible.
 
         Default implementation is a no-op for backends without override support.
 

@@ -13,6 +13,7 @@ the daemon's asyncio event loop — even under heavy concurrent load.
 
 from __future__ import annotations
 
+import sqlite3
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -181,8 +182,14 @@ class JobRegistry:
                 await conn.execute(
                     f"ALTER TABLE jobs ADD COLUMN {col_name} {col_type}"
                 )
+            except sqlite3.OperationalError:
+                _logger.debug("registry.migrate_column_exists", column=col_name)
             except Exception:
-                _logger.debug("registry.migrate_column_exists", column=col_name, exc_info=True)
+                _logger.warning(
+                    "registry.migrate_unexpected_error",
+                    column=col_name,
+                    exc_info=True,
+                )
 
     async def register_job(
         self,

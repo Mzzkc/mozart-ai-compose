@@ -159,7 +159,9 @@ class CostMixin:
         sheet_state.input_tokens = (sheet_state.input_tokens or 0) + input_tokens
         sheet_state.output_tokens = (sheet_state.output_tokens or 0) + output_tokens
         sheet_state.estimated_cost = (sheet_state.estimated_cost or 0.0) + estimated_cost
-        sheet_state.cost_confidence = min(sheet_state.cost_confidence, confidence)
+        # Use latest confidence rather than min() — min() makes confidence
+        # permanently pessimistic since early estimates drag it down forever
+        sheet_state.cost_confidence = confidence
 
         # Update job state cumulative totals
         state.total_input_tokens += input_tokens

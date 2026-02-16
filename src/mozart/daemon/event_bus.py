@@ -159,12 +159,17 @@ class EventBus:
 
     async def _distribute(self, event: ObserverEvent) -> None:
         """Distribute a single event to all matching subscribers."""
-        for sub in self._subscribers.values():
+        for sub_id, sub in self._subscribers.items():
             try:
                 if sub.event_filter is not None and not sub.event_filter(event):
                     continue
             except Exception:
-                _logger.warning("event_bus.filter_error", exc_info=True)
+                _logger.warning(
+                    "event_bus.filter_error",
+                    subscriber_id=sub_id,
+                    event_type=event.get("event"),
+                    exc_info=True,
+                )
                 continue
             # Bounded deque handles drop-oldest automatically
             sub.queue.append(event)
@@ -175,6 +180,8 @@ class EventBus:
             except Exception:
                 _logger.warning(
                     "event_bus.subscriber_error",
+                    subscriber_id=sub_id,
+                    event_type=event.get("event"),
                     exc_info=True,
                 )
 

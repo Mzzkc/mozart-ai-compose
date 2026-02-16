@@ -46,9 +46,15 @@ async def is_daemon_available(socket_path: Path | None = None) -> bool:
         _logger.debug("daemon_detection_import_error")
         return False
     except Exception as e:
-        from mozart.daemon.exceptions import DaemonError
+        # Check if this is a known DaemonError (guard against missing module)
+        is_daemon_error = False
+        try:
+            from mozart.daemon.exceptions import DaemonError
+            is_daemon_error = isinstance(e, DaemonError)
+        except ImportError:
+            pass
 
-        if isinstance(e, DaemonError):
+        if is_daemon_error:
             _logger.debug("daemon_detection_failed", error=str(e))
         else:
             _logger.warning("daemon_detection_unexpected", error=str(e), exc_info=True)

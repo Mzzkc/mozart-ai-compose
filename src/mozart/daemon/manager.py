@@ -30,7 +30,7 @@ from mozart.daemon.monitor import ResourceMonitor
 from mozart.daemon.observer import JobObserver
 from mozart.daemon.output import StructuredOutput
 from mozart.daemon.rate_coordinator import RateLimitCoordinator
-from mozart.daemon.registry import DaemonJobStatus, JobRegistry
+from mozart.daemon.registry import DaemonJobStatus, JobRecord, JobRegistry
 from mozart.daemon.scheduler import GlobalSheetScheduler
 from mozart.daemon.snapshot import SnapshotManager
 from mozart.daemon.task_utils import log_task_exception
@@ -150,10 +150,34 @@ class JobManager:
         # Open the async registry connection (tables + WAL mode)
         await self._registry.open()
 
-        # Mark any jobs left running from a previous daemon as failed
-        orphan_count = await self._registry.mark_orphans_failed()
-        if orphan_count:
-            _logger.info("manager.orphans_recovered", count=orphan_count)
+        # Recover orphaned jobs (left running/queued from previous daemon).
+        # Pause-aware: check each orphan's checkpoint to distinguish truly
+        # running jobs from those that were mid-pause when the daemon died.
+        orphans = await self._registry.get_orphaned_jobs()
+        if orphans:
+            failed_count = 0
+            paused_count = 0
+            for orphan in orphans:
+                target_status = self._classify_orphan(orphan)
+                await self._registry.update_status(
+                    orphan.job_id,
+                    target_status,
+                    error_message=(
+                        "Daemon restarted while job was active"
+                        if target_status == DaemonJobStatus.FAILED
+                        else None
+                    ),
+                )
+                if target_status == DaemonJobStatus.PAUSED:
+                    paused_count += 1
+                else:
+                    failed_count += 1
+            _logger.info(
+                "manager.orphans_recovered",
+                count=len(orphans),
+                failed=failed_count,
+                paused=paused_count,
+            )
 
         await self._learning_hub.start()
         await self._event_bus.start()
@@ -233,6 +257,36 @@ class JobManager:
         self._config = new_config
 
     # ─── Helpers ───────────────────────────────────────────────────────
+
+    @staticmethod
+    def _classify_orphan(orphan: JobRecord) -> DaemonJobStatus:
+        """Determine the correct recovery status for an orphaned job.
+
+        Checks the job's checkpoint file to see if it was paused at the time
+        the daemon died. Jobs that were paused should stay paused (resumable)
+        rather than being marked as failed.
+        """
+        import json
+
+        try:
+            workspace = Path(orphan.workspace)
+            # Check for checkpoint file in workspace
+            safe_id = "".join(
+                c if c.isalnum() or c in "-_" else "_" for c in orphan.job_id
+            )
+            state_file = workspace / f"{safe_id}.json"
+            if state_file.exists():
+                data = json.loads(state_file.read_text(encoding="utf-8"))
+                if data.get("status") == "paused":
+                    return DaemonJobStatus.PAUSED
+        except Exception:
+            _logger.warning(
+                "manager.orphan_classify_failed",
+                job_id=orphan.job_id,
+                workspace=orphan.workspace,
+                exc_info=True,
+            )
+        return DaemonJobStatus.FAILED
 
     async def _generate_job_id(self, base_name: str) -> str:
         """Generate a human-friendly job ID from config file stem.
@@ -332,8 +386,9 @@ class JobManager:
             workspace=workspace,
             chain_depth=request.chain_depth,
         )
-        self._job_meta[job_id] = meta
+        # Register in DB first — if this fails, no phantom in-memory entry
         await self._registry.register_job(job_id, request.config_path, workspace)
+        self._job_meta[job_id] = meta
 
         try:
             task = asyncio.create_task(
