@@ -1031,8 +1031,15 @@ class JobManager:
                 )
 
             except asyncio.CancelledError:
+                import traceback as _tb
                 meta.status = DaemonJobStatus.CANCELLED
                 await self._registry.update_status(job_id, "cancelled")
+                _logger.error(
+                    "job.cancelled_traceback",
+                    job_id=job_id,
+                    traceback=_tb.format_exc(),
+                    stack="".join(_tb.format_stack()),
+                )
                 _logger.info("job.cancelled_during_execution", job_id=job_id)
                 raise
 

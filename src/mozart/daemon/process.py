@@ -553,8 +553,11 @@ class DaemonProcess:
         if hasattr(self, '_monitor') and self._monitor is not None:
             self._monitor.update_limits(new_config.resource_limits)
 
-        # Reconfigure logging if log_level changed
-        if new_config.log_level != self._config.log_level:
+        # Reconfigure logging if log_level or log_file changed
+        if (
+            new_config.log_level != self._config.log_level
+            or new_config.log_file != self._config.log_file
+        ):
             from mozart.core.logging import configure_logging
 
             configure_logging(
@@ -563,9 +566,11 @@ class DaemonProcess:
                 include_timestamps=True,
             )
             _logger.info(
-                "daemon.sighup_log_level_changed",
+                "daemon.sighup_logging_changed",
                 old_level=self._config.log_level,
                 new_level=new_config.log_level,
+                old_log_file=str(self._config.log_file),
+                new_log_file=str(new_config.log_file),
             )
 
         self._config = new_config
@@ -578,10 +583,19 @@ class DaemonProcess:
 def _load_config(config_file: Path | None) -> DaemonConfig:
     """Load DaemonConfig from YAML file or return defaults.
 
+    If *config_file* is ``None``, the well-known default location
+    ``~/.mozart/conductor.yaml`` is checked automatically.
+
     When loading from a file, the resulting config's ``config_file``
     field is set to the resolved path so that SIGHUP reload knows
     which file to re-read.
     """
+    # Auto-discover default config when none explicitly provided
+    if config_file is None:
+        default_path = Path("~/.mozart/conductor.yaml").expanduser()
+        if default_path.exists():
+            config_file = default_path
+
     if config_file and config_file.exists():
         import yaml
 
