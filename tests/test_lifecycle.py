@@ -995,10 +995,16 @@ class TestRunIntegration:
         assert last_state.sheets[2].status == SheetStatus.FAILED
 
     @pytest.mark.asyncio
-    async def test_job_marked_failed_when_sheets_are_skipped(
+    async def test_job_marked_failed_when_sheets_fail_with_dag_blocked_skips(
         self, mixin: _TestableLifecycleMixin
     ):
-        """D08: Job status is FAILED when sheets are SKIPPED (blocked by deps)."""
+        """D08: Job is FAILED only when actual FAILED sheets exist.
+
+        DAG-blocked skips always have a corresponding FAILED prerequisite,
+        so checking SheetStatus.FAILED alone is sufficient.  Here we test
+        the combined case: 1 completed + 1 failed (via FatalError) and
+        verify that the job status is FAILED because of the FAILED sheet.
+        """
         mixin.state_backend.load = AsyncMock(return_value=None)
 
         async def mock_execute(s: CheckpointState, sheet_num: int) -> None:
@@ -1006,17 +1012,44 @@ class TestRunIntegration:
             if sheet_num == 1:
                 s.mark_sheet_completed(sheet_num, validation_passed=True)
             else:
-                # Simulate: sheet 2 gets skipped (blocked by failed dep)
-                s.mark_sheet_skipped(sheet_num, "Blocked by failed dependencies")
+                s.mark_sheet_failed(sheet_num, "validation failed")
+                raise FatalError("Sheet 2 exhausted retries")
+
+        mixin._execute_sheet_with_recovery = mock_execute  # type: ignore[assignment]
+
+        with pytest.raises(FatalError, match="Sheet 2 exhausted retries"):
+            await mixin.run()
+
+        # Verify state was saved with FAILED status
+        save_calls = mixin.state_backend.save.await_args_list
+        last_state = save_calls[-1].args[0]
+        assert last_state.status == JobStatus.FAILED
+        assert last_state.sheets[1].status == SheetStatus.COMPLETED
+        assert last_state.sheets[2].status == SheetStatus.FAILED
+
+    @pytest.mark.asyncio
+    async def test_job_completed_when_sheets_intentionally_skipped(
+        self, mixin: _TestableLifecycleMixin
+    ):
+        """Intentionally skipped sheets (skip_when_command) don't cause job failure."""
+        mixin.state_backend.load = AsyncMock(return_value=None)
+
+        async def mock_execute(s: CheckpointState, sheet_num: int) -> None:
+            s.mark_sheet_started(sheet_num)
+            if sheet_num == 1:
+                s.mark_sheet_completed(sheet_num, validation_passed=True)
+            else:
+                # Intentional skip (e.g., skip_when_command condition met)
+                s.mark_sheet_skipped(sheet_num, "Skip phase 3 — plan has fewer phases")
 
         mixin._execute_sheet_with_recovery = mock_execute  # type: ignore[assignment]
 
         state, summary = await mixin.run()
 
-        assert state.status == JobStatus.FAILED
+        assert state.status == JobStatus.COMPLETED
         assert summary.completed_sheets == 1
         assert summary.skipped_sheets == 1
-        assert "blocked by failed dependencies" in (state.error_message or "")
+        assert state.error_message is None
 
     @pytest.mark.asyncio
     async def test_cleanup_runs_even_on_failure(

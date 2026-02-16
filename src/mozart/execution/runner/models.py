@@ -79,10 +79,16 @@ class RunSummary:
 
     @property
     def success_rate(self) -> float:
-        """Calculate sheet success rate as percentage."""
-        if self.total_sheets == 0:
+        """Calculate sheet success rate as percentage.
+
+        Skipped sheets are excluded from the denominator since they were
+        never attempted (e.g., skip_when_command conditions met).  This
+        prevents intentionally skipped sheets from dragging the rate down.
+        """
+        executed = self.total_sheets - self.skipped_sheets
+        if executed == 0:
             return 0.0
-        return (self.completed_sheets / self.total_sheets) * 100
+        return (self.completed_sheets / executed) * 100
 
     @property
     def validation_pass_rate(self) -> float:

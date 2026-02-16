@@ -728,7 +728,7 @@ class TestRunSummary:
         assert result["sheets"]["completed"] == 8
         assert result["sheets"]["failed"] == 1
         assert result["sheets"]["skipped"] == 1
-        assert result["sheets"]["success_rate"] == 80.0
+        assert result["sheets"]["success_rate"] == 88.9  # 8 / (10 - 1 skipped) = 88.9%
 
         assert result["validation"]["passed"] == 8
         assert result["validation"]["failed"] == 0

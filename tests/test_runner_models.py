@@ -90,6 +90,27 @@ class TestRunSummarySuccessRate:
         )
         assert summary.success_rate == 0.0
 
+    def test_skipped_sheets_excluded_from_denominator(self) -> None:
+        """Skipped sheets don't drag down success rate (GH#: success_rate bug)."""
+        summary = RunSummary(
+            job_id="j1",
+            job_name="test",
+            total_sheets=19,
+            completed_sheets=15,
+            skipped_sheets=4,
+        )
+        # 15 completed / (19 - 4 skipped) = 15/15 = 100%
+        assert summary.success_rate == 100.0
+
+    def test_all_sheets_skipped_returns_zero(self) -> None:
+        summary = RunSummary(
+            job_id="j1",
+            job_name="test",
+            total_sheets=5,
+            skipped_sheets=5,
+        )
+        assert summary.success_rate == 0.0
+
 
 class TestRunSummaryValidationPassRate:
 
@@ -199,7 +220,7 @@ class TestRunSummaryToDict:
         assert sheets["completed"] == 8
         assert sheets["failed"] == 1
         assert sheets["skipped"] == 1
-        assert sheets["success_rate"] == 80.0
+        assert sheets["success_rate"] == 88.9  # 8 / (10 - 1 skipped) = 88.9%
 
         validation = d["validation"]
         assert validation["passed"] == 7

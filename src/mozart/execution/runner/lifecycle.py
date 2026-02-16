@@ -210,11 +210,14 @@ class LifecycleMixin:
                 await self._execute_sequential_mode(state)
 
             # Mark job complete if we processed all sheets.
-            # If any sheets were skipped (blocked by failed dependencies) or
-            # failed, the job should be FAILED, not COMPLETED.
+            # Only actual FAILED sheets cause the job to fail.  SKIPPED
+            # sheets (from skip_when_command or DAG dependency blocking)
+            # are not failures — and DAG-blocked skips always have a
+            # corresponding FAILED prerequisite, so checking FAILED alone
+            # is sufficient.
             if state.status == JobStatus.RUNNING:
                 has_failures = any(
-                    s.status in (SheetStatus.FAILED, SheetStatus.SKIPPED)
+                    s.status == SheetStatus.FAILED
                     for s in state.sheets.values()
                 )
                 state.status = JobStatus.FAILED if has_failures else JobStatus.COMPLETED
@@ -509,22 +512,26 @@ class LifecycleMixin:
         # Execute hooks
         results = await executor.execute_hooks()
 
+        if not results:
+            return
+
+        hooks_succeeded = sum(1 for r in results if r.success)
+        hooks_failed = len(results) - hooks_succeeded
+
         # Update summary with hook results
         if self._summary:
             self._summary.hook_results = results
             self._summary.hooks_executed = len(results)
-            self._summary.hooks_succeeded = sum(1 for r in results if r.success)
-            self._summary.hooks_failed = sum(1 for r in results if not r.success)
+            self._summary.hooks_succeeded = hooks_succeeded
+            self._summary.hooks_failed = hooks_failed
 
-        # Log summary
-        if results:
-            self._logger.info(
-                "hooks.summary",
-                job_id=state.job_id,
-                hooks_executed=len(results),
-                hooks_succeeded=sum(1 for r in results if r.success),
-                hooks_failed=sum(1 for r in results if not r.success),
-            )
+        self._logger.info(
+            "hooks.summary",
+            job_id=state.job_id,
+            hooks_executed=len(results),
+            hooks_succeeded=hooks_succeeded,
+            hooks_failed=hooks_failed,
+        )
 
     def get_summary(self) -> RunSummary | None:
         """Get the current run summary.
@@ -586,20 +593,21 @@ class LifecycleMixin:
         if self._dependency_dag is None:
             return state.get_next_sheet()
 
-        # Build sets of completed, failed, and skipped sheet numbers.
+        # Build sets of sheet numbers by status.
         # Skipped sheets (e.g. from skip_when_command) are terminal — they
         # satisfy dependencies so downstream sheets can proceed.
-        completed: set[int] = set()
-        failed: set[int] = set()
-        skipped: set[int] = set()
-        for sheet_num in range(1, state.total_sheets + 1):
-            sheet_state = state.sheets.get(sheet_num)
-            if sheet_state and sheet_state.status == SheetStatus.COMPLETED:
-                completed.add(sheet_num)
-            elif sheet_state and sheet_state.status == SheetStatus.FAILED:
-                failed.add(sheet_num)
-            elif sheet_state and sheet_state.status == SheetStatus.SKIPPED:
-                skipped.add(sheet_num)
+        status_sets: dict[SheetStatus, set[int]] = {
+            SheetStatus.COMPLETED: set(),
+            SheetStatus.FAILED: set(),
+            SheetStatus.SKIPPED: set(),
+        }
+        for num, sheet_state in state.sheets.items():
+            if sheet_state.status in status_sets:
+                status_sets[sheet_state.status].add(num)
+
+        completed = status_sets[SheetStatus.COMPLETED]
+        failed = status_sets[SheetStatus.FAILED]
+        skipped = status_sets[SheetStatus.SKIPPED]
 
         # Sheets that satisfy dependencies: completed + skipped
         satisfied = completed | skipped
@@ -667,12 +675,10 @@ class LifecycleMixin:
         Returns:
             Set of sheet numbers with COMPLETED status.
         """
-        completed: set[int] = set()
-        for sheet_num in range(1, state.total_sheets + 1):
-            sheet_state = state.sheets.get(sheet_num)
-            if sheet_state and sheet_state.status == SheetStatus.COMPLETED:
-                completed.add(sheet_num)
-        return completed
+        return {
+            num for num, s in state.sheets.items()
+            if s.status == SheetStatus.COMPLETED
+        }
 
     # =========================================================================
     # Execution Modes
