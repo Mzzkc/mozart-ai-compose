@@ -29,7 +29,6 @@ if TYPE_CHECKING:
     from mozart.bridge.mcp_proxy import MCPProxyService, MCPTool, ToolResult
     from mozart.core.config import BackendConfig
 
-# Module-level logger
 _logger = get_logger("backend.ollama")
 
 
@@ -254,7 +253,7 @@ class OllamaBackend(HttpxClientMixin, Backend):
                     mcp_tools = await self.mcp_proxy.list_tools()
                     tools = self._translate_tools_to_ollama(mcp_tools)
                     _logger.debug("tools_loaded", tool_count=len(tools))
-                except Exception as e:
+                except (OSError, ConnectionError, TimeoutError, httpx.HTTPError) as e:
                     mcp_degraded = (
                         f"[MCP DEGRADED] Tool loading failed ({type(e).__name__}: {e}); "
                         "running in non-agentic mode. "
@@ -329,16 +328,7 @@ class OllamaBackend(HttpxClientMixin, Backend):
         except Exception as e:
             duration = time.monotonic() - start_time
             _logger.exception("ollama_execute_error", error=str(e))
-            return ExecutionResult(
-                success=False,
-                stdout="",
-                stderr=str(e),
-                duration_seconds=duration,
-                started_at=started_at,
-                error_type="exception",
-                error_message=str(e),
-                model=self.model,
-            )
+            raise
 
     async def _simple_completion(
         self, messages: list[OllamaMessage]

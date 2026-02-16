@@ -20,7 +20,6 @@ from mozart.core.config import BackendConfig
 from mozart.core.errors import ErrorClassifier
 from mozart.core.logging import get_logger
 
-# Module-level logger for Anthropic API backend
 _logger = get_logger("backend.anthropic_api")
 
 
@@ -427,16 +426,7 @@ class AnthropicApiBackend(Backend):
                 error_message=str(e),
             )
             self._write_log_file(self._stderr_log_path, str(e))
-            return ExecutionResult(
-                success=False,
-                exit_code=1,
-                stdout="",
-                stderr=str(e),
-                duration_seconds=duration,
-                error_type="exception",
-                error_message=f"Unexpected error: {e}",
-                model=self.model,
-            )
+            raise
 
     async def health_check(self) -> bool:
         """Check if the API is available and authenticated.

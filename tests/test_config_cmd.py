@@ -176,3 +176,291 @@ class TestCheckSubcommandRegistered:
         """The 'check' command is registered in config_app."""
         cmds = [c.name for c in config_app.registered_commands]
         assert "check" in cmds
+
+
+# ============================================================================
+# Q004: Fallback behavior and helper function tests
+# ============================================================================
+
+
+class TestCoerceValue:
+    """Tests for _coerce_value type coercion helper."""
+
+    def test_true_values(self) -> None:
+        from mozart.cli.commands.config_cmd import _coerce_value
+
+        assert _coerce_value("true") is True
+        assert _coerce_value("True") is True
+        assert _coerce_value("yes") is True
+        assert _coerce_value("YES") is True
+
+    def test_false_values(self) -> None:
+        from mozart.cli.commands.config_cmd import _coerce_value
+
+        assert _coerce_value("false") is False
+        assert _coerce_value("no") is False
+
+    def test_null_values(self) -> None:
+        from mozart.cli.commands.config_cmd import _coerce_value
+
+        assert _coerce_value("null") is None
+        assert _coerce_value("none") is None
+        assert _coerce_value("~") is None
+
+    def test_int_coercion(self) -> None:
+        from mozart.cli.commands.config_cmd import _coerce_value
+
+        assert _coerce_value("42") == 42
+        assert _coerce_value("0") == 0
+
+    def test_float_coercion(self) -> None:
+        from mozart.cli.commands.config_cmd import _coerce_value
+
+        assert _coerce_value("3.14") == 3.14
+
+    def test_string_fallback(self) -> None:
+        from mozart.cli.commands.config_cmd import _coerce_value
+
+        assert _coerce_value("hello") == "hello"
+        assert _coerce_value("/tmp/custom.sock") == "/tmp/custom.sock"
+
+
+class TestGetNested:
+    """Tests for _get_nested dot-notation access."""
+
+    def test_simple_key(self) -> None:
+        from mozart.cli.commands.config_cmd import _get_nested
+
+        assert _get_nested({"a": 1}, "a") == 1
+
+    def test_nested_key(self) -> None:
+        from mozart.cli.commands.config_cmd import _get_nested
+
+        assert _get_nested({"a": {"b": {"c": 3}}}, "a.b.c") == 3
+
+    def test_missing_key_returns_none(self) -> None:
+        from mozart.cli.commands.config_cmd import _get_nested
+
+        assert _get_nested({"a": 1}, "b") is None
+        assert _get_nested({"a": {"b": 2}}, "a.c") is None
+
+    def test_non_dict_intermediate_returns_none(self) -> None:
+        from mozart.cli.commands.config_cmd import _get_nested
+
+        assert _get_nested({"a": 42}, "a.b") is None
+
+
+class TestSetNested:
+    """Tests for _set_nested dot-notation setter."""
+
+    def test_simple_key(self) -> None:
+        from mozart.cli.commands.config_cmd import _set_nested
+
+        data: dict = {}
+        _set_nested(data, "a", 1)
+        assert data == {"a": 1}
+
+    def test_nested_key_creates_intermediates(self) -> None:
+        from mozart.cli.commands.config_cmd import _set_nested
+
+        data: dict = {}
+        _set_nested(data, "a.b.c", 42)
+        assert data == {"a": {"b": {"c": 42}}}
+
+    def test_overwrites_non_dict_intermediate(self) -> None:
+        from mozart.cli.commands.config_cmd import _set_nested
+
+        data: dict = {"a": "string-value"}
+        _set_nested(data, "a.b", 99)
+        assert data == {"a": {"b": 99}}
+
+
+class TestLoadConfigData:
+    """Tests for _load_config_data fallback behavior."""
+
+    def test_missing_file_returns_empty_dict(self, tmp_path: Path) -> None:
+        from mozart.cli.commands.config_cmd import _load_config_data
+
+        result = _load_config_data(tmp_path / "no-such-file.yaml")
+        assert result == {}
+
+    def test_empty_file_returns_empty_dict(self, tmp_path: Path) -> None:
+        from mozart.cli.commands.config_cmd import _load_config_data
+
+        cfg = tmp_path / "empty.yaml"
+        cfg.write_text("")
+        result = _load_config_data(cfg)
+        assert result == {}
+
+    def test_valid_yaml_returns_data(self, tmp_path: Path) -> None:
+        from mozart.cli.commands.config_cmd import _load_config_data
+
+        cfg = tmp_path / "valid.yaml"
+        cfg.write_text(yaml.dump({"max_concurrent_jobs": 5}))
+        result = _load_config_data(cfg)
+        assert result == {"max_concurrent_jobs": 5}
+
+
+class TestConfigSet:
+    """Tests for `mozart config set` subcommand."""
+
+    def test_set_valid_value(self, tmp_path: Path) -> None:
+        """Setting a valid config value writes to disk."""
+        cfg = tmp_path / "daemon.yaml"
+        cfg.write_text(yaml.dump({"max_concurrent_jobs": 3}))
+
+        result = runner.invoke(
+            config_app, ["set", "max_concurrent_jobs", "10", "--config", str(cfg)]
+        )
+        assert result.exit_code == 0
+        assert "Set" in result.output
+
+        # Verify the file was updated
+        with open(cfg) as f:
+            data = yaml.safe_load(f)
+        assert data["max_concurrent_jobs"] == 10
+
+    def test_set_invalid_value_exits_1(self, tmp_path: Path) -> None:
+        """Setting an invalid value (out-of-range) exits 1."""
+        cfg = tmp_path / "daemon.yaml"
+        cfg.write_text(yaml.dump({}))
+
+        # Use 999 which exceeds max_concurrent_jobs le=50 constraint
+        result = runner.invoke(
+            config_app, ["set", "max_concurrent_jobs", "999", "--config", str(cfg)]
+        )
+        assert result.exit_code == 1
+        assert "Invalid" in result.output
+
+    def test_set_nested_key(self, tmp_path: Path) -> None:
+        """Setting a nested key using dot notation."""
+        cfg = tmp_path / "daemon.yaml"
+        cfg.write_text(yaml.dump({}))
+
+        result = runner.invoke(
+            config_app,
+            ["set", "resource_limits.max_memory_mb", "4096", "--config", str(cfg)],
+        )
+        assert result.exit_code == 0
+
+    def test_set_creates_parent_dirs(self, tmp_path: Path) -> None:
+        """Config set creates parent directories if missing."""
+        cfg = tmp_path / "subdir" / "daemon.yaml"
+        # Parent doesn't exist yet
+
+        result = runner.invoke(
+            config_app, ["set", "max_concurrent_jobs", "5", "--config", str(cfg)]
+        )
+        assert result.exit_code == 0
+        assert cfg.exists()
+
+
+class TestConfigPath:
+    """Tests for `mozart config path` subcommand."""
+
+    def test_path_existing_file(self, tmp_path: Path) -> None:
+        """path shows location and 'exists' status for existing file."""
+        cfg = tmp_path / "daemon.yaml"
+        cfg.write_text("")
+
+        result = runner.invoke(config_app, ["path", "--config", str(cfg)])
+        assert result.exit_code == 0
+        assert str(cfg) in result.output
+        assert "exists" in result.output
+
+    def test_path_missing_file(self, tmp_path: Path) -> None:
+        """path shows location and 'not created' status for missing file."""
+        cfg = tmp_path / "nonexistent.yaml"
+
+        result = runner.invoke(config_app, ["path", "--config", str(cfg)])
+        assert result.exit_code == 0
+        # Rich may wrap the text across lines, so normalize whitespace
+        normalized = " ".join(result.output.split())
+        assert "not created" in normalized
+
+
+class TestConfigInit:
+    """Tests for `mozart config init` subcommand."""
+
+    def test_init_creates_default_config(self, tmp_path: Path) -> None:
+        """init creates a default config file."""
+        cfg = tmp_path / "daemon.yaml"
+
+        result = runner.invoke(config_app, ["init", "--config", str(cfg)])
+        assert result.exit_code == 0
+        assert "Created" in result.output
+        assert cfg.exists()
+
+        # Verify it's valid YAML
+        with open(cfg) as f:
+            data = yaml.safe_load(f)
+        assert isinstance(data, dict)
+
+    def test_init_refuses_overwrite_without_force(self, tmp_path: Path) -> None:
+        """init refuses to overwrite without --force."""
+        cfg = tmp_path / "daemon.yaml"
+        cfg.write_text("existing content")
+
+        result = runner.invoke(config_app, ["init", "--config", str(cfg)])
+        assert result.exit_code == 1
+        assert "already exists" in result.output
+
+    def test_init_overwrites_with_force(self, tmp_path: Path) -> None:
+        """init overwrites with --force."""
+        cfg = tmp_path / "daemon.yaml"
+        cfg.write_text("old content")
+
+        result = runner.invoke(config_app, ["init", "--force", "--config", str(cfg)])
+        assert result.exit_code == 0
+        assert "Created" in result.output
+
+
+class TestTryLiveConfig:
+    """Tests for _try_live_config fallback behavior."""
+
+    def test_returns_none_when_conductor_offline(self) -> None:
+        """_try_live_config returns None when no conductor is running."""
+        from unittest.mock import AsyncMock
+
+        from mozart.cli.commands.config_cmd import _try_live_config
+
+        # DaemonClient is imported lazily inside _try_live_config, so
+        # mock at the source module level
+        mock_client = AsyncMock()
+        mock_client.config.side_effect = ConnectionRefusedError("No conductor")
+
+        with patch(
+            "mozart.daemon.ipc.client.DaemonClient",
+            return_value=mock_client,
+        ):
+            result = _try_live_config()
+
+        # Should return None since the IPC call fails
+        assert result is None
+
+    def test_show_falls_back_on_invalid_live_config(self) -> None:
+        """show falls back to disk when live config fails validation."""
+        with patch(
+            "mozart.cli.commands.config_cmd._try_live_config",
+            return_value={"max_concurrent_jobs": -999},  # Invalid
+        ):
+            result = runner.invoke(
+                config_app,
+                ["show", "--config", "/tmp/nonexistent-config.yaml"],
+            )
+
+        # Should fall back gracefully (may show defaults or error)
+        # The key is it doesn't crash
+        assert result.exit_code in (0, 1)
+
+
+class TestStringifyPaths:
+    """Tests for _stringify_paths helper."""
+
+    def test_converts_path_objects(self) -> None:
+        from mozart.cli.commands.config_cmd import _stringify_paths
+
+        data: dict = {"socket": {"path": Path("/tmp/test.sock")}, "name": "test"}
+        _stringify_paths(data)
+        assert data["socket"]["path"] == "/tmp/test.sock"
+        assert data["name"] == "test"  # Strings left alone

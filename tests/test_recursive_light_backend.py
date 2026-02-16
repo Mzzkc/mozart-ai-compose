@@ -121,15 +121,13 @@ class TestExecute:
         assert result.error_type == "timeout"
 
     async def test_unexpected_exception(self, backend: RecursiveLightBackend) -> None:
-        """Unexpected exception -> success=False, exception type."""
+        """Unexpected exception is re-raised after logging."""
         mock_client = AsyncMock()
         mock_client.post.side_effect = RuntimeError("Something went wrong")
 
         with patch.object(backend, "_get_client", return_value=mock_client):
-            result = await backend.execute("test prompt")
-
-        assert result.success is False
-        assert result.error_type == "exception"
+            with pytest.raises(RuntimeError, match="Something went wrong"):
+                await backend.execute("test prompt")
 
     async def test_timeout_override_logged(self, backend: RecursiveLightBackend) -> None:
         """Per-call timeout_seconds is logged but not enforced."""

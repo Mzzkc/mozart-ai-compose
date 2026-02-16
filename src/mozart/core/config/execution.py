@@ -7,7 +7,6 @@ cost limits, and parallel execution.
 from __future__ import annotations
 
 import re
-import warnings
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -318,13 +317,12 @@ class ParallelConfig(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _warn_budget_partition_not_enforced(self) -> ParallelConfig:
+    def _reject_unimplemented_overrides(self) -> ParallelConfig:
         if not self.budget_partition:
-            warnings.warn(
-                "ParallelConfig.budget_partition=False is accepted but not "
-                "enforced. Cost checks currently use global total regardless.",
-                UserWarning,
-                stacklevel=2,
+            raise ValueError(
+                "ParallelConfig.budget_partition=False is not yet implemented. "
+                "Cost checks currently use global total regardless of this setting. "
+                "Remove 'budget_partition: false' from your config or keep the default (true)."
             )
         return self
 

@@ -178,6 +178,10 @@ class GroundingDecisionContext:
     hooks_executed: int = 0
     """Number of grounding hooks that were executed."""
 
+    def __post_init__(self) -> None:
+        """Clamp confidence to [0.0, 1.0] range."""
+        self.confidence = max(0.0, min(1.0, self.confidence))
+
     @classmethod
     def from_results(cls, results: list[GroundingResult]) -> GroundingDecisionContext:
         """Build context from grounding results list.

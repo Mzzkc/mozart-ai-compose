@@ -31,7 +31,6 @@ def resource_config() -> ResourceLimitConfig:
     return ResourceLimitConfig(
         max_memory_mb=1000,
         max_processes=20,
-        max_api_calls_per_minute=10,
     )
 
 

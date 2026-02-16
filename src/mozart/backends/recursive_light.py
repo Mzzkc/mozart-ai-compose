@@ -21,7 +21,6 @@ from mozart.backends.base import Backend, ExecutionResult, HttpxClientMixin
 from mozart.core.logging import get_logger
 from mozart.utils.time import utc_now
 
-# Module-level logger for Recursive Light backend
 _logger = get_logger("backend.recursive_light")
 
 
@@ -74,15 +73,7 @@ class RecursiveLightBackend(HttpxClientMixin, Backend):
 
     @classmethod
     def from_config(cls, config: "BackendConfig") -> "RecursiveLightBackend":
-        """Create backend from configuration.
-
-        Args:
-            config: Backend configuration containing recursive_light settings.
-
-        Returns:
-            Configured RecursiveLightBackend instance.
-        """
-
+        """Create backend from configuration."""
         rl_config = config.recursive_light
         return cls(
             rl_endpoint=rl_config.endpoint,
@@ -229,16 +220,7 @@ class RecursiveLightBackend(HttpxClientMixin, Backend):
                 endpoint=self.rl_endpoint,
                 error_message=str(e),
             )
-            return ExecutionResult(
-                success=False,
-                exit_code=1,
-                stdout="",
-                stderr=str(e),
-                duration_seconds=duration,
-                started_at=started_at,
-                error_type="exception",
-                error_message=f"Unexpected error: {e}",
-            )
+            raise
 
     def _parse_rl_response(
         self,
@@ -294,7 +276,8 @@ class RecursiveLightBackend(HttpxClientMixin, Backend):
 
             return False
 
-        except (httpx.ConnectError, httpx.TimeoutException):
+        except (httpx.ConnectError, httpx.TimeoutException) as e:
+            _logger.debug("health_check_unreachable", error=f"{type(e).__name__}: {e}")
             return False
         except (httpx.HTTPError, OSError, RuntimeError) as e:
             _logger.warning("health_check_failed", error=f"{type(e).__name__}: {e}")
