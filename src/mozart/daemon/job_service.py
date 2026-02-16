@@ -10,6 +10,7 @@ All user-facing output goes through OutputProtocol.
 
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 from collections.abc import Callable, Coroutine
 from pathlib import Path
@@ -39,6 +40,47 @@ RateLimitCallback = Callable[[str, float, str, int], Any]
 
 # Type alias for event callbacks: (job_id, sheet_num, event, data)
 EventCallback = Callable[[str, int, str, dict[str, Any] | None], Any]
+
+# Type alias for state-publish callbacks: (CheckpointState) → None
+# Fired on every state_backend.save() so the conductor tracks live state.
+StatePublishCallback = Callable[[CheckpointState], Any]
+
+
+class _PublishingBackend:
+    """StateBackend wrapper that publishes state to the conductor on save.
+
+    Decorates the real backend transparently — the runner never knows the
+    difference.  Every ``save()`` call first persists to the real backend,
+    then fires the publish callback so the conductor's in-memory state
+    stays current.  Callback failures are logged but never propagate
+    (they must not interfere with job execution).
+    """
+
+    def __init__(
+        self,
+        inner: StateBackend,
+        callback: StatePublishCallback,
+    ) -> None:
+        self._inner = inner
+        self._callback = callback
+
+    async def save(self, state: CheckpointState) -> None:
+        await self._inner.save(state)
+        try:
+            result = self._callback(state)
+            if asyncio.iscoroutine(result):
+                await result
+        except Exception:
+            _logger.debug(
+                "state_publish_callback.error",
+                job_id=state.job_id,
+                exc_info=True,
+            )
+
+    # ── Delegate everything else ──────────────────────────────────────
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
 
 
 class _JobComponents(TypedDict):
@@ -73,11 +115,13 @@ class JobService:
         global_learning_store: GlobalLearningStore | None = None,
         rate_limit_callback: RateLimitCallback | None = None,
         event_callback: EventCallback | None = None,
+        state_publish_callback: StatePublishCallback | None = None,
     ) -> None:
         self._output = output or NullOutput()
         self._learning_store = global_learning_store
         self._rate_limit_callback = rate_limit_callback
         self._event_callback = event_callback
+        self._state_publish_callback = state_publish_callback
         self._notification_consecutive_failures = 0
         self._notifications_degraded = False
 
@@ -171,9 +215,12 @@ class JobService:
         components = self._setup_components(config)
         notification_manager = components["notification_manager"]
 
+        # Wrap backend so every checkpoint publishes to the conductor
+        runner_backend = self._wrap_state_backend(state_backend)
+
         try:
             runner = self._create_runner(
-                config, components, state_backend,
+                config, components, runner_backend,
                 job_id=job_id,
                 self_healing=self_healing,
                 self_healing_auto_confirm=self_healing_auto_confirm,
@@ -285,9 +332,12 @@ class JobService:
             str(config_path) if config_path else found_state.config_path
         )
 
+        # Wrap backend so every checkpoint publishes to the conductor
+        runner_backend = self._wrap_state_backend(found_backend)
+
         try:
             runner = self._create_runner(
-                resolved_config, components, found_backend,
+                resolved_config, components, runner_backend,
                 job_id=job_id,
                 self_healing=self_healing,
                 self_healing_auto_confirm=self_healing_auto_confirm,
@@ -354,10 +404,6 @@ class JobService:
     ) -> CheckpointState | None:
         """Get job status from state backend.
 
-        Auto-detects the backend type (SQLite or JSON) by checking which
-        state files exist in the workspace, matching the discovery logic
-        in ``_find_job_state()``.
-
         Args:
             job_id: Job identifier.
             workspace: Workspace directory containing job state.
@@ -365,14 +411,25 @@ class JobService:
         Returns:
             CheckpointState if found, None if job doesn't exist.
         """
+        state_backend = self._create_state_backend(workspace)
         try:
-            state, backend = await self._find_job_state(job_id, workspace)
-            await backend.close()
-            return state
-        except JobSubmissionError:
-            return None
+            return await state_backend.load(job_id)
+        finally:
+            await state_backend.close()
 
     # ─── Internal Helpers ────────────────────────────────────────────────
+
+    def _wrap_state_backend(self, backend: StateBackend) -> StateBackend:
+        """Wrap a state backend with publish-on-save if a callback is set.
+
+        When the conductor provides a ``state_publish_callback``, every
+        ``save()`` call on the returned backend also publishes the
+        ``CheckpointState`` to the conductor's in-memory live-state map.
+        Without a callback (e.g. CLI usage), returns the backend unchanged.
+        """
+        if self._state_publish_callback is None:
+            return backend
+        return _PublishingBackend(backend, self._state_publish_callback)  # type: ignore[return-value]
 
     def _create_runner(
         self,

@@ -19,6 +19,7 @@ from typing import Any
 import yaml
 
 import mozart
+from mozart.core.checkpoint import CheckpointState
 from mozart.core.logging import get_logger
 from mozart.daemon.backpressure import BackpressureController
 from mozart.daemon.config import DaemonConfig
@@ -100,6 +101,10 @@ class JobManager:
         self._service: JobService | None = None
         self._jobs: dict[str, asyncio.Task[Any]] = {}
         self._job_meta: dict[str, JobMeta] = {}
+        # Live CheckpointState per running job — populated by
+        # _PublishingBackend on every state_backend.save() so the
+        # conductor can serve status from memory, not disk.
+        self._live_states: dict[str, CheckpointState] = {}
         self._concurrency_semaphore = asyncio.Semaphore(
             config.max_concurrent_jobs,
         )
@@ -187,6 +192,7 @@ class JobManager:
             global_learning_store=self._learning_hub.store,
             rate_limit_callback=self._on_rate_limit,
             event_callback=self._on_event,
+            state_publish_callback=self._on_state_published,
         )
         _logger.info(
             "manager.started",
@@ -421,28 +427,19 @@ class JobManager:
     async def get_job_status(self, job_id: str, workspace: Path | None = None) -> dict[str, Any]:
         """Get full status of a specific job.
 
-        Attempts to load the full CheckpointState from the state backend
-        so the CLI can render rich status output. Falls back to basic
-        JobMeta if state loading fails.
+        Returns the conductor's live in-memory CheckpointState when
+        available (populated by _PublishingBackend on every save).
+        Falls back to basic JobMeta if no live state exists yet
+        (e.g. job was just submitted and hasn't checkpointed).
         """
         meta = self._job_meta.get(job_id)
         if meta is None:
             raise JobSubmissionError(f"Job '{job_id}' not found")
 
-        # Try loading full CheckpointState from the workspace
-        ws = workspace or meta.workspace
-        try:
-            state = await self._checked_service.get_status(meta.job_id, ws)
-            if state:
-                return state.model_dump(mode="json")
-        except (OSError, ValueError, KeyError) as exc:
-            _logger.warning(
-                "manager.get_job_status_state_load_failed",
-                job_id=job_id,
-                workspace=str(ws),
-                error=str(exc),
-                exc_info=True,
-            )
+        # Serve from conductor's live state — no disk I/O
+        live = self._live_states.get(job_id)
+        if live is not None:
+            return live.model_dump(mode="json")
 
         # Fallback to basic metadata
         return meta.to_dict()
@@ -891,6 +888,15 @@ class JobManager:
         await meta.observer.stop()
         meta.observer = None
 
+    def _on_state_published(self, state: CheckpointState) -> None:
+        """Receive live CheckpointState from a running job's state backend.
+
+        Called synchronously by ``_PublishingBackend.save()`` on every
+        checkpoint.  Stores the latest state so ``get_job_status()`` can
+        serve it from memory instead of re-reading from the workspace.
+        """
+        self._live_states[state.job_id] = state
+
     async def _on_event(
         self,
         job_id: str,
@@ -1153,8 +1159,9 @@ class JobManager:
         from running.  asyncio silently drops exceptions in
         Task.add_done_callback handlers, so every step must be guarded.
         """
-        # 1. Remove from active jobs — always runs first
+        # 1. Remove from active jobs and live state — always runs first
         self._jobs.pop(job_id, None)
+        self._live_states.pop(job_id, None)
 
         # 2. Check for task exception and update metadata/registry
         try:

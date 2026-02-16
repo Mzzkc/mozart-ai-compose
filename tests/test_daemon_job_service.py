@@ -208,32 +208,111 @@ class TestGetStatus:
         )
 
         mock_backend = AsyncMock()
+        mock_backend.load = AsyncMock(return_value=state)
 
         with patch.object(
-            JobService, "_find_job_state", return_value=(state, mock_backend)
+            JobService, "_create_state_backend", return_value=mock_backend
         ):
             result = await job_service.get_status("test-job", tmp_path)
 
         assert result is not None
         assert result.job_id == "test-job"
         assert result.status == JobStatus.RUNNING
-        mock_backend.close.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_returns_none_when_not_found(
         self, job_service: JobService, tmp_path: Path
     ):
         """Test get_status returns None when job doesn't exist."""
-        from mozart.daemon.exceptions import JobSubmissionError
+        mock_backend = AsyncMock()
+        mock_backend.load = AsyncMock(return_value=None)
 
         with patch.object(
-            JobService,
-            "_find_job_state",
-            side_effect=JobSubmissionError("No state found"),
+            JobService, "_create_state_backend", return_value=mock_backend
         ):
             result = await job_service.get_status("nonexistent", tmp_path)
 
         assert result is None
+
+
+class TestPublishingBackend:
+    """Tests for _PublishingBackend state-publish wrapper."""
+
+    @pytest.mark.asyncio
+    async def test_save_publishes_state(self):
+        """save() delegates to inner backend and fires the callback."""
+        from mozart.daemon.job_service import _PublishingBackend
+
+        inner = AsyncMock()
+        published: list[CheckpointState] = []
+
+        def callback(state: CheckpointState) -> None:
+            published.append(state)
+
+        backend = _PublishingBackend(inner, callback)
+        state = CheckpointState(
+            job_id="pub-test", job_name="pub-test",
+            total_sheets=3, status=JobStatus.RUNNING,
+        )
+
+        await backend.save(state)
+
+        inner.save.assert_awaited_once_with(state)
+        assert len(published) == 1
+        assert published[0].job_id == "pub-test"
+
+    @pytest.mark.asyncio
+    async def test_callback_error_does_not_propagate(self):
+        """Callback failure must not break state saving."""
+        from mozart.daemon.job_service import _PublishingBackend
+
+        inner = AsyncMock()
+
+        def bad_callback(state: CheckpointState) -> None:
+            raise RuntimeError("callback boom")
+
+        backend = _PublishingBackend(inner, bad_callback)
+        state = CheckpointState(
+            job_id="err-test", job_name="err-test",
+            total_sheets=2, status=JobStatus.RUNNING,
+        )
+
+        # Should not raise
+        await backend.save(state)
+        inner.save.assert_awaited_once_with(state)
+
+    @pytest.mark.asyncio
+    async def test_delegates_other_methods(self):
+        """Non-save methods are delegated to the inner backend."""
+        from mozart.daemon.job_service import _PublishingBackend
+
+        inner = AsyncMock()
+        inner.load = AsyncMock(return_value=None)
+
+        backend = _PublishingBackend(inner, lambda s: None)
+
+        await backend.load("some-job")
+        inner.load.assert_awaited_once_with("some-job")
+
+
+class TestWrapStateBackend:
+    """Tests for JobService._wrap_state_backend()."""
+
+    def test_wraps_when_callback_set(self):
+        """With a publish callback, returns a _PublishingBackend."""
+        from mozart.daemon.job_service import _PublishingBackend
+
+        service = JobService(state_publish_callback=lambda s: None)
+        inner = AsyncMock()
+        wrapped = service._wrap_state_backend(inner)
+        assert isinstance(wrapped, _PublishingBackend)
+
+    def test_passthrough_when_no_callback(self):
+        """Without a publish callback, returns the backend unchanged."""
+        service = JobService()
+        inner = AsyncMock()
+        result = service._wrap_state_backend(inner)
+        assert result is inner
 
 
 # ─── create_backend (execution.setup) ─────────────────────────────────────
