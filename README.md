@@ -422,6 +422,8 @@ Mozart includes examples demonstrating various use cases:
 | [parallel-research.yaml](examples/parallel-research.yaml) | Research | Parallel source collection with synthesis |
 | [parallel-research-fanout.yaml](examples/parallel-research-fanout.yaml) | Research | Parallel research using fan-out |
 
+For creative and experimental scores exploring fan-out patterns in philosophy, worldbuilding, and education, see the [Mozart Score Playspace](https://github.com/Mzzkc/mozart-score-playspace).
+
 See [examples/README.md](examples/README.md) for detailed documentation of each example.
 
 ## Architecture
@@ -477,6 +479,7 @@ See [examples/README.md](examples/README.md) for detailed documentation of each 
 - [Known Limitations](docs/limitations.md) - What doesn't work and workarounds
 - [MCP Integration](docs/MCP-INTEGRATION.md) - Model Context Protocol server for tool integration
 - [Examples](examples/) - Working configurations for various use cases
+- [Score Playspace](https://github.com/Mzzkc/mozart-score-playspace) - Creative showcase: philosophy, worldbuilding, education, and more
 
 To browse documentation locally:
 

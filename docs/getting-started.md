@@ -2,6 +2,8 @@
 
 Mozart AI Compose is an orchestration tool for running multiple AI sessions with configurable prompts. It handles sheet-based execution, retries, state management, and more.
 
+**Repository:** [github.com/Mzzkc/mozart-ai-compose](https://github.com/Mzzkc/mozart-ai-compose)
+
 ## Installation
 
 ### From Source
@@ -134,6 +136,13 @@ The Mozart daemon is required for job execution:
 mozart start
 mozart conductor-status   # Verify it's running
 ```
+
+> **What if I skip this?** Running `mozart run` without a conductor produces:
+> ```
+> Error: Conductor not running. Start with: mozart start
+> ```
+> Only `mozart validate` and `mozart run --dry-run` work without a conductor.
+> See the [Daemon Guide](daemon-guide.md) for why this is required.
 
 ### Step 5: Run the Job
 
@@ -285,6 +294,62 @@ validations:
     path: "{workspace}/processed/sheet{sheet_num}.json"
 ```
 
+### Pattern 4: Parallel Expert Reviews (Fan-Out)
+
+```yaml
+name: "parallel-reviews"
+description: "Fan-out pattern: multiple perspectives in parallel"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+
+sheet:
+  size: 1
+  total_items: 3
+  fan_out:
+    2: 3              # Stage 2 fans out to 3 parallel instances
+  dependencies:
+    2: [1]             # All reviewers depend on setup
+    3: [2]             # Synthesis waits for all reviewers (fan-in)
+
+parallel:
+  enabled: true
+  max_concurrent: 3
+
+prompt:
+  variables:
+    perspectives:
+      1: "security"
+      2: "performance"
+      3: "maintainability"
+  template: |
+    {% if stage == 1 %}
+    ## Setup
+    Inventory the codebase and identify key areas for review.
+    Save findings to {{ workspace }}/01-inventory.md
+    {% elif stage == 2 %}
+    ## Review: {{ perspectives[instance] }}
+    Read {{ workspace }}/01-inventory.md and review from a {{ perspectives[instance] }} perspective.
+    Save to {{ workspace }}/02-review-{{ perspectives[instance] }}.md
+    {% elif stage == 3 %}
+    ## Synthesis
+    Read all review files in {{ workspace }}/02-review-*.md
+    Synthesize into a prioritized action plan.
+    Save to {{ workspace }}/03-synthesis.md
+    {% endif %}
+
+validations:
+  - type: file_exists
+    path: "{workspace}/01-inventory.md"
+    condition: "stage == 1"
+  - type: file_exists
+    path: "{workspace}/03-synthesis.md"
+    condition: "stage == 3"
+```
+
+This creates a 3-stage pipeline: setup → 3 parallel reviewers → synthesis. Each reviewer gets different instructions via `{{ perspectives[instance] }}`. See the [Score Writing Guide](score-writing-guide.md#fan-out-patterns) for more fan-out patterns.
+
 ## Template Variables
 
 Available in prompts and validation paths (see syntax note below):
@@ -341,11 +406,19 @@ mozart dashboard --port 3000
 
 ## Next Steps
 
-- [CLI Reference](cli-reference.md) - All commands and options
-- [Daemon Guide](daemon-guide.md) - Daemon configuration, systemd integration, and troubleshooting
-- [Score Writing Guide](score-writing-guide.md) - How to author Mozart scores
-- [Configuration Reference](configuration-reference.md) - Every config field documented
-- See `examples/` directory for configuration examples
+**Learn more:**
+- [Score Writing Guide](score-writing-guide.md) — Archetypes, Jinja2 templates, fan-out patterns, concert chaining
+- [CLI Reference](cli-reference.md) — All commands and options
+- [Configuration Reference](configuration-reference.md) — Every config field documented
+
+**Explore examples:**
+- [Examples](../examples/) — 24 working configurations across software, research, writing, and planning
+- [Mozart Score Playspace](https://github.com/Mzzkc/mozart-score-playspace) — Creative showcase with real output: philosophy, worldbuilding, education, and more
+
+**Go deeper:**
+- [Daemon Guide](daemon-guide.md) — Conductor architecture, systemd integration, and troubleshooting
+- [Known Limitations](limitations.md) — Constraints and workarounds
+- [MCP Integration](MCP-INTEGRATION.md) — Model Context Protocol server for tool integration
 
 ## Troubleshooting
 

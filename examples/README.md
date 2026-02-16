@@ -22,6 +22,10 @@ This directory contains example Mozart configurations for various use cases. Moz
 | [issue-fixer.yaml](issue-fixer.yaml) | GitHub issue fixing workflow | Medium |
 | [agent-spike.yaml](agent-spike.yaml) | Agent experimentation and exploration | Medium |
 | [docs-generator.yaml](docs-generator.yaml) | Documentation generation orchestration | Medium |
+| [issue-solver.yaml](issue-solver.yaml) | Roadmap-driven 17-stage issue solver with fan-out reviewers and self-chaining | High |
+| [fix-deferred-issues.yaml](fix-deferred-issues.yaml) | Parallel bug fixing across 3 categories with quality gates | High |
+| [fix-observability.yaml](fix-observability.yaml) | 13-stage observability improvements with parallel reviewers | High |
+| [phase3-wiring.yaml](phase3-wiring.yaml) | Wire GlobalSheetScheduler and RateCoordinator into daemon | High |
 
 ## Quality & Continuous Improvement
 
@@ -87,6 +91,20 @@ Mozart is a general-purpose cognitive orchestration system. These examples demon
 - Weighted criteria evaluation for strategic options
 - Risk register with mitigation traceability
 
+### Creative & Experimental
+
+For scores exploring Mozart's expressive capabilities in non-traditional domains, see the [Mozart Score Playspace](https://github.com/Mzzkc/mozart-score-playspace):
+
+| Score | Domain | Fan-Out Pattern | Description |
+|-------|--------|----------------|-------------|
+| [dialectic.yaml](https://github.com/Mzzkc/mozart-score-playspace/blob/main/scores/dialectic.yaml) | Philosophy | Adversarial | Hegelian dialectic: thesis → 3 independent antitheses → synthesis |
+| [thinking-lab.yaml](https://github.com/Mzzkc/mozart-score-playspace/blob/main/scores/thinking-lab.yaml) | Meta-cognition | Perspectival | Multi-perspective analysis through 5 parallel lenses |
+| [dinner-party.yaml](https://github.com/Mzzkc/mozart-score-playspace/blob/main/scores/dinner-party.yaml) | Hospitality | Functional | Parallel planning across menu, drinks, ambiance, logistics |
+| [skill-builder.yaml](https://github.com/Mzzkc/mozart-score-playspace/blob/main/scores/skill-builder.yaml) | Education | Graduated | Progressive curriculum from guided to mastery |
+| [worldbuilder.yaml](https://github.com/Mzzkc/mozart-score-playspace/blob/main/scores/worldbuilder.yaml) | Creative writing | Generative | Build fictional worlds through 5 independent creative lenses |
+
+These scores include real output in their workspace directories.
+
 ---
 
 ## Quality Principles
@@ -99,9 +117,9 @@ Each sheet has measurable success criteria. Not just "did it run" but "is it goo
 ```yaml
 validations:
   - type: file_exists
-    path: "{{ workspace }}/05-data-extraction.md"
+    path: "{workspace}/05-data-extraction.md"
   - type: content_contains
-    path: "{{ workspace }}/03-screening-decisions.md"
+    path: "{workspace}/03-screening-decisions.md"
     pattern: "kappa"  # Ensures agreement metric is calculated
 ```
 
@@ -268,6 +286,10 @@ All examples pass `mozart validate`:
 | training-data-curation.yaml | ✓ | ML dataset creation |
 | nonfiction-book.yaml | ✓ | Non-fiction book authoring |
 | strategic-plan.yaml | ✓ | Multi-framework strategic planning |
+| issue-solver.yaml | ✓ | Roadmap-driven issue solving with fan-out |
+| fix-deferred-issues.yaml | ✓ | Parallel bug fixing with quality gates |
+| fix-observability.yaml | ✓ | Observability gap fixes with parallel reviews |
+| phase3-wiring.yaml | ✓ | Daemon scheduler/rate-coordinator wiring |
 
 ---
 
