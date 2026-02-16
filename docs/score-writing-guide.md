@@ -16,6 +16,9 @@ examples to complex parallel fan-out workflows.
 - [The 6 Score Archetypes](#the-6-score-archetypes)
 - [Anatomy of a Score](#anatomy-of-a-score)
 - [Template Variables Reference](#template-variables-reference)
+- [Expressive Templates](#expressive-templates)
+- [Fan-Out Patterns](#fan-out-patterns)
+- [Philosophy of Score Design](#philosophy-of-score-design)
 - [Validation Types](#validation-types)
 - [Fan-Out and Dependencies](#fan-out-and-dependencies)
 - [Cross-Sheet Context](#cross-sheet-context)
@@ -496,6 +499,570 @@ prompt:
   thinking_method: |
     Think step by step. Consider multiple approaches before committing.
 ```
+
+---
+
+## Expressive Templates
+
+The [Template Variables Reference](#template-variables-reference) above catalogs what's
+available. This section teaches you how to compose with it — how to turn flat YAML
+into multi-stage, data-driven programs that generate precise instructions for minds.
+
+Each subsection builds on the last. By the end, your templates will look less like
+config and more like compositions.
+
+### Arithmetic and Inline Expressions
+
+Jinja2 evaluates expressions inside `{{ }}`. This is more useful than it sounds —
+computed ranges, percentages, and ternary decisions all work inline.
+
+```yaml
+prompt:
+  variables:
+    batch_size: 10
+  template: |
+    Process batch {{ instance }} of {{ fan_count }}.
+    Items {{ (instance - 1) * batch_size + 1 }} to {{ instance * batch_size }}.
+
+    You are {{ ((instance / fan_count) * 100) | round }}% through the total workload.
+```
+
+**Ternary expressions** for inline decisions (no `{% if %}` blocks needed):
+
+```yaml
+prompt:
+  template: |
+    {{ "FINAL STAGE — be thorough and complete." if stage == total_stages else "Intermediate stage — focus on your specific task." }}
+
+    Priority: {{ "HIGH" if instance == 1 else "NORMAL" }}
+```
+
+One line per decision. Use this when the conditional is small enough to stay readable
+inline. Reach for full `{% if %}` blocks when it isn't.
+
+### Conditionals (The Multi-Stage Backbone)
+
+The `{% if stage == N %}` pattern is how a single template becomes a multi-stage
+composition. Each stage gets its own instructions, but they share the same
+variable context and macro definitions:
+
+```yaml
+prompt:
+  template: |
+    {% if stage == 1 %}
+    RESEARCH: Find all relevant sources on {{ topic }}.
+    Write findings to {{ workspace }}/01-research.md
+    {% elif stage == 2 %}
+    ANALYZE: Read the research from stage 1 and identify patterns.
+    Write analysis to {{ workspace }}/02-analysis.md
+    {% elif stage == 3 %}
+    SYNTHESIZE: Combine analysis into a coherent narrative.
+    Write final report to {{ workspace }}/03-synthesis.md
+    {% endif %}
+```
+
+**Nested conditionals** for fan-out specialization — when each parallel instance
+needs distinct instructions:
+
+```yaml
+prompt:
+  variables:
+    perspectives:
+      1: "economic"
+      2: "environmental"
+      3: "social"
+  template: |
+    {% if stage == 2 %}
+    Analyze from the {{ perspectives[instance] }} perspective.
+
+    {% if instance == 1 %}
+    Focus on costs, ROI, market dynamics.
+    {% elif instance == 2 %}
+    Focus on ecological impact, sustainability, externalities.
+    {% elif instance == 3 %}
+    Focus on equity, access, community effects.
+    {% endif %}
+    {% endif %}
+```
+
+This is where scores start feeling like programs. Each fan-out instance gets tailored
+instructions from the same template — the outer conditional selects the stage, the
+inner conditional specializes each instance.
+
+### Custom Variables as Data Structures
+
+The `prompt.variables` dict is your data layer. It holds anything YAML can express —
+lists, nested dicts, lookup tables — and templates become views into that data:
+
+```yaml
+prompt:
+  variables:
+    guests:
+      - name: "Alice"
+        dietary: "vegetarian"
+        interests: ["jazz", "architecture"]
+      - name: "Bob"
+        dietary: "none"
+        interests: ["hiking", "wine"]
+      - name: "Carol"
+        dietary: "gluten-free"
+        interests: ["photography", "cooking"]
+
+    courses:
+      1: "appetizer"
+      2: "main"
+      3: "dessert"
+
+    wine_pairings:
+      appetizer: "Sauvignon Blanc or sparkling"
+      main: "Pinot Noir or Syrah"
+      dessert: "Late harvest Riesling or Port"
+
+  template: |
+    Plan the {{ courses[instance] }} course.
+
+    Dietary requirements to accommodate:
+    {% for guest in guests %}
+    - {{ guest.name }}: {{ guest.dietary }}{% if guest.dietary == "none" %} (no restrictions){% endif %}
+    {% endfor %}
+
+    Wine suggestion for this course: {{ wine_pairings[courses[instance]] }}
+```
+
+Change the data, the prompts change. The logic stays the same. This separation of
+concerns is what makes scores maintainable — when the guest list changes or you
+add a fourth course, the template doesn't need to change.
+
+### Loops
+
+#### Iterating over lists
+
+```yaml
+prompt:
+  variables:
+    checkpoints:
+      - "All functions have docstrings"
+      - "No unused imports"
+      - "Test coverage above 80%"
+      - "No hardcoded secrets"
+  template: |
+    Review this code against the following checklist:
+
+    {% for check in checkpoints %}
+    {{ loop.index }}. {{ check }}{% if loop.last %} (MOST CRITICAL){% endif %}
+    {% endfor %}
+```
+
+The `loop` variable provides `loop.index` (1-based), `loop.index0` (0-based),
+`loop.first`, `loop.last`, and `loop.length`.
+
+#### Iterating over dicts
+
+This is how synthesis stages consume fan-out results — the `previous_outputs` dict
+is keyed by sheet number:
+
+```yaml
+prompt:
+  template: |
+    {% if stage == 3 %}
+    Synthesize findings from all previous stages:
+
+    {% for sheet_key, output in previous_outputs.items() %}
+    --- Stage {{ sheet_key }} output ---
+    {{ output | truncate(1500) }}
+
+    {% endfor %}
+    {% endif %}
+```
+
+#### Range-based loops with concatenation
+
+```yaml
+prompt:
+  template: |
+    Generate {{ fan_count }} test scenarios:
+
+    {% for i in range(1, fan_count + 1) %}
+    Scenario {{ i }}: {{ "happy path" if i == 1 else "edge case " ~ (i - 1) }}
+    {% endfor %}
+```
+
+The `~` operator concatenates strings. `range()` works like Python's. Together
+they let you build dynamic numbered lists without hardcoding the count.
+
+### Filters
+
+Filters transform values inline with `|`. They are Jinja2's equivalent of Unix pipes.
+
+**Useful filters:**
+
+| Filter | What It Does | Example |
+|--------|-------------|---------|
+| `upper` / `lower` / `title` | Case conversion | `{{ name \| title }}` |
+| `trim` | Strip whitespace | `{{ text \| trim }}` |
+| `truncate(n)` | Limit length | `{{ long_text \| truncate(500) }}` |
+| `default(val)` | Fallback if undefined/empty | `{{ x \| default("N/A") }}` |
+| `replace(old, new)` | String substitution | `{{ s \| replace(" ", "_") }}` |
+| `join(sep)` | Join a list | `{{ items \| join(", ") }}` |
+| `length` | Count items | `{{ list \| length }}` |
+| `round` | Round numbers | `{{ 3.7 \| round }}` |
+| `int` / `float` | Type conversion | `{{ "42" \| int }}` |
+| `first` / `last` | List endpoints | `{{ items \| first }}` |
+| `sort` | Sort a list | `{{ names \| sort }}` |
+| `unique` | Deduplicate | `{{ tags \| unique }}` |
+| `reject` / `select` | Filter items | `{{ items \| reject("none") }}` |
+| `map(attribute=x)` | Extract attribute | `{{ guests \| map(attribute="name") \| join(", ") }}` |
+| `batch(n)` | Group into chunks | `{% for chunk in items \| batch(5) %}` |
+| `wordcount` | Count words | `{{ text \| wordcount }}` |
+
+**Chaining** is where filters shine — compose them left to right like a pipeline:
+
+```yaml
+prompt:
+  template: |
+    Guest list: {{ guests | map(attribute="name") | sort | join(", ") }}
+
+    Dietary needs: {{ guests | map(attribute="dietary") | reject("equalto", "none") | unique | join(", ") }}
+
+    Previous output (trimmed):
+    {{ previous_outputs[1] | default("No previous output") | truncate(800) }}
+```
+
+### Macros (Reusable Prompt Blocks)
+
+Macros are the most underused Jinja2 feature in scores — and arguably the most
+powerful. They let you define reusable prompt fragments with consistent formatting:
+
+```yaml
+prompt:
+  template: |
+    {% macro output_spec(filename, format) %}
+    ## Output Specification
+    - **File**: {{ workspace }}/{{ filename }}
+    - **Format**: {{ format }}
+    - **Encoding**: UTF-8
+    - If the parent directory doesn't exist, create it.
+    {% endmacro %}
+
+    {% macro quality_bar(level) %}
+    ## Quality Standard
+    {% if level == "high" %}
+    This is a high-stakes deliverable. Triple-check accuracy. Cite sources.
+    No hedging language. Be definitive where evidence supports it.
+    {% elif level == "draft" %}
+    This is a working draft. Prioritize coverage over polish.
+    Mark uncertainties with [?]. Flag areas needing human review with [REVIEW].
+    {% endif %}
+    {% endmacro %}
+
+    {% if stage == 1 %}
+    Research the topic thoroughly.
+    {{ output_spec("01-research.md", "markdown with source citations") }}
+    {{ quality_bar("draft") }}
+
+    {% elif stage == 2 %}
+    Write the final analysis.
+    {{ output_spec("02-analysis.md", "structured markdown report") }}
+    {{ quality_bar("high") }}
+    {% endif %}
+```
+
+Define once, use everywhere. When you change your output spec format, you change
+it in one place. When you add a new stage, you compose it from existing blocks.
+
+**Parameterized macros with defaults** for maximum flexibility:
+
+```yaml
+prompt:
+  template: |
+    {% macro section(title, instructions, output_file, critical=false) %}
+    # {{ title }}{{ " [CRITICAL]" if critical else "" }}
+
+    {{ instructions }}
+
+    Save your work to: {{ workspace }}/{{ output_file }}
+    {% if critical %}
+
+    WARNING: This section's output feeds directly into downstream stages.
+    Errors here cascade. Be precise.
+    {% endif %}
+    {% endmacro %}
+
+    {% if stage == 1 %}
+    {{ section(
+        "Data Collection",
+        "Gather all primary sources. Verify each one.",
+        "01-data.md"
+    ) }}
+    {% elif stage == 2 %}
+    {{ section(
+        "Analysis",
+        "Identify the three strongest patterns in the data.",
+        "02-analysis.md",
+        critical=true
+    ) }}
+    {% endif %}
+```
+
+Macros are your house style encoded as code. New stages inherit your standards
+automatically.
+
+### Fan-Out + Jinja2
+
+Fan-out gives you parallel execution. Jinja2 gives you per-instance specialization.
+Together, they create parallel cognition — multiple independent minds, each with
+a distinct voice, converging on one question:
+
+```yaml
+sheet:
+  size: 1
+  total_items: 3
+  fan_out:
+    2: 4    # Stage 2 runs 4 parallel instances
+  dependencies:
+    2: [1]
+    3: [2]  # Fan-in: stage 3 waits for all 4
+
+prompt:
+  variables:
+    lenses:
+      1:
+        name: "historian"
+        voice: "You are a historian. Ground everything in precedent and trajectory."
+        focus: "How did we get here? What patterns recur?"
+      2:
+        name: "engineer"
+        voice: "You are a systems thinker. Focus on mechanisms and feedback loops."
+        focus: "What are the moving parts? Where are the leverage points?"
+      3:
+        name: "poet"
+        voice: "You are a poet. Attend to what's felt but unsaid."
+        focus: "What's the emotional truth? What metaphor captures this?"
+      4:
+        name: "skeptic"
+        voice: "You are a skeptic. Challenge every assumption, including your own."
+        focus: "What are we wrong about? What evidence would change our mind?"
+
+  template: |
+    {% if stage == 1 %}
+    Frame the question. What are we actually asking?
+    Define scope, assumptions, and what a good answer looks like.
+
+    Save to {{ workspace }}/00-framing.md
+
+    {% elif stage == 2 %}
+    {{ lenses[instance].voice }}
+
+    Read the framing: {{ workspace }}/00-framing.md
+
+    Your focus: {{ lenses[instance].focus }}
+
+    Write your perspective. Be authentic to your role. Don't try to be
+    balanced — that's the synthesis stage's job. Lean into your lens.
+
+    Save to {{ workspace }}/02-{{ lenses[instance].name }}.md
+
+    {% elif stage == 3 %}
+    You have {{ fan_count }} perspectives to synthesize:
+
+    {% for i in range(1, fan_count + 1) %}
+    - **{{ lenses[i].name | title }}**: {{ lenses[i].focus }}
+    {% endfor %}
+
+    {% if previous_outputs %}
+    {% for key, output in previous_outputs.items() %}
+    --- {{ lenses[loop.index].name | title if loop.index <= fan_count else "Unknown" }} ---
+    {{ output | truncate(2000) }}
+
+    {% endfor %}
+    {% endif %}
+
+    Don't average the perspectives. Find the tensions between them.
+    The interesting insight is usually where two lenses disagree.
+
+    Save to {{ workspace }}/03-synthesis.md
+    {% endif %}
+```
+
+Four parallel minds, each with a distinct voice, all examining the same question.
+The synthesis stage doesn't summarize — it's told to find the *tensions*. That's
+where the interesting thinking happens.
+
+### Advanced Patterns
+
+#### Progressive Difficulty
+
+Use stage-indexed data structures to scale complexity across the pipeline:
+
+```yaml
+prompt:
+  variables:
+    difficulty:
+      1: { depth: "surface", time: "5 minutes", standard: "draft" }
+      2: { depth: "moderate", time: "15 minutes", standard: "review-ready" }
+      3: { depth: "thorough", time: "30 minutes", standard: "publication" }
+  template: |
+    {% set diff = difficulty[stage] | default(difficulty[3]) %}
+
+    Analyze at {{ diff.depth }} depth.
+    Target effort: {{ diff.time }}.
+    Quality standard: {{ diff.standard }}.
+```
+
+#### Conditional Validation Hints
+
+Tell the agent what format validations expect — then your `content_contains`
+and `content_regex` rules will find what they're looking for:
+
+```yaml
+prompt:
+  template: |
+    {% if stage <= 3 %}
+    Save your output as markdown to {{ workspace }}/{{ "%02d" | format(stage) }}-output.md
+    {% else %}
+    Save your output as JSON to {{ workspace }}/{{ "%02d" | format(stage) }}-output.json
+
+    The JSON must validate against this schema:
+    ```json
+    {"type": "object", "required": ["findings", "confidence", "sources"]}
+    ```
+    {% endif %}
+```
+
+#### Cross-Sheet Selective Recall
+
+Only include substantial previous outputs. Skip empty or trivial ones to
+save context window:
+
+```yaml
+prompt:
+  template: |
+    {% if previous_outputs %}
+    ## Context from Previous Stages
+    {% for key, output in previous_outputs.items() %}
+    {% if output | length > 100 %}
+
+    ### Stage {{ key }} ({{ output | wordcount }} words)
+    {{ output | truncate(1000) }}
+    {% else %}
+    *Stage {{ key }}: minimal output, skipping.*
+    {% endif %}
+    {% endfor %}
+    {% endif %}
+```
+
+#### Self-Documenting Stages
+
+Encode stage metadata in variables so each prompt explains its own place
+in the pipeline to the agent as it runs:
+
+```yaml
+prompt:
+  variables:
+    stages:
+      1: { name: "Research", verb: "researching" }
+      2: { name: "Draft", verb: "drafting" }
+      3: { name: "Review", verb: "reviewing" }
+      4: { name: "Publish", verb: "publishing" }
+  template: |
+    {% set current = stages[stage] %}
+    {% set progress = ((stage / total_stages) * 100) | round %}
+
+    # {{ current.name }} (Stage {{ stage }}/{{ total_stages }}, {{ progress }}% complete)
+
+    You are {{ current.verb }} as part of a {{ total_stages }}-stage pipeline.
+
+    {% if stage > 1 %}
+    Previous stage ({{ stages[stage - 1].name }}) output:
+    {{ previous_outputs[stage - 1] | default("Not available") | truncate(1500) }}
+    {% endif %}
+
+    Save to {{ workspace }}/{{ "%02d" | format(stage) }}-{{ current.name | lower }}.md
+```
+
+### Template Limitations
+
+A few things that will not work:
+
+1. **No `{% include %}` or `{% extends %}`** — Templates are loaded via
+   `from_string()`, not from a filesystem loader. No file inclusion or
+   template inheritance.
+
+2. **No side effects** — Jinja2 is a rendering engine, not a programming
+   language. You cannot make HTTP calls, read files, or execute commands
+   from inside a template. That's what the agent does.
+
+3. **No dynamic fan-out** — You cannot compute fan-out count from inside a
+   template. `fan_out:` is YAML config, evaluated before templates render.
+   The structure is fixed; only the content is dynamic.
+
+4. **Validation paths use different syntax** — Validation `path` fields use
+   `{single_brace}` Python format strings (`{workspace}`, `{sheet_num}`),
+   not Jinja2 `{{ double_brace }}` syntax. Don't mix them.
+
+---
+
+## Fan-Out Patterns
+
+Fan-out is not just parallelism — it's structured pluralism. The pattern you
+choose shapes what kind of thinking the fan-out produces. Six patterns have
+emerged from real scores:
+
+| Pattern | What It Does | Example Scores |
+|---------|-------------|----------------|
+| **Adversarial** | Independent critiques of the same position | [dialectic.yaml](https://github.com/Mzzkc/mozart-score-playspace/blob/main/scores/dialectic.yaml), [parallel-research.yaml](examples/parallel-research-fanout.yaml) |
+| **Perspectival** | Same question, different analytical frameworks | [thinking-lab.yaml](https://github.com/Mzzkc/mozart-score-playspace/blob/main/scores/thinking-lab.yaml) |
+| **Functional** | Same goal, different planning domains | [dinner-party.yaml](https://github.com/Mzzkc/mozart-score-playspace/blob/main/scores/dinner-party.yaml) |
+| **Graduated** | Same content, different difficulty levels | [skill-builder.yaml](https://github.com/Mzzkc/mozart-score-playspace/blob/main/scores/skill-builder.yaml) |
+| **Generative** | Same seed, different creative lenses | [worldbuilder.yaml](https://github.com/Mzzkc/mozart-score-playspace/blob/main/scores/worldbuilder.yaml) |
+| **Expert** | Same codebase, different review specializations | [quality-continuous.yaml](examples/quality-continuous.yaml) |
+
+The synthesis stage that follows fan-out is where emergence happens. Independent
+outputs produce tensions, convergences, and combinations that no single perspective
+would generate alone. The pattern you choose determines the *kind* of emergence:
+adversarial finds hidden agreements, perspectival finds blind spots, generative
+finds unexpected coherence.
+
+> For creative examples with real output, see the
+> [Mozart Score Playspace](https://github.com/Mzzkc/mozart-score-playspace).
+
+---
+
+## Philosophy of Score Design
+
+Five principles for score authors.
+
+### 1. Scores Are Programs for Minds, Not Machines
+
+A shell script tells bash exactly what to do. A score tells a mind what to
+*accomplish*. The template is the specification; the agent is the implementation.
+Design accordingly — be clear about outcomes, flexible about methods.
+
+### 2. Fan-Out Is Parallel Cognition
+
+When you fan out a stage, you're not running the same thing faster. You're creating
+multiple independent perspectives. The synthesis stage is where the magic happens —
+where those perspectives collide, contradict, and combine into something none of
+them could reach alone.
+
+### 3. Macros Are Your House Style
+
+Every team has implicit standards — how to format output, what quality level to
+expect, how to cite sources. Encode these as macros. New scores inherit your
+standards automatically. Update them in one place.
+
+### 4. Data in Variables, Logic in Templates
+
+Keep your `prompt.variables` as the source of truth for domain-specific data
+(guest lists, review criteria, stage definitions). Keep your template as the logic
+that processes that data. When the data changes, the template doesn't need to.
+
+### 5. The Workspace Is Shared Memory
+
+Files in `{{ workspace }}` are how stages communicate beyond `previous_outputs`.
+Write structured output — JSON, markdown with consistent headers — so downstream
+stages can parse it reliably. The workspace is the score's memory; treat it with
+the same care you'd give a database schema.
 
 ---
 
