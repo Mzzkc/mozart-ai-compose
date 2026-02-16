@@ -1,0 +1,457 @@
+# Mozart AI Compose - Claude Instructions
+
+Project-specific instructions for AI assistants working on this codebase.
+
+---
+
+## Session Protocol
+
+**Session Start:**
+1. Read `STATUS.md` (root) - Quick status overview
+2. Read `memory-bank/activeContext.md` - Current state and focus
+3. Read `memory-bank/projectbrief.md` if unfamiliar with project purpose
+4. Check `memory-bank/progress.md` for what's been done
+
+**Session End:**
+1. Update `memory-bank/activeContext.md` with session results
+2. Update `STATUS.md` if phase/component status changed
+3. Add entry to `memory-bank/progress.md` if significant work
+4. Create session summary in `memory-bank/sessions/` if >1hr complex work
+
+---
+
+## Code Patterns
+
+**Async Throughout:** All I/O operations use async. CLI backend uses `asyncio.create_subprocess_exec`.
+
+**Pydantic v2:** All config and state models use Pydantic BaseModel with validation.
+
+**Protocol-Based:** Backends and state storage use Protocol classes for swappability.
+
+**Type Hints:** All functions have type hints. Use `mypy` for checking.
+
+---
+
+## Key Files
+
+| Purpose | File |
+|---------|------|
+| CLI entry | `src/mozart/cli/` (package: `__init__.py`, `helpers.py`, `output.py`, `commands/`) |
+| Conductor commands | `src/mozart/cli/commands/conductor.py` (`start`, `stop`, `restart`, `conductor-status`) |
+| Config models | `src/mozart/core/config/` (package: `backend.py`, `execution.py`, `job.py`, `learning.py`, `orchestration.py`, `workspace.py`) |
+| State models | `src/mozart/core/checkpoint.py` |
+| Error handling | `src/mozart/core/errors/` (package: `classifier.py`, `codes.py`, `models.py`, `parsers.py`, `signals.py`) |
+| Execution runner | `src/mozart/execution/runner/` (package: `base.py`, `sheet.py`, `lifecycle.py`, `recovery.py`, `cost.py`, `isolation.py`, `patterns.py`, `models.py`) |
+| Learning store | `src/mozart/learning/store/` (package: 14 modules including `base.py`, `drift.py`, `budget.py`, `patterns_*.py`) |
+| Claude backend | `src/mozart/backends/claude_cli.py` |
+| State storage | `src/mozart/state/json_backend.py` |
+| Fan-out expansion | `src/mozart/core/fan_out.py` |
+| Example config | `examples/sheet-review.yaml` |
+| Fan-out example | `examples/parallel-research-fanout.yaml` |
+
+---
+
+## Running Mozart Jobs
+
+**The conductor is required for `mozart run`.** Without a running conductor, only `--dry-run` and `mozart validate` work. Start the conductor with `mozart start`.
+
+**CRITICAL: Use `setsid` for detached conductor startup.**
+
+```bash
+# Start conductor (required before any job execution)
+mozart start
+
+# For detached conductor startup (e.g., from scripts):
+setsid mozart start &
+
+# WRONG: External timeout corrupts state
+timeout 600 mozart run my-job.yaml
+```
+
+Individual jobs submitted via `mozart run` are managed by the daemon and do not need `setsid`.
+
+**CRITICAL: NEVER use `--fresh` unless resuming is impossible.**
+
+`--fresh` deletes all checkpoint state and archives workspace artifacts. Always try `mozart run <config>.yaml` WITHOUT `--fresh` first. Mozart will resume from the last checkpoint automatically. Only use `--fresh` if:
+1. The checkpoint is corrupted and Mozart refuses to load it
+2. You explicitly need to start over (e.g., the job config changed fundamentally)
+3. The user explicitly asks for a fresh start
+
+Even if the checkpoint JSON file is missing, the workspace may contain artifacts that allow fallback state inference. Running without `--fresh` preserves those artifacts. Running WITH `--fresh` destroys hours of work.
+
+**Monitoring:**
+```bash
+mozart status my-job -w ./workspace --watch
+tail -f workspace/mozart.log
+```
+
+**Pausing Jobs:**
+```bash
+# Pause a running job gracefully
+mozart pause my-job --workspace ./workspace
+
+# Modify config and resume (one command)
+mozart modify my-job --config updated.yaml --workspace ./workspace --resume
+
+# Or use the two-step workflow
+mozart pause my-job -w ./workspace
+mozart resume my-job --reload-config -c updated.yaml -w ./workspace
+```
+
+For comprehensive Mozart usage guidance, see: `/home/emzi/.claude/skills/mozart-usage.md`
+
+---
+
+## Debugging Mozart Errors
+
+**CRITICAL: Use Mozart's diagnostic tools FIRST, before manual investigation.**
+
+### Debugging Protocol (follow this order)
+
+```bash
+# 1. Check current status
+mozart status <job-id> --workspace <dir>
+
+# 2. Get full diagnostic report
+mozart diagnose <job-id> --workspace <dir>
+
+# 3. View error history
+mozart errors <job-id> --verbose
+
+# 4. THEN investigate code if needed
+```
+
+### Understanding Validation Failures
+
+If `mozart status` shows "Validation: ✗ Fail":
+- The execution ran, but output didn't meet requirements
+- Check WHICH validation failed, not just that it failed
+- The work may be complete but missing a required marker
+
+```bash
+# Check specific validation failures
+cat workspace/my-job.json | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+sheet = d['sheets']['6']  # Change sheet number
+for v in sheet.get('validation_details', []):
+    status = '✓' if v.get('passed') else '✗'
+    print(f'{status} {v.get(\"description\", \"unknown\")}')"
+```
+
+### Common Pitfalls
+
+1. **Assuming exit_code=1 means failure** - Validations may have passed
+2. **Not checking validation details** - ONE failed validation = sheet fails
+3. **Looking at old logs** - Check file modification times
+4. **Manual debugging before using tools** - ALWAYS run `status`/`diagnose` first
+
+### Full Error Details
+
+The `mozart.log` only shows truncated `stdout_tail` (500 chars). The state file captures up to 10KB per sheet in `sheets[N].stdout_tail` and `stderr_tail`.
+
+```bash
+# Extract errors from state file
+cat workspace/my-job.json | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+for k, s in d.get('sheets', {}).items():
+    stdout = s.get('stdout_tail', '')
+    if stdout and ('Error' in stdout or 'error' in stdout):
+        print(f'=== Sheet {k} ===')
+        print(stdout)
+"
+```
+
+### Recovery Options
+
+```bash
+# Resume (re-executes sheet)
+mozart resume job-id --workspace ./dir
+
+# Recover (validates without re-execution, hidden command)
+mozart recover job-id --workspace ./dir --dry-run
+```
+
+### Reference Skill
+
+See: `/home/emzi/.claude/skills/mozart-usage.md` (global skill)
+
+---
+
+## Self-Healing & Enhanced Validation
+
+Mozart includes two complementary features for error recovery:
+
+### Enhanced Validation (`mozart validate`)
+
+The validate command performs comprehensive pre-execution checks beyond schema validation:
+
+```bash
+# Basic validation
+mozart validate my-job.yaml
+
+# JSON output for CI/CD
+mozart validate my-job.yaml --json
+```
+
+**Exit Codes:**
+- `0`: Valid (warnings/info OK)
+- `1`: Invalid (one or more errors)
+- `2`: Cannot validate (file not found, YAML unparseable)
+
+**Validation Checks:**
+| Check | Description | Severity |
+|-------|-------------|----------|
+| V001 | Jinja syntax errors | ERROR |
+| V002 | Workspace parent missing | ERROR (auto-fixable) |
+| V003 | Template file missing | ERROR |
+| V007 | Invalid regex patterns | ERROR |
+| V101 | Undefined template variables | WARNING |
+| V103 | Very short timeout | WARNING |
+
+### Self-Healing (`--self-healing`)
+
+When enabled, Mozart automatically diagnoses and fixes common issues when retries are exhausted:
+
+```bash
+# Enable self-healing
+mozart run my-job.yaml --self-healing
+
+# Auto-confirm suggested fixes
+mozart run my-job.yaml --self-healing --yes
+
+# Works with resume too
+mozart resume job-id --self-healing
+```
+
+**How It Works:**
+1. All configured retries attempted first
+2. On exhaustion, diagnostic context collected
+3. Applicable remedies identified and ranked
+4. Automatic remedies applied without prompting
+5. Suggested remedies prompt unless `--yes`
+6. Diagnostic guidance shown for manual-fix issues
+7. If any remedy applied, retry counter reset
+
+**Built-in Remedies:**
+
+| Remedy | Category | Triggers On |
+|--------|----------|-------------|
+| Create missing workspace | Automatic | E601 - workspace doesn't exist |
+| Create parent directories | Automatic | E601/E201 - path parent missing |
+| Fix path separators | Automatic | Backslashes on Unix paths |
+| Suggest Jinja fix | Suggested | Template syntax errors |
+| Diagnose auth errors | Diagnostic | E101/E102/E401 |
+| Diagnose missing CLI | Diagnostic | CLI not found |
+
+**Key Files:**
+| File | Purpose |
+|------|---------|
+| `src/mozart/validation/` | Enhanced validation module |
+| `src/mozart/healing/` | Self-healing module |
+| `tests/test_validation_checks.py` | Validation tests (29 tests) |
+| `tests/test_healing.py` | Healing tests (32 tests) |
+
+---
+
+## Testing
+
+```bash
+cd ~/Projects/mozart-ai-compose
+source .venv/bin/activate
+
+# Validate config
+mozart validate examples/sheet-review.yaml
+
+# Dry run
+mozart run examples/sheet-review.yaml --dry-run
+
+# Type check
+mypy src/
+
+# Lint
+ruff check src/
+```
+
+---
+
+## Development
+
+```bash
+# Install editable with dev deps
+pip install -e ".[dev]"
+
+# Run tests
+pytest
+
+# Watch for changes (future)
+pytest --watch
+```
+
+---
+
+## Worktree Isolation (Parallel-Safe Jobs)
+
+Mozart supports git worktree isolation for safe parallel job execution. When enabled, each job runs in an isolated git worktree, allowing multiple jobs to modify code simultaneously without interference.
+
+### When to Use Worktree Isolation
+
+- Running multiple code-modifying jobs in parallel
+- Needing clean commit validation without other jobs' changes
+- CI/CD environments where multiple agents work on the same repo
+
+### Configuration
+
+```yaml
+# In your job config
+isolation:
+  enabled: true           # Opt-in to worktree isolation
+  mode: worktree          # Only mode currently supported
+  cleanup_on_success: true    # Remove worktree after success
+  cleanup_on_failure: false   # Keep for debugging on failure
+  lock_during_execution: true # Prevent accidental removal
+  fallback_on_error: true     # Continue without isolation if creation fails
+```
+
+### How It Works
+
+1. At job start, Mozart creates a git worktree in detached HEAD mode
+2. The backend's working directory is set to the worktree path
+3. All sheet executions happen within the isolated worktree
+4. On completion, worktree is cleaned up based on config
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `src/mozart/isolation/worktree.py` | GitWorktreeManager implementation |
+| `src/mozart/core/config/` | IsolationConfig schema (in config package) |
+| `examples/worktree-isolation.yaml` | Example configuration |
+| `tests/test_worktree.py` | Comprehensive worktree tests |
+
+### Benefits
+
+- **Fast isolation:** ~24ms per worktree (negligible vs API latency)
+- **Storage efficient:** Git objects shared between worktrees
+- **Automatic cleanup:** Even if Mozart crashes, `git worktree prune` cleans up
+
+---
+
+## Conductor Mode
+
+Mozart uses a long-running conductor process that manages multiple concurrent jobs, coordinates rate limits across jobs, and provides a Unix socket IPC interface.
+
+### Quick Start
+
+```bash
+# Start the conductor (foreground, for development)
+mozart start --foreground
+
+# Start the conductor (background, production)
+mozart start
+
+# Check conductor status
+mozart conductor-status
+
+# Stop the conductor
+mozart stop
+
+# Submit a job via CLI (auto-detects running conductor)
+mozart run my-job.yaml  # Routes through conductor if running
+```
+
+### How CLI Routes Through Conductor
+
+When you run `mozart run`, the CLI checks for a running conductor via the Unix socket at the default IPC path. If a conductor is found, the job is submitted for execution. If no conductor is running, `mozart run` exits with an error. The conductor is required for job execution — only `--dry-run` and `mozart validate` work without it.
+
+### Key Daemon Files
+
+| Purpose | File |
+|---------|------|
+| Daemon config | `src/mozart/daemon/config.py` |
+| Type definitions | `src/mozart/daemon/types.py` |
+| Output protocol | `src/mozart/daemon/output.py` |
+| Job execution service | `src/mozart/daemon/job_service.py` |
+| Daemon process entry | `src/mozart/daemon/process.py` |
+| Job manager | `src/mozart/daemon/manager.py` |
+| Resource monitor | `src/mozart/daemon/monitor.py` |
+| System probe | `src/mozart/daemon/system_probe.py` |
+| Process groups | `src/mozart/daemon/pgroup.py` |
+| Cross-job scheduler | `src/mozart/daemon/scheduler.py` |
+| Rate limit coordination | `src/mozart/daemon/rate_coordinator.py` |
+| Backpressure/load mgmt | `src/mozart/daemon/backpressure.py` |
+| Centralized learning | `src/mozart/daemon/learning_hub.py` |
+| Daemon detection | `src/mozart/daemon/detect.py` |
+| Health checks | `src/mozart/daemon/health.py` |
+| Job registry | `src/mozart/daemon/registry.py` |
+| Task utilities | `src/mozart/daemon/task_utils.py` |
+| Daemon exceptions | `src/mozart/daemon/exceptions.py` |
+| IPC server | `src/mozart/daemon/ipc/server.py` |
+| IPC client | `src/mozart/daemon/ipc/client.py` |
+| JSON-RPC protocol | `src/mozart/daemon/ipc/protocol.py` |
+| IPC handler | `src/mozart/daemon/ipc/handler.py` |
+| IPC errors | `src/mozart/daemon/ipc/errors.py` |
+
+### Conductor Debugging Protocol
+
+```bash
+# 1. Check if conductor is running
+mozart conductor-status
+
+# 2. List active jobs
+mozart list
+
+# 3. Check a specific job
+mozart status <job-id>
+
+# 4. View conductor logs
+tail -f ~/.mozart/mozart.log
+```
+
+### Architecture
+
+The daemon uses a layered architecture:
+
+1. **IPC Layer** — Unix socket + JSON-RPC 2.0 for client-daemon communication
+2. **Job Manager** — Tracks job lifecycle, handles submission/cancellation
+3. **Scheduler** *(Phase 3 — built & tested, not yet wired)* — Cross-job sheet scheduling with priority and fair-share. Infrastructure is ready; jobs currently run monolithically via JobService.
+4. **Rate Coordinator** *(Phase 3 — partially wired)* — Shares rate limit state across concurrent jobs. Write path active (rate limit events flow from runners via `JobManager._on_rate_limit`). Read path not yet wired (scheduler doesn't consume the data).
+5. **Backpressure** — Load management to prevent resource exhaustion (active: gates job submission and provides memory-based pressure levels)
+6. **Resource Monitor** — Tracks CPU/memory/process usage
+7. **Learning Hub** — Centralizes pattern learning across all daemon jobs
+
+---
+
+## Patterns from Naurva Scripts
+
+This project generalizes patterns from `/home/emzi/Projects/Naurva/run-sheet-review.sh`:
+
+1. **State checkpoint** - JSON file with last_completed_sheet, status
+2. **Fallback state inference** - Check artifact files if checkpoint missing
+3. **Rate limit detection** - Pattern matching on output
+4. **Separate retry vs wait counters** - Rate limits don't consume retries
+5. **Validation before marking complete** - File existence + mtime checks
+6. **Atomic state saves** - Write temp file, then rename
+
+---
+
+## Reference Docs
+
+- `docs/daemon-guide.md` - Daemon setup, configuration, and troubleshooting
+- `docs/score-writing-guide.md` - How to author Mozart scores
+- `docs/configuration-reference.md` - Every config field documented
+- `docs/limitations.md` - Known limitations and workarounds
+- `docs/cli-reference.md` - Complete CLI command reference
+
+## Reference Skills
+
+When working on this project, relevant skills:
+- `/home/emzi/.claude/skills/mozart-usage.md` - **Mozart debugging and usage guide (global)**
+- `/home/emzi/.claude/skills/session-startup-protocol.md`
+- `/home/emzi/.claude/skills/session-shutdown-protocol.md`
+- `/home/emzi/.claude/skills/wolf-prevention-patterns.md`
+
+---
+
+*Created: 2025-12-18*
