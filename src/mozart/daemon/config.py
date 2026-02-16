@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from mozart.core.logging import get_logger
 
@@ -43,14 +43,13 @@ class ResourceLimitConfig(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _warn_reserved_fields(self) -> ResourceLimitConfig:
-        """Warn when reserved fields are set to non-default values."""
+    def _reject_unimplemented_overrides(self) -> ResourceLimitConfig:
+        """Reject reserved fields set to non-default values."""
         if self.max_api_calls_per_minute != 60:
-            _logger.warning(
-                "reserved_field_set",
-                field="max_api_calls_per_minute",
-                value=self.max_api_calls_per_minute,
-                message="not yet enforced — rate limiting works through externally-reported events",
+            raise ValueError(
+                f"ResourceLimitConfig.max_api_calls_per_minute={self.max_api_calls_per_minute} "
+                "is not yet enforced. Rate limiting currently works through externally-reported "
+                "events via RateLimitCoordinator. Remove this override or use the default (60)."
             )
         return self
 
@@ -102,6 +101,63 @@ class ObserverConfig(BaseModel):
         ge=100,
         description="Maximum events per subscriber before drop-oldest.",
     )
+
+
+class SemanticLearningConfig(BaseModel):
+    """Configuration for conductor-level semantic learning via LLM.
+
+    Controls how the conductor analyzes sheet completions using an LLM
+    to produce semantic insights stored in the learning database.
+    """
+
+    enabled: bool = Field(
+        default=True,
+        description="Enable semantic learning. When True, the conductor "
+        "analyzes sheet completions via LLM to produce learning insights.",
+    )
+    model: str = Field(
+        default="claude-sonnet-4-5-20250929",
+        description="Model to use for semantic analysis.",
+    )
+    api_key_env: str = Field(
+        default="ANTHROPIC_API_KEY",
+        description="Environment variable name containing the API key.",
+    )
+    analyze_on: list[Literal["success", "failure"]] = Field(
+        default=["success", "failure"],
+        description="Which sheet outcomes to analyze. "
+        "Options: 'success', 'failure', or both.",
+    )
+    max_concurrent_analyses: int = Field(
+        default=3,
+        ge=1,
+        le=20,
+        description="Maximum concurrent LLM analysis tasks. "
+        "Controls API cost and system load.",
+    )
+    analysis_timeout_seconds: float = Field(
+        default=120.0,
+        ge=10.0,
+        description="Timeout in seconds for a single LLM analysis call.",
+    )
+    max_tokens: int = Field(
+        default=4096,
+        ge=256,
+        le=32768,
+        description="Maximum response tokens for the analysis LLM call.",
+    )
+
+    @field_validator("analyze_on")
+    @classmethod
+    def _validate_analyze_on(
+        cls, v: list[Literal["success", "failure"]],
+    ) -> list[Literal["success", "failure"]]:
+        """Ensure analyze_on is non-empty and has no duplicates."""
+        if not v:
+            raise ValueError("analyze_on must contain at least one value")
+        if len(v) != len(set(v)):
+            raise ValueError("analyze_on must not contain duplicates")
+        return v
 
 
 class DaemonConfig(BaseModel):
@@ -193,6 +249,11 @@ class DaemonConfig(BaseModel):
     observer: ObserverConfig = Field(
         default_factory=ObserverConfig,
         description="Observer and event bus configuration.",
+    )
+    learning: SemanticLearningConfig = Field(
+        default_factory=SemanticLearningConfig,
+        description="Semantic learning configuration for LLM-based analysis "
+        "of sheet completions.",
     )
     config_file: Path | None = Field(
         default=None,

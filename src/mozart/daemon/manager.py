@@ -33,6 +33,7 @@ from mozart.daemon.output import StructuredOutput
 from mozart.daemon.rate_coordinator import RateLimitCoordinator
 from mozart.daemon.registry import DaemonJobStatus, JobRecord, JobRegistry
 from mozart.daemon.scheduler import GlobalSheetScheduler
+from mozart.daemon.semantic_analyzer import SemanticAnalyzer
 from mozart.daemon.snapshot import SnapshotManager
 from mozart.daemon.task_utils import log_task_exception
 from mozart.daemon.types import JobRequest, JobResponse, ObserverEvent
@@ -150,6 +151,10 @@ class JobManager:
             max_queue_size=config.observer.max_queue_size,
         )
 
+        # Semantic analyzer — LLM-based analysis of sheet completions.
+        # Initialized in start() after the event bus is ready.
+        self._semantic_analyzer: SemanticAnalyzer | None = None
+
         # Phase 4: Completion snapshots — captures workspace artifacts
         # at job completion with TTL-based cleanup.
         self._snapshot_manager = SnapshotManager()
@@ -200,11 +205,28 @@ class JobManager:
             event_callback=self._on_event,
             state_publish_callback=self._on_state_published,
         )
+        # Start semantic analyzer after event bus (needs bus for subscription).
+        # Failure must not prevent the conductor from starting.
+        try:
+            self._semantic_analyzer = SemanticAnalyzer(
+                config=self._config.learning,
+                learning_hub=self._learning_hub,
+                live_states=self._live_states,
+            )
+            await self._semantic_analyzer.start(self._event_bus)
+        except Exception:
+            _logger.warning(
+                "manager.semantic_analyzer_start_failed",
+                exc_info=True,
+            )
+            self._semantic_analyzer = None
+
         _logger.info(
             "manager.started",
             scheduler_status="lazy_not_wired",
             scheduler_note="Phase 3 scheduler is lazily initialized and not "
             "yet driving execution. Jobs run monolithically via JobService.",
+            semantic_analyzer="active" if self._semantic_analyzer else "unavailable",
         )
 
     @property
@@ -772,6 +794,17 @@ class JobManager:
         # Stop all observers for any remaining jobs
         for jid in list(self._job_meta.keys()):
             await self._stop_observer(jid)
+
+        # Stop semantic analyzer before event bus (needs bus for unsubscribe,
+        # and learning hub for final writes during drain).
+        if self._semantic_analyzer is not None:
+            try:
+                await self._semantic_analyzer.stop(self._event_bus)
+            except Exception:
+                _logger.warning(
+                    "manager.semantic_analyzer_stop_failed",
+                    exc_info=True,
+                )
 
         # Shutdown event bus
         await self._event_bus.shutdown()

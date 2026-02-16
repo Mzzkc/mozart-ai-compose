@@ -614,8 +614,8 @@ class LifecycleMixin:
 
         # Check for in-progress sheet (resume from crash)
         if state.current_sheet is not None:
-            sheet_state = state.sheets.get(state.current_sheet)
-            if sheet_state and sheet_state.status == SheetStatus.IN_PROGRESS:
+            current = state.sheets.get(state.current_sheet)
+            if current and current.status == SheetStatus.IN_PROGRESS:
                 # Verify dependencies are still satisfied — a dependency
                 # may have FAILED since the job was paused/crashed.
                 deps = self._dependency_dag.get_dependencies(state.current_sheet)

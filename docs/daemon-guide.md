@@ -82,8 +82,11 @@ The conductor is composed of several layers:
 │                     EventBus                      │
 │  Async pub/sub for runner callback events         │
 ├──────────────────────────────────────────────────┤
-│              ResourceMonitor + LearningHub        │
+│         ResourceMonitor + LearningHub             │
 │  Periodic checks   │  Cross-job pattern sharing   │
+├──────────────────────────────────────────────────┤
+│               SemanticAnalyzer                    │
+│  LLM-based sheet analysis → learning insights     │
 └──────────────────────────────────────────────────┘
 ```
 
@@ -95,6 +98,7 @@ The conductor is composed of several layers:
 - **JobService** — Decoupled execution engine (no CLI dependencies). Handles the full run/resume/pause/status lifecycle for individual jobs.
 - **JobRegistry** — SQLite-backed persistent storage. Survives conductor restarts. On startup, orphaned jobs (status `queued` or `running` from a previous conductor) are marked as `failed`.
 - **EventBus** — Async pub/sub that routes runner callback events (`sheet.started`, `sheet.completed`, `sheet.failed`, `sheet.retrying`, `sheet.validation_passed/failed`, `job.cost_update`, `job.iteration`) to downstream consumers. Bounded deques per subscriber prevent slow consumers from blocking publishers.
+- **SemanticAnalyzer** — Subscribes to `sheet.completed` and `sheet.failed` events via the EventBus. On each event, captures a snapshot of the sheet's execution context (prompt, output, validation results) and sends it to an LLM (configurable model, default Sonnet) for analysis. The LLM response is parsed into structured insights and stored as `SEMANTIC_INSIGHT` patterns in the global learning store. These patterns are automatically picked up by the existing pattern injection pipeline for future sheets. Concurrency is limited by a semaphore (`max_concurrent_analyses`, default 3). Analysis failures never affect running jobs.
 
 ### IPC Protocol
 
@@ -156,6 +160,21 @@ The conductor is configured via a YAML file passed to `mozart start --config <pa
 | `max_job_history` | `int` | `1000` | Terminal jobs kept in memory before eviction |
 | `log_level` | `str` | `"info"` | One of: `debug`, `info`, `warning`, `error` |
 | `log_file` | `Path \| None` | `None` | Log file path (`None` = stderr only) |
+| `learning.*` | `SemanticLearningConfig` | *(see below)* | Semantic learning via LLM analysis |
+
+### Semantic Learning (nested under `learning`)
+
+Controls the SemanticAnalyzer — LLM-based analysis of sheet completions that produces insights stored in the learning database.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | `bool` | `true` | Enable semantic learning. Defaults to on when the conductor is running. |
+| `model` | `str` | `"claude-sonnet-4-5-20250929"` | Model ID for analysis LLM calls |
+| `api_key_env` | `str` | `"ANTHROPIC_API_KEY"` | Environment variable containing the API key |
+| `analyze_on` | `list` | `["success", "failure"]` | Which outcomes to analyze: `success`, `failure`, or both |
+| `max_concurrent_analyses` | `int` | `3` | Max concurrent LLM analysis tasks (1–20) |
+| `analysis_timeout_seconds` | `float` | `120.0` | Timeout for a single analysis call (≥10s) |
+| `max_tokens` | `int` | `4096` | Max response tokens for the analysis call (256–32768) |
 
 ### Resource Limits (nested under `resource_limits`)
 
@@ -191,6 +210,12 @@ log_file: ~/.mozart/mozart.log
 resource_limits:
   max_memory_mb: 4096
   max_processes: 30
+
+learning:
+  enabled: true
+  model: claude-sonnet-4-5-20250929
+  analyze_on: [success, failure]
+  max_concurrent_analyses: 3
 ```
 
 ### Live Config Reload (SIGHUP)

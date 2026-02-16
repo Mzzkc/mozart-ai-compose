@@ -17,19 +17,11 @@ from mozart.notifications.base import (
     NotificationEvent,
 )
 
-# Module-level logger for Slack notifications
 _logger = get_logger("notifications.slack")
 
 
 def _get_event_emoji(event: NotificationEvent) -> str:
-    """Get emoji for notification event type.
-
-    Args:
-        event: The notification event.
-
-    Returns:
-        Slack emoji string for the event type.
-    """
+    """Get Slack emoji for a notification event type."""
     emoji_map = {
         NotificationEvent.JOB_START: ":rocket:",
         NotificationEvent.JOB_COMPLETE: ":white_check_mark:",
@@ -45,14 +37,7 @@ def _get_event_emoji(event: NotificationEvent) -> str:
 
 
 def _get_event_color(event: NotificationEvent) -> str:
-    """Get Slack attachment color for event type.
-
-    Args:
-        event: The notification event.
-
-    Returns:
-        Hex color code for Slack attachment.
-    """
+    """Get Slack attachment color hex code for an event type."""
     color_map = {
         NotificationEvent.JOB_COMPLETE: "#36a64f",  # Green
         NotificationEvent.JOB_FAILED: "#d00000",  # Red
@@ -178,19 +163,11 @@ class SlackNotifier:
 
     @property
     def subscribed_events(self) -> set[NotificationEvent]:
-        """Events this notifier is registered to receive.
-
-        Returns:
-            Set of subscribed NotificationEvent types.
-        """
+        """Events this notifier is registered to receive."""
         return self._events
 
     async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client with connection pooling.
-
-        Returns:
-            Configured httpx.AsyncClient instance.
-        """
+        """Get or create HTTP client with connection pooling."""
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(
                 timeout=httpx.Timeout(self._timeout),
@@ -244,10 +221,8 @@ class SlackNotifier:
             })
 
         if context.error_message:
-            # Truncate error for Slack
-            error = context.error_message[:200]
-            if len(context.error_message) > 200:
-                error += "..."
+            suffix = "..." if len(context.error_message) > 200 else ""
+            error = context.error_message[:200] + suffix
             fields.append({
                 "title": "Error",
                 "value": f"```{error}```",
@@ -318,13 +293,13 @@ class SlackNotifier:
             if response.status_code == 200:
                 _logger.debug("slack_notification_sent", title=context.format_title())
                 return True
-            else:
-                _logger.warning(
-                    "slack_webhook_error",
-                    status_code=response.status_code,
-                    body=response.text[:200],
-                )
-                return False
+
+            _logger.warning(
+                "slack_webhook_error",
+                status_code=response.status_code,
+                body=response.text[:200],
+            )
+            return False
 
         except httpx.TimeoutException:
             _logger.warning("Slack notification timed out")
@@ -333,7 +308,7 @@ class SlackNotifier:
             _logger.warning("slack_notification_failed", error=str(e))
             return False
         except Exception as e:
-            _logger.warning("slack_notification_unexpected_error", error=str(e))
+            _logger.warning("slack_notification_unexpected_error", error=str(e), exc_info=True)
             return False
 
     async def close(self) -> None:

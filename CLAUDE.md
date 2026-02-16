@@ -382,6 +382,7 @@ When you run `mozart run`, the CLI checks for a running conductor via the Unix s
 | Rate limit coordination | `src/mozart/daemon/rate_coordinator.py` |
 | Backpressure/load mgmt | `src/mozart/daemon/backpressure.py` |
 | Centralized learning | `src/mozart/daemon/learning_hub.py` |
+| Semantic analyzer | `src/mozart/daemon/semantic_analyzer.py` |
 | Daemon detection | `src/mozart/daemon/detect.py` |
 | Health checks | `src/mozart/daemon/health.py` |
 | Job registry | `src/mozart/daemon/registry.py` |
@@ -422,6 +423,7 @@ The daemon uses a layered architecture:
 6. **Backpressure** — Load management to prevent resource exhaustion (active: gates job submission and provides memory-based pressure levels)
 7. **Resource Monitor** — Tracks CPU/memory/process usage
 8. **Learning Hub** — Centralizes pattern learning across all daemon jobs
+9. **Semantic Analyzer** — LLM-based analysis of sheet completions. Subscribes to EventBus `sheet.completed`/`sheet.failed` events, sends context to an LLM, and stores insights as `SEMANTIC_INSIGHT` patterns in the learning store. Always-on when conductor is running (configurable via `DaemonConfig.learning`).
 
 ---
 

@@ -6,7 +6,12 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from mozart.daemon.config import DaemonConfig, ResourceLimitConfig, SocketConfig
+from mozart.daemon.config import (
+    DaemonConfig,
+    ResourceLimitConfig,
+    SemanticLearningConfig,
+    SocketConfig,
+)
 
 
 class TestResourceLimitConfig:
@@ -20,15 +25,13 @@ class TestResourceLimitConfig:
         assert config.max_api_calls_per_minute == 60
 
     def test_custom_values(self):
-        """Test custom values override defaults."""
+        """Test custom values override defaults (except reserved fields)."""
         config = ResourceLimitConfig(
             max_memory_mb=1024,
             max_processes=10,
-            max_api_calls_per_minute=30,
         )
         assert config.max_memory_mb == 1024
         assert config.max_processes == 10
-        assert config.max_api_calls_per_minute == 30
 
     def test_max_memory_mb_minimum(self):
         """Test max_memory_mb must be >= 512."""
@@ -56,16 +59,18 @@ class TestResourceLimitConfig:
         with pytest.raises(ValidationError):
             ResourceLimitConfig(max_processes=0)
 
-    def test_max_api_calls_minimum(self):
-        """Test max_api_calls_per_minute must be >= 1."""
-        config = ResourceLimitConfig(max_api_calls_per_minute=1)
-        assert config.max_api_calls_per_minute == 1
+    def test_max_api_calls_non_default_rejected(self):
+        """Test any non-default max_api_calls_per_minute is rejected (not yet enforced)."""
+        with pytest.raises(ValidationError, match="not yet enforced"):
+            ResourceLimitConfig(max_api_calls_per_minute=30)
 
+        with pytest.raises(ValidationError, match="not yet enforced"):
+            ResourceLimitConfig(max_api_calls_per_minute=1)
+
+        # Values below ge=1 are rejected by field-level validation
         with pytest.raises(ValidationError):
             ResourceLimitConfig(max_api_calls_per_minute=0)
 
-    def test_max_api_calls_negative_rejected(self):
-        """Test negative max_api_calls_per_minute is rejected."""
         with pytest.raises(ValidationError):
             ResourceLimitConfig(max_api_calls_per_minute=-1)
 
@@ -203,7 +208,7 @@ class TestDaemonConfig:
         assert config.log_file == Path("/var/log/mozart.log")
 
     def test_full_custom_config(self):
-        """Test fully customized daemon config."""
+        """Test fully customized daemon config (only implemented fields)."""
         config = DaemonConfig(
             socket=SocketConfig(
                 path=Path("/run/user/1000/mozart.sock"),
@@ -212,11 +217,10 @@ class TestDaemonConfig:
             ),
             pid_file=Path("/run/mozart.pid"),
             max_concurrent_jobs=10,
-            max_concurrent_sheets=20,
+            max_concurrent_sheets=20,  # Warns (Phase 3), but accepted
             resource_limits=ResourceLimitConfig(
                 max_memory_mb=4096,
                 max_processes=25,
-                max_api_calls_per_minute=120,
             ),
             state_backend_type="sqlite",
             state_db_path=Path("/data/mozart.db"),
@@ -231,7 +235,8 @@ class TestDaemonConfig:
         assert config.max_concurrent_sheets == 20
         assert config.resource_limits.max_memory_mb == 4096
         assert config.resource_limits.max_processes == 25
-        assert config.resource_limits.max_api_calls_per_minute == 120
+        # Non-default values are rejected; this stays at default
+        assert config.resource_limits.max_api_calls_per_minute == 60
         assert config.state_backend_type == "sqlite"
         assert config.state_db_path == Path("/data/mozart.db")
         assert config.log_level == "debug"
@@ -406,3 +411,159 @@ class TestResourceMonitorUpdateLimits:
         assert monitor._degraded is True
         assert monitor._consecutive_failures == 3
         assert monitor._config is new_limits
+
+
+class TestSemanticLearningConfig:
+    """Tests for SemanticLearningConfig model."""
+
+    def test_defaults(self):
+        """Test default values are applied correctly."""
+        config = SemanticLearningConfig()
+        assert config.enabled is True
+        assert config.model == "claude-sonnet-4-5-20250929"
+        assert config.api_key_env == "ANTHROPIC_API_KEY"
+        assert config.analyze_on == ["success", "failure"]
+        assert config.max_concurrent_analyses == 3
+        assert config.analysis_timeout_seconds == 120.0
+        assert config.max_tokens == 4096
+
+    def test_custom_values(self):
+        """Test custom values override defaults."""
+        config = SemanticLearningConfig(
+            enabled=False,
+            model="claude-haiku-4-5-20251001",
+            api_key_env="CUSTOM_API_KEY",
+            analyze_on=["failure"],
+            max_concurrent_analyses=5,
+            analysis_timeout_seconds=60.0,
+            max_tokens=2048,
+        )
+        assert config.enabled is False
+        assert config.model == "claude-haiku-4-5-20251001"
+        assert config.api_key_env == "CUSTOM_API_KEY"
+        assert config.analyze_on == ["failure"]
+        assert config.max_concurrent_analyses == 5
+        assert config.analysis_timeout_seconds == 60.0
+        assert config.max_tokens == 2048
+
+    def test_max_concurrent_analyses_minimum(self):
+        """Test max_concurrent_analyses must be >= 1."""
+        config = SemanticLearningConfig(max_concurrent_analyses=1)
+        assert config.max_concurrent_analyses == 1
+
+        with pytest.raises(ValidationError):
+            SemanticLearningConfig(max_concurrent_analyses=0)
+
+    def test_max_concurrent_analyses_maximum(self):
+        """Test max_concurrent_analyses must be <= 20."""
+        config = SemanticLearningConfig(max_concurrent_analyses=20)
+        assert config.max_concurrent_analyses == 20
+
+        with pytest.raises(ValidationError):
+            SemanticLearningConfig(max_concurrent_analyses=21)
+
+    def test_analysis_timeout_minimum(self):
+        """Test analysis_timeout_seconds must be >= 10."""
+        config = SemanticLearningConfig(analysis_timeout_seconds=10.0)
+        assert config.analysis_timeout_seconds == 10.0
+
+        with pytest.raises(ValidationError):
+            SemanticLearningConfig(analysis_timeout_seconds=9.9)
+
+    def test_max_tokens_minimum(self):
+        """Test max_tokens must be >= 256."""
+        config = SemanticLearningConfig(max_tokens=256)
+        assert config.max_tokens == 256
+
+        with pytest.raises(ValidationError):
+            SemanticLearningConfig(max_tokens=255)
+
+    def test_max_tokens_maximum(self):
+        """Test max_tokens must be <= 32768."""
+        config = SemanticLearningConfig(max_tokens=32768)
+        assert config.max_tokens == 32768
+
+        with pytest.raises(ValidationError):
+            SemanticLearningConfig(max_tokens=32769)
+
+    def test_analyze_on_empty_rejected(self):
+        """Test analyze_on cannot be empty."""
+        with pytest.raises(ValidationError, match="at least one value"):
+            SemanticLearningConfig(analyze_on=[])
+
+    def test_analyze_on_invalid_value_rejected(self):
+        """Test analyze_on rejects invalid values."""
+        with pytest.raises(ValidationError):
+            SemanticLearningConfig(analyze_on=["unknown"])
+
+    def test_analyze_on_success_only(self):
+        """Test analyze_on with only success."""
+        config = SemanticLearningConfig(analyze_on=["success"])
+        assert config.analyze_on == ["success"]
+
+    def test_analyze_on_failure_only(self):
+        """Test analyze_on with only failure."""
+        config = SemanticLearningConfig(analyze_on=["failure"])
+        assert config.analyze_on == ["failure"]
+
+    def test_daemon_config_has_learning_field(self):
+        """Test DaemonConfig includes learning field with defaults."""
+        config = DaemonConfig()
+        assert hasattr(config, "learning")
+        assert isinstance(config.learning, SemanticLearningConfig)
+        assert config.learning.enabled is True
+        assert config.learning.model == "claude-sonnet-4-5-20250929"
+
+    def test_daemon_config_custom_learning(self):
+        """Test DaemonConfig accepts custom learning config."""
+        config = DaemonConfig(
+            learning=SemanticLearningConfig(
+                enabled=False,
+                model="claude-haiku-4-5-20251001",
+            ),
+        )
+        assert config.learning.enabled is False
+        assert config.learning.model == "claude-haiku-4-5-20251001"
+
+    def test_daemon_config_learning_from_dict(self):
+        """Test DaemonConfig constructs learning from nested dict (YAML-style)."""
+        config = DaemonConfig.model_validate({
+            "learning": {
+                "enabled": False,
+                "model": "claude-haiku-4-5-20251001",
+                "max_concurrent_analyses": 5,
+            },
+        })
+        assert config.learning.enabled is False
+        assert config.learning.model == "claude-haiku-4-5-20251001"
+        assert config.learning.max_concurrent_analyses == 5
+        # Non-specified fields get defaults
+        assert config.learning.api_key_env == "ANTHROPIC_API_KEY"
+
+    def test_serialization_roundtrip(self):
+        """Test SemanticLearningConfig survives model_dump -> model_validate."""
+        original = SemanticLearningConfig(
+            enabled=False,
+            model="test-model",
+            analyze_on=["failure"],
+            max_concurrent_analyses=7,
+        )
+        dumped = original.model_dump()
+        restored = SemanticLearningConfig.model_validate(dumped)
+        assert restored.enabled == original.enabled
+        assert restored.model == original.model
+        assert restored.analyze_on == original.analyze_on
+        assert restored.max_concurrent_analyses == original.max_concurrent_analyses
+
+    def test_daemon_config_roundtrip_preserves_learning(self):
+        """Test DaemonConfig roundtrip preserves learning field."""
+        original = DaemonConfig(
+            learning=SemanticLearningConfig(
+                enabled=False,
+                model="claude-haiku-4-5-20251001",
+            ),
+        )
+        dumped = original.model_dump()
+        restored = DaemonConfig.model_validate(dumped)
+        assert restored.learning.enabled is False
+        assert restored.learning.model == "claude-haiku-4-5-20251001"

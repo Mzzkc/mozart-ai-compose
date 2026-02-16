@@ -47,6 +47,7 @@ and constraints are extracted directly from the Pydantic v2 config models in
 - [DaemonConfig (Conductor)](#daemonconfig-conductor)
   - [Socket Sub-Config](#socket-sub-config)
   - [Resource Limits Sub-Config](#resource-limits-sub-config)
+  - [Semantic Learning Sub-Config](#semantic-learning-sub-config)
 
 ---
 
@@ -992,6 +993,7 @@ Top-level configuration for the Mozart daemon process. Configured separately fro
 | `shutdown_timeout_seconds` | `float` | `300.0` | `>= 10` | Max seconds for graceful shutdown |
 | `monitor_interval_seconds` | `float` | `15.0` | `>= 5` | Interval between resource monitor checks |
 | `max_job_history` | `int` | `1000` | `>= 10` | Completed/failed/cancelled jobs to keep in memory |
+| `learning` | `SemanticLearningConfig` | *(see sub-config)* | | Semantic learning configuration for LLM-based sheet analysis |
 | `config_file` | `Path \| None` | `None` | | Path to the YAML config file. Set automatically on startup; used by SIGHUP reload to re-read config from disk. |
 
 ### Socket Sub-Config
@@ -1013,3 +1015,30 @@ Top-level configuration for the Mozart daemon process. Configured separately fro
 | `max_memory_mb` | `int` | `8192` | `>= 512` | Maximum RSS memory (MB) before backpressure triggers |
 | `max_processes` | `int` | `50` | `>= 5` | Maximum child processes (backends + validation commands) |
 | `max_api_calls_per_minute` | `int` | `60` | `>= 1` | **Not yet enforced.** Global API rate limit across all jobs. Rate limiting currently works through externally-reported events. |
+
+### Semantic Learning Sub-Config
+
+*Source: `src/mozart/daemon/config.py` — `SemanticLearningConfig`*
+
+Controls the conductor's LLM-based analysis of sheet completions. The SemanticAnalyzer subscribes to EventBus sheet events, sends completion context to an LLM, and stores insights as `SEMANTIC_INSIGHT` patterns in the global learning store. These patterns are automatically picked up by the existing pattern injection pipeline.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `enabled` | `bool` | `true` | | Enable semantic learning. When the conductor is running, learning is on by default. |
+| `model` | `str` | `"claude-sonnet-4-5-20250929"` | | Model ID for analysis LLM calls |
+| `api_key_env` | `str` | `"ANTHROPIC_API_KEY"` | | Environment variable name containing the API key |
+| `analyze_on` | `list["success" \| "failure"]` | `["success", "failure"]` | Non-empty, no duplicates | Which sheet outcomes trigger analysis |
+| `max_concurrent_analyses` | `int` | `3` | `1–20` | Maximum concurrent LLM analysis tasks. Controls API cost and system load. |
+| `analysis_timeout_seconds` | `float` | `120.0` | `>= 10` | Timeout for a single LLM analysis call |
+| `max_tokens` | `int` | `4096` | `256–32768` | Maximum response tokens for the analysis LLM call |
+
+```yaml
+# Conductor config (daemon.yaml)
+learning:
+  enabled: true
+  model: claude-sonnet-4-5-20250929
+  analyze_on: [success, failure]
+  max_concurrent_analyses: 3
+  analysis_timeout_seconds: 120
+  max_tokens: 4096
+```

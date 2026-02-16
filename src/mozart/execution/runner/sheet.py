@@ -144,6 +144,7 @@ class SheetExecutionMixin:
     _MAX_HEALING_CYCLES = 2
     _MAX_PREFLIGHT_WARNINGS_LOG = 20
     _CONSECUTIVE_FAILURE_ERROR_THRESHOLD = 3
+    _MAX_GUARD_WAITS = 10
 
     # Type declarations for attributes from JobRunnerBase
     # These are populated at runtime by the base class __init__
@@ -1474,6 +1475,10 @@ class SheetExecutionMixin:
         # *pre-execution* baseline, not the post-previous-attempt state.
         validation_engine.snapshot_mtime_files(self.config.validations)
 
+        # Guard spin prevention: cap consecutive guard waits to avoid
+        # infinite loops when circuit breaker never recovers.
+        consecutive_guard_waits = 0
+
         while True:
             # Mark sheet started
             state.mark_sheet_started(sheet_num)
@@ -1494,7 +1499,22 @@ class SheetExecutionMixin:
 
             # Check pre-execution guards (circuit breaker + rate limits)
             if await self._check_execution_guards(sheet_num):
+                consecutive_guard_waits += 1
+                if consecutive_guard_waits >= self._MAX_GUARD_WAITS:
+                    self._logger.error(
+                        "guard_spin_limit_reached",
+                        sheet_num=sheet_num,
+                        max_guard_waits=self._MAX_GUARD_WAITS,
+                    )
+                    msg = (
+                        f"Execution guards blocked "
+                        f"{self._MAX_GUARD_WAITS} consecutive times"
+                    )
+                    state.mark_sheet_failed(sheet_num, error_message=msg)
+                    await self.state_backend.save(state)
+                    return
                 continue
+            consecutive_guard_waits = 0
 
             # Execute backend with per-sheet configuration
             result = await self._configure_and_execute_sheet(

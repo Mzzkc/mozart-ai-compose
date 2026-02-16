@@ -1001,3 +1001,439 @@ class TestWorkspaceValidation:
         response = await manager.submit_job(request)
 
         assert response.status == "accepted"
+
+
+# ─── Semantic Analyzer Integration ────────────────────────────────────
+
+
+class TestSemanticAnalyzerIntegration:
+    """Tests for SemanticAnalyzer wiring in JobManager lifecycle."""
+
+    @pytest.mark.asyncio
+    async def test_start_creates_semantic_analyzer(self, tmp_path: Path):
+        """manager.start() instantiates and starts the SemanticAnalyzer."""
+        config = DaemonConfig(
+            max_concurrent_jobs=1,
+            state_db_path=tmp_path / "reg.db",
+        )
+        mgr = JobManager(config)
+
+        try:
+            await mgr.start()
+
+            assert mgr._semantic_analyzer is not None
+            # Analyzer should have subscribed to the event bus
+            assert mgr._event_bus.subscriber_count > 0
+        finally:
+            await mgr.shutdown(graceful=False)
+
+    @pytest.mark.asyncio
+    async def test_shutdown_stops_semantic_analyzer(self, tmp_path: Path):
+        """manager.shutdown() stops the SemanticAnalyzer and unsubscribes."""
+        config = DaemonConfig(
+            max_concurrent_jobs=1,
+            state_db_path=tmp_path / "reg.db",
+        )
+        mgr = JobManager(config)
+
+        await mgr.start()
+        assert mgr._semantic_analyzer is not None
+
+        # Count subscribers before shutdown
+        pre_shutdown_subs = mgr._event_bus.subscriber_count
+
+        await mgr.shutdown(graceful=False)
+
+        # After shutdown the analyzer's sub_id should be cleared
+        assert mgr._semantic_analyzer._sub_id is None
+
+    @pytest.mark.asyncio
+    async def test_disabled_analyzer_does_not_subscribe(self, tmp_path: Path):
+        """When learning.enabled=False, SemanticAnalyzer doesn't subscribe."""
+        config = DaemonConfig(
+            max_concurrent_jobs=1,
+            state_db_path=tmp_path / "reg.db",
+            learning={"enabled": False},
+        )
+        mgr = JobManager(config)
+
+        try:
+            await mgr.start()
+
+            # Analyzer is created but disabled — no subscription
+            assert mgr._semantic_analyzer is not None
+            assert mgr._semantic_analyzer._sub_id is None
+            assert mgr._event_bus.subscriber_count == 0
+        finally:
+            await mgr.shutdown(graceful=False)
+
+    @pytest.mark.asyncio
+    async def test_analyzer_failure_does_not_prevent_start(
+        self, tmp_path: Path,
+    ):
+        """If SemanticAnalyzer startup fails, the manager still starts."""
+        config = DaemonConfig(
+            max_concurrent_jobs=1,
+            state_db_path=tmp_path / "reg.db",
+        )
+        mgr = JobManager(config)
+
+        # Patch SemanticAnalyzer.start to raise
+        with patch(
+            "mozart.daemon.manager.SemanticAnalyzer.start",
+            side_effect=RuntimeError("LLM init failed"),
+        ):
+            await mgr.start()
+
+        try:
+            # Manager should still be operational
+            assert mgr._service is not None
+            assert mgr._semantic_analyzer is None
+        finally:
+            await mgr.shutdown(graceful=False)
+
+    @pytest.mark.asyncio
+    async def test_analyzer_receives_event_bus_reference(
+        self, tmp_path: Path,
+    ):
+        """SemanticAnalyzer receives the same EventBus as the manager."""
+        config = DaemonConfig(
+            max_concurrent_jobs=1,
+            state_db_path=tmp_path / "reg.db",
+        )
+        mgr = JobManager(config)
+
+        try:
+            await mgr.start()
+
+            # The analyzer should be working with the manager's event bus
+            # (verified indirectly: it subscribed, so it has the right bus)
+            assert mgr._semantic_analyzer is not None
+            assert mgr._semantic_analyzer._sub_id is not None
+        finally:
+            await mgr.shutdown(graceful=False)
+
+
+# ─── JobMeta ─────────────────────────────────────────────────────────
+
+
+class TestJobMeta:
+    """Tests for JobMeta dataclass and to_dict()."""
+
+    def test_to_dict_basic(self):
+        meta = JobMeta(
+            job_id="test-1",
+            config_path=Path("/tmp/config.yaml"),
+            workspace=Path("/tmp/ws"),
+            status=DaemonJobStatus.RUNNING,
+        )
+        d = meta.to_dict()
+        assert d["job_id"] == "test-1"
+        assert d["status"] == "running"
+        assert d["config_path"] == "/tmp/config.yaml"
+        assert d["workspace"] == "/tmp/ws"
+        assert "error_message" not in d  # Not set
+
+    def test_to_dict_with_error(self):
+        meta = JobMeta(
+            job_id="test-2",
+            config_path=Path("/tmp/config.yaml"),
+            workspace=Path("/tmp/ws"),
+            status=DaemonJobStatus.FAILED,
+            error_message="Something broke",
+            error_traceback="Traceback...",
+        )
+        d = meta.to_dict()
+        assert d["error_message"] == "Something broke"
+        assert d["error_traceback"] == "Traceback..."
+
+    def test_to_dict_with_chain_depth(self):
+        meta = JobMeta(
+            job_id="test-3",
+            config_path=Path("/tmp/config.yaml"),
+            workspace=Path("/tmp/ws"),
+            chain_depth=2,
+        )
+        d = meta.to_dict()
+        assert d["chain_depth"] == 2
+
+    def test_to_dict_without_chain_depth(self):
+        meta = JobMeta(
+            job_id="test-4",
+            config_path=Path("/tmp/config.yaml"),
+            workspace=Path("/tmp/ws"),
+        )
+        d = meta.to_dict()
+        assert "chain_depth" not in d
+
+    def test_defaults(self):
+        meta = JobMeta(
+            job_id="test-5",
+            config_path=Path("/tmp/config.yaml"),
+            workspace=Path("/tmp/ws"),
+        )
+        assert meta.status == DaemonJobStatus.QUEUED
+        assert meta.error_message is None
+        assert meta.started_at is None
+        assert meta.chain_depth is None
+
+
+# ─── Wait for Shutdown ───────────────────────────────────────────────
+
+
+class TestWaitForShutdown:
+    """Tests for JobManager.wait_for_shutdown()."""
+
+    @pytest.mark.asyncio
+    async def test_wait_unblocks_after_shutdown(self, manager: JobManager):
+        """wait_for_shutdown returns after shutdown is called."""
+        async def trigger():
+            await asyncio.sleep(0.05)
+            await manager.shutdown(graceful=True)
+
+        trigger_task = asyncio.create_task(trigger())
+        await manager.wait_for_shutdown()
+
+        assert manager._shutdown_event.is_set()
+        await trigger_task
+
+
+# ─── Generate Job ID ─────────────────────────────────────────────────
+
+
+class TestGenerateJobId:
+    """Tests for JobManager._generate_job_id()."""
+
+    @pytest.mark.asyncio
+    async def test_unique_name_returns_as_is(self, manager: JobManager):
+        """Base name is returned when no collision."""
+        job_id = await manager._generate_job_id("my-job")
+        assert job_id == "my-job"
+
+    @pytest.mark.asyncio
+    async def test_collision_appends_suffix(self, manager: JobManager):
+        """Collision with existing job appends -2."""
+        manager._job_meta["my-job"] = JobMeta(
+            job_id="my-job",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/tmp/ws"),
+        )
+        job_id = await manager._generate_job_id("my-job")
+        assert job_id == "my-job-2"
+
+    @pytest.mark.asyncio
+    async def test_multiple_collisions(self, manager: JobManager):
+        """Multiple collisions keep incrementing."""
+        for i, name in enumerate(["my-job", "my-job-2", "my-job-3"]):
+            manager._job_meta[name] = JobMeta(
+                job_id=name,
+                config_path=Path(f"/tmp/{i}.yaml"),
+                workspace=Path(f"/tmp/ws-{i}"),
+            )
+        job_id = await manager._generate_job_id("my-job")
+        assert job_id == "my-job-4"
+
+
+# ─── On Rate Limit ──────────────────────────────────────────────────
+
+
+class TestOnRateLimit:
+    """Tests for JobManager._on_rate_limit()."""
+
+    @pytest.mark.asyncio
+    async def test_forwards_to_coordinator(self, manager: JobManager):
+        """_on_rate_limit forwards to rate_coordinator.report_rate_limit."""
+        manager._rate_coordinator = MagicMock()
+        manager._rate_coordinator.report_rate_limit = AsyncMock()
+
+        await manager._on_rate_limit("claude_cli", 60.0, "job-1", 3)
+
+        manager._rate_coordinator.report_rate_limit.assert_awaited_once_with(
+            backend_type="claude_cli",
+            wait_seconds=60.0,
+            job_id="job-1",
+            sheet_num=3,
+        )
+
+
+# ─── Backpressure ───────────────────────────────────────────────────
+
+
+class TestBackpressure:
+    """Tests for backpressure-based rejection."""
+
+    @pytest.mark.asyncio
+    async def test_rejects_under_pressure(
+        self, manager: JobManager, sample_config_file: Path, tmp_path: Path,
+    ):
+        """Jobs are rejected when backpressure says no."""
+        manager._backpressure = MagicMock()
+        manager._backpressure.should_accept_job.return_value = False
+
+        request = JobRequest(config_path=sample_config_file, workspace=tmp_path / "ws")
+        response = await manager.submit_job(request)
+
+        assert response.status == "rejected"
+        assert "pressure" in (response.message or "").lower()
+
+    @pytest.mark.asyncio
+    async def test_accepts_when_no_pressure(
+        self, manager: JobManager, sample_config_file: Path, tmp_path: Path,
+    ):
+        """Jobs are accepted when backpressure allows."""
+        request = JobRequest(config_path=sample_config_file, workspace=tmp_path / "ws")
+        response = await manager.submit_job(request)
+        assert response.status == "accepted"
+
+
+# ─── Start Method ────────────────────────────────────────────────────
+
+
+class TestStart:
+    """Tests for JobManager.start()."""
+
+    @pytest.mark.asyncio
+    async def test_start_initializes_service(self, tmp_path: Path):
+        """start() creates JobService."""
+        config = DaemonConfig(
+            max_concurrent_jobs=1,
+            state_db_path=tmp_path / "reg.db",
+        )
+        mgr = JobManager(config)
+
+        try:
+            await mgr.start()
+            assert mgr._service is not None
+        finally:
+            await mgr.shutdown(graceful=False)
+
+    @pytest.mark.asyncio
+    async def test_start_opens_registry(self, tmp_path: Path):
+        """start() opens the job registry."""
+        config = DaemonConfig(
+            max_concurrent_jobs=1,
+            state_db_path=tmp_path / "reg.db",
+        )
+        mgr = JobManager(config)
+
+        try:
+            await mgr.start()
+            # Registry should be open — we can call list
+            jobs = await mgr.list_jobs()
+            assert isinstance(jobs, list)
+        finally:
+            await mgr.shutdown(graceful=False)
+
+
+# ─── Duplicate Job Deduplication ─────────────────────────────────────
+
+
+class TestDuplicateDeduplication:
+    """Tests for duplicate job detection."""
+
+    @pytest.mark.asyncio
+    async def test_same_config_different_workspace(
+        self, manager: JobManager, sample_config_file: Path, tmp_path: Path,
+    ):
+        """Same config file with different workspaces gets unique IDs."""
+        r1 = JobRequest(config_path=sample_config_file, workspace=tmp_path / "ws1")
+        r2 = JobRequest(config_path=sample_config_file, workspace=tmp_path / "ws2")
+
+        resp1 = await manager.submit_job(r1)
+        resp2 = await manager.submit_job(r2)
+
+        assert resp1.status == "accepted"
+        assert resp2.status == "accepted"
+        assert resp1.job_id != resp2.job_id
+
+
+# ─── Run Managed Task Edge Cases ─────────────────────────────────────
+
+
+class TestRunManagedTaskEdgeCases:
+    """Additional edge cases for _run_managed_task."""
+
+    @pytest.mark.asyncio
+    async def test_task_returning_paused_status(self, tmp_path: Path):
+        """Coroutine returning DaemonJobStatus.PAUSED sets meta accordingly."""
+        config = DaemonConfig(max_concurrent_jobs=2, state_db_path=tmp_path / "reg.db")
+        mgr = JobManager(config)
+        await mgr._registry.open()
+        mgr._service = MagicMock()
+
+        try:
+            meta = JobMeta(
+                job_id="pause-test",
+                config_path=Path("/tmp/test.yaml"),
+                workspace=Path("/tmp/workspace"),
+            )
+            mgr._job_meta["pause-test"] = meta
+
+            async def _pause():
+                return DaemonJobStatus.PAUSED
+
+            await mgr._run_managed_task("pause-test", _pause())
+
+            assert meta.status == DaemonJobStatus.PAUSED
+        finally:
+            await mgr._registry.close()
+
+    @pytest.mark.asyncio
+    async def test_task_raising_exception(self, tmp_path: Path):
+        """Coroutine that raises Exception is caught and job marked FAILED."""
+        config = DaemonConfig(max_concurrent_jobs=2, state_db_path=tmp_path / "reg.db")
+        mgr = JobManager(config)
+        await mgr._registry.open()
+        mgr._service = MagicMock()
+
+        try:
+            meta = JobMeta(
+                job_id="err-test",
+                config_path=Path("/tmp/test.yaml"),
+                workspace=Path("/tmp/workspace"),
+            )
+            mgr._job_meta["err-test"] = meta
+
+            async def _error():
+                raise ValueError("Something went wrong")
+
+            await mgr._run_managed_task("err-test", _error())
+
+            assert meta.status == DaemonJobStatus.FAILED
+            assert "Something went wrong" in (meta.error_message or "")
+        finally:
+            await mgr._registry.close()
+
+    @pytest.mark.asyncio
+    async def test_task_cancelled(self, tmp_path: Path):
+        """CancelledError during task sets CANCELLED status."""
+        config = DaemonConfig(max_concurrent_jobs=2, state_db_path=tmp_path / "reg.db")
+        mgr = JobManager(config)
+        await mgr._registry.open()
+        mgr._service = MagicMock()
+
+        try:
+            meta = JobMeta(
+                job_id="cancel-test",
+                config_path=Path("/tmp/test.yaml"),
+                workspace=Path("/tmp/workspace"),
+            )
+            mgr._job_meta["cancel-test"] = meta
+
+            async def _cancellable():
+                await asyncio.sleep(100)
+
+            # Start the managed task in the background
+            task = asyncio.create_task(
+                mgr._run_managed_task("cancel-test", _cancellable())
+            )
+            await asyncio.sleep(0.05)
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+            assert meta.status == DaemonJobStatus.CANCELLED
+        finally:
+            await mgr._registry.close()
