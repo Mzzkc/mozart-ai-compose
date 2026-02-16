@@ -479,7 +479,7 @@ class JobManager:
         # Cancel stale task to prevent detached execution
         old_task = self._jobs.pop(job_id, None)
         if old_task is not None and not old_task.done():
-            old_task.cancel()
+            old_task.cancel(msg=f"stale task replaced by resume of {job_id}")
             _logger.info("job.resume_cancelled_stale_task", job_id=job_id)
 
         ws = workspace or meta.workspace
@@ -508,7 +508,7 @@ class JobManager:
         if task is None:
             return False
 
-        task.cancel()
+        task.cancel(msg=f"explicit cancel_job({job_id}) via IPC")
         meta = self._job_meta.get(job_id)
         if meta:
             meta.status = DaemonJobStatus.CANCELLED
@@ -728,7 +728,7 @@ class JobManager:
                     running, timeout=timeout,
                 )
                 for task in pending:
-                    task.cancel()
+                    task.cancel(msg="graceful shutdown timeout exceeded")
                 if pending:
                     results = await asyncio.gather(*pending, return_exceptions=True)
                     for result in results:
@@ -742,7 +742,7 @@ class JobManager:
             _logger.info("manager.shutting_down", graceful=False)
             for task in self._jobs.values():
                 if not task.done():
-                    task.cancel()
+                    task.cancel(msg="non-graceful shutdown")
             if self._jobs:
                 results = await asyncio.gather(
                     *self._jobs.values(), return_exceptions=True,
@@ -1030,17 +1030,15 @@ class JobManager:
                     elapsed_seconds=round(elapsed, 1),
                 )
 
-            except asyncio.CancelledError:
-                import traceback as _tb
+            except asyncio.CancelledError as cancel_exc:
                 meta.status = DaemonJobStatus.CANCELLED
+                cancel_reason = str(cancel_exc) if str(cancel_exc) else "unknown"
                 await self._registry.update_status(job_id, "cancelled")
                 _logger.error(
-                    "job.cancelled_traceback",
+                    "job.cancelled_during_execution",
                     job_id=job_id,
-                    traceback=_tb.format_exc(),
-                    stack="".join(_tb.format_stack()),
+                    reason=cancel_reason,
                 )
-                _logger.info("job.cancelled_during_execution", job_id=job_id)
                 raise
 
             except (OSError, ValueError, DaemonError) as exc:
