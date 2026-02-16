@@ -70,14 +70,19 @@ timeout 600 mozart run my-job.yaml
 
 Individual jobs submitted via `mozart run` are managed by the daemon and do not need `setsid`.
 
-**CRITICAL: NEVER use `--fresh` unless resuming is impossible.**
+**CRITICAL: Use `mozart resume` for interrupted jobs, NEVER `mozart run --fresh`.**
 
-`--fresh` deletes all checkpoint state and archives workspace artifacts. Always try `mozart run <config>.yaml` WITHOUT `--fresh` first. Mozart will resume from the last checkpoint automatically. Only use `--fresh` if:
+To restart a stopped/cancelled/failed job, use `mozart resume`:
+```bash
+mozart resume <job-id> --workspace <dir>
+```
+
+`--fresh` on `mozart run` deletes all checkpoint state and archives workspace artifacts, destroying hours of progress. Only use `--fresh` if:
 1. The checkpoint is corrupted and Mozart refuses to load it
 2. You explicitly need to start over (e.g., the job config changed fundamentally)
 3. The user explicitly asks for a fresh start
 
-Even if the checkpoint JSON file is missing, the workspace may contain artifacts that allow fallback state inference. Running without `--fresh` preserves those artifacts. Running WITH `--fresh` destroys hours of work.
+When in doubt, try `mozart resume` first. It picks up from the last checkpoint.
 
 **Monitoring:**
 ```bash
