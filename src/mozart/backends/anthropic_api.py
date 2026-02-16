@@ -444,6 +444,11 @@ class AnthropicApiBackend(Backend):
         Uses a minimal prompt to verify connectivity.
         """
         if not self._api_key:
+            _logger.warning(
+                "health_check_failed",
+                error_type="MissingAPIKey",
+                error="No API key configured — set ANTHROPIC_API_KEY",
+            )
             return False
 
         try:
@@ -467,5 +472,5 @@ class AnthropicApiBackend(Backend):
             self._client = None
             try:
                 await client.close()
-            except Exception:
+            except (OSError, RuntimeError, anthropic.APIError):
                 _logger.debug("client_close_error", exc_info=True)

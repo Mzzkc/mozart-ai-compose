@@ -699,18 +699,15 @@ prompt:
         assert runner.dependency_dag is None
 
     def test_runner_raises_on_invalid_dag(self) -> None:
-        """JobRunner raises error for invalid DAG (cycle)."""
-        from unittest.mock import MagicMock
+        """Out-of-range dependency is caught at config parse time."""
+        from pydantic import ValidationError
 
         from mozart.core.config import JobConfig
-        from mozart.execution.runner import JobRunner
 
-        # Note: This can't happen via JobConfig validation since cycles
-        # require runtime DAG construction. We test the error is raised
-        # during runner initialization.
-
-        # Create config with out-of-range dependency (caught at DAG build)
-        config = JobConfig.from_yaml_string("""
+        # Out-of-range dependency (sheet 10 doesn't exist in a 3-sheet job)
+        # is now caught by SheetConfig.validate_dependency_range at parse time.
+        with pytest.raises(ValidationError, match="out of range"):
+            JobConfig.from_yaml_string("""
 name: test-job
 sheet:
   size: 1
@@ -720,12 +717,6 @@ sheet:
 prompt:
   template: "Process sheet {{ sheet_num }}"
 """)
-
-        backend = MagicMock()
-        state_backend = MagicMock()
-
-        with pytest.raises(InvalidDependencyError):
-            JobRunner(config, backend, state_backend)
 
 
 # =============================================================================

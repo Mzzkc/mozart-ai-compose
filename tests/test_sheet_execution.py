@@ -159,6 +159,15 @@ class _MockMixin:
         self._shutdown_requested = False
         self._summary = None
         self._self_healing_enabled = False
+        self.event_callback = None
+
+    async def _fire_event(
+        self, event: str, sheet_num: int, data: dict[str, Any] | None = None,
+    ) -> None:
+        """No-op event callback stub for tests."""
+        if self.event_callback is None:
+            return
+        self.event_callback(self.config.name, sheet_num, event, data)
 
     async def _interruptible_sleep(self, seconds: float) -> None:
         pass  # no-op in tests
@@ -1534,6 +1543,274 @@ class TestPerSheetTimeoutOverride:
         config = _make_config(tmp_path)
         assert config.backend.timeout_overrides == {}
         assert config.backend.timeout_overrides.get(1) is None
+
+
+# ===========================================================================
+# Tests: Runner Callback Events (Issue #49, Phase 2)
+# ===========================================================================
+
+
+class TestSheetStartedEvent:
+    """Verify sheet.started event fires with correct data."""
+
+    @pytest.mark.asyncio
+    async def test_sheet_started_event_fires(self, mixin: _TestableSheetMixin):
+        """sheet.started event fires after preflight passes."""
+        events: list[tuple[str, int, str, dict[str, Any] | None]] = []
+        mixin.event_callback = lambda job_id, sheet_num, event, data: events.append(
+            (job_id, sheet_num, event, data)
+        )
+
+        state = _make_state()
+        mock_vr = _make_validation_result(all_passed=True)
+        with patch("mozart.execution.runner.sheet.ValidationEngine") as MockVE:
+            ve_instance = MockVE.return_value
+            ve_instance.get_applicable_rules.return_value = []
+            ve_instance.run_validations = AsyncMock(return_value=mock_vr)
+            ve_instance.snapshot_mtime_files = MagicMock()
+
+            await mixin._execute_sheet_with_recovery(state, sheet_num=1)
+
+        started_events = [(j, s, e, d) for j, s, e, d in events if e == "sheet.started"]
+        assert len(started_events) >= 1
+        _, sheet_num, event_name, data = started_events[0]
+        assert sheet_num == 1
+        assert event_name == "sheet.started"
+        assert "execution_mode" in data
+        assert "prompt_tokens" in data
+
+
+class TestSheetCompletedEvent:
+    """Verify sheet.completed event fires with correct data."""
+
+    @pytest.mark.asyncio
+    async def test_sheet_completed_event_fires(self, mixin: _TestableSheetMixin):
+        """sheet.completed event fires when sheet succeeds."""
+        events: list[tuple[str, int, str, dict[str, Any] | None]] = []
+        mixin.event_callback = lambda job_id, sheet_num, event, data: events.append(
+            (job_id, sheet_num, event, data)
+        )
+
+        state = _make_state()
+        mock_vr = _make_validation_result(all_passed=True)
+        with patch("mozart.execution.runner.sheet.ValidationEngine") as MockVE:
+            ve_instance = MockVE.return_value
+            ve_instance.get_applicable_rules.return_value = []
+            ve_instance.run_validations = AsyncMock(return_value=mock_vr)
+            ve_instance.snapshot_mtime_files = MagicMock()
+
+            await mixin._execute_sheet_with_recovery(state, sheet_num=1)
+
+        completed_events = [(j, s, e, d) for j, s, e, d in events if e == "sheet.completed"]
+        assert len(completed_events) == 1
+        _, sheet_num, _, data = completed_events[0]
+        assert sheet_num == 1
+        assert "duration_seconds" in data
+        assert "exit_code" in data
+        assert data["validation_pass_rate"] == 100.0
+        assert "outcome_category" in data
+
+
+class TestSheetFailedEvent:
+    """Verify sheet.failed event fires with correct data."""
+
+    @pytest.mark.asyncio
+    async def test_sheet_failed_event_on_fatal_error(self, mixin: _TestableSheetMixin):
+        """sheet.failed event fires when sheet fails fatally."""
+        events: list[tuple[str, int, str, dict[str, Any] | None]] = []
+        mixin.event_callback = lambda job_id, sheet_num, event, data: events.append(
+            (job_id, sheet_num, event, data)
+        )
+
+        state = _make_state()
+        mixin.backend.execute = AsyncMock(
+            return_value=_make_execution_result(
+                success=False, exit_code=127, stderr="Command not found"
+            )
+        )
+
+        fail_vr = _make_validation_result(all_passed=False, pass_pct=0.0, confidence=0.5)
+
+        # Mock classify to return non-retriable error
+        fatal_error = MagicMock()
+        fatal_error.is_rate_limit = False
+        fatal_error.should_retry = False
+        fatal_error.message = "CLI not found"
+        fatal_error.category = MagicMock(value="cli_error")
+        fatal_error.error_code = MagicMock(value="E501")
+        fatal_error.suggested_wait_seconds = None
+        fatal_class = MagicMock()
+        fatal_class.primary = fatal_error
+        fatal_class.confidence = 1.0
+        fatal_class.secondary = []
+        fatal_class.raw_errors = []
+        fatal_class.classification_method = "exit_code"
+        fatal_class.all_errors = [fatal_error]
+        mixin._classify_execution = MagicMock(return_value=fatal_class)
+
+        with patch("mozart.execution.runner.sheet.ValidationEngine") as MockVE:
+            ve_instance = MockVE.return_value
+            ve_instance.get_applicable_rules.return_value = []
+            ve_instance.run_validations = AsyncMock(return_value=fail_vr)
+            ve_instance.snapshot_mtime_files = MagicMock()
+
+            with pytest.raises(FatalError):
+                await mixin._execute_sheet_with_recovery(state, sheet_num=1)
+
+        failed_events = [(j, s, e, d) for j, s, e, d in events if e == "sheet.failed"]
+        assert len(failed_events) >= 1
+        _, sheet_num, _, data = failed_events[0]
+        assert sheet_num == 1
+        assert "error_category" in data
+        assert "exit_code" in data
+        assert "duration_seconds" in data
+
+    @pytest.mark.asyncio
+    async def test_sheet_failed_event_on_retries_exhausted(self, mixin: _TestableSheetMixin):
+        """sheet.failed event fires with retries_exhausted=True when retries are exhausted."""
+        events: list[tuple[str, int, str, dict[str, Any] | None]] = []
+        mixin.event_callback = lambda job_id, sheet_num, event, data: events.append(
+            (job_id, sheet_num, event, data)
+        )
+
+        state = _make_state()
+        mixin.backend.execute = AsyncMock(
+            return_value=_make_execution_result(
+                success=False, exit_code=1, stderr="Error occurred"
+            )
+        )
+        fail_vr = _make_validation_result(all_passed=False, pass_pct=0.0, confidence=0.5)
+
+        with patch("mozart.execution.runner.sheet.ValidationEngine") as MockVE:
+            ve_instance = MockVE.return_value
+            ve_instance.get_applicable_rules.return_value = []
+            ve_instance.run_validations = AsyncMock(return_value=fail_vr)
+            ve_instance.snapshot_mtime_files = MagicMock()
+
+            with pytest.raises(FatalError):
+                await mixin._execute_sheet_with_recovery(state, sheet_num=1)
+
+        # There should be at least one sheet.failed event with retries_exhausted
+        failed_events = [(j, s, e, d) for j, s, e, d in events if e == "sheet.failed"]
+        assert len(failed_events) >= 1
+        # The last failed event should have retries_exhausted=True
+        last_failed = failed_events[-1]
+        _, sheet_num, _, data = last_failed
+        assert sheet_num == 1
+        assert data.get("retries_exhausted") is True
+
+
+class TestSheetValidationPassedEvent:
+    """Verify sheet.validation_passed event fires with correct data."""
+
+    @pytest.mark.asyncio
+    async def test_sheet_validation_passed_event_fires(self, mixin: _TestableSheetMixin):
+        """sheet.validation_passed fires when all validations pass."""
+        events: list[tuple[str, int, str, dict[str, Any] | None]] = []
+        mixin.event_callback = lambda job_id, sheet_num, event, data: events.append(
+            (job_id, sheet_num, event, data)
+        )
+
+        state = _make_state()
+        mock_vr = _make_validation_result(all_passed=True, pass_pct=100.0)
+        # Set concrete values for passed_count, failed_count, pass_percentage
+        mock_vr.passed_count = 3
+        mock_vr.failed_count = 0
+        mock_vr.pass_percentage = 100.0
+
+        with patch("mozart.execution.runner.sheet.ValidationEngine") as MockVE:
+            ve_instance = MockVE.return_value
+            ve_instance.get_applicable_rules.return_value = []
+            ve_instance.run_validations = AsyncMock(return_value=mock_vr)
+            ve_instance.snapshot_mtime_files = MagicMock()
+
+            await mixin._execute_sheet_with_recovery(state, sheet_num=1)
+
+        val_passed = [(j, s, e, d) for j, s, e, d in events if e == "sheet.validation_passed"]
+        assert len(val_passed) >= 1
+        _, sheet_num, _, data = val_passed[0]
+        assert sheet_num == 1
+        assert data["passed_count"] == 3
+        assert data["failed_count"] == 0
+        assert data["pass_rate"] == 100.0
+
+
+class TestSheetValidationFailedEvent:
+    """Verify sheet.validation_failed event fires with correct data."""
+
+    @pytest.mark.asyncio
+    async def test_sheet_validation_failed_event_fires(self, mixin: _TestableSheetMixin):
+        """sheet.validation_failed fires when validations fail."""
+        events: list[tuple[str, int, str, dict[str, Any] | None]] = []
+        mixin.event_callback = lambda job_id, sheet_num, event, data: events.append(
+            (job_id, sheet_num, event, data)
+        )
+
+        state = _make_state()
+        # First validation fails, second passes (triggers retry that succeeds)
+        fail_vr = _make_validation_result(all_passed=False, pass_pct=50.0, confidence=0.5)
+        fail_vr.passed_count = 1
+        fail_vr.failed_count = 1
+        fail_vr.pass_percentage = 50.0
+        pass_vr = _make_validation_result(all_passed=True, pass_pct=100.0)
+        pass_vr.passed_count = 2
+        pass_vr.failed_count = 0
+        pass_vr.pass_percentage = 100.0
+
+        with patch("mozart.execution.runner.sheet.ValidationEngine") as MockVE:
+            ve_instance = MockVE.return_value
+            ve_instance.get_applicable_rules.return_value = []
+            ve_instance.run_validations = AsyncMock(side_effect=[fail_vr, pass_vr])
+            ve_instance.snapshot_mtime_files = MagicMock()
+
+            await mixin._execute_sheet_with_recovery(state, sheet_num=1)
+
+        val_failed = [(j, s, e, d) for j, s, e, d in events if e == "sheet.validation_failed"]
+        assert len(val_failed) >= 1
+        _, sheet_num, _, data = val_failed[0]
+        assert sheet_num == 1
+        assert data["passed_count"] == 1
+        assert data["failed_count"] == 1
+        assert data["pass_rate"] == 50.0
+
+
+class TestSheetRetryingEvent:
+    """Verify sheet.retrying event fires with correct data."""
+
+    @pytest.mark.asyncio
+    async def test_sheet_retrying_event_fires(self, mixin: _TestableSheetMixin):
+        """sheet.retrying fires on transient retry with attempt info."""
+        events: list[tuple[str, int, str, dict[str, Any] | None]] = []
+        mixin.event_callback = lambda job_id, sheet_num, event, data: events.append(
+            (job_id, sheet_num, event, data)
+        )
+
+        state = _make_state()
+        # First call fails, second succeeds
+        mixin.backend.execute = AsyncMock(side_effect=[
+            _make_execution_result(success=False, exit_code=1, stderr="Error"),
+            _make_execution_result(success=True, exit_code=0),
+        ])
+
+        fail_vr = _make_validation_result(all_passed=False, pass_pct=0.0, confidence=0.5)
+        pass_vr = _make_validation_result(all_passed=True)
+
+        with patch("mozart.execution.runner.sheet.ValidationEngine") as MockVE:
+            ve_instance = MockVE.return_value
+            ve_instance.get_applicable_rules.return_value = []
+            ve_instance.run_validations = AsyncMock(side_effect=[fail_vr, pass_vr])
+            ve_instance.snapshot_mtime_files = MagicMock()
+
+            await mixin._execute_sheet_with_recovery(state, sheet_num=1)
+
+        retry_events = [(j, s, e, d) for j, s, e, d in events if e == "sheet.retrying"]
+        assert len(retry_events) >= 1
+        _, sheet_num, _, data = retry_events[0]
+        assert sheet_num == 1
+        assert "attempt" in data
+        assert "max_retries" in data
+        assert "reason" in data
+        assert "wait_seconds" in data
 
 
 class TestPerSheetBackendOverride:

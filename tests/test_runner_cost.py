@@ -38,6 +38,11 @@ class _CostRunner(CostMixin):
         self._circuit_breaker = circuit_breaker
         self._summary = summary
 
+    async def _fire_event(
+        self, event: str, sheet_num: int, data: dict | None = None
+    ) -> None:
+        """No-op stub for the base class event method."""
+
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -306,6 +306,7 @@ Key validation features:
 
 ### Observability
 - Structured logging via structlog with context propagation
+- Runner callback events at every lifecycle point (`sheet.started/completed/failed/retrying`, `sheet.validation_passed/failed`, `job.cost_update`, `job.iteration`) published via async event bus
 - 50 error codes across 9 categories
 - Execution history in SQLite for post-mortem
 - Cost tracking with token-level granularity

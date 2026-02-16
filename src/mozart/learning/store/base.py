@@ -275,19 +275,45 @@ class GlobalLearningStoreBase:
         """Create the database schema.
 
         Creates all tables and indexes needed by the global learning store.
-        Uses IF NOT EXISTS for idempotent operation.
+        Uses IF NOT EXISTS for idempotent operation. Each table is created
+        via a dedicated helper for maintainability.
 
         Args:
             conn: Active database connection.
         """
-        # Schema version table
+        self._create_schema_version_table(conn)
+        self._create_executions_table(conn)
+        self._create_patterns_table(conn)
+        self._create_pattern_applications_table(conn)
+        self._create_error_recoveries_table(conn)
+        self._create_workspace_clusters_table(conn)
+        self._create_rate_limit_events_table(conn)
+        self._create_escalation_decisions_table(conn)
+        self._create_pattern_discovery_events_table(conn)
+        self._create_evolution_trajectory_table(conn)
+        self._create_exploration_budget_table(conn)
+        self._create_entropy_responses_table(conn)
+        self._create_pattern_entropy_history_table(conn)
+
+        # Update schema version
+        conn.execute("DELETE FROM schema_version")
+        conn.execute(
+            "INSERT INTO schema_version (version) VALUES (?)",
+            (self.SCHEMA_VERSION,),
+        )
+
+        self._logger.info("schema_created", version=self.SCHEMA_VERSION)
+
+    @staticmethod
+    def _create_schema_version_table(conn: sqlite3.Connection) -> None:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS schema_version (
                 version INTEGER PRIMARY KEY
             )
         """)
 
-        # Executions table
+    @staticmethod
+    def _create_executions_table(conn: sqlite3.Connection) -> None:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS executions (
                 id TEXT PRIMARY KEY,
@@ -317,7 +343,8 @@ class GlobalLearningStoreBase:
             "CREATE INDEX IF NOT EXISTS idx_exec_started ON executions(started_at)"
         )
 
-        # Patterns table
+    @staticmethod
+    def _create_patterns_table(conn: sqlite3.Connection) -> None:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS patterns (
                 id TEXT PRIMARY KEY,
@@ -358,7 +385,6 @@ class GlobalLearningStoreBase:
             "CREATE INDEX IF NOT EXISTS idx_patterns_confirmed "
             "ON patterns(last_confirmed)"
         )
-        # v19: Quarantine and trust indexes for efficient filtering
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_patterns_quarantine "
             "ON patterns(quarantine_status)"
@@ -368,12 +394,8 @@ class GlobalLearningStoreBase:
             "ON patterns(trust_score)"
         )
 
-        # Pattern applications table (for effectiveness tracking)
-        # Note: execution_id is a string identifier (e.g. "sheet_1"), not a FK to executions
-        # The runner passes simple sheet identifiers for pattern tracking purposes
-        # pattern_id is NOT a FK because patterns may be referenced from cross-database
-        # contexts (e.g., global learning store vs. job-local store)
-        # v12: Added grounding_confidence column for grounding-weighted effectiveness
+    @staticmethod
+    def _create_pattern_applications_table(conn: sqlite3.Connection) -> None:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS pattern_applications (
                 id TEXT PRIMARY KEY,
@@ -395,7 +417,8 @@ class GlobalLearningStoreBase:
             "ON pattern_applications(execution_id)"
         )
 
-        # Error recoveries table
+    @staticmethod
+    def _create_error_recoveries_table(conn: sqlite3.Connection) -> None:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS error_recoveries (
                 id TEXT PRIMARY KEY,
@@ -417,7 +440,8 @@ class GlobalLearningStoreBase:
             "ON error_recoveries(recovery_success)"
         )
 
-        # Workspace clusters table
+    @staticmethod
+    def _create_workspace_clusters_table(conn: sqlite3.Connection) -> None:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS workspace_clusters (
                 workspace_hash TEXT PRIMARY KEY,
@@ -426,8 +450,8 @@ class GlobalLearningStoreBase:
             )
         """)
 
-        # Rate limit events table (Evolution #8: Cross-Workspace Circuit Breaker)
-        # Tracks rate limit events across workspaces for coordination
+    @staticmethod
+    def _create_rate_limit_events_table(conn: sqlite3.Connection) -> None:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS rate_limit_events (
                 id TEXT PRIMARY KEY,
@@ -452,8 +476,8 @@ class GlobalLearningStoreBase:
             "ON rate_limit_events(model)"
         )
 
-        # Escalation decisions table (Evolution v11: Escalation Learning Loop)
-        # Records human/AI escalation decisions for learning
+    @staticmethod
+    def _create_escalation_decisions_table(conn: sqlite3.Connection) -> None:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS escalation_decisions (
                 id TEXT PRIMARY KEY,
@@ -482,8 +506,8 @@ class GlobalLearningStoreBase:
             "ON escalation_decisions(confidence)"
         )
 
-        # Pattern discovery events table (Evolution v14: Real-time Pattern Broadcasting)
-        # Records pattern discoveries for cross-job sharing with TTL expiry
+    @staticmethod
+    def _create_pattern_discovery_events_table(conn: sqlite3.Connection) -> None:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS pattern_discovery_events (
                 id TEXT PRIMARY KEY,
@@ -510,8 +534,8 @@ class GlobalLearningStoreBase:
             "ON pattern_discovery_events(pattern_type)"
         )
 
-        # Evolution trajectory table (Evolution v16: Evolution Trajectory Tracking)
-        # Tracks Mozart's own evolution history for recursive self-improvement analysis
+    @staticmethod
+    def _create_evolution_trajectory_table(conn: sqlite3.Connection) -> None:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS evolution_trajectory (
                 id TEXT PRIMARY KEY,
@@ -538,8 +562,8 @@ class GlobalLearningStoreBase:
             "ON evolution_trajectory(recorded_at)"
         )
 
-        # Exploration budget table (Evolution v23: Exploration Budget Maintenance)
-        # Tracks dynamic exploration budget over time
+    @staticmethod
+    def _create_exploration_budget_table(conn: sqlite3.Connection) -> None:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS exploration_budget (
                 id TEXT PRIMARY KEY,
@@ -560,8 +584,8 @@ class GlobalLearningStoreBase:
             "ON exploration_budget(recorded_at)"
         )
 
-        # Entropy response table (Evolution v23: Automatic Entropy Response)
-        # Records automatic responses to low entropy events
+    @staticmethod
+    def _create_entropy_responses_table(conn: sqlite3.Connection) -> None:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS entropy_responses (
                 id TEXT PRIMARY KEY,
@@ -584,8 +608,8 @@ class GlobalLearningStoreBase:
             "ON entropy_responses(recorded_at)"
         )
 
-        # Pattern entropy history table (v23: Pattern Entropy Monitoring)
-        # Records snapshots of pattern population entropy for trend analysis
+    @staticmethod
+    def _create_pattern_entropy_history_table(conn: sqlite3.Connection) -> None:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS pattern_entropy_history (
                 id TEXT PRIMARY KEY,
@@ -604,15 +628,6 @@ class GlobalLearningStoreBase:
             "CREATE INDEX IF NOT EXISTS idx_entropy_history_calculated "
             "ON pattern_entropy_history(calculated_at DESC)"
         )
-
-        # Update schema version
-        conn.execute("DELETE FROM schema_version")
-        conn.execute(
-            "INSERT INTO schema_version (version) VALUES (?)",
-            (self.SCHEMA_VERSION,),
-        )
-
-        self._logger.info("schema_created", version=self.SCHEMA_VERSION)
 
     def _migrate_columns(self, conn: sqlite3.Connection) -> None:
         """Add missing columns to existing tables.
@@ -677,14 +692,18 @@ class GlobalLearningStoreBase:
                         self._logger.info(
                             f"Renamed column {old_name} → {new_name} in {table_name}"
                         )
-                    except sqlite3.OperationalError:
-                        # SQLite < 3.25.0: RENAME COLUMN not supported.
-                        # Column keeps old name; SQL queries use new name in DDL
-                        # but SELECT by old name still works via existing data.
-                        self._logger.warning(
-                            f"Cannot rename {old_name} → {new_name} in {table_name} "
-                            f"(SQLite too old). Column will keep old name."
-                        )
+                    except sqlite3.OperationalError as e:
+                        err_msg = str(e).lower()
+                        if "near" in err_msg or "syntax error" in err_msg:
+                            # SQLite < 3.25.0: RENAME COLUMN not supported.
+                            # Column keeps old name; SQL queries use new name in DDL
+                            # but SELECT by old name still works via existing data.
+                            self._logger.warning(
+                                f"Cannot rename {old_name} → {new_name} in {table_name} "
+                                f"(SQLite too old). Column will keep old name."
+                            )
+                        else:
+                            raise
 
     @staticmethod
     def hash_workspace(workspace_path: Path) -> str:

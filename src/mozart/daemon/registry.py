@@ -184,7 +184,7 @@ class JobRegistry:
                 )
             except sqlite3.OperationalError:
                 _logger.debug("registry.migrate_column_exists", column=col_name)
-            except Exception:
+            except sqlite3.DatabaseError:
                 _logger.warning(
                     "registry.migrate_unexpected_error",
                     column=col_name,

@@ -279,7 +279,7 @@ class JobManager:
                 data = json.loads(state_file.read_text(encoding="utf-8"))
                 if data.get("status") == "paused":
                     return DaemonJobStatus.PAUSED
-        except Exception:
+        except (OSError, json.JSONDecodeError, ValueError):
             _logger.warning(
                 "manager.orphan_classify_failed",
                 job_id=orphan.job_id,
@@ -1148,16 +1148,17 @@ class JobManager:
     def _on_task_done(self, job_id: str, task: asyncio.Task[Any]) -> None:
         """Callback when a job task completes (success, error, or cancel).
 
-        Wrapped in try/except because asyncio silently drops exceptions
-        in Task.add_done_callback handlers.
-
-        Since the registry is async, any needed status updates are
-        scheduled as fire-and-forget coroutines via create_task().
+        Each cleanup step is isolated so a failure in one (e.g. registry
+        update) cannot prevent the others (snapshot cleanup, history prune)
+        from running.  asyncio silently drops exceptions in
+        Task.add_done_callback handlers, so every step must be guarded.
         """
-        try:
-            self._jobs.pop(job_id, None)
-            exc = log_task_exception(task, _logger, "job.task_failed")
+        # 1. Remove from active jobs — always runs first
+        self._jobs.pop(job_id, None)
 
+        # 2. Check for task exception and update metadata/registry
+        try:
+            exc = log_task_exception(task, _logger, "job.task_failed")
             if exc:
                 meta = self._job_meta.get(job_id)
                 if meta and meta.status == DaemonJobStatus.RUNNING:
@@ -1174,16 +1175,27 @@ class JobManager:
                             t, _logger, "registry.update_failed",
                         ),
                     )
+        except RuntimeError:
+            _logger.error(
+                "task_done_status_update_failed", job_id=job_id, exc_info=True,
+            )
 
-            # TTL-based snapshot cleanup (runs synchronously, fast)
+        # 3. TTL-based snapshot cleanup (runs synchronously, fast)
+        try:
             self._snapshot_manager.cleanup(
                 max_age_hours=self._config.observer.snapshot_ttl_hours,
             )
-
-            self._prune_job_history()
-        except (KeyError, OSError, RuntimeError):
+        except OSError:
             _logger.error(
-                "task_done_callback_failed", job_id=job_id, exc_info=True,
+                "task_done_snapshot_cleanup_failed", job_id=job_id, exc_info=True,
+            )
+
+        # 4. Prune old completed/failed/cancelled jobs from history
+        try:
+            self._prune_job_history()
+        except RuntimeError:
+            _logger.error(
+                "task_done_prune_failed", job_id=job_id, exc_info=True,
             )
 
     def _prune_job_history(self) -> None:

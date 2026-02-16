@@ -39,7 +39,7 @@ v4 Evolution: Cost Circuit Breaker
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
 
@@ -85,6 +85,12 @@ class CostMixin:
     _logger: MozartLogger
     _circuit_breaker: CircuitBreaker | None
     _summary: RunSummary | None
+
+    if TYPE_CHECKING:
+        # Methods from JobRunnerBase
+        async def _fire_event(
+            self, event: str, sheet_num: int, data: dict[str, Any] | None = None,
+        ) -> None: ...
 
     # ─────────────────────────────────────────────────────────────────────
     # Token & Cost Tracking
@@ -177,6 +183,19 @@ class CostMixin:
             self._summary.total_input_tokens += input_tokens
             self._summary.total_output_tokens += output_tokens
             self._summary.total_estimated_cost += estimated_cost
+
+        # Fire cost update event (Issue #49: Runner Callbacks)
+        budget_remaining = None
+        if self.config.cost_limits.max_cost_per_job is not None:
+            budget_remaining = self.config.cost_limits.max_cost_per_job - state.total_estimated_cost
+        await self._fire_event("job.cost_update", 0, {
+            "total_cost": round(state.total_estimated_cost, 4),
+            "budget_remaining": (
+                round(budget_remaining, 4) if budget_remaining is not None else None
+            ),
+            "input_tokens": state.total_input_tokens,
+            "output_tokens": state.total_output_tokens,
+        })
 
         return input_tokens, output_tokens, estimated_cost, confidence
 

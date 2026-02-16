@@ -386,6 +386,7 @@ When you run `mozart run`, the CLI checks for a running conductor via the Unix s
 | Health checks | `src/mozart/daemon/health.py` |
 | Job registry | `src/mozart/daemon/registry.py` |
 | Task utilities | `src/mozart/daemon/task_utils.py` |
+| Event bus (pub/sub) | `src/mozart/daemon/event_bus.py` |
 | Daemon exceptions | `src/mozart/daemon/exceptions.py` |
 | IPC server | `src/mozart/daemon/ipc/server.py` |
 | IPC client | `src/mozart/daemon/ipc/client.py` |
@@ -415,11 +416,12 @@ The daemon uses a layered architecture:
 
 1. **IPC Layer** — Unix socket + JSON-RPC 2.0 for client-daemon communication
 2. **Job Manager** — Tracks job lifecycle, handles submission/cancellation
-3. **Scheduler** *(Phase 3 — built & tested, not yet wired)* — Cross-job sheet scheduling with priority and fair-share. Infrastructure is ready; jobs currently run monolithically via JobService.
-4. **Rate Coordinator** *(Phase 3 — partially wired)* — Shares rate limit state across concurrent jobs. Write path active (rate limit events flow from runners via `JobManager._on_rate_limit`). Read path not yet wired (scheduler doesn't consume the data).
-5. **Backpressure** — Load management to prevent resource exhaustion (active: gates job submission and provides memory-based pressure levels)
-6. **Resource Monitor** — Tracks CPU/memory/process usage
-7. **Learning Hub** — Centralizes pattern learning across all daemon jobs
+3. **Event Bus** — Async pub/sub for runner callback events (`sheet.started`, `sheet.completed`, `sheet.failed`, `sheet.retrying`, `sheet.validation_passed/failed`, `job.cost_update`, `job.iteration`). Runners fire events via `_fire_event()`, the manager routes them to the event bus for downstream consumers (dashboard, learning, webhooks).
+4. **Scheduler** *(Phase 3 — built & tested, not yet wired)* — Cross-job sheet scheduling with priority and fair-share. Infrastructure is ready; jobs currently run monolithically via JobService.
+5. **Rate Coordinator** *(Phase 3 — partially wired)* — Shares rate limit state across concurrent jobs. Write path active (rate limit events flow from runners via `JobManager._on_rate_limit`). Read path not yet wired (scheduler doesn't consume the data).
+6. **Backpressure** — Load management to prevent resource exhaustion (active: gates job submission and provides memory-based pressure levels)
+7. **Resource Monitor** — Tracks CPU/memory/process usage
+8. **Learning Hub** — Centralizes pattern learning across all daemon jobs
 
 ---
 

@@ -1020,3 +1020,163 @@ class TestRealComponentWiring:
         assert len(created_runners) == 1
         runner = created_runners[0]
         assert runner._global_learning_store is global_store
+
+
+# ─── Q015: Tests for _execute_runner ─────────────────────────────────────
+
+
+class TestExecuteRunner:
+    """Tests for _execute_runner error handling and notification lifecycle (Q015)."""
+
+    @pytest.fixture
+    def mock_runner(self) -> MagicMock:
+        """Create a mock runner that returns a successful run."""
+        runner = MagicMock()
+        state = CheckpointState(
+            job_id="test-job", job_name="test-job", total_sheets=2,
+        )
+        state.status = JobStatus.COMPLETED
+        summary = MagicMock()
+        summary.completed_sheets = 2
+        summary.failed_sheets = 0
+        summary.total_duration_seconds = 10.0
+        summary.final_status = JobStatus.COMPLETED
+        runner.run = AsyncMock(return_value=(state, summary))
+        runner.get_summary.return_value = summary
+        return runner
+
+    @pytest.mark.asyncio
+    async def test_successful_run_returns_summary(
+        self, job_service: JobService, mock_runner: MagicMock,
+    ) -> None:
+        """Successful run returns the runner's summary."""
+        result = await job_service._execute_runner(
+            runner=mock_runner,
+            job_id="test-job",
+            job_name="test-job",
+            total_sheets=2,
+            notification_manager=None,
+        )
+        assert result.completed_sheets == 2
+
+    @pytest.mark.asyncio
+    async def test_graceful_shutdown_returns_paused(
+        self, job_service: JobService,
+    ) -> None:
+        """GracefulShutdownError → PAUSED status."""
+        from mozart.execution.runner.models import GracefulShutdownError, RunSummary
+
+        runner = MagicMock()
+        runner.run = AsyncMock(side_effect=GracefulShutdownError("pausing"))
+        runner.get_summary.return_value = RunSummary(
+            job_id="test-job", job_name="test-job", total_sheets=2,
+        )
+
+        result = await job_service._execute_runner(
+            runner=runner,
+            job_id="test-job",
+            job_name="test-job",
+            total_sheets=2,
+            notification_manager=None,
+        )
+        assert result.final_status == JobStatus.PAUSED
+
+    @pytest.mark.asyncio
+    async def test_fatal_error_returns_failed(
+        self, job_service: JobService,
+    ) -> None:
+        """FatalError → FAILED status."""
+        from mozart.execution.runner.models import FatalError, RunSummary
+
+        runner = MagicMock()
+        runner.run = AsyncMock(side_effect=FatalError("broken"))
+        runner.get_summary.return_value = RunSummary(
+            job_id="test-job", job_name="test-job", total_sheets=2,
+        )
+
+        result = await job_service._execute_runner(
+            runner=runner,
+            job_id="test-job",
+            job_name="test-job",
+            total_sheets=2,
+            notification_manager=None,
+        )
+        assert result.final_status == JobStatus.FAILED
+
+    @pytest.mark.asyncio
+    async def test_unexpected_error_propagates(
+        self, job_service: JobService,
+    ) -> None:
+        """Unexpected exception propagates after notification."""
+        runner = MagicMock()
+        runner.run = AsyncMock(side_effect=RuntimeError("unexpected"))
+
+        with pytest.raises(RuntimeError, match="unexpected"):
+            await job_service._execute_runner(
+                runner=runner,
+                job_id="test-job",
+                job_name="test-job",
+                total_sheets=2,
+                notification_manager=None,
+            )
+
+    @pytest.mark.asyncio
+    async def test_notification_close_called_on_success(
+        self, job_service: JobService, mock_runner: MagicMock,
+    ) -> None:
+        """Notification manager's close() is called even on success."""
+        notification_mgr = AsyncMock()
+        notification_mgr.notify_job_start = AsyncMock()
+        notification_mgr.notify_job_complete = AsyncMock()
+        notification_mgr.close = AsyncMock()
+
+        await job_service._execute_runner(
+            runner=mock_runner,
+            job_id="test-job",
+            job_name="test-job",
+            total_sheets=2,
+            notification_manager=notification_mgr,
+        )
+        notification_mgr.close.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_notification_close_called_on_fatal(
+        self, job_service: JobService,
+    ) -> None:
+        """Notification manager's close() is called on FatalError."""
+        from mozart.execution.runner.models import FatalError, RunSummary
+
+        runner = MagicMock()
+        runner.run = AsyncMock(side_effect=FatalError("fail"))
+        runner.get_summary.return_value = RunSummary(
+            job_id="test-job", job_name="test-job", total_sheets=2,
+        )
+
+        notification_mgr = AsyncMock()
+        notification_mgr.notify_job_start = AsyncMock()
+        notification_mgr.notify_job_failed = AsyncMock()
+        notification_mgr.close = AsyncMock()
+
+        await job_service._execute_runner(
+            runner=runner,
+            job_id="test-job",
+            job_name="test-job",
+            total_sheets=2,
+            notification_manager=notification_mgr,
+        )
+        notification_mgr.close.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_start_sheet_passed_to_runner(
+        self, job_service: JobService, mock_runner: MagicMock,
+    ) -> None:
+        """start_sheet kwarg is forwarded to runner.run()."""
+        await job_service._execute_runner(
+            runner=mock_runner,
+            job_id="test-job",
+            job_name="test-job",
+            total_sheets=2,
+            notification_manager=None,
+            start_sheet=3,
+        )
+        mock_runner.run.assert_called_once_with(start_sheet=3)

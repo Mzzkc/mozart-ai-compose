@@ -177,6 +177,9 @@ class SheetExecutionMixin:
 
         # Methods from JobRunnerBase
         async def _interruptible_sleep(self, seconds: float) -> None: ...
+        async def _fire_event(
+            self, event: str, sheet_num: int, data: dict[str, Any] | None = None,
+        ) -> None: ...
 
         # Methods from PatternsMixin
         def _query_relevant_patterns(
@@ -332,13 +335,16 @@ class SheetExecutionMixin:
             # Watchdog exited normally (task completed) — get the result
             return await exec_task
         except _StaleExecutionError as exc:
-            # Wait briefly for the cancelled task to clean up
+            # Wait briefly for the cancelled task to clean up.
+            # CancelledError here is expected (we cancelled exec_task);
+            # TimeoutError means cleanup took too long.
             try:
                 await asyncio.wait_for(exec_task, timeout=5.0)
-            except (asyncio.CancelledError, TimeoutError, Exception):
+            except (asyncio.CancelledError, TimeoutError, OSError):
                 self._logger.debug(
-                    "stale_cleanup_error",
+                    "stale_cleanup_interrupted",
                     sheet_num=self._current_sheet_num,
+                    exc_info=True,
                 )
             return ExecutionResult(
                 success=False,
@@ -433,6 +439,10 @@ class SheetExecutionMixin:
             preflight_warnings=len(preflight_result.warnings),
             patterns_injected=len(relevant_patterns),
         )
+        await self._fire_event("sheet.started", sheet_num, {
+            "execution_mode": current_mode.value,
+            "prompt_tokens": preflight_result.prompt_metrics.estimated_tokens,
+        })
 
         # v21 Evolution: Proactive Checkpoint System
         checkpoint_result = await self._check_proactive_checkpoint(
@@ -745,6 +755,12 @@ class SheetExecutionMixin:
             success_without_retry=success_without_retry,
             exit_code_was_nonzero=not result.success,
         )
+        await self._fire_event("sheet.completed", sheet_num, {
+            "duration_seconds": round(execution_duration, 2),
+            "exit_code": result.exit_code,
+            "validation_pass_rate": 100.0,
+            "outcome_category": outcome_category,
+        })
         # Log validation summary, distinguishing new vs inherited validations
         total_validations = len(validation_result.results)
         new_count = self._count_new_validations(validation_result, sheet_num)
@@ -937,6 +953,11 @@ class SheetExecutionMixin:
                 else None
             ),
         )
+        await self._fire_event("sheet.failed", context.sheet_num, {
+            "error_category": error.category.value,
+            "exit_code": context.result.exit_code,
+            "duration_seconds": round(context.result.duration_seconds or 0, 2),
+        })
         return FailureHandlingResult(
             action="fatal",
             normal_attempts=normal_attempts,
@@ -1024,6 +1045,12 @@ class SheetExecutionMixin:
             exit_code=context.result.exit_code,
             duration_seconds=round(context.result.duration_seconds or 0, 2),
         )
+        await self._fire_event("sheet.failed", context.sheet_num, {
+            "error_category": error.category.value,
+            "exit_code": context.result.exit_code,
+            "duration_seconds": round(context.result.duration_seconds or 0, 2),
+            "retries_exhausted": True,
+        })
         return FailureHandlingResult(
             action="fatal",
             normal_attempts=normal_attempts,
@@ -1101,6 +1128,12 @@ class SheetExecutionMixin:
             f"(delay: {retry_recommendation.delay_seconds:.1f}s, "
             f"confidence: {retry_recommendation.confidence:.0%})[/yellow]"
         )
+        await self._fire_event("sheet.retrying", context.sheet_num, {
+            "attempt": normal_attempts,
+            "max_retries": context.max_retries,
+            "reason": error.category.value,
+            "wait_seconds": round(retry_recommendation.delay_seconds, 2),
+        })
 
         # Track pending recovery for learning outcome
         if self._global_learning_store is not None:
@@ -1561,6 +1594,18 @@ class SheetExecutionMixin:
             # Update state with validation details
             self._update_sheet_validation_state(state, sheet_num, validation_result)
             await self.state_backend.save(state)
+
+            # Fire validation event (Issue #49: Runner Callbacks)
+            val_event = (
+                "sheet.validation_passed"
+                if validation_result.all_passed
+                else "sheet.validation_failed"
+            )
+            await self._fire_event(val_event, sheet_num, {
+                "passed_count": validation_result.passed_count,
+                "failed_count": validation_result.failed_count,
+                "pass_rate": validation_result.pass_percentage,
+            })
 
             if validation_result.all_passed:
                 # Delegate success handling to extracted method

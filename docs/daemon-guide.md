@@ -79,6 +79,9 @@ The conductor is composed of several layers:
 │  SQLite DB   │  Run/resume   │  Memory-based     │
 │  persistence │  pause/status │  load management  │
 ├──────────────┴───────────────┴───────────────────┤
+│                     EventBus                      │
+│  Async pub/sub for runner callback events         │
+├──────────────────────────────────────────────────┤
 │              ResourceMonitor + LearningHub        │
 │  Periodic checks   │  Cross-job pattern sharing   │
 └──────────────────────────────────────────────────┘
@@ -91,6 +94,7 @@ The conductor is composed of several layers:
 - **JobManager** — Tracks jobs as `asyncio.Task` instances. Uses a `Semaphore` to enforce the `max_concurrent_jobs` limit. Jobs exceeding `job_timeout_seconds` are cancelled.
 - **JobService** — Decoupled execution engine (no CLI dependencies). Handles the full run/resume/pause/status lifecycle for individual jobs.
 - **JobRegistry** — SQLite-backed persistent storage. Survives conductor restarts. On startup, orphaned jobs (status `queued` or `running` from a previous conductor) are marked as `failed`.
+- **EventBus** — Async pub/sub that routes runner callback events (`sheet.started`, `sheet.completed`, `sheet.failed`, `sheet.retrying`, `sheet.validation_passed/failed`, `job.cost_update`, `job.iteration`) to downstream consumers. Bounded deques per subscriber prevent slow consumers from blocking publishers.
 
 ### IPC Protocol
 

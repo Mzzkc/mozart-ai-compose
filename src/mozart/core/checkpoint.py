@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, Required, TypedDict
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -37,15 +37,16 @@ ErrorType = Literal["transient", "rate_limit", "permanent"]
 class ValidationDetailDict(TypedDict, total=False):
     """Schema for individual validation result entries in SheetState.validation_details.
 
-    All keys are optional (total=False) to support partial dicts from
-    legacy data and simplified test fixtures.
+    Most keys are optional (total=False) to support partial dicts from
+    legacy data and simplified test fixtures.  ``passed`` is required
+    because a validation result without a pass/fail status is meaningless.
     """
 
     rule_type: str
     description: str | None
     path: str | None
     pattern: str | None
-    passed: bool
+    passed: Required[bool]
     actual_value: str | None
     expected_value: str | None
     error_message: str | None

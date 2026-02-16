@@ -274,6 +274,29 @@ class SheetConfig(BaseModel):
 
         return self
 
+    @model_validator(mode="after")
+    def validate_dependency_range(self) -> SheetConfig:
+        """Validate that dependency sheet numbers are within the valid range.
+
+        Runs after fan-out expansion so total_sheets reflects the final count.
+        """
+        if not self.dependencies:
+            return self
+        max_sheet = self.total_sheets
+        for sheet_num, deps in self.dependencies.items():
+            if sheet_num < 1 or sheet_num > max_sheet:
+                raise ValueError(
+                    f"Dependency key sheet {sheet_num} is out of range "
+                    f"(valid: 1-{max_sheet})"
+                )
+            for dep in deps:
+                if dep < 1 or dep > max_sheet:
+                    raise ValueError(
+                        f"Sheet {sheet_num} depends on sheet {dep}, "
+                        f"which is out of range (valid: 1-{max_sheet})"
+                    )
+        return self
+
 
 class PromptConfig(BaseModel):
     """Configuration for prompt templating."""

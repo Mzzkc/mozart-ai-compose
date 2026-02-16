@@ -70,6 +70,13 @@ class RunSummary:
     hooks_succeeded: int = 0
     hooks_failed: int = 0
 
+    def __post_init__(self) -> None:
+        if self.completed_sheets > self.total_sheets:
+            raise ValueError(
+                f"completed_sheets ({self.completed_sheets}) "
+                f"exceeds total_sheets ({self.total_sheets})"
+            )
+
     @property
     def success_rate(self) -> float:
         """Calculate sheet success rate as percentage."""

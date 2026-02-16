@@ -45,7 +45,7 @@ class InMemoryStateBackend(StateBackend):
     ) -> None:
         state = await self.load(job_id)
         if state is None:
-            return
+            raise ValueError(f"No state found for job {job_id}")
         if status == SheetStatus.COMPLETED:
             state.mark_sheet_completed(sheet_num)
         elif status == SheetStatus.FAILED:

@@ -45,7 +45,7 @@ if TYPE_CHECKING:
 
 from mozart.core.checkpoint import CheckpointState, JobStatus, SheetState, SheetStatus
 from mozart.core.logging import ExecutionContext
-from mozart.execution.hooks import HookExecutor
+from mozart.execution.hooks import ConcertContext, HookExecutor
 from mozart.utils.time import utc_now
 
 from .models import FatalError, RunSummary
@@ -492,11 +492,18 @@ class LifecycleMixin:
             concert_enabled=self.config.concert.enabled,
         )
 
-        # Create hook executor
+        # Create hook executor with concert context for depth enforcement
+        concert_context = None
+        if self.config.concert.enabled:
+            concert_context = ConcertContext(
+                concert_id=state.job_id,
+                chain_depth=0,
+            )
+
         executor = HookExecutor(
             config=self.config,
             workspace=self.config.workspace,
-            concert_context=None,  # TODO(#37): Concert chaining not yet implemented
+            concert_context=concert_context,
         )
 
         # Execute hooks
@@ -846,6 +853,17 @@ class LifecycleMixin:
 
             # Update progress callback
             self._update_progress(state)
+
+            # Fire iteration event (Issue #49: Runner Callbacks)
+            completed_count = sum(
+                1 for s in state.sheets.values()
+                if s.status == SheetStatus.COMPLETED
+            )
+            await self._fire_event("job.iteration", 0, {
+                "current_sheet": next_sheet,
+                "sheets_completed": completed_count,
+                "total_sheets": state.total_sheets,
+            })
 
             # Pause between sheets (#22: emit visible status event)
             if next_sheet < state.total_sheets:

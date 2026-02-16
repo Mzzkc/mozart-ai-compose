@@ -38,5 +38,10 @@ def log_task_exception(
     exc = task.exception()
     if exc is not None:
         log_fn = getattr(logger, level, logger.error)
-        log_fn(event, error=str(exc), task_name=task.get_name())
+        log_fn(
+            event,
+            error=str(exc),
+            task_name=task.get_name(),
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
     return exc

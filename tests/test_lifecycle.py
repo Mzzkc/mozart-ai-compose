@@ -1258,6 +1258,95 @@ class TestGetCompletedSheets:
 # ===========================================================================
 
 
+# ===========================================================================
+# Tests: Runner Callback Events (Issue #49, Phase 2)
+# ===========================================================================
+
+
+class TestJobIterationEvent:
+    """Verify job.iteration event fires correctly during sequential execution."""
+
+    @pytest.mark.asyncio
+    async def test_job_iteration_event_fires_per_sheet(
+        self, mixin: _TestableLifecycleMixin
+    ):
+        """job.iteration event fires after each sheet with correct counts."""
+        events: list[tuple[str, int, str, dict[str, Any] | None]] = []
+
+        async def capturing_fire_event(
+            event: str, sheet_num: int, data: dict[str, Any] | None = None,
+        ) -> None:
+            events.append(("test-job", sheet_num, event, data))
+
+        mixin._fire_event = capturing_fire_event  # type: ignore[assignment]
+
+        state = _make_state(total_sheets=3)
+        state.status = JobStatus.RUNNING
+
+        executed_sheets: list[int] = []
+
+        async def mock_execute(s: CheckpointState, sheet_num: int) -> None:
+            executed_sheets.append(sheet_num)
+            s.mark_sheet_started(sheet_num)
+            s.mark_sheet_completed(sheet_num)
+
+        mixin._execute_sheet_with_recovery = mock_execute  # type: ignore[assignment]
+
+        await mixin._execute_sequential_mode(state)
+
+        assert executed_sheets == [1, 2, 3]
+
+        iteration_events = [
+            (j, s, e, d) for j, s, e, d in events if e == "job.iteration"
+        ]
+        assert len(iteration_events) == 3
+
+        # Verify incrementing sheets_completed count
+        for i, (_, sheet_num, _, data) in enumerate(iteration_events, 1):
+            assert data is not None
+            assert data["current_sheet"] == i
+            assert data["sheets_completed"] == i
+            assert data["total_sheets"] == 3
+
+    @pytest.mark.asyncio
+    async def test_job_iteration_event_on_resume(
+        self, mixin: _TestableLifecycleMixin
+    ):
+        """job.iteration events correctly count already-completed sheets."""
+        events: list[tuple[str, int, str, dict[str, Any] | None]] = []
+
+        async def capturing_fire_event(
+            event: str, sheet_num: int, data: dict[str, Any] | None = None,
+        ) -> None:
+            events.append(("test-job", sheet_num, event, data))
+
+        mixin._fire_event = capturing_fire_event  # type: ignore[assignment]
+
+        state = _make_state(total_sheets=3)
+        state.status = JobStatus.RUNNING
+        # Sheet 1 already completed
+        state.mark_sheet_started(1)
+        state.mark_sheet_completed(1)
+
+        async def mock_execute(s: CheckpointState, sheet_num: int) -> None:
+            s.mark_sheet_started(sheet_num)
+            s.mark_sheet_completed(sheet_num)
+
+        mixin._execute_sheet_with_recovery = mock_execute  # type: ignore[assignment]
+
+        await mixin._execute_sequential_mode(state)
+
+        iteration_events = [
+            (j, s, e, d) for j, s, e, d in events if e == "job.iteration"
+        ]
+        assert len(iteration_events) == 2  # Only sheets 2 and 3
+
+        # After sheet 2 completes: 2 total completed (1 + 2)
+        assert iteration_events[0][3]["sheets_completed"] == 2
+        # After sheet 3 completes: 3 total completed
+        assert iteration_events[1][3]["sheets_completed"] == 3
+
+
 class TestLearningAggregationOnFailure:
     """Tests verifying _aggregate_to_global_store runs on all exit paths.
 

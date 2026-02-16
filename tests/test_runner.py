@@ -2056,6 +2056,142 @@ class TestCostTracking:
         assert reason is None
 
 
+# ===========================================================================
+# Tests: Runner Callback Events (Issue #49, Phase 2)
+# ===========================================================================
+
+
+class TestCostUpdateEvent:
+    """Verify job.cost_update event fires from _track_cost."""
+
+    @pytest.fixture
+    def cost_config_with_budget(self) -> JobConfig:
+        """Create a config with cost tracking and a budget limit."""
+        return JobConfig.model_validate({
+            "name": "test-cost-event-job",
+            "description": "Test job for cost event tests",
+            "backend": {
+                "type": "claude_cli",
+                "skip_permissions": True,
+            },
+            "sheet": {
+                "size": 10,
+                "total_items": 30,
+            },
+            "prompt": {
+                "template": "Process sheet {{ sheet_num }}.",
+            },
+            "cost_limits": {
+                "enabled": True,
+                "max_cost_per_sheet": 1.0,
+                "max_cost_per_job": 10.0,
+                "cost_per_1k_input_tokens": 0.003,
+                "cost_per_1k_output_tokens": 0.015,
+                "warn_at_percent": 80,
+            },
+        })
+
+    @pytest.mark.asyncio
+    async def test_cost_update_event_fires(
+        self,
+        cost_config_with_budget: JobConfig,
+        mock_backend: MagicMock,
+        mock_state_backend: MagicMock,
+    ) -> None:
+        """job.cost_update event fires from _track_cost with correct data."""
+        from mozart.core.checkpoint import CheckpointState, SheetState
+        from mozart.execution.runner.models import RunnerContext
+
+        events: list[tuple[str, int, str, dict]] = []
+
+        def event_cb(job_id: str, sheet_num: int, event: str, data: dict | None) -> None:
+            events.append((job_id, sheet_num, event, data or {}))
+
+        ctx = RunnerContext(event_callback=event_cb)
+        runner = JobRunner(
+            config=cost_config_with_budget,
+            backend=mock_backend,
+            state_backend=mock_state_backend,
+            context=ctx,
+        )
+
+        result = ExecutionResult(
+            success=True,
+            stdout="Output",
+            stderr="",
+            exit_code=0,
+            duration_seconds=1.0,
+            input_tokens=1000,
+            output_tokens=500,
+        )
+        sheet_state = SheetState(sheet_num=1)
+        state = CheckpointState(
+            job_id="test", job_name="Test", total_sheets=1
+        )
+
+        await runner._track_cost(result, sheet_state, state)
+
+        cost_events = [(j, s, e, d) for j, s, e, d in events if e == "job.cost_update"]
+        assert len(cost_events) == 1
+        _, sheet_num, _, data = cost_events[0]
+        assert sheet_num == 0  # cost events use sheet_num=0 (job-level)
+        assert "total_cost" in data
+        assert "budget_remaining" in data
+        assert "input_tokens" in data
+        assert "output_tokens" in data
+        assert data["total_cost"] > 0
+        assert data["budget_remaining"] is not None
+
+    @pytest.mark.asyncio
+    async def test_cost_update_event_no_budget(
+        self,
+        mock_backend: MagicMock,
+        mock_state_backend: MagicMock,
+    ) -> None:
+        """job.cost_update with no budget has budget_remaining=None."""
+        from mozart.core.checkpoint import CheckpointState, SheetState
+        from mozart.execution.runner.models import RunnerContext
+
+        config = JobConfig.model_validate({
+            "name": "test-no-budget",
+            "backend": {"type": "claude_cli", "skip_permissions": True},
+            "sheet": {"size": 10, "total_items": 30},
+            "prompt": {"template": "Process sheet {{ sheet_num }}."},
+            "cost_limits": {
+                "enabled": True,
+                "max_cost_per_sheet": 5.0,
+                "cost_per_1k_input_tokens": 0.003,
+                "cost_per_1k_output_tokens": 0.015,
+            },
+        })
+
+        events: list[tuple[str, int, str, dict]] = []
+
+        def event_cb(job_id: str, sheet_num: int, event: str, data: dict | None) -> None:
+            events.append((job_id, sheet_num, event, data or {}))
+
+        ctx = RunnerContext(event_callback=event_cb)
+        runner = JobRunner(
+            config=config,
+            backend=mock_backend,
+            state_backend=mock_state_backend,
+            context=ctx,
+        )
+
+        result = ExecutionResult(
+            success=True, stdout="Output", stderr="", exit_code=0,
+            duration_seconds=1.0, input_tokens=500, output_tokens=200,
+        )
+        sheet_state = SheetState(sheet_num=1)
+        state = CheckpointState(job_id="test", job_name="Test", total_sheets=1)
+
+        await runner._track_cost(result, sheet_state, state)
+
+        cost_events = [(j, s, e, d) for j, s, e, d in events if e == "job.cost_update"]
+        assert len(cost_events) == 1
+        assert cost_events[0][3]["budget_remaining"] is None
+
+
 class TestClassifySuccessOutcome:
     """Tests for _classify_success_outcome static method."""
 

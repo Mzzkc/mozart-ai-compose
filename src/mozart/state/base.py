@@ -132,7 +132,7 @@ class StateBackend(ABC):
         Returns:
             The ID of the inserted record, or None if not supported.
         """
-        _logger.debug(
+        _logger.warning(
             "record_execution_noop",
             extra={"job_id": job_id, "sheet_num": sheet_num},
         )

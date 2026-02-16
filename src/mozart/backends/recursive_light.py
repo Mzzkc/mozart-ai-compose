@@ -296,7 +296,7 @@ class RecursiveLightBackend(HttpxClientMixin, Backend):
 
         except (httpx.ConnectError, httpx.TimeoutException):
             return False
-        except Exception as e:
+        except (httpx.HTTPError, OSError, RuntimeError) as e:
             _logger.warning("health_check_failed", error=f"{type(e).__name__}: {e}")
             return False
 

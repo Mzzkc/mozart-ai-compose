@@ -158,6 +158,11 @@ class _MockMixin:
     def _check_cost_limits(self, sheet_state: Any, state: Any) -> tuple[bool, str | None]:
         return False, None
 
+    async def _fire_event(
+        self, event: str, sheet_num: int, data: dict | None = None
+    ) -> None:
+        """No-op stub for the base class event method."""
+
 
 from mozart.execution.runner.context import ContextBuildingMixin
 from mozart.execution.runner.recovery import RecoveryMixin
@@ -829,3 +834,209 @@ class TestPrepareSheetExecution:
         state = _make_state()
         with pytest.raises(FatalError, match="Preflight check failed"):
             await mixin._prepare_sheet_execution(state, sheet_num=1)
+
+
+# ===========================================================================
+# Tests: _handle_validation_success (Q014)
+# ===========================================================================
+
+
+def _make_validation_success_context(
+    state: CheckpointState,
+    sheet_num: int = 1,
+    success: bool = True,
+    exit_code: int = 0,
+) -> "ValidationSuccessContext":
+    """Build a ValidationSuccessContext for testing."""
+    from mozart.execution.runner.models import ValidationSuccessContext
+
+    result = ExecutionResult(
+        success=success, exit_code=exit_code, stdout="done", stderr="",
+        duration_seconds=5.0,
+    )
+    vr = _make_mock_vr()
+    vr.aggregate_confidence = 0.9
+    return ValidationSuccessContext(
+        state=state,
+        sheet_num=sheet_num,
+        result=result,
+        validation_result=vr,
+        validation_duration=0.5,
+        current_prompt="test prompt",
+        normal_attempts=1,
+        completion_attempts=0,
+        execution_start_time=0.0,
+        execution_history=[],
+        pending_recovery=None,
+    )
+
+
+class TestHandleValidationSuccess:
+    """Tests for _handle_validation_success method (Q014)."""
+
+    @pytest.mark.asyncio
+    async def test_success_path_returns_none(self, mixin: _TestableSheetMixin) -> None:
+        """Normal success returns None (sheet complete)."""
+        import time
+        from unittest.mock import patch as _patch
+
+        state = _make_state()
+        state.mark_sheet_started(1)
+        ctx = _make_validation_success_context(state, sheet_num=1)
+        # Set execution_start_time to a recent monotonic time
+        ctx.execution_start_time = time.monotonic()
+
+        result = await mixin._handle_validation_success(ctx)
+        assert result is None
+        # Sheet should be marked completed
+        assert state.sheets[1].status.value == "completed"
+
+    @pytest.mark.asyncio
+    async def test_nonzero_exit_code_still_completes(self, mixin: _TestableSheetMixin) -> None:
+        """Non-zero exit code with all validations passed still completes."""
+        import time
+
+        state = _make_state()
+        state.mark_sheet_started(1)
+        ctx = _make_validation_success_context(state, sheet_num=1, success=False, exit_code=1)
+        ctx.execution_start_time = time.monotonic()
+
+        result = await mixin._handle_validation_success(ctx)
+        assert result is None
+        assert state.sheets[1].status.value == "completed"
+
+    @pytest.mark.asyncio
+    async def test_state_saved_after_completion(self, mixin: _TestableSheetMixin) -> None:
+        """State backend save is called after marking completed."""
+        import time
+
+        state = _make_state()
+        state.mark_sheet_started(1)
+        ctx = _make_validation_success_context(state, sheet_num=1)
+        ctx.execution_start_time = time.monotonic()
+
+        await mixin._handle_validation_success(ctx)
+        mixin.state_backend.save.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_missing_sheet_state_returns_break(self, mixin: _TestableSheetMixin) -> None:
+        """Missing sheet state after execution returns 'break'."""
+        import time
+
+        state = _make_state()
+        # Don't mark sheet in progress => sheets dict won't have entry
+        ctx = _make_validation_success_context(state, sheet_num=1)
+        ctx.execution_start_time = time.monotonic()
+
+        result = await mixin._handle_validation_success(ctx)
+        assert result == "break"
+
+
+# ===========================================================================
+# Tests: _handle_escalation (Q016)
+# ===========================================================================
+
+
+class TestHandleEscalation:
+    """Tests for _handle_escalation method (Q016)."""
+
+    @pytest.mark.asyncio
+    async def test_no_handler_raises_fatal(self, mixin: _TestableSheetMixin) -> None:
+        """No escalation handler configured raises FatalError."""
+        state = _make_state()
+        state.mark_sheet_started(1)
+        vr = _make_mock_vr()
+        vr.aggregate_confidence = 0.3
+        vr.pass_percentage = 40.0
+
+        with pytest.raises(FatalError, match="no handler configured"):
+            await mixin._handle_escalation(
+                state=state,
+                sheet_num=1,
+                validation_result=vr,
+                current_prompt="test",
+                error_history=["error1"],
+                normal_attempts=3,
+            )
+
+    @pytest.mark.asyncio
+    async def test_missing_sheet_state_raises_fatal(self, mixin: _TestableSheetMixin) -> None:
+        """Missing sheet state raises FatalError."""
+        from mozart.execution.escalation import ConsoleEscalationHandler
+
+        mixin.escalation_handler = AsyncMock(spec=ConsoleEscalationHandler)
+        state = _make_state()
+        # Don't mark sheet in progress => no sheet state
+        vr = _make_mock_vr()
+        vr.aggregate_confidence = 0.3
+        vr.pass_percentage = 40.0
+
+        with pytest.raises(FatalError, match="No sheet state found"):
+            await mixin._handle_escalation(
+                state=state,
+                sheet_num=1,
+                validation_result=vr,
+                current_prompt="test",
+                error_history=[],
+                normal_attempts=2,
+            )
+
+    @pytest.mark.asyncio
+    async def test_handler_returns_response(self, mixin: _TestableSheetMixin) -> None:
+        """Escalation handler response is returned."""
+        from mozart.execution.escalation import EscalationResponse
+
+        mock_handler = AsyncMock()
+        mock_response = EscalationResponse(action="retry", guidance="try again")
+        mock_handler.escalate.return_value = mock_response
+        mixin.escalation_handler = mock_handler
+
+        state = _make_state()
+        state.mark_sheet_started(1)
+        vr = _make_mock_vr()
+        vr.aggregate_confidence = 0.3
+        vr.pass_percentage = 40.0
+
+        result = await mixin._handle_escalation(
+            state=state,
+            sheet_num=1,
+            validation_result=vr,
+            current_prompt="test",
+            error_history=["error"],
+            normal_attempts=2,
+        )
+        assert result.action == "retry"
+        assert result.guidance == "try again"
+
+    @pytest.mark.asyncio
+    async def test_similar_escalation_lookup_failure_is_tolerated(
+        self, mixin: _TestableSheetMixin,
+    ) -> None:
+        """Failed lookup of similar escalations doesn't prevent escalation."""
+        from mozart.execution.escalation import EscalationResponse
+
+        mock_handler = AsyncMock()
+        mock_handler.escalate.return_value = EscalationResponse(action="skip")
+        mixin.escalation_handler = mock_handler
+
+        # Global store that raises on get_similar_escalation
+        store = MagicMock()
+        store.get_similar_escalation.side_effect = RuntimeError("DB locked")
+        store.record_escalation_decision.return_value = "rec-id"
+        mixin._global_learning_store = store
+
+        state = _make_state()
+        state.mark_sheet_started(1)
+        vr = _make_mock_vr()
+        vr.aggregate_confidence = 0.3
+        vr.pass_percentage = 40.0
+
+        result = await mixin._handle_escalation(
+            state=state,
+            sheet_num=1,
+            validation_result=vr,
+            current_prompt="test",
+            error_history=[],
+            normal_attempts=2,
+        )
+        assert result.action == "skip"

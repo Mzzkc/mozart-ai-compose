@@ -295,11 +295,17 @@ class TestLoadConfig:
         assert config.max_concurrent_jobs == 3
 
     def test_load_with_none_returns_defaults(self):
-        """_load_config(None) returns default config with config_file=None."""
+        """_load_config(None) returns defaults; config_file depends on auto-discovery."""
         from mozart.daemon.process import _load_config
 
         config = _load_config(None)
-        assert config.config_file is None
+        # When ~/.mozart/conductor.yaml exists, auto-discovery sets config_file;
+        # otherwise config_file is None.  Either way, defaults apply.
+        default_path = Path("~/.mozart/conductor.yaml").expanduser()
+        if default_path.exists():
+            assert config.config_file == default_path.resolve()
+        else:
+            assert config.config_file is None
         assert config.max_concurrent_jobs == 5  # default
 
     def test_load_nonexistent_file_returns_defaults(self, tmp_path: Path):

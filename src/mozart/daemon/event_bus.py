@@ -23,6 +23,8 @@ _logger = get_logger("daemon.event_bus")
 EventFilter = Callable[[ObserverEvent], bool] | None
 EventCallback = Callable[[ObserverEvent], Any]
 
+_MAX_CONSECUTIVE_FAILURES = 10
+
 
 class EventBus:
     """Async pub/sub event bus with bounded queues per subscriber.
@@ -160,6 +162,8 @@ class EventBus:
     async def _distribute(self, event: ObserverEvent) -> None:
         """Distribute a single event to all matching subscribers."""
         for sub_id, sub in self._subscribers.items():
+            if sub.consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+                continue
             try:
                 if sub.event_filter is not None and not sub.event_filter(event):
                     continue
@@ -177,19 +181,28 @@ class EventBus:
                 result = sub.callback(event)
                 if asyncio.iscoroutine(result):
                     await result
+                sub.consecutive_failures = 0
             except Exception:
+                sub.consecutive_failures += 1
                 _logger.warning(
                     "event_bus.subscriber_error",
                     subscriber_id=sub_id,
                     event_type=event.get("event"),
+                    consecutive_failures=sub.consecutive_failures,
                     exc_info=True,
                 )
+                if sub.consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+                    _logger.error(
+                        "event_bus.subscriber_disabled",
+                        subscriber_id=sub_id,
+                        reason=f"{_MAX_CONSECUTIVE_FAILURES} consecutive failures",
+                    )
 
 
 class _Subscriber:
     """Internal subscriber state."""
 
-    __slots__ = ("callback", "event_filter", "queue")
+    __slots__ = ("callback", "event_filter", "queue", "consecutive_failures")
 
     def __init__(
         self,
@@ -200,6 +213,7 @@ class _Subscriber:
         self.callback = callback
         self.event_filter = event_filter
         self.queue = queue
+        self.consecutive_failures: int = 0
 
 
 __all__ = ["EventBus"]
