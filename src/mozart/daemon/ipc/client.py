@@ -192,10 +192,17 @@ class DaemonClient:
         Unlike ``call()``, this does not send a request — it only tests
         whether the socket accepts connections, making it safe to call
         even before the handler loop is fully ready.
+
+        Short-circuits immediately if the socket path doesn't exist,
+        consistent with ``_connect()``'s guard.
         """
+        if not self._socket_path.exists():
+            return False
         try:
             _reader, writer = await asyncio.wait_for(
-                asyncio.open_unix_connection(str(self._socket_path)),
+                asyncio.open_unix_connection(
+                    str(self._socket_path), limit=_MAX_MESSAGE_BYTES,
+                ),
                 timeout=2.0,
             )
             writer.close()
@@ -242,12 +249,14 @@ class DaemonClient:
         self,
         statuses: list[str] | None = None,
         older_than_seconds: float | None = None,
+        job_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         """Clear terminal jobs from the daemon registry.
 
         Args:
             statuses: Status filter (defaults to terminal statuses).
             older_than_seconds: Only clear jobs older than this.
+            job_ids: Only clear these specific job IDs.
 
         Returns:
             Dict with "deleted" count.
@@ -257,6 +266,8 @@ class DaemonClient:
             params["statuses"] = statuses
         if older_than_seconds is not None:
             params["older_than_seconds"] = older_than_seconds
+        if job_ids is not None:
+            params["job_ids"] = job_ids
         return cast(dict[str, Any], await self.call("job.clear", params))
 
     async def config(self) -> dict[str, Any]:

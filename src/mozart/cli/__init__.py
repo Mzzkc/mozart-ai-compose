@@ -50,6 +50,8 @@ from mozart import __version__
 # Re-export helpers module for direct access to internal state (conftest.py needs this)
 from . import helpers as helpers
 from .commands import (
+    # status.py
+    clear,
     # diagnose.py
     diagnose,
     errors,
@@ -233,6 +235,7 @@ app.command()(modify)
 # Job status commands
 app.command()(status)
 app.command(name="list")(list_jobs)
+app.command()(clear)
 
 # Validation and recovery
 app.command()(validate)

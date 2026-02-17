@@ -443,6 +443,7 @@ class DaemonProcess:
             return await manager.clear_jobs(
                 statuses=params.get("statuses"),
                 older_than_seconds=params.get("older_than_seconds"),
+                job_ids=params.get("job_ids"),
             )
 
         handler.register("job.submit", handle_submit)

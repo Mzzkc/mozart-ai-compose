@@ -7,7 +7,7 @@ from .pause import modify, pause
 from .recover import recover
 from .resume import resume
 from .run import run
-from .status import list_jobs, status
+from .status import clear, list_jobs, status
 from .validate import validate
 
 __all__ = [
@@ -28,6 +28,7 @@ __all__ = [
     # status.py
     "status",
     "list_jobs",
+    "clear",
     # validate.py
     "validate",
 ]

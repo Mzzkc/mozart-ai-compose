@@ -65,6 +65,7 @@ class JobRecord:
     last_event_at: float | None = None
     log_path: str | None = None
     snapshot_path: str | None = None
+    checkpoint_json: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize for JSON-RPC responses."""
@@ -176,6 +177,7 @@ class JobRegistry:
             ("last_event_at", "REAL"),
             ("log_path", "TEXT"),
             ("snapshot_path", "TEXT"),
+            ("checkpoint_json", "TEXT"),
         ]
         for col_name, col_type in new_columns:
             try:
@@ -262,6 +264,35 @@ class JobRegistry:
         )
         await self._db.commit()
 
+    async def save_checkpoint(self, job_id: str, checkpoint_json: str) -> None:
+        """Persist a serialized CheckpointState for a job.
+
+        Called on every state publish so the registry always has the
+        latest checkpoint.  This is the daemon's single source of
+        truth for historical job status — no disk fallback needed.
+        """
+        await self._db.execute(
+            "UPDATE jobs SET checkpoint_json = ?, last_event_at = ? "
+            "WHERE job_id = ?",
+            (checkpoint_json, time.time(), job_id),
+        )
+        await self._db.commit()
+
+    async def load_checkpoint(self, job_id: str) -> str | None:
+        """Load the stored checkpoint JSON for a job.
+
+        Returns the raw JSON string, or None if no checkpoint was saved.
+        """
+        cursor = await self._db.execute(
+            "SELECT checkpoint_json FROM jobs WHERE job_id = ?",
+            (job_id,),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        result: str | None = row["checkpoint_json"]
+        return result
+
     async def get_job(self, job_id: str) -> JobRecord | None:
         """Get a single job by ID."""
         cursor = await self._db.execute(
@@ -338,6 +369,7 @@ class JobRegistry:
     async def delete_jobs(
         self,
         *,
+        job_ids: list[str] | None = None,
         statuses: list[str] | None = None,
         older_than_seconds: float | None = None,
     ) -> int:
@@ -346,6 +378,7 @@ class JobRegistry:
         Never deletes active jobs (queued/running) regardless of filter.
 
         Args:
+            job_ids: Only delete these specific job IDs.
             statuses: Only delete jobs with these statuses.
                       Defaults to all terminal statuses.
             older_than_seconds: Only delete jobs older than this many seconds.
@@ -358,6 +391,12 @@ class JobRegistry:
 
         conditions = ["status IN ({})".format(",".join("?" for _ in safe))]
         params: list[Any] = list(safe)
+
+        if job_ids is not None:
+            conditions.append(
+                "job_id IN ({})".format(",".join("?" for _ in job_ids))
+            )
+            params.extend(job_ids)
 
         if older_than_seconds is not None:
             conditions.append("submitted_at < ?")
@@ -401,4 +440,5 @@ class JobRegistry:
             last_event_at=row["last_event_at"],
             log_path=row["log_path"],
             snapshot_path=row["snapshot_path"],
+            checkpoint_json=row["checkpoint_json"],
         )

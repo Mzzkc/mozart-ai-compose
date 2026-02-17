@@ -108,13 +108,10 @@ class JobManager:
         # Keyed by conductor job_id (which may be deduplicated, e.g.
         # "issue-solver-2"), not the config's name field.
         self._live_states: dict[str, CheckpointState] = {}
-        # Maps config name → conductor job_id for deduped jobs
-        # (e.g. "issue-solver" → "issue-solver-2") so _on_state_published
-        # can store under the conductor's ID.
-        self._config_to_conductor_id: dict[str, str] = {}
         self._concurrency_semaphore = asyncio.Semaphore(
             config.max_concurrent_jobs,
         )
+        self._id_gen_lock = asyncio.Lock()
         self._shutting_down = False
         self._shutdown_event = asyncio.Event()
         self._recent_failures: deque[float] = deque()
@@ -195,6 +192,28 @@ class JobManager:
                 paused=paused_count,
             )
 
+        # Restore ALL job metadata from registry into memory so that
+        # RPC handlers (status, resume, pause, errors, …) work for
+        # jobs from previous daemon sessions without per-method fallback.
+        all_records = await self._registry.list_jobs(limit=10_000)
+        for record in all_records:
+            if record.job_id not in self._job_meta:
+                self._job_meta[record.job_id] = JobMeta(
+                    job_id=record.job_id,
+                    config_path=Path(record.config_path),
+                    workspace=Path(record.workspace),
+                    submitted_at=record.submitted_at,
+                    started_at=record.started_at,
+                    status=record.status,
+                    error_message=record.error_message,
+                )
+        if all_records:
+            _logger.info(
+                "manager.registry_restored",
+                total=len(all_records),
+                loaded=len(self._job_meta),
+            )
+
         await self._learning_hub.start()
         await self._event_bus.start()
         # Create service with shared store now that the hub is initialized
@@ -214,7 +233,7 @@ class JobManager:
                 live_states=self._live_states,
             )
             await self._semantic_analyzer.start(self._event_bus)
-        except Exception:
+        except (OSError, ValueError, RuntimeError, TypeError):
             _logger.warning(
                 "manager.semantic_analyzer_start_failed",
                 exc_info=True,
@@ -322,22 +341,60 @@ class JobManager:
             )
         return DaemonJobStatus.FAILED
 
-    async def _generate_job_id(self, base_name: str) -> str:
-        """Generate a human-friendly job ID from config file stem.
+    def _resolve_conductor_key(self, state: CheckpointState) -> str:
+        """Determine the conductor key to store a published state under.
 
-        Uses the name directly (e.g. ``quality-continuous``). If a job
-        with that name is already active (in-memory or registry),
-        appends ``-2``, ``-3``, etc.
+        When ``state.job_id`` matches a conductor key directly, use it.
+        Otherwise, find the best-matching running job:
+
+        1. If ``state.job_id`` is in ``_job_meta``, try to use it — but if
+           another running job with no live state exists, and the existing
+           state would regress (clobber), route to the other job instead.
+        2. If ``state.job_id`` is NOT in ``_job_meta``, fall back to the
+           first running job without a live state entry.
         """
-        async def _is_active(name: str) -> bool:
-            return name in self._job_meta or await self._registry.has_active_job(name)
+        sid = state.job_id
 
-        if not await _is_active(base_name):
-            return base_name
-        suffix = 2
-        while await _is_active(f"{base_name}-{suffix}"):
-            suffix += 1
-        return f"{base_name}-{suffix}"
+        if sid in self._job_meta:
+            # Direct match — check for clobber from concurrent same-config
+            existing = self._live_states.get(sid)
+            if (
+                existing is not None
+                and state.last_completed_sheet < existing.last_completed_sheet
+            ):
+                # Regression — try to find another running job without
+                # live state that could own this publish.
+                for jid, meta in self._job_meta.items():
+                    if jid == sid:
+                        continue
+                    if meta.status not in (
+                        DaemonJobStatus.QUEUED, DaemonJobStatus.RUNNING,
+                    ):
+                        continue
+                    if jid not in self._live_states:
+                        return jid
+            return sid
+
+        # state.job_id doesn't match any conductor key — find a running
+        # job without live state.
+        for jid, meta in self._job_meta.items():
+            if meta.status in (DaemonJobStatus.QUEUED, DaemonJobStatus.RUNNING):
+                if jid not in self._live_states:
+                    return jid
+        # Last resort: first running job
+        for jid, meta in self._job_meta.items():
+            if meta.status in (DaemonJobStatus.QUEUED, DaemonJobStatus.RUNNING):
+                return jid
+        return sid
+
+    def _get_job_id(self, base_name: str) -> str:
+        """Return the job ID for a config name.
+
+        Job name IS the job ID — no deduplication suffixes.  If a job
+        with this name is already active, ``submit_job()`` rejects the
+        submission rather than inventing a new ID.
+        """
+        return base_name
 
     # ─── RPC Handlers ─────────────────────────────────────────────────
 
@@ -357,72 +414,87 @@ class JobManager:
                 message="System under high pressure — try again later",
             )
 
-        job_id = await self._generate_job_id(request.config_path.stem)
+        # Serialize the duplicate-check → register → insert window to
+        # prevent TOCTOU races between concurrent submissions.
+        async with self._id_gen_lock:
+            job_id = self._get_job_id(request.config_path.stem)
 
-        # Validate config exists and resolve workspace from it
-        if not request.config_path.exists():
-            return JobResponse(
-                job_id=job_id,
-                status="rejected",
-                message=f"Config file not found: {request.config_path}",
-            )
-
-        if request.workspace:
-            workspace = request.workspace
-        else:
-            from mozart.core.config import JobConfig
-            try:
-                config = JobConfig.from_yaml(request.config_path)
-                workspace = config.workspace
-            except (ValueError, OSError, KeyError, yaml.YAMLError) as exc:
-                _logger.error(
-                    "manager.config_parse_failed",
-                    job_id=job_id,
-                    config_path=str(request.config_path),
-                    exc_info=True,
-                )
+            # Reject if a job with this name is already active
+            existing = self._job_meta.get(job_id)
+            if existing and existing.status in (DaemonJobStatus.QUEUED, DaemonJobStatus.RUNNING):
                 return JobResponse(
                     job_id=job_id,
                     status="rejected",
                     message=(
-                        f"Failed to parse config file: {request.config_path} ({exc}). "
-                        "Cannot determine workspace. Fix the config or pass --workspace explicitly."
+                        f"Job '{job_id}' is already {existing.status.value}. "
+                        "Use 'mozart pause' or 'mozart cancel' first, or wait for it to finish."
                     ),
                 )
 
-        # Early workspace validation: reject jobs whose workspace parent
-        # doesn't exist or isn't writable, instead of failing deep in
-        # JobService.start_job(). Workspace itself may not exist yet —
-        # it gets created by JobService — but the parent must be valid.
-        ws_parent = workspace.parent
-        if not ws_parent.exists():
-            return JobResponse(
-                job_id=job_id,
-                status="rejected",
-                message=(
-                    f"Workspace parent directory does not exist: {ws_parent}. "
-                    "Create the parent directory or change the workspace path."
-                ),
-            )
-        if not os.access(ws_parent, os.W_OK):
-            return JobResponse(
-                job_id=job_id,
-                status="rejected",
-                message=(
-                    f"Workspace parent directory is not writable: {ws_parent}. "
-                    "Fix permissions or change the workspace path."
-                ),
-            )
+            # Validate config exists and resolve workspace from it
+            if not request.config_path.exists():
+                return JobResponse(
+                    job_id=job_id,
+                    status="rejected",
+                    message=f"Config file not found: {request.config_path}",
+                )
 
-        meta = JobMeta(
-            job_id=job_id,
-            config_path=request.config_path,
-            workspace=workspace,
-            chain_depth=request.chain_depth,
-        )
-        # Register in DB first — if this fails, no phantom in-memory entry
-        await self._registry.register_job(job_id, request.config_path, workspace)
-        self._job_meta[job_id] = meta
+            if request.workspace:
+                workspace = request.workspace
+            else:
+                from mozart.core.config import JobConfig
+                try:
+                    config = JobConfig.from_yaml(request.config_path)
+                    workspace = config.workspace
+                except (ValueError, OSError, KeyError, yaml.YAMLError) as exc:
+                    _logger.error(
+                        "manager.config_parse_failed",
+                        job_id=job_id,
+                        config_path=str(request.config_path),
+                        exc_info=True,
+                    )
+                    return JobResponse(
+                        job_id=job_id,
+                        status="rejected",
+                        message=(
+                            f"Failed to parse config file: {request.config_path} ({exc}). "
+                            "Cannot determine workspace. Fix the config or pass --workspace explicitly."
+                        ),
+                    )
+
+            # Early workspace validation: reject jobs whose workspace parent
+            # doesn't exist or isn't writable, instead of failing deep in
+            # JobService.start_job(). Workspace itself may not exist yet —
+            # it gets created by JobService — but the parent must be valid.
+            ws_parent = workspace.parent
+            if not ws_parent.exists():
+                return JobResponse(
+                    job_id=job_id,
+                    status="rejected",
+                    message=(
+                        f"Workspace parent directory does not exist: {ws_parent}. "
+                        "Create the parent directory or change the workspace path."
+                    ),
+                )
+            if not os.access(ws_parent, os.W_OK):
+                return JobResponse(
+                    job_id=job_id,
+                    status="rejected",
+                    message=(
+                        f"Workspace parent directory is not writable: {ws_parent}. "
+                        "Fix permissions or change the workspace path."
+                    ),
+                )
+
+            meta = JobMeta(
+                job_id=job_id,
+                config_path=request.config_path,
+                workspace=workspace,
+                chain_depth=request.chain_depth,
+            )
+            # Register in DB first — if this fails, no phantom in-memory entry
+            await self._registry.register_job(job_id, request.config_path, workspace)
+            self._job_meta[job_id] = meta
 
         try:
             task = asyncio.create_task(
@@ -455,21 +527,37 @@ class JobManager:
     async def get_job_status(self, job_id: str, workspace: Path | None = None) -> dict[str, Any]:
         """Get full status of a specific job.
 
-        Returns the conductor's live in-memory CheckpointState when
-        available (populated by _PublishingBackend on every save).
-        Falls back to basic JobMeta if no live state exists yet
-        (e.g. job was just submitted and hasn't checkpointed).
+        Resolution order (no workspace/disk fallback):
+        1. Live in-memory state (running jobs)
+        2. Registry checkpoint (historical jobs — persisted on every save)
+        3. Basic metadata (jobs that never ran / pre-checkpoint registry)
         """
+        _ = workspace  # Unused — daemon is the single source of truth
+
         meta = self._job_meta.get(job_id)
         if meta is None:
             raise JobSubmissionError(f"Job '{job_id}' not found")
 
-        # Serve from conductor's live state — no disk I/O
+        # 1. Live in-memory state (running jobs)
         live = self._live_states.get(job_id)
         if live is not None:
             return live.model_dump(mode="json")
 
-        # Fallback to basic metadata
+        # 2. Registry checkpoint (historical jobs)
+        try:
+            checkpoint_json = await self._registry.load_checkpoint(job_id)
+            if checkpoint_json is not None:
+                import json
+                data: dict[str, Any] = json.loads(checkpoint_json)
+                return data
+        except Exception:
+            _logger.debug(
+                "get_job_status.registry_checkpoint_failed",
+                job_id=job_id,
+                exc_info=True,
+            )
+
+        # 3. Basic metadata (job never produced a checkpoint)
         return meta.to_dict()
 
     async def pause_job(self, job_id: str, workspace: Path | None = None) -> bool:
@@ -486,7 +574,7 @@ class JobManager:
         return await self._checked_service.pause_job(meta.job_id, ws)
 
     async def resume_job(self, job_id: str, workspace: Path | None = None) -> JobResponse:
-        """Resume a paused job by creating a new task.
+        """Resume a paused or failed job by creating a new task.
 
         If an old task for this job is still running (e.g., not yet fully
         paused), it is cancelled before the new resume task is created to
@@ -569,12 +657,14 @@ class JobManager:
         self,
         statuses: list[str] | None = None,
         older_than_seconds: float | None = None,
+        job_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         """Clear terminal jobs from registry and in-memory metadata.
 
         Args:
             statuses: Status filter (defaults to terminal statuses).
             older_than_seconds: Age filter in seconds.
+            job_ids: Only clear these specific job IDs.
 
         Returns:
             Dict with "deleted" count.
@@ -585,6 +675,8 @@ class JobManager:
         to_remove: list[str] = []
         now = time.time()
         for jid, meta in self._job_meta.items():
+            if job_ids is not None and jid not in job_ids:
+                continue
             if meta.status.value not in safe_statuses:
                 continue
             if older_than_seconds is not None:
@@ -594,8 +686,10 @@ class JobManager:
 
         for jid in to_remove:
             self._job_meta.pop(jid, None)
+            self._live_states.pop(jid, None)
 
         deleted = await self._registry.delete_jobs(
+            job_ids=job_ids,
             statuses=list(safe_statuses),
             older_than_seconds=older_than_seconds,
         )
@@ -800,7 +894,9 @@ class JobManager:
         if self._semantic_analyzer is not None:
             try:
                 await self._semantic_analyzer.stop(self._event_bus)
-            except Exception:
+            except asyncio.CancelledError:
+                raise
+            except (OSError, RuntimeError):
                 _logger.warning(
                     "manager.semantic_analyzer_stop_failed",
                     exc_info=True,
@@ -931,17 +1027,43 @@ class JobManager:
         """Receive live CheckpointState from a running job's state backend.
 
         Called synchronously by ``_PublishingBackend.save()`` on every
-        checkpoint.  Stores the latest state so ``get_job_status()`` can
-        serve it from memory instead of re-reading from the workspace.
+        checkpoint.  Stores the latest state in memory AND persists it
+        to the registry so ``get_job_status()`` works after daemon restart
+        without any disk/workspace fallback.
 
-        Uses ``_config_to_conductor_id`` to resolve deduped job IDs:
-        ``state.job_id`` is the config name (e.g. "issue-solver") but the
-        conductor may track the job under a deduped name (e.g. "issue-solver-2").
+        Reconciliation: The state's ``job_id`` comes from ``config.name``
+        (set by JobService), but the conductor tracks jobs by
+        ``config_path.stem`` (set by submit_job).  When these differ,
+        we must store the state under the conductor's key so
+        ``get_job_status()`` can find it.
         """
-        conductor_id = self._config_to_conductor_id.get(
-            state.job_id, state.job_id,
-        )
-        self._live_states[conductor_id] = state
+        conductor_key = self._resolve_conductor_key(state)
+
+        # Reconcile the state's job_id to match the conductor key so
+        # downstream consumers (status, registry) use a consistent ID.
+        if conductor_key != state.job_id:
+            state = state.model_copy(update={"job_id": conductor_key})
+
+        self._live_states[conductor_key] = state
+
+        # Persist to registry (fire-and-forget — never block the runner)
+        try:
+            checkpoint_json = state.model_dump_json()
+            task = asyncio.create_task(
+                self._registry.save_checkpoint(state.job_id, checkpoint_json),
+                name=f"checkpoint-save-{state.job_id}",
+            )
+            task.add_done_callback(
+                lambda t: log_task_exception(
+                    t, _logger, "registry.checkpoint_save_failed",
+                ),
+            )
+        except Exception:
+            _logger.debug(
+                "state_published.checkpoint_serialize_failed",
+                job_id=state.job_id,
+                exc_info=True,
+            )
 
     async def _on_event(
         self,
@@ -1122,6 +1244,17 @@ class JobManager:
                 # Stop observer co-task regardless of outcome
                 await self._stop_observer(job_id)
 
+    @staticmethod
+    def _map_job_status(final_status: Any) -> DaemonJobStatus:
+        """Map runner JobStatus to DaemonJobStatus."""
+        from mozart.core.checkpoint import JobStatus
+
+        if final_status == JobStatus.PAUSED:
+            return DaemonJobStatus.PAUSED
+        if final_status == JobStatus.FAILED:
+            return DaemonJobStatus.FAILED
+        return DaemonJobStatus.COMPLETED
+
     async def _run_job_task(self, job_id: str, request: JobRequest) -> None:
         """Task coroutine that runs a single job.
 
@@ -1138,7 +1271,6 @@ class JobManager:
         """
 
         async def _execute() -> DaemonJobStatus:
-            from mozart.core.checkpoint import JobStatus
             from mozart.core.config import JobConfig
 
             config = JobConfig.from_yaml(request.config_path)
@@ -1146,11 +1278,6 @@ class JobManager:
                 config = config.model_copy(
                     update={"workspace": request.workspace},
                 )
-
-            # Map config name → conductor ID for deduped jobs so that
-            # _on_state_published() stores under the conductor's ID.
-            if config.name != job_id:
-                self._config_to_conductor_id[config.name] = job_id
 
             # Apply daemon-level default thinking method if the job
             # doesn't specify its own (GH#77).
@@ -1175,11 +1302,7 @@ class JobManager:
                 dry_run=request.dry_run,
             )
 
-            if summary.final_status == JobStatus.PAUSED:
-                return DaemonJobStatus.PAUSED
-            if summary.final_status == JobStatus.FAILED:
-                return DaemonJobStatus.FAILED
-            return DaemonJobStatus.COMPLETED
+            return self._map_job_status(summary.final_status)
 
         await self._run_managed_task(job_id, _execute())
 
@@ -1187,14 +1310,8 @@ class JobManager:
         """Task coroutine that resumes a paused job."""
 
         async def _execute() -> DaemonJobStatus:
-            from mozart.core.checkpoint import JobStatus
-
             summary = await self._checked_service.resume_job(job_id, workspace)
-            if summary.final_status == JobStatus.PAUSED:
-                return DaemonJobStatus.PAUSED
-            if summary.final_status == JobStatus.FAILED:
-                return DaemonJobStatus.FAILED
-            return DaemonJobStatus.COMPLETED
+            return self._map_job_status(summary.final_status)
 
         await self._run_managed_task(
             job_id, _execute(),
@@ -1210,13 +1327,20 @@ class JobManager:
         from running.  asyncio silently drops exceptions in
         Task.add_done_callback handlers, so every step must be guarded.
         """
-        # 1. Remove from active jobs and live state — always runs first
+        # 1. Remove from active jobs — always runs first
         self._jobs.pop(job_id, None)
-        self._live_states.pop(job_id, None)
-        # Clean up config-name → conductor-ID mapping entries for this job
-        self._config_to_conductor_id = {
-            k: v for k, v in self._config_to_conductor_id.items() if v != job_id
-        }
+
+        # Retain live state for paused, failed, and completed jobs so
+        # status queries show full sheet-level details without disk
+        # fallback.  The fire-and-forget registry checkpoint save may not
+        # have finished yet, so popping live state too early creates a
+        # window where get_job_status() returns stale data.
+        meta = self._job_meta.get(job_id)
+        if meta is None or meta.status not in (
+            DaemonJobStatus.PAUSED, DaemonJobStatus.FAILED,
+            DaemonJobStatus.COMPLETED,
+        ):
+            self._live_states.pop(job_id, None)
 
         # 2. Check for task exception and update metadata/registry
         try:

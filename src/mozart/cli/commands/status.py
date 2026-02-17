@@ -921,7 +921,7 @@ def _collect_recent_errors(
                 error_type=_infer_error_type(sheet.error_category),
                 error_code=sheet.error_category or "E999",
                 error_message=sheet.error_message,
-                attempt_number=sheet.attempt_count,
+                attempt_number=max(sheet.attempt_count, 1),
                 stdout_tail=sheet.stdout_tail,
                 stderr_tail=sheet.stderr_tail,
                 context={
@@ -996,10 +996,112 @@ def _infer_circuit_breaker_state(job: CheckpointState) -> CircuitBreakerInferenc
 
 
 # =============================================================================
+# Clear Jobs Command
+# =============================================================================
+
+
+def clear(
+    job: list[str] | None = typer.Option(
+        None,
+        "--job",
+        "-j",
+        help="Specific job ID(s) to clear. Can be repeated.",
+    ),
+    status_filter: list[str] | None = typer.Option(
+        None,
+        "--status",
+        "-s",
+        help="Status(es) to clear: failed, completed, cancelled. "
+        "Can be repeated. Defaults to all terminal statuses.",
+    ),
+    older_than: float | None = typer.Option(
+        None,
+        "--older-than",
+        help="Only clear jobs older than this many seconds.",
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Skip confirmation prompt.",
+    ),
+) -> None:
+    """Clear terminal jobs from the conductor registry.
+
+    Removes completed, failed, and/or cancelled jobs from the conductor's
+    tracking. Running and queued jobs are never cleared.
+
+    Examples:
+        mozart clear                                 # Clear all terminal jobs
+        mozart clear --job conductor-fix             # Clear a specific job
+        mozart clear --status failed                 # Clear only failed jobs
+        mozart clear --status failed -s cancelled    # Clear failed + cancelled
+        mozart clear --older-than 3600               # Terminal jobs older than 1h
+        mozart clear -y                              # Skip confirmation
+    """
+    asyncio.run(_clear_jobs(job, status_filter, older_than, yes))
+
+
+async def _clear_jobs(
+    job_ids: list[str] | None,
+    status_filter: list[str] | None,
+    older_than: float | None,
+    yes: bool,
+) -> None:
+    """Clear terminal jobs from the conductor registry."""
+    from mozart.daemon.detect import try_daemon_route
+
+    statuses = status_filter or ["completed", "failed", "cancelled"]
+    # Validate status values
+    valid = {"completed", "failed", "cancelled", "paused"}
+    invalid = set(statuses) - valid
+    if invalid:
+        console.print(
+            f"[red]Error:[/red] Invalid status(es): {', '.join(invalid)}. "
+            f"Valid values: {', '.join(sorted(valid))}"
+        )
+        raise typer.Exit(1)
+
+    # Confirm unless --yes
+    if not yes:
+        if job_ids:
+            target = ", ".join(job_ids)
+        else:
+            target = f"all [{', '.join(statuses)}] jobs"
+        age_note = f" older than {older_than}s" if older_than else ""
+        if not typer.confirm(f"Clear {target}{age_note}?"):
+            console.print("[dim]Cancelled.[/dim]")
+            raise typer.Exit(0)
+
+    params: dict[str, Any] = {"statuses": statuses}
+    if job_ids is not None:
+        params["job_ids"] = job_ids
+    if older_than is not None:
+        params["older_than_seconds"] = older_than
+
+    try:
+        routed, result = await try_daemon_route("job.clear", params)
+    except Exception as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1) from None
+
+    if not routed:
+        require_conductor(routed)
+        return
+
+    deleted = result.get("deleted", 0) if isinstance(result, dict) else 0
+    if deleted:
+        console.print(f"[green]Cleared {deleted} job(s).[/green]")
+    else:
+        console.print("[dim]No matching jobs to clear.[/dim]")
+
+
+# =============================================================================
 # Public API
 # =============================================================================
 
 __all__ = [
     "status",
     "list_jobs",
+    "clear",
 ]

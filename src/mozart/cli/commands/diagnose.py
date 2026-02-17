@@ -502,7 +502,7 @@ async def _errors_job(
                     error_type=infer_error_type(sheet_state.error_category),
                     error_code=sheet_state.error_category or "E999",
                     error_message=sheet_state.error_message,
-                    attempt_number=sheet_state.attempt_count,
+                    attempt_number=max(sheet_state.attempt_count, 1),
                     stdout_tail=sheet_state.stdout_tail,
                     stderr_tail=sheet_state.stderr_tail,
                     context={
@@ -940,7 +940,7 @@ def _build_diagnostic_report(
                 "error_type": infer_error_type(sheet.error_category),
                 "error_code": sheet.error_category or "E999",
                 "error_message": sheet.error_message,
-                "attempt_number": sheet.attempt_count,
+                "attempt_number": max(sheet.attempt_count, 1),
                 "context": {
                     "exit_code": sheet.exit_code,
                     "exit_signal": sheet.exit_signal,
