@@ -11,6 +11,7 @@ The CLI wiring wraps calls in try/except as a second layer.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -91,6 +92,26 @@ async def try_daemon_route(
     except (OSError, ConnectionError, TimeoutError) as e:
         _logger.debug("daemon_route_failed", method=method, error=str(e))
         return False, None
+    except json.JSONDecodeError as e:
+        # Malformed JSON from a running daemon — genuine protocol error.
+        # Logged at WARNING because the daemon IS running but
+        # misbehaving — operators should notice.
+        _logger.warning(
+            "daemon_route_protocol_error", method=method, error=str(e),
+        )
+        return False, None
+    except ValueError as e:
+        # Non-JSONDecodeError ValueErrors (e.g. Pydantic ValidationError)
+        # indicate real daemon-side bugs — log at WARNING so operators
+        # notice, and return the error details so callers can distinguish
+        # "daemon not running" from "daemon has a protocol bug".
+        _logger.warning(
+            "daemon_route_protocol_error",
+            method=method,
+            error=str(e),
+            error_type="ValueError",
+        )
+        return False, {"error": str(e), "error_type": type(e).__name__}
     except Exception as e:
         from mozart.daemon.exceptions import JobSubmissionError, ResourceExhaustedError
 

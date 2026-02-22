@@ -71,7 +71,7 @@ class _PublishingBackend:
             if asyncio.iscoroutine(result):
                 await result
         except Exception:
-            _logger.debug(
+            _logger.warning(
                 "state_publish_callback.error",
                 job_id=state.job_id,
                 exc_info=True,
@@ -141,6 +141,7 @@ class JobService:
         self,
         config: JobConfig,
         *,
+        conductor_job_id: str | None = None,
         fresh: bool = False,
         start_sheet: int | None = None,
         self_healing: bool = False,
@@ -170,7 +171,7 @@ class JobService:
             JobSubmissionError: If config is invalid or workspace setup fails.
             DaemonError: For unexpected daemon-level failures.
         """
-        job_id = config.name
+        job_id = conductor_job_id or config.name
 
         self._output.job_event(job_id, "starting", {
             "total_sheets": config.sheet.total_sheets,
@@ -248,6 +249,7 @@ class JobService:
         job_id: str,
         workspace: Path,
         *,
+        conductor_job_id: str | None = None,
         config: JobConfig | None = None,
         reload_config: bool = False,
         config_path: Path | None = None,
@@ -284,6 +286,10 @@ class JobService:
             job_id, workspace, for_resume=True,
         )
 
+        # Use conductor's ID for runtime identity (state publish, events).
+        # The disk lookup above still uses the original job_id (config.name).
+        runtime_id = conductor_job_id or found_state.job_id
+
         # Validate resumable state
         resumable_statuses = {JobStatus.PAUSED, JobStatus.FAILED, JobStatus.RUNNING}
         if found_state.status not in resumable_statuses:
@@ -312,7 +318,7 @@ class JobService:
         if resume_sheet > found_state.total_sheets:
             resume_sheet = found_state.total_sheets
 
-        self._output.job_event(job_id, "resuming", {
+        self._output.job_event(runtime_id, "resuming", {
             "resume_sheet": resume_sheet,
             "total_sheets": found_state.total_sheets,
             "previous_status": found_state.status.value,
@@ -321,6 +327,9 @@ class JobService:
         # Reset job status to RUNNING
         found_state.status = JobStatus.RUNNING
         found_state.error_message = None
+        # Update found_state.job_id to the conductor's runtime identity so
+        # all downstream publishes use the correct key.
+        found_state.job_id = runtime_id
         await found_backend.save(found_state)
 
         # Phase 3: Setup components and run
@@ -338,14 +347,14 @@ class JobService:
         try:
             runner = self._create_runner(
                 resolved_config, components, runner_backend,
-                job_id=job_id,
+                job_id=runtime_id,
                 self_healing=self_healing,
                 self_healing_auto_confirm=self_healing_auto_confirm,
             )
 
             return await self._execute_runner(
                 runner=runner,
-                job_id=job_id,
+                job_id=runtime_id,
                 job_name=resolved_config.name,
                 total_sheets=resolved_config.sheet.total_sheets,
                 notification_manager=notification_manager,

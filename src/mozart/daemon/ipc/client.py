@@ -187,11 +187,10 @@ class DaemonClient:
     # ------------------------------------------------------------------
 
     async def is_daemon_running(self) -> bool:
-        """Check if daemon is running by attempting a socket connection.
+        """Check if daemon is running by performing a lightweight health RPC.
 
-        Unlike ``call()``, this does not send a request — it only tests
-        whether the socket accepts connections, making it safe to call
-        even before the handler loop is fully ready.
+        Uses ``daemon.health`` instead of bare socket connect so stale
+        sockets left by crashed daemons are properly detected.
 
         Short-circuits immediately if the socket path doesn't exist,
         consistent with ``_connect()``'s guard.
@@ -199,16 +198,13 @@ class DaemonClient:
         if not self._socket_path.exists():
             return False
         try:
-            _reader, writer = await asyncio.wait_for(
-                asyncio.open_unix_connection(
-                    str(self._socket_path), limit=_MAX_MESSAGE_BYTES,
-                ),
-                timeout=2.0,
-            )
-            writer.close()
-            await writer.wait_closed()
+            await self.call("daemon.health")
             return True
         except (ConnectionRefusedError, FileNotFoundError, TimeoutError, OSError):
+            return False
+        except Exception:
+            # Any other failure (malformed response, protocol error, etc.)
+            # means the daemon is not functional.
             return False
 
     async def status(self) -> DaemonStatus:
