@@ -340,15 +340,20 @@ class ResourceMonitor:
                     )
 
     async def _enforce_memory_limit(self) -> None:
-        """Cancel the oldest running job when memory exceeds hard limit."""
-        await self._cancel_oldest_job("memory")
+        """Pause the oldest running job when memory exceeds hard limit."""
+        await self._shed_oldest_job("memory")
 
     async def _enforce_process_limit(self) -> None:
-        """Cancel the oldest running job when process count exceeds hard limit."""
-        await self._cancel_oldest_job("processes")
+        """Pause the oldest running job when process count exceeds hard limit."""
+        await self._shed_oldest_job("processes")
 
-    async def _cancel_oldest_job(self, reason: str) -> None:
-        """Cancel the oldest running job for the given resource reason."""
+    async def _shed_oldest_job(self, reason: str) -> None:
+        """Pause the oldest running job to reduce resource pressure.
+
+        Uses graceful pause (signal file) so the job finishes its current
+        sheet and saves state cleanly, remaining resumable.  Falls back to
+        cancel only if pausing fails (e.g. job is in a non-pausable state).
+        """
         if self._manager is None:
             return
         jobs = await self._manager.list_jobs()
@@ -357,12 +362,21 @@ class ResourceMonitor:
             oldest = min(running, key=lambda j: j.get("submitted_at", 0))
             job_id = oldest.get("job_id")
             if job_id:
-                _logger.warning(
-                    "monitor.cancelling_oldest_job",
-                    job_id=job_id,
-                    reason=reason,
-                )
-                await self._manager.cancel_job(job_id)
+                try:
+                    _logger.warning(
+                        "monitor.pausing_oldest_job",
+                        job_id=job_id,
+                        reason=reason,
+                    )
+                    await self._manager.pause_job(job_id)
+                except Exception:
+                    _logger.warning(
+                        "monitor.pause_failed_falling_back_to_cancel",
+                        job_id=job_id,
+                        reason=reason,
+                        exc_info=True,
+                    )
+                    await self._manager.cancel_job(job_id)
 
     # ─── System Probes (delegated to SystemProbe) ──────────────────────
 

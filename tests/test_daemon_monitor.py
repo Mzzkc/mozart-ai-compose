@@ -417,6 +417,82 @@ class TestMonitorNoManager:
         await monitor._enforce_memory_limit()
 
 
+# ─── Load Shedding (pause-first, cancel-fallback) ────────────────────
+
+
+class TestLoadShedding:
+    """Tests for _shed_oldest_job() pause-first behavior."""
+
+    @pytest.mark.asyncio
+    async def test_shed_pauses_oldest_job(
+        self, monitor: ResourceMonitor, mock_manager: MagicMock,
+    ):
+        """_shed_oldest_job calls pause_job on the oldest running job."""
+        mock_manager.list_jobs = AsyncMock(return_value=[
+            {"job_id": "old-job", "status": "running", "submitted_at": 100},
+            {"job_id": "new-job", "status": "running", "submitted_at": 200},
+        ])
+        mock_manager.pause_job = AsyncMock(return_value=True)
+
+        await monitor._shed_oldest_job("processes")
+
+        mock_manager.pause_job.assert_awaited_once_with("old-job")
+
+    @pytest.mark.asyncio
+    async def test_shed_falls_back_to_cancel_on_pause_failure(
+        self, monitor: ResourceMonitor, mock_manager: MagicMock,
+    ):
+        """When pause_job raises, _shed_oldest_job falls back to cancel_job."""
+        mock_manager.list_jobs = AsyncMock(return_value=[
+            {"job_id": "stuck-job", "status": "running", "submitted_at": 100},
+        ])
+        mock_manager.pause_job = AsyncMock(side_effect=Exception("not pausable"))
+        mock_manager.cancel_job = AsyncMock(return_value=True)
+
+        await monitor._shed_oldest_job("memory")
+
+        mock_manager.pause_job.assert_awaited_once_with("stuck-job")
+        mock_manager.cancel_job.assert_awaited_once_with("stuck-job")
+
+    @pytest.mark.asyncio
+    async def test_shed_noop_when_no_running_jobs(
+        self, monitor: ResourceMonitor, mock_manager: MagicMock,
+    ):
+        """_shed_oldest_job is a no-op when no jobs are running."""
+        mock_manager.list_jobs = AsyncMock(return_value=[
+            {"job_id": "done", "status": "completed", "submitted_at": 100},
+        ])
+
+        # Should not raise
+        await monitor._shed_oldest_job("processes")
+
+    @pytest.mark.asyncio
+    async def test_shed_noop_without_manager(self, resource_config: ResourceLimitConfig):
+        """_shed_oldest_job is a no-op when manager is None."""
+        monitor = ResourceMonitor(resource_config, manager=None)
+        # Should not raise
+        await monitor._shed_oldest_job("memory")
+
+    @pytest.mark.asyncio
+    async def test_enforce_memory_calls_shed(
+        self, monitor: ResourceMonitor, mock_manager: MagicMock,
+    ):
+        """_enforce_memory_limit delegates to _shed_oldest_job."""
+        mock_manager.list_jobs = AsyncMock(return_value=[])
+        await monitor._enforce_memory_limit()
+        # Verify list_jobs was called (shed was invoked)
+        mock_manager.list_jobs.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_enforce_process_calls_shed(
+        self, monitor: ResourceMonitor, mock_manager: MagicMock,
+    ):
+        """_enforce_process_limit delegates to _shed_oldest_job."""
+        mock_manager.list_jobs = AsyncMock(return_value=[])
+        await monitor._enforce_process_limit()
+        mock_manager.list_jobs.assert_awaited()
+
+
 # ─── Probe Failure Handling (D006) ───────────────────────────────────
 
 

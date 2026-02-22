@@ -37,6 +37,7 @@ from ..helpers import (
     _find_job_state_direct as require_job_state,
 )
 from ..helpers import (
+    await_early_failure,
     configure_global_logging,
     is_quiet,
     require_conductor,
@@ -160,7 +161,7 @@ async def _find_job_state(
     found_state, found_backend = await require_job_state(job_id, workspace)
 
     # Check if job is in a resumable state
-    resumable_statuses = {JobStatus.PAUSED, JobStatus.FAILED, JobStatus.RUNNING}
+    resumable_statuses = {JobStatus.PAUSED, JobStatus.FAILED, JobStatus.RUNNING, JobStatus.CANCELLED}
     if found_state.status not in resumable_statuses:
         if found_state.status == JobStatus.COMPLETED and not force:
             console.print(
@@ -326,6 +327,20 @@ async def _resume_job(
             status = result.get("status", "unknown")
             message = result.get("message", "")
             if status == "accepted":
+                # Poll briefly to catch early failures
+                job_id_result = result.get("job_id", job_id)
+                early = await await_early_failure(job_id_result)
+                early_status = early.get("status", "") if isinstance(early, dict) else ""
+                if early_status in ("failed", "cancelled"):
+                    err = early.get("error_message", "") if isinstance(early, dict) else ""
+                    console.print(f"[red]Job failed after resume:[/red] {job_id_result}")
+                    if err:
+                        console.print(f"  {err}")
+                    console.print(
+                        f"\n[dim]Full details:[/dim] mozart diagnose {job_id_result}"
+                    )
+                    raise typer.Exit(1)
+
                 console.print(
                     f"[green]Resume accepted for job '[cyan]{job_id}[/cyan]'.[/green]"
                 )

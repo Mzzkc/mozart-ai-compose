@@ -123,17 +123,18 @@ class TestSubmitJob:
         assert "shutting down" in (response.message or "").lower()
 
     @pytest.mark.asyncio
-    async def test_submit_generates_unique_ids(
+    async def test_submit_rejects_duplicate_active(
         self, manager: JobManager, sample_config_file: Path, tmp_path: Path,
     ):
-        """Each submission gets a unique job ID."""
+        """Submitting same config while active is rejected."""
         r1 = JobRequest(config_path=sample_config_file, workspace=tmp_path / "ws1")
         r2 = JobRequest(config_path=sample_config_file, workspace=tmp_path / "ws2")
 
         resp1 = await manager.submit_job(r1)
-        resp2 = await manager.submit_job(r2)
+        assert resp1.status == "accepted"
 
-        assert resp1.job_id != resp2.job_id
+        resp2 = await manager.submit_job(r2)
+        assert resp2.status == "rejected"
 
 
 # ─── Concurrency ──────────────────────────────────────────────────────
@@ -620,6 +621,56 @@ class TestResumeJob:
         except (asyncio.CancelledError, Exception):
             pass
 
+    @pytest.mark.asyncio
+    async def test_resume_cancelled_job_accepted(self, manager: JobManager):
+        """resume_job accepts CANCELLED jobs (e.g. from resource monitor)."""
+        manager._job_meta["job-cancelled"] = JobMeta(
+            job_id="job-cancelled",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/tmp/workspace"),
+            status=DaemonJobStatus.CANCELLED,
+        )
+        manager._service.resume_job = AsyncMock()
+
+        response = await manager.resume_job("job-cancelled")
+
+        assert response.status == "accepted"
+        assert response.job_id == "job-cancelled"
+        assert manager._job_meta["job-cancelled"].status == "queued"
+
+        # Cleanup
+        manager._jobs["job-cancelled"].cancel()
+        try:
+            await manager._jobs["job-cancelled"]
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    @pytest.mark.asyncio
+    async def test_resume_running_job_rejected(self, manager: JobManager):
+        """resume_job rejects RUNNING jobs."""
+        manager._job_meta["job-running"] = JobMeta(
+            job_id="job-running",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/tmp/workspace"),
+            status=DaemonJobStatus.RUNNING,
+        )
+
+        with pytest.raises(JobSubmissionError, match="running"):
+            await manager.resume_job("job-running")
+
+    @pytest.mark.asyncio
+    async def test_resume_completed_job_rejected(self, manager: JobManager):
+        """resume_job rejects COMPLETED jobs."""
+        manager._job_meta["job-done"] = JobMeta(
+            job_id="job-done",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/tmp/workspace"),
+            status=DaemonJobStatus.COMPLETED,
+        )
+
+        with pytest.raises(JobSubmissionError, match="completed"):
+            await manager.resume_job("job-done")
+
 
 # ─── Job History Pruning ──────────────────────────────────────────────
 
@@ -1040,7 +1091,7 @@ class TestSemanticAnalyzerIntegration:
         assert mgr._semantic_analyzer is not None
 
         # Count subscribers before shutdown
-        pre_shutdown_subs = mgr._event_bus.subscriber_count
+        _pre_shutdown_subs = mgr._event_bus.subscriber_count
 
         await mgr.shutdown(graceful=False)
 
@@ -1198,40 +1249,25 @@ class TestWaitForShutdown:
         await trigger_task
 
 
-# ─── Generate Job ID ─────────────────────────────────────────────────
+# ─── Job ID (no deduplication) ───────────────────────────────────────
 
 
-class TestGenerateJobId:
-    """Tests for JobManager._generate_job_id()."""
+class TestGetJobId:
+    """Tests for JobManager._get_job_id() — always returns the name as-is."""
 
-    @pytest.mark.asyncio
-    async def test_unique_name_returns_as_is(self, manager: JobManager):
-        """Base name is returned when no collision."""
-        job_id = await manager._generate_job_id("my-job")
-        assert job_id == "my-job"
+    def test_returns_name_as_is(self, manager: JobManager):
+        """Job name IS the job ID, no dedup suffixes."""
+        assert manager._get_job_id("my-job") == "my-job"
 
-    @pytest.mark.asyncio
-    async def test_collision_appends_suffix(self, manager: JobManager):
-        """Collision with existing job appends -2."""
+    def test_returns_name_even_with_existing(self, manager: JobManager):
+        """Same name is returned even if a terminal job exists."""
         manager._job_meta["my-job"] = JobMeta(
             job_id="my-job",
             config_path=Path("/tmp/test.yaml"),
             workspace=Path("/tmp/ws"),
+            status=DaemonJobStatus.COMPLETED,
         )
-        job_id = await manager._generate_job_id("my-job")
-        assert job_id == "my-job-2"
-
-    @pytest.mark.asyncio
-    async def test_multiple_collisions(self, manager: JobManager):
-        """Multiple collisions keep incrementing."""
-        for i, name in enumerate(["my-job", "my-job-2", "my-job-3"]):
-            manager._job_meta[name] = JobMeta(
-                job_id=name,
-                config_path=Path(f"/tmp/{i}.yaml"),
-                workspace=Path(f"/tmp/ws-{i}"),
-            )
-        job_id = await manager._generate_job_id("my-job")
-        assert job_id == "my-job-4"
+        assert manager._get_job_id("my-job") == "my-job"
 
 
 # ─── On Rate Limit ──────────────────────────────────────────────────
@@ -1325,26 +1361,44 @@ class TestStart:
             await mgr.shutdown(graceful=False)
 
 
-# ─── Duplicate Job Deduplication ─────────────────────────────────────
+# ─── Duplicate Job Rejection ─────────────────────────────────────────
 
 
-class TestDuplicateDeduplication:
-    """Tests for duplicate job detection."""
+class TestDuplicateJobRejection:
+    """Tests for duplicate job rejection (one name per job)."""
 
     @pytest.mark.asyncio
-    async def test_same_config_different_workspace(
+    async def test_rejects_when_active(
         self, manager: JobManager, sample_config_file: Path, tmp_path: Path,
     ):
-        """Same config file with different workspaces gets unique IDs."""
+        """Submitting same config while job is active is rejected."""
         r1 = JobRequest(config_path=sample_config_file, workspace=tmp_path / "ws1")
-        r2 = JobRequest(config_path=sample_config_file, workspace=tmp_path / "ws2")
-
         resp1 = await manager.submit_job(r1)
-        resp2 = await manager.submit_job(r2)
-
         assert resp1.status == "accepted"
+
+        r2 = JobRequest(config_path=sample_config_file, workspace=tmp_path / "ws2")
+        resp2 = await manager.submit_job(r2)
+        assert resp2.status == "rejected"
+        assert resp2.message is not None
+        assert "already" in resp2.message.lower()
+
+    @pytest.mark.asyncio
+    async def test_reuses_when_terminal(
+        self, manager: JobManager, sample_config_file: Path, tmp_path: Path,
+    ):
+        """Resubmitting after completion reuses the same job ID."""
+        r1 = JobRequest(config_path=sample_config_file, workspace=tmp_path / "ws1")
+        resp1 = await manager.submit_job(r1)
+        assert resp1.status == "accepted"
+
+        # Simulate job completion
+        meta = manager._job_meta[resp1.job_id]
+        meta.status = DaemonJobStatus.COMPLETED
+
+        r2 = JobRequest(config_path=sample_config_file, workspace=tmp_path / "ws2")
+        resp2 = await manager.submit_job(r2)
         assert resp2.status == "accepted"
-        assert resp1.job_id != resp2.job_id
+        assert resp2.job_id == resp1.job_id
 
 
 # ─── Run Managed Task Edge Cases ─────────────────────────────────────

@@ -108,6 +108,12 @@ class JobManager:
         # Keyed by conductor job_id (which may be deduplicated, e.g.
         # "issue-solver-2"), not the config's name field.
         self._live_states: dict[str, CheckpointState] = {}
+        # Explicit config.name → conductor_id mapping.  Populated in
+        # _run_job_task when the config is parsed (config.name becomes
+        # known).  Used by _on_state_published as a fallback when
+        # state.job_id doesn't match any _job_meta key — O(1) lookup
+        # instead of the fragile linear scan it replaces.
+        self._config_name_to_conductor_id: dict[str, str] = {}
         self._concurrency_semaphore = asyncio.Semaphore(
             config.max_concurrent_jobs,
         )
@@ -341,52 +347,6 @@ class JobManager:
             )
         return DaemonJobStatus.FAILED
 
-    def _resolve_conductor_key(self, state: CheckpointState) -> str:
-        """Determine the conductor key to store a published state under.
-
-        When ``state.job_id`` matches a conductor key directly, use it.
-        Otherwise, find the best-matching running job:
-
-        1. If ``state.job_id`` is in ``_job_meta``, try to use it — but if
-           another running job with no live state exists, and the existing
-           state would regress (clobber), route to the other job instead.
-        2. If ``state.job_id`` is NOT in ``_job_meta``, fall back to the
-           first running job without a live state entry.
-        """
-        sid = state.job_id
-
-        if sid in self._job_meta:
-            # Direct match — check for clobber from concurrent same-config
-            existing = self._live_states.get(sid)
-            if (
-                existing is not None
-                and state.last_completed_sheet < existing.last_completed_sheet
-            ):
-                # Regression — try to find another running job without
-                # live state that could own this publish.
-                for jid, meta in self._job_meta.items():
-                    if jid == sid:
-                        continue
-                    if meta.status not in (
-                        DaemonJobStatus.QUEUED, DaemonJobStatus.RUNNING,
-                    ):
-                        continue
-                    if jid not in self._live_states:
-                        return jid
-            return sid
-
-        # state.job_id doesn't match any conductor key — find a running
-        # job without live state.
-        for jid, meta in self._job_meta.items():
-            if meta.status in (DaemonJobStatus.QUEUED, DaemonJobStatus.RUNNING):
-                if jid not in self._live_states:
-                    return jid
-        # Last resort: first running job
-        for jid, meta in self._job_meta.items():
-            if meta.status in (DaemonJobStatus.QUEUED, DaemonJobStatus.RUNNING):
-                return jid
-        return sid
-
     def _get_job_id(self, base_name: str) -> str:
         """Return the job ID for a config name.
 
@@ -414,11 +374,71 @@ class JobManager:
                 message="System under high pressure — try again later",
             )
 
-        # Serialize the duplicate-check → register → insert window to
-        # prevent TOCTOU races between concurrent submissions.
-        async with self._id_gen_lock:
-            job_id = self._get_job_id(request.config_path.stem)
+        job_id = self._get_job_id(request.config_path.stem)
 
+        # Validate config exists and resolve workspace BEFORE acquiring the
+        # lock. Config parsing is expensive and doesn't need serialization
+        # — it's idempotent and job-independent.
+        if not request.config_path.exists():
+            return JobResponse(
+                job_id=job_id,
+                status="rejected",
+                message=f"Config file not found: {request.config_path}",
+            )
+
+        if request.workspace:
+            workspace = request.workspace
+        else:
+            from mozart.core.config import JobConfig
+
+            try:
+                config = JobConfig.from_yaml(request.config_path)
+                workspace = config.workspace
+            except (ValueError, OSError, KeyError, yaml.YAMLError) as exc:
+                _logger.error(
+                    "manager.config_parse_failed",
+                    job_id=job_id,
+                    config_path=str(request.config_path),
+                    exc_info=True,
+                )
+                return JobResponse(
+                    job_id=job_id,
+                    status="rejected",
+                    message=(
+                        f"Failed to parse config file: "
+                        f"{request.config_path} ({exc}). "
+                        "Cannot determine workspace. "
+                        "Fix the config or pass --workspace explicitly."
+                    ),
+                )
+
+        # Early workspace validation: reject jobs whose workspace parent
+        # doesn't exist or isn't writable, instead of failing deep in
+        # JobService.start_job(). Workspace itself may not exist yet —
+        # it gets created by JobService — but the parent must be valid.
+        ws_parent = workspace.parent
+        if not ws_parent.exists():
+            return JobResponse(
+                job_id=job_id,
+                status="rejected",
+                message=(
+                    f"Workspace parent directory does not exist: {ws_parent}. "
+                    "Create the parent directory or change the workspace path."
+                ),
+            )
+        if not os.access(ws_parent, os.W_OK):
+            return JobResponse(
+                job_id=job_id,
+                status="rejected",
+                message=(
+                    f"Workspace parent directory is not writable: {ws_parent}. "
+                    "Fix permissions or change the workspace path."
+                ),
+            )
+
+        # Serialize only the duplicate-check → register → insert window
+        # to prevent TOCTOU races between concurrent submissions.
+        async with self._id_gen_lock:
             # Reject if a job with this name is already active
             existing = self._job_meta.get(job_id)
             if existing and existing.status in (DaemonJobStatus.QUEUED, DaemonJobStatus.RUNNING):
@@ -428,61 +448,6 @@ class JobManager:
                     message=(
                         f"Job '{job_id}' is already {existing.status.value}. "
                         "Use 'mozart pause' or 'mozart cancel' first, or wait for it to finish."
-                    ),
-                )
-
-            # Validate config exists and resolve workspace from it
-            if not request.config_path.exists():
-                return JobResponse(
-                    job_id=job_id,
-                    status="rejected",
-                    message=f"Config file not found: {request.config_path}",
-                )
-
-            if request.workspace:
-                workspace = request.workspace
-            else:
-                from mozart.core.config import JobConfig
-                try:
-                    config = JobConfig.from_yaml(request.config_path)
-                    workspace = config.workspace
-                except (ValueError, OSError, KeyError, yaml.YAMLError) as exc:
-                    _logger.error(
-                        "manager.config_parse_failed",
-                        job_id=job_id,
-                        config_path=str(request.config_path),
-                        exc_info=True,
-                    )
-                    return JobResponse(
-                        job_id=job_id,
-                        status="rejected",
-                        message=(
-                            f"Failed to parse config file: {request.config_path} ({exc}). "
-                            "Cannot determine workspace. Fix the config or pass --workspace explicitly."
-                        ),
-                    )
-
-            # Early workspace validation: reject jobs whose workspace parent
-            # doesn't exist or isn't writable, instead of failing deep in
-            # JobService.start_job(). Workspace itself may not exist yet —
-            # it gets created by JobService — but the parent must be valid.
-            ws_parent = workspace.parent
-            if not ws_parent.exists():
-                return JobResponse(
-                    job_id=job_id,
-                    status="rejected",
-                    message=(
-                        f"Workspace parent directory does not exist: {ws_parent}. "
-                        "Create the parent directory or change the workspace path."
-                    ),
-                )
-            if not os.access(ws_parent, os.W_OK):
-                return JobResponse(
-                    job_id=job_id,
-                    status="rejected",
-                    message=(
-                        f"Workspace parent directory is not writable: {ws_parent}. "
-                        "Fix permissions or change the workspace path."
                     ),
                 )
 
@@ -583,10 +548,11 @@ class JobManager:
         meta = self._job_meta.get(job_id)
         if meta is None:
             raise JobSubmissionError(f"Job '{job_id}' not found")
-        if meta.status not in (DaemonJobStatus.PAUSED, DaemonJobStatus.FAILED):
+        _resumable = (DaemonJobStatus.PAUSED, DaemonJobStatus.FAILED, DaemonJobStatus.CANCELLED)
+        if meta.status not in _resumable:
             raise JobSubmissionError(
                 f"Job '{job_id}' is {meta.status.value}, "
-                "only PAUSED or FAILED jobs can be resumed"
+                "only PAUSED, FAILED, or CANCELLED jobs can be resumed"
             )
 
         # Cancel stale task to prevent detached execution
@@ -1031,19 +997,18 @@ class JobManager:
         to the registry so ``get_job_status()`` works after daemon restart
         without any disk/workspace fallback.
 
-        Reconciliation: The state's ``job_id`` comes from ``config.name``
-        (set by JobService), but the conductor tracks jobs by
-        ``config_path.stem`` (set by submit_job).  When these differ,
-        we must store the state under the conductor's key so
-        ``get_job_status()`` can find it.
+        Identity: ``state.job_id`` is normally set by JobService to the
+        conductor's ``conductor_job_id``.  When it doesn't match any
+        ``_job_meta`` key (e.g. legacy code paths), the explicit
+        ``_config_name_to_conductor_id`` mapping provides an O(1) fallback.
         """
-        conductor_key = self._resolve_conductor_key(state)
-
-        # Reconcile the state's job_id to match the conductor key so
-        # downstream consumers (status, registry) use a consistent ID.
+        conductor_key = state.job_id
+        if conductor_key not in self._job_meta:
+            conductor_key = self._config_name_to_conductor_id.get(
+                state.job_id, state.job_id,
+            )
         if conductor_key != state.job_id:
             state = state.model_copy(update={"job_id": conductor_key})
-
         self._live_states[conductor_key] = state
 
         # Persist to registry (fire-and-forget — never block the runner)
@@ -1279,6 +1244,12 @@ class JobManager:
                     update={"workspace": request.workspace},
                 )
 
+            # Populate explicit config.name → conductor_id mapping so
+            # _on_state_published can resolve the correct owner in O(1)
+            # when state.job_id == config.name != conductor job_id.
+            if config.name != job_id:
+                self._config_name_to_conductor_id[config.name] = job_id
+
             # Apply daemon-level default thinking method if the job
             # doesn't specify its own (GH#77).
             if (
@@ -1295,6 +1266,7 @@ class JobManager:
 
             summary = await self._checked_service.start_job(
                 config,
+                conductor_job_id=job_id,
                 fresh=request.fresh,
                 start_sheet=request.start_sheet,
                 self_healing=request.self_healing,
@@ -1310,7 +1282,10 @@ class JobManager:
         """Task coroutine that resumes a paused job."""
 
         async def _execute() -> DaemonJobStatus:
-            summary = await self._checked_service.resume_job(job_id, workspace)
+            summary = await self._checked_service.resume_job(
+                job_id, workspace,
+                conductor_job_id=job_id,
+            )
             return self._map_job_status(summary.final_status)
 
         await self._run_managed_task(
@@ -1329,6 +1304,14 @@ class JobManager:
         """
         # 1. Remove from active jobs — always runs first
         self._jobs.pop(job_id, None)
+
+        # Clean up config.name → conductor_id mapping entries for this job
+        stale_names = [
+            name for name, cid in self._config_name_to_conductor_id.items()
+            if cid == job_id
+        ]
+        for name in stale_names:
+            del self._config_name_to_conductor_id[name]
 
         # Retain live state for paused, failed, and completed jobs so
         # status queries show full sheet-level details without disk
@@ -1403,6 +1386,7 @@ class JobManager:
             pruned_ids = [jid for jid, _ in terminal[:excess]]
             for jid in pruned_ids:
                 self._job_meta.pop(jid, None)
+                self._live_states.pop(jid, None)
             _logger.debug(
                 "manager.job_history_pruned",
                 pruned_count=excess,
