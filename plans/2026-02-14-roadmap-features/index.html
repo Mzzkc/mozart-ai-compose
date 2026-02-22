@@ -1,0 +1,9353 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Orchestration tool for Claude AI sessions">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.2">
+    
+    
+      
+        <title>Mozart Roadmap Features — Discussion Tracker - Mozart AI Compose</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#mozart-roadmap-features-discussion-tracker" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Mozart AI Compose" class="md-header__button md-logo" aria-label="Mozart AI Compose" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Mozart AI Compose
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Mozart Roadmap Features — Discussion Tracker
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="amber"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="amber"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Mzzkc/mozart-ai-compose" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Mzzkc/mozart-ai-compose
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../getting-started/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Getting Started
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../daemon-guide/" class="md-tabs__link">
+          
+  
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../cli-reference/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/mozart/" class="md-tabs__link">
+          
+  
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../DISTRIBUTED-LEARNING-ARCHITECTURE/" class="md-tabs__link">
+          
+  
+  
+  Architecture
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Mozart AI Compose" class="md-nav__button md-logo" aria-label="Mozart AI Compose" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Mozart AI Compose
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Mzzkc/mozart-ai-compose" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Mzzkc/mozart-ai-compose
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../daemon-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Daemon Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../score-writing-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Score Writing Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../limitations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Limitations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../mozart-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Mozart Technical Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../MCP-INTEGRATION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1" id="__nav_5_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    mozart
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    mozart
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_2" id="__nav_5_1_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    backends
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_1_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    backends
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/backends/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/backends/anthropic_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    anthropic_api
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/backends/base/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    base
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/backends/claude_cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    claude_cli
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/backends/ollama/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ollama
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/backends/recursive_light/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    recursive_light
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_3" id="__nav_5_1_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    bridge
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_1_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    bridge
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/bridge/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/bridge/mcp_proxy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    mcp_proxy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_4" id="__nav_5_1_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    cli
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_1_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    cli
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_4_2" id="__nav_5_1_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    commands
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_5_1_4_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    commands
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/cli/commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/cli/commands/conductor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    conductor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/cli/commands/config_cmd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    config_cmd
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/cli/commands/dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/cli/commands/diagnose/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    diagnose
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/cli/commands/learning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/cli/commands/pause/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pause
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/cli/commands/recover/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    recover
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/cli/commands/resume/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    resume
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/cli/commands/run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    run
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/cli/commands/status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/cli/commands/validate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    validate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/cli/helpers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    helpers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/cli/output/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    output
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_5" id="__nav_5_1_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    core
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_1_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    core
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/core/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/core/checkpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    checkpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_5_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_5_3" id="__nav_5_1_5_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    config
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_5_1_5_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_5_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    config
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/core/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/core/config/backend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/core/config/execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/core/config/job/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    job
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/core/config/learning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/core/config/orchestration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    orchestration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/core/config/workspace/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    workspace
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/core/constants/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    constants
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_5_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_5_5" id="__nav_5_1_5_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    errors
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_5_1_5_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_5_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    errors
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/core/errors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/core/errors/classifier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    classifier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/core/errors/codes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    codes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/core/errors/models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/core/errors/parsers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    parsers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/core/errors/signals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    signals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/core/fan_out/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fan_out
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/core/logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_6" id="__nav_5_1_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    daemon
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_1_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    daemon
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/backpressure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    backpressure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/detect/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    detect
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/event_bus/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    event_bus
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/exceptions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    exceptions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/health/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    health
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_6_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_6_8" id="__nav_5_1_6_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ipc
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_5_1_6_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_6_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    ipc
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/ipc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/ipc/client/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    client
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/ipc/errors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    errors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/ipc/handler/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    handler
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/ipc/protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/ipc/server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/job_service/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    job_service
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/learning_hub/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    learning_hub
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/manager/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    manager
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/monitor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    monitor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/observer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    observer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/output/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    output
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/pgroup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pgroup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/process/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    process
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/rate_coordinator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    rate_coordinator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/registry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/scheduler/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    scheduler
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/semantic_analyzer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    semantic_analyzer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/snapshot/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    snapshot
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/system_probe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    system_probe
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/task_utils/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    task_utils
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/daemon/types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    types
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_7" id="__nav_5_1_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    dashboard
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_1_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    dashboard
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/dashboard/app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_7_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_7_3" id="__nav_5_1_7_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    auth
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_5_1_7_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_7_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    auth
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/dashboard/auth/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/dashboard/auth/rate_limit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    rate_limit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/dashboard/auth/security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_7_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_7_4" id="__nav_5_1_7_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    routes
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_5_1_7_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_7_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    routes
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/dashboard/routes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/dashboard/routes/artifacts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    artifacts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/dashboard/routes/jobs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    jobs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/dashboard/routes/pages/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pages
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/dashboard/routes/scores/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    scores
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/dashboard/routes/stream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    stream
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_7_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_7_5" id="__nav_5_1_7_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    services
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_5_1_7_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_7_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    services
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/dashboard/services/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/dashboard/services/job_control/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    job_control
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/dashboard/services/sse_manager/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sse_manager
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_8" id="__nav_5_1_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    execution
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_1_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    execution
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/circuit_breaker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    circuit_breaker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/dag/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    dag
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/escalation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    escalation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/grounding/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    grounding
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/hooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    hooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/parallel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    parallel
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/preflight/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    preflight
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/progress/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    progress
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/retry_strategy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    retry_strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_8_11" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_8_11" id="__nav_5_1_8_11_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    runner
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_5_1_8_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_8_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    runner
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/runner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/runner/base/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    base
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/runner/context/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    context
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/runner/cost/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    cost
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/runner/isolation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    isolation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/runner/lifecycle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    lifecycle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/runner/models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/runner/patterns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    patterns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/runner/recovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    recovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/runner/sheet/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sheet
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/synthesizer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    synthesizer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_8_14" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_8_14" id="__nav_5_1_8_14_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    validation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_5_1_8_14_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_8_14">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    validation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/validation/engine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    engine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/validation/history/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    history
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/validation/models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/execution/validation/semantic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    semantic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_9" id="__nav_5_1_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    healing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_1_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    healing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/healing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/healing/context/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    context
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/healing/coordinator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    coordinator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/healing/diagnosis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    diagnosis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/healing/registry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_9_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_9_6" id="__nav_5_1_9_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    remedies
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_5_1_9_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_9_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    remedies
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/healing/remedies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/healing/remedies/base/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    base
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/healing/remedies/diagnostics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    diagnostics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/healing/remedies/jinja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    jinja
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/healing/remedies/paths/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    paths
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_10" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_10" id="__nav_5_1_10_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    isolation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_1_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    isolation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/isolation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/isolation/worktree/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    worktree
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_11" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_11" id="__nav_5_1_11_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    learning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_1_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    learning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/learning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/learning/aggregator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    aggregator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/learning/error_hooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    error_hooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/learning/global_store/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    global_store
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/learning/judgment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    judgment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/learning/migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/learning/outcomes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    outcomes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/learning/patterns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    patterns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_11_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_11_9" id="__nav_5_1_11_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    store
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_5_1_11_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_11_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    store
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/learning/store/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/learning/store/base/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    base
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/learning/store/budget/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    budget
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/learning/store/drift/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    drift
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/learning/store/escalation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    escalation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/learning/store/executions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    executions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/learning/store/models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/learning/store/patterns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    patterns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/learning/store/patterns_broadcast/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    patterns_broadcast
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/learning/store/patterns_crud/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    patterns_crud
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/learning/store/patterns_quarantine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    patterns_quarantine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/learning/store/patterns_query/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    patterns_query
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/learning/store/patterns_success_factors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    patterns_success_factors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/learning/store/patterns_trust/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    patterns_trust
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/learning/store/rate_limits/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    rate_limits
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/learning/weighter/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    weighter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_12" id="__nav_5_1_12_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    mcp
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_1_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    mcp
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/mcp/resources/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    resources
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/mcp/server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/mcp/tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_13" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_13" id="__nav_5_1_13_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    notifications
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_1_13_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_13">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    notifications
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/notifications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/notifications/base/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    base
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/notifications/desktop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    desktop
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/notifications/factory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    factory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/notifications/slack/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    slack
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/notifications/webhook/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    webhook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_14" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_14" id="__nav_5_1_14_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    prompts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_1_14_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_14">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    prompts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/prompts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/prompts/templating/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    templating
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_15" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_15" id="__nav_5_1_15_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    review
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_1_15_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_15">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    review
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/review/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/review/scorer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    scorer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_16" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_16" id="__nav_5_1_16_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    state
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_1_16_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_16">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    state
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/state/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/state/base/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    base
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/state/json_backend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    json_backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/state/memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/state/sqlite_backend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sqlite_backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_17" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_17" id="__nav_5_1_17_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    utils
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_1_17_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_17">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    utils
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/utils/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/utils/time/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    time
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_18" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_18" id="__nav_5_1_18_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    validation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_1_18_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_18">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    validation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/validation/base/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    base
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_18_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_18_3" id="__nav_5_1_18_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    checks
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_5_1_18_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_18_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    checks
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/validation/checks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/validation/checks/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/validation/checks/jinja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    jinja
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/validation/checks/paths/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    paths
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/validation/reporter/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    reporter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/validation/runner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    runner
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_1_19" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_1_19" id="__nav_5_1_19_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    workspace
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_1_19_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_1_19">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    workspace
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/workspace/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/mozart/workspace/lifecycle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    lifecycle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Architecture
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../DISTRIBUTED-LEARNING-ARCHITECTURE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Distributed Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../TOKEN-COMPRESSION-STRATEGIES.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Token Compression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../OPUS-CONVERGENCE-ANALYSIS.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Opus Convergence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#github-issue-index" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitHub Issue Index
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#feature-details" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature Details
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Feature Details">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#feature-23-fix-chained-jobs-route-through-daemon-74-implemented" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 23: Fix Chained Jobs Route Through Daemon (#74) — IMPLEMENTED
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-1-live-job-progress-observability-49" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 1: Live Job Progress + Observability (#49)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-2-6b-combined-daemon-first-architecture-50" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 2 + 6b (Combined): Daemon-First Architecture (#50)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-3-conductor-configuration-clamav-style-51" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 3: Conductor Configuration (ClamAV-style) (#51)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-4-distributed-network-execution-52" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 4: Distributed Network Execution (#52)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-5-context-injection-prelude-cadenza-53" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 5: Context Injection — Prelude &amp; Cadenza (#53)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-6a-musical-theming-refresh-54" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 6a: Musical Theming Refresh (#54)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-7-semantic-learning-via-llm-55" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 7: Semantic Learning via LLM (#55)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-8-working-dashboard-vibe-coding-studio-56" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 8: Working Dashboard — Vibe Coding Studio (#56)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-9-score-generation-concert-library-composer-57" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 9: Score Generation — Concert Library &amp; Composer (#57)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-10-workspaces-just-work-58" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 10: Workspaces Just Work (#58)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-11-fix-pause-feature-59" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 11: Fix Pause Feature (#59)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-12-webhook-integration-refresh-60" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 12: Webhook Integration Refresh (#60)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-13-validation-system-update-61" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 13: Validation System Update (#61)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-14-comprehensive-pain-point-tracking-flight-checks-62" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 14: Comprehensive Pain-Point Tracking — Flight Checks (#62)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-15-self-healing-improvements-63" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 15: Self-Healing Improvements (#63)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-16-human-in-the-loop-improvements-64" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 16: Human-in-the-Loop Improvements (#64)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-17-more-instruments-backends-65" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 17: More Instruments (Backends) (#65)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-18-toolmcpskill-management-instrument-toolkit-66" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 18: Tool/MCP/Skill Management — Instrument Toolkit (#66)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-19-conductor-scheduler-auto-fix-67" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 19: Conductor Scheduler + Auto-Fix (#67)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-20-marketing-presence-68" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 20: Marketing &amp; Presence (#68)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-21-repo-cleanliness-69" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 21: Repo Cleanliness (#69)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-22-email-management-concert-70" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature 22: Email Management Concert (#70)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dependency-graph" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dependency Graph
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#suggested-priority-tiers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Suggested Priority Tiers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Suggested Priority Tiers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tier-0-critical-bugs-do-immediately" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tier 0: Critical Bugs (do immediately)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tier-1-foundation-do-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tier 1: Foundation (do first)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tier-2-intelligence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tier 2: Intelligence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tier-3-reliability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tier 3: Reliability
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tier-4-platform" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tier 4: Platform
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tier-5-experience" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tier 5: Experience
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tier-6-horizon" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tier 6: Horizon
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cross-cutting-themes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cross-Cutting Themes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#next-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Next Steps
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="mozart-roadmap-features-discussion-tracker">Mozart Roadmap Features — Discussion Tracker<a class="headerlink" href="#mozart-roadmap-features-discussion-tracker" title="Permanent link">&para;</a></h1>
+<p><strong>Started:</strong> 2026-02-14
+<strong>Status:</strong> Active — 23 features tracked as GitHub issues #49–#70, #74</p>
+<hr />
+<h2 id="github-issue-index">GitHub Issue Index<a class="headerlink" href="#github-issue-index" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Issue</th>
+<th>Feature</th>
+<th>Tier</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>23</strong></td>
+<td><strong><a href="https://github.com/Mzzkc/mozart-ai-compose/issues/74">#74</a></strong></td>
+<td><strong>Fix: Chained jobs route through daemon</strong></td>
+<td><strong>DONE</strong></td>
+</tr>
+<tr>
+<td>1</td>
+<td><a href="https://github.com/Mzzkc/mozart-ai-compose/issues/49">#49</a></td>
+<td>Live Job Progress + Observability</td>
+<td>tier-1-foundation</td>
+</tr>
+<tr>
+<td>2+6b</td>
+<td><a href="https://github.com/Mzzkc/mozart-ai-compose/issues/50">#50</a></td>
+<td>Conductor-First Architecture</td>
+<td>tier-1-foundation</td>
+</tr>
+<tr>
+<td>3</td>
+<td><a href="https://github.com/Mzzkc/mozart-ai-compose/issues/51">#51</a></td>
+<td>Conductor Configuration (ClamAV-style)</td>
+<td>tier-1-foundation</td>
+</tr>
+<tr>
+<td>4</td>
+<td><a href="https://github.com/Mzzkc/mozart-ai-compose/issues/52">#52</a></td>
+<td>Distributed Network Execution</td>
+<td>tier-6-horizon</td>
+</tr>
+<tr>
+<td>5</td>
+<td><a href="https://github.com/Mzzkc/mozart-ai-compose/issues/53">#53</a></td>
+<td>Context Injection — Prelude &amp; Cadenza</td>
+<td>tier-2-intelligence</td>
+</tr>
+<tr>
+<td>6a</td>
+<td><a href="https://github.com/Mzzkc/mozart-ai-compose/issues/54">#54</a></td>
+<td>Musical Theming Refresh</td>
+<td>tier-1-foundation</td>
+</tr>
+<tr>
+<td>7</td>
+<td><a href="https://github.com/Mzzkc/mozart-ai-compose/issues/55">#55</a></td>
+<td>Semantic Learning via LLM</td>
+<td>tier-2-intelligence</td>
+</tr>
+<tr>
+<td>8</td>
+<td><a href="https://github.com/Mzzkc/mozart-ai-compose/issues/56">#56</a></td>
+<td>Dashboard — Vibe Coding Studio</td>
+<td>tier-5-experience</td>
+</tr>
+<tr>
+<td>9</td>
+<td><a href="https://github.com/Mzzkc/mozart-ai-compose/issues/57">#57</a></td>
+<td>Score Generation — Concert Library</td>
+<td>tier-4-platform</td>
+</tr>
+<tr>
+<td>10</td>
+<td><a href="https://github.com/Mzzkc/mozart-ai-compose/issues/58">#58</a></td>
+<td>Workspaces Just Work</td>
+<td>tier-3-reliability</td>
+</tr>
+<tr>
+<td>11</td>
+<td><a href="https://github.com/Mzzkc/mozart-ai-compose/issues/59">#59</a></td>
+<td>Fix Pause/Resume</td>
+<td>tier-3-reliability</td>
+</tr>
+<tr>
+<td>12</td>
+<td><a href="https://github.com/Mzzkc/mozart-ai-compose/issues/60">#60</a></td>
+<td>Webhook Integration Refresh</td>
+<td>tier-3-reliability</td>
+</tr>
+<tr>
+<td>13</td>
+<td><a href="https://github.com/Mzzkc/mozart-ai-compose/issues/61">#61</a></td>
+<td>Validation System Update</td>
+<td>tier-3-reliability</td>
+</tr>
+<tr>
+<td>14</td>
+<td><a href="https://github.com/Mzzkc/mozart-ai-compose/issues/62">#62</a></td>
+<td>Flight Checks</td>
+<td>tier-2-intelligence</td>
+</tr>
+<tr>
+<td>15</td>
+<td><a href="https://github.com/Mzzkc/mozart-ai-compose/issues/63">#63</a></td>
+<td>Self-Healing Improvements</td>
+<td>tier-2-intelligence</td>
+</tr>
+<tr>
+<td>16</td>
+<td><a href="https://github.com/Mzzkc/mozart-ai-compose/issues/64">#64</a></td>
+<td>Human-in-the-Loop</td>
+<td>tier-5-experience</td>
+</tr>
+<tr>
+<td>17</td>
+<td><a href="https://github.com/Mzzkc/mozart-ai-compose/issues/65">#65</a></td>
+<td>More Instruments</td>
+<td>tier-4-platform</td>
+</tr>
+<tr>
+<td>18</td>
+<td><a href="https://github.com/Mzzkc/mozart-ai-compose/issues/66">#66</a></td>
+<td>Tool/MCP/Skill Management</td>
+<td>tier-4-platform</td>
+</tr>
+<tr>
+<td>19</td>
+<td><a href="https://github.com/Mzzkc/mozart-ai-compose/issues/67">#67</a></td>
+<td>Conductor Scheduler</td>
+<td>tier-4-platform</td>
+</tr>
+<tr>
+<td>20</td>
+<td><a href="https://github.com/Mzzkc/mozart-ai-compose/issues/68">#68</a></td>
+<td>Marketing &amp; Presence</td>
+<td>tier-5-experience</td>
+</tr>
+<tr>
+<td>21</td>
+<td><a href="https://github.com/Mzzkc/mozart-ai-compose/issues/69">#69</a></td>
+<td>Repo Cleanliness</td>
+<td>tier-5-experience</td>
+</tr>
+<tr>
+<td>22</td>
+<td><a href="https://github.com/Mzzkc/mozart-ai-compose/issues/70">#70</a></td>
+<td>Email Management Concert</td>
+<td>tier-6-horizon</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="feature-details">Feature Details<a class="headerlink" href="#feature-details" title="Permanent link">&para;</a></h2>
+<h3 id="feature-23-fix-chained-jobs-route-through-daemon-74-implemented">Feature 23: Fix Chained Jobs Route Through Daemon (#74) — IMPLEMENTED<a class="headerlink" href="#feature-23-fix-chained-jobs-route-through-daemon-74-implemented" title="Permanent link">&para;</a></h3>
+<p><strong>Summary:</strong> <code>on_success</code> hooks with <code>detached: true</code> now route through daemon IPC when available, with fail-open fallback to <code>subprocess.Popen</code>.</p>
+<p><strong>Implementation:</strong> Added <code>_try_daemon_submit()</code> in <code>hooks.py</code> with lazy imports to avoid circular deps. <code>chain_depth</code> propagated via <code>JobRequest</code> and <code>JobMeta</code> for concert context tracking. 10 new tests + 3 updated existing tests.</p>
+<p><strong>Files modified:</strong> <code>src/mozart/execution/hooks.py</code>, <code>src/mozart/daemon/types.py</code>, <code>src/mozart/daemon/manager.py</code>, <code>tests/test_hooks.py</code></p>
+<p><strong>Dependencies:</strong> None.</p>
+<p><strong>Status:</strong> Complete — chained jobs are now tracked, rate-coordinated, and visible in <code>mozart list</code> when a daemon is running.</p>
+<hr />
+<h3 id="feature-1-live-job-progress-observability-49">Feature 1: Live Job Progress + Observability (#49)<a class="headerlink" href="#feature-1-live-job-progress-observability-49" title="Permanent link">&para;</a></h3>
+<p><strong>Summary:</strong> The conductor should have full, independent knowledge of every running job — not just self-reported status from the runner.</p>
+<p><strong>Components:</strong></p>
+<ol>
+<li>
+<p><strong>Runner callbacks</strong> — Synchronous, critical-path events (sheet.started, sheet.completed, sheet.retrying, job.cost_update) reported to the conductor via a callback protocol on RunnerContext.</p>
+</li>
+<li>
+<p><strong>Job Observer</strong> — Async co-task per job using inotify (via <code>watchfiles</code>) + <code>psutil</code>. Produces a timestamped timeline of filesystem changes, process tree, and resource usage. Unprivileged, no root required. Inspired by ClamAV on-access scanning philosophy — independent verification of what the agent is actually doing.</p>
+</li>
+<li>
+<p><strong>Completion snapshots</strong> — Conductor-owned durable storage at <code>~/.mozart/snapshots/{job_id}/{timestamp}/</code> capturing:</p>
+</li>
+<li>Final checkpoint state + config</li>
+<li>Observer timeline (timestamped JSONL)</li>
+<li>Process tree and resource usage</li>
+<li>Filesystem changes log</li>
+<li>Git context (branch, commits, diffs)</li>
+<li>Job logs</li>
+<li>
+<p>TTL-managed (configurable, default 7 days)</p>
+</li>
+<li>
+<p><strong>Registry expansion</strong> — <code>JobRecord</code> gains <code>current_sheet</code>, <code>total_sheets</code>, <code>last_event_at</code>, <code>log_path</code>, <code>snapshot_path</code> columns for fast status queries without hitting the workspace.</p>
+</li>
+<li>
+<p><strong>Event bus</strong> — Async pub/sub for downstream consumers (dashboard, learning, webhooks). Events carry snapshot references, not live workspace paths. Decouples analysis from workspace lifecycle.</p>
+</li>
+</ol>
+<p><strong>Key design principle:</strong> Conductor has independent knowledge via observer, not just runner self-reporting. Snapshots solve the lifecycle race where workspaces get cleaned up before analysis completes.</p>
+<p><strong>Architectural decisions:</strong>
+- Observer depth: inotify + psutil (unprivileged, works everywhere)
+- Snapshot-based approach for post-mortem analysis (learning system reads snapshots, never touches live workspaces)
+- Completion barrier: conductor gates cleanup/chaining behind snapshot capture</p>
+<hr />
+<h3 id="feature-2-6b-combined-daemon-first-architecture-50">Feature 2 + 6b (Combined): Daemon-First Architecture (#50)<a class="headerlink" href="#feature-2-6b-combined-daemon-first-architecture-50" title="Permanent link">&para;</a></h3>
+<p><strong>Summary:</strong> Mozart works like Docker. The conductor is always running. All CLI commands are thin clients that talk to the conductor via IPC. No daemon, no status. Period.</p>
+<p><strong>Key changes:</strong></p>
+<ol>
+<li>
+<p><strong><code>mozartd</code> goes away</strong> — replaced by <code>mozart start</code> / <code>mozart stop</code> / <code>mozart restart</code>. One binary, one CLI.</p>
+</li>
+<li>
+<p><strong>All job commands route through conductor:</strong></p>
+</li>
+<li><code>mozart status job-id</code> → asks conductor (conductor knows workspace, has live data from Feature 1)</li>
+<li><code>mozart resume job-id</code> → asks conductor to resume (no workspace needed)</li>
+<li><code>mozart pause job-id</code> → asks conductor to pause</li>
+<li><code>mozart diagnose job-id</code> → asks conductor, uses snapshot data</li>
+<li>
+<p><code>mozart errors job-id</code> → asks conductor</p>
+</li>
+<li>
+<p><strong><code>--workspace</code> becomes hidden optional override</strong>, not a requirement. 99% of use cases never need it.</p>
+</li>
+<li>
+<p><strong>Commands that work without conductor:</strong> <code>mozart start</code>, <code>mozart validate</code>, <code>mozart version</code>. Everything else requires the conductor.</p>
+</li>
+<li>
+<p><strong>No orphan job support</strong> — if the conductor doesn't know about a job, it doesn't exist. Clean cut, no dual-path complexity.</p>
+</li>
+<li>
+<p><strong>Removed code paths:</strong></p>
+</li>
+<li><code>find_job_state()</code> / <code>require_job_state()</code> filesystem scanning in CLI helpers</li>
+<li>Dual-mode logic where some commands talk to daemon, others don't</li>
+<li><code>mozartd</code> binary entry point</li>
+</ol>
+<p><strong>Architectural decisions:</strong>
+- Daemon required for all operations (like Docker requires dockerd)
+- No fallback to filesystem scanning
+- No scan-and-adopt for pre-daemon jobs</p>
+<hr />
+<h3 id="feature-3-conductor-configuration-clamav-style-51">Feature 3: Conductor Configuration (ClamAV-style) (#51)<a class="headerlink" href="#feature-3-conductor-configuration-clamav-style-51" title="Permanent link">&para;</a></h3>
+<p><strong>Summary:</strong> Single YAML config file at <code>~/.mozart/conductor.yaml</code> controls all conductor behavior. Live reload via SIGHUP. Config dump via <code>mozart config</code>.</p>
+<p><strong>Components:</strong></p>
+<ol>
+<li>
+<p><strong>Config file loading</strong> — <code>DaemonConfig</code> (already a Pydantic model) loads from <code>~/.mozart/conductor.yaml</code> on <code>mozart start</code>. Override with <code>mozart start --config /path/to/file.yaml</code>.</p>
+</li>
+<li>
+<p><strong>SIGHUP reload</strong> — Conductor re-reads config without restart. Applies changes to concurrency limits, resource limits, log level, observer settings, scheduler settings. Does NOT change socket path (requires restart).</p>
+</li>
+<li>
+<p><strong>Config dump command</strong> — <code>mozart config</code> shows active configuration with source annotations (default vs file vs override). Similar to ClamAV's <code>clamconf</code>.</p>
+</li>
+<li>
+<p><strong>Config validation</strong> — <code>mozart config --check</code> validates a config file without starting the conductor.</p>
+</li>
+<li>
+<p><strong>Expandable structure</strong> — Config model grows as features land:</p>
+</li>
+<li><code>observer:</code> section for Feature 1 (snapshot TTL, path, enabled)</li>
+<li><code>learning:</code> section for Feature 7 (semantic learning backend/model)</li>
+<li><code>scheduler:</code> section for Feature 19 (maintenance scores)</li>
+<li><code>network:</code> section for Feature 4 (distributed execution, future)</li>
+</ol>
+<p><strong>Key pattern:</strong> One file, one truth. No environment variables or CLI flags that silently override config. The file is version-controllable and deployable.</p>
+<p><strong>Implementation notes:</strong>
+- Pydantic model already exists and is well-structured
+- Gap is: YAML file loading, SIGHUP handler, config dump CLI command
+- Relatively straightforward plumbing work</p>
+<hr />
+<h3 id="feature-4-distributed-network-execution-52">Feature 4: Distributed Network Execution (#52)<a class="headerlink" href="#feature-4-distributed-network-execution-52" title="Permanent link">&para;</a></h3>
+<p><strong>Summary:</strong> Single conductor scheduling jobs across multiple networked workers. Elevates Mozart from a local tool to distributed infrastructure.</p>
+<p><strong>Vision:</strong> Conductor becomes a control plane, workers become execution nodes. Sheets are scheduled across available hardware based on worker capabilities and load. Connection-hardened with mTLS.</p>
+<p><strong>Phased approach (details deferred — north-star vision):</strong>
+- Phase 1: TCP transport option alongside Unix socket (same JSON-RPC protocol)
+- Phase 2: Worker registration and capability advertisement
+- Phase 3: Network-aware scheduling (latency, load, backend availability)
+- Phase 4: Connection hardening (mTLS, certificate management, worker identity)
+- Phase 5: Workspace distribution strategies (deferred — multiple options: ship workspace, shared storage, git-based)</p>
+<p><strong>Hard problems (to be designed later):</strong>
+- Workspace distribution across machines
+- Partial failure / worker death mid-sheet
+- State consistency with multiple workers modifying codebases
+- Secret management (API keys on workers)
+- Statefulness of AI workloads (unlike containers, can't trivially reschedule)</p>
+<p><strong>Scope note:</strong> This explicitly reverses the "Distributed execution — Single-machine tool" non-goal from the project brief. The brief needs updating to reflect the evolved vision.</p>
+<p><strong>Priority:</strong> Long-term / north-star. Requires Features 1, 2+6b, 3 as prerequisites.</p>
+<h3 id="feature-5-context-injection-prelude-cadenza-53">Feature 5: Context Injection — Prelude &amp; Cadenza (#53)<a class="headerlink" href="#feature-5-context-injection-prelude-cadenza-53" title="Permanent link">&para;</a></h3>
+<p><strong>Summary:</strong> First-class mechanism for injecting file content into sheets. Mozart handles injection before the agent sees the prompt. Separated into context, skills, and tools.</p>
+<p><strong>YAML structure:</strong>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">sheets</span><span class="p">:</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">total</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">prelude</span><span class="p">:</span><span class="w">                      </span><span class="c1"># Shared context for ALL sheets</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">docs/architecture.md</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">      </span><span class="nt">as</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">context</span><span class="w">               </span><span class="c1"># Background knowledge</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.claude/skills/debugging.md</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">      </span><span class="nt">as</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">skill</span><span class="w">                 </span><span class="c1"># Capability/methodology</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tools/lint.sh</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">      </span><span class="nt">as</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tool</span><span class="w">                  </span><span class="c1"># Executable action</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">  </span><span class="nt">cadenzas</span><span class="p">:</span><span class="w">                     </span><span class="c1"># Per-sheet specific injections</span>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">    </span><span class="nt">3</span><span class="p">:</span>
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">workspace</span><span class="nv"> </span><span class="s">}}/02-output.md&quot;</span>
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">        </span><span class="nt">as</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">context</span><span class="w">             </span><span class="c1"># Sheet 3 gets sheet 2&#39;s output</span>
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">    </span><span class="nt">5</span><span class="p">:</span>
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tests/results.json</span>
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="w">        </span><span class="nt">as</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">context</span>
+</span></code></pre></div></p>
+<p><strong>Naming:</strong>
+- <strong>Prelude</strong> — shared context/tools/skills for all sheets (introductory material)
+- <strong>Cadenza</strong> — per-sheet specific injections (the soloist's moment)</p>
+<p><strong>Injection categories:</strong>
+- <code>as: context</code> — background knowledge, injected as informational context
+- <code>as: skill</code> — capability/methodology, injected as instructions
+- <code>as: tool</code> — executable action, injected as available tooling</p>
+<p><strong>Key design points:</strong>
+- Mozart reads files and injects content before prompt construction
+- Different categories go to different sections of the prompt (not one blob)
+- Jinja templating works in file paths (e.g., <code>{{ workspace }}/output.md</code>)
+- Files are read at sheet execution time (not config parse time) so dynamic outputs from earlier sheets are available</p>
+<h3 id="feature-6a-musical-theming-refresh-54">Feature 6a: Musical Theming Refresh (#54)<a class="headerlink" href="#feature-6a-musical-theming-refresh-54" title="Permanent link">&para;</a></h3>
+<p><strong>Summary:</strong> Comprehensive rename to musical terminology across the entire codebase. Not cosmetic — this establishes Mozart's identity and makes the system more intuitive.</p>
+<p><strong>Renames:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Current</th>
+<th>New</th>
+<th>Rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Daemon / mozartd</td>
+<td><strong>Conductor</strong></td>
+<td>The person coordinating all musicians</td>
+</tr>
+<tr>
+<td>Fan-out</td>
+<td><strong>Harmony</strong></td>
+<td>Multiple voices playing simultaneously</td>
+</tr>
+<tr>
+<td>Job</td>
+<td><strong>Concert</strong></td>
+<td>A complete performance</td>
+</tr>
+<tr>
+<td>Backend</td>
+<td><strong>Instrument</strong></td>
+<td>The tool the performer plays (Claude CLI, API, Qwen)</td>
+</tr>
+<tr>
+<td>Runner</td>
+<td><strong>Performer</strong></td>
+<td>The entity that plays the music</td>
+</tr>
+<tr>
+<td>Workspace</td>
+<td><strong>Stage</strong></td>
+<td>The physical space where the performance happens</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Keep as-is:</strong>
+- <strong>Score</strong> — already musical
+- <strong>Sheet</strong> — already musical
+- <strong>Validation</strong> — universally understood, no musical equivalent needed
+- <strong>Prelude / Cadenza</strong> — new terms from Feature 5</p>
+<p><strong>Per-sheet instrument selection:</strong>
+Each sheet can declare its own instrument (backend/model), making sheets truly agentic:
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">sheets</span><span class="p">:</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">total</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">instrument</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-cli</span><span class="w">          </span><span class="c1"># Default instrument for all sheets</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="nt">cadenzas</span><span class="p">:</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">3</span><span class="p">:</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">      </span><span class="nt">instrument</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-api</span><span class="w">       </span><span class="c1"># Sheet 3 uses API instead of CLI</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">      </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-sonnet-4-5</span><span class="w">     </span><span class="c1"># Different model for this sheet</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="nt">5</span><span class="p">:</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">      </span><span class="nt">instrument</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">qwen-code</span><span class="w">        </span><span class="c1"># Sheet 5 uses a different backend entirely</span>
+</span></code></pre></div></p>
+<p>This enables heterogeneous scores where different sheets use different models/backends based on their task requirements (e.g., cheap model for boilerplate, expensive model for architecture decisions).</p>
+<p><strong>Blast radius:</strong> Large mechanical refactor — package names, CLI commands, config keys, log names, docs, tests. Should be done as a dedicated effort, not mixed with feature work.</p>
+<p><strong>Decision:</strong> Do LAST — after all other features land. Avoids merge conflicts during active development. One big sweep at the end.</p>
+<h3 id="feature-7-semantic-learning-via-llm-55">Feature 7: Semantic Learning via LLM (#55)<a class="headerlink" href="#feature-7-semantic-learning-via-llm-55" title="Permanent link">&para;</a></h3>
+<p><strong>Summary:</strong> Conductor runs LLM-based analysis after each sheet completes, producing semantic insights that are stored in the learning database and injected into future sheets. Learning is always on — it's conductor infrastructure, not job configuration.</p>
+<p><strong>How it works:</strong>
+1. Sheet completes (success or failure)
+2. Conductor captures snapshot (Feature 1)
+3. Conductor asynchronously runs a learning prompt against the snapshot using a configurable model (default: Claude Sonnet)
+4. Learning prompt examines: prompt given, agent output, validation results, observer timeline, historical patterns
+5. Structured JSON output stored in learning DB as semantic insights
+6. Future sheets receive relevant insights as injected context (existing pattern injection infrastructure)</p>
+<p><strong>Learning prompt asks:</strong>
+- Why did this succeed/fail?
+- What should future similar sheets know?
+- What prompt improvements would help?
+- Were there anti-patterns (wasted time, wrong approach, unnecessary retries)?
+- (Feature 14 integration): How effective was the prompt? Where did the agent deviate and why?</p>
+<p><strong>Key changes from current learning system:</strong>
+1. <strong>Learning defaults to ON</strong> — conductor is running → learning is running. No opt-in.
+2. <strong>Semantic analysis via LLM</strong> replaces statistical pattern detection as primary mechanism
+3. <strong>Conductor-scoped</strong> — learns from ALL jobs, not just opt-in ones
+4. <strong>Snapshot-based</strong> — reads from snapshots (Feature 1), doesn't touch live workspaces
+5. <strong>Existing infrastructure preserved</strong> — SQLite store, pattern CRUD, prompt injection all still work. Semantic learning produces better patterns.</p>
+<p><strong>Configuration (in conductor.yaml, Feature 3):</strong>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">learning</span><span class="p">:</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">semantic</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-sonnet-4-5</span><span class="w">     </span><span class="c1"># Configurable, default Sonnet</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span><span class="nt">analyze_on</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">success</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">failure</span><span class="p p-Indicator">]</span><span class="w">  </span><span class="c1"># When to run analysis</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span><span class="nt">max_concurrent_analyses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">    </span><span class="c1"># Don&#39;t overwhelm with analysis tasks</span>
+</span></code></pre></div></p>
+<p><strong>Current system diagnosis:</strong> Learning infrastructure is comprehensive (15 SQLite tables, pattern detection, pattern injection, CRUD operations) but functionally dormant — <code>learning.enabled</code> defaults to <code>false</code>, every flag is opt-in, CLI mode doesn't auto-create global store. All infrastructure is preserved; semantic learning just makes it actually produce useful results.</p>
+<p><strong>Dependencies:</strong> Feature 1 (snapshots), Feature 3 (conductor config)</p>
+<h3 id="feature-8-working-dashboard-vibe-coding-studio-56">Feature 8: Working Dashboard — Vibe Coding Studio (#56)<a class="headerlink" href="#feature-8-working-dashboard-vibe-coding-studio-56" title="Permanent link">&para;</a></h3>
+<p><strong>Summary:</strong> The dashboard becomes Mozart's primary interface — a full workbench for taking ideas from concept to concert to production. Not just monitoring. A recording studio mixing board.</p>
+<p><strong>Three tiers:</strong></p>
+<ol>
+<li>
+<p><strong>Monitoring</strong> — Real-time view of running concerts, sheet progress, observer timelines (Feature 1), cost tracking, learning insights (Feature 7). WebSocket-driven live updates from conductor event bus.</p>
+</li>
+<li>
+<p><strong>Control</strong> — Pause/resume/cancel concerts, submit new scores, modify running concerts, inject context mid-execution (cadenza injection from Feature 5). All operations route through conductor (Feature 2).</p>
+</li>
+<li>
+<p><strong>Workbench</strong> — The differentiator:</p>
+</li>
+<li><strong>Idea → Concert:</strong> User describes what they want, Mozart generates a score (Feature 9). Visual score editor with sheet dependencies, instrument selection per sheet, prelude/cadenza configuration.</li>
+<li><strong>Direct agent interaction:</strong> Chat with a running sheet. See what the agent is doing (observer timeline), inject guidance, approve/reject outputs.</li>
+<li><strong>Human-in-the-loop interventions:</strong> Conductor notifies dashboard when confidence is low or decisions need human input (Feature 16). Dashboard provides structured decision UI, not just "approve/reject."</li>
+<li><strong>Learning review:</strong> See what the semantic learning system (Feature 7) has learned. Approve/reject/edit learned patterns before they're injected into future sheets.</li>
+<li><strong>Vibe coding studio:</strong> Take an idea, watch it go from concept to working code across multiple sheets, intervene when needed, approve the final result. Like pair programming with an orchestra.</li>
+</ol>
+<p><strong>Tech decisions needed (separate design session):</strong>
+- Frontend framework (React? Svelte? Plain HTML+WebSocket?)
+- State management for real-time updates
+- Authentication (single-user? multi-user? team?)
+- How agent interaction works technically (WebSocket relay to backend process?)</p>
+<p><strong>Dependencies:</strong> Features 1, 2+6b, 5, 7, 9, 16 — this is the capstone that integrates everything.</p>
+<p><strong>Priority:</strong> High in importance (it's the face of Mozart), but depends on many other features landing first. Current stalled implementation should be scrapped and rebuilt around the conductor architecture.</p>
+<h3 id="feature-9-score-generation-concert-library-composer-57">Feature 9: Score Generation — Concert Library &amp; Composer (#57)<a class="headerlink" href="#feature-9-score-generation-concert-library-composer-57" title="Permanent link">&para;</a></h3>
+<p><strong>Summary:</strong> A library of proven concert designs that take ideas from concept to production. Template-based pipeline with LLM refinement and human-in-the-loop for key decisions.</p>
+<p><strong>Pipeline:</strong> Plan/brainstorm → Template selection → LLM refinement → Human review → Execute → Quality passes</p>
+<p><strong>Concert library (built-in, proven designs):</strong></p>
+<table>
+<thead>
+<tr>
+<th>Concert Type</th>
+<th>Purpose</th>
+<th>Pattern</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Feature Build</strong></td>
+<td>Idea → working feature</td>
+<td>Plan → Research → Implement → Test → Wire-up → Quality</td>
+</tr>
+<tr>
+<td><strong>Quality Continuous</strong></td>
+<td>Ongoing code quality</td>
+<td>Analyze → Fix → Verify → Repeat (self-chaining)</td>
+</tr>
+<tr>
+<td><strong>Evolution</strong></td>
+<td>Self-improvement cycle</td>
+<td>Discover → Evaluate → Implement → Validate → Score update</td>
+</tr>
+<tr>
+<td><strong>Wire-up &amp; Finish</strong></td>
+<td>Complete partial work</td>
+<td>Diagnose gaps → Plan fixes → Implement → Integration test</td>
+</tr>
+<tr>
+<td><strong>Evaluation</strong></td>
+<td>Assess system/code quality</td>
+<td>Criteria → Analysis → Report → Recommendations</td>
+</tr>
+</tbody>
+</table>
+<p><strong>How <code>mozart compose</code> works:</strong>
+1. User: <code>mozart compose "add authentication to the API"</code>
+2. Mozart selects appropriate concert template (Feature Build)
+3. LLM refines the template: fills in specific sheets, prompts, instruments, dependencies
+4. Dashboard (Feature 8) presents the plan for human review
+5. Human approves/modifies (default: decisions require approval)
+6. Concert executes with quality passes at the end</p>
+<p><strong>Key design points:</strong>
+- Concert templates are proven patterns, not generated from scratch
+- LLM fills in details but doesn't design the pipeline structure
+- Human-in-the-loop by default for architectural/design decisions
+- Quality runs (wire-up, fix, quality continuous) are standardized concert types
+- Templates ship with Mozart and can be community-contributed</p>
+<h3 id="feature-10-workspaces-just-work-58">Feature 10: Workspaces Just Work (#58)<a class="headerlink" href="#feature-10-workspaces-just-work-58" title="Permanent link">&para;</a></h3>
+<p><strong>Summary:</strong> Fix all workspace caveats so users never lose work or fail to start jobs due to workspace issues. The conductor (Feature 2) owns workspace lifecycle.</p>
+<p><strong>Known issues to fix:</strong>
+- Workspace path mismatches causing failed jobs
+- Worktree isolation gotchas (cleanup, branch conflicts)
+- Losing work when workspaces are reused or archived
+- Fresh runs not properly handling existing workspace state
+- Workspace creation failures not caught early enough</p>
+<p><strong>Key design point:</strong> With the conductor owning all job metadata (Feature 2), workspace management becomes a conductor responsibility. The conductor creates, tracks, and manages workspaces. Users never need to think about them. <code>--workspace</code> becomes a hidden expert option.</p>
+<p><strong>Connects to:</strong> Feature 2 (conductor knows all workspaces), Feature 1 (snapshots preserve workspace state before cleanup)</p>
+<h3 id="feature-11-fix-pause-feature-59">Feature 11: Fix Pause Feature (#59)<a class="headerlink" href="#feature-11-fix-pause-feature-59" title="Permanent link">&para;</a></h3>
+<p><strong>Summary:</strong> Pause/resume is janky and incomplete. The score that was supposed to implement it never finished. Needs a complete rework.</p>
+<p><strong>Known issues:</strong>
+- Signal file mechanism is fragile (polling-based, no acknowledgment)
+- Pause doesn't properly preserve mid-sheet state
+- Resume after pause may replay work
+- No integration with conductor (Feature 2) — pause should be a conductor operation
+- Dashboard (Feature 8) can't initiate or monitor pause operations</p>
+<p><strong>Fix approach:</strong> With the conductor architecture (Feature 2), pause becomes a conductor command. Conductor signals the runner, runner acknowledges, conductor records the pause point. Resume goes through conductor which knows exactly where the concert stopped.</p>
+<h3 id="feature-12-webhook-integration-refresh-60">Feature 12: Webhook Integration Refresh (#60)<a class="headerlink" href="#feature-12-webhook-integration-refresh-60" title="Permanent link">&para;</a></h3>
+<p><strong>Summary:</strong> All webhook integrations (notifications) are untested and likely outdated. Full refresh needed.</p>
+<p><strong>Scope:</strong>
+- Audit all notification backends (Desktop, Slack, Webhook) for functionality
+- Write integration tests for each backend
+- Update to current API versions (Slack API, etc.)
+- Connect to conductor event bus (Feature 1) — webhooks subscribe to events
+- Add new integrations: Discord, Microsoft Teams, email (connects to Feature 22)</p>
+<p><strong>Priority:</strong> Medium — important for adoption but not blocking core architecture work.</p>
+<h3 id="feature-13-validation-system-update-61">Feature 13: Validation System Update (#61)<a class="headerlink" href="#feature-13-validation-system-update-61" title="Permanent link">&para;</a></h3>
+<p><strong>Summary:</strong> Update <code>mozart validate</code> to catch common issues and gotchas discovered through development experience. Currently checks are too basic.</p>
+<p><strong>New checks to add (based on development pain points):</strong>
+- V-NEW: Detect sheets with prompts that are too short (likely incomplete)
+- V-NEW: Warn on missing prelude/cadenza files (Feature 5)
+- V-NEW: Check instrument (backend) availability before execution
+- V-NEW: Validate workspace permissions and disk space
+- V-NEW: Check for circular dependencies in sheet DAGs
+- V-NEW: Warn on scores that will likely hit rate limits (too many sheets, too fast)
+- V-NEW: Detect reuse of workspace paths across concurrent scores
+- Fix V101 false positive for <code>stage</code> variable (existing issue #46)</p>
+<p><strong>Connects to:</strong> Feature 3 (conductor validates config on startup), Feature 9 (generated scores validated before execution)</p>
+<h3 id="feature-14-comprehensive-pain-point-tracking-flight-checks-62">Feature 14: Comprehensive Pain-Point Tracking — Flight Checks (#62)<a class="headerlink" href="#feature-14-comprehensive-pain-point-tracking-flight-checks-62" title="Permanent link">&para;</a></h3>
+<p><strong>Summary:</strong> Conductor runs pre-flight, in-flight, and post-flight checks against every concert. Sheets report on their experience. Conductor runs its own semantic audit. Comprehensive data collection to improve score writing and agent comfort.</p>
+<p><strong>Three layers:</strong></p>
+<ol>
+<li><strong>Pre-flight (conductor, before execution):</strong></li>
+<li>Validate score structure, instruments, prelude/cadenza files</li>
+<li>Check system resources, API availability</li>
+<li>
+<p>Run semantic check: "Does this score look well-designed?" (LLM-based)</p>
+</li>
+<li>
+<p><strong>In-flight (observer + sheet reporting):</strong></p>
+</li>
+<li>Observer (Feature 1) tracks behavior in real-time</li>
+<li>Sheets instructed to report issues: deviations from prompt, confusion, ambiguity, tool failures</li>
+<li>Conductor monitors for patterns: repeated retries, escalating errors, idle time</li>
+<li>
+<p>Semantic mid-flight check on long-running concerts: "Is this concert on track?"</p>
+</li>
+<li>
+<p><strong>Post-flight (conductor, after completion):</strong></p>
+</li>
+<li>Semantic learning analysis (Feature 7) — but broader</li>
+<li>Sheet experience reports: "Was the prompt clear? Where did you deviate? Why?"</li>
+<li>Conductor audit: "Were the pre-flight predictions accurate? What surprised us?"</li>
+<li>Pain-point database: track recurring issues across concerts for systematic improvement</li>
+</ol>
+<p><strong>Configurable in conductor.yaml (Feature 3):</strong>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">flight_checks</span><span class="p">:</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">pre_flight</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">in_flight</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span><span class="nt">post_flight</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">  </span><span class="nt">sheet_experience_reports</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">  </span><span class="c1"># Ask agents to report on their experience</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span><span class="nt">semantic_audits</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">           </span><span class="c1"># LLM-based audit checks</span>
+</span></code></pre></div></p>
+<p><strong>Connects to:</strong> Feature 7 (semantic learning uses flight check data), Feature 1 (observer provides in-flight data)</p>
+<h3 id="feature-15-self-healing-improvements-63">Feature 15: Self-Healing Improvements (#63)<a class="headerlink" href="#feature-15-self-healing-improvements-63" title="Permanent link">&para;</a></h3>
+<p><strong>Summary:</strong> Self-healing currently only triggers when retries are exhausted. This doesn't support continuous operation. Self-healing should be proactive, not reactive.</p>
+<p><strong>Current limitation:</strong> <code>--self-healing</code> flag exists but only activates after retry budget is consumed. By that point, the sheet has already failed multiple times and the concert may be in a bad state.</p>
+<p><strong>Improvements:</strong>
+1. <strong>Proactive healing</strong> — Don't wait for retry exhaustion. If the observer (Feature 1) detects patterns consistent with a known fixable issue, heal before the sheet fails.
+2. <strong>Semantic diagnosis</strong> — Use LLM (like Feature 7) to analyze the error in context, not just pattern-match against known remedies.
+3. <strong>Continuous operation mode</strong> — Concert continues running even after a sheet fails. Conductor marks the sheet as needing intervention, schedules a healing attempt, moves on to independent sheets.
+4. <strong>Always on</strong> — Self-healing is a conductor capability, not a per-job flag. Conductor decides when to intervene based on learning (Feature 7) and flight checks (Feature 14).
+5. <strong>Healing repertoire expansion</strong> — Current remedies are limited (create dirs, fix paths). Add semantic remedies: rewrite prompt, change instrument, modify validation criteria.</p>
+<p><strong>Key shift:</strong> Self-healing moves from "last resort" to "continuous immune system." The conductor is always watching and always ready to intervene.</p>
+<h3 id="feature-16-human-in-the-loop-improvements-64">Feature 16: Human-in-the-Loop Improvements (#64)<a class="headerlink" href="#feature-16-human-in-the-loop-improvements-64" title="Permanent link">&para;</a></h3>
+<p><strong>Summary:</strong> HITL is untested, doesn't work with conductor, barely triggers, loses context when it does, and provides no meaningful way for humans to make decisions.</p>
+<p><strong>Problems to fix:</strong>
+1. <strong>Confidence evaluation is sketchy</strong> — The trigger criteria for "ask a human" are poorly calibrated
+2. <strong>No conductor integration</strong> — HITL events don't route through the conductor
+3. <strong>Context loss</strong> — When HITL triggers, the human doesn't see what the agent saw or why help is needed
+4. <strong>No decision UI</strong> — How does the human actually make a decision? Currently it's... unclear
+5. <strong>No scheduler integration</strong> — While waiting for human input, the conductor should continue other work</p>
+<p><strong>Redesign (ties to Feature 8 — Dashboard):</strong>
+1. <strong>Dashboard notifications</strong> — Conductor sends HITL requests to the dashboard (Feature 8). Desktop notification links to the dashboard page.
+2. <strong>Decision context</strong> — Dashboard shows: what the agent was doing, what it tried, why it's stuck, observer timeline, relevant learning insights, and specific options for the human.
+3. <strong>Freeform input with structured tools</strong> — Human can type whatever they want (guidance, corrections, new instructions). Structured action buttons available for common operations (approve, skip, abort, retry with different instrument) but these are shortcuts, not constraints.
+4. <strong>Timeout with fallback</strong> — If human doesn't respond within configurable timeout, conductor can auto-select a default (conservative) option.
+5. <strong>Concert continues</strong> — While waiting for human input on sheet 5, the conductor runs independent sheets 6, 7, 8. The concert doesn't stop.
+6. <strong>Decision learning</strong> — Human decisions feed into semantic learning (Feature 7). Over time, conductor learns which decisions humans make and can auto-resolve similar situations.</p>
+<p><strong>Dependencies:</strong> Feature 2 (conductor routing), Feature 8 (dashboard for decision UI), Feature 7 (learning from decisions)</p>
+<h3 id="feature-17-more-instruments-backends-65">Feature 17: More Instruments (Backends) (#65)<a class="headerlink" href="#feature-17-more-instruments-backends-65" title="Permanent link">&para;</a></h3>
+<p><strong>Summary:</strong> Expand beyond Claude CLI / Anthropic API to support Qwen Code, Moltbook/OpenClaw, and other tools as instruments.</p>
+<p><strong>Instruments to support:</strong>
+- <strong>Claude CLI</strong> (existing) — subprocess-based
+- <strong>Anthropic API</strong> (existing) — direct API calls
+- <strong>Qwen Code</strong> — Alibaba's coding agent
+- <strong>Moltbook/OpenClaw</strong> — open-source agent framework
+- <strong>Ollama</strong> — local model execution
+- <strong>Generic CLI</strong> — any CLI tool that accepts prompts (enables non-AI use cases)</p>
+<p><strong>Connects to:</strong> Feature 18 (tool/MCP management — instruments need tools), Feature 6a (per-sheet instrument selection)</p>
+<p><strong>Prerequisite:</strong> Feature 18 must be solved first — instruments need access to tools/MCPs regardless of which model they use.</p>
+<h3 id="feature-18-toolmcpskill-management-instrument-toolkit-66">Feature 18: Tool/MCP/Skill Management — Instrument Toolkit (#66)<a class="headerlink" href="#feature-18-toolmcpskill-management-instrument-toolkit-66" title="Permanent link">&para;</a></h3>
+<p><strong>Summary:</strong> Mozart manages its own tool ecosystem. When using non-Claude backends, Mozart provides the MCP servers, tools, and skills that Claude Code normally provides. This is THE blocker for general use.</p>
+<p><strong>The problem:</strong> Claude Code provides MCP tool access (filesystem, git, web search, etc.) but when Mozart uses a different instrument (Ollama, Qwen, etc.), those tools disappear. The agent becomes blind.</p>
+<p><strong>Solution architecture:</strong>
+1. <strong>Mozart Tool Proxy</strong> — Mozart runs its own MCP server bridge that any instrument can connect to. Provides filesystem, git, web search, and custom tools regardless of backend.
+2. <strong>Skill injection</strong> — Mozart's prelude/cadenza system (Feature 5) injects skills directly into prompts. Works with any backend that can read text.
+3. <strong>Tool description injection</strong> — For instruments that don't support MCP natively, Mozart injects tool descriptions and handles tool-call parsing from the agent's output.
+4. <strong>Conductor-managed MCP</strong> — The conductor starts/stops MCP servers as needed. Instruments request tools, conductor provides them.</p>
+<p><strong>Priority:</strong> High — this unblocks Features 4 (distributed), 17 (more instruments), and general adoption.</p>
+<h3 id="feature-19-conductor-scheduler-auto-fix-67">Feature 19: Conductor Scheduler + Auto-Fix (#67)<a class="headerlink" href="#feature-19-conductor-scheduler-auto-fix-67" title="Permanent link">&para;</a></h3>
+<p><strong>Summary:</strong> The conductor runs a built-in scheduler for maintenance concerts. Also includes a specialized "fix failed concerts" capability.</p>
+<p><strong>Scheduled concert types:</strong>
+- <strong>Documentation maintenance</strong> — Regular score that checks and updates docs
+- <strong>Repo cleaning</strong> (connects to Feature 21) — Archive outdated files
+- <strong>Quality continuous</strong> — Ongoing quality checks
+- <strong>Learning maintenance</strong> — Prune/consolidate learned patterns
+- <strong>Health checks</strong> — Verify all instruments, tools, MCP servers are operational</p>
+<p><strong>Auto-fix capability:</strong>
+- When a concert fails, conductor can spawn a specialized "diagnostic" sheet
+- Diagnostic sheet uses semantic analysis (Feature 7) to understand what went wrong
+- If fixable, generates a fix and restarts the concert
+- If not fixable, files a pain point (Feature 14) and notifies human (Feature 16)</p>
+<p><strong>Configuration (conductor.yaml, Feature 3):</strong>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">scheduler</span><span class="p">:</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span><span class="nt">concerts</span><span class="p">:</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">score</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">quality-continuous.yaml</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">      </span><span class="nt">cron</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;0</span><span class="nv"> </span><span class="s">*/6</span><span class="nv"> </span><span class="s">*</span><span class="nv"> </span><span class="s">*</span><span class="nv"> </span><span class="s">*&quot;</span><span class="w">         </span><span class="c1"># Every 6 hours</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">score</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">repo-cleaning.yaml</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">      </span><span class="nt">cron</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;0</span><span class="nv"> </span><span class="s">0</span><span class="nv"> </span><span class="s">*</span><span class="nv"> </span><span class="s">*</span><span class="nv"> </span><span class="s">0&quot;</span><span class="w">           </span><span class="c1"># Weekly</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">  </span><span class="nt">auto_fix</span><span class="p">:</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">    </span><span class="nt">max_fix_attempts</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+</span></code></pre></div></p>
+<h3 id="feature-20-marketing-presence-68">Feature 20: Marketing &amp; Presence (#68)<a class="headerlink" href="#feature-20-marketing-presence-68" title="Permanent link">&para;</a></h3>
+<p><strong>Summary:</strong> Mozart needs visibility. GitHub presence, community engagement, spreading into Moltbook/OpenClaw ecosystems.</p>
+<p><strong>Actions:</strong>
+- Professional README with demo GIFs/videos
+- GitHub Topics, description, social preview image
+- Published to PyPI for easy <code>pip install mozart-ai-compose</code>
+- Integration guides for Moltbook/OpenClaw
+- Example concert library (Feature 9) as showcase
+- Blog posts / articles about the conductor architecture
+- Mozart-powered "investigate marketing approaches" concert (meta: Mozart markets itself)</p>
+<p><strong>Dependencies:</strong> Feature 21 (clean repo first), Feature 9 (example concerts as showcase)</p>
+<h3 id="feature-21-repo-cleanliness-69">Feature 21: Repo Cleanliness (#69)<a class="headerlink" href="#feature-21-repo-cleanliness-69" title="Permanent link">&para;</a></h3>
+<p><strong>Summary:</strong> Regular automated cleaning. Archive (never delete) outdated files. Professional GitHub presentation.</p>
+<p><strong>Approach:</strong>
+- Scheduled conductor concert (Feature 19) that:
+  - Identifies outdated files (old configs, stale docs, unused code)
+  - Moves them to <code>archive/</code> directory (never deletes)
+  - Updates <code>.gitignore</code> to exclude archives from tracking
+  - Verifies tests still pass after cleanup
+  - Creates a PR for human review
+- One-time manual cleanup of current repo state</p>
+<p><strong>Current state:</strong> Repo has outdated docs, stale examples, memory-bank files that may need consolidation. Multiple workspace artifacts that shouldn't be tracked.</p>
+<h3 id="feature-22-email-management-concert-70">Feature 22: Email Management Concert (#70)<a class="headerlink" href="#feature-22-email-management-concert-70" title="Permanent link">&para;</a></h3>
+<p><strong>Summary:</strong> A concert that "solves" email management. Safer than OpenClaw's approach. Win out of the box for new users.</p>
+<p><strong>Scope:</strong>
+- Concert template in the library (Feature 9)
+- Email triage: categorize, prioritize, draft responses
+- Safety-first: read-only by default, sends require explicit human approval (Feature 16)
+- Integration via IMAP/SMTP (standard protocols, no vendor lock-in)
+- Learning (Feature 7): learns user's email patterns over time</p>
+<p><strong>Differentiation from OpenClaw:</strong> Mozart's conductor architecture provides better safety guarantees — human-in-the-loop by default, semantic auditing (Feature 14), and the conductor can pause/cancel if something looks wrong.</p>
+<p><strong>Priority:</strong> Low — "nice to have" showcase feature. Good for marketing (Feature 20) but not core to Mozart's mission.</p>
+<hr />
+<h2 id="dependency-graph">Dependency Graph<a class="headerlink" href="#dependency-graph" title="Permanent link">&para;</a></h2>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>★ Feature 23 (Daemon Chain Fix) ── TOP PRIORITY, no dependencies, do FIRST
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>    ↓
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>Feature 6a (Musical Theming) ─── should happen FIRST or LAST (rename everything)
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>                                  ↓
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>Feature 2+6b (Conductor-First) ── foundational architecture
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>    ↓                    ↓
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>Feature 1 (Observability) Feature 3 (Config)
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>    ↓         ↓              ↓
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>Feature 7 (Semantic Learning)  Feature 19 (Scheduler)
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>    ↓              ↓
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>Feature 14 (Flight Checks)  Feature 15 (Self-Healing)
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>    ↓
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>Feature 5 (Prelude/Cadenza)
+</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a>    ↓
+</span><span id="__span-5-15"><a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a>Feature 9 (Concert Library)
+</span><span id="__span-5-16"><a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a>    ↓
+</span><span id="__span-5-17"><a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a>Feature 8 (Dashboard) ← integrates nearly everything
+</span><span id="__span-5-18"><a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a>    ↓
+</span><span id="__span-5-19"><a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a>Feature 16 (HITL) ← requires dashboard for meaningful UX
+</span><span id="__span-5-20"><a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a>
+</span><span id="__span-5-21"><a id="__codelineno-5-21" name="__codelineno-5-21" href="#__codelineno-5-21"></a>Feature 18 (Tool/MCP) ── independent, unblocks:
+</span><span id="__span-5-22"><a id="__codelineno-5-22" name="__codelineno-5-22" href="#__codelineno-5-22"></a>    ↓
+</span><span id="__span-5-23"><a id="__codelineno-5-23" name="__codelineno-5-23" href="#__codelineno-5-23"></a>Feature 17 (More Instruments)
+</span><span id="__span-5-24"><a id="__codelineno-5-24" name="__codelineno-5-24" href="#__codelineno-5-24"></a>    ↓
+</span><span id="__span-5-25"><a id="__codelineno-5-25" name="__codelineno-5-25" href="#__codelineno-5-25"></a>Feature 4 (Distributed) ── long-term, needs 1, 2+6b, 3, 17, 18
+</span><span id="__span-5-26"><a id="__codelineno-5-26" name="__codelineno-5-26" href="#__codelineno-5-26"></a>
+</span><span id="__span-5-27"><a id="__codelineno-5-27" name="__codelineno-5-27" href="#__codelineno-5-27"></a>Feature 10 (Workspaces) ── can be done anytime, benefits from 2+6b
+</span><span id="__span-5-28"><a id="__codelineno-5-28" name="__codelineno-5-28" href="#__codelineno-5-28"></a>Feature 11 (Pause Fix) ── can be done anytime, benefits from 2+6b
+</span><span id="__span-5-29"><a id="__codelineno-5-29" name="__codelineno-5-29" href="#__codelineno-5-29"></a>Feature 12 (Webhooks) ── independent, connects to event bus (Feature 1)
+</span><span id="__span-5-30"><a id="__codelineno-5-30" name="__codelineno-5-30" href="#__codelineno-5-30"></a>Feature 13 (Validation) ── independent, low coupling
+</span><span id="__span-5-31"><a id="__codelineno-5-31" name="__codelineno-5-31" href="#__codelineno-5-31"></a>Feature 20 (Marketing) ── after 21 (clean repo) and 9 (examples)
+</span><span id="__span-5-32"><a id="__codelineno-5-32" name="__codelineno-5-32" href="#__codelineno-5-32"></a>Feature 21 (Repo Clean) ── independent, should be early
+</span><span id="__span-5-33"><a id="__codelineno-5-33" name="__codelineno-5-33" href="#__codelineno-5-33"></a>Feature 22 (Email) ── after 9, 16, 17
+</span></code></pre></div>
+<h2 id="suggested-priority-tiers">Suggested Priority Tiers<a class="headerlink" href="#suggested-priority-tiers" title="Permanent link">&para;</a></h2>
+<h3 id="tier-0-critical-bugs-do-immediately">Tier 0: Critical Bugs (do immediately)<a class="headerlink" href="#tier-0-critical-bugs-do-immediately" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Why First</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>23: Daemon Chain Fix (#74)</strong></td>
+<td>Self-chaining scores bypass daemon entirely — no tracking, no rate coordination, no visibility. Blocks reliable use of issue-solver and quality-continuous. No dependencies.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="tier-1-foundation-do-first">Tier 1: Foundation (do first)<a class="headerlink" href="#tier-1-foundation-do-first" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Why First</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>6a: Musical Theming</strong></td>
+<td>Rename before building new things on old names. Or commit to doing it last as a sweep.</td>
+</tr>
+<tr>
+<td><strong>2+6b: Conductor-First</strong></td>
+<td>Everything depends on this architecture</td>
+</tr>
+<tr>
+<td><strong>1: Observability</strong></td>
+<td>Conductor needs to know what's happening</td>
+</tr>
+<tr>
+<td><strong>3: Config</strong></td>
+<td>Conductor needs configuration</td>
+</tr>
+</tbody>
+</table>
+<h3 id="tier-2-intelligence">Tier 2: Intelligence<a class="headerlink" href="#tier-2-intelligence" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Unlocks</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>7: Semantic Learning</strong></td>
+<td>Makes everything smarter</td>
+</tr>
+<tr>
+<td><strong>5: Prelude/Cadenza</strong></td>
+<td>Composability for scores</td>
+</tr>
+<tr>
+<td><strong>14: Flight Checks</strong></td>
+<td>Quality assurance infrastructure</td>
+</tr>
+<tr>
+<td><strong>15: Self-Healing</strong></td>
+<td>Continuous operation</td>
+</tr>
+</tbody>
+</table>
+<h3 id="tier-3-reliability">Tier 3: Reliability<a class="headerlink" href="#tier-3-reliability" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Fixes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>10: Workspaces</strong></td>
+<td>Users stop losing work</td>
+</tr>
+<tr>
+<td><strong>11: Pause</strong></td>
+<td>Basic feature that should just work</td>
+</tr>
+<tr>
+<td><strong>12: Webhooks</strong></td>
+<td>Integration quality</td>
+</tr>
+<tr>
+<td><strong>13: Validation</strong></td>
+<td>Catch problems early</td>
+</tr>
+</tbody>
+</table>
+<h3 id="tier-4-platform">Tier 4: Platform<a class="headerlink" href="#tier-4-platform" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Builds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>18: Tool/MCP</strong></td>
+<td>Unblocks general use</td>
+</tr>
+<tr>
+<td><strong>17: Instruments</strong></td>
+<td>Multi-backend support</td>
+</tr>
+<tr>
+<td><strong>9: Concert Library</strong></td>
+<td>Standardized workflows</td>
+</tr>
+<tr>
+<td><strong>19: Scheduler</strong></td>
+<td>Automated maintenance</td>
+</tr>
+</tbody>
+</table>
+<h3 id="tier-5-experience">Tier 5: Experience<a class="headerlink" href="#tier-5-experience" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Creates</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>8: Dashboard</strong></td>
+<td>Primary interface (capstone)</td>
+</tr>
+<tr>
+<td><strong>16: HITL</strong></td>
+<td>Meaningful human interaction</td>
+</tr>
+<tr>
+<td><strong>21: Repo Clean</strong></td>
+<td>Professional presentation</td>
+</tr>
+<tr>
+<td><strong>20: Marketing</strong></td>
+<td>Community growth</td>
+</tr>
+</tbody>
+</table>
+<h3 id="tier-6-horizon">Tier 6: Horizon<a class="headerlink" href="#tier-6-horizon" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Vision</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>4: Distributed</strong></td>
+<td>Multi-machine orchestration</td>
+</tr>
+<tr>
+<td><strong>22: Email</strong></td>
+<td>Showcase application</td>
+</tr>
+</tbody>
+</table>
+<h2 id="cross-cutting-themes">Cross-Cutting Themes<a class="headerlink" href="#cross-cutting-themes" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Theme</th>
+<th>Features</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Conductor as central hub</td>
+<td>1, 2+6b, 3, 7, 14, 15, 19</td>
+<td>Everything routes through the conductor</td>
+</tr>
+<tr>
+<td>Reliability / fix broken things</td>
+<td>10, 11, 12, 13, 15, 16</td>
+<td>Credibility-critical for growth</td>
+</tr>
+<tr>
+<td>Intelligence / learning</td>
+<td>7, 14, 15, 19</td>
+<td>Mozart understanding and improving itself</td>
+</tr>
+<tr>
+<td>Naming / identity</td>
+<td>5, 6a, 20, 21</td>
+<td>What Mozart is to the world</td>
+</tr>
+<tr>
+<td>Scope expansion</td>
+<td>4, 9, 17, 18, 22</td>
+<td>Mozart becomes infrastructure</td>
+</tr>
+<tr>
+<td>Composability</td>
+<td>5, 9, 17, 18</td>
+<td>Making scores flexible and powerful</td>
+</tr>
+<tr>
+<td>Human experience</td>
+<td>8, 16, 20</td>
+<td>How people interact with Mozart</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="next-steps">Next Steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
+<ol>
+<li>~~Create GH issues for each feature~~ — Done (#49–#70)</li>
+<li>~~Decide whether to do Feature 6a (musical rename) first or last~~ — Last (one big sweep after all features land)</li>
+<li><strong>Fix #74 (daemon chain fix) FIRST</strong> — No dependencies, critical bug, blocks reliable self-chaining</li>
+<li>Start implementation with Tier 1 foundation work</li>
+<li>Design detailed implementation plans for individual features as work begins</li>
+</ol>
+<hr />
+<p><em>Last updated: 2026-02-14 — 23 features tracked (#49–#70, #74). #74 (daemon chain fix) is top priority.</em></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tabs", "navigation.sections", "navigation.expand", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
