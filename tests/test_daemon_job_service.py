@@ -804,6 +804,73 @@ class TestResumeJobExecution:
         mock_backend.save.assert_called_once()
         saved_state = mock_backend.save.call_args[0][0]
         assert saved_state.status == JobStatus.RUNNING
+        assert saved_state.pid is None  # Stale PID must be cleared
+
+    @pytest.mark.asyncio
+    async def test_resume_clears_stale_pid(
+        self, job_service: JobService, tmp_path: Path
+    ):
+        """Test resume_job clears stale PID to prevent false-positive 'already running'."""
+        from mozart.execution.runner.models import RunSummary
+
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        # Simulate state with a stale PID (e.g., from a previous conductor)
+        paused_state = CheckpointState(
+            job_id="test-job",
+            job_name="test-job",
+            total_sheets=5,
+            last_completed_sheet=2,
+            status=JobStatus.PAUSED,
+            pid=99999,  # Stale PID from previous run
+            config_snapshot={
+                "name": "test-job",
+                "backend": {"type": "claude_cli"},
+                "sheet": {"size": 5, "total_items": 10},
+                "prompt": {"template": "{{ sheet_num }}"},
+            },
+        )
+
+        mock_backend = AsyncMock()
+        completed_state = CheckpointState(
+            job_id="test-job",
+            job_name="test-job",
+            total_sheets=5,
+            status=JobStatus.COMPLETED,
+        )
+        expected_summary = RunSummary(
+            job_id="test-job",
+            job_name="test-job",
+            total_sheets=5,
+            completed_sheets=5,
+            final_status=JobStatus.COMPLETED,
+        )
+
+        mock_runner = MagicMock()
+        mock_runner.run = AsyncMock(return_value=(completed_state, expected_summary))
+
+        with (
+            patch.object(
+                JobService, "_find_job_state", new_callable=AsyncMock,
+                return_value=(paused_state, mock_backend),
+            ),
+            patch.object(JobService, "_setup_components", return_value={
+                "backend": MagicMock(),
+                "outcome_store": None,
+                "global_learning_store": None,
+                "notification_manager": None,
+                "escalation_handler": None,
+                "grounding_engine": None,
+            }),
+            patch.object(JobService, "_create_runner", return_value=mock_runner),
+        ):
+            summary = await job_service.resume_job("test-job", workspace)
+
+        assert summary.final_status == JobStatus.COMPLETED
+        # The critical assertion: PID must be None in the saved state
+        saved_state = mock_backend.save.call_args[0][0]
+        assert saved_state.pid is None
 
     @pytest.mark.asyncio
     async def test_resume_failed_job_runs(

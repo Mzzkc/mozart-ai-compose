@@ -971,6 +971,7 @@ class CheckpointState(BaseModel):
         """Mark the job as paused."""
         previous_status = self.status
         self.status = JobStatus.PAUSED
+        self.pid = None  # Clear PID so stale PID doesn't block resume
         self.updated_at = utc_now()
 
         _logger.info(

@@ -208,6 +208,21 @@ class TestMarkJobFailedPidLifecycle:
         assert state.status == JobStatus.FAILED
         assert state.pid is None  # PID must be cleared
 
+    def test_mark_job_paused_clears_pid(self) -> None:
+        """mark_job_paused should set pid = None."""
+        state = CheckpointState(
+            job_id="pause-test",
+            job_name="pause-test",
+            total_sheets=3,
+        )
+        state.status = JobStatus.RUNNING
+        state.pid = 12345
+
+        state.mark_job_paused()
+
+        assert state.status == JobStatus.PAUSED
+        assert state.pid is None  # PID must be cleared
+
     def test_failed_state_not_detected_as_zombie(self) -> None:
         """After mark_job_failed, is_zombie() should return False."""
         state = CheckpointState(

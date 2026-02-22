@@ -327,6 +327,7 @@ class JobService:
         # Reset job status to RUNNING
         found_state.status = JobStatus.RUNNING
         found_state.error_message = None
+        found_state.pid = None  # Clear stale PID so runner doesn't false-positive
         # Update found_state.job_id to the conductor's runtime identity so
         # all downstream publishes use the correct key.
         found_state.job_id = runtime_id
