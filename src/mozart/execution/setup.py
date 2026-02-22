@@ -20,7 +20,7 @@ from mozart.core.logging import get_logger
 
 if TYPE_CHECKING:
     from mozart.backends.base import Backend
-    from mozart.core.config import JobConfig
+    from mozart.core.config import BackendConfig, JobConfig
     from mozart.execution.grounding import GroundingEngine
     from mozart.learning.global_store import GlobalLearningStore
     from mozart.learning.outcomes import OutcomeStore
@@ -30,10 +30,37 @@ if TYPE_CHECKING:
 _logger = get_logger("execution.setup")
 
 
+def create_backend_from_config(backend_config: BackendConfig) -> Backend:
+    """Create the appropriate execution backend from a BackendConfig.
+
+    Supports: claude_cli, anthropic_api, recursive_light, ollama.
+
+    Args:
+        backend_config: Backend configuration with type and settings.
+
+    Returns:
+        Configured Backend instance.
+    """
+    from mozart.backends.anthropic_api import AnthropicApiBackend
+    from mozart.backends.claude_cli import ClaudeCliBackend
+    from mozart.backends.ollama import OllamaBackend
+    from mozart.backends.recursive_light import RecursiveLightBackend
+
+    if backend_config.type == "recursive_light":
+        return RecursiveLightBackend.from_config(backend_config)
+    elif backend_config.type == "anthropic_api":
+        return AnthropicApiBackend.from_config(backend_config)
+    elif backend_config.type == "ollama":
+        return OllamaBackend.from_config(backend_config)
+    else:
+        return ClaudeCliBackend.from_config(backend_config)
+
+
 def create_backend(config: JobConfig) -> Backend:
     """Create the appropriate execution backend from job config.
 
-    Supports: claude_cli, anthropic_api, recursive_light.
+    Convenience wrapper around ``create_backend_from_config`` that
+    extracts the backend config from a full job config.
 
     Args:
         config: Job configuration with backend settings.
@@ -41,16 +68,7 @@ def create_backend(config: JobConfig) -> Backend:
     Returns:
         Configured Backend instance.
     """
-    from mozart.backends.anthropic_api import AnthropicApiBackend
-    from mozart.backends.claude_cli import ClaudeCliBackend
-    from mozart.backends.recursive_light import RecursiveLightBackend
-
-    if config.backend.type == "recursive_light":
-        return RecursiveLightBackend.from_config(config.backend)
-    elif config.backend.type == "anthropic_api":
-        return AnthropicApiBackend.from_config(config.backend)
-    else:
-        return ClaudeCliBackend.from_config(config.backend)
+    return create_backend_from_config(config.backend)
 
 
 def setup_learning(
@@ -178,6 +196,7 @@ def create_state_backend(
 
 __all__ = [
     "create_backend",
+    "create_backend_from_config",
     "create_state_backend",
     "setup_grounding",
     "setup_learning",

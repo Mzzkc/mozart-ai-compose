@@ -11,6 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from mozart.core.config.backend import BackendConfig
 from mozart.core.logging import get_logger
 
 _logger = get_logger("daemon.config")
@@ -103,11 +104,31 @@ class ObserverConfig(BaseModel):
     )
 
 
+def _default_semantic_backend() -> BackendConfig:
+    """Default backend config for semantic analysis.
+
+    Uses the Anthropic API with analytical defaults (low temperature,
+    moderate token limit, shorter timeout). This preserves the original
+    behaviour for users who don't set ``learning.backend`` explicitly.
+    """
+    return BackendConfig(
+        type="anthropic_api",
+        model="claude-sonnet-4-5-20250929",
+        temperature=0.3,
+        max_tokens=4096,
+        timeout_seconds=120.0,
+    )
+
+
 class SemanticLearningConfig(BaseModel):
     """Configuration for conductor-level semantic learning via LLM.
 
     Controls how the conductor analyzes sheet completions using an LLM
     to produce semantic insights stored in the learning database.
+
+    The ``backend`` field accepts the same ``BackendConfig`` used by job
+    execution, so any backend type (claude_cli, anthropic_api, ollama,
+    recursive_light) can power semantic analysis.
     """
 
     enabled: bool = Field(
@@ -115,13 +136,12 @@ class SemanticLearningConfig(BaseModel):
         description="Enable semantic learning. When True, the conductor "
         "analyzes sheet completions via LLM to produce learning insights.",
     )
-    model: str = Field(
-        default="claude-sonnet-4-5-20250929",
-        description="Model to use for semantic analysis.",
-    )
-    api_key_env: str = Field(
-        default="ANTHROPIC_API_KEY",
-        description="Environment variable name containing the API key.",
+    backend: BackendConfig = Field(
+        default_factory=_default_semantic_backend,
+        description="Backend configuration for semantic analysis LLM calls. "
+        "Accepts any backend type: claude_cli (uses Claude Code, no API key "
+        "needed), anthropic_api, ollama (free local models), or recursive_light. "
+        "Defaults to anthropic_api with analytical settings (temperature=0.3).",
     )
     analyze_on: list[Literal["success", "failure"]] = Field(
         default=["success", "failure"],
@@ -134,17 +154,6 @@ class SemanticLearningConfig(BaseModel):
         le=20,
         description="Maximum concurrent LLM analysis tasks. "
         "Controls API cost and system load.",
-    )
-    analysis_timeout_seconds: float = Field(
-        default=120.0,
-        ge=10.0,
-        description="Timeout in seconds for a single LLM analysis call.",
-    )
-    max_tokens: int = Field(
-        default=4096,
-        ge=256,
-        le=32768,
-        description="Maximum response tokens for the analysis LLM call.",
     )
 
     @field_validator("analyze_on")

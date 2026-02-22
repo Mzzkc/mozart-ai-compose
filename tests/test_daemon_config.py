@@ -420,31 +420,37 @@ class TestSemanticLearningConfig:
         """Test default values are applied correctly."""
         config = SemanticLearningConfig()
         assert config.enabled is True
-        assert config.model == "claude-sonnet-4-5-20250929"
-        assert config.api_key_env == "ANTHROPIC_API_KEY"
+        assert config.backend.type == "anthropic_api"
+        assert config.backend.model == "claude-sonnet-4-5-20250929"
+        assert config.backend.temperature == 0.3
+        assert config.backend.max_tokens == 4096
+        assert config.backend.timeout_seconds == 120.0
         assert config.analyze_on == ["success", "failure"]
         assert config.max_concurrent_analyses == 3
-        assert config.analysis_timeout_seconds == 120.0
-        assert config.max_tokens == 4096
 
-    def test_custom_values(self):
-        """Test custom values override defaults."""
+    def test_custom_backend(self):
+        """Test custom backend config overrides defaults."""
+        from mozart.core.config.backend import BackendConfig
+
         config = SemanticLearningConfig(
             enabled=False,
-            model="claude-haiku-4-5-20251001",
-            api_key_env="CUSTOM_API_KEY",
+            backend=BackendConfig(
+                type="ollama",
+                model="llama3.1:8b",
+                temperature=0.5,
+                max_tokens=2048,
+                timeout_seconds=60.0,
+            ),
             analyze_on=["failure"],
             max_concurrent_analyses=5,
-            analysis_timeout_seconds=60.0,
-            max_tokens=2048,
         )
         assert config.enabled is False
-        assert config.model == "claude-haiku-4-5-20251001"
-        assert config.api_key_env == "CUSTOM_API_KEY"
+        assert config.backend.type == "ollama"
+        assert config.backend.model == "llama3.1:8b"
         assert config.analyze_on == ["failure"]
         assert config.max_concurrent_analyses == 5
-        assert config.analysis_timeout_seconds == 60.0
-        assert config.max_tokens == 2048
+        assert config.backend.timeout_seconds == 60.0
+        assert config.backend.max_tokens == 2048
 
     def test_max_concurrent_analyses_minimum(self):
         """Test max_concurrent_analyses must be >= 1."""
@@ -461,30 +467,6 @@ class TestSemanticLearningConfig:
 
         with pytest.raises(ValidationError):
             SemanticLearningConfig(max_concurrent_analyses=21)
-
-    def test_analysis_timeout_minimum(self):
-        """Test analysis_timeout_seconds must be >= 10."""
-        config = SemanticLearningConfig(analysis_timeout_seconds=10.0)
-        assert config.analysis_timeout_seconds == 10.0
-
-        with pytest.raises(ValidationError):
-            SemanticLearningConfig(analysis_timeout_seconds=9.9)
-
-    def test_max_tokens_minimum(self):
-        """Test max_tokens must be >= 256."""
-        config = SemanticLearningConfig(max_tokens=256)
-        assert config.max_tokens == 256
-
-        with pytest.raises(ValidationError):
-            SemanticLearningConfig(max_tokens=255)
-
-    def test_max_tokens_maximum(self):
-        """Test max_tokens must be <= 32768."""
-        config = SemanticLearningConfig(max_tokens=32768)
-        assert config.max_tokens == 32768
-
-        with pytest.raises(ValidationError):
-            SemanticLearningConfig(max_tokens=32769)
 
     def test_analyze_on_empty_rejected(self):
         """Test analyze_on cannot be empty."""
@@ -512,58 +494,83 @@ class TestSemanticLearningConfig:
         assert hasattr(config, "learning")
         assert isinstance(config.learning, SemanticLearningConfig)
         assert config.learning.enabled is True
-        assert config.learning.model == "claude-sonnet-4-5-20250929"
+        assert config.learning.backend.model == "claude-sonnet-4-5-20250929"
 
     def test_daemon_config_custom_learning(self):
-        """Test DaemonConfig accepts custom learning config."""
+        """Test DaemonConfig accepts custom learning config via nested backend."""
+        from mozart.core.config.backend import BackendConfig
+
         config = DaemonConfig(
             learning=SemanticLearningConfig(
                 enabled=False,
-                model="claude-haiku-4-5-20251001",
+                backend=BackendConfig(
+                    type="anthropic_api",
+                    model="claude-haiku-4-5-20251001",
+                    temperature=0.3,
+                    max_tokens=4096,
+                    timeout_seconds=120.0,
+                ),
             ),
         )
         assert config.learning.enabled is False
-        assert config.learning.model == "claude-haiku-4-5-20251001"
+        assert config.learning.backend.model == "claude-haiku-4-5-20251001"
 
     def test_daemon_config_learning_from_dict(self):
         """Test DaemonConfig constructs learning from nested dict (YAML-style)."""
         config = DaemonConfig.model_validate({
             "learning": {
                 "enabled": False,
-                "model": "claude-haiku-4-5-20251001",
+                "backend": {
+                    "type": "anthropic_api",
+                    "model": "claude-haiku-4-5-20251001",
+                },
                 "max_concurrent_analyses": 5,
             },
         })
         assert config.learning.enabled is False
-        assert config.learning.model == "claude-haiku-4-5-20251001"
+        assert config.learning.backend.model == "claude-haiku-4-5-20251001"
         assert config.learning.max_concurrent_analyses == 5
-        # Non-specified fields get defaults
-        assert config.learning.api_key_env == "ANTHROPIC_API_KEY"
 
     def test_serialization_roundtrip(self):
         """Test SemanticLearningConfig survives model_dump -> model_validate."""
+        from mozart.core.config.backend import BackendConfig
+
         original = SemanticLearningConfig(
             enabled=False,
-            model="test-model",
+            backend=BackendConfig(
+                type="anthropic_api",
+                model="test-model",
+                temperature=0.3,
+                max_tokens=4096,
+                timeout_seconds=120.0,
+            ),
             analyze_on=["failure"],
             max_concurrent_analyses=7,
         )
         dumped = original.model_dump()
         restored = SemanticLearningConfig.model_validate(dumped)
         assert restored.enabled == original.enabled
-        assert restored.model == original.model
+        assert restored.backend.model == original.backend.model
         assert restored.analyze_on == original.analyze_on
         assert restored.max_concurrent_analyses == original.max_concurrent_analyses
 
     def test_daemon_config_roundtrip_preserves_learning(self):
         """Test DaemonConfig roundtrip preserves learning field."""
+        from mozart.core.config.backend import BackendConfig
+
         original = DaemonConfig(
             learning=SemanticLearningConfig(
                 enabled=False,
-                model="claude-haiku-4-5-20251001",
+                backend=BackendConfig(
+                    type="anthropic_api",
+                    model="claude-haiku-4-5-20251001",
+                    temperature=0.3,
+                    max_tokens=4096,
+                    timeout_seconds=120.0,
+                ),
             ),
         )
         dumped = original.model_dump()
         restored = DaemonConfig.model_validate(dumped)
         assert restored.learning.enabled is False
-        assert restored.learning.model == "claude-haiku-4-5-20251001"
+        assert restored.learning.backend.model == "claude-haiku-4-5-20251001"

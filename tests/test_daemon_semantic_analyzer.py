@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from mozart.backends.base import Backend, ExecutionResult
 from mozart.core.checkpoint import CheckpointState, SheetState, SheetStatus
 from mozart.daemon.config import SemanticLearningConfig
 from mozart.daemon.event_bus import EventBus
@@ -65,6 +66,17 @@ def _make_llm_response_json(insights: list[dict[str, Any]]) -> str:
     return json.dumps(insights)
 
 
+def _make_mock_backend() -> MagicMock:
+    """Create a mock Backend for SemanticAnalyzer tests."""
+    backend = MagicMock(spec=Backend)
+    backend.name = "mock-backend"
+    backend.execute = AsyncMock(return_value=ExecutionResult(
+        success=True, stdout="[]", stderr="", duration_seconds=0.1,
+    ))
+    backend.close = AsyncMock()
+    return backend
+
+
 # ─── Lifecycle Tests ─────────────────────────────────────────────────
 
 
@@ -78,7 +90,7 @@ class TestLifecycle:
         hub = MagicMock(spec=LearningHub)
         live_states: dict[str, CheckpointState] = {}
 
-        analyzer = SemanticAnalyzer(config, hub, live_states)
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, live_states)
         bus = EventBus()
         await bus.start()
 
@@ -96,7 +108,7 @@ class TestLifecycle:
         hub = MagicMock(spec=LearningHub)
         live_states: dict[str, CheckpointState] = {}
 
-        analyzer = SemanticAnalyzer(config, hub, live_states)
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, live_states)
         bus = EventBus()
         await bus.start()
 
@@ -115,7 +127,7 @@ class TestLifecycle:
         hub = MagicMock(spec=LearningHub)
         live_states: dict[str, CheckpointState] = {}
 
-        analyzer = SemanticAnalyzer(config, hub, live_states)
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, live_states)
         bus = EventBus()
         await bus.start()
 
@@ -132,7 +144,7 @@ class TestLifecycle:
         hub = MagicMock(spec=LearningHub)
         live_states: dict[str, CheckpointState] = {}
 
-        analyzer = SemanticAnalyzer(config, hub, live_states)
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, live_states)
         await analyzer.stop()  # No event_bus passed, no subscription
 
 
@@ -151,7 +163,7 @@ class TestEventFiltering:
             "test-job": _make_live_state(),
         }
 
-        analyzer = SemanticAnalyzer(config, hub, live_states)
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, live_states)
 
         # Failure event should be filtered out
         event = _make_event(event="sheet.failed")
@@ -169,7 +181,7 @@ class TestEventFiltering:
             "test-job": _make_live_state(),
         }
 
-        analyzer = SemanticAnalyzer(config, hub, live_states)
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, live_states)
 
         # Success event should be filtered out
         event = _make_event(event="sheet.completed")
@@ -186,7 +198,7 @@ class TestEventFiltering:
             "test-job": _make_live_state(),
         }
 
-        analyzer = SemanticAnalyzer(config, hub, live_states)
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, live_states)
 
         # Mock _analyze_with_semaphore to avoid actual LLM calls
         analyzer._analyze_with_semaphore = AsyncMock()  # type: ignore[method-assign]
@@ -216,7 +228,7 @@ class TestMissingLiveState:
         hub = MagicMock(spec=LearningHub)
         live_states: dict[str, CheckpointState] = {}  # Empty
 
-        analyzer = SemanticAnalyzer(config, hub, live_states)
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, live_states)
         event = _make_event(event="sheet.completed")
         await analyzer._on_sheet_event(event)
 
@@ -231,7 +243,7 @@ class TestMissingLiveState:
         live_state = CheckpointState(job_id="test-job", job_name="test", total_sheets=1, sheets={})
         live_states: dict[str, CheckpointState] = {"test-job": live_state}
 
-        analyzer = SemanticAnalyzer(config, hub, live_states)
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, live_states)
         event = _make_event(event="sheet.completed", data={"stdout_tail": "some output"})
 
         sheet_data = analyzer._extract_sheet_data("test-job", 1, event)
@@ -249,7 +261,7 @@ class TestPromptConstruction:
         """Prompt should indicate SUCCESS or FAILURE."""
         config = SemanticLearningConfig()
         hub = MagicMock(spec=LearningHub)
-        analyzer = SemanticAnalyzer(config, hub, {})
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, {})
 
         data = {
             "event_type": "sheet.completed",
@@ -269,7 +281,7 @@ class TestPromptConstruction:
         """Prompt should show FAILURE for failed sheets."""
         config = SemanticLearningConfig()
         hub = MagicMock(spec=LearningHub)
-        analyzer = SemanticAnalyzer(config, hub, {})
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, {})
 
         data = {
             "event_type": "sheet.failed",
@@ -289,7 +301,7 @@ class TestPromptConstruction:
         """Prompt should include formatted validation results."""
         config = SemanticLearningConfig()
         hub = MagicMock(spec=LearningHub)
-        analyzer = SemanticAnalyzer(config, hub, {})
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, {})
 
         data = {
             "event_type": "sheet.completed",
@@ -313,7 +325,7 @@ class TestPromptConstruction:
         """Stdout should be truncated to 3000 chars."""
         config = SemanticLearningConfig()
         hub = MagicMock(spec=LearningHub)
-        analyzer = SemanticAnalyzer(config, hub, {})
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, {})
 
         marker = "Z"
         data = {
@@ -342,7 +354,7 @@ class TestResponseParsing:
         """Valid JSON array should be parsed correctly."""
         config = SemanticLearningConfig()
         hub = MagicMock(spec=LearningHub)
-        analyzer = SemanticAnalyzer(config, hub, {})
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, {})
 
         response = _make_llm_response_json([
             {
@@ -365,7 +377,7 @@ class TestResponseParsing:
         """JSON inside markdown code blocks should be extracted."""
         config = SemanticLearningConfig()
         hub = MagicMock(spec=LearningHub)
-        analyzer = SemanticAnalyzer(config, hub, {})
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, {})
 
         response = """Here are my insights:
 
@@ -381,7 +393,7 @@ class TestResponseParsing:
         """Invalid JSON should return empty list."""
         config = SemanticLearningConfig()
         hub = MagicMock(spec=LearningHub)
-        analyzer = SemanticAnalyzer(config, hub, {})
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, {})
 
         insights = analyzer._parse_analysis_response("not json at all")
         assert insights == []
@@ -390,7 +402,7 @@ class TestResponseParsing:
         """Insights with invalid categories should be filtered out."""
         config = SemanticLearningConfig()
         hub = MagicMock(spec=LearningHub)
-        analyzer = SemanticAnalyzer(config, hub, {})
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, {})
 
         response = _make_llm_response_json([
             {"insight": "Valid", "category": "root_cause", "confidence": 0.8},
@@ -404,7 +416,7 @@ class TestResponseParsing:
         """Confidence should be clamped to [0.0, 1.0]."""
         config = SemanticLearningConfig()
         hub = MagicMock(spec=LearningHub)
-        analyzer = SemanticAnalyzer(config, hub, {})
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, {})
 
         response = _make_llm_response_json([
             {"insight": "Too high", "category": "root_cause", "confidence": 5.0},
@@ -418,7 +430,7 @@ class TestResponseParsing:
         """Items without insight text are filtered out."""
         config = SemanticLearningConfig()
         hub = MagicMock(spec=LearningHub)
-        analyzer = SemanticAnalyzer(config, hub, {})
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, {})
 
         response = _make_llm_response_json([
             {"category": "root_cause", "confidence": 0.8},  # No insight text
@@ -442,7 +454,7 @@ class TestInsightStorage:
         hub.is_running = True
         hub.store = mock_store
 
-        analyzer = SemanticAnalyzer(config, hub, {})
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, {})
 
         insights = [
             {"insight": "Root cause found", "category": "root_cause", "confidence": 0.9},
@@ -468,7 +480,7 @@ class TestInsightStorage:
         hub.is_running = True
         hub.store = mock_store
 
-        analyzer = SemanticAnalyzer(config, hub, {})
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, {})
 
         insights = [
             {"insight": "Actionable tip", "category": "prompt_improvement", "confidence": 0.8},
@@ -491,7 +503,7 @@ class TestInsightStorage:
         hub = MagicMock(spec=LearningHub)
         hub.is_running = False
 
-        analyzer = SemanticAnalyzer(config, hub, {})
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, {})
 
         insights = [
             {"insight": "Test", "category": "root_cause", "confidence": 0.8},
@@ -516,7 +528,7 @@ class TestConcurrency:
         mock_store = MagicMock()
         hub.store = mock_store
 
-        analyzer = SemanticAnalyzer(config, hub, {})
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, {})
 
         # The semaphore should have the configured value
         assert analyzer._semaphore._value == 2
@@ -537,7 +549,7 @@ class TestLLMErrorHandling:
         mock_store = MagicMock()
         hub.store = mock_store
 
-        analyzer = SemanticAnalyzer(config, hub, {})
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, {})
 
         # Mock _call_llm to raise
         analyzer._call_llm = AsyncMock(side_effect=RuntimeError("API down"))  # type: ignore[method-assign]
@@ -577,7 +589,7 @@ class TestExtractSheetData:
             exit_code=1,
         )}
 
-        analyzer = SemanticAnalyzer(config, hub, live_states)
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, live_states)
         event = _make_event()
 
         data = analyzer._extract_sheet_data("test-job", 1, event)
@@ -591,7 +603,7 @@ class TestExtractSheetData:
         config = SemanticLearningConfig()
         hub = MagicMock(spec=LearningHub)
 
-        analyzer = SemanticAnalyzer(config, hub, {})
+        analyzer = SemanticAnalyzer(config, _make_mock_backend(), hub, {})
         event = _make_event()
 
         data = analyzer._extract_sheet_data("nonexistent", 1, event)

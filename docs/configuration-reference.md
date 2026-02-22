@@ -1022,23 +1022,25 @@ Top-level configuration for the Mozart daemon process. Configured separately fro
 
 Controls the conductor's LLM-based analysis of sheet completions. The SemanticAnalyzer subscribes to EventBus sheet events, sends completion context to an LLM, and stores insights as `SEMANTIC_INSIGHT` patterns in the global learning store. These patterns are automatically picked up by the existing pattern injection pipeline.
 
+The `backend` field accepts the same `BackendConfig` used by job execution, so any backend type (`claude_cli`, `anthropic_api`, `ollama`, `recursive_light`) can power semantic analysis.
+
 | Field | Type | Default | Constraints | Description |
 |-------|------|---------|-------------|-------------|
 | `enabled` | `bool` | `true` | | Enable semantic learning. When the conductor is running, learning is on by default. |
-| `model` | `str` | `"claude-sonnet-4-5-20250929"` | | Model ID for analysis LLM calls |
-| `api_key_env` | `str` | `"ANTHROPIC_API_KEY"` | | Environment variable name containing the API key |
+| `backend` | `BackendConfig` | *(see below)* | | Backend configuration for semantic analysis LLM calls. Defaults to `anthropic_api` with analytical settings (temperature=0.3, max_tokens=4096, timeout=120s). |
 | `analyze_on` | `list["success" \| "failure"]` | `["success", "failure"]` | Non-empty, no duplicates | Which sheet outcomes trigger analysis |
 | `max_concurrent_analyses` | `int` | `3` | `1–20` | Maximum concurrent LLM analysis tasks. Controls API cost and system load. |
-| `analysis_timeout_seconds` | `float` | `120.0` | `>= 10` | Timeout for a single LLM analysis call |
-| `max_tokens` | `int` | `4096` | `256–32768` | Maximum response tokens for the analysis LLM call |
 
 ```yaml
 # Conductor config (daemon.yaml)
 learning:
   enabled: true
-  model: claude-sonnet-4-5-20250929
+  backend:
+    type: anthropic_api
+    model: claude-sonnet-4-5-20250929
+    temperature: 0.3
+    max_tokens: 4096
+    timeout_seconds: 120
   analyze_on: [success, failure]
   max_concurrent_analyses: 3
-  analysis_timeout_seconds: 120
-  max_tokens: 4096
 ```

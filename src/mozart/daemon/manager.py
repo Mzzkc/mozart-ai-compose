@@ -233,8 +233,14 @@ class JobManager:
         # Start semantic analyzer after event bus (needs bus for subscription).
         # Failure must not prevent the conductor from starting.
         try:
+            from mozart.execution.setup import create_backend_from_config
+
+            semantic_backend = create_backend_from_config(
+                self._config.learning.backend,
+            )
             self._semantic_analyzer = SemanticAnalyzer(
                 config=self._config.learning,
+                backend=semantic_backend,
                 learning_hub=self._learning_hub,
                 live_states=self._live_states,
             )

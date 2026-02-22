@@ -12,13 +12,11 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import re
 import time
 from typing import Any
 
-import anthropic
-
+from mozart.backends.base import Backend
 from mozart.core.checkpoint import CheckpointState
 from mozart.core.logging import get_logger
 from mozart.daemon.config import SemanticLearningConfig
@@ -43,7 +41,8 @@ class SemanticAnalyzer:
     """Analyzes sheet completions via LLM to produce learning insights.
 
     Lifecycle:
-        analyzer = SemanticAnalyzer(config, learning_hub, live_states)
+        backend = create_backend_from_config(config.backend)
+        analyzer = SemanticAnalyzer(config, backend, learning_hub, live_states)
         await analyzer.start(event_bus)
         # ... events flow, analyses run ...
         await analyzer.stop()
@@ -52,16 +51,17 @@ class SemanticAnalyzer:
     def __init__(
         self,
         config: SemanticLearningConfig,
+        backend: Backend,
         learning_hub: LearningHub,
         live_states: dict[str, CheckpointState],
     ) -> None:
         self._config = config
+        self._backend = backend
         self._learning_hub = learning_hub
         self._live_states = live_states
         self._semaphore = asyncio.Semaphore(config.max_concurrent_analyses)
         self._sub_id: str | None = None
         self._pending_tasks: set[asyncio.Task[None]] = set()
-        self._client: anthropic.AsyncAnthropic | None = None
 
     async def start(self, event_bus: EventBus) -> None:
         """Subscribe to sheet events on the event bus."""
@@ -75,7 +75,7 @@ class SemanticAnalyzer:
         )
         _logger.info(
             "semantic_analyzer.started",
-            model=self._config.model,
+            backend=self._backend.name,
             analyze_on=self._config.analyze_on,
             max_concurrent=self._config.max_concurrent_analyses,
         )
@@ -94,7 +94,7 @@ class SemanticAnalyzer:
             )
             done, _ = await asyncio.wait(
                 self._pending_tasks,
-                timeout=self._config.analysis_timeout_seconds,
+                timeout=self._config.backend.timeout_seconds,
             )
             # Cancel any tasks that didn't finish in time
             for task in self._pending_tasks - done:
@@ -102,13 +102,11 @@ class SemanticAnalyzer:
 
         self._pending_tasks.clear()
 
-        # Close the Anthropic client
-        if self._client is not None:
-            try:
-                await self._client.close()
-            except (OSError, RuntimeError):
-                pass
-            self._client = None
+        # Close the backend
+        try:
+            await self._backend.close()
+        except (OSError, RuntimeError):
+            pass
 
         _logger.info("semantic_analyzer.stopped")
 
@@ -307,43 +305,26 @@ Example:
 """
 
     async def _call_llm(self, prompt: str) -> str:
-        """Call the Anthropic API with the analysis prompt."""
-        if self._client is None:
-            api_key = os.environ.get(self._config.api_key_env)
-            if not api_key:
-                raise RuntimeError(
-                    f"API key not found in environment variable: {self._config.api_key_env}"
-                )
-            self._client = anthropic.AsyncAnthropic(
-                api_key=api_key,
-                timeout=self._config.analysis_timeout_seconds,
-            )
-
+        """Call the configured backend with the analysis prompt."""
         start = time.monotonic()
-        response = await asyncio.wait_for(
-            self._client.messages.create(
-                model=self._config.model,
-                max_tokens=self._config.max_tokens,
-                temperature=0.3,  # Low temperature for analytical tasks
-                messages=[{"role": "user", "content": prompt}],
-            ),
-            timeout=self._config.analysis_timeout_seconds,
-        )
+        result = await self._backend.execute(prompt)
         duration = time.monotonic() - start
 
-        response_text = "".join(
-            block.text for block in response.content if block.type == "text"
-        )
+        if not result.success:
+            raise RuntimeError(
+                f"Backend execution failed (exit_code={result.exit_code}): "
+                f"{result.error_message or result.stderr[:200]}"
+            )
 
         _logger.debug(
             "semantic_analyzer.llm_response",
             duration_seconds=round(duration, 2),
-            response_length=len(response_text),
-            input_tokens=response.usage.input_tokens if response.usage else None,
-            output_tokens=response.usage.output_tokens if response.usage else None,
+            response_length=len(result.stdout),
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
         )
 
-        return response_text
+        return result.stdout
 
     def _parse_analysis_response(self, response_text: str) -> list[dict[str, Any]]:
         """Parse the LLM response into a list of insights.
