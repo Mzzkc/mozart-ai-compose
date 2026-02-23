@@ -385,8 +385,8 @@ class ValidationRule(BaseModel):
         default=None,
         gt=0,
         description="Timeout for command_succeeds validations (seconds). "
-        "Overrides the global VALIDATION_COMMAND_TIMEOUT_SECONDS default (300s). "
-        "Use for validations that run heavy commands like full test suites.",
+        "Overrides the global VALIDATION_COMMAND_TIMEOUT_SECONDS default (3600s / 1 hour). "
+        "Use for validations that need a shorter or longer ceiling.",
     )
     retry_delay_ms: int = Field(
         default=200,

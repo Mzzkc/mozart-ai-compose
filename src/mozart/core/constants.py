@@ -74,8 +74,8 @@ FILE_HASH_CHUNK_SIZE = 8192
 # Validation Command Defaults
 # =============================================================================
 
-VALIDATION_COMMAND_TIMEOUT_SECONDS = 300
-"""Timeout for user-defined validation commands (5 minutes)."""
+VALIDATION_COMMAND_TIMEOUT_SECONDS = 3600
+"""Timeout for user-defined validation commands (1 hour)."""
 
 VALIDATION_OUTPUT_TRUNCATE_CHARS = 500
 """Maximum characters for validation command output summaries."""
