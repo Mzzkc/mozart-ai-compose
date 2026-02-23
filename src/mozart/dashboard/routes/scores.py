@@ -96,17 +96,12 @@ def validate_schema(
         Tuple of (parsed_config, error_message). One will be None.
     """
     try:
-        # Create temporary file for JobConfig.from_yaml() method
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as temp_file:
-            temp_file.write(content)
-            temp_path = Path(temp_file.name)
-
-        try:
+        # Create temporary directory for JobConfig.from_yaml() method
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir) / filename
+            temp_path.write_text(content)
             config = JobConfig.from_yaml(temp_path)
             return config, None
-        finally:
-            # Clean up temp file
-            temp_path.unlink(missing_ok=True)
 
     except ValidationError as e:
         return None, f"Schema validation failed: {e}"

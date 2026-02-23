@@ -313,19 +313,12 @@ ${errorInfo.details ? `\nDetails:\n${errorInfo.details}` : ''}`;
         openSettingsModal() {
             this.openModal({
                 title: 'Dashboard Settings',
-                htmxTarget: true,
-                size: 'lg',
+                content: 'Settings panel coming soon.',
+                size: 'sm',
                 type: 'info',
                 buttons: [
-                    { id: 'save', text: 'Save Changes', variant: 'primary', action: 'htmx', hxGet: '/api/settings/save' },
-                    { id: 'cancel', text: 'Cancel', variant: 'secondary', action: 'close' }
+                    { id: 'close', text: 'Close', variant: 'secondary', action: 'close' }
                 ]
-            });
-
-            // Load settings content via HTMX
-            htmx.ajax('GET', '/api/settings', {
-                target: '#modal-htmx-content',
-                swap: 'innerHTML'
             });
         },
 
@@ -367,48 +360,14 @@ ${errorInfo.details ? `\nDetails:\n${errorInfo.details}` : ''}`;
 
         // Data management
         loadInitialData() {
-            this.refreshData();
+            this.updateTimestamp();
         },
 
         async refreshData() {
-            if (this.isRefreshing) return;
-
-            this.isRefreshing = true;
-
-            try {
-                // Trigger HTMX requests to load data
-                await Promise.all([
-                    this.loadStats(),
-                    this.loadRecentJobs()
-                ]);
-
-                this.updateTimestamp();
-            } catch (error) {
-                console.error('Failed to refresh data:', error);
-                this.addNotification('Error', 'Failed to refresh data', 'error', 5000);
-            } finally {
-                this.isRefreshing = false;
-            }
-        },
-
-        async loadStats() {
-            return new Promise((resolve, reject) => {
-                htmx.ajax('GET', '/api/dashboard/stats', {
-                    target: 'body',
-                    swap: 'none',
-                    headers: { 'X-Response-Target': 'stats' }
-                }).then(() => resolve()).catch(reject);
-            });
-        },
-
-        async loadRecentJobs() {
-            return new Promise((resolve, reject) => {
-                htmx.ajax('GET', '/api/dashboard/recent-jobs', {
-                    target: 'body',
-                    swap: 'none',
-                    headers: { 'X-Response-Target': 'jobs' }
-                }).then(() => resolve()).catch(reject);
-            });
+            // Individual pages handle their own data loading via htmx partials.
+            // This method updates the shared timestamp and can be extended when
+            // dashboard-level stats/recent-jobs endpoints are implemented.
+            this.updateTimestamp();
         },
 
         updateStats(data) {
@@ -531,15 +490,7 @@ ${errorInfo.details ? `\nDetails:\n${errorInfo.details}` : ''}`;
                 this.setConnectionStatus('disconnected');
             });
 
-            document.addEventListener('htmx:beforeRequest', () => {
-                this.setConnectionStatus('connecting');
-            });
-
-            document.addEventListener('htmx:afterRequest', () => {
-                this.setConnectionStatus('connected');
-            });
-
-            // Handle SSE connection status
+            // Handle SSE connection status (not regular htmx requests)
             document.addEventListener('htmx:sseError', () => {
                 this.setConnectionStatus('disconnected');
             });
@@ -564,8 +515,8 @@ ${errorInfo.details ? `\nDetails:\n${errorInfo.details}` : ''}`;
     });
 });
 
-// Make the app store available globally as 'app'
-function app() {
+// Make the app store available globally for x-data binding
+function mozartApp() {
     return Alpine.store('app');
 }
 

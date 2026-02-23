@@ -25,7 +25,7 @@
     {% block extra_head %}{% endblock %}
 </head>
 <body class="h-full bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors"
-      x-data="app"
+      x-data="mozartApp"
       x-init="init()">
 
     <!-- Global HTMX configuration -->
@@ -129,37 +129,8 @@
         </div>
     </div>
 
-    <!-- HTMX Global Event Handlers -->
+    <!-- HTMX Button Loading States (error/timeout handling is in app.js Alpine store) -->
     <script>
-        // Global HTMX error handling
-        document.body.addEventListener('htmx:responseError', function(evt) {
-            console.error('HTMX Response Error:', evt.detail);
-            var store = window.Alpine && window.Alpine.store('app');
-            if (store && store.addNotification) {
-                store.addNotification(
-                    'Request Failed',
-                    'HTTP ' + evt.detail.xhr.status + ': ' + evt.detail.xhr.statusText,
-                    'error',
-                    5000
-                );
-            }
-        });
-
-        // Global HTMX timeout handling
-        document.body.addEventListener('htmx:timeout', function(evt) {
-            console.warn('HTMX Timeout:', evt.detail);
-            var store = window.Alpine && window.Alpine.store('app');
-            if (store && store.addNotification) {
-                store.addNotification(
-                    'Request Timeout',
-                    'The request took too long to complete',
-                    'warning',
-                    5000
-                );
-            }
-        });
-
-        // Loading states for buttons with data-loading-text
         document.body.addEventListener('htmx:beforeRequest', function(evt) {
             const target = evt.target;
             if (target.hasAttribute('data-loading-text')) {

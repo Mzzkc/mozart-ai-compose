@@ -186,6 +186,8 @@ document.addEventListener('alpine:init', () => {
             error: 0
         },
 
+        _refreshInterval: null,
+
         init() {
             // Initialize with sample data or load from API
             this.loadLogs();
@@ -199,11 +201,18 @@ document.addEventListener('alpine:init', () => {
             });
 
             // Auto-refresh logs every 5 seconds
-            setInterval(() => {
+            this._refreshInterval = setInterval(() => {
                 if (this.autoScroll) {
                     this.loadLogs();
                 }
             }, 5000);
+        },
+
+        destroy() {
+            if (this._refreshInterval) {
+                clearInterval(this._refreshInterval);
+                this._refreshInterval = null;
+            }
         },
 
         loadLogs() {
