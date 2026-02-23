@@ -1,0 +1,279 @@
+{% extends "base.html" %}
+
+{% block title %}System Monitor - Mozart Dashboard{% endblock %}
+
+{% block content %}
+<div class="py-6"
+     x-data="monitorPage()"
+     x-init="connect()"
+     @beforeunload.window="disconnect()">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <!-- Page Header -->
+        <div class="mb-6 flex items-center justify-between flex-wrap gap-4">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-900 dark:text-white">
+                    System Monitor
+                </h1>
+                <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                    Real-time system health and resource usage
+                </p>
+            </div>
+            <div class="flex items-center space-x-4">
+                <!-- Source selector -->
+                <select x-model="source"
+                        @change="reconnect()"
+                        class="text-sm border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                    <option value="auto">Source: auto</option>
+                    <option value="jsonl">Source: jsonl</option>
+                    <option value="sqlite">Source: sqlite</option>
+                </select>
+                <!-- Connection indicator -->
+                <div class="flex items-center space-x-2">
+                    <div class="h-2.5 w-2.5 rounded-full"
+                         :class="connected ? 'bg-green-400 animate-pulse' : 'bg-red-400'"></div>
+                    <span class="text-sm font-medium"
+                          :class="connected ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'"
+                          x-text="connected ? 'Live' : 'Disconnected'">Disconnected</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Gauge Cards Row -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <!-- Memory Gauge -->
+            <div x-data="{
+                label: 'Memory',
+                get value() { return snapshot ? (snapshot.system_memory_used_mb || 0).toFixed(0) + ' / ' + (snapshot.system_memory_total_mb || 0).toFixed(0) + ' MB' : '-' },
+                get subtitle() { return snapshot ? memoryPercent.toFixed(1) + '% used' : 'No data' },
+                get color() { return memoryPercent > 80 ? 'red' : memoryPercent > 60 ? 'yellow' : 'blue' },
+                get percent() { return memoryPercent }
+            }">
+                {% include 'components/gauge_card.html' %}
+            </div>
+
+            <!-- CPU/Load Gauge -->
+            <div x-data="{
+                label: 'System Load',
+                get value() { return snapshot ? (snapshot.load_avg_1m != null ? snapshot.load_avg_1m.toFixed(2) : '-') : '-' },
+                get subtitle() {
+                    if (!snapshot) return 'No data';
+                    let parts = [];
+                    if (snapshot.load_avg_5m != null) parts.push('5m: ' + snapshot.load_avg_5m.toFixed(2));
+                    if (snapshot.load_avg_15m != null) parts.push('15m: ' + snapshot.load_avg_15m.toFixed(2));
+                    return parts.join(' | ') || '1-minute avg';
+                },
+                get color() {
+                    if (!snapshot || snapshot.load_avg_1m == null) return 'blue';
+                    return snapshot.load_avg_1m > 4 ? 'red' : snapshot.load_avg_1m > 2 ? 'yellow' : 'green';
+                },
+                percent: null
+            }">
+                {% include 'components/gauge_card.html' %}
+            </div>
+
+            <!-- Process Count Gauge -->
+            <div x-data="{
+                label: 'Processes',
+                get value() { return snapshot ? (snapshot.processes || []).length.toString() : '-' },
+                get subtitle() { return snapshot ? 'Tracked processes' : 'No data' },
+                color: 'purple',
+                percent: null
+            }">
+                {% include 'components/gauge_card.html' %}
+            </div>
+
+            <!-- Backpressure Gauge -->
+            <div x-data="{
+                label: 'Backpressure',
+                get value() { return snapshot ? (snapshot.pressure_level || 'none') : '-' },
+                get subtitle() {
+                    if (!snapshot) return 'No data';
+                    const level = snapshot.pressure_level || 'none';
+                    if (level === 'none') return 'System healthy';
+                    if (level === 'light') return 'Slight load';
+                    if (level === 'moderate') return 'Under pressure';
+                    if (level === 'heavy') return 'High pressure';
+                    if (level === 'critical') return 'Critical load';
+                    return level;
+                },
+                get color() {
+                    if (!snapshot) return 'green';
+                    const level = snapshot.pressure_level || 'none';
+                    if (level === 'none') return 'green';
+                    if (level === 'light') return 'blue';
+                    if (level === 'moderate') return 'yellow';
+                    return 'red';
+                },
+                percent: null
+            }">
+                {% include 'components/gauge_card.html' %}
+            </div>
+        </div>
+
+        <!-- Memory Timeline Sparkline -->
+        <div class="mb-6"
+             x-data="{
+                 get sparklineLabel() { return 'Memory Timeline'; },
+                 get history() { return $data.history; }
+             }">
+            {% include 'components/sparkline.html' %}
+        </div>
+
+        <!-- Process Table -->
+        <div class="mb-6"
+             x-data="{
+                 get processes() { return snapshot ? (snapshot.processes || []) : []; }
+             }">
+            {% include 'components/process_table.html' %}
+        </div>
+
+        <!-- Conductor Section -->
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+            <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+                <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Conductor</h3>
+            </div>
+            <div class="p-4">
+                <div x-show="conductor"
+                     class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div>
+                        <span class="text-gray-500 dark:text-gray-400">PID:</span>
+                        <span class="ml-1 font-mono text-gray-900 dark:text-white"
+                              x-text="conductor?.pid || '-'"></span>
+                    </div>
+                    <div>
+                        <span class="text-gray-500 dark:text-gray-400">Uptime:</span>
+                        <span class="ml-1 text-gray-900 dark:text-white"
+                              x-text="conductor?.uptime ? formatUptime(conductor.uptime) : '-'"></span>
+                    </div>
+                    <div>
+                        <span class="text-gray-500 dark:text-gray-400">Running Jobs:</span>
+                        <span class="ml-1 font-semibold text-gray-900 dark:text-white"
+                              x-text="conductor?.running_jobs ?? '-'"></span>
+                    </div>
+                    <div>
+                        <span class="text-gray-500 dark:text-gray-400">Memory:</span>
+                        <span class="ml-1 font-mono text-gray-900 dark:text-white"
+                              x-text="conductor?.memory_mb ? conductor.memory_mb.toFixed(0) + ' MB' : '-'"></span>
+                    </div>
+                </div>
+                <!-- Conductor not available -->
+                <div x-show="!conductor"
+                     class="text-center text-sm text-gray-500 dark:text-gray-400 py-4">
+                    <p>Conductor status unavailable</p>
+                    <p class="mt-1 text-xs">Is the conductor running? Start it with <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">mozart start</code></p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function monitorPage() {
+    return {
+        // Connection state
+        connected: false,
+        source: 'auto',
+        eventSource: null,
+
+        // Snapshot data
+        snapshot: null,
+        history: [],
+        maxHistory: 60,
+
+        // Conductor data (polled separately)
+        conductor: null,
+        conductorInterval: null,
+
+        // Computed
+        get memoryPercent() {
+            if (!this.snapshot || !this.snapshot.system_memory_total_mb) return 0;
+            return (this.snapshot.system_memory_used_mb / this.snapshot.system_memory_total_mb) * 100;
+        },
+
+        // Lifecycle
+        connect() {
+            this.startSSE();
+            this.pollConductor();
+            // Poll conductor every 10s
+            this.conductorInterval = setInterval(() => this.pollConductor(), 10000);
+        },
+
+        disconnect() {
+            if (this.eventSource) {
+                this.eventSource.close();
+                this.eventSource = null;
+            }
+            if (this.conductorInterval) {
+                clearInterval(this.conductorInterval);
+                this.conductorInterval = null;
+            }
+        },
+
+        reconnect() {
+            this.disconnect();
+            this.history = [];
+            this.snapshot = null;
+            this.connect();
+        },
+
+        // SSE connection to /api/monitor/stream
+        startSSE() {
+            const url = '/api/monitor/stream?source=' + encodeURIComponent(this.source) + '&poll_interval=2';
+            this.eventSource = new EventSource(url);
+
+            this.eventSource.addEventListener('connected', (e) => {
+                this.connected = true;
+            });
+
+            this.eventSource.addEventListener('snapshot', (e) => {
+                try {
+                    const data = JSON.parse(e.data);
+                    this.snapshot = data;
+                    this.history.push(data);
+                    if (this.history.length > this.maxHistory) {
+                        this.history.shift();
+                    }
+                } catch (err) {
+                    console.warn('Failed to parse snapshot:', err);
+                }
+            });
+
+            this.eventSource.addEventListener('heartbeat', () => {
+                // Heartbeat keeps connection alive, no action needed
+            });
+
+            this.eventSource.onerror = () => {
+                this.connected = false;
+            };
+        },
+
+        // Poll conductor status
+        async pollConductor() {
+            try {
+                const resp = await fetch('/api/jobs/daemon/status');
+                if (resp.ok) {
+                    this.conductor = await resp.json();
+                } else {
+                    this.conductor = null;
+                }
+            } catch {
+                this.conductor = null;
+            }
+        },
+
+        // Utility: format uptime seconds to human-readable
+        formatUptime(seconds) {
+            if (!seconds && seconds !== 0) return '-';
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = Math.floor(seconds % 60);
+            if (h > 0) return h + 'h ' + m + 'm';
+            if (m > 0) return m + 'm ' + s + 's';
+            return s + 's';
+        }
+    };
+}
+</script>
+{% endblock %}

@@ -20,30 +20,41 @@
             </div>
 
             <!-- Navigation Links -->
+            {% set current_path = request.url.path if request else '/' %}
             <nav class="hidden md:flex space-x-8">
                 <a href="/"
-                   class="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                   class="px-3 py-2 rounded-md text-sm font-medium transition-colors {% if current_path == '/' %}text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30{% else %}text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white{% endif %}"
                    hx-get="/"
                    hx-target="#main-content"
                    hx-push-url="true">
                     Dashboard
                 </a>
                 <a href="/jobs"
-                   class="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                   class="px-3 py-2 rounded-md text-sm font-medium transition-colors {% if current_path.startswith('/jobs') %}text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30{% else %}text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white{% endif %}"
                    hx-get="/jobs"
                    hx-target="#main-content"
                    hx-push-url="true">
                     Jobs
                 </a>
+                <a href="/monitor"
+                   class="px-3 py-2 rounded-md text-sm font-medium transition-colors {% if current_path == '/monitor' %}text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30{% else %}text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white{% endif %}"
+                   hx-get="/monitor"
+                   hx-target="#main-content"
+                   hx-push-url="true">
+                    Monitor
+                </a>
                 <a href="/templates"
-                   class="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                   class="px-3 py-2 rounded-md text-sm font-medium transition-colors {% if current_path == '/templates' %}text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30{% else %}text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white{% endif %}"
                    hx-get="/templates"
                    hx-target="#main-content"
                    hx-push-url="true">
                     Templates
                 </a>
                 <a href="/editor"
-                   class="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors">
+                   class="px-3 py-2 rounded-md text-sm font-medium transition-colors {% if current_path == '/editor' %}text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30{% else %}text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white{% endif %}"
+                   hx-get="/editor"
+                   hx-target="#main-content"
+                   hx-push-url="true">
                     Editor
                 </a>
             </nav>
@@ -107,28 +118,38 @@
          class="md:hidden">
         <div class="px-2 pt-2 pb-3 space-y-1 sm:px-3 bg-white dark:bg-gray-800 shadow-lg">
             <a href="/"
-               class="block px-3 py-2 rounded-md text-base font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700"
+               class="block px-3 py-2 rounded-md text-base font-medium {% if current_path == '/' %}text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30{% else %}text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700{% endif %}"
                hx-get="/"
                hx-target="#main-content"
                hx-push-url="true">
                 Dashboard
             </a>
             <a href="/jobs"
-               class="block px-3 py-2 rounded-md text-base font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700"
+               class="block px-3 py-2 rounded-md text-base font-medium {% if current_path.startswith('/jobs') %}text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30{% else %}text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700{% endif %}"
                hx-get="/jobs"
                hx-target="#main-content"
                hx-push-url="true">
                 Jobs
             </a>
+            <a href="/monitor"
+               class="block px-3 py-2 rounded-md text-base font-medium {% if current_path == '/monitor' %}text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30{% else %}text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700{% endif %}"
+               hx-get="/monitor"
+               hx-target="#main-content"
+               hx-push-url="true">
+                Monitor
+            </a>
             <a href="/templates"
-               class="block px-3 py-2 rounded-md text-base font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700"
+               class="block px-3 py-2 rounded-md text-base font-medium {% if current_path == '/templates' %}text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30{% else %}text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700{% endif %}"
                hx-get="/templates"
                hx-target="#main-content"
                hx-push-url="true">
                 Templates
             </a>
             <a href="/editor"
-               class="block px-3 py-2 rounded-md text-base font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700">
+               class="block px-3 py-2 rounded-md text-base font-medium {% if current_path == '/editor' %}text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30{% else %}text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700{% endif %}"
+               hx-get="/editor"
+               hx-target="#main-content"
+               hx-push-url="true">
                 Editor
             </a>
         </div>
