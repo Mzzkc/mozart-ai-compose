@@ -86,6 +86,8 @@ timeout 600 mozart run my-job.yaml
 
 Individual jobs submitted via `mozart run` are managed by the daemon and do not need `setsid`.
 
+**NEVER stop the conductor while jobs are actively running.** `mozart stop` kills the daemon process, which orphans all in-flight Claude agent processes and corrupts job state (sheets stuck as `in_progress` forever, no validation, no cleanup). Use `mozart pause` on individual jobs first, wait for them to pause, then stop. If you must reload config on a running job, use `mozart modify -c new.yaml --resume --wait`.
+
 **Resuming vs. Fresh starts:**
 
 If a job was interrupted, cancelled, or failed mid-progress, use `mozart resume` to pick up from the last checkpoint:
@@ -305,6 +307,90 @@ pytest
 # Watch for changes (future)
 pytest --watch
 ```
+
+---
+
+## Writing Tests — Flaky Test Prevention
+
+Tests MUST be deterministic. Flaky tests erode trust and block automated pipelines (including the issue-solver). These patterns have caused real failures in this codebase:
+
+### Never: Fixed sleeps for async coordination
+
+```python
+# WRONG — races under load, too slow when it works
+await asyncio.sleep(2.0)
+assert manager.status == "completed"
+
+# RIGHT — poll with deadline
+deadline = asyncio.get_event_loop().time() + 10.0
+while asyncio.get_event_loop().time() < deadline:
+    status = await get_status()
+    if status in ("completed", "failed"):
+        break
+    await asyncio.sleep(0.2)
+assert status == "completed"
+```
+
+Fixed sleeps are the #1 source of flaky tests. Daemon concurrency (`max_concurrent_jobs` semaphore), event propagation, and process cleanup all have variable latency. Always poll for the expected state with a generous deadline.
+
+### Never: Tight timing assertions
+
+```python
+# WRONG — fails under WSL, CI, or debug logging load
+assert elapsed < 5.0, f"took {elapsed}s"
+
+# RIGHT — generous bound that validates correctness, not perf
+assert elapsed < 30.0, f"took {elapsed}s"
+```
+
+If you need a performance benchmark, put it in a separate benchmark suite, not in CI tests. Timing assertions should only catch gross regressions (10x), not tight budgets.
+
+### Never: Assume PID 1 behavior
+
+```python
+# WRONG — PermissionError on non-root/WSL, EPERM on containers
+os.kill(1, 0)  # Check if PID 1 is alive
+
+# RIGHT — mock os.kill when testing process-alive detection
+with patch("os.kill", return_value=None):
+    # Now the "process alive" check always succeeds
+    ...
+```
+
+PID 1 (`init`/`systemd`) behavior varies by platform. Mock `os.kill` instead of relying on specific PIDs.
+
+### Never: Cross-test state leakage
+
+```python
+# WRONG — module-level mutable state shared across tests
+_global_cache = {}
+
+class TestFoo:
+    def test_a(self):
+        _global_cache["key"] = "value"  # Leaks to test_b
+
+# RIGHT — reset shared state in fixtures
+@pytest.fixture(autouse=True)
+def _clear_cache():
+    _global_cache.clear()
+    yield
+    _global_cache.clear()
+```
+
+Tests that pass alone but fail in the full suite indicate state leakage. Common culprits: module-level caches, class variables, singleton instances, monkeypatched globals not restored.
+
+### Never: Assume mypy/ruff output is stable across environments
+
+If a validation script runs `mypy` or `ruff`, changes from OTHER concurrent work (concerts, issue-solver) can introduce new errors that fail your validation. Type annotations must be correct — don't return `Any` from typed functions, don't leave `# type: ignore` on lines that no longer need it.
+
+### Checklist for new tests
+
+1. Does it use `asyncio.sleep()` for coordination? → Replace with polling loop
+2. Does it assert timing < N seconds? → Use generous bounds (10x expected)
+3. Does it reference specific PIDs or process state? → Mock `os.kill`/`os.getpid`
+4. Does it pass alone but fail in `pytest tests/`? → Find and isolate shared state
+5. Does it depend on filesystem timing (mtime)? → Use `retry_count`/`retry_delay_ms` in validations, or mock
+6. Run the full suite (`pytest tests/ -x`) before declaring tests pass
 
 ---
 

@@ -13,6 +13,7 @@ import json
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -26,6 +27,29 @@ router = APIRouter(prefix="/api/monitor", tags=["Monitor"])
 # Default paths (match ProfilerConfig defaults)
 _DEFAULT_JSONL_PATH = Path("~/.mozart/monitor.jsonl").expanduser()
 _DEFAULT_DB_PATH = Path("~/.mozart/monitor.db").expanduser()
+
+# Cached MonitorStorage instance (avoids re-init on every request/stream)
+_monitor_storage_cache: dict[str, Any] = {}
+
+
+async def get_monitor_storage(db_path: Path | None = None) -> Any:
+    """Get or create a cached MonitorStorage instance.
+
+    Returns an initialized MonitorStorage that can be reused across
+    requests instead of creating a new instance per call.
+    """
+    from mozart.daemon.profiler.storage import MonitorStorage
+
+    path = db_path or _DEFAULT_DB_PATH
+    key = str(path)
+    cached = _monitor_storage_cache.get(key)
+    if cached is not None:
+        return cached
+
+    storage = MonitorStorage(db_path=path)
+    await storage.initialize()
+    _monitor_storage_cache[key] = storage
+    return storage
 
 
 async def _tail_jsonl(
@@ -129,13 +153,10 @@ async def _stream_from_sqlite(
         SSE-formatted strings with event type ``snapshot``.
     """
     try:
-        from mozart.daemon.profiler.storage import MonitorStorage
+        storage = await get_monitor_storage(db_path)
     except ImportError:
         yield f"event: error\ndata: {json.dumps({'error': 'aiosqlite not available'})}\n\n"
         return
-
-    storage = MonitorStorage(db_path=db_path)
-    await storage.initialize()
 
     yield f"event: connected\ndata: {json.dumps({'source': 'sqlite', 'path': str(db_path)})}\n\n"
 
@@ -244,7 +265,7 @@ async def stream_monitor(
 
 
 @router.get("/snapshot")
-async def get_latest_snapshot() -> dict:
+async def get_latest_snapshot() -> dict[str, object]:
     """Get the most recent system snapshot (one-shot, not streaming).
 
     Reads the last snapshot from SQLite storage.  Returns 503 if no
@@ -259,15 +280,12 @@ async def get_latest_snapshot() -> dict:
         )
 
     try:
-        from mozart.daemon.profiler.storage import MonitorStorage
+        storage = await get_monitor_storage(db_path)
     except ImportError:
         raise HTTPException(
             status_code=503,
             detail="aiosqlite not available",
         ) from None
-
-    storage = MonitorStorage(db_path=db_path)
-    await storage.initialize()
 
     # Get the most recent snapshot
     since = time.time() - 60  # Last minute
@@ -279,4 +297,5 @@ async def get_latest_snapshot() -> dict:
             detail="No recent snapshots found",
         )
 
-    return snapshots[-1].model_dump(mode="json")
+    result: dict[str, object] = snapshots[-1].model_dump(mode="json")
+    return result
