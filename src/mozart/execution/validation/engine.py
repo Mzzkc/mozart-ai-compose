@@ -81,28 +81,16 @@ class ValidationEngine:
 
         Supports: {sheet_num}, {workspace}, {start_item}, {end_item}
 
-        Raises:
-            ValueError: If expanded path resolves outside the workspace.
+        Both workspace-relative and absolute paths are allowed. Agents work
+        in ``backend.working_directory`` (typically the project root) and
+        create files there — restricting validations to the workspace
+        directory would prevent checking those files.
         """
         context = dict(self.sheet_context)
         context["workspace"] = str(self.workspace)
 
         expanded = path_template.format(**context)
-        resolved = Path(expanded).resolve()
-
-        if not resolved.is_relative_to(self.workspace):
-            _logger.warning(
-                "path_traversal_blocked: template=%s resolved=%s workspace=%s",
-                path_template,
-                str(resolved),
-                str(self.workspace),
-            )
-            raise ValueError(
-                f"Path '{expanded}' resolves to '{resolved}' which is outside "
-                f"workspace '{self.workspace}'"
-            )
-
-        return Path(expanded)
+        return Path(expanded).resolve()
 
     def snapshot_mtime_files(self, rules: list[ValidationRule]) -> None:
         """Snapshot mtimes for all file_modified rules before sheet execution."""
@@ -500,8 +488,9 @@ class ValidationEngine:
         """Check if a shell command succeeds (exit code 0).
 
         Uses asyncio.create_subprocess for non-blocking execution.
-        Commands are executed via ["/bin/sh", "-c", command] -- deterministic
-        shell invocation. Context values are shell-quoted via shlex.quote().
+        Commands are executed via ["bash", "-c", command] so that
+        bash-specific syntax (PIPESTATUS, arrays, etc.) works reliably.
+        Context values are shell-quoted via shlex.quote().
         """
         if not rule.command:
             return self._missing_field_result(rule, "command")
@@ -538,16 +527,17 @@ class ValidationEngine:
 
         try:
             proc = await asyncio.create_subprocess_exec(
-                "/bin/sh", "-c", expanded_command,
+                "bash", "-c", expanded_command,
                 cwd=str(cwd),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
 
+            cmd_timeout = rule.timeout_seconds or VALIDATION_COMMAND_TIMEOUT_SECONDS
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
                     proc.communicate(),
-                    timeout=VALIDATION_COMMAND_TIMEOUT_SECONDS,
+                    timeout=cmd_timeout,
                 )
             except TimeoutError:
                 proc.kill()
@@ -557,11 +547,11 @@ class ValidationEngine:
                     expected_value="exit_code=0",
                     error_message=(
                         f"Command timed out after"
-                        f" {VALIDATION_COMMAND_TIMEOUT_SECONDS} seconds"
+                        f" {cmd_timeout} seconds"
                     ),
                     failure_reason=(
                         f"Command '{display_command}' timed out after"
-                        f" {VALIDATION_COMMAND_TIMEOUT_SECONDS} seconds"
+                        f" {cmd_timeout} seconds"
                     ),
                     failure_category="error",
                     suggested_fix="Increase timeout or optimize the command",

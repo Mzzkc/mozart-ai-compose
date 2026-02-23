@@ -553,6 +553,17 @@ class JobManager:
                 f"Job '{job_id}' is {meta.status.value}, not running"
             )
 
+        # Verify there's an actual running task (guards against stale
+        # "running" status restored from registry after daemon restart)
+        task = self._jobs.get(job_id)
+        if task is None or task.done():
+            meta.status = DaemonJobStatus.FAILED
+            await self._registry.update_status(job_id, DaemonJobStatus.FAILED.value)
+            raise JobSubmissionError(
+                f"Job '{job_id}' has no running process "
+                f"(stale status after daemon restart)"
+            )
+
         ws = workspace or meta.workspace
         return await self._checked_service.pause_job(meta.job_id, ws)
 

@@ -381,6 +381,13 @@ class ValidationRule(BaseModel):
         "Helps with filesystem race conditions when sheet creates files that "
         "are immediately validated. Set to 0 to disable retries.",
     )
+    timeout_seconds: float | None = Field(
+        default=None,
+        gt=0,
+        description="Timeout for command_succeeds validations (seconds). "
+        "Overrides the global VALIDATION_COMMAND_TIMEOUT_SECONDS default (300s). "
+        "Use for validations that run heavy commands like full test suites.",
+    )
     retry_delay_ms: int = Field(
         default=200,
         ge=0,

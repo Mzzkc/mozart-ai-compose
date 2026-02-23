@@ -107,27 +107,26 @@ class TestExpandPath:
         result = engine.expand_path("{workspace}/file.txt")
         assert result == Path(str(temp_workspace) + "/file.txt")
 
-    def test_path_traversal_blocked(self, temp_workspace: Path) -> None:
-        """Paths that escape the workspace are rejected."""
+    def test_path_outside_workspace_allowed(self, temp_workspace: Path) -> None:
+        """Absolute paths outside workspace are allowed (agents work in working_directory)."""
         engine = _make_engine(temp_workspace, {"sheet_num": 1})
-        with pytest.raises(ValueError, match="outside workspace"):
-            engine.expand_path("{workspace}/../../../etc/passwd")
+        result = engine.expand_path("/etc/passwd")
+        assert result == Path("/etc/passwd")
 
-    def test_path_traversal_blocked_absolute(self, temp_workspace: Path) -> None:
-        """Absolute paths outside workspace are rejected."""
+    def test_path_traversal_resolves(self, temp_workspace: Path) -> None:
+        """Paths with traversal components resolve correctly."""
         engine = _make_engine(temp_workspace, {"sheet_num": 1})
-        with pytest.raises(ValueError, match="outside workspace"):
-            engine.expand_path("/etc/passwd")
+        result = engine.expand_path("{workspace}/../sibling.txt")
+        assert result == temp_workspace.parent / "sibling.txt"
 
-    def test_path_within_workspace_allowed(self, temp_workspace: Path) -> None:
-        """Paths with '..' that still resolve inside workspace are allowed."""
+    def test_path_with_traversal_resolves_correctly(self, temp_workspace: Path) -> None:
+        """Paths with '..' resolve to their canonical location."""
         subdir = temp_workspace / "a" / "b"
         subdir.mkdir(parents=True)
         engine = _make_engine(temp_workspace, {"sheet_num": 1})
-        # Goes up from a/b back to workspace root, then into c -- still inside workspace
+        # Goes up from a/b back to workspace root — resolves to workspace/file.txt
         result = engine.expand_path("{workspace}/a/b/../../file.txt")
-        assert result == Path(str(temp_workspace) + "/a/b/../../file.txt")
-        assert result.resolve().is_relative_to(temp_workspace.resolve())
+        assert result == (temp_workspace / "file.txt").resolve()
 
 
 # ===========================================================================

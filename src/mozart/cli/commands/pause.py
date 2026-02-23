@@ -299,10 +299,11 @@ async def _pause_via_conductor(
     job_id: str,
     params: dict[str, str | None],
     json_output: bool,
-) -> None:
+) -> bool:
     """Pause a running job via the conductor RPC.
 
-    Raises typer.Exit on failure.
+    Returns True if pause signal was sent, False on failure.
+    Prints status/error messages to console.
     """
     from mozart.daemon.detect import try_daemon_route
 
@@ -321,10 +322,10 @@ async def _pause_via_conductor(
             console.print(json.dumps(result, indent=2))
         else:
             console.print(f"[red]Error [E503]:[/red] {exc}")
-        raise typer.Exit(1) from None
+        return False
 
     if not pause_routed:
-        return
+        return False
 
     paused = (
         pause_result.get("paused", False)
@@ -348,8 +349,11 @@ async def _pause_via_conductor(
             }
             console.print(json.dumps(result, indent=2))
         else:
-            console.print(f"[red]Error [E503]:[/red] Failed to pause job '{job_id}'")
-        raise typer.Exit(1)
+            msg = f"Failed to pause job '{job_id}'"
+            if error_msg:
+                msg += f": {error_msg}"
+            console.print(f"[red]Error [E503]:[/red] {msg}")
+    return paused
 
 
 async def _pause_via_filesystem(
@@ -551,19 +555,33 @@ async def _modify_job(
         found_workspace = workspace or Path.cwd()
 
     # Handle job based on its current state
+    _resumable_statuses = {JobStatus.PAUSED, JobStatus.FAILED, JobStatus.CANCELLED}
     job_was_running = found_state.status == JobStatus.RUNNING
+    pause_ok = False
 
     if job_was_running:
         # Pause through conductor if available, otherwise filesystem
+        pause_ok = True
         if routed:
-            await _pause_via_conductor(job_id, params, json_output)
+            pause_ok = await _pause_via_conductor(job_id, params, json_output)
         else:
             await _pause_via_filesystem(
                 job_id, found_workspace, wait, resume_flag,
                 timeout, json_output, found_backend,
             )
 
-    elif found_state.status not in {JobStatus.PAUSED, JobStatus.FAILED}:
+        if not pause_ok and resume_flag and routed:
+            # Pause failed — the job likely already transitioned to a
+            # resumable state (failed/paused/cancelled).  Skip the pause
+            # failure and let the resume attempt determine the outcome.
+            if not json_output:
+                console.print(
+                    "[dim]Job is no longer running, skipping pause.[/dim]"
+                )
+        elif not pause_ok:
+            raise typer.Exit(1)
+
+    elif found_state.status not in _resumable_statuses:
         # Job is in a state that can't be modified (completed, pending)
         status_str = found_state.status.value
         if json_output:
@@ -593,7 +611,7 @@ async def _modify_job(
 
     # If resume flag is set, wait for pause to take effect then resume
     if resume_flag:
-        if job_was_running and routed:
+        if job_was_running and routed and pause_ok:
             # Pause is async — poll until the job is actually paused/failed
             _resumable = {"paused", "failed", "cancelled"}
             deadline = asyncio.get_event_loop().time() + timeout

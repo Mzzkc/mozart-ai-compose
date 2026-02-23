@@ -312,6 +312,9 @@ class JobService:
         # Update config snapshot if new config was provided
         if config is not None or reload_config:
             found_state.config_snapshot = resolved_config.model_dump(mode="json")
+            # Reset cost limit flag — the new config may have different
+            # cost_limits settings (or disabled them entirely).
+            found_state.cost_limit_reached = False
 
         # Calculate resume point
         resume_sheet = found_state.last_completed_sheet + 1
