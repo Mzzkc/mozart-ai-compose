@@ -1964,9 +1964,10 @@ class TestSchedulerScale:
         assert completed_count == total
         assert scheduler.active_count == 0
         assert scheduler.queued_count == 0
-        # 1000 dispatch+complete cycles with max_concurrent=50 should
-        # complete in well under 5 seconds on any modern machine.
-        assert elapsed < 5.0, f"1000 dispatch+complete took {elapsed:.3f}s"
+        # 1000 dispatch+complete cycles should complete reasonably fast.
+        # Generous limit (30s) to avoid flaky failures under WSL/CI load
+        # while still catching catastrophic regressions.
+        assert elapsed < 30.0, f"1000 dispatch+complete took {elapsed:.3f}s"
 
     @pytest.mark.asyncio
     async def test_10_jobs_50_sheets_each_fair_dispatch(

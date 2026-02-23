@@ -498,12 +498,14 @@ class TestInitializeState:
         """Raises FatalError if process is still alive."""
         runner = MockRunner()
         existing = _make_state(total_sheets=5, status=JobStatus.RUNNING)
-        import os
-        existing.pid = os.getpid()  # This PID IS alive
+        existing.pid = 99999
         runner.state_backend.load = AsyncMock(return_value=existing)
 
-        with pytest.raises(FatalError, match="already running"):
-            await runner._initialize_state(None, None)
+        # Mock os.kill to succeed (process alive) — avoids PermissionError
+        # on PID 1 under non-root/WSL environments.
+        with patch("os.kill", return_value=None):
+            with pytest.raises(FatalError, match="already running"):
+                await runner._initialize_state(None, None)
 
 
 # ─── _should_skip_sheet ─────────────────────────────────────────────
