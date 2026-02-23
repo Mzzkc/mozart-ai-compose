@@ -50,6 +50,16 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // Wire Save Score button to download current editor content
+    const saveBtn = document.getElementById('save-score-btn');
+    if (saveBtn) {
+        saveBtn.addEventListener('click', function() {
+            if (window.scoreEditorInstance && window.scoreEditorInstance.downloadScore) {
+                window.scoreEditorInstance.downloadScore();
+            }
+        });
+    }
+
     // Load template if specified in URL
     const urlParams = new URLSearchParams(window.location.search);
     const templateName = urlParams.get('template');
@@ -59,16 +69,14 @@ document.addEventListener('DOMContentLoaded', function() {
         fetch(`/api/templates/${templateName}`)
             .then(response => response.json())
             .then(template => {
-                // Use the score editor's template loading function
                 if (window.scoreEditorInstance && window.scoreEditorInstance.loadTemplateContent) {
                     window.scoreEditorInstance.loadTemplateContent(template.content, template.title);
                 }
             })
             .catch(error => {
                 console.error('Failed to load template:', error);
-                // Show error notification
-                if (window.showNotification) {
-                    window.showNotification('Failed to load template', 'error');
+                if (window.Alpine && window.Alpine.store('app')) {
+                    window.Alpine.store('app').addNotification('Failed to load template', error.message, 'error', 5000);
                 }
             });
     }
@@ -81,7 +89,6 @@ document.addEventListener('DOMContentLoaded', function() {
             if (window.scoreEditorInstance && window.scoreEditorInstance.loadTemplateContent) {
                 window.scoreEditorInstance.loadTemplateContent(template.content, template.title);
             }
-            // Clear from session storage
             sessionStorage.removeItem('templateToLoad');
         } catch (error) {
             console.error('Failed to load stored template:', error);

@@ -610,6 +610,12 @@ window.scoreEditor = function() {
         errors: [],
         errorCount: 0,
         showErrors: false,
+        configSummary: null,
+
+        // Submit state
+        isSubmitting: false,
+        showSubmitModal: false,
+        currentFileName: 'mozart-score.yaml',
 
         // CodeMirror 6 decoration state (stored externally for simple updates)
         _decorationCompartment: null,
@@ -704,7 +710,15 @@ retry_count: 3
             this.$nextTick(() => {
                 this.setupEditor();
                 this.setupEventListeners();
+                // Expose instance for page-level integration (save button, template loading)
+                window.scoreEditorInstance = this;
             });
+        },
+
+        // Load template content from external source (used by page-level script)
+        loadTemplateContent(content, title) {
+            this.setContent(content);
+            if (title) this.currentFileName = title.replace(/\s+/g, '-').toLowerCase() + '.yaml';
         },
 
         // Setup CodeMirror editor
@@ -854,6 +868,9 @@ retry_count: 3
             this.errorCount = result.counts?.ERROR || 0;
             const warningCount = result.counts?.WARNING || 0;
             const totalIssues = this.errorCount + warningCount;
+
+            // Store config summary from validation response
+            this.configSummary = result.config_summary || null;
 
             // Determine validation status
             if (this.errorCount > 0) {
@@ -1123,6 +1140,128 @@ workspace: "./workspace"
                 window.Alpine.store('app').addNotification(title, message, 'error', 8000);
             } else {
                 console.error(`${title}: ${message}`);
+            }
+        },
+
+        // File import from local filesystem
+        openFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                this.setContent(e.target.result);
+                this.currentFileName = file.name;
+
+                if (window.Alpine && window.Alpine.store('app')) {
+                    window.Alpine.store('app').addNotification(
+                        'File Loaded',
+                        `Opened ${file.name}`,
+                        'success',
+                        3000
+                    );
+                }
+            };
+            reader.readAsText(file);
+
+            // Reset input so the same file can be re-opened
+            event.target.value = '';
+        },
+
+        // Set editor content programmatically
+        setContent(text) {
+            this.content = text;
+            if (this.editor) {
+                const newState = window.CodeMirror6.EditorState.create({
+                    doc: text,
+                    extensions: [
+                        window.CodeMirror6.basicSetup,
+                        window.CodeMirror6.yaml(),
+                        this._decorationCompartment.of([]),
+                    ]
+                });
+                this.editor.setState(newState);
+                this.updateStats();
+                this.validateScore();
+            }
+        },
+
+        // Get current editor content as string
+        getContent() {
+            if (this.editor) {
+                return this.editor.state.doc.toString();
+            }
+            return typeof this.content === 'string' ? this.content : '';
+        },
+
+        // Download current content as YAML file
+        downloadScore() {
+            const content = this.getContent();
+            if (!content.trim()) return;
+
+            const blob = new Blob([content], { type: 'application/x-yaml' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = this.currentFileName || 'mozart-score.yaml';
+            a.click();
+            URL.revokeObjectURL(url);
+
+            if (window.Alpine && window.Alpine.store('app')) {
+                window.Alpine.store('app').addNotification(
+                    'Score Downloaded',
+                    `Saved as ${a.download}`,
+                    'success',
+                    3000
+                );
+            }
+        },
+
+        // Submit score to conductor — opens confirmation modal
+        submitScore() {
+            if (this.validationStatus !== 'valid') {
+                this.showError('Cannot Submit', 'Score must pass validation before submitting');
+                return;
+            }
+            this.showSubmitModal = true;
+        },
+
+        // Actually submit after user confirms
+        async confirmSubmit() {
+            this.showSubmitModal = false;
+            this.isSubmitting = true;
+
+            try {
+                const content = this.getContent();
+                const response = await fetch('/api/scores/submit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: content })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({ detail: response.statusText }));
+                    throw new Error(error.detail || `HTTP ${response.status}`);
+                }
+
+                const result = await response.json();
+
+                if (window.Alpine && window.Alpine.store('app')) {
+                    window.Alpine.store('app').addNotification(
+                        'Score Submitted',
+                        `Job '${result.job_name}' started (${result.job_id})`,
+                        'success',
+                        5000
+                    );
+                }
+
+                // Navigate to job details page
+                window.location.href = `/jobs/${result.job_id}/details`;
+
+            } catch (error) {
+                this.showError('Submission Failed', error.message);
+            } finally {
+                this.isSubmitting = false;
             }
         },
 

@@ -10,12 +10,15 @@ from typing import Any
 _logger = logging.getLogger(__name__)
 
 import yaml
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from pydantic import BaseModel, Field, ValidationError
 
 from mozart.core.config import JobConfig
+from mozart.dashboard.app import get_state_backend
+from mozart.dashboard.services.job_control import JobControlService
 from mozart.scores.templates import TEMPLATE_FILES, get_template_path, list_templates
+from mozart.state.base import StateBackend
 from mozart.validation import (
     ValidationRunner,
     create_default_checks,
@@ -294,6 +297,88 @@ async def validate_config(request: ValidateConfigRequest) -> ValidateConfigRespo
         counts=counts,
         config_summary=config_summary,
         error_message=error_message,
+    )
+
+
+# ============================================================================
+# Submit to Conductor
+# ============================================================================
+
+
+class SubmitScoreRequest(BaseModel):
+    """Request to submit a score to the conductor for execution."""
+    content: str = Field(..., max_length=1_000_000, description="YAML score content")
+    workspace: str | None = Field(None, description="Override workspace directory")
+    self_healing: bool = Field(False, description="Enable self-healing mode")
+
+
+class SubmitScoreResponse(BaseModel):
+    """Response from score submission."""
+    success: bool
+    job_id: str
+    job_name: str
+    message: str
+
+
+async def _get_job_control_service(
+    backend: StateBackend = Depends(get_state_backend),
+) -> JobControlService:
+    """Get job control service for score submission."""
+    return JobControlService(backend)
+
+
+@router.post("/submit", response_model=SubmitScoreResponse)
+async def submit_score(
+    request: SubmitScoreRequest,
+    job_service: JobControlService = Depends(_get_job_control_service),
+) -> SubmitScoreResponse:
+    """Validate and submit a score to the conductor for execution.
+
+    Validates the score first, then submits it via JobControlService.
+
+    Args:
+        request: Score content and execution options.
+        job_service: Injected job control service.
+
+    Returns:
+        Submission result with job ID and name.
+
+    Raises:
+        HTTPException: 400 if score is invalid, 503 if submission fails.
+    """
+    content = request.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Score content is empty")
+
+    # Validate before submitting
+    _, yaml_error = parse_yaml_safely(content)
+    if yaml_error:
+        raise HTTPException(status_code=400, detail=f"Invalid YAML: {yaml_error}")
+
+    config, schema_error = validate_schema(content)
+    if schema_error:
+        raise HTTPException(status_code=400, detail=f"Invalid config: {schema_error}")
+
+    # Submit via job control service
+    workspace = Path(request.workspace) if request.workspace else None
+    try:
+        result = await job_service.start_job(
+            config_content=content,
+            workspace=workspace,
+            self_healing=request.self_healing,
+        )
+    except Exception as e:
+        _logger.error("Score submission failed: %s", e)
+        raise HTTPException(
+            status_code=503,
+            detail=f"Failed to submit score: {e}",
+        ) from None
+
+    return SubmitScoreResponse(
+        success=True,
+        job_id=result.job_id,
+        job_name=result.job_name,
+        message=f"Job '{result.job_name}' submitted successfully",
     )
 
 
