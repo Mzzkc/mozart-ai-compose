@@ -352,6 +352,7 @@ class TestDaemonProcess:
             "job.diagnose", "job.history", "job.recover",
             "daemon.status", "daemon.shutdown", "daemon.config",
             "daemon.health", "daemon.ready",
+            "daemon.top", "daemon.top.stream", "daemon.events",
         }
         assert registered_methods == expected
 

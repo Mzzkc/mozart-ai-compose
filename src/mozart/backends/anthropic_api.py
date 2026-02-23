@@ -32,16 +32,16 @@ class AnthropicApiBackend(Backend):
 
     def __init__(
         self,
-        model: str = "claude-sonnet-4-20250514",
+        model: str = "claude-sonnet-4-5-20250929",
         api_key_env: str = "ANTHROPIC_API_KEY",
-        max_tokens: int = 8192,
+        max_tokens: int = 16384,
         temperature: float = 0.7,
         timeout_seconds: float = 300.0,  # 5 minute default for API
     ):
         """Initialize API backend.
 
         Args:
-            model: Model ID to use (e.g., claude-sonnet-4-20250514)
+            model: Model ID to use (e.g., claude-sonnet-4-5-20250929)
             api_key_env: Environment variable containing API key
             max_tokens: Maximum tokens for response
             temperature: Sampling temperature (0.0-1.0)

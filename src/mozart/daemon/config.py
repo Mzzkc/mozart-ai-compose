@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from mozart.core.config.backend import BackendConfig
 from mozart.core.logging import get_logger
+from mozart.daemon.profiler.models import ProfilerConfig
 
 _logger = get_logger("daemon.config")
 
@@ -187,7 +188,7 @@ class DaemonConfig(BaseModel):
         "Used to detect already-running daemons and for signal delivery.",
     )
     max_concurrent_jobs: int = Field(
-        default=5,
+        default=15,
         ge=1,
         le=50,
         description="Maximum jobs executing simultaneously. "
@@ -263,6 +264,11 @@ class DaemonConfig(BaseModel):
         default_factory=SemanticLearningConfig,
         description="Semantic learning configuration for LLM-based analysis "
         "of sheet completions.",
+    )
+    profiler: ProfilerConfig = Field(
+        default_factory=ProfilerConfig,
+        description="System profiler configuration for resource monitoring, "
+        "anomaly detection, and correlation analysis.",
     )
     config_file: Path | None = Field(
         default=None,

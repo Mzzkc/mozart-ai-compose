@@ -11,8 +11,10 @@ from mozart.core.config import (
     ConductorPreferences,
     ConductorRole,
     CostLimitConfig,
-    IsolationConfig,
     FeedbackConfig,
+    InjectionCategory,
+    InjectionItem,
+    IsolationConfig,
     JobConfig,
     LearningConfig,
     PromptConfig,
@@ -35,7 +37,7 @@ class TestRetryConfig:
         assert config.max_delay_seconds == 3600.0
         assert config.exponential_base == 2.0
         assert config.jitter is True
-        assert config.max_completion_attempts == 3
+        assert config.max_completion_attempts == 5
 
     def test_custom_values(self):
         """Test custom values override defaults."""
@@ -166,6 +168,83 @@ class TestSheetConfig:
         assert "Extra directive for sheet 2" in config.sheet.prompt_extensions[2]
 
 
+class TestPreludeCadenza:
+    """Tests for prelude/cadenza context injection config (GH#53)."""
+
+    def test_prelude_default_empty(self):
+        """Test prelude defaults to empty list."""
+        config = SheetConfig(size=1, total_items=5)
+        assert config.prelude == []
+
+    def test_cadenzas_default_empty(self):
+        """Test cadenzas defaults to empty dict."""
+        config = SheetConfig(size=1, total_items=5)
+        assert config.cadenzas == {}
+
+    def test_prelude_accepts_injection_items(self):
+        """Test prelude accepts a list of InjectionItems."""
+        config = SheetConfig(
+            size=1,
+            total_items=3,
+            prelude=[
+                InjectionItem(file="shared-context.md", **{"as": "context"}),
+                InjectionItem(file="shared-skill.md", **{"as": "skill"}),
+            ],
+        )
+        assert len(config.prelude) == 2
+        assert config.prelude[0].file == "shared-context.md"
+        assert config.prelude[0].as_ == InjectionCategory.CONTEXT
+        assert config.prelude[1].as_ == InjectionCategory.SKILL
+
+    def test_cadenzas_accepts_per_sheet_items(self):
+        """Test cadenzas accepts per-sheet injection items."""
+        config = SheetConfig(
+            size=1,
+            total_items=3,
+            cadenzas={
+                2: [InjectionItem(file="sheet2-tool.md", **{"as": "tool"})],
+            },
+        )
+        assert 2 in config.cadenzas
+        assert len(config.cadenzas[2]) == 1
+        assert config.cadenzas[2][0].as_ == InjectionCategory.TOOL
+
+    def test_prelude_cadenza_in_jobconfig(self):
+        """Test prelude/cadenzas work via YAML-like dict in JobConfig."""
+        config = JobConfig.model_validate({
+            "name": "test",
+            "sheet": {
+                "size": 1,
+                "total_items": 3,
+                "prelude": [
+                    {"file": "context.md", "as": "context"},
+                ],
+                "cadenzas": {
+                    1: [{"file": "setup.md", "as": "skill"}],
+                },
+            },
+            "prompt": {"template": "{{ sheet_num }}"},
+        })
+        assert len(config.sheet.prelude) == 1
+        assert config.sheet.prelude[0].file == "context.md"
+        assert 1 in config.sheet.cadenzas
+
+    def test_injection_item_invalid_category_raises(self):
+        """Test InjectionItem rejects invalid category values."""
+        with pytest.raises(ValidationError):
+            InjectionItem(file="test.md", **{"as": "invalid_category"})
+
+    def test_backward_compat_no_prelude(self):
+        """Test existing configs without prelude/cadenzas still parse."""
+        config = JobConfig.model_validate({
+            "name": "legacy",
+            "sheet": {"size": 5, "total_items": 10},
+            "prompt": {"template": "{{ sheet_num }}"},
+        })
+        assert config.sheet.prelude == []
+        assert config.sheet.cadenzas == {}
+
+
 class TestValidationRule:
     """Tests for ValidationRule model."""
 
@@ -205,11 +284,11 @@ class TestBackendConfig:
         """Test anthropic_api backend configuration."""
         config = BackendConfig(
             type="anthropic_api",
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-5-20250929",
             api_key_env="ANTHROPIC_API_KEY",
         )
         assert config.type == "anthropic_api"
-        assert config.model == "claude-sonnet-4-20250514"
+        assert config.model == "claude-sonnet-4-5-20250929"
 
     def test_disable_mcp_default(self):
         """Test disable_mcp defaults to True for faster batch execution."""
@@ -248,8 +327,8 @@ class TestBackendConfig:
 
     def test_cli_model_override(self):
         """Test cli_model can be set to specific model."""
-        config = BackendConfig(cli_model="claude-sonnet-4-20250514")
-        assert config.cli_model == "claude-sonnet-4-20250514"
+        config = BackendConfig(cli_model="claude-sonnet-4-5-20250929")
+        assert config.cli_model == "claude-sonnet-4-5-20250929"
 
     def test_allowed_tools_default_none(self):
         """Test allowed_tools defaults to None (all tools available)."""
@@ -347,7 +426,7 @@ class TestBackendConfig:
             skip_permissions=True,
             disable_mcp=False,  # Explicitly enable MCP
             output_format="stream-json",
-            cli_model="claude-sonnet-4-20250514",
+            cli_model="claude-sonnet-4-5-20250929",
             allowed_tools=["Read", "Edit", "Write"],
             system_prompt_file=Path("./prompts/custom.md"),
             working_directory=Path("/project"),
@@ -358,7 +437,7 @@ class TestBackendConfig:
         assert config.skip_permissions is True
         assert config.disable_mcp is False
         assert config.output_format == "stream-json"
-        assert config.cli_model == "claude-sonnet-4-20250514"
+        assert config.cli_model == "claude-sonnet-4-5-20250929"
         assert config.allowed_tools == ["Read", "Edit", "Write"]
         assert config.system_prompt_file == Path("./prompts/custom.md")
         assert config.working_directory == Path("/project")
@@ -380,7 +459,7 @@ class TestSheetBackendOverride:
 
         config = BackendConfig(
             type="anthropic_api",
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-5-20250929",
             sheet_overrides={
                 1: SheetBackendOverride(model="claude-opus-4-6"),
             },
@@ -391,9 +470,9 @@ class TestSheetBackendOverride:
 
     def test_sheet_overrides_temperature_validation(self):
         """Test temperature must be 0-1 in sheet overrides."""
-        from mozart.core.config.backend import SheetBackendOverride
-
         import pytest
+
+        from mozart.core.config.backend import SheetBackendOverride
 
         with pytest.raises(Exception):  # noqa: B017
             SheetBackendOverride(temperature=1.5)

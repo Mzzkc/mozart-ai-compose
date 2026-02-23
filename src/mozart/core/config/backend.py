@@ -344,16 +344,16 @@ class BackendConfig(BaseModel):
         "Example: ['--verbose', '--some-new-flag']",
     )
     max_output_capture_bytes: int = Field(
-        default=10240,
+        default=51200,
         gt=0,
         description="Maximum bytes of stdout/stderr to capture per sheet for diagnostics. "
-        "Default: 10240 (10KB). Increase for jobs that need more debugging context. "
+        "Default: 51200 (50KB). Increase for jobs that need more debugging context. "
         "Applies to SheetState.capture_output() during execution.",
     )
 
     # API-specific options (only meaningful when type="anthropic_api")
     model: str = Field(
-        default="claude-sonnet-4-20250514",
+        default="claude-sonnet-4-5-20250929",
         description="[anthropic_api] Model ID for Anthropic API",
     )
     api_key_env: str = Field(
@@ -361,7 +361,7 @@ class BackendConfig(BaseModel):
         description="[anthropic_api] Environment variable containing API key",
     )
     max_tokens: int = Field(
-        default=8192, ge=1,
+        default=16384, ge=1,
         description="[anthropic_api] Maximum tokens for API response",
     )
     temperature: float = Field(

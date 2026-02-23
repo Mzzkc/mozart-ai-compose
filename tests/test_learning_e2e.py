@@ -132,12 +132,12 @@ class TestLearningCycleE2E:
             error_code="E101",
             duration_seconds=300.0,
             job_id="job-1",
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-5-20250929",
         )
 
         # Check if rate limited
         is_limited, wait_time = store.is_rate_limited(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-5-20250929",
         )
 
         # Should detect the rate limit
@@ -264,7 +264,7 @@ class TestErrorRecoveryLearningE2E:
         returns learned wait times based on successful recoveries.
         """
         error_code = "E101"
-        model = "claude-sonnet-4-20250514"
+        model = "claude-sonnet-4-5-20250929"
 
         # Record several successful recoveries with consistent wait times
         for _ in range(5):
@@ -453,7 +453,7 @@ class TestSuccessFactorsE2E:
             store.record_outcome(
                 outcome=outcome,
                 workspace_path=Path("/tmp/stats-test"),
-                model="claude-sonnet-4-20250514",
+                model="claude-sonnet-4-5-20250929",
             )
 
         # Query execution statistics
@@ -496,7 +496,7 @@ class TestMultiRunMeasurementE2E:
         store.record_outcome(
             outcome=failed_outcome,
             workspace_path=Path("/tmp/measurement-test"),
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-5-20250929",
             error_codes=["E009"],
         )
 
@@ -541,7 +541,7 @@ class TestMultiRunMeasurementE2E:
         store.record_outcome(
             outcome=success_outcome,
             workspace_path=Path("/tmp/measurement-test"),
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-5-20250929",
         )
 
         # Record pattern application with positive outcome

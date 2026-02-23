@@ -32,6 +32,21 @@ Project-specific instructions for AI assistants working on this codebase.
 
 ---
 
+## Bug Reporting
+
+When you discover bugs, test failures, or regressions while working on Mozart, **file them as GitHub issues immediately** — don't just note them in passing or leave them as TODOs.
+
+```bash
+gh issue create --repo Mzzkc/mozart-ai-compose \
+  --title "Short description of the bug" \
+  --body "## Bug\n\nDescription, root cause, reproducer, and fix options." \
+  --label "bug"
+```
+
+Include: root cause analysis, reproducer steps, and fix options. Don't file vague "this is broken" issues — explain *why* it's broken so it can be fixed without re-investigation.
+
+---
+
 ## Key Files
 
 | Purpose | File |
@@ -48,6 +63,7 @@ Project-specific instructions for AI assistants working on this codebase.
 | Fan-out expansion | `src/mozart/core/fan_out.py` |
 | Example config | `examples/sheet-review.yaml` |
 | Fan-out example | `examples/parallel-research-fanout.yaml` |
+| Prelude/Cadenza example | `examples/prelude-cadenza-example.yaml` |
 
 ---
 
@@ -209,6 +225,7 @@ mozart validate my-job.yaml --json
 | V007 | Invalid regex patterns | ERROR |
 | V101 | Undefined template variables | WARNING |
 | V103 | Very short timeout | WARNING |
+| V108 | Missing prelude/cadenza files (static paths) | WARNING |
 
 ### Self-Healing (`--self-healing`)
 
@@ -451,6 +468,7 @@ This project generalizes patterns from `/home/emzi/Projects/Naurva/run-sheet-rev
 ## Reference Skills
 
 When working on this project, relevant skills:
+- `/home/emzi/.claude/skills/mozart-score-authoring.md` - **Mozart score/config writing guide (syntax, validations, prompts, features)**
 - `/home/emzi/.claude/skills/mozart-usage.md` - **Mozart debugging and usage guide (global)**
 - `/home/emzi/.claude/skills/session-startup-protocol.md`
 - `/home/emzi/.claude/skills/session-shutdown-protocol.md`

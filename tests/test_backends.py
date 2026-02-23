@@ -34,9 +34,9 @@ class TestAnthropicApiBackendInit:
     def test_init_defaults(self) -> None:
         """Test default initialization values."""
         backend = AnthropicApiBackend()
-        assert backend.model == "claude-sonnet-4-20250514"
+        assert backend.model == "claude-sonnet-4-5-20250929"
         assert backend.api_key_env == "ANTHROPIC_API_KEY"
-        assert backend.max_tokens == 8192
+        assert backend.max_tokens == 16384
         assert backend.temperature == 0.7
         assert backend.timeout_seconds == 300.0
         assert backend.name == "anthropic-api"
@@ -108,7 +108,7 @@ class TestAnthropicApiBackendExecute:
         assert result.stdout == "Hello, world!"
         assert result.stderr == ""
         assert result.tokens_used == 15
-        assert result.model == "claude-sonnet-4-20250514"
+        assert result.model == "claude-sonnet-4-5-20250929"
         assert result.duration_seconds > 0
 
     @pytest.mark.asyncio
@@ -880,7 +880,7 @@ class TestBackendLogging:
         request_logs = [log for log in captured_logs if log.get("event") == "api_request"]
         assert len(request_logs) == 1
         assert request_logs[0]["level"] == "debug"
-        assert request_logs[0]["model"] == "claude-sonnet-4-20250514"
+        assert request_logs[0]["model"] == "claude-sonnet-4-5-20250929"
         assert request_logs[0]["prompt_length"] == 11  # len("test prompt")
         # Ensure API key is NOT logged
         assert "api_key" not in request_logs[0]
@@ -1431,32 +1431,32 @@ class TestAnthropicApiBackendOverrides:
 
     def test_apply_overrides_model(self) -> None:
         """Apply model override changes model attribute."""
-        backend = AnthropicApiBackend(model="claude-sonnet-4-20250514")
+        backend = AnthropicApiBackend(model="claude-sonnet-4-5-20250929")
         backend.apply_overrides({"model": "claude-opus-4-6"})
         assert backend.model == "claude-opus-4-6"
 
     def test_clear_overrides_restores_original(self) -> None:
         """Clear overrides restores original model."""
-        backend = AnthropicApiBackend(model="claude-sonnet-4-20250514", temperature=0.7)
+        backend = AnthropicApiBackend(model="claude-sonnet-4-5-20250929", temperature=0.7)
         backend.apply_overrides({"model": "claude-opus-4-6", "temperature": 0.2})
         assert backend.model == "claude-opus-4-6"
         assert backend.temperature == 0.2
         backend.clear_overrides()
-        assert backend.model == "claude-sonnet-4-20250514"
+        assert backend.model == "claude-sonnet-4-5-20250929"
         assert backend.temperature == 0.7
 
     def test_apply_overrides_partial(self) -> None:
         """Apply only some overrides leaves others unchanged."""
-        backend = AnthropicApiBackend(model="claude-sonnet-4-20250514", temperature=0.7)
+        backend = AnthropicApiBackend(model="claude-sonnet-4-5-20250929", temperature=0.7)
         backend.apply_overrides({"temperature": 0.0})
-        assert backend.model == "claude-sonnet-4-20250514"  # Unchanged
+        assert backend.model == "claude-sonnet-4-5-20250929"  # Unchanged
         assert backend.temperature == 0.0
 
     def test_clear_overrides_noop_without_apply(self) -> None:
         """Clearing overrides without applying is a no-op."""
-        backend = AnthropicApiBackend(model="claude-sonnet-4-20250514")
+        backend = AnthropicApiBackend(model="claude-sonnet-4-5-20250929")
         backend.clear_overrides()  # Should not raise
-        assert backend.model == "claude-sonnet-4-20250514"
+        assert backend.model == "claude-sonnet-4-5-20250929"
 
     def test_apply_overrides_max_tokens(self) -> None:
         """Apply max_tokens override."""
@@ -1468,9 +1468,9 @@ class TestAnthropicApiBackendOverrides:
 
     def test_apply_empty_overrides_noop(self) -> None:
         """Empty overrides dict is a no-op."""
-        backend = AnthropicApiBackend(model="claude-sonnet-4-20250514")
+        backend = AnthropicApiBackend(model="claude-sonnet-4-5-20250929")
         backend.apply_overrides({})
-        assert backend.model == "claude-sonnet-4-20250514"
+        assert backend.model == "claude-sonnet-4-5-20250929"
         assert not backend._has_overrides
 
 
@@ -1482,27 +1482,27 @@ class TestClaudeCliBackendOverrides:
 
     def test_apply_overrides_cli_model(self) -> None:
         """Apply cli_model override changes model attribute."""
-        backend = self._make_backend(cli_model="claude-sonnet-4-20250514")
+        backend = self._make_backend(cli_model="claude-sonnet-4-5-20250929")
         backend.apply_overrides({"cli_model": "claude-opus-4-6"})
         assert backend.cli_model == "claude-opus-4-6"
 
     def test_clear_overrides_restores_cli_model(self) -> None:
         """Clear overrides restores original cli_model."""
-        backend = self._make_backend(cli_model="claude-sonnet-4-20250514")
+        backend = self._make_backend(cli_model="claude-sonnet-4-5-20250929")
         backend.apply_overrides({"cli_model": "claude-opus-4-6"})
         assert backend.cli_model == "claude-opus-4-6"
         backend.clear_overrides()
-        assert backend.cli_model == "claude-sonnet-4-20250514"
+        assert backend.cli_model == "claude-sonnet-4-5-20250929"
 
     def test_clear_overrides_noop_without_apply(self) -> None:
         """Clearing overrides without applying is a no-op."""
-        backend = self._make_backend(cli_model="claude-sonnet-4-20250514")
+        backend = self._make_backend(cli_model="claude-sonnet-4-5-20250929")
         backend.clear_overrides()
-        assert backend.cli_model == "claude-sonnet-4-20250514"
+        assert backend.cli_model == "claude-sonnet-4-5-20250929"
 
     def test_apply_empty_overrides_noop(self) -> None:
         """Empty overrides dict is a no-op."""
-        backend = self._make_backend(cli_model="claude-sonnet-4-20250514")
+        backend = self._make_backend(cli_model="claude-sonnet-4-5-20250929")
         backend.apply_overrides({})
-        assert backend.cli_model == "claude-sonnet-4-20250514"
+        assert backend.cli_model == "claude-sonnet-4-5-20250929"
         assert not backend._has_overrides

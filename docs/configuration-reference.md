@@ -17,6 +17,7 @@ and constraints are extracted directly from the Pydantic v2 config models in
   - [MCP Server Sub-Config](#mcp-server-sub-config)
 - [sheet](#sheet)
   - [SkipWhenCommand Sub-Config](#skipwhencommand-sub-config)
+  - [InjectionItem Sub-Config](#injectionitem-sub-config)
 - [prompt](#prompt)
 - [parallel](#parallel)
 - [retry](#retry)
@@ -109,10 +110,10 @@ Uses a flat structure with cross-field validation. Fields marked with a backend 
 | `timeout_seconds` | `float` | `1800.0` | `> 0` | Maximum time per prompt execution (seconds). Default: 30 minutes. |
 | `timeout_overrides` | `dict[int, float]` | `{}` | | Per-sheet timeout overrides. Map of `sheet_num -> timeout_seconds`. Unlisted sheets use `timeout_seconds`. |
 | `cli_extra_args` | `list[str]` | `[]` | | **[claude_cli]** Escape hatch for CLI flags not yet exposed as named options. Applied last, can override other settings. |
-| `max_output_capture_bytes` | `int` | `10240` | `> 0` | Maximum bytes of stdout/stderr to capture per sheet for diagnostics (10KB default). |
-| `model` | `str` | `"claude-sonnet-4-20250514"` | | **[anthropic_api]** Model ID for Anthropic API |
+| `max_output_capture_bytes` | `int` | `51200` | `> 0` | Maximum bytes of stdout/stderr to capture per sheet for diagnostics (50KB default). |
+| `model` | `str` | `"claude-sonnet-4-5-20250929"` | | **[anthropic_api]** Model ID for Anthropic API |
 | `api_key_env` | `str` | `"ANTHROPIC_API_KEY"` | | **[anthropic_api]** Environment variable containing API key |
-| `max_tokens` | `int` | `8192` | `>= 1` | **[anthropic_api]** Maximum tokens for API response |
+| `max_tokens` | `int` | `16384` | `>= 1` | **[anthropic_api]** Maximum tokens for API response |
 | `temperature` | `float` | `0.7` | `0.0–1.0` | **[anthropic_api]** Sampling temperature |
 | `recursive_light` | `RecursiveLightConfig` | *(see sub-config)* | | **[recursive_light]** Recursive Light backend configuration |
 | `ollama` | `OllamaConfig` | *(see sub-config)* | | **[ollama]** Ollama backend configuration |
@@ -221,6 +222,8 @@ Defines how the work is divided into sheets (execution units).
 | `skip_when` | `dict[int, str]` | `{}` | | Conditional skip rules. Map of `sheet_num -> condition`. Expression accesses `sheets` dict and `job` state. If truthy, sheet is skipped. |
 | `skip_when_command` | `dict[int, SkipWhenCommand]` | `{}` | | Command-based conditional skip rules. Map of `sheet_num -> SkipWhenCommand`. The command runs via shell; exit 0 = skip the sheet, non-zero = run it. Fail-open on timeout or error. |
 | `prompt_extensions` | `dict[int, list[str]]` | `{}` | | Per-sheet prompt extensions. Map of `sheet_num -> list of extension strings`. Applied in addition to score-level `prompt.prompt_extensions`. |
+| `prelude` | `list[InjectionItem]` | `[]` | | Shared context injected into ALL sheets. Each item references a file and a category (`context`, `skill`, or `tool`). File paths support Jinja templating. Files are read at sheet execution time. |
+| `cadenzas` | `dict[int, list[InjectionItem]]` | `{}` | | Per-sheet context injections. Map of `sheet_num -> list of InjectionItems`. Applied in addition to prelude items for the specified sheet. |
 | `fan_out` | `dict[int, int]` | `{}` | Requires `size=1`, `start_item=1` | Fan-out declarations. Map of `stage_num -> instance_count`. Creates parallel instances of stages. Cleared after expansion. |
 | `fan_out_stage_map` | `dict[int, dict[str, int]] \| None` | `None` | | Per-sheet fan-out metadata, populated by expansion. Survives serialization for resume support. |
 
@@ -239,6 +242,15 @@ sheet:
       command: 'grep -q "PHASES: 1" {workspace}/plan.md'
       description: "Skip phase 2 if plan only has 1 phase"
       timeout_seconds: 5
+  prelude:
+    - file: docs/architecture.md
+      as: context
+    - file: .claude/skills/debugging.md
+      as: skill
+  cadenzas:
+    3:
+      - file: "{{ workspace }}/02-output.md"
+        as: context
   fan_out:
     2: 3    # 3 parallel instances of stage 2
 ```
@@ -274,6 +286,46 @@ sheet:
       command: "test -f {workspace}/phase2-complete.marker"
       description: "Skip phase 2 cleanup if already done"
 ```
+
+### InjectionItem Sub-Config
+
+*Source: `src/mozart/core/config/job.py` — `InjectionItem`*
+
+A single injection item referencing a file with a category. Used in `prelude` (all sheets) and `cadenzas` (per-sheet) to inject file content into prompts at category-appropriate locations.
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `file` | `str` | **required** | | Path to the file to inject. Supports Jinja templating (e.g., `{{ workspace }}/context.md`). |
+| `as` | `InjectionCategory` | **required** | `"context"`, `"skill"`, or `"tool"` | Category determining prompt placement. See InjectionCategory below. |
+
+**InjectionCategory values:**
+
+| Value | Prompt Placement | Purpose |
+|-------|-----------------|---------|
+| `context` | After template body | Background knowledge and informational context |
+| `skill` | After preamble (before template body) | Capability, methodology, or instructions |
+| `tool` | After preamble (before template body) | Executable actions and available tooling |
+
+```yaml
+sheet:
+  prelude:
+    - file: docs/architecture.md
+      as: context
+    - file: .claude/skills/debugging.md
+      as: skill
+    - file: tools/lint.sh
+      as: tool
+  cadenzas:
+    3:
+      - file: "{{ workspace }}/02-output.md"
+        as: context
+```
+
+**Key behaviors:**
+- Files are read at **sheet execution time**, not config parse time — so dynamic outputs from earlier sheets are available via Jinja-templated paths.
+- Missing files for `context` category log a warning and are skipped.
+- Missing files for `skill` or `tool` category log an error and are skipped.
+- `mozart validate` checks static file paths (V108 warning) but skips Jinja-templated paths that can't be resolved at validation time.
 
 ---
 
@@ -343,7 +395,7 @@ Controls retry behavior including partial completion recovery.
 | `max_delay_seconds` | `float` | `3600.0` | `> 0` | Maximum delay cap (1 hour) |
 | `exponential_base` | `float` | `2.0` | `> 1` | Exponential backoff multiplier |
 | `jitter` | `bool` | `true` | | Add randomness to delays |
-| `max_completion_attempts` | `int` | `3` | `>= 0` | Maximum completion prompt attempts before full retry |
+| `max_completion_attempts` | `int` | `5` | `>= 0` | Maximum completion prompt attempts before full retry |
 | `completion_delay_seconds` | `float` | `5.0` | `>= 0` | Delay between completion attempts (seconds) |
 | `completion_threshold_percent` | `float` | `50.0` | `> 0`, `<= 100` | Minimum pass percentage to trigger completion mode |
 
@@ -968,7 +1020,7 @@ feedback:
 |-------|------|---------|-------------|
 | `state_backend` | `"json" \| "sqlite"` | `"sqlite"` | State storage backend |
 | `state_path` | `Path \| None` | `None` | Path for state storage (default: `workspace/.mozart-state.db` for sqlite, `.mozart-state.json` for json) |
-| `pause_between_sheets_seconds` | `int` | `10` | Seconds to wait between sheets. `>= 0`. |
+| `pause_between_sheets_seconds` | `int` | `2` | Seconds to wait between sheets. `>= 0`. |
 
 ---
 
@@ -976,25 +1028,61 @@ feedback:
 
 *Source: `src/mozart/daemon/config.py` — `DaemonConfig`*
 
-Top-level configuration for the Mozart daemon process. Configured separately from score files (typically via `~/.mozart/daemon.yaml` or CLI flags).
+Top-level configuration for the Mozart daemon process. Configured separately from score files (typically via `~/.mozart/conductor.yaml` or CLI flags).
+
+### Essential Fields
+
+These are the fields most users will configure:
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `max_concurrent_jobs` | `int` | `15` | `1–50` | Maximum jobs executing simultaneously |
+| `log_level` | `"debug" \| "info" \| "warning" \| "error"` | `"info"` | | Daemon log level |
+| `job_timeout_seconds` | `float` | `86400.0` | `>= 60` | Maximum wall-clock time per job (24 hours default). |
+| `learning.enabled` | `bool` | `true` | | Semantic learning on/off |
+| `learning.backend` | `BackendConfig` | *(see sub-config)* | | Which model powers semantic analysis |
+| `profiler.enabled` | `bool` | `true` | | Resource monitoring on/off |
+
+### Advanced Fields
+
+Available but rarely need changing:
 
 | Field | Type | Default | Constraints | Description |
 |-------|------|---------|-------------|-------------|
 | `socket` | `SocketConfig` | *(see sub-config)* | | Unix domain socket configuration |
 | `pid_file` | `Path` | `/tmp/mozart.pid` | | PID file for daemon process management |
-| `max_concurrent_jobs` | `int` | `5` | `1–50` | Maximum jobs executing simultaneously |
 | `max_concurrent_sheets` | `int` | `10` | `1–100` | **Reserved for Phase 3 scheduler — not yet enforced.** Global parallel sheet limit. |
 | `resource_limits` | `ResourceLimitConfig` | *(see sub-config)* | | Resource constraints |
 | `state_backend_type` | `"sqlite"` | `"sqlite"` | **Reserved — frozen to sqlite.** Changing has no effect. |
 | `state_db_path` | `Path` | `~/.mozart/daemon-state.db` | **Reserved — not yet implemented.** | Future daemon state database path |
-| `log_level` | `"debug" \| "info" \| "warning" \| "error"` | `"info"` | | Daemon log level |
 | `log_file` | `Path \| None` | `None` | | Log file path. `None` = stderr only. |
-| `job_timeout_seconds` | `float` | `21600.0` | `>= 60` | Maximum wall-clock time per job (6 hours default). |
 | `shutdown_timeout_seconds` | `float` | `300.0` | `>= 10` | Max seconds for graceful shutdown |
 | `monitor_interval_seconds` | `float` | `15.0` | `>= 5` | Interval between resource monitor checks |
 | `max_job_history` | `int` | `1000` | `>= 10` | Completed/failed/cancelled jobs to keep in memory |
-| `learning` | `SemanticLearningConfig` | *(see sub-config)* | | Semantic learning configuration for LLM-based sheet analysis |
+| `observer` | `ObserverConfig` | *(see sub-config)* | | Observer and event bus configuration |
+| `profiler` | `ProfilerConfig` | *(see sub-config)* | | System profiler (strace off by default, GPU probing off by default) |
 | `config_file` | `Path \| None` | `None` | | Path to the YAML config file. Set automatically on startup; used by SIGHUP reload to re-read config from disk. |
+
+### Daemon Operational Profiles
+
+Instead of configuring every field, use `--profile` to apply a preset:
+
+```bash
+mozart start                    # sensible defaults
+mozart start --profile dev      # debug logging, strace on, low concurrency
+mozart start --profile intensive # 48h timeout, high resource limits
+mozart start --profile minimal  # profiler off, learning off, low concurrency
+```
+
+Profiles are partial overrides merged on top of your config file. Resolution order: **defaults → config file → profile → CLI flags**.
+
+**Built-in profiles:**
+
+| Profile | Description | Key Settings |
+|---------|-------------|-------------|
+| `dev` | Mozart development / debugging | `log_level: debug`, `max_concurrent_jobs: 2`, `strace_enabled: true`, `interval_seconds: 2.0` |
+| `intensive` | Long-running production work | `job_timeout_seconds: 172800` (48h), `max_memory_mb: 16384`, `max_processes: 100` |
+| `minimal` | Low-resource environments | `max_concurrent_jobs: 2`, `profiler.enabled: false`, `learning.enabled: false` |
 
 ### Socket Sub-Config
 

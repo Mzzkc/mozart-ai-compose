@@ -1,0 +1,6 @@
+log_level: debug
+max_concurrent_jobs: 2
+profiler:
+  enabled: true
+  strace_enabled: true
+  interval_seconds: 2.0

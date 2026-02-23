@@ -276,7 +276,7 @@ class TestOutputCapture:
 
     def test_max_output_capture_bytes_constant(self):
         """Test that MAX_OUTPUT_CAPTURE_BYTES is 10KB."""
-        assert MAX_OUTPUT_CAPTURE_BYTES == 10240  # 10KB
+        assert MAX_OUTPUT_CAPTURE_BYTES == 51200  # 50KB
 
     def test_backwards_compatibility_missing_fields(self):
         """Test loading old state without output capture fields."""

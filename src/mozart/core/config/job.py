@@ -6,11 +6,12 @@ Defines the top-level JobConfig, SheetConfig, and PromptConfig models.
 from __future__ import annotations
 
 import warnings
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 if TYPE_CHECKING:
     from mozart.core.fan_out import FanOutMetadata  # noqa: F401
@@ -45,6 +46,40 @@ from mozart.core.config.workspace import (
     LogConfig,
     WorkspaceLifecycleConfig,
 )
+
+
+class InjectionCategory(str, Enum):
+    """Category for injected content in prelude/cadenza system.
+
+    Determines WHERE in the prompt the injected content appears:
+    - context: Background knowledge, after template body
+    - skill: Methodology/instructions, after preamble
+    - tool: Available actions, after preamble
+    """
+
+    CONTEXT = "context"
+    SKILL = "skill"
+    TOOL = "tool"
+
+
+class InjectionItem(BaseModel):
+    """A single injection item referencing a file with a category.
+
+    Used in prelude (all sheets) and cadenzas (per-sheet) to inject
+    file content into prompts at category-appropriate locations.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    file: str = Field(
+        description="Path to the file to inject. Supports Jinja templating "
+        "(e.g., '{{ workspace }}/context.md').",
+    )
+    as_: InjectionCategory = Field(
+        alias="as",
+        description="Category determining prompt placement: "
+        "'context' (background), 'skill' (methodology), or 'tool' (actions).",
+    )
 
 
 class SheetConfig(BaseModel):
@@ -105,6 +140,25 @@ class SheetConfig(BaseModel):
             "Each entry is inline text or a file path (.md/.txt). "
             "Applied in addition to score-level prompt.prompt_extensions. "
             "Example: {2: ['Review the code carefully before making changes']}"
+        ),
+    )
+
+    # Prelude & Cadenza context injection (GH#53)
+    prelude: list[InjectionItem] = Field(
+        default_factory=list,
+        description=(
+            "Shared context injected into ALL sheets. Each item references a file "
+            "and a category ('context', 'skill', or 'tool'). File paths support "
+            "Jinja templating. Files are read at sheet execution time."
+        ),
+    )
+
+    cadenzas: dict[int, list[InjectionItem]] = Field(
+        default_factory=dict,
+        description=(
+            "Per-sheet context injections. Map of sheet_num -> list of InjectionItems. "
+            "Applied in addition to prelude items for the specified sheet. "
+            "Example: {2: [{file: 'extra-context.md', as: 'context'}]}"
         ),
     )
 
@@ -439,7 +493,7 @@ class JobConfig(BaseModel):
     )
 
     pause_between_sheets_seconds: int = Field(
-        default=10,
+        default=2,
         ge=0,
         description="Seconds to wait between sheets",
     )

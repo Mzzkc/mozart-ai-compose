@@ -147,18 +147,27 @@ The conductor is configured via a YAML file passed to `mozart start --config <pa
 
 ### DaemonConfig Fields
 
+**Essential fields** (what you'll typically configure):
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `max_concurrent_jobs` | `int` | `15` | Max simultaneous jobs (1–50) |
+| `log_level` | `str` | `"info"` | One of: `debug`, `info`, `warning`, `error` |
+| `job_timeout_seconds` | `float` | `86400.0` | Max wall-clock time per job (24 hours) |
+| `learning.enabled` | `bool` | `true` | Semantic learning on/off |
+| `profiler.enabled` | `bool` | `true` | Resource monitoring on/off |
+
+**Advanced fields** (rarely need changing):
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `socket.path` | `Path` | `/tmp/mozart.sock` | Unix domain socket path |
 | `socket.permissions` | `int` | `0o660` | Socket file permissions (octal) |
 | `socket.backlog` | `int` | `5` | Max pending connections |
 | `pid_file` | `Path` | `/tmp/mozart.pid` | PID file path |
-| `max_concurrent_jobs` | `int` | `5` | Max simultaneous jobs (1–50) |
-| `job_timeout_seconds` | `float` | `21600.0` | Max wall-clock time per job (6 hours) |
 | `shutdown_timeout_seconds` | `float` | `300.0` | Max wait for graceful shutdown (5 min) |
 | `monitor_interval_seconds` | `float` | `15.0` | Resource check interval |
 | `max_job_history` | `int` | `1000` | Terminal jobs kept in memory before eviction |
-| `log_level` | `str` | `"info"` | One of: `debug`, `info`, `warning`, `error` |
 | `log_file` | `Path \| None` | `None` | Log file path (`None` = stderr only) |
 | `learning.*` | `SemanticLearningConfig` | *(see below)* | Semantic learning via LLM analysis |
 
@@ -196,13 +205,19 @@ These fields are accepted but produce warnings if set to non-default values:
 
 ### Example Config File
 
-```yaml
-socket:
-  path: /tmp/mozart.sock
-  permissions: 0o660
+Most users need very little configuration. The defaults are sensible:
 
-pid_file: /tmp/mozart.pid
-max_concurrent_jobs: 3
+```yaml
+# ~/.mozart/conductor.yaml — minimal config
+max_concurrent_jobs: 10
+log_level: info
+```
+
+For more control:
+
+```yaml
+# ~/.mozart/conductor.yaml — full example
+max_concurrent_jobs: 10
 job_timeout_seconds: 43200  # 12 hours for long jobs
 log_level: debug
 log_file: ~/.mozart/mozart.log
@@ -213,9 +228,44 @@ resource_limits:
 
 learning:
   enabled: true
-  model: claude-sonnet-4-5-20250929
+  backend:
+    type: anthropic_api
+    model: claude-sonnet-4-5-20250929
+    temperature: 0.3
   analyze_on: [success, failure]
   max_concurrent_analyses: 3
+```
+
+### Daemon Operational Profiles
+
+Instead of configuring individual fields, use `--profile` to apply a preset:
+
+```bash
+mozart start                        # sensible defaults
+mozart start --profile dev          # debug logging, strace on
+mozart start --profile intensive    # 48h timeout, high resource limits
+mozart start --profile minimal      # profiler + learning off
+```
+
+Profiles are partial overrides applied on top of your config file. Resolution order:
+
+1. `DaemonConfig` defaults
+2. `~/.mozart/conductor.yaml` (if exists)
+3. `--profile` (if specified)
+4. CLI flags (`--log-level`, etc.) override everything
+
+**Built-in profiles:**
+
+| Profile | Use Case | Key Overrides |
+|---------|----------|-------------|
+| `dev` | Debugging Mozart itself | `log_level: debug`, `max_concurrent_jobs: 2`, `strace_enabled: true` |
+| `intensive` | Long-running production work | `job_timeout: 48h`, `max_memory: 16GB`, `max_processes: 100` |
+| `minimal` | Low-resource environments | `profiler: off`, `learning: off`, `max_concurrent_jobs: 2` |
+
+Profiles also work with `restart`:
+
+```bash
+mozart restart --profile dev
 ```
 
 ### Live Config Reload (SIGHUP)

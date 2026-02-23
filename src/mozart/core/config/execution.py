@@ -25,7 +25,7 @@ class RetryConfig(BaseModel):
 
     # Partial completion recovery settings
     max_completion_attempts: int = Field(
-        default=3,
+        default=5,
         ge=0,
         description="Maximum completion prompt attempts before falling back to full retry",
     )

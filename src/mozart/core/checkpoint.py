@@ -23,7 +23,7 @@ IsolationModeLiteral = Literal["worktree", "none"]
 _logger = get_logger("checkpoint")
 
 # Constants for output capture
-MAX_OUTPUT_CAPTURE_BYTES: int = 10240  # 10KB - last N bytes of stdout/stderr to capture
+MAX_OUTPUT_CAPTURE_BYTES: int = 51200  # 50KB - last N bytes of stdout/stderr to capture
 
 # Constants for error history (Task 10: Error History Model)
 MAX_ERROR_HISTORY: int = 50  # Maximum number of error records to keep per sheet

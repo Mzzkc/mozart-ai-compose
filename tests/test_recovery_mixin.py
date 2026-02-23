@@ -42,7 +42,7 @@ def sample_config() -> JobConfig:
         "backend": {
             "type": "claude_cli",
             "skip_permissions": True,
-            "cli_model": "claude-sonnet-4-20250514",
+            "cli_model": "claude-sonnet-4-5-20250929",
         },
         "sheet": {
             "size": 10,

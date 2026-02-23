@@ -728,7 +728,7 @@ class TestMaxOutputCaptureConfig:
     def test_default_value(self) -> None:
         from mozart.core.config import BackendConfig
         config = BackendConfig()
-        assert config.max_output_capture_bytes == 10240
+        assert config.max_output_capture_bytes == 51200
 
     def test_custom_value(self) -> None:
         from mozart.core.config import BackendConfig

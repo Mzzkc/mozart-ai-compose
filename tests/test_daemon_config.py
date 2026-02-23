@@ -121,7 +121,7 @@ class TestDaemonConfig:
         """Test default values are applied."""
         config = DaemonConfig()
         assert config.pid_file == Path("/tmp/mozart.pid")
-        assert config.max_concurrent_jobs == 5
+        assert config.max_concurrent_jobs == 15
         assert config.max_concurrent_sheets == 10
         assert config.state_backend_type == "sqlite"
         assert config.state_db_path == Path("~/.mozart/daemon-state.db")
@@ -311,7 +311,7 @@ class TestLoadConfig:
             assert config.config_file == default_path.resolve()
         else:
             assert config.config_file is None
-        assert config.max_concurrent_jobs == 5  # default
+        assert config.max_concurrent_jobs == 15  # default
 
     def test_load_nonexistent_file_returns_defaults(self, tmp_path: Path):
         """_load_config with non-existent file returns defaults."""

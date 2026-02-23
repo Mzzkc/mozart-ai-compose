@@ -1821,7 +1821,7 @@ class TestPerSheetBackendOverride:
         config = _make_config(tmp_path, overrides={
             "backend": {
                 "type": "anthropic_api",
-                "model": "claude-sonnet-4-20250514",
+                "model": "claude-sonnet-4-5-20250929",
                 "sheet_overrides": {
                     1: {"model": "claude-opus-4-6", "temperature": 0.0},
                     5: {"timeout_seconds": 600.0},

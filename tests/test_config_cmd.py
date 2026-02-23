@@ -121,7 +121,7 @@ class TestConfigShow:
             )
 
         assert result.exit_code == 0
-        assert "live" not in result.output
+        assert "from running conductor" not in result.output
         assert "7" in result.output
 
     def test_show_defaults_when_no_conductor_no_file(self) -> None:
@@ -296,9 +296,9 @@ class TestLoadConfigData:
         from mozart.cli.commands.config_cmd import _load_config_data
 
         cfg = tmp_path / "valid.yaml"
-        cfg.write_text(yaml.dump({"max_concurrent_jobs": 5}))
+        cfg.write_text(yaml.dump({"max_concurrent_jobs": 15}))
         result = _load_config_data(cfg)
-        assert result == {"max_concurrent_jobs": 5}
+        assert result == {"max_concurrent_jobs": 15}
 
 
 class TestConfigSet:

@@ -17,11 +17,21 @@ def start(
     config_file: Path | None = typer.Option(None, "--config", "-c", help="YAML config file"),
     foreground: bool = typer.Option(False, "--foreground", "-f", help="Run in foreground"),
     log_level: str = typer.Option("info", "--log-level", "-l", help="Log level"),
+    profile: str | None = typer.Option(
+        None, "--profile", "-p",
+        help="Daemon operational profile (dev, intensive, minimal). "
+        "Overrides config file defaults.",
+    ),
 ) -> None:
     """Start the Mozart conductor."""
     from mozart.daemon.process import start_conductor
 
-    start_conductor(config_file=config_file, foreground=foreground, log_level=log_level)
+    start_conductor(
+        config_file=config_file,
+        foreground=foreground,
+        log_level=log_level,
+        profile=profile,
+    )
 
 
 def stop(
@@ -39,9 +49,18 @@ def restart(
     foreground: bool = typer.Option(False, "--foreground", "-f", help="Run in foreground"),
     log_level: str = typer.Option("info", "--log-level", "-l", help="Log level"),
     pid_file: Path | None = typer.Option(None, "--pid-file", help="PID file path"),
+    profile: str | None = typer.Option(
+        None, "--profile", "-p",
+        help="Daemon operational profile (dev, intensive, minimal). "
+        "Overrides config file defaults.",
+    ),
 ) -> None:
     """Restart the Mozart conductor (stop + start)."""
-    from mozart.daemon.process import start_conductor, stop_conductor
+    from mozart.daemon.process import (
+        start_conductor,
+        stop_conductor,
+        wait_for_conductor_exit,
+    )
 
     # Stop (ignore exit if not running)
     try:
@@ -49,7 +68,19 @@ def restart(
     except SystemExit:
         pass
 
-    start_conductor(config_file=config_file, foreground=foreground, log_level=log_level)
+    # Wait for old process to fully exit before starting the new one.
+    # Without this, start_conductor sees the dying process and says
+    # "already running" (race condition).
+    if not wait_for_conductor_exit(pid_file, timeout=30.0):
+        typer.echo("Old conductor did not exit within 30s — try 'mozart stop --force'")
+        raise typer.Exit(1)
+
+    start_conductor(
+        config_file=config_file,
+        foreground=foreground,
+        log_level=log_level,
+        profile=profile,
+    )
 
 
 def conductor_status(

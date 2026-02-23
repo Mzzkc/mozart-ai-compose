@@ -46,12 +46,13 @@ def start_conductor(
     config_file: Path | None = None,
     foreground: bool = False,
     log_level: str = "info",
+    profile: str | None = None,
 ) -> None:
     """Start the Mozart conductor process.
 
     Called by ``mozart start`` via ``cli/commands/conductor.py``.
     """
-    config = _load_config(config_file)
+    config = _load_config(config_file, profile=profile)
     config.log_level = cast(Any, log_level)
 
     pid = _read_pid(config.pid_file)
@@ -198,6 +199,8 @@ class DaemonProcess:
         self._pgroup = ProcessGroupManager()
         self._start_time = time.monotonic()
         self._signal_tasks: list[asyncio.Task[Any]] = []
+        self._profiler: Any = None  # Set in run() step 8.5
+        self._correlation: Any = None  # Set in run() step 8.6
 
     async def run(self) -> None:
         """Main daemon lifecycle: boot, serve, shutdown."""
@@ -317,6 +320,30 @@ class DaemonProcess:
             interval = self._config.monitor_interval_seconds
             await self._monitor.start(interval_seconds=interval)
 
+            # 8.5. Start profiler collector (after monitor, needs event bus)
+            if self._config.profiler.enabled:
+                from mozart.daemon.profiler.collector import ProfilerCollector
+
+                self._profiler = ProfilerCollector(
+                    config=self._config.profiler,
+                    monitor=self._monitor,
+                    pgroup=self._pgroup,
+                    event_bus=self._manager.event_bus,
+                    manager=self._manager,
+                )
+                await self._profiler.start()
+
+            # 8.6. Start correlation analyzer (after profiler, needs storage + learning hub)
+            if self._config.profiler.enabled and self._profiler is not None:
+                from mozart.daemon.profiler.correlation import CorrelationAnalyzer
+
+                self._correlation = CorrelationAnalyzer(
+                    storage=self._profiler._storage,
+                    learning_hub=self._manager.learning_hub,
+                    config=self._config.profiler.correlation,
+                )
+                await self._correlation.start(self._manager.event_bus)
+
             # 9. Run until shutdown
             _logger.info(
                 "daemon.started",
@@ -325,7 +352,11 @@ class DaemonProcess:
             )
             await self._manager.wait_for_shutdown()
 
-            # 10. Cleanup
+            # 10. Cleanup — correlation analyzer stops first, then profiler, then monitor
+            if self._correlation is not None:
+                await self._correlation.stop()
+            if self._profiler is not None:
+                await self._profiler.stop()
             await self._monitor.stop()
             await server.stop()
 
@@ -473,6 +504,29 @@ class DaemonProcess:
             handler.register("daemon.health", handle_health)
             handler.register("daemon.ready", handle_ready)
 
+        # Profiler IPC methods — delegate to ProfilerCollector when available
+        async def handle_top(_p: dict[str, Any], _w: Any) -> dict[str, Any]:
+            if self._profiler is None:
+                return {"error": "profiler not enabled"}
+            snapshot = self._profiler.get_latest_snapshot()
+            return snapshot or {"error": "no snapshot available yet"}
+
+        async def handle_top_stream(_p: dict[str, Any], _w: Any) -> dict[str, Any]:
+            if self._profiler is None:
+                return {"error": "profiler not enabled"}
+            path = self._profiler.get_jsonl_path()
+            return {"jsonl_path": path} if path else {"error": "JSONL not configured"}
+
+        async def handle_events(params: dict[str, Any], _w: Any) -> dict[str, Any]:
+            if self._profiler is None:
+                return {"events": [], "error": "profiler not enabled"}
+            limit = params.get("limit", 50)
+            return {"events": self._profiler.get_recent_events(limit=limit)}
+
+        handler.register("daemon.top", handle_top)
+        handler.register("daemon.top.stream", handle_top_stream)
+        handler.register("daemon.events", handle_events)
+
     def _track_signal_task(self, task: asyncio.Task[Any]) -> None:
         """Store a signal-spawned task and attach an error callback."""
         self._signal_tasks.append(task)
@@ -581,31 +635,50 @@ class DaemonProcess:
 # ─── Helpers ──────────────────────────────────────────────────────────
 
 
-def _load_config(config_file: Path | None) -> DaemonConfig:
+def _load_config(
+    config_file: Path | None,
+    profile: str | None = None,
+) -> DaemonConfig:
     """Load DaemonConfig from YAML file or return defaults.
 
     If *config_file* is ``None``, the well-known default location
     ``~/.mozart/conductor.yaml`` is checked automatically.
 
+    When *profile* is given, the named built-in profile is deep-merged
+    on top of the base config data before Pydantic validation.
+    Resolution order: defaults → config file → profile.
+
     When loading from a file, the resulting config's ``config_file``
     field is set to the resolved path so that SIGHUP reload knows
     which file to re-read.
     """
+    import yaml
+
+    from mozart.daemon.profiles import deep_merge, get_profile
+
     # Auto-discover default config when none explicitly provided
     if config_file is None:
         default_path = Path("~/.mozart/conductor.yaml").expanduser()
         if default_path.exists():
             config_file = default_path
 
-    if config_file and config_file.exists():
-        import yaml
+    data: dict[str, object] = {}
+    resolved_config_file: Path | None = None
 
+    if config_file and config_file.exists():
         with open(config_file) as f:
             data = yaml.safe_load(f) or {}
-        config = DaemonConfig.model_validate(data)
-        config.config_file = config_file.resolve()
-        return config
-    return DaemonConfig()
+        resolved_config_file = config_file.resolve()
+
+    # Apply profile on top of config file data
+    if profile is not None:
+        profile_data = get_profile(profile)
+        data = deep_merge(data, profile_data)
+
+    config = DaemonConfig.model_validate(data)
+    if resolved_config_file is not None:
+        config.config_file = resolved_config_file
+    return config
 
 
 def _write_pid(pid_file: Path) -> None:
@@ -662,6 +735,31 @@ def _pid_alive(pid: int) -> bool:
         return True  # Process exists but we can't signal it
 
 
+def wait_for_conductor_exit(
+    pid_file: Path | None = None,
+    timeout: float = 30.0,
+) -> bool:
+    """Wait for the conductor process to exit.
+
+    Polls ``_pid_alive`` until the process is gone or *timeout* elapses.
+    Cleans up the stale PID file once the process is confirmed dead.
+
+    Returns ``True`` if the process exited within the timeout.
+    """
+    resolved = pid_file or DaemonConfig().pid_file
+    pid = _read_pid(resolved)
+    if pid is None:
+        return True
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not _pid_alive(pid):
+            resolved.unlink(missing_ok=True)
+            return True
+        time.sleep(0.1)
+    return False
+
+
 def _daemonize(config: DaemonConfig) -> None:
     """Double-fork to detach from terminal."""
     # First fork
@@ -698,4 +796,5 @@ __all__ = [
     "start_conductor",
     "stop_conductor",
     "get_conductor_status",
+    "wait_for_conductor_exit",
 ]

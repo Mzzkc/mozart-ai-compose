@@ -25,7 +25,7 @@ def _make_config(
     *,
     backend_type: str = "claude_cli",
     cli_model: str | None = None,
-    model: str = "claude-sonnet-4-20250514",
+    model: str = "claude-sonnet-4-5-20250929",
     wait_minutes: int = 60,
     max_waits: int = 24,
     max_quota_waits: int = 48,
@@ -220,7 +220,7 @@ class TestGetEffectiveModel:
         assert self._model_for(backend_type="claude_cli", cli_model=None) is None
 
     def test_anthropic_api_returns_model(self) -> None:
-        assert self._model_for(backend_type="anthropic_api", model="claude-sonnet-4-20250514") == "claude-sonnet-4-20250514"
+        assert self._model_for(backend_type="anthropic_api", model="claude-sonnet-4-5-20250929") == "claude-sonnet-4-5-20250929"
 
     def test_ollama_returns_model(self) -> None:
         assert self._model_for(backend_type="ollama", model="llama3.1:8b") == "llama3.1:8b"
