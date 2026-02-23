@@ -30,6 +30,9 @@ _logger = get_logger("daemon.semantic_analyzer")
 # Events that indicate a sheet has finished execution
 _COMPLETION_EVENTS = frozenset({"sheet.completed", "sheet.failed"})
 
+# Anomaly events from the profiler subsystem
+_ANOMALY_EVENT = "monitor.anomaly"
+
 # Valid insight categories accepted from LLM responses
 _VALID_CATEGORIES = frozenset({
     "root_cause", "knowledge", "prompt_improvement",
@@ -61,10 +64,11 @@ class SemanticAnalyzer:
         self._live_states = live_states
         self._semaphore = asyncio.Semaphore(config.max_concurrent_analyses)
         self._sub_id: str | None = None
+        self._anomaly_sub_id: str | None = None
         self._pending_tasks: set[asyncio.Task[None]] = set()
 
     async def start(self, event_bus: EventBus) -> None:
-        """Subscribe to sheet events on the event bus."""
+        """Subscribe to sheet events and anomaly events on the event bus."""
         if not self._config.enabled:
             _logger.info("semantic_analyzer.disabled")
             return
@@ -73,6 +77,14 @@ class SemanticAnalyzer:
             callback=self._on_sheet_event,
             event_filter=lambda e: e.get("event", "") in _COMPLETION_EVENTS,
         )
+
+        # Subscribe to monitor.anomaly events — store directly as
+        # RESOURCE_ANOMALY patterns without LLM calls.
+        self._anomaly_sub_id = event_bus.subscribe(
+            callback=self._on_anomaly_event,
+            event_filter=lambda e: e.get("event", "") == _ANOMALY_EVENT,
+        )
+
         _logger.info(
             "semantic_analyzer.started",
             backend=self._backend.name,
@@ -85,6 +97,10 @@ class SemanticAnalyzer:
         if self._sub_id is not None and event_bus is not None:
             event_bus.unsubscribe(self._sub_id)
             self._sub_id = None
+
+        if self._anomaly_sub_id is not None and event_bus is not None:
+            event_bus.unsubscribe(self._anomaly_sub_id)
+            self._anomaly_sub_id = None
 
         # Wait for pending analysis tasks to complete
         if self._pending_tasks:
@@ -382,6 +398,57 @@ Example:
             })
 
         return insights
+
+    def _on_anomaly_event(self, event: ObserverEvent) -> None:
+        """Handle a monitor.anomaly event — store directly as RESOURCE_ANOMALY.
+
+        No LLM call is made: anomalies are already classified by the
+        AnomalyDetector.  We simply record them as patterns in the
+        learning store with appropriate context tags.
+        """
+        if not self._learning_hub.is_running:
+            return
+
+        job_id = event.get("job_id", "")
+        sheet_num = event.get("sheet_num", 0)
+        data = event.get("data") or {}
+
+        anomaly_type = data.get("anomaly_type", "unknown")
+        severity = data.get("severity", "medium")
+        description = data.get("description", "Resource anomaly detected")
+        pid = data.get("pid")
+
+        pattern_name = f"[{anomaly_type}] {description[:100]}"
+        context_tags = [
+            f"anomaly_type:{anomaly_type}",
+            f"severity:{severity}",
+        ]
+        if job_id:
+            context_tags.append(f"job:{job_id}")
+        if sheet_num:
+            context_tags.append(f"sheet:{sheet_num}")
+        if pid:
+            context_tags.append(f"pid:{pid}")
+
+        try:
+            store = self._learning_hub.store
+            store.record_pattern(
+                pattern_type=PatternType.RESOURCE_ANOMALY.value,
+                pattern_name=pattern_name,
+                description=description,
+                context_tags=context_tags,
+            )
+            _logger.debug(
+                "semantic_analyzer.anomaly_stored",
+                anomaly_type=anomaly_type,
+                severity=severity,
+                job_id=job_id,
+            )
+        except Exception:
+            _logger.warning(
+                "semantic_analyzer.anomaly_store_failed",
+                exc_info=True,
+            )
 
     def _store_insights(
         self,

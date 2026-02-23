@@ -103,6 +103,24 @@ class PatternType(Enum):
     prompt effectiveness, agent behavior, and anti-patterns.
     """
 
+    RESOURCE_ANOMALY = "resource_anomaly"
+    """Resource anomaly detected during execution (memory spike, zombie, OOM).
+
+    These patterns are produced by the profiler's AnomalyDetector, which
+    runs heuristic checks on each system snapshot. No LLM calls — pure
+    threshold-based detection of memory spikes, runaway processes, zombies,
+    FD exhaustion, and memory pressure.
+    """
+
+    RESOURCE_CORRELATION = "resource_correlation"
+    """Learned correlation between resource usage and outcomes.
+
+    These patterns are produced by the profiler's CorrelationAnalyzer,
+    which periodically cross-references resource profiles of completed
+    jobs with their outcomes (success/failure, validation results) to
+    identify statistical patterns like high-RSS-predicts-failure.
+    """
+
 
 # Template strings for formatting pattern guidance in prompts.
 # Keyed by PatternType; types not listed fall through to a plain description.
@@ -114,6 +132,8 @@ _GUIDANCE_TEMPLATES: dict[PatternType, str] = {
     PatternType.LOW_CONFIDENCE: "⚠️ Needs attention: {desc}{trust}",
     PatternType.SEMANTIC_FAILURE: "🔍 Semantic insight: {desc} (seen {freq}x){trust}",
     PatternType.SEMANTIC_INSIGHT: "🧠 LLM insight: {desc}{trust}",
+    PatternType.RESOURCE_ANOMALY: "⚡ Resource anomaly: {desc} (seen {freq}x){trust}",
+    PatternType.RESOURCE_CORRELATION: "📊 Resource pattern: {desc}{trust}",
 }
 
 

@@ -96,7 +96,8 @@ class TestLifecycle:
 
         assert bus.subscriber_count == 0
         await analyzer.start(bus)
-        assert bus.subscriber_count == 1
+        # Sheet events + anomaly events = 2 subscriptions
+        assert bus.subscriber_count == 2
 
         await analyzer.stop(bus)
         await bus.shutdown()
@@ -113,7 +114,8 @@ class TestLifecycle:
         await bus.start()
 
         await analyzer.start(bus)
-        assert bus.subscriber_count == 1
+        # Sheet events + anomaly events = 2 subscriptions
+        assert bus.subscriber_count == 2
 
         await analyzer.stop(bus)
         assert bus.subscriber_count == 0

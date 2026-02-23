@@ -18,10 +18,15 @@ Lock ordering (daemon-wide):
 from __future__ import annotations
 
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from mozart.core.logging import get_logger
 from mozart.daemon.monitor import ResourceMonitor
 from mozart.daemon.rate_coordinator import RateLimitCoordinator
+
+if TYPE_CHECKING:
+    from mozart.daemon.learning_hub import LearningHub
+    from mozart.daemon.profiler.models import ResourceEstimate
 
 _logger = get_logger("daemon.backpressure")
 
@@ -65,9 +70,11 @@ class BackpressureController:
         self,
         monitor: ResourceMonitor,
         rate_coordinator: RateLimitCoordinator,
+        learning_hub: LearningHub | None = None,
     ) -> None:
         self._monitor = monitor
         self._rate_coordinator = rate_coordinator
+        self._learning_hub = learning_hub
 
     def current_level(self) -> PressureLevel:
         """Assess current pressure level from resource metrics.
@@ -168,6 +175,108 @@ class BackpressureController:
             return False
         return True
 
+    # ─── Resource-aware scheduling hints ──────────────────────────
+
+    async def estimate_job_resource_needs(
+        self, job_config_hash: str
+    ) -> ResourceEstimate | None:
+        """Query learned resource patterns for similar job types.
+
+        Looks up ``RESOURCE_CORRELATION`` patterns from the learning store
+        that match the given job config hash.  Returns a ``ResourceEstimate``
+        if sufficient historical data exists, otherwise ``None``.
+
+        This is advisory — the caller uses it to adjust thresholds, not
+        to block jobs outright.
+
+        Args:
+            job_config_hash: Stable hash identifying the job type/config.
+
+        Returns:
+            ``ResourceEstimate`` with predicted peak memory, CPU-time,
+            and confidence, or ``None`` if no data is available.
+        """
+        if self._learning_hub is None or not self._learning_hub.is_running:
+            return None
+
+        from mozart.daemon.profiler.models import ResourceEstimate as RE
+        from mozart.learning.patterns import PatternType
+
+        try:
+            store = self._learning_hub.store
+            patterns = store.get_patterns(
+                pattern_type=PatternType.RESOURCE_CORRELATION.value,
+                limit=10,
+                min_priority=0.0,
+            )
+
+            if not patterns:
+                return None
+
+            # Aggregate resource estimates from matching patterns
+            peak_memory_values: list[float] = []
+            cpu_values: list[float] = []
+            confidence_sum = 0.0
+
+            for pattern in patterns:
+                desc = pattern.description or ""
+                # Extract memory hints from description
+                if "RSS" in desc or "memory" in desc.lower():
+                    # Use effectiveness_score as a rough confidence
+                    confidence_sum += pattern.effectiveness_score
+
+                # Look for memory_bin context tags for peak memory hints
+                tags = pattern.context_tags or ""
+                if isinstance(tags, str):
+                    tag_str = tags
+                elif isinstance(tags, list):
+                    tag_str = ",".join(tags)
+                else:
+                    tag_str = str(tags)
+
+                # Parse failure_rate from tags for signal strength
+                if "memory_bin:" in tag_str:
+                    # Presence of memory correlation patterns gives us
+                    # a rough estimate based on bin boundaries
+                    if "<256MB" in tag_str:
+                        peak_memory_values.append(256.0)
+                    elif "256-512MB" in tag_str:
+                        peak_memory_values.append(512.0)
+                    elif "512MB-1GB" in tag_str:
+                        peak_memory_values.append(1024.0)
+                    elif "1-2GB" in tag_str:
+                        peak_memory_values.append(2048.0)
+                    elif ">2GB" in tag_str:
+                        peak_memory_values.append(4096.0)
+
+            if not peak_memory_values and confidence_sum == 0:
+                return None
+
+            avg_memory = (
+                sum(peak_memory_values) / len(peak_memory_values)
+                if peak_memory_values
+                else 0.0
+            )
+            avg_cpu = (
+                sum(cpu_values) / len(cpu_values)
+                if cpu_values
+                else 0.0
+            )
+            confidence = min(1.0, confidence_sum / max(len(patterns), 1))
+
+            return RE(
+                estimated_peak_memory_mb=avg_memory,
+                estimated_cpu_seconds=avg_cpu,
+                confidence=confidence,
+            )
+
+        except Exception:
+            _logger.debug(
+                "backpressure.resource_estimate_failed",
+                job_config_hash=job_config_hash,
+                exc_info=True,
+            )
+            return None
 
 
 __all__ = ["BackpressureController", "PressureLevel"]

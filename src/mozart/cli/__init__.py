@@ -93,6 +93,7 @@ from .commands.learning import (
     patterns_why,
 )
 from .commands.status import _output_status_rich
+from .commands.top import top
 
 # Import helper functions for re-export
 from .helpers import (
@@ -250,6 +251,9 @@ app.command()(history)
 # Server commands
 app.command()(dashboard)
 app.command()(mcp)
+
+# Monitor commands
+app.command()(top)
 
 # Conductor lifecycle commands
 app.command()(start)

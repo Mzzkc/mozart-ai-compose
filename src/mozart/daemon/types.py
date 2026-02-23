@@ -117,7 +117,19 @@ class JobResponse(BaseModel):
 
 
 class ObserverEvent(TypedDict):
-    """Structured event emitted by the runner and routed through the daemon."""
+    """Structured event emitted by the runner and routed through the daemon.
+
+    Standard event types:
+        sheet.started, sheet.completed, sheet.failed, sheet.retrying,
+        sheet.validation_passed, sheet.validation_failed,
+        job.cost_update, job.iteration
+
+    Profiler event types:
+        monitor.anomaly — resource anomaly detected by the profiler.
+        Data payload: {"anomaly_type": str, "severity": str,
+        "description": str, "pid": int | None, "metric_value": float,
+        "threshold": float}
+    """
 
     job_id: str
     sheet_num: int
