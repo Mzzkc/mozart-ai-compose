@@ -75,7 +75,6 @@ def pause(
 
     Examples:
         mozart pause my-job
-        mozart pause my-job --workspace ./workspace
         mozart pause my-job --wait --timeout 30
         mozart pause my-job --json
     """
@@ -464,7 +463,6 @@ def modify(
     Examples:
         mozart modify my-job --config updated.yaml
         mozart modify my-job -c new-config.yaml --resume
-        mozart modify my-job -c updated.yaml -r --workspace ./workspace
         mozart modify my-job -c updated.yaml -r --wait
     """
     asyncio.run(
@@ -593,17 +591,41 @@ async def _modify_job(
         console.print(f"[dim]Job name: {new_config.name}[/dim]")
         console.print(f"[dim]Sheets: {new_config.sheet.total_sheets}[/dim]")
 
-    # If resume flag is set, call resume logic
+    # If resume flag is set, wait for pause to take effect then resume
     if resume_flag:
+        if job_was_running and routed:
+            # Pause is async — poll until the job is actually paused/failed
+            _resumable = {"paused", "failed", "cancelled"}
+            deadline = asyncio.get_event_loop().time() + timeout
+            paused_ok = False
+            while asyncio.get_event_loop().time() < deadline:
+                await asyncio.sleep(0.5)
+                try:
+                    _, st = await try_daemon_route("job.status", params)
+                    if isinstance(st, dict) and st.get("status", "") in _resumable:
+                        paused_ok = True
+                        break
+                except Exception:
+                    break
+            if not paused_ok:
+                if not json_output:
+                    console.print(
+                        f"[red]Error:[/red] Timed out waiting for job "
+                        f"'{job_id}' to pause ({timeout}s)"
+                    )
+                raise typer.Exit(1)
+
         if not json_output:
             console.print()
             console.print("[cyan]Resuming with new config...[/cyan]")
 
         # Call resume with reload_config
+        # Pass the user's explicit --workspace (None if not specified) so the
+        # daemon uses its own stored workspace rather than a heuristic guess.
         await _resume_job(
             job_id=job_id,
             config_file=config_file,
-            workspace=found_workspace,
+            workspace=workspace,
             force=False,
             escalation=False,
             reload_config=True,

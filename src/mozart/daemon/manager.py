@@ -506,30 +506,42 @@ class JobManager:
         _ = workspace  # Unused — daemon is the single source of truth
 
         meta = self._job_meta.get(job_id)
+        record: JobRecord | None = None
         if meta is None:
-            raise JobSubmissionError(f"Job '{job_id}' not found")
+            # Check the persistent registry for historical jobs
+            record = await self._registry.get_job(job_id)
+            if record is None:
+                raise JobSubmissionError(f"Job '{job_id}' not found")
 
         # 1. Live in-memory state (running jobs)
         live = self._live_states.get(job_id)
         if live is not None:
             return live.model_dump(mode="json")
 
-        # 2. Registry checkpoint (historical jobs)
-        try:
-            checkpoint_json = await self._registry.load_checkpoint(job_id)
-            if checkpoint_json is not None:
-                import json
-                data: dict[str, Any] = json.loads(checkpoint_json)
-                return data
-        except Exception:
-            _logger.debug(
-                "get_job_status.registry_checkpoint_failed",
-                job_id=job_id,
-                exc_info=True,
-            )
+        # 2. Registry checkpoint (historical/terminal jobs)
+        #    Skip if meta shows an active status — the checkpoint is stale
+        #    between resume acceptance and the first new state save.
+        _active = (DaemonJobStatus.QUEUED, DaemonJobStatus.RUNNING)
+        if meta is None or meta.status not in _active:
+            try:
+                checkpoint_json = await self._registry.load_checkpoint(job_id)
+                if checkpoint_json is not None:
+                    import json
+                    data: dict[str, Any] = json.loads(checkpoint_json)
+                    return data
+            except Exception:
+                _logger.debug(
+                    "get_job_status.registry_checkpoint_failed",
+                    job_id=job_id,
+                    exc_info=True,
+                )
 
-        # 3. Basic metadata (job never produced a checkpoint)
-        return meta.to_dict()
+        # 3. Basic metadata (job never produced a checkpoint, or active job
+        #    whose registry checkpoint is stale)
+        if meta is not None:
+            return meta.to_dict()
+        assert record is not None  # guaranteed by the check above
+        return record.to_dict()
 
     async def pause_job(self, job_id: str, workspace: Path | None = None) -> bool:
         """Send pause signal to a running job."""
@@ -673,18 +685,32 @@ class JobManager:
         )
         return {"deleted": deleted}
 
+    async def _resolve_job_workspace(
+        self, job_id: str, workspace: Path | None = None,
+    ) -> Path:
+        """Resolve workspace for a job, checking in-memory meta then registry.
+
+        Raises JobSubmissionError if the job is unknown to both.
+        """
+        meta = self._job_meta.get(job_id)
+        if meta is not None:
+            return workspace or meta.workspace
+
+        # Fallback: historical job in the persistent registry
+        record = await self._registry.get_job(job_id)
+        if record is not None:
+            return workspace or Path(record.workspace)
+
+        raise JobSubmissionError(f"Job '{job_id}' not found")
+
     async def get_job_errors(self, job_id: str, workspace: Path | None = None) -> dict[str, Any]:
         """Get errors for a specific job.
 
         Loads the full CheckpointState and returns it for the CLI to
         extract error information from sheet states.
         """
-        meta = self._job_meta.get(job_id)
-        if meta is None:
-            raise JobSubmissionError(f"Job '{job_id}' not found")
-
-        ws = workspace or meta.workspace
-        state = await self._checked_service.get_status(meta.job_id, ws)
+        ws = await self._resolve_job_workspace(job_id, workspace)
+        state = await self._checked_service.get_status(job_id, ws)
         if state is None:
             raise JobSubmissionError(f"No state found for job '{job_id}'")
 
@@ -698,12 +724,8 @@ class JobManager:
         Returns the full CheckpointState plus workspace path for the CLI
         to build the diagnostic report locally.
         """
-        meta = self._job_meta.get(job_id)
-        if meta is None:
-            raise JobSubmissionError(f"Job '{job_id}' not found")
-
-        ws = workspace or meta.workspace
-        state = await self._checked_service.get_status(meta.job_id, ws)
+        ws = await self._resolve_job_workspace(job_id, workspace)
+        state = await self._checked_service.get_status(job_id, ws)
         if state is None:
             raise JobSubmissionError(f"No state found for job '{job_id}'")
 
@@ -720,11 +742,7 @@ class JobManager:
 
         Requires the SQLite state backend for history records.
         """
-        meta = self._job_meta.get(job_id)
-        if meta is None:
-            raise JobSubmissionError(f"Job '{job_id}' not found")
-
-        ws = workspace or meta.workspace
+        ws = await self._resolve_job_workspace(job_id, workspace)
 
         from mozart.state import SQLiteStateBackend
 
@@ -760,12 +778,8 @@ class JobManager:
         in the CLI command to avoid duplicating ValidationEngine
         setup in the daemon.
         """
-        meta = self._job_meta.get(job_id)
-        if meta is None:
-            raise JobSubmissionError(f"Job '{job_id}' not found")
-
-        ws = workspace or meta.workspace
-        state = await self._checked_service.get_status(meta.job_id, ws)
+        ws = await self._resolve_job_workspace(job_id, workspace)
+        state = await self._checked_service.get_status(job_id, ws)
         if state is None:
             raise JobSubmissionError(f"No state found for job '{job_id}'")
 

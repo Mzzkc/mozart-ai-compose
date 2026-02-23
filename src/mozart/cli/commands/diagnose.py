@@ -314,7 +314,6 @@ def logs(
         mozart logs --lines 100             # Show last 100 lines
         mozart logs --level ERROR           # Show only ERROR and above
         mozart logs --json                  # Output raw JSON entries
-        mozart logs --workspace ./workspace # Use specific workspace
 
     Note:
         Log files are stored at {workspace}/logs/mozart.log by default.
@@ -446,10 +445,18 @@ async def _errors_job(
 
     # Route through conductor
     from mozart.daemon.detect import try_daemon_route
+    from mozart.daemon.exceptions import JobSubmissionError
 
     ws_str = str(workspace) if workspace else None
     params = {"job_id": job_id, "workspace": ws_str}
-    routed, result = await try_daemon_route("job.errors", params)
+    try:
+        routed, result = await try_daemon_route("job.errors", params)
+    except JobSubmissionError as err:
+        if json_output:
+            console.print(json_module.dumps({"error": f"Job not found: {job_id}"}))
+        else:
+            console.print(f"[red]Job not found:[/red] {job_id}")
+        raise typer.Exit(1) from err
 
     found_job: CheckpointState | None = None
     if routed and result:
@@ -636,6 +643,11 @@ def diagnose(
         "--include-logs",
         help="Inline the last 50 lines from each sheet/hook log file in the output",
     ),
+    resources: bool = typer.Option(
+        False,
+        "--resources",
+        help="Include resource profile (peak memory, CPU-time, syscalls, anomalies)",
+    ),
 ) -> None:
     """Generate a comprehensive diagnostic report for a job.
 
@@ -647,6 +659,7 @@ def diagnose(
     - All errors with full context and output tails
     - Log file locations, sizes, and modification times
     - (with --include-logs) Inline log content from each log file
+    - (with --resources) Resource profile from profiler data
 
     This command is particularly useful for debugging failed jobs
     or understanding why a job is running slowly.
@@ -654,10 +667,15 @@ def diagnose(
     Examples:
         mozart diagnose my-job                 # Full diagnostic report
         mozart diagnose my-job --json          # Machine-readable output
-        mozart diagnose my-job --workspace .   # Specify workspace
         mozart diagnose my-job --include-logs  # Include inline log content
+        mozart diagnose my-job --resources     # Include resource profile
     """
-    asyncio.run(_diagnose_job(job_id, workspace, json_output, include_logs=include_logs))
+    asyncio.run(
+        _diagnose_job(
+            job_id, workspace, json_output,
+            include_logs=include_logs, resources=resources,
+        )
+    )
 
 
 async def _diagnose_job(
@@ -665,16 +683,26 @@ async def _diagnose_job(
     workspace: Path | None,
     json_output: bool,
     include_logs: bool = False,
+    resources: bool = False,
 ) -> None:
     """Asynchronously generate diagnostic report for a job."""
     configure_global_logging(console)
 
     # Route through conductor
     from mozart.daemon.detect import try_daemon_route
+    from mozart.daemon.exceptions import JobSubmissionError
 
     ws_str = str(workspace) if workspace else None
     params = {"job_id": job_id, "workspace": ws_str}
-    routed, result = await try_daemon_route("job.diagnose", params)
+    try:
+        routed, result = await try_daemon_route("job.diagnose", params)
+    except JobSubmissionError as err:
+        # Conductor confirmed: job not found.
+        if json_output:
+            console.print(json_module.dumps({"error": f"Job not found: {job_id}"}))
+        else:
+            console.print(f"[red]Job not found:[/red] {job_id}")
+        raise typer.Exit(1) from err
 
     found_job: CheckpointState | None = None
     found_backend = None
@@ -709,6 +737,10 @@ async def _diagnose_job(
     # Inline log content if requested
     if include_logs:
         _attach_log_contents(report)
+
+    # Attach resource profile from profiler storage if requested
+    if resources:
+        await _attach_resource_profile(report, job_id)
 
     # Add execution history count if backend supports it
     report["execution_history_count"] = None
@@ -803,6 +835,102 @@ def _attach_log_contents(report: dict[str, Any]) -> None:
             log_contents[str(log_path)] = "<read error>"
 
     report["log_contents"] = log_contents
+
+
+async def _attach_resource_profile(report: dict[str, Any], job_id: str) -> None:
+    """Attach resource profile from profiler storage to the diagnostic report.
+
+    Queries the profiler's SQLite database for aggregated resource metrics
+    for the given job, including peak memory per sheet, CPU-time, process
+    spawn count, syscall hotspots, and anomalies detected during execution.
+
+    Mutates *report* in-place, adding a ``resource_profile`` key.
+
+    Args:
+        report: Diagnostic report dict.
+        job_id: Job ID to query resource data for.
+    """
+    resource_profile: dict[str, Any] = {"available": False}
+
+    try:
+        from mozart.daemon.profiler.models import ProfilerConfig
+        from mozart.daemon.profiler.storage import MonitorStorage, generate_resource_report
+
+        config = ProfilerConfig()
+        db_path = config.storage_path.expanduser()
+
+        if not db_path.exists():
+            resource_profile["error"] = f"Monitor database not found: {db_path}"
+            report["resource_profile"] = resource_profile
+            return
+
+        storage = MonitorStorage(db_path=db_path)
+        profile = await storage.read_job_resource_profile(job_id)
+
+        if not profile or profile.get("unique_pid_count", 0) == 0:
+            resource_profile["error"] = "No profiler data found for this job"
+            report["resource_profile"] = resource_profile
+            return
+
+        resource_profile = {
+            "available": True,
+            "peak_rss_mb": profile.get("peak_rss_mb", 0.0),
+            "process_spawn_count": profile.get("process_spawn_count", 0),
+            "unique_pid_count": profile.get("unique_pid_count", 0),
+            "sheet_metrics": profile.get("sheet_metrics", {}),
+            "syscall_hotspots": _top_syscalls(profile.get("syscall_hotspots", {})),
+        }
+
+        # Read anomalies (events of type monitor.anomaly) for this job
+        import time as _time
+
+        # Look back far enough to cover any reasonable job duration
+        events = await storage.read_events(
+            since=_time.time() - 86400 * 7, limit=10000
+        )
+        job_anomaly_events = [
+            {
+                "timestamp": e.timestamp,
+                "event_type": (
+                    e.event_type.value if hasattr(e.event_type, 'value') else str(e.event_type)
+                ),
+                "pid": e.pid,
+                "details": e.details,
+            }
+            for e in events
+            if e.job_id == job_id
+        ]
+        resource_profile["events"] = job_anomaly_events[:50]
+        resource_profile["event_count"] = len(job_anomaly_events)
+
+        # Generate AI-readable text report
+        resource_profile["text_report"] = await generate_resource_report(job_id, storage)
+
+    except ImportError:
+        resource_profile["error"] = "Profiler module not available"
+    except Exception as exc:
+        resource_profile["error"] = f"Failed to read profiler data: {exc}"
+
+    report["resource_profile"] = resource_profile
+
+
+def _top_syscalls(
+    hotspots: dict[str, float], limit: int = 10
+) -> list[dict[str, Any]]:
+    """Return the top N syscalls by cumulative time percentage.
+
+    Args:
+        hotspots: Syscall name → cumulative time percentage.
+        limit: Maximum number of syscalls to return.
+
+    Returns:
+        Sorted list of {name, time_pct} dicts.
+    """
+    sorted_calls = sorted(hotspots.items(), key=lambda x: x[1], reverse=True)
+    return [
+        {"name": name, "time_pct": round(pct, 2)}
+        for name, pct in sorted_calls[:limit]
+    ]
 
 
 def _build_diagnostic_report(
@@ -1158,6 +1286,93 @@ def _display_diagnostic_report(job: CheckpointState, report: dict[str, Any]) -> 
                 )
             )
 
+    # Resource profile (when --resources is used)
+    res_profile = report.get("resource_profile")
+    if res_profile:
+        _display_resource_profile(res_profile, job.job_id)
+
+
+def _display_resource_profile(profile: dict[str, Any], job_id: str) -> None:
+    """Display the resource profile section of a diagnostic report.
+
+    Args:
+        profile: Resource profile dict from _attach_resource_profile.
+        job_id: Job ID for display context.
+    """
+    console.print("\n[bold cyan]Resource Profile[/bold cyan]")
+
+    if not profile.get("available"):
+        error = profile.get("error", "Resource data unavailable")
+        console.print(f"  [dim]{error}[/dim]")
+        console.print(
+            "  [dim]Ensure the conductor was running with profiling enabled "
+            "during job execution.[/dim]"
+        )
+        return
+
+    # Summary metrics
+    peak_rss = profile.get("peak_rss_mb", 0.0)
+    spawn_count = profile.get("process_spawn_count", 0)
+    pid_count = profile.get("unique_pid_count", 0)
+
+    console.print(f"  Peak RSS: [bold]{peak_rss:.1f} MB[/bold]")
+    console.print(f"  Process Spawns: {spawn_count}")
+    console.print(f"  Unique PIDs: {pid_count}")
+
+    # Per-sheet metrics
+    sheet_metrics = profile.get("sheet_metrics", {})
+    if sheet_metrics:
+        console.print("\n  [bold]Per-Sheet Resources[/bold]")
+        sheet_table = Table(show_header=True, padding=(0, 1))
+        sheet_table.add_column("Sheet", justify="right", style="cyan", width=6)
+        sheet_table.add_column("Peak RSS", justify="right", width=12)
+        sheet_table.add_column("Max CPU%", justify="right", width=10)
+
+        for sheet_num in sorted(sheet_metrics.keys(), key=lambda x: int(x)):
+            sm = sheet_metrics[sheet_num]
+            sheet_table.add_row(
+                sheet_num,
+                f"{sm.get('peak_rss_mb', 0.0):.1f} MB",
+                f"{sm.get('max_cpu_pct', 0.0):.1f}%",
+            )
+        console.print(sheet_table)
+
+    # Syscall hotspots
+    hotspots = profile.get("syscall_hotspots", [])
+    if hotspots:
+        console.print("\n  [bold]Syscall Hotspots[/bold]")
+        for sc in hotspots[:5]:
+            name = sc.get("name", "?")
+            pct = sc.get("time_pct", 0.0)
+            bar_len = int(pct / 5)  # Scale to ~20 chars max
+            bar = "\u2588" * bar_len
+            console.print(f"    {name:>12s} {bar} {pct:.1f}%")
+
+    # Process events for this job
+    event_count = profile.get("event_count", 0)
+    if event_count > 0:
+        console.print(f"\n  Process Events: {event_count}")
+        events = profile.get("events", [])
+        for evt in events[:10]:
+            evt_type = evt.get("event_type", "?")
+            pid = evt.get("pid", "?")
+            details = evt.get("details", "")
+            console.print(f"    [{evt_type}] PID {pid}: {details}")
+        if event_count > 10:
+            console.print(f"    [dim]... and {event_count - 10} more events[/dim]")
+
+    # AI-readable text report
+    text_report = profile.get("text_report")
+    if text_report:
+        console.print("\n  [bold]AI-Readable Report[/bold]")
+        console.print(
+            Panel(
+                text_report,
+                border_style="dim",
+                title="Resource Report (for AI consumption)",
+            )
+        )
+
 
 # =============================================================================
 # history command
@@ -1221,13 +1436,21 @@ async def _history_job(
 
     # Route through conductor
     from mozart.daemon.detect import try_daemon_route
+    from mozart.daemon.exceptions import JobSubmissionError
 
     ws_str = str(workspace) if workspace else None
     params = {
         "job_id": job_id, "workspace": ws_str,
         "sheet_num": sheet_filter, "limit": limit,
     }
-    routed, result = await try_daemon_route("job.history", params)
+    try:
+        routed, result = await try_daemon_route("job.history", params)
+    except JobSubmissionError as err:
+        if json_output:
+            console.print(json_module.dumps({"error": f"Job not found: {job_id}"}))
+        else:
+            console.print(f"[red]Job not found:[/red] {job_id}")
+        raise typer.Exit(1) from err
 
     records: list[dict[str, Any]] = []
     has_history = True

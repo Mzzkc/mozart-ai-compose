@@ -89,13 +89,18 @@ async def _recover_job(
 
     # Route through conductor
     from mozart.daemon.detect import try_daemon_route
+    from mozart.daemon.exceptions import JobSubmissionError
 
     ws_str = str(workspace) if workspace else None
     params = {
         "job_id": job_id, "workspace": ws_str,
         "sheet_num": sheet_num, "dry_run": dry_run,
     }
-    routed, result = await try_daemon_route("job.recover", params)
+    try:
+        routed, result = await try_daemon_route("job.recover", params)
+    except JobSubmissionError as err:
+        console.print(f"[red]Job not found:[/red] {job_id}")
+        raise typer.Exit(1) from err
 
     state: CheckpointState | None = None
     state_backend = None

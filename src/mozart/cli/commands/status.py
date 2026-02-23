@@ -35,7 +35,13 @@ from rich.progress import (
     TextColumn,
 )
 
-from mozart.core.checkpoint import CheckpointState, ErrorRecord, JobStatus, SheetStatus
+from mozart.core.checkpoint import (
+    CheckpointState,
+    ErrorRecord,
+    JobStatus,
+    SheetStatus,
+    ValidationDetailDict,
+)
 from mozart.core.logging import get_logger
 
 from ..helpers import (
@@ -616,6 +622,27 @@ def _render_sheet_details(job: CheckpointState) -> None:
         sheet_table.add_row(*row)
 
     console.print(sheet_table)
+
+    # Show validation failure details for failed sheets
+    failures: list[tuple[int, list[ValidationDetailDict]]] = []
+    for sheet_num in sorted(job.sheets.keys()):
+        sheet = job.sheets[sheet_num]
+        if sheet.validation_passed is not False or not sheet.validation_details:
+            continue
+        failed = [v for v in sheet.validation_details if not v.get("passed")]
+        if failed:
+            failures.append((sheet_num, failed))
+
+    if failures:
+        console.print("\n[bold]Validation Failures[/bold]")
+        for sheet_num, failed_validations in failures:
+            for v in failed_validations:
+                desc = v.get("description") or v.get("rule_type", "unknown")
+                detail = v.get("error_message") or ""
+                if detail:
+                    console.print(f"  Sheet {sheet_num}: [red]{desc}[/red] — {detail}")
+                else:
+                    console.print(f"  Sheet {sheet_num}: [red]{desc}[/red]")
 
 
 def _render_recent_errors(job: CheckpointState) -> None:

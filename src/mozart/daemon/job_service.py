@@ -411,17 +411,19 @@ class JobService:
         self,
         job_id: str,
         workspace: Path,
+        backend_type: str = "sqlite",
     ) -> CheckpointState | None:
         """Get job status from state backend.
 
         Args:
             job_id: Job identifier.
             workspace: Workspace directory containing job state.
+            backend_type: State backend type (default "sqlite" for daemon).
 
         Returns:
             CheckpointState if found, None if job doesn't exist.
         """
-        state_backend = self._create_state_backend(workspace)
+        state_backend = self._create_state_backend(workspace, backend_type)
         try:
             return await state_backend.load(job_id)
         finally:
