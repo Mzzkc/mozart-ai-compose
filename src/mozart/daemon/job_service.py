@@ -251,7 +251,6 @@ class JobService:
         *,
         conductor_job_id: str | None = None,
         config: JobConfig | None = None,
-        reload_config: bool = False,
         config_path: Path | None = None,
         self_healing: bool = False,
         self_healing_auto_confirm: bool = False,
@@ -260,7 +259,7 @@ class JobService:
 
         Mirrors the logic in cli/commands/resume.py::_resume_job():
         1. Find and validate job state
-        2. Reconstruct config (from snapshot, provided config, or reload)
+        2. Reconstruct config (auto-reload from file, snapshot fallback)
         3. Calculate resume point
         4. Setup backends and components
         5. Create runner and call runner.run(start_sheet=...)
@@ -269,7 +268,6 @@ class JobService:
             job_id: Job identifier to resume.
             workspace: Workspace directory containing job state.
             config: Optional explicit JobConfig (overrides snapshot).
-            reload_config: Reload config from original stored path.
             config_path: Path to config file for reload.
             self_healing: Enable automatic diagnosis and remediation.
             self_healing_auto_confirm: Auto-confirm suggested fixes.
@@ -303,17 +301,14 @@ class JobService:
                     f"Job '{job_id}' has not been started yet. Use start_job() instead."
                 )
 
-        # Phase 2: Reconstruct config
+        # Phase 2: Reconstruct config (auto-reload from file by default)
         resolved_config = self._reconstruct_config(
-            found_state, config=config, reload_config=reload_config,
-            config_path=config_path,
+            found_state, config=config, config_path=config_path,
         )
 
-        # Update config snapshot if new config was provided
-        if config is not None or reload_config:
+        # Update config snapshot when config was reloaded from file or explicit
+        if config is not None or (found_state.config_path and Path(found_state.config_path).exists()):
             found_state.config_snapshot = resolved_config.model_dump(mode="json")
-            # Reset cost limit flag — the new config may have different
-            # cost_limits settings (or disabled them entirely).
             found_state.cost_limit_reached = False
 
         # Calculate resume point
@@ -820,19 +815,19 @@ class JobService:
         state: CheckpointState,
         *,
         config: JobConfig | None = None,
-        reload_config: bool = False,
         config_path: Path | None = None,
+        no_reload: bool = False,
     ) -> JobConfig:
-        """Reconstruct JobConfig for resume using priority fallback.
+        """Reconstruct JobConfig for resume using auto-reload priority.
 
         Mirrors cli/commands/resume.py::_reconstruct_config() but raises
         exceptions instead of calling typer.Exit().
 
         Priority order:
         1. Provided config object (explicit override)
-        2. reload_config from config_path or stored path
-        3. Cached config_snapshot in state
-        4. Stored config_path as last resort
+        2. Auto-reload from config_path or stored path (default)
+        3. Cached config_snapshot (fallback)
+        4. Error
 
         Returns:
             Reconstructed JobConfig.
@@ -846,17 +841,16 @@ class JobService:
         if config is not None:
             return config
 
-        # Priority 2: Reload from file
-        if reload_config:
+        # Priority 2: Auto-reload from file (unless no_reload)
+        if not no_reload:
             path = config_path or (Path(state.config_path) if state.config_path else None)
             if path and path.exists():
                 try:
                     return JC.from_yaml(path)
                 except Exception as e:
-                    raise JobSubmissionError(f"Error reloading config from {path}: {e}") from e
-            raise JobSubmissionError(
-                "Cannot reload config: no valid config path available."
-            )
+                    raise JobSubmissionError(
+                        f"Error reloading config from {path}: {e}"
+                    ) from e
 
         # Priority 3: Config snapshot from state
         if state.config_snapshot:
@@ -866,17 +860,6 @@ class JobService:
                 raise JobSubmissionError(
                     f"Error reconstructing config from snapshot: {e}"
                 ) from e
-
-        # Priority 4: Stored config_path
-        if state.config_path:
-            path = Path(state.config_path)
-            if path.exists():
-                try:
-                    return JC.from_yaml(path)
-                except Exception as e:
-                    raise JobSubmissionError(
-                        f"Error loading config from stored path {path}: {e}"
-                    ) from e
 
         raise JobSubmissionError(
             "Cannot resume: no config available. "

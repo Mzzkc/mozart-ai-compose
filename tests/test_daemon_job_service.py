@@ -539,15 +539,88 @@ class TestReconstructConfig:
         with pytest.raises(JobSubmissionError, match="no config available"):
             job_service._reconstruct_config(mock_state)
 
-    def test_reload_config_with_no_path_raises(self, job_service: JobService):
-        """Test reload_config raises when no config path available."""
+    def test_auto_reload_from_config_path(self, job_service: JobService, tmp_path: Path):
+        """Config should auto-reload from stored config_path when file exists."""
+        config_file = tmp_path / "test.yaml"
+        config_file.write_text(
+            "name: reloaded-job\n"
+            "backend:\n  type: claude_cli\n"
+            "sheet:\n  size: 3\n  total_items: 9\n"
+            "prompt:\n  template: 'Test {{ sheet_num }}'\n"
+        )
+        mock_state = MagicMock()
+        mock_state.config_path = str(config_file)
+        mock_state.config_snapshot = {"name": "old-snapshot"}
+
+        result = job_service._reconstruct_config(mock_state)
+        assert result.name == "reloaded-job"
+
+    def test_snapshot_fallback_when_file_missing(self, job_service: JobService, tmp_path: Path):
+        """Should fall back to snapshot when config file doesn't exist."""
+        mock_state = MagicMock()
+        mock_state.config_path = str(tmp_path / "deleted.yaml")
+        mock_state.config_snapshot = {
+            "name": "snapshot-job",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 3, "total_items": 9},
+            "prompt": {"template": "Test {{ sheet_num }}"},
+        }
+
+        result = job_service._reconstruct_config(mock_state)
+        assert result.name == "snapshot-job"
+
+    def test_snapshot_fallback_when_no_config_path(self, job_service: JobService):
+        """Should fall back to snapshot when no config_path stored."""
         mock_state = MagicMock()
         mock_state.config_path = None
+        mock_state.config_snapshot = {
+            "name": "snapshot-job",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 3, "total_items": 9},
+            "prompt": {"template": "Test {{ sheet_num }}"},
+        }
 
-        with pytest.raises(JobSubmissionError, match="no valid config path"):
-            job_service._reconstruct_config(
-                mock_state, reload_config=True
-            )
+        result = job_service._reconstruct_config(mock_state)
+        assert result.name == "snapshot-job"
+
+    def test_no_reload_skips_auto_reload(self, job_service: JobService, tmp_path: Path):
+        """no_reload=True should skip auto-reload and use snapshot."""
+        config_file = tmp_path / "test.yaml"
+        config_file.write_text(
+            "name: reloaded-job\n"
+            "backend:\n  type: claude_cli\n"
+            "sheet:\n  size: 3\n  total_items: 9\n"
+            "prompt:\n  template: 'Test {{ sheet_num }}'\n"
+        )
+        mock_state = MagicMock()
+        mock_state.config_path = str(config_file)
+        mock_state.config_snapshot = {
+            "name": "snapshot-job",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 3, "total_items": 9},
+            "prompt": {"template": "Test {{ sheet_num }}"},
+        }
+
+        result = job_service._reconstruct_config(mock_state, no_reload=True)
+        assert result.name == "snapshot-job"
+
+    def test_explicit_config_path_overrides_stored(self, job_service: JobService, tmp_path: Path):
+        """Explicit config_path should override state.config_path for auto-reload."""
+        config_file = tmp_path / "override.yaml"
+        config_file.write_text(
+            "name: override-job\n"
+            "backend:\n  type: claude_cli\n"
+            "sheet:\n  size: 3\n  total_items: 9\n"
+            "prompt:\n  template: 'Test {{ sheet_num }}'\n"
+        )
+        mock_state = MagicMock()
+        mock_state.config_path = str(tmp_path / "old.yaml")
+        mock_state.config_snapshot = {"name": "snapshot"}
+
+        result = job_service._reconstruct_config(
+            mock_state, config_path=config_file,
+        )
+        assert result.name == "override-job"
 
     def test_config_snapshot_used_when_available(
         self, job_service: JobService, sample_job_config: JobConfig
