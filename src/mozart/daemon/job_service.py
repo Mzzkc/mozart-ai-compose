@@ -306,10 +306,17 @@ class JobService:
             found_state, config=config, config_path=config_path,
         )
 
-        # Update config snapshot when config was reloaded from file or explicit
-        if config is not None or (found_state.config_path and Path(found_state.config_path).exists()):
-            found_state.config_snapshot = resolved_config.model_dump(mode="json")
-            found_state.cost_limit_reached = False
+        # Reconcile stale state if config was reloaded
+        from mozart.execution.reconciliation import reconcile_config
+
+        report = reconcile_config(found_state, resolved_config)
+        # Always update snapshot with latest config
+        found_state.config_snapshot = resolved_config.model_dump(mode="json")
+        if report.has_changes:
+            self._output.job_event(runtime_id, "config_reconciled", {
+                "sections_changed": report.sections_changed,
+                "fields_reset": report.fields_reset,
+            })
 
         # Calculate resume point
         resume_sheet = found_state.last_completed_sheet + 1

@@ -389,10 +389,14 @@ async def _resume_job_direct(ctx: ResumeContext) -> None:
         found_state, ctx.config_file, ctx.no_reload
     )
 
-    # Update config_snapshot in state if config was reloaded
+    # Reconcile stale state if config was reloaded
     if config_was_reloaded:
+        from mozart.execution.reconciliation import reconcile_config
+
+        report = reconcile_config(found_state, config)
         found_state.config_snapshot = config.model_dump(mode="json")
-        console.print("[dim]Updated cached config snapshot[/dim]")
+        if report.has_changes:
+            console.print(f"[dim]{report.summary()}[/dim]")
 
     # Calculate resume point
     resume_sheet = found_state.last_completed_sheet + 1
