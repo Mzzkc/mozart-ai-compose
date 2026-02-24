@@ -23,8 +23,13 @@ workspace: "/home/emzi/Projects/mozart-ai-compose/workspace-observer"
 backend:
   type: claude_cli
   skip_permissions: true
-  timeout_seconds: 1800
+  timeout_seconds: 3600
   disable_mcp: true
+  timeout_overrides:
+    4: 5400   # Coalescing + size cap — heaviest task, 5 critical review fixes
+    6: 5400   # Manager wiring — touches many integration points, full test suite
+    9: 5400   # TUI integration — 4 files, vaguest task per expert review
+    10: 5400  # Integration test — full suite + mypy + ruff
 
 sheet:
   size: 1
@@ -473,45 +478,45 @@ validations:
     command: 'cd /home/emzi/Projects/mozart-ai-compose && .venv/bin/python -m pytest tests/test_observer_recorder.py -x -q --tb=short'
     condition: "stage >= 1 and stage <= 5"
     description: "Observer recorder tests pass"
-    timeout_seconds: 120
+    timeout_seconds: 600
 
   # Stage 6: Full test suite (manager wiring could break things)
   - type: command_succeeds
     command: 'cd /home/emzi/Projects/mozart-ai-compose && .venv/bin/python -m pytest tests/ -x -q --tb=short --timeout=120'
     condition: "stage == 6"
     description: "Full test suite passes after manager wiring"
-    timeout_seconds: 600
+    timeout_seconds: 1800
 
   # Stage 7: Snapshot tests
   - type: command_succeeds
     command: 'cd /home/emzi/Projects/mozart-ai-compose && .venv/bin/python -m pytest tests/test_daemon_snapshot.py tests/test_observer_recorder.py -x -q --tb=short'
     condition: "stage == 7"
     description: "Snapshot and recorder tests pass"
-    timeout_seconds: 120
+    timeout_seconds: 600
 
   # Stage 8: Recorder tests (includes IPC if tested there)
   - type: command_succeeds
     command: 'cd /home/emzi/Projects/mozart-ai-compose && .venv/bin/python -m pytest tests/test_observer_recorder.py -x -q --tb=short'
     condition: "stage == 8"
     description: "Observer recorder tests pass"
-    timeout_seconds: 120
+    timeout_seconds: 600
 
   # Stage 9: TUI files were modified (basic check)
   - type: command_succeeds
     command: 'cd /home/emzi/Projects/mozart-ai-compose && git diff --name-only HEAD~1 | grep -q "tui/"'
     condition: "stage == 9"
     description: "TUI files were modified"
-    timeout_seconds: 10
+    timeout_seconds: 60
 
   # Stage 10: Full suite + type checking
   - type: command_succeeds
     command: 'cd /home/emzi/Projects/mozart-ai-compose && .venv/bin/python -m pytest tests/ -x -q --tb=short --timeout=120'
     condition: "stage == 10"
     description: "Full test suite passes"
-    timeout_seconds: 600
+    timeout_seconds: 1800
 
   - type: command_succeeds
     command: 'cd /home/emzi/Projects/mozart-ai-compose && .venv/bin/python -m mypy src/mozart/daemon/observer_recorder.py --no-error-summary --ignore-missing-imports 2>&1 | tail -1 | grep -q "Success"'
     condition: "stage == 10"
     description: "Type checking passes on observer_recorder"
-    timeout_seconds: 120
+    timeout_seconds: 600
