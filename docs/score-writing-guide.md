@@ -22,6 +22,7 @@ examples to complex parallel fan-out workflows.
 - [Validation Types](#validation-types)
 - [Fan-Out and Dependencies](#fan-out-and-dependencies)
 - [Cross-Sheet Context](#cross-sheet-context)
+- [Prelude and Cadenza (Context Injection)](#prelude-and-cadenza-context-injection)
 - [Concert Chaining and Hooks](#concert-chaining-and-hooks)
 - [Testing Your Score](#testing-your-score)
 - [Best Practices](#best-practices)
@@ -307,6 +308,8 @@ Defines how work is divided into sheets.
 | `fan_out` | dict[int, int] | `{}` | Stage → instance count. See [Fan-Out and Dependencies](#fan-out-and-dependencies). |
 | `skip_when` | dict[int, str] | `{}` | Conditional skip rules. Expression evaluated with access to `sheets` dict and `job` state. |
 | `skip_when_command` | dict[int, SkipWhenCommand] | `{}` | Command-based conditional skip rules. Shell command exit 0 = skip, non-zero = run. See [Conditional Sheet Skipping](#conditional-sheet-skipping). |
+| `prelude` | list[InjectionItem] | `[]` | Shared file injections for ALL sheets. See [Prelude and Cadenza](#prelude-and-cadenza-context-injection). |
+| `cadenzas` | dict[int, list[InjectionItem]] | `{}` | Per-sheet file injections. See [Prelude and Cadenza](#prelude-and-cadenza-context-injection). |
 
 ### `prompt`
 
@@ -1408,6 +1411,94 @@ cross_sheet:
 
 ---
 
+## Prelude and Cadenza (Context Injection)
+
+The prelude/cadenza system provides first-class file injection into sheet
+prompts. Instead of manually reading files in your template or relying on
+`cross_sheet`, you declare what files to inject and Mozart handles the rest —
+reading files at execution time and placing content at the right position
+in the prompt.
+
+- **Prelude** — shared context/skills/tools injected into ALL sheets
+  (like a musical prelude that sets the tone)
+- **Cadenza** — per-sheet specific injections
+  (like a soloist's moment in the composition)
+
+### Injection Categories
+
+Each injected file is tagged with a category that controls WHERE it appears
+in the final prompt:
+
+| Category | Prompt Position | Use For |
+|----------|----------------|---------|
+| `context` | After template body | Background knowledge, reference docs, previous outputs |
+| `skill` | Before template body (after preamble) | Methodologies, instructions, coding standards |
+| `tool` | Before template body (after preamble) | Available actions, tool descriptions |
+
+### Configuration
+
+```yaml
+sheet:
+  size: 1
+  total_items: 5
+
+  # Prelude: injected into every sheet
+  prelude:
+    - file: docs/architecture.md
+      as: context
+    - file: .claude/skills/debugging.md
+      as: skill
+    - file: tools/lint.sh
+      as: tool
+
+  # Cadenzas: injected into specific sheets only
+  cadenzas:
+    3:
+      - file: "{{ workspace }}/02-output.md"
+        as: context
+    5:
+      - file: tests/results.json
+        as: context
+```
+
+### Dynamic Paths with Jinja
+
+File paths support Jinja2 templating, so earlier sheets' outputs can be
+injected into later sheets:
+
+```yaml
+sheet:
+  cadenzas:
+    3:
+      - file: "{{ workspace }}/phase1-results.md"
+        as: context    # Sheet 3 gets phase 1's output
+```
+
+Files are read at **sheet execution time**, not when the YAML is parsed.
+This means dynamic outputs from earlier sheets are available.
+
+### Prelude vs. cross_sheet vs. prompt_extensions
+
+These three features serve different purposes:
+
+| Feature | Scope | Content Source | Prompt Position |
+|---------|-------|---------------|-----------------|
+| `prelude` / `cadenzas` | All sheets / per-sheet | File contents (read at execution time) | Category-dependent (context/skill/tool) |
+| `cross_sheet` | Automatic from previous sheets | stdout + captured files | Template variables (`previous_outputs`, `previous_files`) |
+| `prompt_extensions` | Score-level or per-sheet | Inline text or file paths | Backend-level injection (via `set_prompt_extensions()`) |
+
+Use **prelude/cadenzas** when you have specific files to inject with
+category-aware placement. Use **cross_sheet** when you want automatic
+capture of previous sheet outputs. Use **prompt_extensions** for inline
+directives that apply across the score.
+
+### Validation
+
+`mozart validate` checks static prelude/cadenza file paths (V108 warning)
+but skips Jinja-templated paths that can't be resolved before execution.
+
+---
+
 ## Concert Chaining and Hooks
 
 Concerts enable scores to chain together — each score spawning the next
@@ -1570,6 +1661,7 @@ done
 | V007 | Invalid regex in validation pattern | Fix regex in `content_regex` or `rate_limit.detection_patterns` |
 | V101 | Undefined template variable (warning) | Add variable to `prompt.variables` or check spelling |
 | V103 | Very short timeout (warning) | Increase `backend.timeout_seconds` |
+| V108 | Missing prelude/cadenza file (warning) | Check file path in `sheet.prelude` or `sheet.cadenzas`. Jinja-templated paths are skipped. |
 
 ---
 
