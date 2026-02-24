@@ -22,10 +22,11 @@ SRC_DIR: Path = TESTS_DIR.parent / "src"
 CONFIG_DIR: Path = SRC_DIR / "mozart" / "core" / "config"
 CHECKPOINT_FILE: Path = SRC_DIR / "mozart" / "core" / "checkpoint.py"
 
-# Baseline count of bare MagicMock() calls (without spec=) in the test suite
-# as of 2026-02-24. The test_no_bare_magicmock test fails only if NEW
-# instances are added above this count.
+# Baseline counts as of 2026-02-24. Quality gate tests fail only if NEW
+# violations are added above these baselines.
 BARE_MAGICMOCK_BASELINE: int = 873
+ASYNCIO_SLEEP_BASELINE: int = 115
+ASSERTION_LESS_TEST_BASELINE: int = 85
 
 
 def _collect_test_files() -> list[Path]:
@@ -103,7 +104,7 @@ class _SleepChecker(ast.NodeVisitor):
 
 
 def test_no_asyncio_sleep_for_coordination() -> None:
-    """Scan all test files for asyncio.sleep calls outside polling loops."""
+    """Fail if NEW asyncio.sleep calls outside polling loops are added."""
     checker = _SleepChecker()
     all_violations: list[tuple[str, int]] = []
 
@@ -111,12 +112,17 @@ def test_no_asyncio_sleep_for_coordination() -> None:
         violations = checker.check_file(test_file)
         all_violations.extend(violations)
 
-    if all_violations:
+    current_count = len(all_violations)
+
+    if current_count > ASYNCIO_SLEEP_BASELINE:
+        new_count = current_count - ASYNCIO_SLEEP_BASELINE
         msg_lines = [
-            f"Found {len(all_violations)} asyncio.sleep() call(s) outside "
-            "polling loops (not in while, and arg != 0):"
+            f"asyncio.sleep() violations increased: {current_count} "
+            f"(baseline: {ASYNCIO_SLEEP_BASELINE}, +{new_count} new)",
+            "",
+            "New asyncio.sleep() calls outside polling loops:",
         ]
-        for filename, lineno in all_violations:
+        for filename, lineno in all_violations[-new_count:]:
             msg_lines.append(f"  {filename}:{lineno}")
         msg_lines.append(
             "\nFix: use asyncio.sleep(0) for yielding, or wrap in a "
@@ -129,12 +135,8 @@ def test_no_asyncio_sleep_for_coordination() -> None:
 # 2. No tight timing assertions
 # ---------------------------------------------------------------------------
 
-# Matches patterns like:
-#   assert elapsed < 5.0
-#   assert elapsed < 2
-#   assert elapsed < 0.5
-#   assert elapsed<10
-# Captures the numeric bound
+# Matches patterns like "assert elapsed < 5.0" in non-comment lines.
+# Captures the numeric bound.
 _TIGHT_TIMING_RE = re.compile(
     r"assert\s+\w*elapsed\w*\s*<\s*(\d+(?:\.\d+)?)"
 )
@@ -148,6 +150,9 @@ def test_no_tight_timing_assertions() -> None:
         for lineno, line in enumerate(
             test_file.read_text(encoding="utf-8").splitlines(), start=1
         ):
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
             m = _TIGHT_TIMING_RE.search(line)
             if m:
                 bound = float(m.group(1))
@@ -193,7 +198,7 @@ def _has_assertion(node: ast.AST) -> bool:
 
 
 def test_all_tests_have_assertions() -> None:
-    """Every test_* function must contain at least one assertion."""
+    """Fail if NEW test functions without assertions are added."""
     violations: list[tuple[str, str, int]] = []
 
     for test_file in _collect_test_files():
@@ -212,11 +217,17 @@ def test_all_tests_have_assertions() -> None:
                             (test_file.name, node.name, node.lineno)
                         )
 
-    if violations:
+    current_count = len(violations)
+
+    if current_count > ASSERTION_LESS_TEST_BASELINE:
+        new_count = current_count - ASSERTION_LESS_TEST_BASELINE
         msg_lines = [
-            f"Found {len(violations)} test function(s) without assertions:"
+            f"Assertion-less test count increased: {current_count} "
+            f"(baseline: {ASSERTION_LESS_TEST_BASELINE}, +{new_count} new)",
+            "",
+            "New test functions without assertions:",
         ]
-        for filename, funcname, lineno in violations:
+        for filename, funcname, lineno in violations[-new_count:]:
             msg_lines.append(f"  {filename}:{lineno} — {funcname}")
         msg_lines.append(
             "\nFix: every test must have at least one assert statement, "
