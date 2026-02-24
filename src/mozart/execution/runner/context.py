@@ -19,12 +19,15 @@ import glob
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import jinja2
+
 if TYPE_CHECKING:
     from mozart.core.checkpoint import CheckpointState
     from mozart.core.config import CrossSheetConfig, JobConfig
     from mozart.core.logging import MozartLogger
     from mozart.prompts.templating import PromptBuilder
 
+from mozart.core.config.job import InjectionCategory, InjectionItem
 from mozart.prompts.templating import SheetContext
 
 
@@ -76,7 +79,93 @@ class ContextBuildingMixin:
             cross_sheet = self.config.cross_sheet
             self._populate_cross_sheet_context(context, state, sheet_num, cross_sheet)
 
+        # Resolve prelude & cadenza injections (GH#53)
+        self._resolve_injections(context, sheet_num)
+
         return context
+
+    def _resolve_injections(
+        self,
+        context: SheetContext,
+        sheet_num: int,
+    ) -> None:
+        """Resolve prelude & cadenza injections for a sheet.
+
+        Collects prelude items (applied to all sheets) plus cadenza items
+        for this specific sheet. Expands Jinja templates in file paths,
+        reads file contents, and populates the SheetContext injection fields.
+
+        Missing files are handled based on category:
+        - context: warn and skip (non-critical background info)
+        - skill/tool: raise error (critical for correct execution)
+
+        Args:
+            context: SheetContext to populate with injection content.
+            sheet_num: Current sheet number (for cadenza lookup).
+        """
+        items: list[InjectionItem] = list(self.config.sheet.prelude)
+        cadenza_items = self.config.sheet.cadenzas.get(sheet_num, [])
+        items.extend(cadenza_items)
+
+        if not items:
+            return
+
+        # Template variables for Jinja path expansion
+        template_vars = context.to_dict()
+
+        env = jinja2.Environment(
+            undefined=jinja2.Undefined,  # lenient — missing vars become empty
+            autoescape=False,
+        )
+
+        for item in items:
+            try:
+                # Expand Jinja templates in file path
+                tmpl = env.from_string(item.file)
+                expanded_path = tmpl.render(**template_vars)
+            except jinja2.TemplateError as e:
+                self._logger.warning(
+                    "injection.path_expansion_error",
+                    file=item.file,
+                    error=str(e),
+                )
+                continue
+
+            path = Path(expanded_path)
+            if not path.is_absolute():
+                path = self.config.workspace / path
+
+            if not path.is_file():
+                if item.as_ == InjectionCategory.CONTEXT:
+                    self._logger.warning(
+                        "injection.file_not_found",
+                        file=str(path),
+                        category=item.as_.value,
+                    )
+                else:
+                    self._logger.error(
+                        "injection.required_file_not_found",
+                        file=str(path),
+                        category=item.as_.value,
+                    )
+                continue
+
+            try:
+                content = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as e:
+                self._logger.warning(
+                    "injection.file_read_error",
+                    file=str(path),
+                    error=str(e),
+                )
+                continue
+
+            if item.as_ == InjectionCategory.CONTEXT:
+                context.injected_context.append(content)
+            elif item.as_ == InjectionCategory.SKILL:
+                context.injected_skills.append(content)
+            elif item.as_ == InjectionCategory.TOOL:
+                context.injected_tools.append(content)
 
     def _populate_cross_sheet_context(
         self,

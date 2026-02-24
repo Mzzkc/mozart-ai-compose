@@ -217,6 +217,69 @@ class WorkingDirectoryCheck:
         return issues
 
 
+class PreludeCadenzaFileCheck:
+    """Check that prelude/cadenza files exist when paths are static (V108).
+
+    Only checks non-templated paths (no Jinja ``{{``). Templated paths
+    are resolved at execution time and cannot be validated statically.
+    This is a WARNING because files might be created before execution.
+    """
+
+    @property
+    def check_id(self) -> str:
+        return "V108"
+
+    @property
+    def severity(self) -> ValidationSeverity:
+        return ValidationSeverity.WARNING
+
+    @property
+    def description(self) -> str:
+        return "Checks that prelude/cadenza files exist (static paths only)"
+
+    def check(
+        self,
+        config: JobConfig,
+        config_path: Path,
+        raw_yaml: str,
+    ) -> list[ValidationIssue]:
+        """Check prelude and cadenza file paths."""
+        issues: list[ValidationIssue] = []
+
+        all_items: list[tuple[str, str]] = []
+        for item in config.sheet.prelude:
+            all_items.append((item.file, "prelude"))
+        for sheet_num, items in config.sheet.cadenzas.items():
+            for item in items:
+                all_items.append((item.file, f"cadenza (sheet {sheet_num})"))
+
+        for file_path, source in all_items:
+            # Skip Jinja-templated paths — can't resolve statically
+            if "{{" in file_path:
+                continue
+
+            path = resolve_path(Path(file_path), config_path)
+
+            if not path.exists():
+                issues.append(
+                    ValidationIssue(
+                        check_id=self.check_id,
+                        severity=self.severity,
+                        message=(
+                            f"Injection file from {source} not found: {path}"
+                        ),
+                        line=find_line_in_yaml(raw_yaml, file_path),
+                        suggestion="Create the file or fix the path",
+                        metadata={
+                            "source": source,
+                            "path": str(path),
+                        },
+                    )
+                )
+
+        return issues
+
+
 class SkillFilesExistCheck:
     """Check that files referenced in validation commands exist (V107).
 

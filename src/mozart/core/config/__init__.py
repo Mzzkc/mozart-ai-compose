@@ -30,6 +30,8 @@ from mozart.core.config.execution import (
 
 # Job and sheet configuration
 from mozart.core.config.job import (
+    InjectionCategory,
+    InjectionItem,
     JobConfig,
     PromptConfig,
     SheetConfig,
@@ -86,6 +88,8 @@ __all__ = [
     "StaleDetectionConfig",
     "ValidationRule",
     # Job
+    "InjectionCategory",
+    "InjectionItem",
     "JobConfig",
     "PromptConfig",
     "SheetConfig",

@@ -17,6 +17,49 @@ if TYPE_CHECKING:
     from mozart.execution.validation import HistoricalFailure, ValidationResult
 
 
+def _normalize_variable_keys(variables: dict[str, Any]) -> dict[str, Any]:
+    """Normalize nested dict keys after JSON roundtrip.
+
+    JSON serialization (via ``model_dump(mode="json")``) converts integer
+    dict keys to strings because JSON only supports string keys. When
+    config is reconstructed from a snapshot (resume path), nested dicts
+    within ``variables`` have string keys like ``{"1": ..., "2": ...}``
+    instead of the original integer keys ``{1: ..., 2: ...}``.
+
+    Jinja2 templates access these dicts with integer variables (e.g.
+    ``investigation_focus[instance]``), which fails when keys are strings.
+
+    This function recursively converts string keys that look like integers
+    back to integers, restoring the original YAML-loaded behavior.
+    """
+    result: dict[str, Any] = {}
+    for key, value in variables.items():
+        if isinstance(value, dict):
+            result[key] = _normalize_dict_keys(value)
+        else:
+            result[key] = value
+    return result
+
+
+def _normalize_dict_keys(d: dict[Any, Any]) -> dict[Any, Any]:
+    """Recursively normalize dict keys: string-encoded integers → int."""
+    result: dict[Any, Any] = {}
+    for key, value in d.items():
+        # Convert string keys that represent integers back to int
+        normalized_key = key
+        if isinstance(key, str):
+            try:
+                normalized_key = int(key)
+            except (ValueError, OverflowError):
+                pass
+        # Recurse into nested dicts
+        if isinstance(value, dict):
+            result[normalized_key] = _normalize_dict_keys(value)
+        else:
+            result[normalized_key] = value
+    return result
+
+
 @dataclass
 class SheetContext:
     """Context for building a sheet prompt.
@@ -45,6 +88,13 @@ class SheetContext:
     """Stdout outputs from previous sheets. Keys are sheet numbers (1-indexed)."""
     previous_files: dict[str, str] = field(default_factory=dict)
     """File contents captured between sheets. Keys are file paths."""
+    # Prelude & Cadenza injection fields (GH#53)
+    injected_context: list[str] = field(default_factory=list)
+    """Resolved content from 'context' category injections."""
+    injected_skills: list[str] = field(default_factory=list)
+    """Resolved content from 'skill' category injections."""
+    injected_tools: list[str] = field(default_factory=list)
+    """Resolved content from 'tool' category injections."""
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for template rendering."""
@@ -60,6 +110,9 @@ class SheetContext:
             "total_stages": self.total_stages if self.total_stages > 0 else self.total_sheets,
             "previous_outputs": self.previous_outputs,
             "previous_files": self.previous_files,
+            "injected_context": self.injected_context,
+            "injected_skills": self.injected_skills,
+            "injected_tools": self.injected_tools,
         }
 
 
@@ -165,8 +218,12 @@ class PromptBuilder:
         """
         template_context = context.to_dict()
 
-        # Merge config variables
-        template_context.update(self.config.variables)
+        # Merge config variables.
+        # Normalize nested dict keys: JSON roundtrip (model_dump → model_validate)
+        # converts integer dict keys to strings. Jinja2 templates use
+        # ``dict[instance]`` where ``instance`` is an integer, so string-keyed
+        # dicts cause UndefinedError. Restore integer keys where possible.
+        template_context.update(_normalize_variable_keys(self.config.variables))
 
         # Add stakes and thinking method
         template_context["stakes"] = self.config.stakes or ""
@@ -181,6 +238,19 @@ class PromptBuilder:
             prompt = template.render(**template_context)
         else:
             prompt = self._build_default_prompt(context)
+
+        # Inject skills/tools early (before template body content matters less
+        # than being present — place them right after the rendered template)
+        skills_tools_section = self._format_injection_section(
+            context.injected_skills, context.injected_tools
+        )
+        if skills_tools_section:
+            prompt = f"{prompt}\n\n{skills_tools_section}"
+
+        # Inject context after template body
+        if context.injected_context:
+            context_parts = "\n\n".join(context.injected_context)
+            prompt = f"{prompt}\n\n## Injected Context\n\n{context_parts}"
 
         # Inject failure history first (lessons learned from past)
         if failure_history:
@@ -455,6 +525,27 @@ class PromptBuilder:
             prompt += f"\n\n{self.config.thinking_method}"
 
         return prompt
+
+    @staticmethod
+    def _format_injection_section(
+        skills: list[str],
+        tools: list[str],
+    ) -> str:
+        """Format skills and tools injection content for prompt placement.
+
+        Args:
+            skills: Resolved content from 'skill' category injections.
+            tools: Resolved content from 'tool' category injections.
+
+        Returns:
+            Formatted string with skills/tools sections, or empty string if none.
+        """
+        parts: list[str] = []
+        if skills:
+            parts.append("## Injected Skills\n\n" + "\n\n".join(skills))
+        if tools:
+            parts.append("## Injected Tools\n\n" + "\n\n".join(tools))
+        return "\n\n".join(parts)
 
     def build_completion_prompt(
         self,

@@ -193,7 +193,7 @@ class ObserverRecorder:
             _logger.debug(
                 "observer_recorder.event_after_unregister",
                 job_id=job_id,
-                event=event.get("event"),
+                event_type=event.get("event"),
             )
             return
 

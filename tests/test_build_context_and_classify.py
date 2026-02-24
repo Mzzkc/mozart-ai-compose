@@ -118,6 +118,66 @@ class TestBuildSheetContext:
         ctx = runner._build_sheet_context(sheet_num=2, state=state)
         assert ctx.previous_outputs.get(1) == "Output from sheet 1"
 
+    def test_context_with_prelude_cadenza_injections(self, tmp_path) -> None:
+        """With prelude/cadenzas config, injection fields are populated."""
+        (tmp_path / "shared.md").write_text("Shared prelude content")
+        (tmp_path / "sheet2.md").write_text("Sheet 2 cadenza")
+
+        config = _make_config(
+            workspace=str(tmp_path),
+            sheet={
+                "size": 10,
+                "total_items": 30,
+                "prelude": [
+                    {"file": "shared.md", "as": "context"},
+                ],
+                "cadenzas": {
+                    2: [{"file": "sheet2.md", "as": "skill"}],
+                },
+            },
+        )
+        runner = _make_runner(config)
+
+        # Sheet 1 gets only prelude
+        ctx1 = runner._build_sheet_context(sheet_num=1)
+        assert ctx1.injected_context == ["Shared prelude content"]
+        assert ctx1.injected_skills == []
+
+        # Sheet 2 gets prelude + cadenza
+        ctx2 = runner._build_sheet_context(sheet_num=2)
+        assert ctx2.injected_context == ["Shared prelude content"]
+        assert ctx2.injected_skills == ["Sheet 2 cadenza"]
+
+    def test_context_with_jinja_paths_in_prelude(self, tmp_path) -> None:
+        """Prelude items with Jinja-templated paths expand correctly (GH#53 Phase 2)."""
+        notes = tmp_path / "notes-1.md"
+        notes.write_text("Sheet 1 notes")
+
+        config = _make_config(
+            workspace=str(tmp_path),
+            sheet={
+                "size": 10,
+                "total_items": 30,
+                "prelude": [
+                    {"file": "{{ workspace }}/notes-{{ sheet_num }}.md", "as": "context"},
+                ],
+            },
+        )
+        runner = _make_runner(config)
+        ctx = runner._build_sheet_context(sheet_num=1)
+
+        assert ctx.injected_context == ["Sheet 1 notes"]
+
+    def test_context_no_injections_unchanged(self) -> None:
+        """Without prelude/cadenzas, injection fields remain empty (GH#53 Phase 2)."""
+        config = _make_config()
+        runner = _make_runner(config)
+        ctx = runner._build_sheet_context(sheet_num=1)
+
+        assert ctx.injected_context == []
+        assert ctx.injected_skills == []
+        assert ctx.injected_tools == []
+
 
 class TestClassifyExecution:
     """Tests for _classify_execution() error classification."""

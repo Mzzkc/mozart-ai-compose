@@ -6,6 +6,17 @@ This module contains all the built-in validation checks organized by category:
 - config: Configuration structure and value checks
 """
 
+from mozart.validation.checks.best_practices import (
+    FanOutWithoutDependenciesCheck,
+    FanOutWithoutParallelCheck,
+    FileExistsOnlyCheck,
+    FormatSyntaxInTemplateCheck,
+    JinjaInValidationPathCheck,
+    MissingDisableMcpCheck,
+    MissingSkipPermissionsCheck,
+    NoValidationsCheck,
+    VariableShadowingCheck,
+)
 from mozart.validation.checks.config import (
     EmptyPatternCheck,
     RegexPatternCheck,
@@ -18,6 +29,7 @@ from mozart.validation.checks.jinja import (
     JinjaUndefinedVariableCheck,
 )
 from mozart.validation.checks.paths import (
+    PreludeCadenzaFileCheck,
     SkillFilesExistCheck,
     SystemPromptFileCheck,
     TemplateFileExistsCheck,
@@ -34,6 +46,7 @@ __all__ = [
     "TemplateFileExistsCheck",
     "SystemPromptFileCheck",
     "WorkingDirectoryCheck",
+    "PreludeCadenzaFileCheck",
     "SkillFilesExistCheck",
     # Config checks
     "RegexPatternCheck",
@@ -41,4 +54,14 @@ __all__ = [
     "TimeoutRangeCheck",
     "EmptyPatternCheck",
     "VersionReferenceCheck",
+    # Best-practice checks
+    "JinjaInValidationPathCheck",
+    "FormatSyntaxInTemplateCheck",
+    "NoValidationsCheck",
+    "MissingSkipPermissionsCheck",
+    "FileExistsOnlyCheck",
+    "FanOutWithoutDependenciesCheck",
+    "FanOutWithoutParallelCheck",
+    "VariableShadowingCheck",
+    "MissingDisableMcpCheck",
 ]

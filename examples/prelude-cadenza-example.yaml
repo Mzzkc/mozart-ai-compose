@@ -1,0 +1,62 @@
+# Example: Prelude & Cadenza Context Injection (GH#53)
+#
+# Demonstrates injecting files into prompts via the prelude/cadenza system.
+# - Prelude: Injected into ALL sheets (shared context, skills, tools)
+# - Cadenza: Injected into SPECIFIC sheets (per-sheet overrides)
+#
+# Usage:
+#   mozart validate examples/prelude-cadenza-example.yaml
+#   mozart run examples/prelude-cadenza-example.yaml --dry-run
+
+name: "prelude-cadenza-demo"
+description: "Demonstrates prelude/cadenza context injection"
+
+workspace: "./prelude-demo-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  timeout_seconds: 600
+  disable_mcp: true
+  output_format: json
+
+sheet:
+  size: 5
+  total_items: 15
+
+  # Prelude: injected into every sheet's prompt
+  # Categories control WHERE content appears in the prompt:
+  #   context - background info (after template body)
+  #   skill   - methodology/instructions (before template body)
+  #   tool    - available actions (before template body)
+  prelude:
+    - file: "{{ workspace }}/project-context.md"
+      as: context
+    - file: "{{ workspace }}/coding-standards.md"
+      as: skill
+
+  # Cadenzas: injected into specific sheets only
+  # Key = sheet number, value = list of injection items
+  cadenzas:
+    1:
+      - file: "{{ workspace }}/setup-instructions.md"
+        as: skill
+    3:
+      - file: "{{ workspace }}/final-review-checklist.md"
+        as: context
+
+prompt:
+  template: |
+    Process sheet {{ sheet_num }} of {{ total_sheets }}.
+    Items: {{ start_item }} to {{ end_item }}
+
+    Create a file at {{ workspace }}/sheet{{ sheet_num }}.md with your work.
+
+retry:
+  max_retries: 2
+  base_delay_seconds: 10
+
+validations:
+  - type: file_exists
+    path: "{workspace}/sheet{sheet_num}.md"
+    description: "Sheet output file must exist"

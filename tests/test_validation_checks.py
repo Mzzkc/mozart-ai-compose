@@ -855,6 +855,165 @@ class TestEmptyPatternCheck:
 
 
 # ============================================================================
+# PreludeCadenzaFileCheck Tests (GH#53)
+# ============================================================================
+
+
+class TestPreludeCadenzaFileCheck:
+    """Tests for PreludeCadenzaFileCheck (V108)."""
+
+    def test_no_prelude_cadenzas_passes(
+        self, minimal_config: tuple[JobConfig, Path, str],
+    ) -> None:
+        """Config without prelude/cadenzas produces no issues."""
+        from mozart.validation.checks.paths import PreludeCadenzaFileCheck
+
+        config, config_path, raw_yaml = minimal_config
+        check = PreludeCadenzaFileCheck()
+        issues = check.check(config, config_path, raw_yaml)
+
+        assert len(issues) == 0
+
+    def test_existing_prelude_file_passes(self, tmp_path: Path) -> None:
+        """No warning when prelude file exists."""
+        from mozart.validation.checks.paths import PreludeCadenzaFileCheck
+
+        prelude_file = tmp_path / "context.md"
+        prelude_file.write_text("Background context")
+
+        yaml_content = dedent(f"""
+            name: test-job
+            sheet:
+              size: 10
+              total_items: 100
+              prelude:
+                - file: {prelude_file}
+                  as: context
+            prompt:
+              template: "Test"
+        """).strip()
+
+        config_path = tmp_path / "test.yaml"
+        config_path.write_text(yaml_content)
+        config = JobConfig.from_yaml(config_path)
+
+        check = PreludeCadenzaFileCheck()
+        issues = check.check(config, config_path, yaml_content)
+
+        assert len(issues) == 0
+
+    def test_catches_missing_prelude_file(self, tmp_path: Path) -> None:
+        """Warning when prelude file doesn't exist."""
+        from mozart.validation.checks.paths import PreludeCadenzaFileCheck
+
+        yaml_content = dedent("""
+            name: test-job
+            sheet:
+              size: 10
+              total_items: 100
+              prelude:
+                - file: /nonexistent/context.md
+                  as: context
+            prompt:
+              template: "Test"
+        """).strip()
+
+        config_path = tmp_path / "test.yaml"
+        config_path.write_text(yaml_content)
+        config = JobConfig.from_yaml(config_path)
+
+        check = PreludeCadenzaFileCheck()
+        issues = check.check(config, config_path, yaml_content)
+
+        assert len(issues) == 1
+        assert issues[0].check_id == "V108"
+        assert issues[0].severity == ValidationSeverity.WARNING
+        assert "prelude" in issues[0].message
+
+    def test_catches_missing_cadenza_file(self, tmp_path: Path) -> None:
+        """Warning when cadenza file doesn't exist."""
+        from mozart.validation.checks.paths import PreludeCadenzaFileCheck
+
+        yaml_content = dedent("""
+            name: test-job
+            sheet:
+              size: 10
+              total_items: 100
+              cadenzas:
+                2:
+                  - file: /nonexistent/sheet2-extra.md
+                    as: skill
+            prompt:
+              template: "Test"
+        """).strip()
+
+        config_path = tmp_path / "test.yaml"
+        config_path.write_text(yaml_content)
+        config = JobConfig.from_yaml(config_path)
+
+        check = PreludeCadenzaFileCheck()
+        issues = check.check(config, config_path, yaml_content)
+
+        assert len(issues) == 1
+        assert issues[0].check_id == "V108"
+        assert "cadenza" in issues[0].message
+        assert "sheet 2" in issues[0].message
+
+    def test_skips_jinja_templated_paths(self, tmp_path: Path) -> None:
+        """Paths with Jinja templates ({{ }}) are skipped."""
+        from mozart.validation.checks.paths import PreludeCadenzaFileCheck
+
+        yaml_content = dedent("""
+            name: test-job
+            sheet:
+              size: 10
+              total_items: 100
+              prelude:
+                - file: "{{ workspace }}/context.md"
+                  as: context
+            prompt:
+              template: "Test"
+        """).strip()
+
+        config_path = tmp_path / "test.yaml"
+        config_path.write_text(yaml_content)
+        config = JobConfig.from_yaml(config_path)
+
+        check = PreludeCadenzaFileCheck()
+        issues = check.check(config, config_path, yaml_content)
+
+        assert len(issues) == 0
+
+    def test_multiple_missing_files_reported(self, tmp_path: Path) -> None:
+        """Multiple missing files each produce a separate warning."""
+        from mozart.validation.checks.paths import PreludeCadenzaFileCheck
+
+        yaml_content = dedent("""
+            name: test-job
+            sheet:
+              size: 10
+              total_items: 100
+              prelude:
+                - file: /nonexistent/a.md
+                  as: context
+                - file: /nonexistent/b.md
+                  as: skill
+            prompt:
+              template: "Test"
+        """).strip()
+
+        config_path = tmp_path / "test.yaml"
+        config_path.write_text(yaml_content)
+        config = JobConfig.from_yaml(config_path)
+
+        check = PreludeCadenzaFileCheck()
+        issues = check.check(config, config_path, yaml_content)
+
+        assert len(issues) == 2
+        assert all(i.check_id == "V108" for i in issues)
+
+
+# ============================================================================
 # ValidationRunner Tests
 # ============================================================================
 

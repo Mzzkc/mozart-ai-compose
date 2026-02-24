@@ -226,6 +226,66 @@ class TestPromptBuilder:
         assert "/work/" in result
         assert "{unknown}" in result
 
+    def test_integer_keyed_variables_after_json_roundtrip(self) -> None:
+        """Integer dict keys in variables should work after JSON roundtrip.
+
+        Regression test: model_dump(mode="json") converts integer dict keys
+        to strings. When config is reconstructed from snapshot (resume path),
+        Jinja2 templates using ``dict[instance]`` fail because ``instance``
+        is an integer but keys are strings. The normalization in
+        build_sheet_prompt should handle both YAML-loaded (int keys) and
+        JSON-roundtripped (string keys) configs.
+        """
+        config = PromptConfig(
+            template=(
+                "{% set focus = focus_map[instance] %}"
+                "Focus: {{ focus.name }}"
+            ),
+            variables={
+                # Simulate JSON-roundtripped string keys (the bug scenario)
+                "focus_map": {"1": {"name": "Alpha"}, "2": {"name": "Beta"}},
+            },
+        )
+        builder = PromptBuilder(config)
+        ctx = SheetContext(
+            sheet_num=1,
+            total_sheets=2,
+            start_item=1,
+            end_item=1,
+            workspace=Path("/test"),
+            instance=1,  # Integer — this is what fan-out produces
+            fan_count=2,
+        )
+
+        prompt = builder.build_sheet_prompt(ctx)
+        assert "Focus: Alpha" in prompt
+
+    def test_integer_keyed_variables_from_yaml(self) -> None:
+        """Integer dict keys from YAML should work directly."""
+        config = PromptConfig(
+            template=(
+                "{% set focus = items[instance] %}"
+                "Item: {{ focus }}"
+            ),
+            variables={
+                # YAML-loaded integer keys (normal path)
+                "items": {1: "first", 2: "second"},
+            },
+        )
+        builder = PromptBuilder(config)
+        ctx = SheetContext(
+            sheet_num=1,
+            total_sheets=2,
+            start_item=1,
+            end_item=1,
+            workspace=Path("/test"),
+            instance=2,
+            fan_count=2,
+        )
+
+        prompt = builder.build_sheet_prompt(ctx)
+        assert "Item: second" in prompt
+
     def test_default_prompt_fallback(self) -> None:
         """PromptBuilder should use default prompt when no template."""
         config = PromptConfig(variables={})  # No template
@@ -441,3 +501,63 @@ class TestConvenienceFunction:
         )
 
         assert "Process items 1-10" in prompt
+
+
+class TestInjectionInPrompt:
+    """Tests for injection content (GH#53) in build_sheet_prompt output."""
+
+    @pytest.fixture
+    def builder(self) -> PromptBuilder:
+        return PromptBuilder(PromptConfig(template="Do the task."))
+
+    def test_injected_skills_tools_context_in_prompt(self, builder: PromptBuilder) -> None:
+        """build_sheet_prompt with injected_context/skills/tools produces correct sections."""
+        ctx = SheetContext(
+            sheet_num=1, total_sheets=3, start_item=1, end_item=1,
+            workspace=Path("/tmp"),
+        )
+        ctx.injected_context = ["Project background info"]
+        ctx.injected_skills = ["TDD methodology"]
+        ctx.injected_tools = ["pytest, mypy"]
+
+        prompt = builder.build_sheet_prompt(ctx)
+
+        assert "## Injected Skills" in prompt
+        assert "TDD methodology" in prompt
+        assert "## Injected Tools" in prompt
+        assert "pytest, mypy" in prompt
+        assert "## Injected Context" in prompt
+        assert "Project background info" in prompt
+
+    def test_empty_injections_no_sections(self, builder: PromptBuilder) -> None:
+        """Empty injection fields produce no injection sections."""
+        ctx = SheetContext(
+            sheet_num=1, total_sheets=3, start_item=1, end_item=1,
+            workspace=Path("/tmp"),
+        )
+        prompt = builder.build_sheet_prompt(ctx)
+
+        assert "Injected Skills" not in prompt
+        assert "Injected Tools" not in prompt
+        assert "Injected Context" not in prompt
+
+    def test_injection_ordering_in_prompt(self, builder: PromptBuilder) -> None:
+        """Skills/tools appear before context, context before validation rules."""
+        ctx = SheetContext(
+            sheet_num=1, total_sheets=1, start_item=1, end_item=1,
+            workspace=Path("/tmp"),
+        )
+        ctx.injected_skills = ["Skill section"]
+        ctx.injected_context = ["Context section"]
+
+        rules = [
+            ValidationRule(
+                type="file_exists", path="/tmp/out.txt", description="Output",
+            ),
+        ]
+        prompt = builder.build_sheet_prompt(ctx, validation_rules=rules)
+
+        skill_pos = prompt.index("## Injected Skills")
+        ctx_pos = prompt.index("## Injected Context")
+        val_pos = prompt.index("## Success Requirements")
+        assert skill_pos < ctx_pos < val_pos
