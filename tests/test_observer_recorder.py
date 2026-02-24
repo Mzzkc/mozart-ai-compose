@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 from pydantic import ValidationError
 
 from mozart.daemon.config import ObserverConfig
+from mozart.daemon.observer_recorder import ObserverRecorder
 
 
 class TestObserverConfigPersistence:
@@ -37,3 +40,50 @@ class TestObserverConfigPersistence:
     def test_max_timeline_bytes_minimum(self) -> None:
         with pytest.raises(ValidationError):
             ObserverConfig(max_timeline_bytes=100)  # Below 4KB minimum
+
+
+class TestPathExclusion:
+    """Verify path exclusion filtering."""
+
+    def _make_recorder(self, **config_kwargs: object) -> ObserverRecorder:
+        config = ObserverConfig(**config_kwargs)
+        bus = AsyncMock()
+        bus.subscribe = lambda callback, event_filter=None: "sub-id"
+        return ObserverRecorder(config=config, event_bus=bus)
+
+    def test_default_excludes_git(self) -> None:
+        recorder = self._make_recorder()
+        assert recorder._should_exclude(".git/objects/abc123")
+
+    def test_default_excludes_pycache(self) -> None:
+        recorder = self._make_recorder()
+        assert recorder._should_exclude("src/__pycache__/foo.cpython-312.pyc")
+
+    def test_default_excludes_node_modules(self) -> None:
+        recorder = self._make_recorder()
+        assert recorder._should_exclude("node_modules/lodash/index.js")
+
+    def test_default_excludes_venv(self) -> None:
+        recorder = self._make_recorder()
+        assert recorder._should_exclude(".venv/lib/python3.12/site.py")
+
+    def test_default_excludes_pyc(self) -> None:
+        recorder = self._make_recorder()
+        assert recorder._should_exclude("src/foo.pyc")
+
+    def test_allows_normal_paths(self) -> None:
+        recorder = self._make_recorder()
+        assert not recorder._should_exclude("src/main.py")
+        assert not recorder._should_exclude("output-3.md")
+        assert not recorder._should_exclude("tests/test_foo.py")
+
+    def test_custom_patterns(self) -> None:
+        recorder = self._make_recorder(exclude_patterns=["build/", "*.tmp"])
+        assert recorder._should_exclude("build/output.js")
+        assert recorder._should_exclude("data.tmp")
+        assert not recorder._should_exclude(".git/HEAD")  # Not in custom list
+
+    def test_empty_patterns_excludes_nothing(self) -> None:
+        recorder = self._make_recorder(exclude_patterns=[])
+        assert not recorder._should_exclude(".git/HEAD")
+        assert not recorder._should_exclude("src/__pycache__/foo.pyc")
