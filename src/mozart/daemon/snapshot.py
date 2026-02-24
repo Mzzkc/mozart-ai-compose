@@ -9,7 +9,9 @@ and include key artifacts: state JSON, logs, and validation results.
 
 from __future__ import annotations
 
+import json
 import shutil
+import subprocess
 import time
 from pathlib import Path
 
@@ -19,9 +21,10 @@ _logger = get_logger("daemon.snapshot")
 
 # File patterns to capture in a snapshot (glob patterns relative to workspace).
 _CAPTURE_PATTERNS = [
-    "*.json",       # State files (e.g., {job_id}.json)
-    "mozart.log",   # Job execution log
-    "*.log",        # Any additional log files
+    "*.json",                   # State files (e.g., {job_id}.json)
+    "mozart.log",               # Job execution log
+    "*.log",                    # Any additional log files
+    ".mozart-observer.jsonl",   # Observer event timeline
 ]
 
 
@@ -101,6 +104,9 @@ class SnapshotManager:
                 workspace=str(workspace),
             )
             return None
+
+        # Enrich snapshot with git context (best-effort, non-fatal).
+        self._capture_git_context(workspace, snapshot_dir)
 
         _logger.info(
             "snapshot.captured",
@@ -192,6 +198,59 @@ class SnapshotManager:
 
         snapshots.sort(key=lambda s: s["timestamp"], reverse=True)
         return snapshots
+
+    @staticmethod
+    def _capture_git_context(workspace: Path, snapshot_dir: Path) -> None:
+        """Capture git repo context into ``git-context.json``.
+
+        Runs ``git rev-parse`` and ``git status --porcelain`` in the
+        workspace directory. If the workspace is not a git repo or the
+        commands fail, the method silently returns without creating the
+        file.
+
+        Note: This uses synchronous subprocess calls because ``capture()``
+        is itself synchronous. For large repos ``git status`` may block
+        for a few seconds. A 10-second timeout prevents unbounded waits.
+        """
+        _GIT_TIMEOUT = 10  # seconds
+
+        def _run_git(*args: str) -> str | None:
+            try:
+                result = subprocess.run(  # noqa: S603
+                    ["git", *args],
+                    cwd=workspace,
+                    capture_output=True,
+                    text=True,
+                    timeout=_GIT_TIMEOUT,
+                )
+                if result.returncode != 0:
+                    return None
+                return result.stdout.strip()
+            except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+                return None
+
+        # Quick check: is this a git repo?
+        head_sha = _run_git("rev-parse", "HEAD")
+        if head_sha is None:
+            return
+
+        branch = _run_git("rev-parse", "--abbrev-ref", "HEAD") or ""
+        status = _run_git("status", "--porcelain") or ""
+
+        context = {
+            "head_sha": head_sha,
+            "branch": branch,
+            "status": status,
+        }
+
+        try:
+            dst = snapshot_dir / "git-context.json"
+            dst.write_text(json.dumps(context, indent=2))
+        except OSError as exc:
+            _logger.warning(
+                "snapshot.git_context_failed",
+                error=str(exc),
+            )
 
     @staticmethod
     def _safe_iterdir(path: Path) -> list[Path]:

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
+import subprocess
 import time
+from pathlib import Path
 
 import pytest
 
 from mozart.daemon.snapshot import SnapshotManager
-
 
 # ─── Fixtures ────────────────────────────────────────────────────────
 
@@ -219,3 +221,135 @@ class TestEdgeCases:
         from pathlib import Path
         snap = Path(result)
         assert (snap / "mozart.log").exists()
+
+
+# ─── Observer JSONL capture ───────────────────────────────────────────
+
+
+class TestObserverJSONLCapture:
+    """Verify observer JSONL is included in snapshots."""
+
+    def test_captures_observer_jsonl(self, tmp_path: Path) -> None:
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        # Create a mock observer JSONL file
+        jsonl = workspace / ".mozart-observer.jsonl"
+        jsonl.write_text('{"event":"observer.file_created"}\n')
+        # Also create the required state file so capture doesn't bail
+        (workspace / "test-job.json").write_text("{}")
+
+        manager = SnapshotManager(base_dir=tmp_path / "snapshots")
+        snapshot_path = manager.capture("test-job", workspace)
+        assert snapshot_path is not None
+        captured = Path(snapshot_path) / ".mozart-observer.jsonl"
+        assert captured.exists()
+        assert captured.read_text() == '{"event":"observer.file_created"}\n'
+
+    def test_snapshot_without_observer_jsonl_still_works(self, tmp_path: Path) -> None:
+        """Snapshots work fine without any .mozart-observer.jsonl present."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "test-job.json").write_text("{}")
+
+        manager = SnapshotManager(base_dir=tmp_path / "snapshots")
+        snapshot_path = manager.capture("test-job", workspace)
+        assert snapshot_path is not None
+        captured = Path(snapshot_path) / ".mozart-observer.jsonl"
+        assert not captured.exists()
+
+
+# ─── Git context capture ─────────────────────────────────────────────
+
+# Isolated git env to prevent global config interference.
+_GIT_ISOLATED_ENV = {
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "HOME": "/tmp/nonexistent",
+    "GIT_AUTHOR_NAME": "Test",
+    "GIT_AUTHOR_EMAIL": "test@test.com",
+    "GIT_COMMITTER_NAME": "Test",
+    "GIT_COMMITTER_EMAIL": "test@test.com",
+}
+
+
+def _git(args: list[str], cwd: Path) -> subprocess.CompletedProcess[bytes]:
+    """Run a git command with isolated config."""
+    import os
+    env = {**os.environ, **_GIT_ISOLATED_ENV}
+    return subprocess.run(  # noqa: S603
+        ["git", *args],
+        cwd=cwd,
+        capture_output=True,
+        env=env,
+    )
+
+
+class TestGitContextCapture:
+    """Verify git context capture in snapshots."""
+
+    def test_captures_git_context_in_repo(self, tmp_path: Path) -> None:
+        workspace = tmp_path / "repo"
+        workspace.mkdir()
+        # Initialize a real git repo with isolated config
+        _git(["init", "-b", "main"], cwd=workspace)
+        _git(["config", "user.email", "test@test.com"], cwd=workspace)
+        _git(["config", "user.name", "Test"], cwd=workspace)
+        (workspace / "file.txt").write_text("hello")
+        _git(["add", "."], cwd=workspace)
+        _git(["commit", "-m", "init"], cwd=workspace)
+
+        (workspace / "test-job.json").write_text("{}")
+
+        manager = SnapshotManager(base_dir=tmp_path / "snapshots")
+        snapshot_path = manager.capture("test-job", workspace)
+        assert snapshot_path is not None
+        git_ctx = Path(snapshot_path) / "git-context.json"
+        assert git_ctx.exists()
+        data = json.loads(git_ctx.read_text())
+        assert "head_sha" in data
+        assert len(data["head_sha"]) == 40  # Full SHA
+        assert "branch" in data
+        assert data["branch"] == "main"
+        assert "status" in data
+
+    def test_captures_dirty_status(self, tmp_path: Path) -> None:
+        workspace = tmp_path / "repo"
+        workspace.mkdir()
+        _git(["init", "-b", "main"], cwd=workspace)
+        _git(["config", "user.email", "test@test.com"], cwd=workspace)
+        _git(["config", "user.name", "Test"], cwd=workspace)
+        (workspace / "file.txt").write_text("hello")
+        _git(["add", "."], cwd=workspace)
+        _git(["commit", "-m", "init"], cwd=workspace)
+        # Create an uncommitted change
+        (workspace / "dirty.txt").write_text("uncommitted")
+
+        (workspace / "test-job.json").write_text("{}")
+
+        manager = SnapshotManager(base_dir=tmp_path / "snapshots")
+        snapshot_path = manager.capture("test-job", workspace)
+        assert snapshot_path is not None
+        git_ctx = Path(snapshot_path) / "git-context.json"
+        data = json.loads(git_ctx.read_text())
+        # Status should contain the dirty file
+        assert "dirty.txt" in data["status"]
+
+    def test_no_git_context_outside_repo(self, tmp_path: Path) -> None:
+        workspace = tmp_path / "not-a-repo"
+        workspace.mkdir()
+        (workspace / "test-job.json").write_text("{}")
+
+        manager = SnapshotManager(base_dir=tmp_path / "snapshots")
+        snapshot_path = manager.capture("test-job", workspace)
+        assert snapshot_path is not None
+        git_ctx = Path(snapshot_path) / "git-context.json"
+        assert not git_ctx.exists()  # Gracefully skipped
+
+    def test_git_context_does_not_prevent_snapshot_on_error(self, tmp_path: Path) -> None:
+        """Even if git commands fail, the snapshot itself should succeed."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "test-job.json").write_text("{}")
+        # No git repo → git commands fail → no git-context.json but snapshot OK
+        manager = SnapshotManager(base_dir=tmp_path / "snapshots")
+        snapshot_path = manager.capture("test-job", workspace)
+        assert snapshot_path is not None
