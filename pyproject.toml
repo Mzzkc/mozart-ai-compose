@@ -57,6 +57,9 @@ dev = [
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.1.0",
     "pytest-timeout>=2.3.0",
+    "hypothesis>=6.100.0",
+    "pytest-xdist>=3.5.0",
+    "pytest-randomly>=3.15.0",
     "ruff>=0.2.0",
     "mypy>=1.8.0",
 ]
@@ -101,6 +104,12 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 timeout = 30  # Safety net: kill any test that runs >30s (prevents orphaned processes)
 addopts = "--cov=mozart --cov-report=term-missing:skip-covered --cov-report=json:coverage.json --no-cov-on-fail"
+markers = [
+    "adversarial: tests with adversarial/garbage inputs",
+    "smoke: basic smoke tests for critical paths",
+    "overnight: long-running tests for cron execution",
+    "property_based: hypothesis property-based tests",
+]
 
 [tool.coverage.run]
 source = ["src/mozart"]
@@ -120,4 +129,4 @@ exclude_lines = [
 ]
 show_missing = true
 skip_covered = true
-fail_under = 0
+fail_under = 80
