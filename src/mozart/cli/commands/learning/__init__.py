@@ -20,6 +20,10 @@ from mozart.cli.commands.learning._drift import (
     learning_epistemic_drift,
 )
 from mozart.cli.commands.learning._entropy import entropy_status, patterns_entropy
+from mozart.cli.commands.learning._export import (
+    learning_export,
+    learning_record_evolution,
+)
 from mozart.cli.commands.learning._patterns import patterns_list, patterns_why
 from mozart.cli.commands.learning._stats import (
     learning_activity,
@@ -38,4 +42,6 @@ __all__ = [
     "patterns_budget",
     "entropy_status",
     "learning_activity",
+    "learning_export",
+    "learning_record_evolution",
 ]

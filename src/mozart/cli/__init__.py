@@ -85,7 +85,9 @@ from .commands.learning import (
     learning_activity,
     learning_drift,
     learning_epistemic_drift,
+    learning_export,
     learning_insights,
+    learning_record_evolution,
     learning_stats,
     patterns_budget,
     patterns_entropy,
@@ -280,6 +282,10 @@ app.command(name="learning-insights")(learning_insights)
 app.command(name="learning-drift")(learning_drift)
 app.command(name="learning-epistemic-drift")(learning_epistemic_drift)
 app.command(name="learning-activity")(learning_activity)
+
+# Learning data export
+app.command(name="learning-export")(learning_export)
+app.command(name="learning-record-evolution")(learning_record_evolution)
 
 # System health monitoring
 app.command(name="entropy-status")(entropy_status)
