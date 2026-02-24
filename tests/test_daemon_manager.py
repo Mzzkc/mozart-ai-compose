@@ -1140,7 +1140,8 @@ class TestSemanticAnalyzerIntegration:
             # Analyzer is created but disabled — no subscription
             assert mgr._semantic_analyzer is not None
             assert mgr._semantic_analyzer._sub_id is None
-            assert mgr._event_bus.subscriber_count == 0
+            # Observer recorder still subscribes (1 subscriber), but analyzer does not
+            assert mgr._semantic_analyzer._anomaly_sub_id is None
         finally:
             await mgr.shutdown(graceful=False)
 
@@ -1425,6 +1426,240 @@ class TestDuplicateJobRejection:
         resp2 = await manager.submit_job(r2)
         assert resp2.status == "accepted"
         assert resp2.job_id == resp1.job_id
+
+
+# ─── Run Managed Task Edge Cases ─────────────────────────────────────
+
+
+class TestObserverRecorderIntegration:
+    """Tests for ObserverRecorder wiring in JobManager lifecycle."""
+
+    @pytest.mark.asyncio
+    async def test_start_creates_observer_recorder(self, tmp_path: Path):
+        """manager.start() creates and starts the ObserverRecorder."""
+        config = DaemonConfig(
+            max_concurrent_jobs=1,
+            state_db_path=tmp_path / "reg.db",
+        )
+        mgr = JobManager(config)
+
+        try:
+            await mgr.start()
+            assert mgr._observer_recorder is not None
+            assert mgr._observer_recorder._sub_id is not None
+        finally:
+            await mgr.shutdown(graceful=False)
+
+    @pytest.mark.asyncio
+    async def test_start_uses_enabled_guard_not_persist_events(self, tmp_path: Path):
+        """REVIEW FIX 1: Recorder is created when observer.enabled=True,
+        regardless of persist_events. persist_events=False should NOT
+        prevent recorder creation (TUI still needs ring buffer)."""
+        config = DaemonConfig(
+            max_concurrent_jobs=1,
+            state_db_path=tmp_path / "reg.db",
+            observer={"enabled": True, "persist_events": False},
+        )
+        mgr = JobManager(config)
+
+        try:
+            await mgr.start()
+            assert mgr._observer_recorder is not None
+        finally:
+            await mgr.shutdown(graceful=False)
+
+    @pytest.mark.asyncio
+    async def test_disabled_observer_no_recorder(self, tmp_path: Path):
+        """When observer.enabled=False, no recorder is created."""
+        config = DaemonConfig(
+            max_concurrent_jobs=1,
+            state_db_path=tmp_path / "reg.db",
+            observer={"enabled": False},
+        )
+        mgr = JobManager(config)
+
+        try:
+            await mgr.start()
+            assert mgr._observer_recorder is None
+        finally:
+            await mgr.shutdown(graceful=False)
+
+    @pytest.mark.asyncio
+    async def test_shutdown_stops_recorder(self, tmp_path: Path):
+        """manager.shutdown() stops the ObserverRecorder and unsubscribes."""
+        config = DaemonConfig(
+            max_concurrent_jobs=1,
+            state_db_path=tmp_path / "reg.db",
+        )
+        mgr = JobManager(config)
+
+        await mgr.start()
+        assert mgr._observer_recorder is not None
+
+        await mgr.shutdown(graceful=False)
+        assert mgr._observer_recorder._sub_id is None
+
+    @pytest.mark.asyncio
+    async def test_observer_recorder_property(self, tmp_path: Path):
+        """observer_recorder property exposes the recorder."""
+        config = DaemonConfig(
+            max_concurrent_jobs=1,
+            state_db_path=tmp_path / "reg.db",
+        )
+        mgr = JobManager(config)
+
+        try:
+            await mgr.start()
+            assert mgr.observer_recorder is mgr._observer_recorder
+        finally:
+            await mgr.shutdown(graceful=False)
+
+    @pytest.mark.asyncio
+    async def test_start_observer_registers_with_recorder(self, tmp_path: Path):
+        """_start_observer calls recorder.register_job for the job."""
+        config = DaemonConfig(
+            max_concurrent_jobs=1,
+            state_db_path=tmp_path / "reg.db",
+        )
+        mgr = JobManager(config)
+        await mgr._registry.open()
+        mgr._service = MagicMock()
+
+        try:
+            from mozart.daemon.observer_recorder import ObserverRecorder
+
+            mock_recorder = MagicMock(spec=ObserverRecorder)
+            mgr._observer_recorder = mock_recorder
+
+            ws = tmp_path / "workspace"
+            ws.mkdir()
+            mgr._job_meta["test-job"] = JobMeta(
+                job_id="test-job",
+                config_path=Path("/tmp/test.yaml"),
+                workspace=ws,
+                status=DaemonJobStatus.RUNNING,
+            )
+
+            await mgr._start_observer("test-job")
+            mock_recorder.register_job.assert_called_once_with("test-job", ws)
+        finally:
+            await mgr._registry.close()
+
+    @pytest.mark.asyncio
+    async def test_run_managed_task_flushes_before_snapshot(self, tmp_path: Path):
+        """_run_managed_task calls recorder.flush() before snapshot capture."""
+        config = DaemonConfig(
+            max_concurrent_jobs=2,
+            state_db_path=tmp_path / "reg.db",
+        )
+        mgr = JobManager(config)
+        await mgr._registry.open()
+        mgr._service = MagicMock()
+
+        try:
+            from mozart.daemon.observer_recorder import ObserverRecorder
+
+            mock_recorder = MagicMock(spec=ObserverRecorder)
+            mgr._observer_recorder = mock_recorder
+
+            meta = JobMeta(
+                job_id="flush-test",
+                config_path=Path("/tmp/test.yaml"),
+                workspace=tmp_path / "workspace",
+            )
+            mgr._job_meta["flush-test"] = meta
+
+            async def _fast():
+                return None
+
+            await mgr._run_managed_task("flush-test", _fast())
+
+            # flush should have been called before snapshot
+            mock_recorder.flush.assert_called_once_with("flush-test")
+            mock_recorder.unregister_job.assert_called_once_with("flush-test")
+        finally:
+            await mgr._registry.close()
+
+    @pytest.mark.asyncio
+    async def test_run_managed_task_unregisters_on_failure(self, tmp_path: Path):
+        """_run_managed_task's finally block calls recorder.unregister_job on error."""
+        config = DaemonConfig(
+            max_concurrent_jobs=2,
+            state_db_path=tmp_path / "reg.db",
+        )
+        mgr = JobManager(config)
+        await mgr._registry.open()
+        mgr._service = MagicMock()
+
+        try:
+            from mozart.daemon.observer_recorder import ObserverRecorder
+
+            mock_recorder = MagicMock(spec=ObserverRecorder)
+            mgr._observer_recorder = mock_recorder
+
+            meta = JobMeta(
+                job_id="fail-unreg",
+                config_path=Path("/tmp/test.yaml"),
+                workspace=tmp_path / "workspace",
+            )
+            mgr._job_meta["fail-unreg"] = meta
+
+            async def _error():
+                raise ValueError("boom")
+
+            await mgr._run_managed_task("fail-unreg", _error())
+
+            # unregister_job should still be called in finally
+            mock_recorder.unregister_job.assert_called_once_with("fail-unreg")
+        finally:
+            await mgr._registry.close()
+
+    @pytest.mark.asyncio
+    async def test_started_log_includes_observer_recorder(self, tmp_path: Path):
+        """REVIEW FIX 3: The manager.started log includes observer_recorder status."""
+        config = DaemonConfig(
+            max_concurrent_jobs=1,
+            state_db_path=tmp_path / "reg.db",
+        )
+        mgr = JobManager(config)
+
+        try:
+            with patch("mozart.daemon.manager._logger") as mock_logger:
+                await mgr.start()
+                # Find the manager.started log call
+                started_calls = [
+                    c for c in mock_logger.info.call_args_list
+                    if c[0] and c[0][0] == "manager.started"
+                ]
+                assert len(started_calls) == 1
+                kwargs = started_calls[0][1]
+                assert "observer_recorder" in kwargs
+                assert kwargs["observer_recorder"] == "active"
+        finally:
+            await mgr.shutdown(graceful=False)
+
+    @pytest.mark.asyncio
+    async def test_shutdown_stop_iterates_snapshot_of_keys(self, tmp_path: Path):
+        """REVIEW FIX 2: stop() iterates list(self._jobs.keys()) to avoid RuntimeError."""
+        config = DaemonConfig(
+            max_concurrent_jobs=1,
+            state_db_path=tmp_path / "reg.db",
+        )
+        mgr = JobManager(config)
+
+        await mgr.start()
+        assert mgr._observer_recorder is not None
+
+        # Register two jobs in the recorder
+        ws1, ws2 = tmp_path / "ws1", tmp_path / "ws2"
+        ws1.mkdir()
+        ws2.mkdir()
+        mgr._observer_recorder.register_job("j1", ws1)
+        mgr._observer_recorder.register_job("j2", ws2)
+
+        # Shutdown should unregister all without RuntimeError
+        await mgr.shutdown(graceful=False)
+        assert len(mgr._observer_recorder._jobs) == 0
 
 
 # ─── Run Managed Task Edge Cases ─────────────────────────────────────

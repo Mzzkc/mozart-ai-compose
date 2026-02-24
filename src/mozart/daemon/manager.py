@@ -29,6 +29,7 @@ from mozart.daemon.job_service import JobService
 from mozart.daemon.learning_hub import LearningHub
 from mozart.daemon.monitor import ResourceMonitor
 from mozart.daemon.observer import JobObserver
+from mozart.daemon.observer_recorder import ObserverRecorder
 from mozart.daemon.output import StructuredOutput
 from mozart.daemon.rate_coordinator import RateLimitCoordinator
 from mozart.daemon.registry import DaemonJobStatus, JobRecord, JobRegistry
@@ -163,6 +164,10 @@ class JobManager:
         # at job completion with TTL-based cleanup.
         self._snapshot_manager = SnapshotManager()
 
+        # Observer event recorder — persists per-job observer events to JSONL.
+        # Initialized eagerly, started in start() after event bus.
+        self._observer_recorder: ObserverRecorder | None = None
+
     # ─── Lifecycle ────────────────────────────────────────────────────
 
     async def start(self) -> None:
@@ -254,12 +259,22 @@ class JobManager:
             )
             self._semantic_analyzer = None
 
+        # Start observer recorder after event bus (needs bus for subscription).
+        # Guard: observer.enabled, NOT persist_events. The ring buffer serves
+        # mozart top even when persistence is off.
+        if self._config.observer.enabled:
+            self._observer_recorder = ObserverRecorder(
+                config=self._config.observer,
+            )
+            await self._observer_recorder.start(self._event_bus)
+
         _logger.info(
             "manager.started",
             scheduler_status="lazy_not_wired",
             scheduler_note="Phase 3 scheduler is lazily initialized and not "
             "yet driving execution. Jobs run monolithically via JobService.",
             semantic_analyzer="active" if self._semantic_analyzer else "unavailable",
+            observer_recorder="active" if self._observer_recorder else "unavailable",
         )
 
     @property
@@ -986,6 +1001,16 @@ class JobManager:
         for jid in list(self._job_meta.keys()):
             await self._stop_observer(jid)
 
+        # Stop observer recorder before event bus (needs bus for unsubscribe).
+        if self._observer_recorder is not None:
+            try:
+                await self._observer_recorder.stop(self._event_bus)
+            except (OSError, RuntimeError):
+                _logger.warning(
+                    "manager.observer_recorder_stop_failed",
+                    exc_info=True,
+                )
+
         # Stop semantic analyzer before event bus (needs bus for unsubscribe,
         # and learning hub for final writes during drain).
         if self._semantic_analyzer is not None:
@@ -1085,6 +1110,11 @@ class JobManager:
         return self._learning_hub
 
     @property
+    def observer_recorder(self) -> ObserverRecorder | None:
+        """Access the observer event recorder for IPC."""
+        return self._observer_recorder
+
+    @property
     def event_bus(self) -> EventBus:
         """Access the event bus for subscribing to events."""
         return self._event_bus
@@ -1111,6 +1141,9 @@ class JobManager:
         )
         meta.observer = observer
         await observer.start()
+
+        if self._observer_recorder is not None:
+            self._observer_recorder.register_job(job_id, meta.workspace)
 
     async def _stop_observer(self, job_id: str) -> None:
         """Stop the JobObserver co-task for a job."""
@@ -1265,6 +1298,17 @@ class JobManager:
                 else:
                     meta.status = DaemonJobStatus.COMPLETED
 
+                # Flush observer recorder to ensure JSONL is complete before snapshot
+                if self._observer_recorder is not None:
+                    try:
+                        self._observer_recorder.flush(job_id)
+                    except Exception:
+                        _logger.warning(
+                            "observer_recorder.flush_failed",
+                            job_id=job_id,
+                            exc_info=True,
+                        )
+
                 # Capture completion snapshot for terminal statuses
                 snapshot_path: str | None = None
                 if meta.status in (DaemonJobStatus.COMPLETED, DaemonJobStatus.FAILED):
@@ -1339,6 +1383,8 @@ class JobManager:
             finally:
                 # Stop observer co-task regardless of outcome
                 await self._stop_observer(job_id)
+                if self._observer_recorder is not None:
+                    self._observer_recorder.unregister_job(job_id)
 
     @staticmethod
     def _map_job_status(final_status: Any) -> DaemonJobStatus:
