@@ -29,7 +29,7 @@
 name: "workspace-status-audit"
 description: "Fan-out audit of all code subsystems for workspace-resident status tracking"
 
-workspace: "/home/emzi/Projects/mozart-ai-compose/audit-workspace"
+workspace: "./audit-workspace"
 
 backend:
   type: claude_cli

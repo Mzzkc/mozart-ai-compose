@@ -10,14 +10,14 @@ section gets a mapping entry -- preventing future staleness bugs.
 """
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
 from typing import Any
 
 from mozart.core.checkpoint import CheckpointState
 from mozart.core.config import JobConfig
+from mozart.core.logging import get_logger
 
-_logger = logging.getLogger(__name__)
+_logger = get_logger("execution.reconciliation")
 
 # Config sections that are metadata / non-reconcilable (don't map to
 # checkpoint state that needs resetting on change).
@@ -147,6 +147,12 @@ def reconcile_config(
                 report.sections_changed.append(key)
             report.config_diff[key] = (old_val, new_val)
 
+    # Build a fresh instance to read Pydantic defaults reliably
+    # (avoids poking at FieldInfo.default_factory internals).
+    _defaults = CheckpointState(
+        job_id="", job_name="", total_sheets=1,
+    )
+
     # Reset checkpoint fields for changed/removed sections
     for section in report.sections_changed + report.sections_removed:
         fields_to_reset = CONFIG_STATE_MAPPING.get(section, [])
@@ -156,7 +162,7 @@ def reconcile_config(
         reset_fields: list[str] = []
         for field_name in fields_to_reset:
             if field_name in CheckpointState.model_fields:
-                default = CheckpointState.model_fields[field_name].default
+                default = getattr(_defaults, field_name)
                 current = getattr(state, field_name, None)
                 if current != default:
                     setattr(state, field_name, default)
@@ -165,9 +171,9 @@ def reconcile_config(
         if reset_fields:
             report.fields_reset[section] = reset_fields
             _logger.info(
-                "reconciliation.fields_reset: section=%s fields=%s",
-                section,
-                reset_fields,
+                "reconciliation.fields_reset",
+                section=section,
+                fields=reset_fields,
             )
 
     return report

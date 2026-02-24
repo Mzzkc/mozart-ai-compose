@@ -527,8 +527,9 @@ class TestReconstructConfig:
         mock_config = MagicMock()
         mock_state = MagicMock()
 
-        result = job_service._reconstruct_config(mock_state, config=mock_config)
+        result, was_reloaded = job_service._reconstruct_config(mock_state, config=mock_config)
         assert result is mock_config
+        assert was_reloaded is True
 
     def test_no_config_source_raises(self, job_service: JobService):
         """Test raises when no config source available."""
@@ -552,8 +553,9 @@ class TestReconstructConfig:
         mock_state.config_path = str(config_file)
         mock_state.config_snapshot = {"name": "old-snapshot"}
 
-        result = job_service._reconstruct_config(mock_state)
+        result, was_reloaded = job_service._reconstruct_config(mock_state)
         assert result.name == "reloaded-job"
+        assert was_reloaded is True
 
     def test_snapshot_fallback_when_file_missing(self, job_service: JobService, tmp_path: Path):
         """Should fall back to snapshot when config file doesn't exist."""
@@ -566,8 +568,9 @@ class TestReconstructConfig:
             "prompt": {"template": "Test {{ sheet_num }}"},
         }
 
-        result = job_service._reconstruct_config(mock_state)
+        result, was_reloaded = job_service._reconstruct_config(mock_state)
         assert result.name == "snapshot-job"
+        assert was_reloaded is False
 
     def test_snapshot_fallback_when_no_config_path(self, job_service: JobService):
         """Should fall back to snapshot when no config_path stored."""
@@ -580,8 +583,9 @@ class TestReconstructConfig:
             "prompt": {"template": "Test {{ sheet_num }}"},
         }
 
-        result = job_service._reconstruct_config(mock_state)
+        result, was_reloaded = job_service._reconstruct_config(mock_state)
         assert result.name == "snapshot-job"
+        assert was_reloaded is False
 
     def test_no_reload_skips_auto_reload(self, job_service: JobService, tmp_path: Path):
         """no_reload=True should skip auto-reload and use snapshot."""
@@ -601,8 +605,9 @@ class TestReconstructConfig:
             "prompt": {"template": "Test {{ sheet_num }}"},
         }
 
-        result = job_service._reconstruct_config(mock_state, no_reload=True)
+        result, was_reloaded = job_service._reconstruct_config(mock_state, no_reload=True)
         assert result.name == "snapshot-job"
+        assert was_reloaded is False
 
     def test_explicit_config_path_overrides_stored(self, job_service: JobService, tmp_path: Path):
         """Explicit config_path should override state.config_path for auto-reload."""
@@ -617,10 +622,11 @@ class TestReconstructConfig:
         mock_state.config_path = str(tmp_path / "old.yaml")
         mock_state.config_snapshot = {"name": "snapshot"}
 
-        result = job_service._reconstruct_config(
+        result, was_reloaded = job_service._reconstruct_config(
             mock_state, config_path=config_file,
         )
         assert result.name == "override-job"
+        assert was_reloaded is True
 
     def test_config_snapshot_used_when_available(
         self, job_service: JobService, sample_job_config: JobConfig
@@ -640,9 +646,10 @@ class TestReconstructConfig:
         mock_state.config_snapshot = snapshot
         mock_state.config_path = None
 
-        result = job_service._reconstruct_config(mock_state)
+        result, was_reloaded = job_service._reconstruct_config(mock_state)
         assert isinstance(result, JobConfig)
         assert result.name == "test-job"
+        assert was_reloaded is False
 
 
 # ─── start_job full execution ────────────────────────────────────────────

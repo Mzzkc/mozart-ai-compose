@@ -24,6 +24,7 @@ from mozart.daemon.output import NullOutput, OutputProtocol
 if TYPE_CHECKING:
     from mozart.backends.base import Backend
     from mozart.core.config import JobConfig
+    from mozart.daemon.registry import JobRegistry
     from mozart.execution.grounding import GroundingEngine
     from mozart.execution.runner import JobRunner
     from mozart.execution.runner.models import RunSummary
@@ -116,12 +117,14 @@ class JobService:
         rate_limit_callback: RateLimitCallback | None = None,
         event_callback: EventCallback | None = None,
         state_publish_callback: StatePublishCallback | None = None,
+        registry: JobRegistry | None = None,
     ) -> None:
         self._output = output or NullOutput()
         self._learning_store = global_learning_store
         self._rate_limit_callback = rate_limit_callback
         self._event_callback = event_callback
         self._state_publish_callback = state_publish_callback
+        self._registry = registry
         self._notification_consecutive_failures = 0
         self._notifications_degraded = False
 
@@ -302,21 +305,32 @@ class JobService:
                 )
 
         # Phase 2: Reconstruct config (auto-reload from file by default)
-        resolved_config = self._reconstruct_config(
+        resolved_config, was_reloaded = self._reconstruct_config(
             found_state, config=config, config_path=config_path,
         )
 
-        # Reconcile stale state if config was reloaded
-        from mozart.execution.reconciliation import reconcile_config
+        # Reconcile stale state only when config was actually reloaded
+        if was_reloaded:
+            from mozart.execution.reconciliation import reconcile_config
 
-        report = reconcile_config(found_state, resolved_config)
-        # Always update snapshot with latest config
-        found_state.config_snapshot = resolved_config.model_dump(mode="json")
-        if report.has_changes:
-            self._output.job_event(runtime_id, "config_reconciled", {
-                "sections_changed": report.sections_changed,
-                "fields_reset": report.fields_reset,
-            })
+            report = reconcile_config(found_state, resolved_config)
+            # Always update snapshot with latest config
+            found_state.config_snapshot = resolved_config.model_dump(mode="json")
+            if report.has_changes:
+                self._output.job_event(runtime_id, "config_reconciled", {
+                    "sections_changed": report.sections_changed,
+                    "fields_reset": report.fields_reset,
+                })
+
+            # Update persistent registry metadata if workspace or config_path changed
+            if self._registry is not None:
+                new_ws = str(resolved_config.workspace)
+                new_cp = str(config_path) if config_path else found_state.config_path
+                await self._registry.update_config_metadata(
+                    runtime_id,
+                    config_path=new_cp,
+                    workspace=new_ws,
+                )
 
         # Calculate resume point
         resume_sheet = found_state.last_completed_sheet + 1
@@ -824,7 +838,7 @@ class JobService:
         config: JobConfig | None = None,
         config_path: Path | None = None,
         no_reload: bool = False,
-    ) -> JobConfig:
+    ) -> tuple[JobConfig, bool]:
         """Reconstruct JobConfig for resume using auto-reload priority.
 
         Mirrors cli/commands/resume.py::_reconstruct_config() but raises
@@ -837,7 +851,9 @@ class JobService:
         4. Error
 
         Returns:
-            Reconstructed JobConfig.
+            Tuple of (JobConfig, was_reloaded). ``was_reloaded`` is True
+            when the config came from a file (priorities 1 or 2), False
+            when restored from the cached snapshot (priority 3).
 
         Raises:
             JobSubmissionError: If no config source is available.
@@ -846,14 +862,14 @@ class JobService:
 
         # Priority 1: Explicit config
         if config is not None:
-            return config
+            return config, True
 
         # Priority 2: Auto-reload from file (unless no_reload)
         if not no_reload:
             path = config_path or (Path(state.config_path) if state.config_path else None)
             if path and path.exists():
                 try:
-                    return JC.from_yaml(path)
+                    return JC.from_yaml(path), True
                 except Exception as e:
                     raise JobSubmissionError(
                         f"Error reloading config from {path}: {e}"
@@ -862,7 +878,7 @@ class JobService:
         # Priority 3: Config snapshot from state
         if state.config_snapshot:
             try:
-                return JC.model_validate(state.config_snapshot)
+                return JC.model_validate(state.config_snapshot), False
             except Exception as e:
                 raise JobSubmissionError(
                     f"Error reconstructing config from snapshot: {e}"

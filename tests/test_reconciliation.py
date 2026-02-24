@@ -1,6 +1,8 @@
 """Tests for config reconciliation on reload."""
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from mozart.core.checkpoint import CheckpointState
@@ -44,8 +46,8 @@ class TestConfigStateMapping:
 class TestReconcileConfig:
     """Tests for reconcile_config() logic."""
 
-    def _make_state(self, **overrides: object) -> CheckpointState:
-        defaults: dict[str, object] = {
+    def _make_state(self, **overrides: Any) -> CheckpointState:
+        defaults: dict[str, Any] = {
             "job_id": "test",
             "job_name": "Test",
             "total_sheets": 3,
@@ -53,8 +55,8 @@ class TestReconcileConfig:
         defaults.update(overrides)
         return CheckpointState(**defaults)
 
-    def _make_snapshot(self, **overrides: object) -> dict:
-        base: dict[str, object] = {
+    def _make_snapshot(self, **overrides: Any) -> dict:
+        base: dict[str, Any] = {
             "name": "test",
             "backend": {"type": "claude_cli"},
             "sheet": {"size": 3, "total_items": 9},
@@ -137,5 +139,34 @@ class TestReconcileConfig:
 
         report = reconcile_config(state, new_config)
         assert "rate_limit" in report.sections_changed
+        assert state.rate_limit_waits == 0
+        assert state.quota_waits == 0
+
+    def test_none_snapshot_treats_all_as_new(self) -> None:
+        """When config_snapshot is None, reconciliation treats everything as new.
+
+        A None snapshot represents fresh state (first run or pre-snapshot era).
+        All sections appear as 'changed' but no checkpoint fields should need
+        resetting because they are already at defaults.
+        """
+        from mozart.execution.reconciliation import reconcile_config
+
+        snapshot = self._make_snapshot()
+        config = JobConfig.model_validate(snapshot)
+        # State with no prior config_snapshot — fresh start
+        state = self._make_state(config_snapshot=None)
+
+        report = reconcile_config(state, config)
+
+        # Sections show as "changed" (empty old vs populated new)
+        assert report.has_changes
+        assert len(report.sections_changed) > 0
+
+        # But no fields should be reset since state is at defaults
+        assert report.fields_reset == {}
+
+        # Verify state fields are still at defaults (untouched)
+        assert state.total_estimated_cost == 0.0
+        assert state.cost_limit_reached is False
         assert state.rate_limit_waits == 0
         assert state.quota_waits == 0

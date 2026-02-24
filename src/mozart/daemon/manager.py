@@ -55,6 +55,7 @@ class JobMeta:
     error_traceback: str | None = None
     chain_depth: int | None = None
     observer: JobObserver | None = field(default=None, repr=False)
+    pending_modify: tuple[Path, Path | None] | None = field(default=None, repr=False)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dict suitable for JSON-RPC responses."""
@@ -229,6 +230,7 @@ class JobManager:
             rate_limit_callback=self._on_rate_limit,
             event_callback=self._on_event,
             state_publish_callback=self._on_state_published,
+            registry=self._registry,
         )
         # Start semantic analyzer after event bus (needs bus for subscription).
         # Failure must not prevent the conductor from starting.
@@ -650,6 +652,59 @@ class JobManager:
             status="accepted",
             message="Job resume queued",
         )
+
+    async def modify_job(
+        self, job_id: str, config_path: Path, workspace: Path | None = None,
+    ) -> JobResponse:
+        """Pause a running job and queue automatic resume with new config.
+
+        If the job is already paused/failed/cancelled, resume immediately.
+        If running, send pause signal and store pending_modify — _on_task_done
+        will trigger the resume when the task completes (pauses).
+        """
+        meta = self._job_meta.get(job_id)
+        if meta is None:
+            raise JobSubmissionError(f"Job '{job_id}' not found")
+
+        ws = workspace or meta.workspace
+
+        # Already resumable — resume immediately with new config
+        _resumable = (
+            DaemonJobStatus.PAUSED,
+            DaemonJobStatus.FAILED,
+            DaemonJobStatus.CANCELLED,
+        )
+        if meta.status in _resumable:
+            meta.config_path = config_path
+            return await self.resume_job(job_id, ws)
+
+        if meta.status != DaemonJobStatus.RUNNING:
+            raise JobSubmissionError(
+                f"Job '{job_id}' is {meta.status.value}, cannot modify"
+            )
+
+        # Send pause signal
+        await self._checked_service.pause_job(job_id, ws)
+
+        # Store pending action — _on_task_done will resume when the job pauses
+        meta.pending_modify = (config_path, ws)
+
+        return JobResponse(
+            job_id=job_id,
+            status="accepted",
+            message=f"Pause signal sent. Will resume with {config_path.name} when paused.",
+        )
+
+    async def _deferred_resume(self, job_id: str, workspace: Path) -> None:
+        """Resume a job after a brief delay (used by modify).
+
+        The delay lets task cleanup finish before re-submitting.
+        """
+        await asyncio.sleep(0.5)
+        try:
+            await self.resume_job(job_id, workspace)
+        except Exception:
+            _logger.error("modify.deferred_resume_failed", job_id=job_id, exc_info=True)
 
     async def cancel_job(self, job_id: str) -> bool:
         """Cancel a running job task.
@@ -1362,6 +1417,20 @@ class JobManager:
                 job_id, workspace,
                 conductor_job_id=job_id,
             )
+
+            # Update in-memory JobMeta with any config-derived changes.
+            # The registry was already updated by JobService.resume_job()
+            # during reconciliation; this keeps the in-memory map in sync.
+            live = self._live_states.get(job_id)
+            if live and live.config_snapshot:
+                snap_ws = live.config_snapshot.get("workspace")
+                snap_cp = live.config_path
+                self.update_job_config_metadata(
+                    job_id,
+                    workspace=Path(snap_ws) if snap_ws else None,
+                    config_path=Path(snap_cp) if snap_cp else None,
+                )
+
             return self._map_job_status(summary.final_status)
 
         await self._run_managed_task(
@@ -1423,6 +1492,22 @@ class JobManager:
         except RuntimeError:
             _logger.error(
                 "task_done_status_update_failed", job_id=job_id, exc_info=True,
+            )
+
+        # 2.5. Check for pending modify (pause→resume with new config)
+        try:
+            if meta and meta.pending_modify is not None:
+                config_path, ws = meta.pending_modify
+                meta.pending_modify = None
+                if meta.status in (DaemonJobStatus.PAUSED, DaemonJobStatus.FAILED):
+                    meta.config_path = config_path
+                    asyncio.create_task(
+                        self._deferred_resume(job_id, ws or meta.workspace),
+                        name=f"modify-resume-{job_id}",
+                    )
+        except Exception:
+            _logger.error(
+                "task_done_modify_resume_failed", job_id=job_id, exc_info=True,
             )
 
         # 3. TTL-based snapshot cleanup (runs synchronously, fast)

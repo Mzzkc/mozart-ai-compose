@@ -24,7 +24,6 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import typer
 from rich.panel import Panel
@@ -223,9 +222,6 @@ def _reconstruct_config(
                 console.print(
                     f"[cyan]Config reloaded from:[/cyan] {config_path}"
                 )
-                # Report changes if snapshot exists for comparison
-                if found_state.config_snapshot:
-                    _report_config_changes(found_state.config_snapshot, config)
                 return config, True
             except Exception as e:
                 console.print(f"[red]Error reloading config:[/red] {e}")
@@ -258,23 +254,6 @@ def _reconstruct_config(
         "Please provide a config file with --config flag."
     )
     raise typer.Exit(1)
-
-
-def _report_config_changes(
-    old_snapshot: dict[str, Any],
-    new_config: JobConfig,
-) -> None:
-    """Report config changes between cached snapshot and reloaded config."""
-    new_snapshot = new_config.model_dump(mode="json")
-    changed_sections: list[str] = []
-    for key in set(old_snapshot) | set(new_snapshot):
-        if old_snapshot.get(key) != new_snapshot.get(key):
-            changed_sections.append(key)
-    if changed_sections:
-        console.print(
-            f"[dim]Config changed: {len(changed_sections)} section(s) updated "
-            f"({', '.join(sorted(changed_sections))})[/dim]"
-        )
 
 
 async def _resume_job(
