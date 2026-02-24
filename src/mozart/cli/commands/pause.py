@@ -159,7 +159,7 @@ async def _pause_job(
             console.print(f"To resume: [bold]mozart resume {job_id}[/bold]")
             console.print(
                 f"To resume with new config: "
-                f"[bold]mozart resume {job_id} -r --config new.yaml[/bold]"
+                f"[bold]mozart resume {job_id} --config new.yaml[/bold]"
             )
         return
 
@@ -291,7 +291,7 @@ async def _pause_job_direct(
         console.print(f"To resume: [bold]mozart resume {job_id}[/bold]")
         console.print(
             f"To resume with new config: "
-            f"[bold]mozart resume {job_id} -r --config new.yaml[/bold]"
+            f"[bold]mozart resume {job_id} --config new.yaml[/bold]"
         )
 
 
@@ -646,7 +646,7 @@ async def _modify_job(
             console.print()
             console.print("[cyan]Resuming with new config...[/cyan]")
 
-        # Call resume with reload_config
+        # Resume with new config (auto-reload is default)
         # Pass the user's explicit --workspace (None if not specified) so the
         # daemon uses its own stored workspace rather than a heuristic guess.
         await _resume_job(
@@ -655,7 +655,7 @@ async def _modify_job(
             workspace=workspace,
             force=False,
             escalation=False,
-            reload_config=True,
+            no_reload=False,
             self_healing=False,
             auto_confirm=False,
         )
@@ -675,7 +675,7 @@ async def _modify_job(
             console.print()
             console.print("When ready to resume with new config:")
             console.print(
-                f"  [bold]mozart resume {job_id} -r --config {config_file}[/bold]"
+                f"  [bold]mozart resume {job_id} --config {config_file}[/bold]"
             )
             console.print()
             console.print("Or to resume with original config:")
