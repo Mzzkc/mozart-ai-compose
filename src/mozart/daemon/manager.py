@@ -1319,6 +1319,7 @@ class JobManager:
                 if meta.status in (DaemonJobStatus.COMPLETED, DaemonJobStatus.FAILED):
                     snapshot_path = self._snapshot_manager.capture(
                         job_id, meta.workspace,
+                        config_path=meta.config_path,
                     )
 
                 await self._registry.update_status(

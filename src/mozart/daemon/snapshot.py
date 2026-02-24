@@ -22,6 +22,8 @@ _logger = get_logger("daemon.snapshot")
 # File patterns to capture in a snapshot (glob patterns relative to workspace).
 _CAPTURE_PATTERNS = [
     "*.json",                   # State files (e.g., {job_id}.json)
+    "*.yaml",                   # Job config files
+    "*.yml",                    # Job config files (alt extension)
     "mozart.log",               # Job execution log
     "*.log",                    # Any additional log files
     ".mozart-observer.jsonl",   # Observer event timeline
@@ -49,12 +51,20 @@ class SnapshotManager:
         """Base directory for all snapshots."""
         return self._base_dir
 
-    def capture(self, job_id: str, workspace: Path) -> str | None:
+    def capture(
+        self,
+        job_id: str,
+        workspace: Path,
+        config_path: Path | None = None,
+    ) -> str | None:
         """Capture a snapshot of workspace artifacts at job completion.
 
         Args:
             job_id: The job identifier.
             workspace: Path to the job's workspace directory.
+            config_path: Optional path to the job config file.
+                If provided and the file exists, it is copied into the
+                snapshot directory.
 
         Returns:
             The snapshot directory path as a string, or None if capture
@@ -107,6 +117,21 @@ class SnapshotManager:
 
         # Enrich snapshot with git context (best-effort, non-fatal).
         self._capture_git_context(workspace, snapshot_dir)
+
+        # Capture observer activity summary from JSONL timeline.
+        self._capture_observer_summary(workspace, snapshot_dir)
+
+        # Copy config file into snapshot if provided.
+        if config_path is not None and config_path.is_file():
+            try:
+                shutil.copy2(config_path, snapshot_dir / config_path.name)
+                copied += 1
+            except OSError as exc:
+                _logger.warning(
+                    "snapshot.config_copy_failed",
+                    file=str(config_path),
+                    error=str(exc),
+                )
 
         _logger.info(
             "snapshot.captured",
@@ -249,6 +274,54 @@ class SnapshotManager:
         except OSError as exc:
             _logger.warning(
                 "snapshot.git_context_failed",
+                error=str(exc),
+            )
+
+    @staticmethod
+    def _capture_observer_summary(workspace: Path, snapshot_dir: Path) -> None:
+        """Generate a summary of observer activity from the JSONL timeline.
+
+        Reads ``.mozart-observer.jsonl`` line-by-line, counts events by type
+        (files created/modified/deleted, processes spawned/exited), and writes
+        ``observer-summary.json`` to the snapshot directory.
+
+        If the JSONL file does not exist or is unreadable, the method silently
+        returns without creating the summary file.
+        """
+        jsonl_path = workspace / ".mozart-observer.jsonl"
+        if not jsonl_path.is_file():
+            return
+
+        counts: dict[str, int] = {}
+        try:
+            with jsonl_path.open() as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    event_type = record.get("event", "unknown")
+                    counts[event_type] = counts.get(event_type, 0) + 1
+        except OSError:
+            return
+
+        if not counts:
+            return
+
+        summary = {
+            "total_events": sum(counts.values()),
+            "by_type": counts,
+        }
+
+        try:
+            dst = snapshot_dir / "observer-summary.json"
+            dst.write_text(json.dumps(summary, indent=2))
+        except OSError as exc:
+            _logger.warning(
+                "snapshot.observer_summary_failed",
                 error=str(exc),
             )
 

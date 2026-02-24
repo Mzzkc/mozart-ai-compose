@@ -353,3 +353,131 @@ class TestGitContextCapture:
         manager = SnapshotManager(base_dir=tmp_path / "snapshots")
         snapshot_path = manager.capture("test-job", workspace)
         assert snapshot_path is not None
+
+
+# ─── Config capture ─────────────────────────────────────────────────
+
+
+class TestConfigCapture:
+    """Tests for config_path parameter in SnapshotManager.capture()."""
+
+    def test_config_captured_when_provided(self, tmp_path: Path) -> None:
+        """Config file is copied into the snapshot when config_path is given."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "test-job.json").write_text("{}")
+
+        config = tmp_path / "my-job.yaml"
+        config.write_text("sheets:\n  - prompt: hello\n")
+
+        manager = SnapshotManager(base_dir=tmp_path / "snapshots")
+        snapshot_path = manager.capture("test-job", workspace, config_path=config)
+        assert snapshot_path is not None
+        captured_config = Path(snapshot_path) / "my-job.yaml"
+        assert captured_config.exists()
+        assert "sheets:" in captured_config.read_text()
+
+    def test_config_missing_file_handled_gracefully(self, tmp_path: Path) -> None:
+        """Capture succeeds even if config_path points to a missing file."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "test-job.json").write_text("{}")
+
+        missing_config = tmp_path / "nonexistent.yaml"
+
+        manager = SnapshotManager(base_dir=tmp_path / "snapshots")
+        snapshot_path = manager.capture(
+            "test-job", workspace, config_path=missing_config,
+        )
+        assert snapshot_path is not None
+        # No config file should be in the snapshot
+        assert not (Path(snapshot_path) / "nonexistent.yaml").exists()
+
+    def test_config_none_by_default(self, tmp_path: Path) -> None:
+        """Capture works without config_path (backward compatible)."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "test-job.json").write_text("{}")
+
+        manager = SnapshotManager(base_dir=tmp_path / "snapshots")
+        snapshot_path = manager.capture("test-job", workspace)
+        assert snapshot_path is not None
+
+
+# ─── Observer summary capture ────────────────────────────────────────
+
+
+class TestObserverSummaryCapture:
+    """Tests for observer-summary.json generation from JSONL."""
+
+    def test_observer_summary_generated_from_jsonl(self, tmp_path: Path) -> None:
+        """Observer summary JSON is created from JSONL timeline."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "test-job.json").write_text("{}")
+
+        jsonl = workspace / ".mozart-observer.jsonl"
+        lines = [
+            '{"event":"observer.file_created","path":"/a.txt"}',
+            '{"event":"observer.file_created","path":"/b.txt"}',
+            '{"event":"observer.file_modified","path":"/a.txt"}',
+            '{"event":"observer.process_spawned","pid":123}',
+        ]
+        jsonl.write_text("\n".join(lines) + "\n")
+
+        manager = SnapshotManager(base_dir=tmp_path / "snapshots")
+        snapshot_path = manager.capture("test-job", workspace)
+        assert snapshot_path is not None
+
+        summary_path = Path(snapshot_path) / "observer-summary.json"
+        assert summary_path.exists()
+        summary = json.loads(summary_path.read_text())
+        assert summary["total_events"] == 4
+        assert summary["by_type"]["observer.file_created"] == 2
+        assert summary["by_type"]["observer.file_modified"] == 1
+        assert summary["by_type"]["observer.process_spawned"] == 1
+
+    def test_observer_summary_handles_missing_jsonl(self, tmp_path: Path) -> None:
+        """No observer summary when JSONL file does not exist."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "test-job.json").write_text("{}")
+
+        manager = SnapshotManager(base_dir=tmp_path / "snapshots")
+        snapshot_path = manager.capture("test-job", workspace)
+        assert snapshot_path is not None
+        assert not (Path(snapshot_path) / "observer-summary.json").exists()
+
+    def test_observer_summary_handles_empty_jsonl(self, tmp_path: Path) -> None:
+        """No observer summary when JSONL is empty."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "test-job.json").write_text("{}")
+        (workspace / ".mozart-observer.jsonl").write_text("")
+
+        manager = SnapshotManager(base_dir=tmp_path / "snapshots")
+        snapshot_path = manager.capture("test-job", workspace)
+        assert snapshot_path is not None
+        assert not (Path(snapshot_path) / "observer-summary.json").exists()
+
+    def test_observer_summary_handles_malformed_jsonl(self, tmp_path: Path) -> None:
+        """Malformed JSONL lines are skipped, valid ones still counted."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "test-job.json").write_text("{}")
+
+        jsonl = workspace / ".mozart-observer.jsonl"
+        jsonl.write_text(
+            '{"event":"observer.file_created"}\n'
+            'not valid json\n'
+            '{"event":"observer.file_deleted"}\n'
+        )
+
+        manager = SnapshotManager(base_dir=tmp_path / "snapshots")
+        snapshot_path = manager.capture("test-job", workspace)
+        assert snapshot_path is not None
+
+        summary_path = Path(snapshot_path) / "observer-summary.json"
+        assert summary_path.exists()
+        summary = json.loads(summary_path.read_text())
+        assert summary["total_events"] == 2
