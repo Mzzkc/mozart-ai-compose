@@ -112,29 +112,28 @@ prompt:
         directive: |
           Your job: Find and fix every flaky and weak test in the test scope.
 
-          **Read the audit report at {{ workspace }}/01-audit.md first.**
+          **Read the audit report at {{ workspace }}/01-audit.md first.** The audit
+          classifies each test as strong/weak/flaky/useless. Focus on what the audit
+          actually found — don't hunt for patterns that aren't there.
 
-          For each test classified as "flaky" or "weak":
+          For each test the audit classified as "flaky" or "weak", apply the
+          appropriate fix based on the specific problem identified:
 
-          **Flaky fixes:**
-          - Replace `asyncio.sleep(N)` with polling loops:
-            ```python
-            deadline = asyncio.get_event_loop().time() + 10.0
-            while asyncio.get_event_loop().time() < deadline:
-                result = await check_condition()
-                if result:
-                    break
-                await asyncio.sleep(0.1)
-            assert result, "Condition not met within deadline"
-            ```
-          - Replace `assert elapsed < N` where N < 30 with `assert elapsed < 30.0`
-          - Replace bare `MagicMock()` with `create_autospec(RealClass, instance=True)`
+          **Common flaky patterns and their fixes:**
+          - `asyncio.sleep(N)` for coordination → polling loop with deadline
+          - `assert elapsed < N` where N < 30 → widen to `assert elapsed < 30.0`
+          - Bare `MagicMock()` → `create_autospec(RealClass, instance=True)`
+          - PID assumptions → mock `os.kill`
+          - Order-dependent tests → isolate shared state in fixtures
 
-          **Weak fixes:**
-          - Replace `assert isinstance(x, Type)` with actual value checks
-          - Replace `assert len(x) > 0` with specific content assertions
-          - Add meaningful assertions to assertion-free test functions
-          - If a test is truly useless (tests nothing real), delete it and note why
+          **Common weak patterns and their fixes:**
+          - `assert isinstance(x, Type)` without value checks → add value assertions
+          - `assert len(x) > 0` without content checks → assert specific content
+          - No assertions at all → add meaningful assertions or delete if truly useless
+          - Tests that mock the thing they're testing → rewrite to test behavior
+
+          If the audit found problems not in these lists, fix them using your judgment.
+          If a test is truly useless, delete it and document why in your report.
 
           After EACH file modified, run:
           ```bash
@@ -328,7 +327,13 @@ prompt:
     .venv/bin/pytest tests/test_runner*.py tests/test_lifecycle.py tests/test_recovery_mixin.py tests/test_sheet_execution*.py tests/test_escalation_learning.py tests/test_execution_property_based.py tests/test_execution_adversarial.py -x -v --timeout=120 2>&1 | tail -30
     ```
 
-    **Step 3: Fix any failures.** If tests from different instances conflict, resolve them.
+    **Step 3: Fix any failures.** Common conflicts and resolution strategies:
+    - If instance 1 changed an existing test that instance 2/3 imported or referenced,
+      update the import/reference to match instance 1's changes.
+    - If instance 2 or 3 created helpers that duplicate what instance 1 already fixed,
+      remove the duplicate and use instance 1's version.
+    - If two new test files have name collisions, rename the less specific one.
+    - If tests fail because shared fixtures changed, update the tests to match.
 
     **Step 4: Run the quality gate to verify no flaky patterns remain**
     ```bash
@@ -421,6 +426,18 @@ validations:
     condition: "stage >= 1"
     description: "Audit marked complete"
 
+  - type: content_contains
+    path: "{workspace}/01-audit.md"
+    pattern: "## Coverage Summary"
+    condition: "stage >= 1"
+    description: "Audit contains coverage data"
+
+  - type: content_contains
+    path: "{workspace}/01-audit.md"
+    pattern: "## Test Classification"
+    condition: "stage >= 1"
+    description: "Audit contains test classifications"
+
   # Stage 2: Per-instance reports
   - type: file_exists
     path: "{workspace}/02-fix-flaky-and-weak-tests.md"
@@ -436,6 +453,13 @@ validations:
     path: "{workspace}/02-add-adversarial-edge-case-tests.md"
     condition: "stage == 2 and instance == 3"
     description: "Adversarial test report exists"
+
+  # Stage 2: Instance 1 — existing tests still pass after fixes
+  - type: command_succeeds
+    command: 'cd /home/emzi/Projects/mozart-ai-compose && .venv/bin/pytest tests/test_runner*.py tests/test_lifecycle.py tests/test_recovery_mixin.py tests/test_sheet_execution*.py tests/test_escalation_learning.py -x -q --timeout=120 --tb=no --no-header 2>&1 | tail -1 | grep -qE "[0-9]+ passed"'
+    condition: "stage == 2 and instance == 1"
+    description: "Existing module tests pass after flaky fixes"
+    timeout_seconds: 300
 
   # Stage 2: Actual test files created
   - type: file_exists
@@ -484,10 +508,16 @@ validations:
     timeout_seconds: 600
     stage: 2
 
-  # Stage 5: Full suite
+  # Stage 5: Full suite passes and changes committed
   - type: command_succeeds
     command: 'cd /home/emzi/Projects/mozart-ai-compose && .venv/bin/pytest tests/ -x --timeout=120 -q --tb=no --no-header 2>&1 | tail -1 | grep -qE "[0-9]+ passed"'
     condition: "stage >= 5"
     description: "Full test suite passes"
     timeout_seconds: 900
+    stage: 1
+
+  - type: command_succeeds
+    command: 'cd /home/emzi/Projects/mozart-ai-compose && test -z "$(git status --porcelain tests/)"'
+    condition: "stage >= 5"
+    description: "Test changes committed (no unstaged test files)"
     stage: 2

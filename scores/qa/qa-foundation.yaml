@@ -390,10 +390,16 @@ validations:
     condition: "stage >= 4"
     description: "Coverage baseline exists"
 
-  # Stage 5: Tests pass
+  # Stage 5: Tests pass and changes committed
   - type: command_succeeds
     command: 'cd /home/emzi/Projects/mozart-ai-compose && .venv/bin/pytest tests/ -x --timeout=120 -q --tb=no --no-header 2>&1 | tail -1 | grep -qE "[0-9]+ passed"'
     condition: "stage >= 5"
     description: "Full test suite passes"
     timeout_seconds: 900
+    stage: 1
+
+  - type: command_succeeds
+    command: 'cd /home/emzi/Projects/mozart-ai-compose && git log --oneline -1 | grep -qi "quality\|conftest\|hypothesis\|infrastructure\|qa\|foundation\|test"'
+    condition: "stage >= 5"
+    description: "Infrastructure changes committed"
     stage: 2
