@@ -29,6 +29,7 @@ _EVENT_COLORS: dict[str, str] = {
     EventType.OOM.value: "bold red",
     "anomaly": "bold yellow",
     "learning": "magenta",
+    "observer_process": "magenta",
 }
 
 
@@ -69,12 +70,14 @@ class TimelinePanel(RichLog):
         self._events: list[ProcessEvent] = []
         self._anomalies: list[Anomaly] = []
         self._learning_insights: list[dict[str, Any]] = []
+        self._observer_events: list[dict[str, Any]] = []
 
     def update_data(
         self,
         events: list[ProcessEvent] | None = None,
         anomalies: list[Anomaly] | None = None,
         learning_insights: list[dict[str, Any]] | None = None,
+        observer_events: list[dict[str, Any]] | None = None,
     ) -> None:
         """Update the timeline with new data and refresh display."""
         if events is not None:
@@ -83,6 +86,8 @@ class TimelinePanel(RichLog):
             self._anomalies = anomalies
         if learning_insights is not None:
             self._learning_insights = learning_insights
+        if observer_events is not None:
+            self._observer_events = observer_events
         self._render_timeline()
 
     def _render_timeline(self) -> None:
@@ -129,6 +134,24 @@ class TimelinePanel(RichLog):
 
             line = f"{ts_str}  [bold yellow]\u26a0 ANOMALY[/] {job_label:<20s} [{sev}] {desc}"
             entries.append((anom.timestamp, line))
+
+        # Observer process events (from JobObserver via ObserverRecorder)
+        # REVIEW FIX 2: Merge into entries by timestamp, don't append after sort
+        for obs in self._observer_events:
+            evt_name = obs.get("event", "")
+            if not evt_name.startswith("observer.process_"):
+                continue
+            ts = obs.get("timestamp", time.time())
+            ts_str = _format_timestamp(ts)
+            data = obs.get("data") or {}
+            pid = data.get("pid", "?")
+            # REVIEW FIX 1: process_spawned has {pid, name}, process_exited has {pid, role}
+            label = data.get("name", data.get("role", ""))
+            action = "SPAWN" if "spawned" in evt_name else "EXIT"
+            color = _EVENT_COLORS["observer_process"]
+            job_label = obs.get("job_id", "")
+            line = f"{ts_str}  [{color}]\u2699 {action:<6s}[/] {job_label:<20s} PID {pid} {label}"
+            entries.append((ts, line))
 
         # Learning insights
         for insight in self._learning_insights:

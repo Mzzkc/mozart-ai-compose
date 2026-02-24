@@ -179,8 +179,12 @@ class MonitorApp(App[None]):
             # Update timeline with recent events
             since = time.time() - 300.0  # last 5 minutes
             events = await self._reader.get_events(since, limit=50)
+
+            # REVIEW FIX 3: Sequential IPC call — don't parallel with above
+            observer_events = await self._reader.get_observer_events(limit=50)
+
             timeline = self.query_one("#timeline-panel", TimelinePanel)
-            timeline.update_data(events=events)
+            timeline.update_data(events=events, observer_events=observer_events)
 
         except Exception:
             _logger.debug("refresh_data failed", exc_info=True)

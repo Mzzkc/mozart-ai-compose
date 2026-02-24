@@ -6,6 +6,7 @@ processes, completed sheets, or anomalies.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from textual.containers import VerticalScroll
@@ -139,6 +140,39 @@ class DetailPanel(VerticalScroll):
 
         self._set_content("\n".join(lines))
 
+    def show_file_activity(self, events: list[dict[str, Any]]) -> None:
+        """Show recent file activity from observer events.
+
+        Args:
+            events: Observer events filtered to ``observer.file_*`` types.
+        """
+        if not events:
+            self._set_content("[dim]No file activity[/]")
+            return
+
+        lines: list[str] = []
+        lines.append("[bold]File Activity[/]")
+        lines.append("")
+
+        # Show most recent events (already newest-first from recorder)
+        for evt in events[:20]:
+            evt_name = evt.get("event", "")
+            data = evt.get("data") or {}
+            path = data.get("path", "unknown")
+            ts = evt.get("timestamp", 0)
+            ts_str = datetime.fromtimestamp(ts).strftime("%H:%M:%S") if ts else "??:??:??"
+
+            if "created" in evt_name:
+                action = "[green]+[/]"
+            elif "deleted" in evt_name:
+                action = "[red]-[/]"
+            else:
+                action = "[yellow]~[/]"
+
+            lines.append(f"  {ts_str}  {action} {path}")
+
+        self._set_content("\n".join(lines))
+
     def show_item(self, item: dict[str, Any] | None) -> None:
         """Show details for a generic selected item.
 
@@ -165,6 +199,24 @@ class DetailPanel(VerticalScroll):
                 f"  Total CPU: {total_cpu:.1f}%",
                 f"  Total MEM: {_format_bytes_mb(total_mem)}",
             ]
+            # Append file activity if observer events are present
+            file_events = item.get("observer_file_events", [])
+            if file_events:
+                lines.append("")
+                lines.append("[bold]File Activity[/]")
+                for evt in file_events[:10]:
+                    evt_name = evt.get("event", "")
+                    data = evt.get("data") or {}
+                    path = data.get("path", "unknown")
+                    ts = evt.get("timestamp", 0)
+                    ts_str = datetime.fromtimestamp(ts).strftime("%H:%M:%S") if ts else "??:??:??"
+                    if "created" in evt_name:
+                        action = "[green]+[/]"
+                    elif "deleted" in evt_name:
+                        action = "[red]-[/]"
+                    else:
+                        action = "[yellow]~[/]"
+                    lines.append(f"  {ts_str}  {action} {path}")
             self._set_content("\n".join(lines))
         else:
             self.show_empty()

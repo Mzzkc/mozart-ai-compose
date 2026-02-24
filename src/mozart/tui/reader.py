@@ -145,6 +145,35 @@ class MonitorReader:
             return await self._get_events_ipc(since, limit)
         return []
 
+    async def get_observer_events(
+        self, job_id: str | None = None, limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Get recent observer events via IPC.
+
+        Returns observer events (file and process activity) from the
+        ObserverRecorder's in-memory ring buffer.
+
+        Args:
+            job_id: Specific job ID, or None for all jobs.
+            limit: Maximum number of events to return.
+
+        Returns:
+            List of observer event dicts, newest first. Empty if no
+            IPC client or on error.
+        """
+        await self._ensure_source()
+        if self._source == "ipc" and self._ipc_client is not None:
+            try:
+                result = await self._ipc_client.call(
+                    "daemon.observer_events",
+                    {"job_id": job_id, "limit": limit},
+                )
+                if result and isinstance(result, dict):
+                    return result.get("events", [])
+            except Exception:
+                _logger.debug("reader.observer_events_failed", exc_info=True)
+        return []
+
     # ------------------------------------------------------------------
     # Streaming
     # ------------------------------------------------------------------
