@@ -275,7 +275,16 @@ class DaemonProcess:
             # 4. Create health checker
             from mozart.daemon.health import HealthChecker
 
-            health = HealthChecker(self._manager, self._monitor, start_time=self._start_time)
+            health = HealthChecker(
+                self._manager,
+                self._monitor,
+                start_time=self._start_time,
+                learning_store=(
+                    self._manager._learning_hub.store
+                    if self._manager._learning_hub
+                    else None
+                ),
+            )
 
             # 5. Register RPC methods (adapt JobManager to handler signature)
             self._register_methods(handler, self._manager, health)
@@ -320,6 +329,11 @@ class DaemonProcess:
             interval = self._config.monitor_interval_seconds
             await self._monitor.start(interval_seconds=interval)
 
+            # 8.4. Start entropy monitoring (v25 evolution)
+            # Wire health checker callback into manager for job completion tracking
+            self._manager._entropy_check_callback = health.on_job_completed
+            await health.start_periodic_checks()
+
             # 8.5. Start profiler collector (after monitor, needs event bus)
             if self._config.profiler.enabled:
                 from mozart.daemon.profiler.collector import ProfilerCollector
@@ -352,11 +366,12 @@ class DaemonProcess:
             )
             await self._manager.wait_for_shutdown()
 
-            # 10. Cleanup — correlation analyzer stops first, then profiler, then monitor
+            # 10. Cleanup — correlation, profiler, entropy, monitor
             if self._correlation is not None:
                 await self._correlation.stop()
             if self._profiler is not None:
                 await self._profiler.stop()
+            await health.stop_periodic_checks()
             await self._monitor.stop()
             await server.stop()
 
@@ -561,6 +576,50 @@ class DaemonProcess:
             return {"events": events}
 
         handler.register("daemon.observer_events", handle_observer_events)
+
+        # Rate limit and learning IPC methods — used by dashboard bridge
+        async def handle_rate_limits(
+            _p: dict[str, Any], _w: Any,
+        ) -> dict[str, Any]:
+            coordinator = manager.rate_coordinator
+            active = coordinator.active_limits
+            return {
+                "backends": {
+                    k: {"seconds_remaining": v} for k, v in active.items()
+                },
+                "active_limits": len(active),
+                "recent_events_count": len(coordinator.recent_events),
+            }
+
+        async def handle_learning_patterns(
+            params: dict[str, Any], _w: Any,
+        ) -> dict[str, Any]:
+            hub = manager.learning_hub
+            if not hub.is_running:
+                return {"patterns": []}
+            limit = params.get("limit", 20)
+            store = hub.store
+            records = store.get_patterns(min_priority=0.0, limit=limit)
+            return {
+                "patterns": [
+                    {
+                        "id": r.id,
+                        "pattern_type": r.pattern_type,
+                        "pattern_name": r.pattern_name,
+                        "description": r.description,
+                        "effectiveness_score": r.effectiveness_score,
+                        "priority_score": r.priority_score,
+                        "occurrence_count": r.occurrence_count,
+                        "last_seen": r.last_seen.isoformat(),
+                        "quarantine_status": r.quarantine_status.value,
+                        "trust_score": r.trust_score,
+                    }
+                    for r in records
+                ],
+            }
+
+        handler.register("daemon.rate_limits", handle_rate_limits)
+        handler.register("daemon.learning.patterns", handle_learning_patterns)
 
     def _track_signal_task(self, task: asyncio.Task[Any]) -> None:
         """Store a signal-spawned task and attach an error callback."""

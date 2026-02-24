@@ -311,5 +311,13 @@ class DaemonClient:
         })
         return cast(dict[str, Any], result)
 
+    async def rate_limits(self) -> dict[str, Any]:
+        """Get current rate limit state across all backends."""
+        return cast(dict[str, Any], await self.call("daemon.rate_limits"))
+
+    async def learning_patterns(self, limit: int = 20) -> dict[str, Any]:
+        """Get recent learning patterns from the global store."""
+        return cast(dict[str, Any], await self.call("daemon.learning.patterns", {"limit": limit}))
+
 
 __all__ = ["DaemonClient"]

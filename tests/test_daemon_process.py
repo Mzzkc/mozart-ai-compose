@@ -255,11 +255,12 @@ class TestDaemonProcess:
     @pytest.mark.asyncio
     async def test_daemon_process_signal_handler_registration(self):
         """DaemonProcess.run() installs signal handlers for SIGTERM and SIGINT."""
-        from mozart.daemon.config import DaemonConfig, SocketConfig
+        from mozart.daemon.config import DaemonConfig, ProfilerConfig, SocketConfig
 
         config = DaemonConfig(
             pid_file=Path("/tmp/test-conductor-signal.pid"),
             socket=SocketConfig(path=Path("/tmp/test-conductor-signal.sock")),
+            profiler=ProfilerConfig(enabled=False),
         )
         dp = DaemonProcess(config)
 
@@ -280,7 +281,7 @@ class TestDaemonProcess:
             patch("mozart.daemon.manager.JobManager") as mock_mgr_cls,
             patch("mozart.daemon.monitor.ResourceMonitor") as mock_mon_cls,
             patch("mozart.daemon.ipc.handler.RequestHandler"),
-            patch("mozart.daemon.health.HealthChecker"),
+            patch("mozart.daemon.health.HealthChecker") as mock_health_cls,
             patch("asyncio.get_running_loop", return_value=mock_loop),
         ):
             mock_server = AsyncMock()
@@ -295,6 +296,11 @@ class TestDaemonProcess:
 
             mock_mon = AsyncMock()
             mock_mon_cls.return_value = mock_mon
+
+            mock_health = MagicMock()
+            mock_health.start_periodic_checks = AsyncMock()
+            mock_health.stop_periodic_checks = AsyncMock()
+            mock_health_cls.return_value = mock_health
 
             await dp.run()
 
@@ -354,6 +360,7 @@ class TestDaemonProcess:
             "daemon.health", "daemon.ready",
             "daemon.top", "daemon.top.stream", "daemon.events",
             "daemon.observer_events",
+            "daemon.rate_limits", "daemon.learning.patterns",
         }
         assert registered_methods == expected
 
