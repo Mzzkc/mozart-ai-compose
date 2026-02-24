@@ -103,6 +103,24 @@ class ObserverConfig(BaseModel):
         ge=100,
         description="Maximum events per subscriber before drop-oldest.",
     )
+    persist_events: bool = Field(
+        default=True,
+        description="Persist observer events to per-job JSONL timeline files.",
+    )
+    exclude_patterns: list[str] = Field(
+        default=[".git/", "__pycache__/", "node_modules/", ".venv/", "*.pyc"],
+        description="Glob patterns for filesystem paths to exclude from observation.",
+    )
+    coalesce_window_seconds: float = Field(
+        default=2.0,
+        ge=0.0,
+        description="Window in seconds to coalesce rapid filesystem events.",
+    )
+    max_timeline_bytes: int = Field(
+        default=10_485_760,
+        ge=4096,
+        description="Maximum size in bytes for per-job JSONL timeline files.",
+    )
 
 
 def _default_semantic_backend() -> BackendConfig:
