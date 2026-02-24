@@ -321,6 +321,22 @@ class JobManager:
 
         self._config = new_config
 
+    def update_job_config_metadata(
+        self,
+        job_id: str,
+        *,
+        config_path: Path | None = None,
+        workspace: Path | None = None,
+    ) -> None:
+        """Update config-derived metadata in the in-memory job map."""
+        meta = self._job_meta.get(job_id)
+        if meta is None:
+            return
+        if config_path is not None:
+            meta.config_path = config_path
+        if workspace is not None:
+            meta.workspace = workspace
+
     # ─── Helpers ───────────────────────────────────────────────────────
 
     @staticmethod

@@ -250,6 +250,38 @@ class JobRegistry:
         )
         await self._db.commit()
 
+    async def update_config_metadata(
+        self,
+        job_id: str,
+        *,
+        config_path: str | None = None,
+        workspace: str | None = None,
+    ) -> None:
+        """Update config-derived metadata for a job.
+
+        Called during config reconciliation to keep registry in sync
+        with the reloaded config.
+        """
+        updates: list[str] = []
+        params: list[Any] = []
+
+        if config_path is not None:
+            updates.append("config_path = ?")
+            params.append(config_path)
+        if workspace is not None:
+            updates.append("workspace = ?")
+            params.append(workspace)
+
+        if not updates:
+            return
+
+        params.append(job_id)
+        await self._db.execute(
+            f"UPDATE jobs SET {', '.join(updates)} WHERE job_id = ?",
+            params,
+        )
+        await self._db.commit()
+
     async def update_progress(
         self,
         job_id: str,
