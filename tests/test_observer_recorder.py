@@ -254,6 +254,245 @@ class TestJSONLPersistence:
         assert len(state.recent_events) == 0
 
 
+class TestCoalescing:
+    """Verify same-file modification coalescing."""
+
+    def _make_recorder(self, **kw: object) -> ObserverRecorder:
+        config = ObserverConfig(**kw)
+        bus = AsyncMock()
+        bus.subscribe = lambda callback, event_filter=None: "sub-id"
+        return ObserverRecorder(config=config, event_bus=bus)
+
+    def test_rapid_same_file_mods_coalesce(self, tmp_path: Path) -> None:
+        """Multiple edits to same file within window produce one JSONL line."""
+        recorder = self._make_recorder(coalesce_window_seconds=2.0)
+        recorder.register_job("job-1", tmp_path)
+        now = time.time()
+        for i in range(5):
+            event: ObserverEvent = {
+                "job_id": "job-1",
+                "sheet_num": 0,
+                "event": "observer.file_modified",
+                "data": {"path": "same-file.md"},
+                "timestamp": now + i * 0.1,  # 100ms apart, within 2s window
+            }
+            recorder._handle_event(event)
+
+        recorder.flush("job-1")
+        jsonl_path = tmp_path / ".mozart-observer.jsonl"
+        lines = [ln for ln in jsonl_path.read_text().strip().split("\n") if ln]
+        # Should produce 1 coalesced event, not 5
+        assert len(lines) == 1
+
+    def test_different_files_not_coalesced(self, tmp_path: Path) -> None:
+        """Events for different files are never coalesced."""
+        recorder = self._make_recorder(coalesce_window_seconds=2.0)
+        recorder.register_job("job-1", tmp_path)
+        now = time.time()
+        for i in range(3):
+            event: ObserverEvent = {
+                "job_id": "job-1",
+                "sheet_num": 0,
+                "event": "observer.file_modified",
+                "data": {"path": f"file-{i}.md"},
+                "timestamp": now + i * 0.1,
+            }
+            recorder._handle_event(event)
+
+        recorder.flush("job-1")
+        jsonl_path = tmp_path / ".mozart-observer.jsonl"
+        lines = [ln for ln in jsonl_path.read_text().strip().split("\n") if ln]
+        assert len(lines) == 3
+
+    def test_process_events_not_coalesced(self, tmp_path: Path) -> None:
+        """Process events always write immediately, never coalesced."""
+        recorder = self._make_recorder(coalesce_window_seconds=2.0)
+        recorder.register_job("job-1", tmp_path)
+        now = time.time()
+        for i in range(3):
+            event: ObserverEvent = {
+                "job_id": "job-1",
+                "sheet_num": 0,
+                "event": "observer.process_spawned",
+                "data": {"pid": 1000 + i, "name": "pytest"},
+                "timestamp": now + i * 0.1,
+            }
+            recorder._handle_event(event)
+
+        recorder.flush("job-1")
+        jsonl_path = tmp_path / ".mozart-observer.jsonl"
+        lines = [ln for ln in jsonl_path.read_text().strip().split("\n") if ln]
+        assert len(lines) == 3
+
+    def test_zero_coalesce_window_disables(self, tmp_path: Path) -> None:
+        """Setting coalesce window to 0 disables coalescing entirely."""
+        recorder = self._make_recorder(coalesce_window_seconds=0.0)
+        recorder.register_job("job-1", tmp_path)
+        now = time.time()
+        for i in range(3):
+            event: ObserverEvent = {
+                "job_id": "job-1",
+                "sheet_num": 0,
+                "event": "observer.file_modified",
+                "data": {"path": "same-file.md"},
+                "timestamp": now + i * 0.1,
+            }
+            recorder._handle_event(event)
+
+        recorder.flush("job-1")
+        jsonl_path = tmp_path / ".mozart-observer.jsonl"
+        lines = [ln for ln in jsonl_path.read_text().strip().split("\n") if ln]
+        assert len(lines) == 3  # No coalescing
+
+    def test_coalescing_uses_event_timestamps(self, tmp_path: Path) -> None:
+        """REVIEW FIX 4: Coalescing compares event['timestamp'], not wall clock.
+
+        Events with fabricated timestamps that span beyond the window
+        should NOT be coalesced, even if sent in rapid succession.
+        """
+        recorder = self._make_recorder(coalesce_window_seconds=1.0)
+        recorder.register_job("job-1", tmp_path)
+
+        # Event 1: ts=1000.0
+        recorder._handle_event({
+            "job_id": "job-1",
+            "sheet_num": 0,
+            "event": "observer.file_modified",
+            "data": {"path": "same-file.md"},
+            "timestamp": 1000.0,
+        })
+        # Event 2: ts=1005.0 — 5 seconds later, outside 1s window
+        recorder._handle_event({
+            "job_id": "job-1",
+            "sheet_num": 0,
+            "event": "observer.file_modified",
+            "data": {"path": "same-file.md"},
+            "timestamp": 1005.0,
+        })
+
+        recorder.flush("job-1")
+        jsonl_path = tmp_path / ".mozart-observer.jsonl"
+        lines = [ln for ln in jsonl_path.read_text().strip().split("\n") if ln]
+        # Both events should be written: first flushed when window expired,
+        # second flushed by explicit flush()
+        assert len(lines) == 2
+
+    def test_coalesced_events_appear_in_ring_buffer(self, tmp_path: Path) -> None:
+        """REVIEW FIX 3: Coalesced events MUST still enter ring buffer immediately."""
+        recorder = self._make_recorder(coalesce_window_seconds=2.0)
+        recorder.register_job("job-1", tmp_path)
+        state = recorder._jobs["job-1"]
+        now = time.time()
+
+        for i in range(5):
+            recorder._handle_event({
+                "job_id": "job-1",
+                "sheet_num": 0,
+                "event": "observer.file_modified",
+                "data": {"path": "active-file.md"},
+                "timestamp": now + i * 0.1,
+            })
+
+        # Ring buffer should have ALL 5 events, even though JSONL will coalesce
+        assert len(state.recent_events) == 5
+
+    def test_file_created_not_coalesced(self, tmp_path: Path) -> None:
+        """Only file_modified events are coalesced, not file_created."""
+        recorder = self._make_recorder(coalesce_window_seconds=2.0)
+        recorder.register_job("job-1", tmp_path)
+        now = time.time()
+        for i in range(3):
+            recorder._handle_event({
+                "job_id": "job-1",
+                "sheet_num": 0,
+                "event": "observer.file_created",
+                "data": {"path": "same-file.md"},
+                "timestamp": now + i * 0.1,
+            })
+
+        recorder.flush("job-1")
+        jsonl_path = tmp_path / ".mozart-observer.jsonl"
+        lines = [ln for ln in jsonl_path.read_text().strip().split("\n") if ln]
+        assert len(lines) == 3  # file_created always written
+
+
+class TestSizeCap:
+    """Verify JSONL size cap and truncation."""
+
+    def _make_recorder(self, **kw: object) -> ObserverRecorder:
+        config = ObserverConfig(**kw)
+        bus = AsyncMock()
+        bus.subscribe = lambda callback, event_filter=None: "sub-id"
+        return ObserverRecorder(config=config, event_bus=bus)
+
+    @pytest.mark.asyncio
+    async def test_truncates_when_over_cap(self, tmp_path: Path) -> None:
+        """REVIEW FIX 5: Use max_timeline_bytes=4096 (Pydantic ge=4096)."""
+        import asyncio
+
+        recorder = self._make_recorder(
+            max_timeline_bytes=4096, coalesce_window_seconds=0.0,
+        )
+        recorder.register_job("job-1", tmp_path)
+
+        # Write enough events to exceed 4KB
+        for i in range(200):
+            event: ObserverEvent = {
+                "job_id": "job-1",
+                "sheet_num": 0,
+                "event": "observer.file_created",
+                "data": {"path": f"file-{i:04d}.md"},
+                "timestamp": time.time(),
+            }
+            recorder._handle_event(event)
+
+        # REVIEW FIX 2: Truncation is async — give background task time to run
+        await asyncio.sleep(0.1)
+        recorder.flush("job-1")
+
+        jsonl_path = tmp_path / ".mozart-observer.jsonl"
+        size = jsonl_path.stat().st_size
+        assert size <= 4096
+
+    @pytest.mark.asyncio
+    async def test_surviving_lines_are_valid_json(self, tmp_path: Path) -> None:
+        """REVIEW FIX 1+5: Every surviving line after truncation must be valid JSON.
+
+        This catches the corrupt-first-line bug from naive midpoint truncation.
+        """
+        import asyncio
+
+        recorder = self._make_recorder(
+            max_timeline_bytes=4096, coalesce_window_seconds=0.0,
+        )
+        recorder.register_job("job-1", tmp_path)
+
+        for i in range(200):
+            event: ObserverEvent = {
+                "job_id": "job-1",
+                "sheet_num": 0,
+                "event": "observer.file_created",
+                "data": {"path": f"file-{i:04d}.md"},
+                "timestamp": time.time(),
+            }
+            recorder._handle_event(event)
+
+        # Let async truncation complete
+        await asyncio.sleep(0.1)
+        recorder.flush("job-1")
+
+        jsonl_path = tmp_path / ".mozart-observer.jsonl"
+        lines = [ln for ln in jsonl_path.read_text().strip().split("\n") if ln]
+        assert len(lines) > 0, "Should have surviving events"
+        # Every line must parse as valid JSON
+        for i, line in enumerate(lines):
+            try:
+                parsed = json.loads(line)
+                assert "event" in parsed, f"Line {i} missing 'event' key"
+            except json.JSONDecodeError:
+                pytest.fail(f"Line {i} is corrupt JSONL: {line!r}")
+
+
 class _BrokenWriter:
     """A file-like object that raises OSError on write."""
 
