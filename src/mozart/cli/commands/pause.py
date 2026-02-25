@@ -104,8 +104,7 @@ async def _pause_job(
 
     configure_global_logging(console)
 
-    ws_str = str(workspace) if workspace else None
-    params = {"job_id": job_id, "workspace": ws_str}
+    params = {"job_id": job_id}
     try:
         routed, result = await try_daemon_route("job.pause", params)
     except (OSError, ConnectionError, DaemonError) as exc:
@@ -313,9 +312,11 @@ async def _pause_via_conductor(
     """
     from mozart.daemon.detect import try_daemon_route
 
+    # Only send job_id to pause RPC — workspace is not needed
+    pause_params = {"job_id": job_id}
     try:
         pause_routed, pause_result = await try_daemon_route(
-            "job.pause", params,
+            "job.pause", pause_params,
         )
     except (OSError, ConnectionError, DaemonError) as exc:
         if not quiet:

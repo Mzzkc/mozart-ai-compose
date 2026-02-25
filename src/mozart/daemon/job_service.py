@@ -150,6 +150,7 @@ class JobService:
         self_healing: bool = False,
         self_healing_auto_confirm: bool = False,
         dry_run: bool = False,
+        pause_event: asyncio.Event | None = None,
     ) -> RunSummary:
         """Start a job from config.
 
@@ -228,6 +229,7 @@ class JobService:
                 job_id=job_id,
                 self_healing=self_healing,
                 self_healing_auto_confirm=self_healing_auto_confirm,
+                pause_event=pause_event,
             )
 
             return await self._execute_runner(
@@ -257,6 +259,7 @@ class JobService:
         config_path: Path | None = None,
         self_healing: bool = False,
         self_healing_auto_confirm: bool = False,
+        pause_event: asyncio.Event | None = None,
     ) -> RunSummary:
         """Resume a paused or failed job.
 
@@ -370,6 +373,7 @@ class JobService:
                 job_id=runtime_id,
                 self_healing=self_healing,
                 self_healing_auto_confirm=self_healing_auto_confirm,
+                pause_event=pause_event,
             )
 
             return await self._execute_runner(
@@ -471,6 +475,7 @@ class JobService:
         job_id: str,
         self_healing: bool = False,
         self_healing_auto_confirm: bool = False,
+        pause_event: asyncio.Event | None = None,
     ) -> JobRunner:
         """Create a configured JobRunner from components."""
         from mozart.execution.runner import JobRunner as JR
@@ -489,6 +494,7 @@ class JobService:
             event_callback=self._event_callback,
             self_healing_enabled=self_healing,
             self_healing_auto_confirm=self_healing_auto_confirm,
+            pause_event=pause_event,
         )
 
         return JR(

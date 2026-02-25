@@ -11,7 +11,7 @@ import os
 import time
 import traceback
 from collections import deque
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -110,6 +110,9 @@ class JobManager:
         # Keyed by conductor job_id (which may be deduplicated, e.g.
         # "issue-solver-2"), not the config's name field.
         self._live_states: dict[str, CheckpointState] = {}
+        # In-process pause events per job — set by pause_job(), checked by
+        # the runner at sheet boundaries.  Keyed by conductor job_id.
+        self._pause_events: dict[str, asyncio.Event] = {}
         # Explicit config.name → conductor_id mapping.  Populated in
         # _run_job_task when the config is parsed (config.name becomes
         # known).  Used by _on_state_published as a fallback when
@@ -123,6 +126,8 @@ class JobManager:
         self._shutting_down = False
         self._shutdown_event = asyncio.Event()
         self._recent_failures: deque[float] = deque()
+        # v25: Optional entropy check callback set by process.py after health checker init
+        self._entropy_check_callback: Callable[[], None] | None = None
 
         # Phase 3: Global sheet scheduler — lazily initialized via property.
         # Infrastructure is built and tested but not yet wired into the
@@ -605,8 +610,14 @@ class JobManager:
         assert record is not None  # guaranteed by the check above
         return record.to_dict()
 
-    async def pause_job(self, job_id: str, workspace: Path | None = None) -> bool:
-        """Send pause signal to a running job."""
+    async def pause_job(self, job_id: str) -> bool:
+        """Send pause signal to a running job via in-process event.
+
+        Prefers the in-process ``_pause_events`` dict (set during
+        ``_run_managed_task``).  Falls back to ``JobService.pause_job``
+        when no event exists (shouldn't happen in daemon mode, but
+        guards against edge cases).
+        """
         meta = self._job_meta.get(job_id)
         if meta is None:
             raise JobSubmissionError(f"Job '{job_id}' not found")
@@ -626,8 +637,15 @@ class JobManager:
                 f"(stale status after daemon restart)"
             )
 
-        ws = workspace or meta.workspace
-        return await self._checked_service.pause_job(meta.job_id, ws)
+        # Prefer in-process event (no filesystem access needed)
+        event = self._pause_events.get(job_id)
+        if event is not None:
+            event.set()
+            _logger.info("job.pause_event_set", job_id=job_id)
+            return True
+
+        # Fallback: filesystem-based pause via JobService
+        return await self._checked_service.pause_job(meta.job_id, meta.workspace)
 
     async def resume_job(self, job_id: str, workspace: Path | None = None) -> JobResponse:
         """Resume a paused or failed job by creating a new task.
@@ -698,8 +716,8 @@ class JobManager:
                 f"Job '{job_id}' is {meta.status.value}, cannot modify"
             )
 
-        # Send pause signal
-        await self._checked_service.pause_job(job_id, ws)
+        # Send pause signal via in-process event
+        await self.pause_job(job_id)
 
         # Store pending action — _on_task_done will resume when the job pauses
         meta.pending_modify = (config_path, ws)
@@ -1286,6 +1304,10 @@ class JobManager:
         timeout = self._config.job_timeout_seconds
 
         async with self._concurrency_semaphore:
+            # Create in-process pause event for this job
+            pause_event = asyncio.Event()
+            self._pause_events[job_id] = pause_event
+
             meta.status = DaemonJobStatus.RUNNING
             meta.started_at = time.time()
             await self._registry.update_status(
@@ -1455,6 +1477,7 @@ class JobManager:
                 self_healing=request.self_healing,
                 self_healing_auto_confirm=request.self_healing_auto_confirm,
                 dry_run=request.dry_run,
+                pause_event=self._pause_events.get(job_id),
             )
 
             return self._map_job_status(summary.final_status)
@@ -1468,6 +1491,7 @@ class JobManager:
             summary = await self._checked_service.resume_job(
                 job_id, workspace,
                 conductor_job_id=job_id,
+                pause_event=self._pause_events.get(job_id),
             )
 
             # Update in-memory JobMeta with any config-derived changes.
@@ -1501,6 +1525,7 @@ class JobManager:
         """
         # 1. Remove from active jobs — always runs first
         self._jobs.pop(job_id, None)
+        self._pause_events.pop(job_id, None)
 
         # Clean up config.name → conductor_id mapping entries for this job
         stale_names = [
@@ -1578,6 +1603,56 @@ class JobManager:
         except RuntimeError:
             _logger.error(
                 "task_done_prune_failed", job_id=job_id, exc_info=True,
+            )
+
+        # 5. Auto-promote ready patterns (v25 evolution: Pattern Lifecycle)
+        # Only run after completed/failed jobs (not paused/cancelled) to ensure
+        # patterns have been applied and measured.
+        if meta and meta.status in (DaemonJobStatus.COMPLETED, DaemonJobStatus.FAILED):
+            try:
+                self._promote_ready_patterns()
+            except (RuntimeError, OSError):
+                _logger.warning(
+                    "task_done_pattern_promotion_failed",
+                    job_id=job_id,
+                    exc_info=True,
+                )
+
+        # 6. v25: Trigger entropy check callback if set (Entropy Response Activation)
+        # Runs after every job completion to track count for periodic checks
+        try:
+            if self._entropy_check_callback is not None:
+                self._entropy_check_callback()
+        except Exception:
+            _logger.error(
+                "task_done_entropy_check_failed", job_id=job_id, exc_info=True,
+            )
+
+    def _promote_ready_patterns(self) -> None:
+        """Auto-promote patterns from PENDING to ACTIVE/QUARANTINED based on effectiveness.
+
+        v25 Evolution: Pattern Lifecycle Validation Feedback Loop.
+        After each job completion, check if any patterns have enough applications
+        to be promoted from PENDING → VALIDATED (high effectiveness) or
+        PENDING → QUARANTINED (low effectiveness).
+        """
+        if not self._learning_hub.is_running:
+            return
+
+        store = self._learning_hub.store
+        try:
+            result = store.promote_ready_patterns()
+            if result["promoted"] or result["quarantined"] or result["degraded"]:
+                _logger.info(
+                    "pattern_lifecycle.promotion_cycle",
+                    promoted=len(result["promoted"]),
+                    quarantined=len(result["quarantined"]),
+                    degraded=len(result["degraded"]),
+                )
+        except Exception:
+            _logger.warning(
+                "pattern_lifecycle.promotion_failed",
+                exc_info=True,
             )
 
     def _prune_job_history(self) -> None:

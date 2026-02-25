@@ -546,8 +546,10 @@ class TestPauseJob:
             await manager.pause_job("job-done")
 
     @pytest.mark.asyncio
-    async def test_pause_running_job_delegates_to_service(self, manager: JobManager):
-        """pause_job calls service.pause_job for running jobs."""
+    async def test_pause_running_job_sets_event(self, manager: JobManager):
+        """pause_job sets the in-process event for running jobs with event."""
+        event = asyncio.Event()
+        manager._pause_events["job-1"] = event
         manager._job_meta["job-1"] = JobMeta(
             job_id="job-1",
             config_path=Path("/tmp/test.yaml"),
@@ -558,18 +560,15 @@ class TestPauseJob:
         loop = asyncio.get_event_loop()
         fake_task = loop.create_future()
         manager._jobs["job-1"] = fake_task
-        manager._service.pause_job = AsyncMock(return_value=True)
 
-        result = await manager.pause_job("job-1", workspace=Path("/tmp/workspace"))
+        result = await manager.pause_job("job-1")
 
         assert result is True
-        manager._service.pause_job.assert_awaited_once_with(
-            "job-1", Path("/tmp/workspace"),
-        )
+        assert event.is_set()
 
     @pytest.mark.asyncio
-    async def test_pause_uses_meta_workspace_as_fallback(self, manager: JobManager):
-        """pause_job uses meta.workspace when no workspace arg is given."""
+    async def test_pause_falls_back_to_service_when_no_event(self, manager: JobManager):
+        """pause_job falls back to service.pause_job when no event exists."""
         manager._job_meta["job-1"] = JobMeta(
             job_id="job-1",
             config_path=Path("/tmp/test.yaml"),

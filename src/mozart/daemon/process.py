@@ -422,9 +422,7 @@ class DaemonProcess:
         async def handle_pause(params: dict[str, Any], _w: Any) -> dict[str, Any]:
             from mozart.daemon.exceptions import JobSubmissionError
             try:
-                ok = await manager.pause_job(
-                    params["job_id"], _workspace_path(params.get("workspace")),
-                )
+                ok = await manager.pause_job(params["job_id"])
                 return {"paused": ok}
             except JobSubmissionError as e:
                 return {"paused": False, "error": str(e)}

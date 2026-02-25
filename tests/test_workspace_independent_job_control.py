@@ -3,16 +3,23 @@
 Tasks 1-3: Add asyncio.Event-based pause signaling to replace file-based
 pause signals when running inside the daemon.
 
+Tasks 4-6: Connect daemon to runner — manager creates event, threads it
+through JobService, and IPC handler no longer needs workspace.
+
 The design:
 - RunnerContext gains a `pause_event` field (asyncio.Event | None)
 - JobRunnerBase stores it as `self._pause_event`
 - `_check_pause_signal` checks the event first, falls back to file-based
 - `_handle_pause_request` clears the event and tolerates state-save failure
+- JobManager creates pause events per job, sets them in pause_job()
+- JobService threads pause_event to _create_runner()
+- IPC pause handler no longer requires workspace parameter
 """
 
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -21,6 +28,9 @@ import pytest
 
 from mozart.core.checkpoint import CheckpointState
 from mozart.core.config import JobConfig
+from mozart.daemon.config import DaemonConfig
+from mozart.daemon.exceptions import JobSubmissionError
+from mozart.daemon.manager import DaemonJobStatus, JobManager, JobMeta
 from mozart.execution.runner.models import GracefulShutdownError, RunnerContext
 
 
@@ -251,3 +261,292 @@ class TestHandlePauseRequestResilience:
         state = _make_state()
         with pytest.raises(GracefulShutdownError):
             await runner._handle_pause_request(state, current_sheet=1)
+
+
+# ===========================================================================
+# Daemon-level fixtures (Tasks 4-6)
+# ===========================================================================
+
+
+@pytest.fixture
+def daemon_config(tmp_path: Path) -> DaemonConfig:
+    return DaemonConfig(
+        max_concurrent_jobs=2,
+        pid_file=tmp_path / "test.pid",
+        state_db_path=tmp_path / "test-registry.db",
+    )
+
+
+@pytest.fixture
+async def manager(daemon_config: DaemonConfig) -> AsyncIterator[JobManager]:
+    from mozart.daemon.job_service import JobService
+
+    mgr = JobManager(daemon_config)
+    await mgr._registry.open()
+    mgr._service = MagicMock(spec=JobService)
+    yield mgr
+    await mgr._registry.close()
+
+
+# ===========================================================================
+# Task 4: Refactor JobManager.pause_job() to use in-process event
+# ===========================================================================
+
+
+class TestPauseJobWithEvent:
+    """JobManager.pause_job() uses in-process event, not filesystem."""
+
+    @pytest.mark.asyncio
+    async def test_pause_sets_event(self, manager: JobManager) -> None:
+        """pause_job sets the in-process pause event and returns True."""
+        event = asyncio.Event()
+        manager._pause_events["job-1"] = event
+        manager._job_meta["job-1"] = JobMeta(
+            job_id="job-1",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/tmp/workspace"),
+            status=DaemonJobStatus.RUNNING,
+        )
+        # Simulate a running asyncio task so the stale-status guard passes
+        loop = asyncio.get_event_loop()
+        fake_task = loop.create_future()
+        manager._jobs["job-1"] = fake_task
+
+        result = await manager.pause_job("job-1")
+
+        assert result is True
+        assert event.is_set()
+
+    @pytest.mark.asyncio
+    async def test_pause_does_not_call_service(self, manager: JobManager) -> None:
+        """When pause event exists, service.pause_job is NOT called."""
+        event = asyncio.Event()
+        manager._pause_events["job-1"] = event
+        manager._job_meta["job-1"] = JobMeta(
+            job_id="job-1",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/tmp/workspace"),
+            status=DaemonJobStatus.RUNNING,
+        )
+        loop = asyncio.get_event_loop()
+        fake_task = loop.create_future()
+        manager._jobs["job-1"] = fake_task
+        manager._service.pause_job = AsyncMock(return_value=True)
+
+        await manager.pause_job("job-1")
+
+        manager._service.pause_job.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_pause_no_workspace_needed(self, manager: JobManager) -> None:
+        """pause_job works even when workspace doesn't exist on disk."""
+        event = asyncio.Event()
+        manager._pause_events["job-1"] = event
+        manager._job_meta["job-1"] = JobMeta(
+            job_id="job-1",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/nonexistent/deleted/workspace"),
+            status=DaemonJobStatus.RUNNING,
+        )
+        loop = asyncio.get_event_loop()
+        fake_task = loop.create_future()
+        manager._jobs["job-1"] = fake_task
+
+        # Should NOT raise even though workspace doesn't exist
+        result = await manager.pause_job("job-1")
+        assert result is True
+        assert event.is_set()
+
+    @pytest.mark.asyncio
+    async def test_pause_no_event_falls_back_to_service(self, manager: JobManager) -> None:
+        """Without a pause event entry, falls back to service.pause_job."""
+        manager._job_meta["job-1"] = JobMeta(
+            job_id="job-1",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/tmp/workspace"),
+            status=DaemonJobStatus.RUNNING,
+        )
+        loop = asyncio.get_event_loop()
+        fake_task = loop.create_future()
+        manager._jobs["job-1"] = fake_task
+        manager._service.pause_job = AsyncMock(return_value=True)
+
+        result = await manager.pause_job("job-1")
+
+        assert result is True
+        manager._service.pause_job.assert_awaited_once_with(
+            "job-1", Path("/tmp/workspace"),
+        )
+
+    @pytest.mark.asyncio
+    async def test_pause_event_cleaned_up_on_task_done(self, manager: JobManager) -> None:
+        """_on_task_done removes the pause event for a completed job."""
+        event = asyncio.Event()
+        manager._pause_events["job-1"] = event
+        manager._job_meta["job-1"] = JobMeta(
+            job_id="job-1",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/tmp/workspace"),
+            status=DaemonJobStatus.COMPLETED,
+        )
+
+        async def quick() -> None:
+            pass
+
+        task = asyncio.create_task(quick())
+        manager._jobs["job-1"] = task
+        await task
+        manager._on_task_done("job-1", task)
+
+        assert "job-1" not in manager._pause_events
+
+    @pytest.mark.asyncio
+    async def test_run_managed_task_creates_pause_event(
+        self, daemon_config: DaemonConfig, tmp_path: Path,
+    ) -> None:
+        """_run_managed_task creates a pause event for the job."""
+        from mozart.daemon.job_service import JobService
+
+        mgr = JobManager(daemon_config)
+        await mgr._registry.open()
+        mgr._service = MagicMock(spec=JobService)
+
+        try:
+            meta = JobMeta(
+                job_id="evt-test",
+                config_path=Path("/tmp/test.yaml"),
+                workspace=tmp_path / "workspace",
+            )
+            mgr._job_meta["evt-test"] = meta
+
+            event_captured: asyncio.Event | None = None
+
+            async def _capture_event() -> None:
+                nonlocal event_captured
+                event_captured = mgr._pause_events.get("evt-test")
+
+            await mgr._run_managed_task("evt-test", _capture_event())
+
+            # The event should have existed during execution
+            assert event_captured is not None
+            assert isinstance(event_captured, asyncio.Event)
+        finally:
+            await mgr._registry.close()
+
+
+# ===========================================================================
+# Task 5: Thread pause_event from JobManager through JobService to runner
+# ===========================================================================
+
+
+def _make_service_config(tmp_path: Path) -> JobConfig:
+    """Build a real JobConfig for JobService._create_runner tests."""
+    return _make_config(tmp_path)
+
+
+class TestPauseEventThreading:
+    """Task 5: pause_event is threaded from manager → service → runner."""
+
+    @pytest.mark.asyncio
+    async def test_create_runner_passes_pause_event(self, tmp_path: Path) -> None:
+        """_create_runner with pause_event= results in runner._pause_event being set."""
+        from mozart.backends.base import Backend
+        from mozart.daemon.job_service import JobService
+
+        service = JobService()
+        config = _make_service_config(tmp_path)
+
+        components = {
+            "backend": MagicMock(spec=Backend),
+            "outcome_store": None,
+            "global_learning_store": None,
+            "notification_manager": None,
+            "escalation_handler": None,
+            "grounding_engine": None,
+        }
+        state_backend = AsyncMock()
+
+        event = asyncio.Event()
+        runner = service._create_runner(
+            config, components, state_backend,
+            job_id="test-job",
+            pause_event=event,
+        )
+
+        assert runner._pause_event is event
+
+    @pytest.mark.asyncio
+    async def test_create_runner_without_pause_event(self, tmp_path: Path) -> None:
+        """_create_runner without pause_event= leaves runner._pause_event as None."""
+        from mozart.backends.base import Backend
+        from mozart.daemon.job_service import JobService
+
+        service = JobService()
+        config = _make_service_config(tmp_path)
+
+        components = {
+            "backend": MagicMock(spec=Backend),
+            "outcome_store": None,
+            "global_learning_store": None,
+            "notification_manager": None,
+            "escalation_handler": None,
+            "grounding_engine": None,
+        }
+        state_backend = AsyncMock()
+
+        runner = service._create_runner(
+            config, components, state_backend,
+            job_id="test-job",
+        )
+
+        assert runner._pause_event is None
+
+
+# ===========================================================================
+# Task 6: IPC handler no longer needs workspace for pause
+# ===========================================================================
+
+
+class TestIPCPauseNoWorkspace:
+    """Task 6: IPC pause handler calls pause_job with just job_id."""
+
+    @pytest.mark.asyncio
+    async def test_handle_pause_calls_without_workspace(self, manager: JobManager) -> None:
+        """handle_pause in process.py calls manager.pause_job(job_id) without workspace."""
+        event = asyncio.Event()
+        manager._pause_events["job-1"] = event
+        manager._job_meta["job-1"] = JobMeta(
+            job_id="job-1",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/tmp/workspace"),
+            status=DaemonJobStatus.RUNNING,
+        )
+        loop = asyncio.get_event_loop()
+        fake_task = loop.create_future()
+        manager._jobs["job-1"] = fake_task
+
+        # Simulate what handle_pause does: call pause_job with just job_id
+        result = await manager.pause_job("job-1")
+        assert result is True
+        assert event.is_set()
+
+    @pytest.mark.asyncio
+    async def test_modify_job_uses_pause_job_method(self, manager: JobManager) -> None:
+        """modify_job calls self.pause_job(job_id) for running jobs."""
+        event = asyncio.Event()
+        manager._pause_events["job-1"] = event
+        manager._job_meta["job-1"] = JobMeta(
+            job_id="job-1",
+            config_path=Path("/tmp/test.yaml"),
+            workspace=Path("/tmp/workspace"),
+            status=DaemonJobStatus.RUNNING,
+        )
+        loop = asyncio.get_event_loop()
+        fake_task = loop.create_future()
+        manager._jobs["job-1"] = fake_task
+
+        config_path = Path("/tmp/new-config.yaml")
+        # modify_job should use self.pause_job, not service.pause_job
+        with patch.object(manager, "pause_job", new_callable=AsyncMock, return_value=True) as mock_pause:
+            response = await manager.modify_job("job-1", config_path)
+            mock_pause.assert_awaited_once_with("job-1")
