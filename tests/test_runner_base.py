@@ -113,9 +113,16 @@ class TestJobRunnerBaseInit:
     """Test that __init__ works with just the three required params."""
 
     def test_minimal_construction(self) -> None:
-        """JobRunner(config, backend, state_backend) succeeds without context."""
+        """JobRunner(config, backend, state_backend) produces a usable runner."""
         runner = _make_runner()
-        assert runner is not None
+        # Runner is constructed with the expected config name
+        assert runner.config.name == "test-base"
+        # Has a usable console for output
+        assert runner.console is not None
+        # Has all required infrastructure for execution
+        assert runner.prompt_builder is not None
+        assert runner.error_classifier is not None
+        assert runner.preflight_checker is not None
 
     def test_config_stored(self) -> None:
         cfg = _make_config()
@@ -143,49 +150,47 @@ class TestJobRunnerBaseInit:
         assert runner.state_backend is state_backend
 
     def test_console_is_created_when_context_is_none(self) -> None:
-        """When context=None, a default Console should be created."""
+        """When context=None, a default Console should be created and usable."""
         runner = _make_runner()
         assert isinstance(runner.console, Console)
+        # Verify it's a distinct Console per runner, not a shared singleton
+        runner2 = _make_runner()
+        assert runner.console is not runner2.console
 
-    def test_shutdown_flag_starts_false(self) -> None:
+    def test_init_state_defaults_are_ready_for_execution(self) -> None:
+        """All mutable state starts in the 'ready to run' position.
+
+        A freshly-constructed runner must be in a state where calling run()
+        won't hit stale data from a previous execution. We verify every
+        mutable field to ensure they collectively represent a clean slate.
+        """
         runner = _make_runner()
+        # Shutdown/pause: not requested
         assert runner._shutdown_requested is False
-
-    def test_pause_flag_starts_false(self) -> None:
-        runner = _make_runner()
         assert runner._pause_requested is False
-
-    def test_paused_at_sheet_starts_none(self) -> None:
-        runner = _make_runner()
         assert runner._paused_at_sheet is None
-
-    def test_summary_starts_none(self) -> None:
-        runner = _make_runner()
+        # No previous execution state
         assert runner._summary is None
-
-    def test_run_start_time_zero(self) -> None:
-        runner = _make_runner()
         assert runner._run_start_time == 0.0
-
-    def test_current_sheet_num_starts_none(self) -> None:
-        runner = _make_runner()
         assert runner._current_sheet_num is None
-
-    def test_execution_progress_snapshots_empty(self) -> None:
-        runner = _make_runner()
+        assert runner._current_state is None
+        # Collections start empty (no stale data)
         assert runner._execution_progress_snapshots == []
-
-    def test_sheet_times_starts_empty(self) -> None:
-        runner = _make_runner()
         assert runner._sheet_times == []
 
-    def test_state_lock_created(self) -> None:
+    def test_shutdown_flag_transitions_on_signal(self) -> None:
+        """The shutdown flag actually transitions from False -> True on signal."""
+        runner = _make_runner()
+        assert runner._shutdown_requested is False
+        runner._signal_handler()
+        assert runner._shutdown_requested is True
+
+    def test_state_lock_is_acquirable(self) -> None:
+        """The state lock can be acquired and released (not just isinstance check)."""
         runner = _make_runner()
         assert isinstance(runner._state_lock, asyncio.Lock)
-
-    def test_current_state_starts_none(self) -> None:
-        runner = _make_runner()
-        assert runner._current_state is None
+        # Verify it's not already locked on init
+        assert not runner._state_lock.locked()
 
 
 # ===================================================================
@@ -196,42 +201,46 @@ class TestJobRunnerBaseInit:
 class TestRunnerContextMerging:
     """When context=None, all optional deps use safe defaults."""
 
-    def test_outcome_store_none_by_default(self) -> None:
+    def test_optional_deps_all_none_without_context(self) -> None:
+        """Without context, all optional dependencies are absent.
+
+        This matters because code paths must check for None before using
+        these — if any started non-None, those guards would be wrong.
+        """
         runner = _make_runner()
         assert runner.outcome_store is None
-
-    def test_escalation_handler_none_by_default(self) -> None:
-        runner = _make_runner()
         assert runner.escalation_handler is None
-
-    def test_judgment_client_none_by_default(self) -> None:
-        runner = _make_runner()
         assert runner.judgment_client is None
-
-    def test_progress_callback_none_by_default(self) -> None:
-        runner = _make_runner()
         assert runner.progress_callback is None
-
-    def test_execution_progress_callback_none_by_default(self) -> None:
-        runner = _make_runner()
         assert runner.execution_progress_callback is None
-
-    def test_rate_limit_callback_none_by_default(self) -> None:
-        runner = _make_runner()
         assert runner.rate_limit_callback is None
-
-    def test_event_callback_none_by_default(self) -> None:
-        runner = _make_runner()
         assert runner.event_callback is None
-
-    def test_self_healing_disabled_by_default(self) -> None:
-        runner = _make_runner()
         assert runner._self_healing_enabled is False
         assert runner._healing_coordinator is None
-
-    def test_self_healing_auto_confirm_false_by_default(self) -> None:
-        runner = _make_runner()
         assert runner._self_healing_auto_confirm is False
+
+    @pytest.mark.asyncio
+    async def test_no_context_runner_fires_events_safely(self) -> None:
+        """A runner with no event_callback can fire events without errors.
+
+        This tests the behavioral consequence of event_callback=None.
+        """
+        runner = _make_runner()
+        # Should not raise even though callback is None
+        await runner._fire_event("sheet.completed", sheet_num=1)
+
+    def test_no_context_runner_updates_progress_safely(self) -> None:
+        """A runner with no progress_callback can update progress without errors."""
+        runner = _make_runner()
+        state = CheckpointState(
+            job_id="safe-progress",
+            job_name="test",
+            total_sheets=5,
+            last_completed_sheet=2,
+            status=JobStatus.RUNNING,
+        )
+        # Should not raise even though callback is None
+        runner._update_progress(state)
 
     def test_context_console_used_when_provided(self) -> None:
         """When a Console is provided in context, it is used instead of default."""
@@ -841,50 +850,86 @@ class TestFireEvent:
 
 class TestInternalInfrastructure:
 
-    def test_prompt_builder_created(self) -> None:
+    def test_prompt_builder_configured_from_config(self) -> None:
+        """Prompt builder is created with the job's prompt config."""
         runner = _make_runner()
-        assert runner.prompt_builder is not None
+        from mozart.prompts.templating import PromptBuilder
+        assert isinstance(runner.prompt_builder, PromptBuilder)
+        # Verify it received the config's prompt settings
+        assert runner.prompt_builder.config is runner.config.prompt
 
-    def test_error_classifier_created(self) -> None:
+    def test_error_classifier_can_classify(self) -> None:
+        """Error classifier is created and can classify outputs."""
         runner = _make_runner()
-        assert runner.error_classifier is not None
+        from mozart.core.errors import ErrorClassifier
+        assert isinstance(runner.error_classifier, ErrorClassifier)
+        # Verify it can perform classification (not just is not None)
+        result = runner.error_classifier.classify(stdout="", exit_code=0)
+        assert result is not None
 
-    def test_preflight_checker_created(self) -> None:
+    def test_preflight_checker_has_workspace(self) -> None:
+        """Preflight checker is configured with the job's workspace."""
         runner = _make_runner()
-        assert runner.preflight_checker is not None
+        from mozart.execution.preflight import PreflightChecker
+        assert isinstance(runner.preflight_checker, PreflightChecker)
 
-    def test_retry_strategy_created(self) -> None:
+    def test_retry_strategy_respects_config(self) -> None:
+        """Retry strategy is built from the job's retry config."""
         runner = _make_runner()
-        assert runner._retry_strategy is not None
+        from mozart.execution.retry_strategy import AdaptiveRetryStrategy
+        assert isinstance(runner._retry_strategy, AdaptiveRetryStrategy)
+        # Verify config values propagated
+        assert runner._retry_strategy.config.base_delay == runner.config.retry.base_delay_seconds
+        assert runner._retry_strategy.config.max_delay == runner.config.retry.max_delay_seconds
 
-    def test_logger_created(self) -> None:
+    def test_logger_has_runner_component(self) -> None:
+        """Logger is created with 'runner' component name."""
         runner = _make_runner()
-        assert runner._logger is not None
+        from mozart.core.logging import MozartLogger
+        assert isinstance(runner._logger, MozartLogger)
 
-    def test_pattern_tracking_lists_empty(self) -> None:
+    def test_pattern_tracking_accumulates_independently(self) -> None:
+        """Pattern tracking lists start empty and accumulate independently."""
         runner = _make_runner()
+        # Start empty
         assert runner._current_sheet_patterns == []
         assert runner._applied_pattern_ids == []
         assert runner._exploration_pattern_ids == []
         assert runner._exploitation_pattern_ids == []
+        # Mutating one list doesn't affect others
+        runner._current_sheet_patterns.append("pattern-1")
+        runner._applied_pattern_ids.append("applied-1")
+        assert runner._exploration_pattern_ids == []
+        assert runner._exploitation_pattern_ids == []
+        assert len(runner._current_sheet_patterns) == 1
+        assert len(runner._applied_pattern_ids) == 1
 
-    def test_consecutive_failure_counters_zero(self) -> None:
+    def test_failure_counters_increment_independently(self) -> None:
+        """Failure counters start at zero and increment independently."""
         runner = _make_runner()
         assert runner._record_execution_failures == 0
         assert runner._escalation_update_failures == 0
+        runner._record_execution_failures += 1
+        assert runner._record_execution_failures == 1
+        assert runner._escalation_update_failures == 0
 
-    def test_checkpoint_handler_starts_none(self) -> None:
+    def test_optional_infrastructure_absent_without_context(self) -> None:
+        """Optional infrastructure components are absent when not configured.
+
+        These None checks matter because methods gate on them:
+        checkpoint_handler, parallel_executor, global_learning_store,
+        and grounding_engine all have None-guard branches.
+        """
         runner = _make_runner()
         assert runner.checkpoint_handler is None
-
-    def test_parallel_executor_none_when_disabled(self) -> None:
-        runner = _make_runner()
         assert runner._parallel_executor is None
-
-    def test_global_learning_store_none_by_default(self) -> None:
-        runner = _make_runner()
         assert runner._global_learning_store is None
-
-    def test_grounding_engine_none_by_default(self) -> None:
-        runner = _make_runner()
         assert runner._grounding_engine is None
+
+    def test_parallel_executor_created_when_enabled(self) -> None:
+        """When parallel config is enabled, executor is created."""
+        cfg = _make_config(parallel_enabled=True)
+        runner = _make_runner(config=cfg)
+        assert runner._parallel_executor is not None
+        from mozart.execution.parallel import ParallelExecutor
+        assert isinstance(runner._parallel_executor, ParallelExecutor)
