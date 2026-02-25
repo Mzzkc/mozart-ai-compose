@@ -178,6 +178,8 @@ class JobRegistry:
             ("log_path", "TEXT"),
             ("snapshot_path", "TEXT"),
             ("checkpoint_json", "TEXT"),
+            ("hook_config_json", "TEXT"),
+            ("hook_results_json", "TEXT"),
         ]
         for col_name, col_type in new_columns:
             try:
@@ -324,6 +326,34 @@ class JobRegistry:
             return None
         result: str | None = row["checkpoint_json"]
         return result
+
+    async def store_hook_config(self, job_id: str, config_json: str) -> None:
+        """Store hook configuration for a job at submission time."""
+        await self._db.execute(
+            "UPDATE jobs SET hook_config_json = ? WHERE job_id = ?",
+            (config_json, job_id),
+        )
+        await self._db.commit()
+
+    async def get_hook_config(self, job_id: str) -> str | None:
+        """Load stored hook config JSON for a job."""
+        cursor = await self._db.execute(
+            "SELECT hook_config_json FROM jobs WHERE job_id = ?",
+            (job_id,),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        result: str | None = row["hook_config_json"]
+        return result
+
+    async def store_hook_results(self, job_id: str, results_json: str) -> None:
+        """Store hook execution results for a job."""
+        await self._db.execute(
+            "UPDATE jobs SET hook_results_json = ? WHERE job_id = ?",
+            (results_json, job_id),
+        )
+        await self._db.commit()
 
     async def get_job(self, job_id: str) -> JobRecord | None:
         """Get a single job by ID."""

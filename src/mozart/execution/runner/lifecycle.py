@@ -261,12 +261,21 @@ class LifecycleMixin:
             })
 
             # Execute post-success hooks if job completed successfully.
+            # When daemon_managed=True, hooks are executed by the daemon's
+            # _execute_hooks_task() after the job task returns — NOT here.
+            # This prevents duplicate hook execution in daemon mode.
             # Skip hooks if the job was already COMPLETED when we loaded state,
             # meaning zero new sheets were executed this run. This prevents
             # infinite self-chaining loops where a completed job re-triggers
             # its own on_success hook without doing any work.
             if state.status == JobStatus.COMPLETED and self.config.on_success:
-                if not loaded_as_completed:
+                if getattr(self, "_daemon_managed", False):
+                    self._logger.info(
+                        "hooks.skipped_daemon_managed",
+                        job_id=state.job_id,
+                        reason="Hooks will be executed by the daemon after this task returns",
+                    )
+                elif not loaded_as_completed:
                     await self._execute_post_success_hooks(state)
                 else:
                     self._logger.info(

@@ -689,3 +689,127 @@ class TestExecutePostSuccessHooksDirect:
             MockExecutorClass.assert_called_once()
             call_kwargs = MockExecutorClass.call_args
             assert call_kwargs.kwargs.get("concert_context") is None
+
+
+# ─── Phase 5: daemon_managed flag suppresses runner-side hooks ──────
+
+
+class TestDaemonManagedHookSuppression:
+    """Tests for daemon_managed=True suppressing runner-side hooks."""
+
+    @pytest.mark.asyncio
+    async def test_hooks_suppressed_when_daemon_managed(self, tmp_path: Path) -> None:
+        """When daemon_managed=True, run() skips _execute_post_success_hooks."""
+        from mozart.backends.base import ExecutionResult
+        from mozart.execution.runner import JobRunner, RunnerContext
+
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        config = JobConfig.model_validate({
+            "name": "daemon-managed-test",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 1, "total_items": 1},
+            "prompt": {"template": "test {{ sheet_num }}"},
+            "pause_between_sheets_seconds": 0,
+            "workspace": str(workspace),
+            "on_success": [
+                {
+                    "type": "run_command",
+                    "command": "echo should-not-run",
+                },
+            ],
+        })
+
+        mock_backend = AsyncMock()
+        mock_backend.execute = AsyncMock(
+            return_value=ExecutionResult(
+                success=True, stdout="done", stderr="", exit_code=0, duration_seconds=1.0
+            )
+        )
+        mock_backend.health_check = AsyncMock(return_value=True)
+
+        mock_state_backend = AsyncMock()
+        mock_state_backend.load = AsyncMock(return_value=None)
+        mock_state_backend.save = AsyncMock()
+
+        context = RunnerContext(
+            console=MagicMock(),
+            daemon_managed=True,  # Daemon owns hook execution
+        )
+
+        runner = JobRunner(
+            config=config,
+            backend=mock_backend,
+            state_backend=mock_state_backend,
+            context=context,
+        )
+
+        with patch.object(
+            runner, "_execute_post_success_hooks", new_callable=AsyncMock,
+        ) as mock_hooks:
+            state, summary = await runner.run()
+
+            # Hooks should NOT have been called — daemon handles them
+            mock_hooks.assert_not_called()
+
+        # But the job should still have completed successfully
+        assert state.status == JobStatus.COMPLETED
+
+    @pytest.mark.asyncio
+    async def test_hooks_fire_when_not_daemon_managed(self, tmp_path: Path) -> None:
+        """When daemon_managed=False (default), run() fires hooks normally."""
+        from mozart.backends.base import ExecutionResult
+        from mozart.execution.runner import JobRunner, RunnerContext
+
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        config = JobConfig.model_validate({
+            "name": "cli-mode-test",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 1, "total_items": 1},
+            "prompt": {"template": "test {{ sheet_num }}"},
+            "pause_between_sheets_seconds": 0,
+            "workspace": str(workspace),
+            "on_success": [
+                {
+                    "type": "run_command",
+                    "command": "echo should-run",
+                },
+            ],
+        })
+
+        mock_backend = AsyncMock()
+        mock_backend.execute = AsyncMock(
+            return_value=ExecutionResult(
+                success=True, stdout="done", stderr="", exit_code=0, duration_seconds=1.0
+            )
+        )
+        mock_backend.health_check = AsyncMock(return_value=True)
+
+        mock_state_backend = AsyncMock()
+        mock_state_backend.load = AsyncMock(return_value=None)
+        mock_state_backend.save = AsyncMock()
+
+        context = RunnerContext(
+            console=MagicMock(),
+            daemon_managed=False,  # CLI mode — hooks should fire
+        )
+
+        runner = JobRunner(
+            config=config,
+            backend=mock_backend,
+            state_backend=mock_state_backend,
+            context=context,
+        )
+
+        with patch.object(
+            runner, "_execute_post_success_hooks", new_callable=AsyncMock,
+        ) as mock_hooks:
+            state, summary = await runner.run()
+
+            # Hooks SHOULD be called in CLI mode
+            mock_hooks.assert_called_once()
+
+        assert state.status == JobStatus.COMPLETED

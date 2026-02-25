@@ -1751,3 +1751,466 @@ class TestRunManagedTaskEdgeCases:
             assert meta.status == DaemonJobStatus.CANCELLED
         finally:
             await mgr._registry.close()
+
+
+# ─── Hook Config Extraction ──────────────────────────────────────────
+
+
+class TestHookConfigExtraction:
+    """Tests for hook config extraction at submit_job() time."""
+
+    @pytest.fixture
+    def config_with_hooks(self, tmp_path: Path) -> Path:
+        """Create a config file with on_success hooks."""
+        config = tmp_path / "hooks-job.yaml"
+        config.write_text(
+            "name: hooks-job\n"
+            "sheet:\n"
+            "  size: 1\n"
+            "  total_items: 1\n"
+            "prompt:\n"
+            "  template: test prompt\n"
+            "on_success:\n"
+            "  - type: run_job\n"
+            "    job_path: next.yaml\n"
+            "    fresh: true\n"
+            "    description: Chain to next iteration\n"
+            "concert:\n"
+            "  enabled: true\n"
+            "  max_chain_depth: 3\n"
+            "  cooldown_between_jobs_seconds: 10\n"
+        )
+        return config
+
+    @pytest.mark.asyncio
+    async def test_submit_stores_hook_config_in_meta(
+        self, manager: JobManager, config_with_hooks: Path, tmp_path: Path,
+    ):
+        """submit_job extracts hook config into JobMeta."""
+        request = JobRequest(
+            config_path=config_with_hooks,
+            workspace=tmp_path / "ws",
+        )
+        response = await manager.submit_job(request)
+        assert response.status == "accepted"
+
+        meta = manager._job_meta[response.job_id]
+        assert meta.hook_config is not None
+        assert len(meta.hook_config) == 1
+        assert meta.hook_config[0]["type"] == "run_job"
+        assert meta.hook_config[0]["fresh"] is True
+
+    @pytest.mark.asyncio
+    async def test_submit_stores_concert_config_in_meta(
+        self, manager: JobManager, config_with_hooks: Path, tmp_path: Path,
+    ):
+        """submit_job extracts concert config into JobMeta when enabled."""
+        request = JobRequest(
+            config_path=config_with_hooks,
+            workspace=tmp_path / "ws",
+        )
+        response = await manager.submit_job(request)
+        assert response.status == "accepted"
+
+        meta = manager._job_meta[response.job_id]
+        assert meta.concert_config is not None
+        assert meta.concert_config["max_chain_depth"] == 3
+
+    @pytest.mark.asyncio
+    async def test_submit_stores_hook_config_in_registry(
+        self, manager: JobManager, config_with_hooks: Path, tmp_path: Path,
+    ):
+        """submit_job persists hook config to registry for restart resilience."""
+        import json
+
+        request = JobRequest(
+            config_path=config_with_hooks,
+            workspace=tmp_path / "ws",
+        )
+        response = await manager.submit_job(request)
+        assert response.status == "accepted"
+
+        stored = await manager._registry.get_hook_config(response.job_id)
+        assert stored is not None
+        hooks = json.loads(stored)
+        assert len(hooks) == 1
+        assert hooks[0]["type"] == "run_job"
+
+    @pytest.mark.asyncio
+    async def test_submit_without_hooks_stores_none(
+        self, manager: JobManager, sample_config_file: Path, tmp_path: Path,
+    ):
+        """submit_job stores None hook config for configs without on_success."""
+        request = JobRequest(
+            config_path=sample_config_file,
+            workspace=tmp_path / "ws",
+        )
+        response = await manager.submit_job(request)
+        assert response.status == "accepted"
+
+        meta = manager._job_meta[response.job_id]
+        assert meta.hook_config is None
+        assert meta.concert_config is None
+
+        stored = await manager._registry.get_hook_config(response.job_id)
+        assert stored is None
+
+
+# ─── Daemon Hook Execution ───────────────────────────────────────────
+
+
+class TestDaemonHookExecution:
+    """Tests for daemon-owned hook execution (_execute_hooks_task)."""
+
+    @pytest.mark.asyncio
+    async def test_hooks_fire_on_completed_job(self, tmp_path: Path):
+        """_execute_hooks_task fires for COMPLETED jobs with hooks."""
+        config = DaemonConfig(
+            max_concurrent_jobs=2,
+            state_db_path=tmp_path / "reg.db",
+        )
+        mgr = JobManager(config)
+        await mgr._registry.open()
+        mgr._service = MagicMock()
+
+        try:
+            # Create a config file the chained job will reference
+            next_config = tmp_path / "next.yaml"
+            next_config.write_text(
+                "name: next-job\n"
+                "sheet:\n  size: 1\n  total_items: 1\n"
+                "prompt:\n  template: test\n"
+            )
+
+            await mgr._registry.register_job(
+                "parent-job", Path("/tmp/parent.yaml"), tmp_path / "ws",
+            )
+            meta = JobMeta(
+                job_id="parent-job",
+                config_path=Path("/tmp/parent.yaml"),
+                workspace=tmp_path / "ws",
+                status=DaemonJobStatus.COMPLETED,
+                hook_config=[{
+                    "type": "run_job",
+                    "job_path": str(next_config),
+                    "fresh": True,
+                    "description": "Chain to next",
+                }],
+                concert_config={
+                    "enabled": True,
+                    "max_chain_depth": 5,
+                    "cooldown_between_jobs_seconds": 0,
+                    "inherit_workspace": True,
+                },
+            )
+            mgr._job_meta["parent-job"] = meta
+
+            # Create workspace parent for the chained job
+            (tmp_path / "ws").mkdir(exist_ok=True)
+
+            await mgr._execute_hooks_task("parent-job")
+
+            # The chained job should have been submitted
+            # Job ID is derived from config file stem ("next"), not config name
+            assert "next" in mgr._job_meta
+        finally:
+            await mgr._registry.close()
+
+    @pytest.mark.asyncio
+    async def test_hooks_do_not_fire_on_failed_job(self, tmp_path: Path):
+        """_execute_hooks_task does nothing for non-COMPLETED jobs."""
+        config = DaemonConfig(
+            max_concurrent_jobs=2,
+            state_db_path=tmp_path / "reg.db",
+        )
+        mgr = JobManager(config)
+        await mgr._registry.open()
+        mgr._service = MagicMock()
+
+        try:
+            meta = JobMeta(
+                job_id="failed-job",
+                config_path=Path("/tmp/test.yaml"),
+                workspace=tmp_path / "ws",
+                status=DaemonJobStatus.FAILED,
+                hook_config=[{"type": "run_job", "job_path": "next.yaml"}],
+            )
+            mgr._job_meta["failed-job"] = meta
+
+            # The _on_task_done check should NOT spawn hooks for FAILED
+            # (this tests the guard, not _execute_hooks_task directly)
+            task = MagicMock(spec=asyncio.Task)
+            task.cancelled.return_value = False
+            task.exception.return_value = None
+            mgr._on_task_done("failed-job", task)
+
+            # No hooks task should have been created
+            # (we check by looking for any hooks-* task name)
+            await asyncio.sleep(0.05)
+            assert "next" not in mgr._job_meta
+        finally:
+            await mgr._registry.close()
+
+    @pytest.mark.asyncio
+    async def test_hooks_do_not_fire_without_hook_config(self, tmp_path: Path):
+        """_execute_hooks_task returns early when no hook_config."""
+        config = DaemonConfig(
+            max_concurrent_jobs=2,
+            state_db_path=tmp_path / "reg.db",
+        )
+        mgr = JobManager(config)
+        await mgr._registry.open()
+        mgr._service = MagicMock()
+
+        try:
+            await mgr._registry.register_job(
+                "no-hooks", Path("/tmp/test.yaml"), tmp_path / "ws",
+            )
+            meta = JobMeta(
+                job_id="no-hooks",
+                config_path=Path("/tmp/test.yaml"),
+                workspace=tmp_path / "ws",
+                status=DaemonJobStatus.COMPLETED,
+                hook_config=None,  # No hooks
+            )
+            mgr._job_meta["no-hooks"] = meta
+
+            await mgr._execute_hooks_task("no-hooks")
+            # No error, no crash, just a no-op
+        finally:
+            await mgr._registry.close()
+
+    @pytest.mark.asyncio
+    async def test_concert_depth_enforcement(self, tmp_path: Path):
+        """Chained job is rejected when concert depth limit is reached."""
+        config = DaemonConfig(
+            max_concurrent_jobs=2,
+            state_db_path=tmp_path / "reg.db",
+        )
+        mgr = JobManager(config)
+        await mgr._registry.open()
+        mgr._service = MagicMock()
+
+        try:
+            next_config = tmp_path / "next.yaml"
+            next_config.write_text(
+                "name: next-job\n"
+                "sheet:\n  size: 1\n  total_items: 1\n"
+                "prompt:\n  template: test\n"
+            )
+
+            await mgr._registry.register_job(
+                "depth-job", Path("/tmp/depth.yaml"), tmp_path / "ws",
+            )
+            meta = JobMeta(
+                job_id="depth-job",
+                config_path=Path("/tmp/depth.yaml"),
+                workspace=tmp_path / "ws",
+                status=DaemonJobStatus.COMPLETED,
+                chain_depth=3,  # At limit
+                hook_config=[{
+                    "type": "run_job",
+                    "job_path": str(next_config),
+                }],
+                concert_config={
+                    "enabled": True,
+                    "max_chain_depth": 3,  # Limit = 3, depth = 3 → blocked
+                    "cooldown_between_jobs_seconds": 0,
+                },
+            )
+            mgr._job_meta["depth-job"] = meta
+
+            await mgr._execute_hooks_task("depth-job")
+
+            # Hook should have failed, job downgraded to FAILED
+            assert meta.status == DaemonJobStatus.FAILED
+            assert meta.error_message == "Post-success hook failed"
+
+            # Verify the specific depth limit error is in the stored hook results
+            import json
+            cursor = await mgr._registry._db.execute(
+                "SELECT hook_results_json FROM jobs WHERE job_id = ?",
+                ("depth-job",),
+            )
+            row = await cursor.fetchone()
+            assert row is not None
+            hook_results = json.loads(row["hook_results_json"])
+            assert "depth limit" in hook_results[0]["error_message"].lower()
+        finally:
+            await mgr._registry.close()
+
+    @pytest.mark.asyncio
+    async def test_hook_failure_downgrades_job(self, tmp_path: Path):
+        """Hook failure downgrades parent job from COMPLETED to FAILED."""
+        config = DaemonConfig(
+            max_concurrent_jobs=2,
+            state_db_path=tmp_path / "reg.db",
+        )
+        mgr = JobManager(config)
+        await mgr._registry.open()
+        mgr._service = MagicMock()
+
+        try:
+            await mgr._registry.register_job(
+                "fail-hook", Path("/tmp/test.yaml"), tmp_path / "ws",
+            )
+            meta = JobMeta(
+                job_id="fail-hook",
+                config_path=Path("/tmp/test.yaml"),
+                workspace=tmp_path / "ws",
+                status=DaemonJobStatus.COMPLETED,
+                hook_config=[{
+                    "type": "run_job",
+                    "job_path": "/nonexistent/job.yaml",
+                    "description": "Will fail",
+                }],
+            )
+            mgr._job_meta["fail-hook"] = meta
+
+            await mgr._execute_hooks_task("fail-hook")
+
+            assert meta.status == DaemonJobStatus.FAILED
+            assert meta.error_message == "Post-success hook failed"
+        finally:
+            await mgr._registry.close()
+
+    @pytest.mark.asyncio
+    async def test_on_task_done_spawns_hooks(self, tmp_path: Path):
+        """_on_task_done spawns hooks task for COMPLETED job with hooks."""
+        config = DaemonConfig(
+            max_concurrent_jobs=2,
+            state_db_path=tmp_path / "reg.db",
+        )
+        mgr = JobManager(config)
+        await mgr._registry.open()
+        mgr._service = MagicMock()
+
+        try:
+            await mgr._registry.register_job(
+                "hook-spawn", Path("/tmp/test.yaml"), tmp_path / "ws",
+            )
+            meta = JobMeta(
+                job_id="hook-spawn",
+                config_path=Path("/tmp/test.yaml"),
+                workspace=tmp_path / "ws",
+                status=DaemonJobStatus.COMPLETED,
+                completed_new_work=True,  # Zero-work guard: must be True for hooks to fire
+                hook_config=[{
+                    "type": "run_job",
+                    "job_path": "/nonexistent.yaml",
+                }],
+            )
+            mgr._job_meta["hook-spawn"] = meta
+
+            # Simulate task completion
+            task = MagicMock(spec=asyncio.Task)
+            task.cancelled.return_value = False
+            task.exception.return_value = None
+            mgr._on_task_done("hook-spawn", task)
+
+            # Let the hooks task run (use polling, not fixed sleep)
+            deadline = asyncio.get_event_loop().time() + 10.0
+            while asyncio.get_event_loop().time() < deadline:
+                if meta.status == DaemonJobStatus.FAILED:
+                    break
+                await asyncio.sleep(0.1)
+
+            # Hook should have attempted to run (and failed on missing file)
+            assert meta.status == DaemonJobStatus.FAILED
+        finally:
+            await mgr._registry.close()
+
+    @pytest.mark.asyncio
+    async def test_zero_work_guard_skips_hooks(self, tmp_path: Path):
+        """_on_task_done skips hooks when completed_new_work is False."""
+        config = DaemonConfig(
+            max_concurrent_jobs=2,
+            state_db_path=tmp_path / "reg.db",
+        )
+        mgr = JobManager(config)
+        await mgr._registry.open()
+        mgr._service = MagicMock()
+
+        try:
+            await mgr._registry.register_job(
+                "zero-work", Path("/tmp/test.yaml"), tmp_path / "ws",
+            )
+            meta = JobMeta(
+                job_id="zero-work",
+                config_path=Path("/tmp/test.yaml"),
+                workspace=tmp_path / "ws",
+                status=DaemonJobStatus.COMPLETED,
+                completed_new_work=False,  # No new sheets — hooks should be skipped
+                hook_config=[{
+                    "type": "run_job",
+                    "job_path": "/nonexistent.yaml",
+                }],
+            )
+            mgr._job_meta["zero-work"] = meta
+
+            task = MagicMock(spec=asyncio.Task)
+            task.cancelled.return_value = False
+            task.exception.return_value = None
+            mgr._on_task_done("zero-work", task)
+
+            # Give time for any spawned task to run
+            await asyncio.sleep(0.2)
+
+            # Status should remain COMPLETED (hooks did not fire)
+            assert meta.status == DaemonJobStatus.COMPLETED
+        finally:
+            await mgr._registry.close()
+
+    @pytest.mark.asyncio
+    async def test_cooldown_sleep_is_respected(self, tmp_path: Path):
+        """Concert cooldown delays chained job submission."""
+        config = DaemonConfig(
+            max_concurrent_jobs=2,
+            state_db_path=tmp_path / "reg.db",
+        )
+        mgr = JobManager(config)
+        await mgr._registry.open()
+        mgr._service = MagicMock()
+
+        try:
+            next_config = tmp_path / "next.yaml"
+            next_config.write_text(
+                "name: next-job\n"
+                "sheet:\n  size: 1\n  total_items: 1\n"
+                "prompt:\n  template: test\n"
+            )
+
+            await mgr._registry.register_job(
+                "cooldown-job", Path("/tmp/parent.yaml"), tmp_path / "ws",
+            )
+            meta = JobMeta(
+                job_id="cooldown-job",
+                config_path=Path("/tmp/parent.yaml"),
+                workspace=tmp_path / "ws",
+                status=DaemonJobStatus.COMPLETED,
+                hook_config=[{
+                    "type": "run_job",
+                    "job_path": str(next_config),
+                    "fresh": True,
+                }],
+                concert_config={
+                    "enabled": True,
+                    "max_chain_depth": 5,
+                    "cooldown_between_jobs_seconds": 0.5,
+                    "inherit_workspace": True,
+                },
+            )
+            mgr._job_meta["cooldown-job"] = meta
+            (tmp_path / "ws").mkdir(exist_ok=True)
+
+            import time
+            start = time.monotonic()
+            await mgr._execute_hooks_task("cooldown-job")
+            elapsed = time.monotonic() - start
+
+            # Should have waited at least 0.5s for cooldown
+            assert elapsed >= 0.4, f"Expected >=0.4s cooldown, got {elapsed:.2f}s"
+            # Chained job should still have been submitted
+            assert "next" in mgr._job_meta
+        finally:
+            await mgr._registry.close()

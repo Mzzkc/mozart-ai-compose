@@ -406,3 +406,65 @@ class TestPersistence:
             job = await reg.get_job("persist-me")
             assert job is not None
             assert job.status == DaemonJobStatus.COMPLETED
+
+
+# ─── Hook Config Storage ────────────────────────────────────────────
+
+
+class TestHookConfigStorage:
+    """Tests for hook config and results storage in the registry."""
+
+    @pytest.mark.asyncio
+    async def test_store_and_get_hook_config(self, registry: JobRegistry):
+        """Hook config roundtrips through store/get."""
+        await registry.register_job("hook-job", Path("/tmp/c.yaml"), Path("/tmp/ws"))
+        hook_json = '[{"type": "run_job", "job_path": "next.yaml"}]'
+        await registry.store_hook_config("hook-job", hook_json)
+
+        result = await registry.get_hook_config("hook-job")
+        assert result == hook_json
+
+    @pytest.mark.asyncio
+    async def test_get_hook_config_returns_none_when_unset(self, registry: JobRegistry):
+        """get_hook_config returns None when no config was stored."""
+        await registry.register_job("no-hooks", Path("/tmp/c.yaml"), Path("/tmp/ws"))
+        result = await registry.get_hook_config("no-hooks")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_hook_config_returns_none_for_unknown_job(self, registry: JobRegistry):
+        """get_hook_config returns None for nonexistent job."""
+        result = await registry.get_hook_config("nonexistent")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_store_hook_results(self, registry: JobRegistry):
+        """Hook results can be stored and are persisted."""
+        await registry.register_job("results-job", Path("/tmp/c.yaml"), Path("/tmp/ws"))
+        results_json = '[{"hook": "run_job", "success": true}]'
+        await registry.store_hook_results("results-job", results_json)
+
+        # Verify via raw SQL (no dedicated get_hook_results method yet)
+        cursor = await registry._db.execute(
+            "SELECT hook_results_json FROM jobs WHERE job_id = ?",
+            ("results-job",),
+        )
+        row = await cursor.fetchone()
+        assert row is not None
+        assert row["hook_results_json"] == results_json
+
+    @pytest.mark.asyncio
+    async def test_migration_adds_hook_columns(self, tmp_path: Path):
+        """Migration adds hook columns to an existing database."""
+        db_path = tmp_path / "migrate-hooks.db"
+
+        # Create a registry (creates tables with columns)
+        async with JobRegistry(db_path) as reg:
+            await reg.register_job("old-job", Path("/tmp/c.yaml"), Path("/tmp/ws"))
+
+        # Reopen — migration should succeed idempotently
+        async with JobRegistry(db_path) as reg:
+            # Store hook config on old job — column must exist
+            await reg.store_hook_config("old-job", '[]')
+            result = await reg.get_hook_config("old-job")
+            assert result == '[]'

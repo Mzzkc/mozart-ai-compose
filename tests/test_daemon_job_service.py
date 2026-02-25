@@ -1407,3 +1407,109 @@ class TestExecuteRunner:
             start_sheet=3,
         )
         mock_runner.run.assert_called_once_with(start_sheet=3)
+
+    @pytest.mark.asyncio
+    async def test_config_path_passed_to_runner(
+        self, job_service: JobService, mock_runner: MagicMock,
+    ) -> None:
+        """config_path kwarg is forwarded to runner.run()."""
+        await job_service._execute_runner(
+            runner=mock_runner,
+            job_id="test-job",
+            job_name="test-job",
+            total_sheets=2,
+            notification_manager=None,
+            config_path="/tmp/test-config.yaml",
+        )
+        mock_runner.run.assert_called_once_with(config_path="/tmp/test-config.yaml")
+
+
+# ─── Phase 1: Config path wiring through daemon ─────────────────────────
+
+
+class TestConfigPathWiring:
+    """Tests for config_path being wired from daemon through start_job/resume_job."""
+
+    @pytest.mark.asyncio
+    async def test_start_job_passes_config_path_to_runner(
+        self, job_service: JobService, sample_job_config: JobConfig,
+    ) -> None:
+        """start_job(config_path=...) passes it through to runner.run()."""
+        from mozart.execution.runner.models import RunSummary
+
+        name = sample_job_config.name
+        sheets = sample_job_config.sheet.total_sheets
+
+        expected_state = CheckpointState(
+            job_id=name, job_name=name, total_sheets=sheets,
+            status=JobStatus.COMPLETED,
+        )
+        expected_summary = RunSummary(
+            job_id=name, job_name=name, total_sheets=sheets,
+            completed_sheets=sheets, final_status=JobStatus.COMPLETED,
+        )
+
+        mock_runner = MagicMock()
+        mock_runner.run = AsyncMock(return_value=(expected_state, expected_summary))
+
+        with (
+            patch.object(Path, "mkdir"),
+            patch.object(JobService, "_create_state_backend", return_value=MagicMock(close=AsyncMock())),
+            patch.object(JobService, "_setup_components", return_value={
+                "backend": MagicMock(),
+                "outcome_store": None,
+                "global_learning_store": None,
+                "notification_manager": None,
+                "escalation_handler": None,
+                "grounding_engine": None,
+            }),
+            patch.object(JobService, "_create_runner", return_value=mock_runner),
+        ):
+            summary = await job_service.start_job(
+                sample_job_config,
+                config_path="/tmp/my-score.yaml",
+            )
+
+        assert summary.final_status == JobStatus.COMPLETED
+        mock_runner.run.assert_called_once_with(config_path="/tmp/my-score.yaml")
+
+    @pytest.mark.asyncio
+    async def test_start_job_without_config_path_omits_it(
+        self, job_service: JobService, sample_job_config: JobConfig,
+    ) -> None:
+        """start_job() without config_path does not pass it to runner.run()."""
+        from mozart.execution.runner.models import RunSummary
+
+        name = sample_job_config.name
+        sheets = sample_job_config.sheet.total_sheets
+
+        expected_state = CheckpointState(
+            job_id=name, job_name=name, total_sheets=sheets,
+            status=JobStatus.COMPLETED,
+        )
+        expected_summary = RunSummary(
+            job_id=name, job_name=name, total_sheets=sheets,
+            completed_sheets=sheets, final_status=JobStatus.COMPLETED,
+        )
+
+        mock_runner = MagicMock()
+        mock_runner.run = AsyncMock(return_value=(expected_state, expected_summary))
+
+        with (
+            patch.object(Path, "mkdir"),
+            patch.object(JobService, "_create_state_backend", return_value=MagicMock(close=AsyncMock())),
+            patch.object(JobService, "_setup_components", return_value={
+                "backend": MagicMock(),
+                "outcome_store": None,
+                "global_learning_store": None,
+                "notification_manager": None,
+                "escalation_handler": None,
+                "grounding_engine": None,
+            }),
+            patch.object(JobService, "_create_runner", return_value=mock_runner),
+        ):
+            summary = await job_service.start_job(sample_job_config)
+
+        assert summary.final_status == JobStatus.COMPLETED
+        # config_path not passed, so runner.run() called with no kwargs
+        mock_runner.run.assert_called_once_with()

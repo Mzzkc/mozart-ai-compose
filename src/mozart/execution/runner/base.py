@@ -151,6 +151,7 @@ class JobRunnerBase:
         pause_event: asyncio.Event | None = None
         self_healing_enabled = False
         self_healing_auto_confirm = False
+        daemon_managed = False
         if context is not None:
             console = context.console
             outcome_store = context.outcome_store
@@ -165,6 +166,7 @@ class JobRunnerBase:
             pause_event = context.pause_event
             self_healing_enabled = context.self_healing_enabled
             self_healing_auto_confirm = context.self_healing_auto_confirm
+            daemon_managed = context.daemon_managed
 
         # Core dependencies
         self.config = config
@@ -185,6 +187,7 @@ class JobRunnerBase:
         # Daemon integration
         self.rate_limit_callback = rate_limit_callback
         self.event_callback = event_callback
+        self._daemon_managed = daemon_managed
 
         # Prompt building and error classification
         self.prompt_builder = PromptBuilder(config.prompt)

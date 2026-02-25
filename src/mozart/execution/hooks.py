@@ -161,6 +161,43 @@ async def _try_daemon_submit(
         return False, None
 
 
+_KNOWN_HOOK_VARS = frozenset({"workspace", "job_id", "sheet_count"})
+
+
+def expand_hook_variables(
+    template: str,
+    *,
+    workspace: str | Path,
+    job_id: str,
+    sheet_count: int | None = None,
+) -> str:
+    """Expand template variables in hook paths/commands.
+
+    Shared utility used by both HookExecutor (runner-side) and
+    the daemon's _execute_hooks_task (daemon-side).
+
+    Known variables: {workspace}, {job_id}, {sheet_count}.
+    Warns on unrecognized {var} patterns that remain after expansion.
+    """
+    result = (
+        template.replace("{workspace}", str(workspace))
+        .replace("{job_id}", job_id)
+    )
+    if sheet_count is not None:
+        result = result.replace("{sheet_count}", str(sheet_count))
+    # Warn about unrecognized template variables
+    for match in re.finditer(r"\{(\w+)\}", result):
+        var_name = match.group(1)
+        if var_name not in _KNOWN_HOOK_VARS:
+            _logger.warning(
+                "unknown_template_variable",
+                variable=var_name,
+                template=template,
+                known_vars=sorted(_KNOWN_HOOK_VARS),
+            )
+    return result
+
+
 class HookExecutor:
     """Executes post-success hooks and manages concert orchestration.
 
@@ -188,30 +225,17 @@ class HookExecutor:
         # Track results
         self.hook_results: list[HookResult] = []
 
-    _KNOWN_VARS = frozenset({"workspace", "job_id", "sheet_count"})
-
     def _expand_hook_variables(self, template: str) -> str:
         """Expand template variables in hook paths/commands.
 
-        Known variables: {workspace}, {job_id}, {sheet_count}.
-        Warns on unrecognized {var} patterns that remain after expansion.
+        Delegates to the module-level expand_hook_variables() function.
         """
-        result = (
-            template.replace("{workspace}", str(self.workspace))
-            .replace("{job_id}", self.config.name)
-            .replace("{sheet_count}", str(self.config.sheet.total_sheets))
+        return expand_hook_variables(
+            template,
+            workspace=self.workspace,
+            job_id=self.config.name,
+            sheet_count=self.config.sheet.total_sheets,
         )
-        # Warn about unrecognized template variables
-        for match in re.finditer(r"\{(\w+)\}", result):
-            var_name = match.group(1)
-            if var_name not in self._KNOWN_VARS:
-                _logger.warning(
-                    "unknown_template_variable",
-                    variable=var_name,
-                    template=template,
-                    known_vars=sorted(self._KNOWN_VARS),
-                )
-        return result
 
     async def execute_hooks(self) -> list[HookResult]:
         """Execute all configured on_success hooks.

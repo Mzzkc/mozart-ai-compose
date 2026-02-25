@@ -533,6 +533,10 @@ class RunnerContext:
     grounding_engine: GroundingEngine | None = None
     """Engine for external validation of sheet outputs (v8 Grounding)."""
 
+    # Daemon integration
+    daemon_managed: bool = False
+    """When True, post-success hooks are suppressed (daemon executes them)."""
+
     # UI and progress reporting
     console: Console | None = None
     """Rich console for output display."""

@@ -55,6 +55,9 @@ class JobMeta:
     error_message: str | None = None
     error_traceback: str | None = None
     chain_depth: int | None = None
+    hook_config: list[dict[str, Any]] | None = field(default=None, repr=False)
+    concert_config: dict[str, Any] | None = field(default=None, repr=False)
+    completed_new_work: bool = False
     observer: JobObserver | None = field(default=None, repr=False)
     pending_modify: tuple[Path, Path | None] | None = field(default=None, repr=False)
 
@@ -430,14 +433,26 @@ class JobManager:
                 message=f"Config file not found: {request.config_path}",
             )
 
+        # Parse config for workspace resolution and hook extraction.
+        # When workspace is provided explicitly, parsing is best-effort
+        # (hooks won't be available if it fails, but the job still runs).
+        from mozart.core.config import JobConfig
+
+        parsed_config: JobConfig | None = None
         if request.workspace:
             workspace = request.workspace
-        else:
-            from mozart.core.config import JobConfig
-
             try:
-                config = JobConfig.from_yaml(request.config_path)
-                workspace = config.workspace
+                parsed_config = JobConfig.from_yaml(request.config_path)
+            except (ValueError, OSError, KeyError, yaml.YAMLError):
+                _logger.debug(
+                    "manager.config_parse_for_hooks_failed",
+                    job_id=job_id,
+                    config_path=str(request.config_path),
+                )
+        else:
+            try:
+                parsed_config = JobConfig.from_yaml(request.config_path)
+                workspace = parsed_config.workspace
             except (ValueError, OSError, KeyError, yaml.YAMLError) as exc:
                 _logger.error(
                     "manager.config_parse_failed",
@@ -455,6 +470,16 @@ class JobManager:
                         "Fix the config or pass --workspace explicitly."
                     ),
                 )
+
+        # Extract hook config from parsed config for daemon-owned execution.
+        hook_config_list: list[dict[str, Any]] | None = None
+        concert_config_dict: dict[str, Any] | None = None
+        if parsed_config and parsed_config.on_success:
+            hook_config_list = [
+                h.model_dump(mode="json") for h in parsed_config.on_success
+            ]
+        if parsed_config and parsed_config.concert.enabled:
+            concert_config_dict = parsed_config.concert.model_dump(mode="json")
 
         # Early workspace validation: reject jobs whose workspace parent
         # doesn't exist or isn't writable, instead of failing deep in
@@ -500,10 +525,19 @@ class JobManager:
                 config_path=request.config_path,
                 workspace=workspace,
                 chain_depth=request.chain_depth,
+                hook_config=hook_config_list,
+                concert_config=concert_config_dict,
             )
             # Register in DB first — if this fails, no phantom in-memory entry
             await self._registry.register_job(job_id, request.config_path, workspace)
             self._job_meta[job_id] = meta
+
+            # Persist hook config to registry for restart resilience
+            if hook_config_list:
+                import json
+                await self._registry.store_hook_config(
+                    job_id, json.dumps(hook_config_list),
+                )
 
         try:
             task = asyncio.create_task(
@@ -1478,7 +1512,14 @@ class JobManager:
                 self_healing_auto_confirm=request.self_healing_auto_confirm,
                 dry_run=request.dry_run,
                 pause_event=self._pause_events.get(job_id),
+                config_path=str(request.config_path),
             )
+
+            # Track whether this run actually completed new sheets
+            # (used by zero-work guard to prevent infinite self-chaining)
+            meta = self._job_meta.get(job_id)
+            if meta and summary.completed_sheets > 0:
+                meta.completed_new_work = True
 
             return self._map_job_status(summary.final_status)
 
@@ -1488,11 +1529,18 @@ class JobManager:
         """Task coroutine that resumes a paused job."""
 
         async def _execute() -> DaemonJobStatus:
+            meta = self._job_meta.get(job_id)
             summary = await self._checked_service.resume_job(
                 job_id, workspace,
                 conductor_job_id=job_id,
+                config_path=meta.config_path if meta else None,
                 pause_event=self._pause_events.get(job_id),
             )
+
+            # Track whether this run actually completed new sheets
+            # (used by zero-work guard to prevent infinite self-chaining)
+            if meta and summary.completed_sheets > 0:
+                meta.completed_new_work = True
 
             # Update in-memory JobMeta with any config-derived changes.
             # The registry was already updated by JobService.resume_job()
@@ -1513,6 +1561,299 @@ class JobManager:
             job_id, _execute(),
             start_event="job.resuming",
             fail_event="job.resume_failed",
+        )
+
+    async def _execute_hooks_task(self, job_id: str) -> None:
+        """Execute post-success hooks for a completed job.
+
+        Spawned as a separate async task from _on_task_done() when:
+        - Job status is COMPLETED
+        - Job has hook_config (on_success hooks defined)
+
+        For run_job hooks: submits chained jobs via self.submit_job()
+        directly (same process, no IPC). For run_command/run_script:
+        uses asyncio subprocess APIs.
+
+        If any hook fails: downgrades the parent job from COMPLETED
+        to FAILED in both meta and registry.
+        """
+        import json
+
+        meta = self._job_meta.get(job_id)
+        if meta is None or not meta.hook_config:
+            return
+
+        hooks = meta.hook_config
+        concert = meta.concert_config
+
+        _logger.info(
+            "hooks.daemon_executing",
+            job_id=job_id,
+            hook_count=len(hooks),
+        )
+
+        results: list[dict[str, Any]] = []
+        any_failed = False
+
+        for i, hook in enumerate(hooks):
+            hook_type = hook.get("type", "unknown")
+            description = hook.get("description")
+
+            _logger.info(
+                "hook.daemon_executing",
+                job_id=job_id,
+                hook_index=i + 1,
+                hook_type=hook_type,
+                description=description or "(no description)",
+            )
+
+            result: dict[str, Any] = {
+                "hook_type": hook_type,
+                "description": description,
+                "success": False,
+            }
+
+            try:
+                if hook_type == "run_job":
+                    result = await self._execute_hook_run_job(
+                        job_id, hook, concert, meta,
+                    )
+                elif hook_type == "run_command":
+                    result = await self._execute_hook_command(
+                        hook, meta, use_shell=True,
+                    )
+                elif hook_type == "run_script":
+                    result = await self._execute_hook_command(
+                        hook, meta, use_shell=False,
+                    )
+                else:
+                    result["error_message"] = f"Unknown hook type: {hook_type}"
+
+            except Exception as exc:
+                result["error_message"] = f"Exception: {exc}"
+                _logger.error(
+                    "hook.daemon_exception",
+                    job_id=job_id,
+                    hook_type=hook_type,
+                    error=str(exc),
+                    exc_info=True,
+                )
+
+            results.append(result)
+
+            if result.get("success"):
+                _logger.info(
+                    "hook.daemon_succeeded",
+                    job_id=job_id,
+                    hook_type=hook_type,
+                )
+            else:
+                any_failed = True
+                _logger.warning(
+                    "hook.daemon_failed",
+                    job_id=job_id,
+                    hook_type=hook_type,
+                    error=result.get("error_message"),
+                )
+
+                on_failure = hook.get("on_failure", "continue")
+                if on_failure == "abort":
+                    break
+
+                if concert and concert.get("abort_concert_on_hook_failure"):
+                    break
+
+        # Store results in registry
+        try:
+            await self._registry.store_hook_results(
+                job_id, json.dumps(results),
+            )
+        except Exception:
+            _logger.error(
+                "hooks.daemon_store_results_failed",
+                job_id=job_id,
+                exc_info=True,
+            )
+
+        # If any hook failed, downgrade job from COMPLETED to FAILED
+        if any_failed and meta.status == DaemonJobStatus.COMPLETED:
+            meta.status = DaemonJobStatus.FAILED
+            meta.error_message = "Post-success hook failed"
+            try:
+                await self._registry.update_status(
+                    job_id, "failed",
+                    error_message="Post-success hook failed",
+                )
+            except Exception:
+                _logger.error(
+                    "hooks.daemon_status_downgrade_failed",
+                    job_id=job_id,
+                    exc_info=True,
+                )
+
+        _logger.info(
+            "hooks.daemon_completed",
+            job_id=job_id,
+            total=len(results),
+            succeeded=sum(1 for r in results if r.get("success")),
+            failed=sum(1 for r in results if not r.get("success")),
+        )
+
+    async def _execute_hook_run_job(
+        self,
+        parent_job_id: str,
+        hook: dict[str, Any],
+        concert: dict[str, Any] | None,
+        meta: JobMeta,
+    ) -> dict[str, Any]:
+        """Execute a run_job hook by submitting a chained job directly."""
+        result: dict[str, Any] = {
+            "hook_type": "run_job",
+            "description": hook.get("description"),
+            "success": False,
+        }
+
+        job_path_str = hook.get("job_path")
+        if not job_path_str:
+            result["error_message"] = "job_path is required for run_job hooks"
+            return result
+
+        # Expand template variables
+        job_path_str = self._expand_hook_vars(
+            job_path_str, meta.workspace, parent_job_id,
+        )
+        job_path = Path(job_path_str)
+
+        if not job_path.exists():
+            result["error_message"] = f"Job config not found: {job_path}"
+            return result
+
+        # Concert depth check
+        current_depth = meta.chain_depth or 0
+        if concert and concert.get("enabled"):
+            max_depth = concert.get("max_chain_depth", 5)
+            if current_depth >= max_depth:
+                result["error_message"] = (
+                    f"Concert chain depth limit reached ({max_depth})"
+                )
+                return result
+
+        # Cooldown before submission
+        if concert and concert.get("cooldown_between_jobs_seconds", 0) > 0:
+            cooldown = concert["cooldown_between_jobs_seconds"]
+            _logger.info("hooks.daemon_cooldown", seconds=cooldown)
+            await asyncio.sleep(cooldown)
+
+        # Determine workspace for chained job
+        chained_workspace: Path | None = None
+        raw_ws = hook.get("job_workspace")
+        if raw_ws:
+            chained_workspace = Path(self._expand_hook_vars(
+                str(raw_ws), meta.workspace, parent_job_id,
+            ))
+        elif concert and concert.get("inherit_workspace", True):
+            chained_workspace = meta.workspace
+
+        # Submit chained job directly (no IPC — same process)
+        fresh = hook.get("fresh", False)
+        request = JobRequest(
+            config_path=job_path,
+            workspace=chained_workspace,
+            fresh=fresh,
+            chain_depth=current_depth + 1,
+        )
+
+        response = await self.submit_job(request)
+        if response.status == "accepted":
+            result["success"] = True
+            result["output"] = f"Chained job submitted (job_id={response.job_id})"
+            result["chained_job_id"] = response.job_id
+        else:
+            result["error_message"] = (
+                f"Chained job rejected: {response.message}"
+            )
+
+        return result
+
+    async def _execute_hook_command(
+        self,
+        hook: dict[str, Any],
+        meta: JobMeta,
+        *,
+        use_shell: bool = True,
+    ) -> dict[str, Any]:
+        """Execute a run_command or run_script hook.
+
+        run_command uses shell execution (intentional — commands come from
+        user-authored YAML config, not runtime user input). run_script uses
+        subprocess exec (no shell) for cases where shell features aren't needed.
+        """
+        import shlex
+
+        hook_type = "run_command" if use_shell else "run_script"
+        result: dict[str, Any] = {
+            "hook_type": hook_type,
+            "description": hook.get("description"),
+            "success": False,
+        }
+
+        command = hook.get("command")
+        if not command:
+            result["error_message"] = f"command is required for {hook_type} hooks"
+            return result
+
+        command = self._expand_hook_vars(command, meta.workspace, meta.job_id)
+        cwd = hook.get("working_directory") or str(meta.workspace)
+        timeout = hook.get("timeout_seconds", 300.0)
+
+        try:
+            if use_shell:
+                proc = await asyncio.create_subprocess_shell(  # noqa: S604
+                    command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                    cwd=cwd,
+                )
+            else:
+                args = shlex.split(command)
+                proc = await asyncio.create_subprocess_exec(
+                    *args,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                    cwd=cwd,
+                )
+
+            try:
+                stdout_bytes, _ = await asyncio.wait_for(
+                    proc.communicate(), timeout=timeout,
+                )
+                stdout = stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
+                result["exit_code"] = proc.returncode
+                result["success"] = (proc.returncode == 0)
+                result["output"] = stdout[-2000:] if stdout else None
+            except TimeoutError:
+                proc.kill()
+                await proc.wait()
+                result["error_message"] = f"Timeout after {timeout}s"
+
+        except Exception as exc:
+            result["error_message"] = str(exc)
+
+        return result
+
+    @staticmethod
+    def _expand_hook_vars(
+        template: str, workspace: Path, job_id: str,
+    ) -> str:
+        """Expand template variables in hook paths/commands.
+
+        Delegates to the shared expand_hook_variables() utility in
+        execution/hooks.py to avoid reimplementing variable expansion.
+        """
+        from mozart.execution.hooks import expand_hook_variables
+
+        return expand_hook_variables(
+            template, workspace=workspace, job_id=job_id,
         )
 
     def _on_task_done(self, job_id: str, task: asyncio.Task[Any]) -> None:
@@ -1585,6 +1926,37 @@ class JobManager:
         except Exception:
             _logger.error(
                 "task_done_modify_resume_failed", job_id=job_id, exc_info=True,
+            )
+
+        # 2.6. Execute post-success hooks (daemon-owned)
+        # Zero-work guard: skip hooks if the job was already completed when
+        # loaded (no new sheets executed this run). This prevents infinite
+        # self-chaining loops — mirrors lifecycle.py's loaded_as_completed check.
+        try:
+            if (
+                meta
+                and meta.status == DaemonJobStatus.COMPLETED
+                and meta.hook_config
+                and meta.completed_new_work
+            ):
+                asyncio.create_task(
+                    self._execute_hooks_task(job_id),
+                    name=f"hooks-{job_id}",
+                )
+            elif (
+                meta
+                and meta.status == DaemonJobStatus.COMPLETED
+                and meta.hook_config
+                and not meta.completed_new_work
+            ):
+                _logger.info(
+                    "hooks.skipped_zero_work",
+                    job_id=job_id,
+                    reason="Job completed no new sheets — skipping hooks to prevent infinite self-chaining",
+                )
+        except Exception:
+            _logger.error(
+                "task_done_hooks_spawn_failed", job_id=job_id, exc_info=True,
             )
 
         # 3. TTL-based snapshot cleanup (runs synchronously, fast)

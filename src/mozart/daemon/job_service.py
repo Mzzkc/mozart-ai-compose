@@ -151,6 +151,7 @@ class JobService:
         self_healing_auto_confirm: bool = False,
         dry_run: bool = False,
         pause_event: asyncio.Event | None = None,
+        config_path: str | None = None,
     ) -> RunSummary:
         """Start a job from config.
 
@@ -239,6 +240,7 @@ class JobService:
                 total_sheets=config.sheet.total_sheets,
                 notification_manager=notification_manager,
                 start_sheet=start_sheet,
+                config_path=config_path,
             )
         finally:
             if notification_manager:
@@ -495,6 +497,7 @@ class JobService:
             self_healing_enabled=self_healing,
             self_healing_auto_confirm=self_healing_auto_confirm,
             pause_event=pause_event,
+            daemon_managed=True,
         )
 
         return JR(
