@@ -550,3 +550,40 @@ class TestIPCPauseNoWorkspace:
         with patch.object(manager, "pause_job", new_callable=AsyncMock, return_value=True) as mock_pause:
             response = await manager.modify_job("job-1", config_path)
             mock_pause.assert_awaited_once_with("job-1")
+
+
+# ===========================================================================
+# Task 7: mozart cancel CLI command
+# ===========================================================================
+
+
+class TestCancelCLI:
+    """mozart cancel command exists and routes to IPC."""
+
+    def test_cancel_command_importable(self) -> None:
+        from mozart.cli.commands.cancel import cancel
+        assert callable(cancel)
+
+    def test_cancel_command_registered(self) -> None:
+        from mozart.cli import app
+        # Typer leaves cmd.name as None for auto-derived names; check callback name
+        command_names = [
+            cmd.name or (cmd.callback.__name__ if cmd.callback else None)
+            for cmd in app.registered_commands
+        ]
+        assert "cancel" in command_names
+
+
+# ===========================================================================
+# Task 8: --force flag on mozart pause
+# ===========================================================================
+
+
+class TestPauseForceFlag:
+    """mozart pause --force routes to cancel."""
+
+    def test_pause_has_force_option(self) -> None:
+        import inspect
+        from mozart.cli.commands.pause import pause
+        sig = inspect.signature(pause)
+        assert "force" in sig.parameters

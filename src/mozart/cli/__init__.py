@@ -31,6 +31,7 @@ Package structure:
         ├── status.py         # status, list_jobs commands
         ├── resume.py         # resume command
         ├── pause.py          # pause, modify commands
+        ├── cancel.py         # cancel command
         ├── validate.py       # validate command
         ├── recover.py        # recover command (hidden)
         ├── diagnose.py       # logs, errors, diagnose commands
@@ -50,6 +51,8 @@ from mozart import __version__
 # Re-export helpers module for direct access to internal state (conftest.py needs this)
 from . import helpers as helpers
 from .commands import (
+    # cancel.py
+    cancel,
     # status.py
     clear,
     # diagnose.py
@@ -234,6 +237,7 @@ app.command()(run)
 app.command()(resume)
 app.command()(pause)
 app.command()(modify)
+app.command()(cancel)
 
 # Job status commands
 app.command()(status)

@@ -67,17 +67,32 @@ def pause(
         "-j",
         help="Output result as JSON",
     ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Force-cancel the job immediately (does not wait for sheet boundary)",
+    ),
 ) -> None:
     """Pause a running Mozart job gracefully.
 
     Creates a pause signal that the job will detect at the next sheet boundary.
     The job saves its state and can be resumed with `mozart resume`.
 
+    Use --force to cancel the job immediately without waiting for a sheet
+    boundary (equivalent to `mozart cancel`).
+
     Examples:
         mozart pause my-job
         mozart pause my-job --wait --timeout 30
         mozart pause my-job --json
+        mozart pause my-job --force
     """
+    if force:
+        from .cancel import _cancel_job
+        asyncio.run(_cancel_job(job_id, json_output))
+        return
+
     asyncio.run(_pause_job(job_id, workspace, wait, timeout, json_output))
 
 

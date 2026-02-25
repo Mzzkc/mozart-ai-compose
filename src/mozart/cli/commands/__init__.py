@@ -2,6 +2,7 @@
 #
 # Each module in this package provides one or more CLI commands.
 
+from .cancel import cancel
 from .diagnose import diagnose, errors, history, logs
 from .pause import modify, pause
 from .recover import recover
@@ -11,6 +12,8 @@ from .status import clear, list_jobs, status
 from .validate import validate
 
 __all__ = [
+    # cancel.py
+    "cancel",
     # diagnose.py
     "logs",
     "errors",
