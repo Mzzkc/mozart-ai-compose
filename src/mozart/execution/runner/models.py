@@ -7,6 +7,7 @@ and avoid circular dependencies during modularization.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
@@ -555,6 +556,17 @@ class RunnerContext:
     """Async callback to notify daemon of runner lifecycle events.
 
     Signature: (job_id, sheet_num, event, data) -> Awaitable[None].
+    """
+
+    # In-process pause signaling (workspace-independent job control)
+    pause_event: asyncio.Event | None = None
+    """Async event set by the daemon's JobManager to request graceful pause.
+
+    When set, the runner checks this event at sheet boundaries (via
+    _check_pause_signal) instead of polling the filesystem for a
+    `.mozart-pause-{job_id}` file.  This enables workspace-independent
+    job control — the daemon can pause a job without needing to know
+    or write to its workspace directory.
     """
 
     # Self-healing configuration (v11 Evolution: Self-Healing)

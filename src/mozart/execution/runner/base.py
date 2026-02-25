@@ -148,6 +148,7 @@ class JobRunnerBase:
         grounding_engine: GroundingEngine | None = None
         rate_limit_callback: Callable[[str, float, str, int], Any] | None = None
         event_callback: Callable[[str, int, str, dict[str, Any] | None], Any] | None = None
+        pause_event: asyncio.Event | None = None
         self_healing_enabled = False
         self_healing_auto_confirm = False
         if context is not None:
@@ -161,6 +162,7 @@ class JobRunnerBase:
             grounding_engine = context.grounding_engine
             rate_limit_callback = context.rate_limit_callback
             event_callback = context.event_callback
+            pause_event = context.pause_event
             self_healing_enabled = context.self_healing_enabled
             self_healing_auto_confirm = context.self_healing_auto_confirm
 
@@ -229,6 +231,7 @@ class JobRunnerBase:
         # Pause/resume state tracking (Sheet 12: Job Control Integration)
         self._pause_requested = False
         self._paused_at_sheet: int | None = None
+        self._pause_event: asyncio.Event | None = pause_event
 
         # Summary tracking for run statistics
         self._summary: RunSummary | None = None
@@ -433,10 +436,11 @@ class JobRunnerBase:
     # ─────────────────────────────────────────────────────────────────────
 
     def _check_pause_signal(self, state: CheckpointState) -> bool:
-        """Check if a pause signal file exists for this job.
+        """Check if a pause has been requested for this job.
 
-        Pause signals are created by the job control service when UI requests
-        graceful pause. Uses file-based signaling for cross-process communication.
+        Checks in priority order:
+        1. In-process asyncio.Event (workspace-independent, daemon mode)
+        2. File-based signal (legacy, non-daemon mode)
 
         Args:
             state: Current job state to get job_id and workspace.
@@ -444,14 +448,20 @@ class JobRunnerBase:
         Returns:
             True if pause signal detected, False otherwise.
         """
+        # Priority 1: In-process event (workspace-independent)
+        if self._pause_event is not None:
+            return self._pause_event.is_set()
+
+        # Priority 2: File-based signal (legacy fallback)
         if not state.job_id:
             return False
 
-        # Check for pause signal file in workspace
-        workspace_path = Path(self.config.workspace)
-        pause_signal_file = workspace_path / f".mozart-pause-{state.job_id}"
-
-        return pause_signal_file.exists()
+        try:
+            workspace_path = Path(self.config.workspace)
+            pause_signal_file = workspace_path / f".mozart-pause-{state.job_id}"
+            return pause_signal_file.exists()
+        except OSError:
+            return False
 
     def _clear_pause_signal(self, state: CheckpointState) -> None:
         """Clear pause signal file to acknowledge pause handling.
@@ -486,6 +496,11 @@ class JobRunnerBase:
     ) -> None:
         """Handle pause request by saving state and pausing execution.
 
+        Resilient to state-save failures: the pause always completes (raises
+        GracefulShutdownError) even if the state backend is unavailable.
+        This is critical for workspace-independent job control where the
+        workspace may have been moved or the disk may be full.
+
         Args:
             state: Current job state to update.
             current_sheet: Current sheet number where pause occurred.
@@ -493,7 +508,11 @@ class JobRunnerBase:
         Raises:
             GracefulShutdownError: Always raised after handling pause.
         """
-        # Clear the pause signal to acknowledge handling (non-critical)
+        # Clear in-process pause event (workspace-independent)
+        if self._pause_event is not None:
+            self._pause_event.clear()
+
+        # Clear the file-based pause signal (legacy, non-critical)
         try:
             self._clear_pause_signal(state)
         except OSError:
@@ -502,7 +521,16 @@ class JobRunnerBase:
         # Update state to paused
         state.mark_job_paused()
         self._paused_at_sheet = current_sheet
-        await self.state_backend.save(state)
+
+        # Save state — tolerate failure so pause still completes
+        try:
+            await self.state_backend.save(state)
+        except OSError as e:
+            self._logger.warning(
+                "pause.state_save_failed",
+                job_id=state.job_id,
+                error=str(e),
+            )
 
         # Log pause event
         self._logger.info(
