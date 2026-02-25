@@ -144,7 +144,7 @@ def _make_checkpoint(
 class TestBrokenBackendOutputs:
     """Backend produces unexpected output values."""
 
-    def test_empty_stdout_is_handled_in_cost_tracking(self, tmp_path: Path) -> None:
+    async def test_empty_stdout_is_handled_in_cost_tracking(self, tmp_path: Path) -> None:
         """Cost estimation from empty output should produce minimal token count."""
         from mozart.execution.runner.cost import CostMixin
 
@@ -170,15 +170,13 @@ class TestBrokenBackendOutputs:
             pass
         host._fire_event = _fire_event  # type: ignore[assignment]
 
-        inp, out, cost, confidence = asyncio.get_event_loop().run_until_complete(
-            host._track_cost(result, sheet_state, state)
-        )
+        inp, out, cost, confidence = await host._track_cost(result, sheet_state, state)
         # Empty output → at least 1 token estimated
         assert out >= 1
         assert confidence == 0.7  # estimated
         assert cost >= 0.0
 
-    def test_very_large_stdout_in_cost_tracking(self, tmp_path: Path) -> None:
+    async def test_very_large_stdout_in_cost_tracking(self, tmp_path: Path) -> None:
         """Backend returning very large output should not crash cost tracking."""
         from mozart.execution.runner.cost import CostMixin
 
@@ -205,9 +203,7 @@ class TestBrokenBackendOutputs:
             pass
         host._fire_event = _fire_event  # type: ignore[assignment]
 
-        inp, out, cost, confidence = asyncio.get_event_loop().run_until_complete(
-            host._track_cost(result, sheet_state, state)
-        )
+        inp, out, cost, confidence = await host._track_cost(result, sheet_state, state)
         # 1MB / 4 chars per token = ~262144 tokens
         assert out > 200000
         assert cost > 0
@@ -261,7 +257,7 @@ class TestBrokenBackendOutputs:
 class TestCostTrackingEdgeCases:
     """Adversarial cost values: overflow, negative via state manipulation, etc."""
 
-    def test_cost_accumulation_with_exact_tokens(self, tmp_path: Path) -> None:
+    async def test_cost_accumulation_with_exact_tokens(self, tmp_path: Path) -> None:
         """Exact token counts (API backend) should produce confidence=1.0."""
         from mozart.execution.runner.cost import CostMixin
 
@@ -285,9 +281,7 @@ class TestCostTrackingEdgeCases:
             pass
         host._fire_event = _fire_event  # type: ignore[assignment]
 
-        inp, out, cost, confidence = asyncio.get_event_loop().run_until_complete(
-            host._track_cost(result, sheet_state, state)
-        )
+        inp, out, cost, confidence = await host._track_cost(result, sheet_state, state)
         assert inp == 1000
         assert out == 500
         assert confidence == 1.0
@@ -372,7 +366,7 @@ class TestCostTrackingEdgeCases:
         assert reason is not None
         assert "Job cost" in reason
 
-    def test_very_large_token_counts_do_not_overflow(self, tmp_path: Path) -> None:
+    async def test_very_large_token_counts_do_not_overflow(self, tmp_path: Path) -> None:
         """Very large token counts should produce finite cost."""
         from mozart.execution.runner.cost import CostMixin
 
@@ -396,9 +390,7 @@ class TestCostTrackingEdgeCases:
             pass
         host._fire_event = _fire_event  # type: ignore[assignment]
 
-        inp, out, cost, confidence = asyncio.get_event_loop().run_until_complete(
-            host._track_cost(result, sheet_state, state)
-        )
+        inp, out, cost, confidence = await host._track_cost(result, sheet_state, state)
         assert math.isfinite(cost)
         assert cost > 0
         assert state.total_estimated_cost > 0
