@@ -11,7 +11,10 @@ Tests cover:
 """
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
+from unittest.mock import create_autospec, patch
+
+from mozart.backends.base import ExecutionResult
 
 import pytest
 
@@ -33,13 +36,26 @@ from mozart.healing.remedies.paths import (
 # =============================================================================
 
 
+def _make_config_mock(
+    workspace: Path | str = Path("/tmp/test-workspace"),
+    working_directory: Path | None = None,
+) -> SimpleNamespace:
+    """Create a typed config mock that mirrors JobConfig's healing-relevant interface.
+
+    Uses SimpleNamespace instead of bare MagicMock() so that accessing an undefined
+    attribute raises AttributeError, catching interface drift between tests and
+    production code.
+    """
+    return SimpleNamespace(
+        workspace=workspace,
+        backend=SimpleNamespace(working_directory=working_directory),
+    )
+
+
 @pytest.fixture
 def mock_config():
     """Create a mock JobConfig."""
-    config = MagicMock()
-    config.workspace = Path("/tmp/test-workspace")
-    config.backend.working_directory = None
-    return config
+    return _make_config_mock()
 
 
 @pytest.fixture
@@ -144,8 +160,9 @@ class TestRemedyRegistry:
         """Test finding applicable remedies."""
         applicable = default_registry.find_applicable(basic_error_context)
 
-        # Should find at least the workspace remedy
-        assert len(applicable) > 0
+        # Should find the workspace remedy for E601 errors
+        remedy_names = [r.name for r, _ in applicable]
+        assert "create_missing_workspace" in remedy_names
 
         # Results should be sorted by confidence
         confidences = [d.confidence for _, d in applicable]
@@ -190,7 +207,10 @@ class TestDiagnosisEngine:
         engine = DiagnosisEngine(default_registry)
         diagnoses = engine.diagnose(basic_error_context)
 
-        assert len(diagnoses) > 0
+        # Should diagnose the E601 workspace error
+        assert len(diagnoses) >= 1
+        remedy_names = [d.remedy_name for d in diagnoses]
+        assert "create_missing_workspace" in remedy_names
         assert all(isinstance(d, Diagnosis) for d in diagnoses)
 
     def test_diagnose_sorts_by_confidence(self, default_registry, basic_error_context):
@@ -582,9 +602,7 @@ class TestHealingIntegration:
         """Test complete healing flow from error to fix."""
         # Setup
         workspace = tmp_path / "integration-test"
-        mock_config = MagicMock()
-        mock_config.workspace = workspace
-        mock_config.backend.working_directory = None
+        mock_config = _make_config_mock(workspace=workspace)
 
         registry = create_default_registry()
         coordinator = SelfHealingCoordinator(registry)
@@ -603,7 +621,9 @@ class TestHealingIntegration:
         # Verify
         assert report.should_retry
         assert workspace.exists()
-        assert len(report.diagnoses) > 0
+        assert len(report.diagnoses) >= 1
+        diagnosis_names = [d.remedy_name for d in report.diagnoses]
+        assert "create_missing_workspace" in diagnosis_names
         assert report.any_remedies_applied
 
 
@@ -782,8 +802,10 @@ class TestCreateMissingParentDirsRemedy:
 
         # Should fail due to the OSError
         assert not result.success
-        # created_paths should list only the dirs that were actually created
+        # created_paths should list only the dirs that were actually created before the error
         assert isinstance(result.created_paths, list)
+        # At least one directory was created before the simulated error
+        assert len(result.created_paths) >= 1
 
 
 # =============================================================================
@@ -968,7 +990,7 @@ class TestErrorContextFromExecutionResult:
 
     def test_creates_context_from_result(self, mock_config):
         """Test creating context from an ExecutionResult."""
-        result = MagicMock()
+        result = create_autospec(ExecutionResult, instance=True)
         result.exit_code = 1
         result.exit_signal = None
         result.stdout = "output text"
@@ -998,7 +1020,7 @@ class TestErrorContextFromExecutionResult:
 
     def test_truncates_long_output(self, mock_config):
         """Test that long stdout/stderr are truncated."""
-        result = MagicMock()
+        result = create_autospec(ExecutionResult, instance=True)
         result.exit_code = 1
         result.exit_signal = None
         result.stdout = "x" * 20000
@@ -1020,7 +1042,7 @@ class TestErrorContextFromExecutionResult:
 
     def test_handles_empty_output(self, mock_config):
         """Test handling of empty stdout/stderr."""
-        result = MagicMock()
+        result = create_autospec(ExecutionResult, instance=True)
         result.exit_code = 0
         result.exit_signal = None
         result.stdout = None
@@ -1041,7 +1063,7 @@ class TestErrorContextFromExecutionResult:
 
     def test_captures_api_key_masked(self, mock_config):
         """Test that API key is masked in environment."""
-        result = MagicMock()
+        result = create_autospec(ExecutionResult, instance=True)
         result.exit_code = 0
         result.exit_signal = None
         result.stdout = ""
@@ -1164,8 +1186,7 @@ class TestRemedyRealCodePaths:
     def test_workspace_remedy_full_pipeline(self, tmp_path):
         """Test complete workspace remedy: diagnose → apply → verify → rollback → verify."""
         workspace = tmp_path / "new-workspace"
-        config = MagicMock()
-        config.workspace = workspace
+        config = _make_config_mock(workspace=workspace)
 
         ctx = ErrorContext(
             error_code="E601",
@@ -1202,7 +1223,7 @@ class TestRemedyRealCodePaths:
     def test_parent_dirs_remedy_deep_tree(self, tmp_path):
         """Test creating a deeply nested directory tree and rolling back."""
         deep_path = tmp_path / "level1" / "level2" / "level3" / "level4"
-        config = MagicMock()
+        config = _make_config_mock(workspace=tmp_path)
 
         ctx = ErrorContext(
             error_code="E601",
@@ -1272,9 +1293,7 @@ class TestRemedyRealCodePaths:
     async def test_coordinator_applies_and_reports_correctly(self, tmp_path):
         """Test full coordinator flow with real remedies on real filesystem."""
         workspace = tmp_path / "coord-test"
-        config = MagicMock()
-        config.workspace = workspace
-        config.backend.working_directory = None
+        config = _make_config_mock(workspace=workspace)
 
         ctx = ErrorContext(
             error_code="E601",
@@ -1301,7 +1320,7 @@ class TestRemedyRealCodePaths:
     @pytest.mark.asyncio
     async def test_coordinator_suggested_remedies_applied_with_auto_confirm(self):
         """Test that SUGGESTED remedies are applied when auto_confirm=True."""
-        config = MagicMock()
+        config = _make_config_mock()
         ctx = ErrorContext(
             error_code="E304",
             error_message="'shee_num' is undefined",
@@ -1360,9 +1379,7 @@ class TestSelfHealingE2ERealFilesystem:
     async def test_e2e_missing_workspace_healed(self, tmp_path: Path):
         """Full pipeline: missing workspace → auto-create → verify → report."""
         workspace = tmp_path / "nonexistent-workspace"
-        mock_config = MagicMock()
-        mock_config.workspace = str(workspace)
-        mock_config.backend.working_directory = None
+        mock_config = _make_config_mock(workspace=str(workspace))
 
         ctx = ErrorContext(
             error_code="E601",
@@ -1381,9 +1398,9 @@ class TestSelfHealingE2ERealFilesystem:
         assert report.any_remedies_applied
         assert report.should_retry
         assert workspace.exists()
-        assert len(report.diagnoses) > 0
-        assert len(report.actions_taken) > 0
-
+        # Verify specific diagnosis and action for E601
+        diagnosis_names = [d.remedy_name for d in report.diagnoses]
+        assert "create_missing_workspace" in diagnosis_names
         remedy_names = [name for name, _ in report.actions_taken]
         assert "create_missing_workspace" in remedy_names
 
@@ -1395,9 +1412,7 @@ class TestSelfHealingE2ERealFilesystem:
         """Full pipeline: missing parent dirs → auto-create → verify."""
         # CreateMissingParentDirsRemedy triggers on E201 with "No such file or directory"
         deep_path = tmp_path / "a" / "b" / "c"
-        mock_config = MagicMock()
-        mock_config.workspace = str(tmp_path)
-        mock_config.backend.working_directory = None
+        mock_config = _make_config_mock(workspace=str(tmp_path))
 
         ctx = ErrorContext(
             error_code="E201",
@@ -1420,9 +1435,7 @@ class TestSelfHealingE2ERealFilesystem:
     async def test_e2e_dry_run_does_not_modify_filesystem(self, tmp_path: Path):
         """Dry-run mode: diagnoses but does not create workspace."""
         workspace = tmp_path / "dry-run-workspace"
-        mock_config = MagicMock()
-        mock_config.workspace = str(workspace)
-        mock_config.backend.working_directory = None
+        mock_config = _make_config_mock(workspace=str(workspace))
 
         ctx = ErrorContext(
             error_code="E601",
@@ -1438,14 +1451,14 @@ class TestSelfHealingE2ERealFilesystem:
         report = await coordinator.heal(ctx)
 
         assert not workspace.exists(), "Dry-run should not create workspace"
-        assert len(report.diagnoses) > 0, "Should still diagnose the issue"
+        # Should still diagnose the E601 issue even in dry-run mode
+        diagnosis_names = [d.remedy_name for d in report.diagnoses]
+        assert "create_missing_workspace" in diagnosis_names
 
     @pytest.mark.asyncio
     async def test_e2e_max_attempts_respected(self, tmp_path: Path):
         """Coordinator respects max healing attempts."""
-        mock_config = MagicMock()
-        mock_config.workspace = str(tmp_path / "ws")
-        mock_config.backend.working_directory = None
+        mock_config = _make_config_mock(workspace=str(tmp_path / "ws"))
 
         ctx = ErrorContext(
             error_code="E999",
@@ -1469,9 +1482,7 @@ class TestSelfHealingE2ERealFilesystem:
     async def test_e2e_rollback_after_apply(self, tmp_path: Path):
         """Apply a remedy, then rollback and verify cleanup."""
         workspace = tmp_path / "rollback-test-workspace"
-        mock_config = MagicMock()
-        mock_config.workspace = str(workspace)
-        mock_config.backend.working_directory = None
+        mock_config = _make_config_mock(workspace=str(workspace))
 
         ctx = ErrorContext(
             error_code="E601",
@@ -1510,9 +1521,7 @@ class TestSelfHealingE2E:
         workspace = tmp_path / "nonexistent-workspace"
         assert not workspace.exists()
 
-        mock_config = MagicMock()
-        mock_config.workspace = workspace
-        mock_config.backend.working_directory = None
+        mock_config = _make_config_mock(workspace=workspace)
 
         # 1. Create error context (simulating a preflight failure)
         context = ErrorContext(
@@ -1544,9 +1553,7 @@ class TestSelfHealingE2E:
     @pytest.mark.asyncio
     async def test_auth_error_diagnostic_only(self, tmp_path):
         """E2E: auth error → diagnose → no auto-fix → should_retry=False."""
-        mock_config = MagicMock()
-        mock_config.workspace = tmp_path
-        mock_config.backend.working_directory = None
+        mock_config = _make_config_mock(workspace=tmp_path)
 
         context = ErrorContext(
             error_code="E101",
@@ -1570,9 +1577,7 @@ class TestSelfHealingE2E:
     @pytest.mark.asyncio
     async def test_max_healing_attempts_respected(self, tmp_path):
         """E2E: healing respects max_healing_attempts cap."""
-        mock_config = MagicMock()
-        mock_config.workspace = tmp_path
-        mock_config.backend.working_directory = None
+        mock_config = _make_config_mock(workspace=tmp_path)
 
         context = ErrorContext(
             error_code="E601",
@@ -1602,9 +1607,7 @@ class TestSelfHealingE2E:
     async def test_healing_report_format(self, tmp_path):
         """E2E: verify healing report is well-formatted."""
         workspace = tmp_path / "format-test-workspace"
-        mock_config = MagicMock()
-        mock_config.workspace = workspace
-        mock_config.backend.working_directory = None
+        mock_config = _make_config_mock(workspace=workspace)
 
         context = ErrorContext(
             error_code="E601",
@@ -1645,9 +1648,7 @@ class TestHealingCascadingRecovery:
         workspace = tmp_path / "cascade-workspace"
         nested = workspace / "deep" / "nested" / "path"
 
-        mock_config = MagicMock()
-        mock_config.workspace = workspace
-        mock_config.backend.working_directory = None
+        mock_config = _make_config_mock(workspace=workspace)
 
         registry = create_default_registry()
 
@@ -1681,17 +1682,17 @@ class TestHealingCascadingRecovery:
         report2 = await coordinator2.heal(ctx2)
 
         # Parent dir remedy may or may not match depending on path parsing,
-        # but the pipeline should complete without error
+        # but the pipeline should complete without error and produce a valid report
         assert isinstance(report2, HealingReport)
+        assert hasattr(report2, "diagnoses")
+        assert hasattr(report2, "actions_taken")
 
     @pytest.mark.asyncio
     async def test_rollback_cascade_reverses_in_correct_order(self, tmp_path):
         """Apply workspace creation, verify rollback removes it."""
         workspace = tmp_path / "rollback-cascade"
 
-        mock_config = MagicMock()
-        mock_config.workspace = workspace
-        mock_config.backend.working_directory = None
+        mock_config = _make_config_mock(workspace=workspace)
 
         ctx = ErrorContext(
             error_code="E601",
@@ -1720,9 +1721,7 @@ class TestHealingCascadingRecovery:
     @pytest.mark.asyncio
     async def test_unrecoverable_error_produces_diagnostic_only(self, tmp_path):
         """Unrecoverable error: CLI not found → diagnostic guidance, no retry."""
-        mock_config = MagicMock()
-        mock_config.workspace = tmp_path
-        mock_config.backend.working_directory = None
+        mock_config = _make_config_mock(workspace=tmp_path)
 
         ctx = ErrorContext(
             error_code="E301",
@@ -1747,9 +1746,7 @@ class TestHealingCascadingRecovery:
         workspace = tmp_path / "already-exists"
         workspace.mkdir()
 
-        mock_config = MagicMock()
-        mock_config.workspace = workspace
-        mock_config.backend.working_directory = None
+        mock_config = _make_config_mock(workspace=workspace)
 
         ctx = ErrorContext(
             error_code="E601",
@@ -1780,9 +1777,7 @@ class TestHealingStackedRemedies:
         """When multiple remedies match, all applicable ones run in sequence."""
         workspace = tmp_path / "stacked-ws"
 
-        mock_config = MagicMock()
-        mock_config.workspace = workspace
-        mock_config.backend.working_directory = None
+        mock_config = _make_config_mock(workspace=workspace)
 
         # E601 triggers CreateMissingWorkspaceRemedy (auto) and potentially
         # CreateMissingParentDirsRemedy if path parsing matches
@@ -1882,9 +1877,7 @@ class TestHealingStackedRemedies:
         registry.register(FailingRemedy())
         registry.register(SucceedingRemedy())
 
-        mock_config = MagicMock()
-        mock_config.workspace = tmp_path
-        mock_config.backend.working_directory = None
+        mock_config = _make_config_mock(workspace=tmp_path)
 
         ctx = ErrorContext(
             error_code="E999",
@@ -1914,9 +1907,7 @@ class TestHealingStackedRemedies:
         """Calling reset() allows a fresh healing cycle."""
         workspace = tmp_path / "reset-test"
 
-        mock_config = MagicMock()
-        mock_config.workspace = workspace
-        mock_config.backend.working_directory = None
+        mock_config = _make_config_mock(workspace=workspace)
 
         ctx = ErrorContext(
             error_code="E601",
@@ -1964,9 +1955,7 @@ class TestHealingStackedRemedies:
         """Remedies in the disabled set should be skipped with reason."""
         workspace = tmp_path / "disabled-test"
 
-        mock_config = MagicMock()
-        mock_config.workspace = workspace
-        mock_config.backend.working_directory = None
+        mock_config = _make_config_mock(workspace=workspace)
 
         ctx = ErrorContext(
             error_code="E601",
@@ -1998,9 +1987,7 @@ class TestHealingStackedRemedies:
         """Dry run mode should preview actions without applying them."""
         workspace = tmp_path / "dry-run-test"
 
-        mock_config = MagicMock()
-        mock_config.workspace = workspace
-        mock_config.backend.working_directory = None
+        mock_config = _make_config_mock(workspace=workspace)
 
         ctx = ErrorContext(
             error_code="E601",
@@ -2031,9 +2018,7 @@ class TestHealingStackedRemedies:
     @pytest.mark.asyncio
     async def test_healing_report_issues_remaining_count(self, tmp_path):
         """Verify issues_remaining correctly counts unresolved issues."""
-        mock_config = MagicMock()
-        mock_config.workspace = tmp_path
-        mock_config.backend.working_directory = None
+        mock_config = _make_config_mock(workspace=tmp_path)
 
         # Use an error that triggers diagnostic-only remedies
         ctx = ErrorContext(

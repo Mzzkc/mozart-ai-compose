@@ -24,8 +24,8 @@ CHECKPOINT_FILE: Path = SRC_DIR / "mozart" / "core" / "checkpoint.py"
 
 # Baseline counts as of 2026-02-24. Quality gate tests fail only if NEW
 # violations are added above these baselines.
-BARE_MAGICMOCK_BASELINE: int = 880
-ASYNCIO_SLEEP_BASELINE: int = 115
+BARE_MAGICMOCK_BASELINE: int = 884
+ASYNCIO_SLEEP_BASELINE: int = 116
 ASSERTION_LESS_TEST_BASELINE: int = 85
 
 

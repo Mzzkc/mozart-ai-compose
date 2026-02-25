@@ -1028,8 +1028,13 @@ class TestValidationRunner:
 
         issues = runner.validate(config, config_path, raw_yaml)
 
-        # Should run without error
+        # Should run without error and return a list of ValidationIssue objects
         assert isinstance(issues, list)
+        # All items should be ValidationIssue instances with required fields
+        for issue in issues:
+            assert hasattr(issue, "check_id")
+            assert hasattr(issue, "severity")
+            assert hasattr(issue, "message")
 
     def test_sorts_by_severity(self, tmp_path: Path) -> None:
         """Issues sorted by severity (errors first)."""
