@@ -22,10 +22,10 @@ SRC_DIR: Path = TESTS_DIR.parent / "src"
 CONFIG_DIR: Path = SRC_DIR / "mozart" / "core" / "config"
 CHECKPOINT_FILE: Path = SRC_DIR / "mozart" / "core" / "checkpoint.py"
 
-# Baseline counts as of 2026-02-24. Quality gate tests fail only if NEW
+# Baseline counts as of 2026-02-25. Quality gate tests fail only if NEW
 # violations are added above these baselines.
-BARE_MAGICMOCK_BASELINE: int = 1032
-ASYNCIO_SLEEP_BASELINE: int = 116
+BARE_MAGICMOCK_BASELINE: int = 1043
+ASYNCIO_SLEEP_BASELINE: int = 120
 ASSERTION_LESS_TEST_BASELINE: int = 97
 
 

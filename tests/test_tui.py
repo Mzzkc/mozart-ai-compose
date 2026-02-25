@@ -708,17 +708,25 @@ class TestDetailPanel:
 
     def test_show_item_none(self) -> None:
         """show_item with None calls show_empty."""
+        from unittest.mock import patch
+
         from mozart.tui.panels.detail import DetailPanel
 
         panel = DetailPanel()
-        panel.show_item(None)
+        with patch.object(panel, "show_empty") as mock_empty:
+            panel.show_item(None)
+            assert mock_empty.called
 
     def test_show_item_unknown_type(self) -> None:
         """show_item with unknown type calls show_empty."""
+        from unittest.mock import patch
+
         from mozart.tui.panels.detail import DetailPanel
 
         panel = DetailPanel()
-        panel.show_item({"type": "unknown_widget"})
+        with patch.object(panel, "show_empty") as mock_empty:
+            panel.show_item({"type": "unknown_widget"})
+            assert mock_empty.called
 
     def test_format_bytes_mb(self) -> None:
         from mozart.tui.panels.detail import _format_bytes_mb
