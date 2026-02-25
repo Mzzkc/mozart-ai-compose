@@ -132,8 +132,9 @@ class TestTimelineProcEntries:
     def test_update_data_accepts_observer_events(self) -> None:
         """update_data accepts observer_events parameter."""
         panel = TimelinePanel()
-        # Should not raise
+        # Should not raise; panel remains usable after empty update
         panel.update_data(observer_events=[])
+        assert panel is not None  # survived without exception
 
     def test_process_spawned_rendered_as_proc(self) -> None:
         """observer.process_spawned events render as PROC entries."""

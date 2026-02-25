@@ -1170,8 +1170,10 @@ class TestDetailPanelFileActivity:
                 },
             ],
         }
-        # show_item should not crash
+        # show_item should not crash when called before compose()
         panel.show_item(item)
+        # _content is None pre-compose, so _set_content is a no-op — that's the point
+        assert panel._content is None
 
     def test_show_item_no_file_events_no_crash(self) -> None:
         """When a job item has empty observer_file_events, show_item()
@@ -1189,3 +1191,4 @@ class TestDetailPanelFileActivity:
             "observer_file_events": [],
         }
         panel.show_item(item)
+        assert panel._content is None  # no crash, content deferred until compose()
