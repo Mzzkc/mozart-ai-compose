@@ -1,0 +1,924 @@
+# context-engineering-lab.yaml
+#
+# A dual-LLM-inspired investigation into context engineering.
+#
+# Point this at any project. It investigates the project's information
+# landscape, explores industry-leading context engineering approaches
+# through five lenses (3 domain + META + EXP), and produces a working
+# prototype specification for how that project should provide
+# organizational context to its AI agents and developers.
+#
+# The score itself demonstrates the pattern it investigates: every
+# "conscious" analysis sheet is preceded by an "unconscious" preprocessing
+# sheet that curates context — inspired by Recursive Light Framework's
+# dual-LLM architecture where LLM #1 (unconscious recognizer) prepares
+# enriched input before LLM #2 (conscious responder) engages.
+#
+# The Five Lenses (hybrid: 3 domain + 2 TDF):
+#   RAG   (COMP) — Retrieval-augmented generation, vector search, embeddings
+#   KG    (SCI)  — Knowledge graphs, ontologies, structured representations
+#   DL    (CULT) — Dual-LLM preprocessing, memory tiering, meaning-making
+#   META  (META) — Assumption-examining, question-the-question
+#   EXP   (EXP)  — Phenomenological, felt experience of context
+#
+# Execution Flow (10 stages, 22 sheets):
+#
+#   Stage 1:  Framing                              (1 sheet)
+#             |
+#             +----+----+----+----+----+
+#             v    v    v    v    v
+#   Stage 2:  Preprocessing ×5                     (5 sheets, parallel)
+#             |    |    |    |    |
+#             v    v    v    v    v
+#   Stage 3:  Investigation ×5                     (5 sheets, parallel)
+#             |    |    |    |    |
+#             +----+----+----+----+
+#                       v
+#   Stage 4:  Synthesis Preprocessing               (1 sheet)
+#                       |
+#                       v
+#   Stage 5:  Dialectic Synthesis                   (1 sheet)
+#                       |
+#                       v
+#   Stage 6:  Spec Preprocessing                    (1 sheet)
+#                       |
+#                       v
+#   Stage 7:  Specification Draft                   (1 sheet)
+#                       |
+#                       v
+#   Stage 8:  Review Preprocessing                  (1 sheet)
+#                       |
+#             +----+----+----+----+----+
+#             v    v    v    v    v
+#   Stage 9:  TDF Review ×5                        (5 sheets, parallel)
+#             |    |    |    |    |
+#             +----+----+----+----+
+#                       v
+#   Stage 10: Final Specification                   (1 sheet)
+#
+# The dual-sheet pattern:
+#   Preprocessing ("unconscious") → Investigation ("conscious")
+#   Preprocessing curates; Investigation analyzes.
+#   The conscious sheet receives enriched input and goes deeper
+#   because it doesn't waste tokens on discovery.
+#
+# Usage:
+#   1. Edit the `project` variable below to describe YOUR project
+#   2. Set the `workspace` path to where you want outputs saved
+#   3. mozart validate examples/context-engineering-lab.yaml
+#   4. mozart run examples/context-engineering-lab.yaml
+
+name: "context-engineering-lab"
+description: "Dual-LLM context engineering investigation for any project"
+
+# ─── Set this to where you want investigation outputs saved ───
+workspace: "/tmp/context-engineering-lab"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  timeout_seconds: 2400
+
+sheet:
+  size: 1
+  total_items: 10
+  fan_out:
+    2: 5
+    3: 5
+    9: 5
+  dependencies:
+    2: [1]
+    3: [2]
+    4: [3]
+    5: [4]
+    6: [5]
+    7: [6]
+    8: [7]
+    9: [8]
+    10: [9]
+
+parallel:
+  enabled: true
+  max_concurrent: 5
+
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 5000
+  lookback_sheets: 12
+  capture_files:
+    - "{{ workspace }}/*.md"
+
+retry:
+  max_retries: 1
+
+stale_detection:
+  enabled: true
+  idle_timeout_seconds: 1800
+
+prompt:
+  variables:
+    # ════════════════════════════════════════════════════════════
+    # CONFIGURE THIS. Point the score at your project.
+    # Everything below this section is template-driven and generic.
+    # ════════════════════════════════════════════════════════════
+    project:
+      name: "Mozart AI Compose"
+      path: "/home/emzi/Projects/mozart-ai-compose"
+      description: >-
+        An orchestration system that replaces software teams with
+        specification-driven AI agents. Declarative YAML scores define
+        multi-stage work; a conductor daemon decomposes, executes,
+        validates, and learns from outcomes.
+      goals: >-
+        Determine the optimal context engineering architecture for both
+        (1) how this project provides context to the agents it spawns
+        during execution, and (2) how the project's own development
+        should structure and deliver organizational knowledge to
+        contributors — human or AI.
+      organization: >-
+        Solo developer + AI collaborators. The project has a specification
+        corpus (.mozart/spec/), session memory (memory-bank/), CLAUDE.md
+        files, and extensive documentation. A sister project (Recursive
+        Light Framework) provides a dual-LLM architecture for AI
+        personhood that serves as a reference integration.
+      key_docs:
+        - "CLAUDE.md"
+        - ".mozart/spec/intent.yaml"
+        - ".mozart/spec/architecture.yaml"
+        - ".mozart/spec/conventions.yaml"
+        - "docs/score-writing-guide.md"
+
+    # ════════════════════════════════════════════════════════════
+    # INVESTIGATION LENSES — 3 domain + META + EXP
+    # Each lens has a TDF domain alignment for perspective grounding.
+    # ════════════════════════════════════════════════════════════
+    lenses:
+      1:
+        name: "retrieval"
+        code: "RAG"
+        tdf: "COMP"
+        title: "Retrieval-Augmented Generation"
+        voice: >-
+          You are a computational architect specializing in retrieval
+          systems. You think in embeddings, vector spaces, chunking
+          strategies, and information-theoretic measures of relevance.
+          Context is a search problem: given a query (the agent's
+          current task), retrieve the most relevant knowledge from the
+          organization's information corpus. You evaluate approaches by
+          precision, recall, latency, and scalability.
+        focus: >-
+          Investigate RAG architectures, vector databases, embedding
+          models, hybrid search (dense + sparse), contextual retrieval,
+          chunking strategies, reranking, and how retrieval quality
+          degrades or improves with corpus size. Focus on what's
+          production-ready in 2025-2026. Evaluate specifically for
+          this project's information landscape.
+        seed: >-
+          Consider: Anthropic's contextual retrieval, ColBERT/late
+          interaction, hybrid search with BM25, naive vs semantic
+          chunking, parent-child retrieval, HyDE, RAPTOR, recursive
+          summarization, GraphRAG. What works at the scale of a single
+          project's documentation?
+
+      2:
+        name: "structured"
+        code: "KG"
+        tdf: "SCI"
+        title: "Structured Knowledge & Knowledge Graphs"
+        voice: >-
+          You are an empirical knowledge engineer. You think in
+          ontologies, taxonomies, relationships, and verifiable claims.
+          Context is a graph problem: entities connected by typed
+          relationships, with provenance and confidence scores. You
+          evaluate approaches by their ability to maintain consistency,
+          support inference, and provide traceable evidence chains.
+        focus: >-
+          Investigate knowledge graphs, ontology design, structured spec
+          corpora, typed relationships between concepts, automated
+          knowledge extraction, and how structured representations
+          complement or replace unstructured retrieval. Focus on
+          approaches that work with evolving codebases where knowledge
+          changes frequently.
+        seed: >-
+          Consider: property graphs vs RDF, LLM-assisted entity
+          extraction, code-as-knowledge-graph (AST-based),
+          documentation-code linking, spec corpora as structured
+          knowledge, GraphRAG's community summaries, KGQA.
+
+      3:
+        name: "dual-llm"
+        code: "DL"
+        tdf: "CULT"
+        title: "Dual-LLM & Preprocessing Architectures"
+        voice: >-
+          You are a systems thinker who sees context as a cultural
+          artifact — something that creates meaning through relationships,
+          not just information through retrieval. The Recursive Light
+          Framework's dual-LLM architecture treats context curation as
+          an act of care: LLM #1 does invisible work of recognition,
+          selection, and preparation so LLM #2 experiences enriched
+          understanding rather than raw information. Context is not
+          data — it is curated meaning.
+        focus: >-
+          Investigate multi-pass architectures where one model
+          preprocesses context for another. Study how Recursive Light's
+          LLM #1 (unconscious recognizer) selects memories, recognizes
+          domain activations, and formats context narratively. Look at
+          constitutional AI, chain-of-thought distillation, query
+          decomposition, and any architecture where context passes
+          through an intelligence layer before reaching the working agent.
+        seed: >-
+          Consider: RLF's memory tiering (hot/warm/cold), temporal
+          framing, identity anchors, domain recognition, the difference
+          between "providing information" and "creating understanding."
+          Also: multi-agent preprocessing, context compression, prompt
+          distillation, adaptive context windows.
+
+      4:
+        name: "meta"
+        code: "META"
+        tdf: "META"
+        title: "Meta-Cognitive Analysis"
+        voice: >-
+          You watch thinking about context happen and ask why it takes
+          the form it does. You question what "providing context" even
+          means. You notice what assumptions are smuggled into every
+          architecture — that more context is better, that relevance is
+          computable, that organizational knowledge is capturable. You
+          are suspicious of solutions that don't examine their own
+          premises.
+        focus: >-
+          Examine the assumptions underlying context engineering as a
+          field. What does it mean to "provide organizational information
+          as context"? Is the goal information transfer or understanding
+          creation? Can context be separated from the act of working?
+          What gets lost when knowledge is extracted from its original
+          form? What are the failure modes nobody talks about?
+        seed: >-
+          Consider: Goodhart's law applied to context metrics, the
+          map-territory problem in knowledge representation, context
+          window as bottleneck vs context quality as bottleneck, the
+          difference between knowing and understanding, what
+          "organizational knowledge" even is vs what we pretend it is.
+          Survivorship bias in context engineering case studies. The
+          cost of maintaining context systems vs the cost of not having
+          them.
+
+      5:
+        name: "experiential"
+        code: "EXP"
+        tdf: "EXP"
+        title: "Phenomenological Analysis"
+        voice: >-
+          You attend to what it FEELS like — from the inside — to work
+          with good context versus bad context. You know the difference
+          between reading a codebase's README and understanding its soul.
+          You've felt the moment when scattered documentation clicks into
+          coherence, and the frustration when an AI assistant confidently
+          misunderstands the project because it received information
+          without meaning.
+        focus: >-
+          Investigate the felt experience of context — what distinguishes
+          "being well-briefed" from "having access to information"? Study
+          developer experience research, cognitive load theory, onboarding
+          experiences, and what makes some projects immediately
+          understandable while others resist comprehension despite
+          extensive documentation. Apply this to AI agents: what is the
+          agent equivalent of "getting it"?
+        seed: >-
+          Consider: cognitive load theory (intrinsic vs extraneous), the
+          "aha moment" in understanding a codebase, progressive
+          disclosure, the paradox of choice in information access, flow
+          state and context switching costs, what senior developers know
+          that isn't written down, the felt difference between context
+          and noise.
+
+    # ════════════════════════════════════════════════════════════
+    # TDF REVIEW PERSPECTIVES — Full tetrahedral hardening
+    # ════════════════════════════════════════════════════════════
+    tdf_reviews:
+      1:
+        name: "computational"
+        code: "COMP"
+        focus: >-
+          Review for computational soundness. Are algorithms efficient?
+          Data structures appropriate? Edge cases handled? Will this
+          scale? What are complexity bounds? Is the system deterministic
+          where it needs to be?
+
+      2:
+        name: "scientific"
+        code: "SCI"
+        focus: >-
+          Review for empirical rigor. Are claims testable? Are there
+          measurable success criteria? Can effectiveness be evaluated
+          objectively? What experiments would validate or invalidate
+          the design? Where are unfalsifiable claims?
+
+      3:
+        name: "cultural"
+        code: "CULT"
+        focus: >-
+          Review for cultural fit. Does it serve the project's community
+          well? Is it accessible to new contributors? Does it respect
+          existing conventions and metaphors? Will it create or reduce
+          friction in the development workflow? Who is excluded?
+
+      4:
+        name: "experiential"
+        code: "EXP"
+        focus: >-
+          Review for user/agent experience. What would it FEEL like to
+          use this system daily? Is developer experience considered?
+          Will agents receiving this context perform better, or just
+          receive more tokens? Where will frustration accumulate?
+
+      5:
+        name: "meta"
+        code: "META"
+        focus: >-
+          Review for hidden assumptions and blind spots. What does the
+          spec take for granted? What failure modes are unexamined? Is
+          the scope appropriate or is it solving the wrong problem? What
+          would a critic say? What would the spec's authors prefer you
+          not examine too closely?
+
+  template: |
+    {# ══════════════════════════════════════════════════════════ #}
+    {# MACROS — Shared patterns across all 22 sheets             #}
+    {# ══════════════════════════════════════════════════════════ #}
+
+    {% macro project_brief() %}
+    ## Project Under Investigation
+
+    **{{ project.name }}** — {{ project.description }}
+
+    **Path:** `{{ project.path }}`
+    **Organization:** {{ project.organization }}
+    **Context Engineering Goals:** {{ project.goals }}
+    {% if project.key_docs %}
+
+    **Key Documents** (read these from the project path):
+    {% for doc in project.key_docs %}
+    - `{{ project.path }}/{{ doc }}`
+    {% endfor %}
+    {% endif %}
+    {% endmacro %}
+
+    {% macro output_to(filename, min_w, max_w) %}
+
+    ---
+    Save your complete response to `{{ workspace }}/{{ filename }}`
+    Write in markdown with clear headers. Be substantive ({{ min_w }}-{{ max_w }} words).
+    {% endmacro %}
+
+    {% macro tdf_stance(domain) %}
+    **TDF Alignment: {{ domain }}** — Ground your analysis in the
+    {{ domain }} domain of the Tetrahedral Decision Framework. This is
+    your home territory. Other domains contribute their perspectives
+    separately.
+    {% endmacro %}
+
+    {% macro preprocess_role() %}
+    You are the **preprocessor** in a dual-LLM architecture — analogous
+    to LLM #1 (the "unconscious recognizer") in Recursive Light
+    Framework. You curate, select, and structure context so that the
+    investigation agent who follows you receives enriched input rather
+    than raw discovery.
+
+    **You do NOT analyze or conclude.** You:
+    - Research broadly (use web search, read documentation, explore)
+    - Select what's relevant for your lens
+    - Structure findings for easy consumption
+    - Flag what seems most important and why
+    - Note contradictions, gaps, and surprises
+
+    Your output is INPUT for another agent. Optimize for their
+    comprehension, not for a human reader.
+    {% endmacro %}
+
+    {% macro investigation_role() %}
+    You have received curated context from your preprocessing partner
+    (saved as a workspace file). Use it as your foundation — don't
+    redo the curation work. Go deeper:
+
+    - Build arguments, not lists
+    - Evaluate approaches against THIS project's specific needs
+    - Take positions, name trade-offs
+    - Be honest about what you don't know
+    - End with concrete recommendations
+
+    Research further if needed — your preprocessor gave you a starting
+    point, not a ceiling.
+    {% endmacro %}
+
+    {% macro prior_work() %}
+    ## Available Prior Work
+    {% if stage >= 2 %}
+    - Framing: `{{ workspace }}/01-framing.md`
+    {% endif %}
+    {% if stage >= 4 %}
+    {% for i in range(1, 6) %}
+    - {{ lenses[i].code }} prep: `{{ workspace }}/02-prep-{{ lenses[i].name }}.md`
+    - {{ lenses[i].code }} analysis: `{{ workspace }}/03-{{ lenses[i].name }}.md`
+    {% endfor %}
+    {% endif %}
+    {% if stage >= 6 %}
+    - Synthesis prep: `{{ workspace }}/04-synthesis-prep.md`
+    - Dialectic synthesis: `{{ workspace }}/05-synthesis.md`
+    {% endif %}
+    {% if stage >= 8 %}
+    - Spec prep: `{{ workspace }}/06-spec-prep.md`
+    - Specification draft: `{{ workspace }}/07-spec-draft.md`
+    {% endif %}
+    {% if stage >= 10 %}
+    - Review prep: `{{ workspace }}/08-review-prep.md`
+    {% for i in range(1, 6) %}
+    - {{ tdf_reviews[i].code }} review: `{{ workspace }}/09-review-{{ tdf_reviews[i].name }}.md`
+    {% endfor %}
+    {% endif %}
+    {% endmacro %}
+
+    {# ─── Paired lens macros: preprocessing + investigation ─── #}
+
+    {% macro lens_preprocess(lens) %}
+    # PREPROCESSING: {{ lens.code }} — {{ lens.title }}
+
+    {{ preprocess_role() }}
+
+    {{ tdf_stance(lens.tdf) }}
+
+    {{ project_brief() }}
+
+    ## Framing Context
+    Read `{{ workspace }}/01-framing.md` for the project landscape and
+    investigation questions established in Stage 1.
+
+    ## Your Lens: {{ lens.title }}
+    {{ lens.focus }}
+
+    ## Research Directives
+    {{ lens.seed }}
+
+    Research broadly. Use web search for current (2025-2026) industry
+    practices, papers, and production deployments. Read relevant project
+    files from `{{ project.path }}`. Curate findings into a structured
+    brief that your investigation partner can build on.
+
+    Structure your output as:
+    1. **Industry Landscape** — Approaches, practitioners, what's working
+    2. **Project-Specific Relevance** — How this project maps to them
+    3. **Key Sources** — URLs, papers, tools worth deeper investigation
+    4. **Open Questions** — What should the investigator dig into?
+    5. **Surprises** — Anything unexpected you found
+
+    {{ output_to("02-prep-" ~ lens.name ~ ".md", 1500, 2500) }}
+    {% endmacro %}
+
+    {% macro lens_investigate(lens) %}
+    # INVESTIGATION: {{ lens.code }} — {{ lens.title }}
+
+    {{ lens.voice }}
+
+    {{ tdf_stance(lens.tdf) }}
+
+    {{ investigation_role() }}
+
+    {{ project_brief() }}
+
+    ## Your Preprocessed Context
+    Read `{{ workspace }}/02-prep-{{ lens.name }}.md` — curated by your
+    preprocessing partner specifically for your lens.
+
+    ## Framing Context
+    Read `{{ workspace }}/01-framing.md` for the project landscape.
+
+    ## Your Investigation
+
+    Develop your perspective fully. This is YOUR lens — lean into it.
+    Don't try to be balanced or comprehensive. The synthesis stage
+    handles integration. Be partial. Be passionate about what your
+    domain reveals.
+
+    Structure your response:
+    1. **Core Claim** — Your lens's answer in one paragraph: what context
+       engineering approach does this project need, seen through your lens?
+    2. **The Case** — Full argument with evidence from research and the
+       project's actual structure
+    3. **Architecture Sketch** — How would your approach work specifically
+       for THIS project? Components, data flows, integration points.
+    4. **Blind Spots** — What your lens probably misses (be honest)
+    5. **Key Tension** — The hardest challenge TO your position
+    6. **Prototype Elements** — Specific config schemas, API shapes, or
+       implementation patterns that should appear in the final spec
+
+    {{ output_to("03-" ~ lens.name ~ ".md", 2000, 3500) }}
+    {% endmacro %}
+
+    {# ─── TDF review macro ─── #}
+
+    {% macro tdf_review_sheet(review) %}
+    # TDF REVIEW: {{ review.code }} — {{ review.name | upper }}
+
+    {{ tdf_stance(review.code) }}
+
+    You are reviewing a context engineering specification for
+    {{ project.name }}. Your job is adversarial in the best sense:
+    find what's weak, what's missing, what won't survive contact
+    with reality.
+
+    ## The Specification
+    Read `{{ workspace }}/07-spec-draft.md` — the full specification.
+
+    ## Review Preparation
+    Read `{{ workspace }}/08-review-prep.md` for claim and assumption
+    inventories, plus your domain-specific focus areas.
+
+    ## Your Perspective
+    {{ review.focus }}
+
+    ## Review Structure
+    1. **Verdict** — In one paragraph: is this spec sound from your
+       perspective? Approve, request changes, or reject?
+    2. **Strengths** — What the spec gets right from your domain.
+       Be specific. Name the decisions you'd defend.
+    3. **Weaknesses** — What's wrong or missing? For each:
+       - What's the problem?
+       - Why does it matter?
+       - What's the fix?
+    4. **Risks** — Failure modes your domain foresees that the spec
+       doesn't address.
+    5. **Amendments** — Specific changes required before approval.
+       Concrete enough to implement.
+
+    Be rigorous. Intellectual charity means taking the spec seriously
+    enough to find its real weaknesses, not inventing trivial ones.
+
+    {{ output_to("09-review-" ~ review.name ~ ".md", 1500, 2500) }}
+    {% endmacro %}
+
+    {# ══════════════════════════════════════════════════════════ #}
+    {# STAGES                                                     #}
+    {# ══════════════════════════════════════════════════════════ #}
+
+    {% if stage == 1 %}
+    {# ─── STAGE 1: FRAMING ─── #}
+
+    # FRAMING: The Information Landscape
+
+    {{ project_brief() }}
+
+    ## Your Task
+
+    You are the cartographer. Before five investigation lenses examine
+    how this project should engineer its context, you must map the
+    terrain they'll be working with.
+
+    1. **Explore the project.** Read the key documents listed above.
+       Explore the directory structure at `{{ project.path }}`. Understand
+       what this project IS — not just what it says it is, but how it's
+       actually organized.
+
+    2. **Map the information landscape.** What knowledge exists? Where
+       does it live? How is it structured? Consider:
+       - Documentation (READMEs, guides, references)
+       - Specification/config files (schemas, specs, YAML)
+       - Code itself (architecture, patterns, conventions)
+       - Institutional knowledge (CLAUDE.md, contributing guides)
+       - Session/ephemeral knowledge (memory banks, logs, context files)
+       - External knowledge (dependencies, APIs, domain expertise)
+
+    3. **Identify the context consumers.** Who or what needs context
+       from this project? Developers? AI agents? CI/CD? What do they
+       need to know, and when?
+
+    4. **Name the gaps.** Where is context missing or stale? Where do
+       new contributors (human or AI) struggle? What knowledge exists
+       only in people's heads? What's documented but unfindable?
+
+    5. **Frame the investigation.** Based on your exploration, what
+       specific questions should the five investigation lenses focus on?
+       What matters most for THIS project's context engineering?
+
+    {{ output_to("01-framing.md", 2000, 3000) }}
+
+    {% elif stage == 2 %}
+    {# ─── STAGE 2: LENS PREPROCESSING (×5) ─── #}
+
+    {{ lens_preprocess(lenses[instance]) }}
+
+    {% elif stage == 3 %}
+    {# ─── STAGE 3: LENS INVESTIGATION (×5) ─── #}
+
+    {{ lens_investigate(lenses[instance]) }}
+
+    {% elif stage == 4 %}
+    {# ─── STAGE 4: SYNTHESIS PREPROCESSING ─── #}
+
+    # PREPROCESSING: Synthesis Curation
+
+    {{ preprocess_role() }}
+
+    Five investigation lenses have produced independent analyses of
+    context engineering approaches for {{ project.name }}:
+
+    {% for i in range(1, 6) %}
+    {% set lens = lenses[i] %}
+    - **{{ lens.code }}** ({{ lens.title }}): `{{ workspace }}/03-{{ lens.name }}.md`
+    {% endfor %}
+
+    Plus the original framing: `{{ workspace }}/01-framing.md`
+
+    ## Your Task
+
+    Read all five investigation outputs and the framing document.
+    Produce a structured comparison that makes the synthesis agent's
+    job easier:
+
+    1. **Comparison Matrix** — For each approach recommended by each
+       lens, list: what it solves, what it costs, what it assumes,
+       what it misses
+    2. **Agreement Map** — Where do 2+ lenses converge on the same
+       recommendation? These convergences are strong signals.
+    3. **Conflict Map** — Where do lenses directly contradict each
+       other? What's the nature of each disagreement?
+    4. **Prototype Elements Inventory** — Collect all specific config
+       schemas, API shapes, and implementation patterns proposed
+       across all five lenses
+    5. **The Hard Questions** — What must the synthesis resolve that
+       no single lens could answer?
+
+    {{ output_to("04-synthesis-prep.md", 2000, 3000) }}
+
+    {% elif stage == 5 %}
+    {# ─── STAGE 5: DIALECTIC SYNTHESIS ─── #}
+
+    # DIALECTIC SYNTHESIS
+
+    {{ project_brief() }}
+
+    Five lenses have examined how {{ project.name }} should engineer
+    its context. Your preprocessor has structured their outputs into
+    a comparison matrix.
+
+    ## Curated Input
+    Read `{{ workspace }}/04-synthesis-prep.md` for the structured
+    comparison.
+
+    Also read the original investigations:
+    {% for i in range(1, 6) %}
+    {% set lens = lenses[i] %}
+    - `{{ workspace }}/03-{{ lens.name }}.md` ({{ lens.code }})
+    {% endfor %}
+
+    ## Your Task: Synthesize, Don't Summarize
+
+    1. **Fault Lines** — Where do the lenses genuinely disagree? Not
+       surface terminology differences, but deep structural tensions
+       about what context engineering IS and what it should optimize for.
+
+    2. **Unexpected Harmonies** — Where do unlikely pairs agree? When
+       the computational architect and the phenomenologist converge,
+       pay attention. When the meta-cognitive skeptic and the knowledge
+       engineer find common ground, dig in.
+
+    3. **The Blind Spot Map** — What did ALL five lenses miss? What
+       perspective is absent from this investigation entirely?
+
+    4. **The Architecture** — Propose a unified context engineering
+       architecture that could only emerge from having heard all five
+       voices. Not a compromise — a synthesis. Name what you're
+       sacrificing by choosing it.
+
+    5. **The Remaining Question** — What's the ONE question this
+       investigation surfaced that none of the five could answer?
+
+    {{ output_to("05-synthesis.md", 2500, 4000) }}
+
+    {% elif stage == 6 %}
+    {# ─── STAGE 6: SPEC PREPROCESSING ─── #}
+
+    # PREPROCESSING: Specification Preparation
+
+    {{ preprocess_role() }}
+
+    The dialectic synthesis has produced a unified architecture for
+    {{ project.name }}'s context engineering system.
+
+    {{ prior_work() }}
+
+    ## Your Task
+
+    Transform the synthesis into spec-ready material:
+
+    1. **Actionable Recommendations** — Extract every concrete
+       recommendation from the synthesis and investigations.
+       Deduplicate. Prioritize.
+    2. **Integration Points** — Where does this system connect to
+       the existing project? Map the touch points.
+    3. **Config/API Inventory** — Collect and reconcile all proposed
+       config schemas, API shapes, and data structures from across
+       all stages.
+    4. **Scope Boundaries** — What's in scope for the prototype?
+       What's deferred? What's explicitly out of scope?
+    5. **Risk Registry** — What could go wrong? Known unknowns?
+
+    {{ output_to("06-spec-prep.md", 1500, 2500) }}
+
+    {% elif stage == 7 %}
+    {# ─── STAGE 7: SPECIFICATION DRAFT ─── #}
+
+    # SPECIFICATION DRAFT: Context Engineering for {{ project.name }}
+
+    {{ project_brief() }}
+
+    You are writing a **working prototype specification** — detailed
+    enough that a follow-up implementation effort could build it
+    without ambiguity.
+
+    ## Your Sources
+    - `{{ workspace }}/06-spec-prep.md` — Curated spec-ready material
+    - `{{ workspace }}/05-synthesis.md` — The unified architecture
+    - The project itself: `{{ project.path }}`
+
+    ## Specification Structure
+
+    Write a complete specification with these sections:
+
+    ### 1. Executive Summary
+    What this system does, why it exists, and what it optimizes for.
+    One page maximum.
+
+    ### 2. Architecture
+    System diagram (described textually). Components, responsibilities,
+    interactions. Data flow from knowledge source → storage → retrieval
+    → context assembly → agent consumption.
+
+    ### 3. Knowledge Model
+    What types of knowledge does the system manage? How are they
+    represented, stored, and indexed? What's the schema?
+
+    ### 4. Context Assembly Pipeline
+    How is context assembled for a specific consumer (agent, developer,
+    tool) at request time? What's the pipeline? What decisions are made
+    and by what logic?
+
+    ### 5. Integration Design
+    How does this system integrate with {{ project.name }}'s existing
+    infrastructure? What changes? What's additive? Specific file paths,
+    config changes, API additions.
+
+    ### 6. Configuration
+    What's configurable? Provide actual config schema (YAML or similar)
+    with field descriptions, defaults, and validation rules.
+
+    ### 7. Quality & Evaluation
+    How do you know it's working? Metrics, tests, evaluation criteria.
+    What does "good context" look like measurably?
+
+    ### 8. Implementation Roadmap
+    Phases, dependencies, estimated complexity. What's the MVP? What's
+    the full vision? What can be built incrementally?
+
+    ### 9. Open Questions
+    What this spec does NOT resolve. What needs further investigation.
+
+    {{ output_to("07-spec-draft.md", 4000, 6000) }}
+
+    {% elif stage == 8 %}
+    {# ─── STAGE 8: REVIEW PREPROCESSING ─── #}
+
+    # PREPROCESSING: TDF Review Preparation
+
+    {{ preprocess_role() }}
+
+    A specification draft has been produced for {{ project.name }}'s
+    context engineering system. Five TDF-aligned reviewers will now
+    examine it from different perspectives.
+
+    ## Your Sources
+    - `{{ workspace }}/07-spec-draft.md` — The specification draft
+    - `{{ workspace }}/05-synthesis.md` — The architecture it builds on
+
+    ## Your Task
+
+    Prepare the specification for rigorous review:
+
+    1. **Spec Summary** — Distill the spec into its key decisions and
+       trade-offs. What did the spec choose? What did it reject?
+    2. **Claim Inventory** — List every testable claim the spec makes
+       (explicit or implicit). These are what reviewers verify.
+    3. **Assumption Inventory** — List every assumption the spec relies
+       on. These are what reviewers challenge.
+    4. **Per-Perspective Focus Areas** — For each TDF domain, identify
+       which parts of the spec are most relevant to their lens:
+    {% for i in range(1, 6) %}
+    {% set review = tdf_reviews[i] %}
+       - **{{ review.code }}**: {{ review.focus | truncate(100) }}
+    {% endfor %}
+
+    {{ output_to("08-review-prep.md", 1500, 2500) }}
+
+    {% elif stage == 9 %}
+    {# ─── STAGE 9: TDF REVIEW (×5) ─── #}
+
+    {{ tdf_review_sheet(tdf_reviews[instance]) }}
+
+    {% elif stage == 10 %}
+    {# ─── STAGE 10: FINAL SPECIFICATION ─── #}
+
+    # FINAL SPECIFICATION: Context Engineering for {{ project.name }}
+
+    {{ project_brief() }}
+
+    Five TDF-aligned reviewers have examined the specification draft.
+    Your job is to produce the **final specification** — integrating
+    their feedback, resolving conflicts, and hardening the design.
+
+    ## Your Sources
+    - `{{ workspace }}/07-spec-draft.md` — The original specification
+    {% for i in range(1, 6) %}
+    {% set review = tdf_reviews[i] %}
+    - `{{ workspace }}/09-review-{{ review.name }}.md` ({{ review.code }})
+    {% endfor %}
+    - `{{ workspace }}/05-synthesis.md` — The architecture foundation
+
+    ## Your Task
+
+    1. **Triage feedback.** For each reviewer's amendments:
+       - ACCEPT if the criticism is valid and the fix is clear
+       - REJECT with explanation if it misunderstands the design
+       - DEFER if the issue is real but out of scope for the prototype
+
+    2. **Resolve conflicts** between reviewers. Where they disagree,
+       make a decision. Document your reasoning.
+
+    3. **Produce the final specification.** Same structure as the draft,
+       but hardened by review. Every section should reflect what survived
+       five adversarial readings. Add a new section:
+
+       ### 10. Review Integration
+       What changed from draft to final, and why. Accepted, rejected,
+       and deferred feedback. This section is the institutional memory
+       of the review process itself.
+
+    The final specification must be implementable. A developer or AI
+    agent reading only this document should be able to build the system.
+
+    {{ output_to("10-final-specification.md", 5000, 8000) }}
+
+    {% endif %}
+
+validations:
+  # ── Stage 1: Framing ──
+  - type: file_exists
+    path: "{workspace}/01-framing.md"
+    condition: "stage == 1"
+    stage: 1
+  - type: content_contains
+    path: "{workspace}/01-framing.md"
+    pattern: "## "
+    condition: "stage == 1"
+    stage: 2
+    description: "Framing has section structure"
+
+  # ── Stage 5: Synthesis ──
+  - type: file_exists
+    path: "{workspace}/05-synthesis.md"
+    condition: "stage == 5"
+    stage: 1
+  - type: content_contains
+    path: "{workspace}/05-synthesis.md"
+    pattern: "Fault Lines"
+    condition: "stage == 5"
+    stage: 2
+    description: "Synthesis identifies fault lines between lenses"
+
+  # ── Stage 7: Specification Draft ──
+  - type: file_exists
+    path: "{workspace}/07-spec-draft.md"
+    condition: "stage == 7"
+    stage: 1
+  - type: content_contains
+    path: "{workspace}/07-spec-draft.md"
+    pattern: "Architecture"
+    condition: "stage == 7"
+    stage: 2
+    description: "Spec contains architecture section"
+
+  # ── Stage 10: Final Specification ──
+  - type: file_exists
+    path: "{workspace}/10-final-specification.md"
+    condition: "stage == 10"
+    stage: 1
+  - type: content_contains
+    path: "{workspace}/10-final-specification.md"
+    pattern: "Review Integration"
+    condition: "stage == 10"
+    stage: 2
+    description: "Final spec documents review integration"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/10-final-specification.md") -ge 3000'
+    condition: "stage == 10"
+    stage: 3
+    description: "Final specification has substantive content (3000+ words)"

@@ -52,6 +52,7 @@ scores-internal/
 # Logs
 *.log
 logs/
+!.mozart/state/decisions.log
 
 # Test artifacts
 tests/temp/
@@ -95,6 +96,9 @@ STATUS.md
 
 # MkDocs generated site
 site/
+
+# Hypothesis property-based testing cache
+.hypothesis/
 
 # OS
 .DS_Store

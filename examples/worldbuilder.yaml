@@ -1,0 +1,328 @@
+# worldbuilder.yaml
+#
+# Generative fan-out: build a fictional world through parallel creative lenses.
+#
+# The dialectic score proved that independent parallel perspectives produce
+# emergent convergence when synthesized. That was analytical. This score
+# tests the same pattern generatively: can independent creative visions
+# interlock into something coherent and surprising?
+#
+# The key bet: if you give 5 creators the same seed but different domains,
+# the constraints they independently invent will *rhyme* — because good
+# worldbuilding is internally consistent even when no one is coordinating.
+# The synthesis stage's job is to find those rhymes and make them sing.
+#
+# Execution Flow (4 stages, 9 sheets):
+#
+#   Stage 1: The Seed (1 sheet)
+#        |
+#        +----+----+----+----+
+#        v    v    v    v    v
+#   Stage 2 x5: Five Lenses (5 sheets, parallel)
+#        |    |    |    |    |
+#        +----+----+----+----+
+#                  v
+#   Stage 3: Synthesis — The Living World (1 sheet)
+#                  |
+#                  v
+#   Stage 4: The World Bible (1 sheet)
+#
+
+name: "worldbuilder"
+description: "Generate a fictional world through parallel creative lenses"
+
+workspace: "./workspaces/worldbuilder-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  timeout_seconds: 1800
+
+sheet:
+  size: 1
+  total_items: 4
+  fan_out:
+    2: 5
+  dependencies:
+    2: [1]
+    3: [2]
+    4: [3]
+
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 6000
+  lookback_sheets: 6
+
+retry:
+  max_retries: 1
+
+prompt:
+  variables:
+    # ─── THE SEED ───
+    # Change this to generate entirely different worlds.
+    # The seed is deliberately evocative but incomplete —
+    # it gives direction without dictating answers.
+    world_seed:
+      name: "The Tidebound"
+      premise: >-
+        A coastal civilization where the boundary between ocean and land
+        shifts dramatically — not with tides but with the seasons. In summer
+        the sea retreats for miles, exposing a vast shelf of ruins, gardens,
+        and creatures that exist only in the exposed zone. In winter the
+        ocean surges inland, swallowing forests and lowlands whole. The
+        people have built their entire civilization around this rhythm.
+      tone: "Literary science fiction. Ursula K. Le Guin meets Hayao Miyazaki."
+      constraints:
+        - "No magic system. Everything has a natural (if speculative) explanation."
+        - "Technology level roughly equivalent to 17th century, but divergent — they solved different problems than we did."
+        - "The world is not a metaphor for climate change, though readers may draw parallels."
+
+    # ─── THE FIVE LENSES ───
+    lenses:
+      1:
+        name: "geography"
+        title: "The Shape of Things"
+        brief: >-
+          The physical world. Map the coast, the shelf, the deep ocean,
+          the inland refuge zones. What does the exposed seabed look like?
+          What geological processes cause the seasonal shift? Where do
+          people live — and where CAN'T they live? Include at least 3
+          named locations with distinct character.
+
+      2:
+        name: "culture"
+        title: "How They Live"
+        brief: >-
+          Social structure, daily life, beliefs, art. How has the seasonal
+          rhythm shaped their calendar, their festivals, their sense of
+          time? What do they value? What's taboo? How do they mark the
+          transition days when the water begins to move? What do their
+          songs sound like? Include at least 2 distinct cultural groups
+          who relate to the tides differently.
+
+      3:
+        name: "ecology"
+        title: "What Lives Here"
+        brief: >-
+          The creatures and plants of this world, especially the ones
+          adapted to the exposed zone — the liminal biome that exists
+          only half the year. What lives in the ruins when the water
+          recedes? What happens to those creatures when it returns?
+          Invent at least 3 species with distinct adaptations. At least
+          one should be unsettling.
+
+      4:
+        name: "technology"
+        title: "What They Built"
+        brief: >-
+          Architecture, tools, ships, agriculture. How do you build a
+          civilization that must survive annual flooding AND annual
+          drought? What engineering problems have they solved that we
+          haven't? What materials do they use? How do they preserve
+          food across seasons? Include at least 2 technologies that
+          feel genuinely inventive — not just "old Earth tech, but wet."
+
+      5:
+        name: "history"
+        title: "How They Got Here"
+        brief: >-
+          The deep past and recent history. When did the seasonal shifts
+          begin? (Or have they always been this way?) What was the
+          founding catastrophe or discovery? What wars have been fought
+          over the exposed shelf? What's the most important historical
+          event that every child learns about? Include a timeline with
+          at least 5 entries spanning centuries.
+
+  template: |
+    {% macro world_header(title, subtitle) %}
+    # {{ world_seed.name }}: {{ title }}
+    *{{ subtitle }}*
+    *Tone: {{ world_seed.tone }}*
+    {% endmacro %}
+
+    {% macro seed_summary() %}
+    ## The Seed
+    **{{ world_seed.name }}** — {{ world_seed.premise }}
+
+    **Constraints:**
+    {% for c in world_seed.constraints %}
+    - {{ c }}
+    {% endfor %}
+    {% endmacro %}
+
+    {% if stage == 1 %}
+    {{ world_header("The Seed", "Stage 1 — Establishing the Foundation") }}
+
+    You are the architect of a fictional world. Your job in this first
+    stage is to take the seed concept and expand it into a foundational
+    document that will guide five parallel worldbuilders.
+
+    {{ seed_summary() }}
+
+    ## Your Task
+
+    Write a foundational document (1500-2000 words) that:
+
+    1. **Expands the premise** — Take the seed and develop it into a
+       richer, more specific vision. Answer the first questions a reader
+       would ask. WHY does the ocean shift? How far? How fast?
+
+    2. **Establishes the emotional core** — What FEELING should this
+       world evoke? Not just the tone, but the existential texture.
+       What is it like to live with this rhythm? What does it teach
+       people about impermanence, patience, loss, renewal?
+
+    3. **Names the central tension** — Every great setting has a tension
+       baked into its geography or physics. What's the fundamental
+       conflict that the world's structure creates? (Not a plot — a
+       condition. The thing that makes stories inevitable.)
+
+    4. **Sets 3-5 open questions** — Things you deliberately leave
+       unresolved for the parallel worldbuilders to answer independently.
+       These should be generative, not trivial.
+
+    ---
+    Save to {{ workspace }}/01-seed.md
+    Write in evocative, precise prose. This is a creative document,
+    not a wiki article. Let the reader FEEL the world.
+
+    {% elif stage == 2 %}
+    {% set lens = lenses[instance] %}
+    {{ world_header(lens.title, "Stage 2 — " ~ lens.name | capitalize ~ " Lens") }}
+
+    You are one of five parallel worldbuilders, each developing a
+    different dimension of the same world. You work from the seed —
+    you do NOT see what the other four are creating. This independence
+    is deliberate: it produces creative diversity that synthesis will
+    weave together.
+
+    {% if previous_outputs[1] is defined %}
+    ## Foundation (from Stage 1)
+    {{ previous_outputs[1] | truncate(2000) }}
+    {% endif %}
+
+    ## Your Lens: {{ lens.title }}
+    {{ lens.brief }}
+
+    {{ seed_summary() }}
+
+    ## Guidelines
+
+    - **Be specific.** Names, textures, smells, sounds. Not "they have boats"
+      but "the keelless skimmers, hulls waxed with tidecreep resin, that
+      glide across the exposed shelf like insects on still water."
+    - **Invent freely** within the constraints. You have full creative
+      authority over your domain. If you need to establish facts about
+      other domains (geography needs some ecology, culture needs some
+      history), do so — the synthesis stage will reconcile.
+    - **Create at least one surprise** — something that even the world's
+      creator wouldn't have predicted from the seed alone. The thing
+      that makes readers say "oh, THAT's interesting."
+    - **Write 1500-2500 words.** Enough depth to be generative, not so
+      much that it becomes encyclopedic.
+
+    ---
+    Save to {{ workspace }}/02-{{ lens.name }}.md
+    Write in the tone specified: {{ world_seed.tone }}
+    This is creative worldbuilding, not technical specification.
+
+    {% elif stage == 3 %}
+    {{ world_header("The Living World", "Stage 3 — Synthesis") }}
+
+    Five parallel worldbuilders have independently developed different
+    dimensions of {{ world_seed.name }}. Your job is the hardest and
+    most important: find where they rhyme, resolve where they conflict,
+    and weave them into a world that feels like it was always whole.
+
+    {% if previous_outputs %}
+    ## The Five Lenses
+    {% for key, output in previous_outputs.items() %}
+    {% if key | int > 1 %}
+
+    ### Lens {{ key | int - 1 }} (Sheet {{ key }})
+    {{ output | truncate(1500) }}
+    {% endif %}
+    {% endfor %}
+    {% endif %}
+
+    ## Your Task
+
+    Write a synthesis document (2000-3000 words) that:
+
+    1. **Finds the rhymes** — Where did independent creators invent
+       compatible things without coordinating? These emergent connections
+       are the world's skeleton. Name them explicitly. ("The historian's
+       founding catastrophe explains why the ecologist's shelf-dwelling
+       creatures behave the way they do.")
+
+    2. **Resolves contradictions** — Where do the lenses conflict? Don't
+       just pick a winner. Find the reading that makes BOTH true. If the
+       geographer says the shelf is rocky and the ecologist imagined
+       soft sediment, maybe the shelf is rocky in the north and soft
+       in the south — and that difference matters.
+
+    3. **Discovers the emergent story** — What narrative threads appear
+       when you lay all five lenses side by side? Not a plot, but the
+       *conditions for stories*. The tensions, the factions, the
+       unresolved questions that make a reader want to know more.
+
+    4. **Names what's missing** — What did none of the five lenses
+       address that the world needs? (Religion? Economics? Childhood?
+       Death rituals?) Name the gaps so the world bible can fill them.
+
+    ---
+    Save to {{ workspace }}/03-synthesis.md
+    Write with authority and wonder. You are the editor who sees the
+    whole manuscript for the first time. Let your excitement show.
+
+    {% elif stage == 4 %}
+    {{ world_header("World Bible", "Stage 4 — The Complete Reference") }}
+
+    Everything has been created. Now compile it into a single,
+    authoritative reference document that a writer, game designer,
+    or artist could use to create stories in this world.
+
+    {% if previous_outputs %}
+    ## All Prior Work
+    {% for key, output in previous_outputs.items() %}
+
+    ### Source {{ key }}
+    {{ output | truncate(1200) }}
+    {% endfor %}
+    {% endif %}
+
+    ## Structure
+
+    Organize the World Bible into these sections:
+
+    1. **Overview** (200 words) — The elevator pitch. What is this world?
+    2. **Geography** — The physical world, key locations, maps described in text
+    3. **Ecology** — Flora, fauna, the exposed zone biome
+    4. **People & Culture** — Who lives here, how they live, what they believe
+    5. **Technology & Architecture** — What they've built, how it works
+    6. **History & Timeline** — Key events, eras, turning points
+    7. **The Calendar** — How the seasonal rhythm structures their year
+    8. **Story Seeds** — 5 story premises that could only happen in this world
+    9. **Sensory Palette** — What does this world LOOK, SOUND, SMELL, TASTE,
+       FEEL like? A reference for creators who need to evoke it.
+    10. **Glossary** — Key terms, place names, species names, with pronunciations
+
+    ---
+    Save to {{ workspace }}/04-world-bible.md
+    This is the final deliverable. Make it beautiful, comprehensive,
+    and usable. A creator should be able to open this document and
+    start working immediately.
+    {% endif %}
+
+validations:
+  - type: file_exists
+    path: "{workspace}/01-seed.md"
+    condition: "stage == 1"
+
+  - type: file_exists
+    path: "{workspace}/03-synthesis.md"
+    condition: "stage == 3"
+
+  - type: file_exists
+    path: "{workspace}/04-world-bible.md"
+    condition: "stage == 4"
