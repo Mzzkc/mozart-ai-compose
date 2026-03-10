@@ -30,8 +30,8 @@
 # DISAGREE — because that's where the interesting thinking lives.
 #
 # Usage:
-#   mozart validate scores/thinking-lab.yaml
-#   mozart run scores/thinking-lab.yaml
+#   mozart validate examples/thinking-lab.yaml
+#   mozart run examples/thinking-lab.yaml
 #
 # To change the question, edit the `question` variable below.
 

@@ -4,7 +4,7 @@
 
 Mozart is an orchestration system that replaces software teams with specification-driven AI agents. You write a declarative YAML score; Mozart decomposes it into sheets, executes them through AI backends, validates outputs against acceptance criteria, learns from outcomes, and feeds knowledge forward.
 
-The musical metaphor is load-bearing: a **score** is a job config, a **sheet** is one execution stage, a **concert** chains scores, and the **conductor** is the daemon managing everything. Use these terms in user-facing output. In code, use `JobConfig`, `SheetState`, etc.
+The mental model is drawn from orchestral music and is load-bearing: a **score** is a job config, a **sheet** is one execution stage, a **concert** chains scores, the **conductor** is the daemon, **musicians** are AI agents, **instruments** are backends, and **techniques** are tools/MCP/skills. Use these terms in user-facing output. In code, use `JobConfig`, `SheetState`, etc.
 
 Mozart runs production workloads today. 24 self-evolution cycles completed autonomously. 3384+ tests. The system works. The current focus is making it operate at all four levels of the AI Input Engineering stack: prompt craft, context engineering, intent engineering, and specification engineering — so that every agent Mozart spawns is fully set up for success, not just handed a prompt and wished luck.
 

@@ -49,7 +49,7 @@
 name: "quality-continuous-daemon"
 description: "Phase 3 hardening & wiring — scheduler, rate coordinator, backpressure"
 
-workspace: "./workspaces/quality-daemon-workspace"
+workspace: "./workspaces/quality-daemon-workspace-2"
 
 workspace_lifecycle:
   archive_on_fresh: true

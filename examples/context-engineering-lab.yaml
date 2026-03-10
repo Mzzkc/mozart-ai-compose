@@ -72,7 +72,7 @@ name: "context-engineering-lab"
 description: "Dual-LLM context engineering investigation for any project"
 
 # ─── Set this to where you want investigation outputs saved ───
-workspace: "/tmp/context-engineering-lab"
+workspace: "./workspaces/context-lab-workspace"
 
 backend:
   type: claude_cli
