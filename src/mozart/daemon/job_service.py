@@ -348,6 +348,10 @@ class JobService:
             "previous_status": found_state.status.value,
         })
 
+        # Wrap backend early so the initial state save publishes to the
+        # conductor, making ``mozart status`` available immediately.
+        runner_backend = self._wrap_state_backend(found_backend)
+
         # Reset job status to RUNNING
         found_state.status = JobStatus.RUNNING
         found_state.error_message = None
@@ -355,7 +359,7 @@ class JobService:
         # Update found_state.job_id to the conductor's runtime identity so
         # all downstream publishes use the correct key.
         found_state.job_id = runtime_id
-        await found_backend.save(found_state)
+        await runner_backend.save(found_state)
 
         # Phase 3: Setup components and run
         components = self._setup_components(resolved_config)
@@ -365,9 +369,6 @@ class JobService:
         stored_config_path = (
             str(config_path) if config_path else found_state.config_path
         )
-
-        # Wrap backend so every checkpoint publishes to the conductor
-        runner_backend = self._wrap_state_backend(found_backend)
 
         try:
             runner = self._create_runner(
@@ -820,6 +821,23 @@ class JobService:
                             )
                         chosen_backend = backend
                         return state, backend
+
+                    # Exact ID miss — the conductor's job_id (e.g. "score")
+                    # may differ from config.name stored in the DB (e.g.
+                    # "company-in-a-box").  Each workspace holds a single
+                    # job, so listing and picking the sole entry is safe.
+                    all_jobs = await backend.list_jobs()
+                    if len(all_jobs) == 1:
+                        state = all_jobs[0]
+                        _logger.info(
+                            "state_found_by_workspace_scan",
+                            requested_id=job_id,
+                            found_id=state.job_id,
+                            backend=name,
+                        )
+                        chosen_backend = backend
+                        return state, backend
+
                 except (OSError, sqlite3.Error) as e:
                     failed_backends.append(name)
                     _logger.warning(
