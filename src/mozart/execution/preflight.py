@@ -20,7 +20,8 @@ FILE_PATH_PATTERNS = [
     # Template paths with {workspace} or similar
     r"\{workspace\}/[a-zA-Z0-9._/-]+",
     # Paths in quotes: "path/to/file.txt" or 'path/to/file.txt'
-    r'["\']([^"\']+/[^"\']+\.[a-zA-Z0-9]+)["\']',
+    # Exclude newlines and cap length to avoid matching across lines of injected content
+    r'["\']([^"\'\n]{1,250}/[^"\'\n]{1,250}\.[a-zA-Z0-9]+)["\']',
 ]
 
 # Characters per token rough estimate (typical for English text with code)
@@ -320,7 +321,12 @@ class PreflightChecker:
             if not path.is_absolute():
                 path = self.workspace / path
 
-            result[path_str] = path.exists()
+            try:
+                result[path_str] = path.exists()
+            except OSError:
+                # path.exists() raises OSError for paths with components
+                # exceeding filesystem limits (e.g., ENAMETOOLONG)
+                result[path_str] = False
 
         return result
 
@@ -353,6 +359,10 @@ def _is_plausible_path(path: str) -> bool:
         "3.0",
     }
     if path.lower() in false_positives:
+        return False
+
+    # Too long to be a real path (filesystem component limit is 255)
+    if len(path) > 500:
         return False
 
     # Should have at least one path separator or extension

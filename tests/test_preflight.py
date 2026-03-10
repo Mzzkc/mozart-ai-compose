@@ -420,3 +420,55 @@ class TestFilePathExtraction:
         metrics = PromptMetrics.from_prompt(prompt)
 
         assert metrics.referenced_paths == sorted(metrics.referenced_paths)
+
+    def test_quoted_path_regex_excludes_newlines(self):
+        """Test that quoted path regex doesn't match across newlines.
+
+        Regression test: injected markdown content containing backtick-quoted
+        code like `.replace("-", " ").title()` was matched across multiple
+        lines by the quoted-path regex, producing 800+ char false-positive
+        "paths" that caused OSError ENAMETOOLONG when checked.
+        """
+        # Content from a real collective.md that triggered the bug
+        prompt = """
+- **Roster name fallback:** `.replace("-", " ").title()` heuristic
+- **Growth cap formula:** `effective_delta = raw_delta * (1.0 - current_skill) * learning_rate`
+- **Two-layer growth:** Aggregation applies diminishing returns
+"""
+        metrics = PromptMetrics.from_prompt(prompt)
+
+        # No extracted path should be longer than 500 chars
+        for path in metrics.referenced_paths:
+            assert len(path) <= 500, f"Extracted path too long ({len(path)} chars): {path[:100]}..."
+
+        # The multi-line content should NOT be extracted as a path
+        assert not any(").title()" in p for p in metrics.referenced_paths)
+
+    def test_very_long_strings_rejected_as_paths(self):
+        """Test that _is_plausible_path rejects very long strings."""
+        long_str = "a/b.txt" + " extra content " * 50
+        from mozart.execution.preflight import _is_plausible_path
+
+        assert not _is_plausible_path(long_str)
+
+
+class TestCheckPathsOSError:
+    """Tests for _check_paths handling of filesystem errors."""
+
+    def test_path_exists_oserror_handled(self, temp_workspace: Path):
+        """Test that OSError from path.exists() is caught gracefully.
+
+        Regression test: when regex extracted a 900-char false-positive
+        "path" from injected content, prepending workspace produced a path
+        with a component exceeding 255 bytes. path.exists() raised
+        OSError ENAMETOOLONG instead of returning False, crashing the job.
+        """
+        checker = PreflightChecker(workspace=temp_workspace)
+
+        # Simulate a path with a component exceeding filesystem limits
+        long_component = "x" * 300
+        prompt = f'Read "{long_component}/file.txt" now'
+        result = checker.check(prompt)
+
+        # Should not crash — inaccessible paths should just be warnings
+        assert result.can_proceed is True

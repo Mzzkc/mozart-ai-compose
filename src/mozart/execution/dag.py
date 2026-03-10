@@ -190,7 +190,11 @@ class DependencyDAG:
         return dag
 
     def _validate_no_cycles(self) -> None:
-        """Check for cycles using DFS-based approach.
+        """Check for cycles using iterative DFS.
+
+        Uses an explicit stack instead of recursion to handle large
+        DAGs (thousands of sheets) without hitting Python's recursion
+        limit.
 
         Raises:
             CycleDetectedError: If a cycle is detected, includes the cycle path.
@@ -200,33 +204,46 @@ class DependencyDAG:
         )
         # Track path for cycle reconstruction
         path: list[int] = []
+        path_set: set[int] = set()
 
-        def dfs(sheet: int) -> bool:
-            """DFS visit. Returns True if cycle detected."""
-            if state[sheet] == _VisitState.IN_PROGRESS:
-                # Find cycle start in path
-                cycle_start = path.index(sheet)
-                cycle = path[cycle_start:] + [sheet]
-                raise CycleDetectedError(cycle)
+        for start in range(1, self.total_sheets + 1):
+            if state[start] != _VisitState.UNVISITED:
+                continue
 
-            if state[sheet] == _VisitState.COMPLETED:
-                return False
+            # Stack holds (sheet, iterator_over_dependents)
+            stack: list[tuple[int, list[int], int]] = []
+            state[start] = _VisitState.IN_PROGRESS
+            path.append(start)
+            path_set.add(start)
+            dependents = self.edges.get(start, [])
+            stack.append((start, dependents, 0))
 
-            state[sheet] = _VisitState.IN_PROGRESS
-            path.append(sheet)
+            while stack:
+                node, deps, idx = stack[-1]
 
-            # Visit all sheets that this sheet points to (forward edges)
-            for dependent in self.edges.get(sheet, []):
-                dfs(dependent)
+                if idx < len(deps):
+                    # Advance to next dependent
+                    stack[-1] = (node, deps, idx + 1)
+                    child = deps[idx]
 
-            path.pop()
-            state[sheet] = _VisitState.COMPLETED
-            return False
+                    if state[child] == _VisitState.IN_PROGRESS:
+                        # Cycle found — reconstruct from path
+                        cycle_start = path.index(child)
+                        cycle = path[cycle_start:] + [child]
+                        raise CycleDetectedError(cycle)
 
-        # Run DFS from all unvisited nodes
-        for sheet in range(1, self.total_sheets + 1):
-            if state[sheet] == _VisitState.UNVISITED:
-                dfs(sheet)
+                    if state[child] == _VisitState.UNVISITED:
+                        state[child] = _VisitState.IN_PROGRESS
+                        path.append(child)
+                        path_set.add(child)
+                        child_deps = self.edges.get(child, [])
+                        stack.append((child, child_deps, 0))
+                else:
+                    # All dependents visited — mark complete
+                    stack.pop()
+                    state[node] = _VisitState.COMPLETED
+                    path.pop()
+                    path_set.discard(node)
 
     def get_execution_order(self) -> list[int]:
         """Get a valid topological execution order using Kahn's algorithm.
