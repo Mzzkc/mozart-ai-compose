@@ -79,17 +79,37 @@ async def try_daemon_route(
             (e.g., "job not found" is different from "daemon not running").
 
     Connection-level errors never raise — they return (False, None).
+    Response-level timeouts (daemon confirmed running but slow to respond)
+    raise ``DaemonError`` so callers can show an accurate message instead
+    of the misleading "conductor not running."
     """
     resolved = _resolve_socket_path(socket_path)
+    # Track whether the daemon was confirmed alive so we can distinguish
+    # "daemon not reachable" from "daemon running but slow" on timeout.
+    daemon_confirmed_running = False
     try:
         from mozart.daemon.ipc.client import DaemonClient
 
         client = DaemonClient(resolved)
         if not await client.is_daemon_running():
             return False, None
+        daemon_confirmed_running = True
         result = await client.call(method, params)
         return True, result
-    except (OSError, ConnectionError, TimeoutError) as e:
+    except TimeoutError:
+        if daemon_confirmed_running:
+            # Daemon IS running but didn't respond in time — raise so
+            # callers show "conductor busy" instead of "not running".
+            from mozart.daemon.exceptions import DaemonError
+
+            raise DaemonError(
+                f"Conductor is running but did not respond to '{method}' "
+                f"in time. The conductor may be busy with a long operation."
+            ) from None
+        # Timeout during is_daemon_running() itself — genuinely unreachable.
+        _logger.debug("daemon_route_failed", method=method, error="connection timeout")
+        return False, None
+    except (OSError, ConnectionError) as e:
         _logger.debug("daemon_route_failed", method=method, error=str(e))
         return False, None
     except json.JSONDecodeError as e:

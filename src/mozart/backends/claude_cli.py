@@ -484,8 +484,8 @@ class ClaudeCliBackend(Backend):
             pass
         try:
             process.kill()
-            await process.wait()
-        except ProcessLookupError:
+            await asyncio.wait_for(process.wait(), timeout=5.0)
+        except (ProcessLookupError, TimeoutError, OSError):
             pass
 
     async def _execute_impl(

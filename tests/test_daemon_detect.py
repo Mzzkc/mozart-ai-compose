@@ -180,17 +180,23 @@ class TestTryDaemonRoute:
         assert routed is False
         assert result is None
 
-    async def test_timeout_error_returns_false_none(self):
-        """TimeoutError during routing returns (False, None)."""
+    async def test_timeout_after_confirmed_running_raises_daemon_error(self):
+        """TimeoutError after daemon confirmed running raises DaemonError.
+
+        When is_daemon_running() returns True but call() times out, the
+        daemon IS running but slow.  This must raise DaemonError so
+        callers show "conductor busy" instead of "conductor not running".
+        """
+        from mozart.daemon.exceptions import DaemonError
+
         with patch(_CLIENT_PATH) as MockClient:
             client = MockClient.return_value
             client.is_daemon_running = AsyncMock(return_value=True)
             client.call = AsyncMock(side_effect=TimeoutError("timed out"))
+            client._timeout = 30.0
 
-            routed, result = await try_daemon_route("job.status", {})
-
-        assert routed is False
-        assert result is None
+            with pytest.raises(DaemonError, match="did not respond"):
+                await try_daemon_route("job.status", {})
 
     async def test_value_error_returns_false_with_error_details(self):
         """ValueError during routing returns (False, error_details).

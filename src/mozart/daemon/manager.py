@@ -776,8 +776,9 @@ class JobManager:
     async def cancel_job(self, job_id: str) -> bool:
         """Cancel a running job task.
 
-        Deregisters the job from the global sheet scheduler to remove
-        any pending sheets from the global queue on cancellation.
+        Sends the cancel signal and updates in-memory status immediately,
+        then defers heavyweight I/O (registry write, scheduler cleanup)
+        to a background task so the IPC response is never delayed.
         """
         task = self._jobs.get(job_id)
         if task is None:
@@ -787,12 +788,44 @@ class JobManager:
         meta = self._job_meta.get(job_id)
         if meta:
             meta.status = DaemonJobStatus.CANCELLED
-        await self._registry.update_status(job_id, "cancelled")
 
-        if self._scheduler_instance is not None:
-            await self._scheduler_instance.deregister_job(job_id)
+        # Defer registry + scheduler cleanup so the IPC handler can
+        # respond immediately.  In-memory meta is already authoritative.
+        cleanup = asyncio.create_task(
+            self._cancel_cleanup(job_id),
+            name=f"cancel-cleanup-{job_id}",
+        )
+        cleanup.add_done_callback(
+            lambda t: log_task_exception(t, _logger, "cancel_cleanup.failed"),
+        )
+
         _logger.info("job.cancelled", job_id=job_id)
         return True
+
+    async def _cancel_cleanup(self, job_id: str) -> None:
+        """Background cleanup after cancel — registry + scheduler updates.
+
+        Errors are logged but never propagate, since the cancel already
+        succeeded from the user's perspective.
+        """
+        try:
+            await self._registry.update_status(job_id, "cancelled")
+        except Exception:
+            _logger.error(
+                "cancel_cleanup.registry_failed",
+                job_id=job_id,
+                exc_info=True,
+            )
+
+        try:
+            if self._scheduler_instance is not None:
+                await self._scheduler_instance.deregister_job(job_id)
+        except Exception:
+            _logger.error(
+                "cancel_cleanup.scheduler_failed",
+                job_id=job_id,
+                exc_info=True,
+            )
 
     async def list_jobs(self) -> list[dict[str, Any]]:
         """List all jobs from the persistent registry.
@@ -1407,9 +1440,12 @@ class JobManager:
                 )
 
             except asyncio.CancelledError as cancel_exc:
-                meta.status = DaemonJobStatus.CANCELLED
+                # cancel_job() already set meta.status = CANCELLED and
+                # deferred the registry write to _cancel_cleanup().
+                # Only update meta if it wasn't set yet (e.g. external cancel).
+                if meta.status != DaemonJobStatus.CANCELLED:
+                    meta.status = DaemonJobStatus.CANCELLED
                 cancel_reason = str(cancel_exc) if str(cancel_exc) else "unknown"
-                await self._registry.update_status(job_id, "cancelled")
                 _logger.error(
                     "job.cancelled_during_execution",
                     job_id=job_id,

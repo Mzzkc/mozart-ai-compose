@@ -220,14 +220,18 @@ class TestCancelJob:
 
         result = await manager.cancel_job("test-job-1")
         assert result is True
+        # Meta is updated synchronously before cancel_job returns
         assert manager._job_meta["test-job-1"].status == "cancelled"
 
         # Give event loop a chance to process the cancellation
+        # and the deferred cleanup background task
         try:
             await task
         except asyncio.CancelledError:
             pass
         assert task.cancelled()
+        # Let the background cleanup task complete
+        await asyncio.sleep(0)
 
 
 # ─── Shutdown ──────────────────────────────────────────────────────────
