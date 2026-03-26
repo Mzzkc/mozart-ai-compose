@@ -211,6 +211,17 @@ class DaemonProcess:
             # 2. Set up process group (fixes issue #38 — orphan prevention)
             self._pgroup.setup()
 
+            # 2.5. Reap orphaned backend children from previous runs.
+            # Claude CLI spawns LSP/MCP servers that outlive it; if a
+            # previous daemon or CLI session crashed, these accumulate.
+            startup_reaped = self._pgroup.reap_orphaned_backends()
+            if startup_reaped:
+                _logger.info(
+                    "daemon.startup_orphan_reap",
+                    count=len(startup_reaped),
+                    pids=startup_reaped,
+                )
+
             # 3. Create components — single ResourceMonitor shared
             #    between periodic monitoring and backpressure checks.
             from mozart.daemon.ipc.handler import RequestHandler

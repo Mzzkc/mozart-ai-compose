@@ -713,7 +713,11 @@ class TestAwaitProcessExit:
         with patch("os.killpg") as mock_killpg, \
              patch("os.getpgid", return_value=9999):
             await backend._await_process_exit(proc)
-        mock_killpg.assert_called_once_with(9999, signal.SIGTERM)
+        # Two-stage kill: SIGTERM (graceful) then SIGKILL (force) on
+        # the entire process group — MCP/LSP servers ignore SIGTERM.
+        assert mock_killpg.call_count == 2
+        mock_killpg.assert_any_call(9999, signal.SIGTERM)
+        mock_killpg.assert_any_call(9999, signal.SIGKILL)
 
 
 # ─── execute ─────────────────────────────────────────────────────────

@@ -7,9 +7,17 @@ shutdown via os.killpg().
 
 Lifecycle:
     1. setup() — create new process group (daemon becomes leader)
-    2. cleanup_orphans() — periodic scan for leaked processes
-    3. kill_all_children() — shutdown: signal entire group
-    4. atexit handler — last-resort cleanup if shutdown is interrupted
+    2. cleanup_orphans() — scan daemon's child tree for leaked processes
+    3. reap_orphaned_backends() — system-wide scan for leaked backend children
+    4. kill_all_children() — shutdown: signal entire group
+    5. atexit handler — last-resort cleanup if shutdown is interrupted
+
+The distinction between cleanup_orphans() and reap_orphaned_backends():
+    cleanup_orphans() walks the daemon's own child tree via psutil.
+    This misses processes that were reparented to init (PID 1) after
+    their parent (e.g. Claude CLI) exited — which is exactly how
+    MCP/LSP server leaks happen.  reap_orphaned_backends() scans
+    ALL processes owned by the current user for known orphan patterns.
 """
 
 from __future__ import annotations
@@ -21,6 +29,19 @@ import signal
 from mozart.core.logging import get_logger
 
 _logger = get_logger("daemon.pgroup")
+
+# Patterns that identify orphaned backend child processes.
+# These are processes spawned by Claude CLI (or similar backends) that
+# should not outlive their parent.  Matched against the joined cmdline.
+_ORPHAN_CMDLINE_PATTERNS: tuple[str, ...] = (
+    "symbols run",           # Claude Code LSP MCP servers
+    "tsserver",              # TypeScript language server
+    "typingsinstaller",      # TypeScript typings installer
+    "pyright-langserver",    # Pyright language server
+    "rust-analyzer",         # Rust language server (via symbols)
+    "typescript-language-server",  # TS language server (via symbols)
+    "clangd",                # C/C++ language server (via symbols)
+)
 
 
 class ProcessGroupManager:
@@ -135,12 +156,16 @@ class ProcessGroupManager:
             return 0
 
     def cleanup_orphans(self) -> list[int]:
-        """Find and clean up orphaned child processes.
+        """Find and clean up orphaned child processes in the daemon's tree.
 
         Detects two categories:
         1. Zombie children — reaped via waitpid
         2. Orphaned MCP servers — processes whose parent has died
            (reparented to init/PID 1) that still match MCP patterns
+
+        Note: This only scans the daemon's own child tree.  For processes
+        that escaped the tree entirely (reparented to init), use
+        reap_orphaned_backends() which does a system-wide scan.
 
         Returns:
             List of PIDs that were cleaned up.
@@ -207,6 +232,77 @@ class ProcessGroupManager:
 
         return orphans
 
+    def reap_orphaned_backends(self) -> list[int]:
+        """System-wide scan for orphaned backend child processes.
+
+        Scans ALL processes owned by the current user for known orphan
+        patterns (LSP servers, MCP servers, etc.) that have been reparented
+        to init (PID 1).  These are processes that escaped the daemon's
+        process tree because their parent (Claude CLI) exited before they
+        could be cleaned up.
+
+        This is the safety net that catches leaks missed by cleanup_orphans().
+        Called periodically by the daemon monitor and on daemon startup.
+
+        Returns:
+            List of PIDs that were killed.
+        """
+        killed: list[int] = []
+        my_uid = os.getuid()
+        my_pid = os.getpid()
+
+        try:
+            import psutil
+
+            for proc in psutil.process_iter(["pid", "ppid", "cmdline", "uids"]):
+                try:
+                    info = proc.info
+                    # Only our user's processes
+                    uids = info.get("uids")
+                    if uids is None or uids.real != my_uid:
+                        continue
+                    # Skip ourselves
+                    if info["pid"] == my_pid:
+                        continue
+                    # Only orphans (reparented to init or similar)
+                    ppid = info.get("ppid", -1)
+                    if ppid not in (0, 1):
+                        continue
+
+                    cmdline_parts = info.get("cmdline")
+                    if not cmdline_parts:
+                        continue
+                    cmdline = " ".join(cmdline_parts).lower()
+
+                    # Match against known orphan patterns
+                    for pattern in _ORPHAN_CMDLINE_PATTERNS:
+                        if pattern in cmdline:
+                            proc.kill()  # SIGKILL — these already ignored SIGTERM
+                            killed.append(info["pid"])
+                            _logger.warning(
+                                "pgroup.reaped_orphaned_backend_child",
+                                pid=info["pid"],
+                                pattern=pattern,
+                                cmdline_snippet=cmdline[:120],
+                            )
+                            break
+
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    continue
+
+        except ImportError:
+            # /proc fallback for Linux without psutil
+            killed.extend(self._reap_orphans_proc())
+
+        if killed:
+            _logger.info(
+                "pgroup.orphaned_backend_children_reaped",
+                count=len(killed),
+                pids=killed,
+            )
+
+        return killed
+
     # ─── Internal ──────────────────────────────────────────────────────
 
     @staticmethod
@@ -238,6 +334,66 @@ class ProcessGroupManager:
             except ChildProcessError:
                 break
         return orphans
+
+    @staticmethod
+    def _reap_orphans_proc() -> list[int]:
+        """Fallback system-wide orphan scan using /proc (Linux only)."""
+        killed: list[int] = []
+        my_uid = os.getuid()
+        my_pid = os.getpid()
+        proc_path = "/proc"
+
+        try:
+            entries = os.listdir(proc_path)
+        except OSError:
+            return killed
+
+        for entry in entries:
+            if not entry.isdigit():
+                continue
+            pid = int(entry)
+            if pid == my_pid:
+                continue
+
+            try:
+                # Check ownership
+                stat = os.stat(f"{proc_path}/{pid}")
+                if stat.st_uid != my_uid:
+                    continue
+
+                # Check ppid
+                with open(f"{proc_path}/{pid}/status") as f:
+                    ppid = -1
+                    for line in f:
+                        if line.startswith("PPid:"):
+                            ppid = int(line.split()[1])
+                            break
+                if ppid not in (0, 1):
+                    continue
+
+                # Check cmdline
+                with open(f"{proc_path}/{pid}/cmdline") as f:
+                    cmdline = f.read().replace("\0", " ").lower()
+
+                for pattern in _ORPHAN_CMDLINE_PATTERNS:
+                    if pattern in cmdline:
+                        try:
+                            os.kill(pid, signal.SIGKILL)
+                            killed.append(pid)
+                            _logger.warning(
+                                "pgroup.reaped_orphaned_backend_child",
+                                pid=pid,
+                                pattern=pattern,
+                                cmdline_snippet=cmdline[:120],
+                            )
+                        except (OSError, ProcessLookupError):
+                            pass
+                        break
+
+            except (OSError, ValueError):
+                continue
+
+        return killed
 
     def _atexit_cleanup(self) -> None:
         """Last-resort cleanup registered via atexit.

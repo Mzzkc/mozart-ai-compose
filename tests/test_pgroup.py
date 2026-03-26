@@ -250,8 +250,113 @@ class TestAtexitCleanup:
             mgr._atexit_cleanup()
 
 
+class TestReapOrphanedBackends:
+    """Test system-wide orphan reaper for leaked backend children."""
+
+    def test_kills_matching_orphans(self) -> None:
+        """Processes matching orphan patterns with ppid=1 are killed."""
+        mgr = ProcessGroupManager()
+        mock_proc = MagicMock()
+        mock_proc.info = {
+            "pid": 12345,
+            "ppid": 1,
+            "cmdline": ["node", "symbols", "run", "pyright-langserver"],
+            "uids": MagicMock(real=os.getuid()),
+        }
+
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            killed = mgr.reap_orphaned_backends()
+
+        assert 12345 in killed
+        mock_proc.kill.assert_called_once()
+
+    def test_skips_non_orphans(self) -> None:
+        """Processes with a live parent (ppid != 0 or 1) are not killed."""
+        mgr = ProcessGroupManager()
+        mock_proc = MagicMock()
+        mock_proc.info = {
+            "pid": 12345,
+            "ppid": 999,  # Has a live parent
+            "cmdline": ["node", "symbols", "run", "pyright-langserver"],
+            "uids": MagicMock(real=os.getuid()),
+        }
+
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            killed = mgr.reap_orphaned_backends()
+
+        assert killed == []
+        mock_proc.kill.assert_not_called()
+
+    def test_skips_other_users_processes(self) -> None:
+        """Processes owned by other users are not killed."""
+        mgr = ProcessGroupManager()
+        mock_proc = MagicMock()
+        mock_proc.info = {
+            "pid": 12345,
+            "ppid": 1,
+            "cmdline": ["node", "symbols", "run", "tsserver"],
+            "uids": MagicMock(real=99999),  # Different user
+        }
+
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            killed = mgr.reap_orphaned_backends()
+
+        assert killed == []
+        mock_proc.kill.assert_not_called()
+
+    def test_skips_non_matching_cmdline(self) -> None:
+        """Processes that don't match any orphan pattern are left alone."""
+        mgr = ProcessGroupManager()
+        mock_proc = MagicMock()
+        mock_proc.info = {
+            "pid": 12345,
+            "ppid": 1,
+            "cmdline": ["python", "my_important_server.py"],
+            "uids": MagicMock(real=os.getuid()),
+        }
+
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            killed = mgr.reap_orphaned_backends()
+
+        assert killed == []
+        mock_proc.kill.assert_not_called()
+
+    @pytest.mark.adversarial
+    def test_handles_psutil_errors_gracefully(self) -> None:
+        """NoSuchProcess and AccessDenied during iteration don't crash."""
+        import psutil
+
+        mgr = ProcessGroupManager()
+        mock_proc = MagicMock()
+        mock_proc.info = {
+            "pid": 12345,
+            "ppid": 1,
+            "cmdline": ["node", "symbols", "run", "tsserver"],
+            "uids": MagicMock(real=os.getuid()),
+        }
+        mock_proc.kill.side_effect = psutil.NoSuchProcess(12345)
+
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            killed = mgr.reap_orphaned_backends()
+
+        # Process disappeared before kill — no crash, not counted as killed
+        assert killed == []
+
+    def test_proc_fallback_when_psutil_missing(self) -> None:
+        """Falls back to /proc scan when psutil is not installed."""
+        mgr = ProcessGroupManager()
+        with patch.dict("sys.modules", {"psutil": None}):
+            with patch.object(
+                mgr, "_reap_orphans_proc", return_value=[111, 222],
+            ) as mock_fallback:
+                killed = mgr.reap_orphaned_backends()
+
+        mock_fallback.assert_called_once()
+        assert killed == [111, 222]
+
+
 class TestMonitorPgroupIntegration:
-    """Test that ResourceMonitor calls pgroup.cleanup_orphans()."""
+    """Test that ResourceMonitor calls pgroup cleanup methods."""
 
     @pytest.mark.asyncio
     async def test_monitor_calls_cleanup_orphans(self) -> None:
@@ -260,6 +365,7 @@ class TestMonitorPgroupIntegration:
 
         mock_pgroup = MagicMock()
         mock_pgroup.cleanup_orphans.return_value = []
+        mock_pgroup.reap_orphaned_backends.return_value = []
 
         monitor = ResourceMonitor(
             config=ResourceLimitConfig(),
@@ -270,3 +376,22 @@ class TestMonitorPgroupIntegration:
         await monitor._evaluate(snapshot)
 
         mock_pgroup.cleanup_orphans.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_monitor_calls_reap_orphaned_backends(self) -> None:
+        from mozart.daemon.config import ResourceLimitConfig
+        from mozart.daemon.monitor import ResourceMonitor
+
+        mock_pgroup = MagicMock()
+        mock_pgroup.cleanup_orphans.return_value = []
+        mock_pgroup.reap_orphaned_backends.return_value = [12345]
+
+        monitor = ResourceMonitor(
+            config=ResourceLimitConfig(),
+            pgroup=mock_pgroup,
+        )
+
+        snapshot = await monitor.check_now()
+        await monitor._evaluate(snapshot)
+
+        mock_pgroup.reap_orphaned_backends.assert_called_once()

@@ -326,6 +326,12 @@ class ClaudeCliBackend(Backend):
         Returns an ExecutionResult indicating timeout failure.
         """
         escalated_to_kill = False
+        pid = process.pid
+        # Get PGID before process exits (may become unavailable after)
+        try:
+            pgid = os.getpgid(pid)
+        except (OSError, ProcessLookupError):
+            pgid = None
         try:
             process.terminate()
         except ProcessLookupError:
@@ -335,6 +341,13 @@ class ClaudeCliBackend(Backend):
                 await asyncio.wait_for(process.wait(), timeout=GRACEFUL_TERMINATION_TIMEOUT)
             except TimeoutError:
                 escalated_to_kill = True
+                # Kill entire process group — not just main process.
+                # MCP/LSP child servers survive if only the main process is killed.
+                if pgid is not None:
+                    try:
+                        os.killpg(pgid, signal.SIGKILL)
+                    except (OSError, ProcessLookupError):
+                        pass
                 try:
                     process.kill()
                 except ProcessLookupError:
@@ -782,11 +795,22 @@ class ClaudeCliBackend(Backend):
                 pid=pid,
                 timeout_seconds=PROCESS_EXIT_TIMEOUT,
             )
+            # Stage 1: SIGTERM the entire process group (graceful)
             try:
-                os.killpg(os.getpgid(pid), signal.SIGTERM)
-                await asyncio.sleep(0.5)
+                pgid = os.getpgid(pid)
+                os.killpg(pgid, signal.SIGTERM)
+                await asyncio.sleep(1.0)
             except (OSError, ProcessLookupError):
-                pass
+                pgid = None
+
+            # Stage 2: SIGKILL the entire process group (force)
+            # MCP servers / LSP servers often ignore SIGTERM — escalate to
+            # SIGKILL on the full group, not just the main process.
+            if pgid is not None:
+                try:
+                    os.killpg(pgid, signal.SIGKILL)
+                except (OSError, ProcessLookupError):
+                    pass
             try:
                 process.kill()
             except ProcessLookupError:
@@ -850,11 +874,20 @@ class ClaudeCliBackend(Backend):
                 message="Cancellation received, killing process group",
                 pid=pid,
             )
+            # Stage 1: SIGTERM for graceful shutdown
             try:
-                os.killpg(os.getpgid(pid), signal.SIGTERM)
+                pgid = os.getpgid(pid)
+                os.killpg(pgid, signal.SIGTERM)
                 await asyncio.sleep(0.5)
             except (OSError, ProcessLookupError):
-                pass
+                pgid = None
+            # Stage 2: SIGKILL entire process group — MCP/LSP servers
+            # often ignore SIGTERM and leak if only the main process is killed.
+            if pgid is not None:
+                try:
+                    os.killpg(pgid, signal.SIGKILL)
+                except (OSError, ProcessLookupError):
+                    pass
             try:
                 process.kill()
             except ProcessLookupError:

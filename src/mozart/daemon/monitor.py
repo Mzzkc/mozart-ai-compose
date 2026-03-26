@@ -309,6 +309,11 @@ class ResourceMonitor:
         # Periodic orphan cleanup via process group manager
         if self._pgroup is not None:
             self._pgroup.cleanup_orphans()
+            # System-wide scan for orphaned backend children (LSP servers,
+            # MCP servers, etc.) that escaped the daemon's process tree.
+            # These are processes reparented to init after their parent
+            # (Claude CLI) exited without cleaning them up.
+            self._pgroup.reap_orphaned_backends()
 
         # Prune stale rate limit events to prevent unbounded memory growth.
         # Circuit breaker: after 3 consecutive failures, disable pruning
