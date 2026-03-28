@@ -93,7 +93,8 @@ class GlobalLearningStoreBase:
     # v12: Renamed first_attempt_success → success_without_retry in executions
     # v13: Repair unapplied pattern priorities crushed by frequency factor
     # v14: Added active (soft delete), content_hash (dedup), instrument_name (scoping)
-    SCHEMA_VERSION = 14
+    # v15: Recreate pattern_applications without FK constraints (#129)
+    SCHEMA_VERSION = 15
 
     # Expected columns for tables that may need migration
     # Format: {table_name: [(column_name, column_definition), ...]}
@@ -216,7 +217,7 @@ class GlobalLearningStoreBase:
         Example::
 
             with store.batch_connection():
-                patterns = store.get_patterns(min_priority=0.5)
+                patterns = store.get_patterns(min_priority=0.01)
                 for p in patterns:
                     store.update_trust_score(p.pattern_id, ...)
 
@@ -273,6 +274,8 @@ class GlobalLearningStoreBase:
                 # Data migrations for specific version transitions
                 if current_version < 13:
                     self._repair_unapplied_pattern_priorities(conn)
+                if current_version < 15:
+                    self._drop_pattern_applications_fk_constraints(conn)
                 # Then create/update schema (creates new tables and indexes)
                 self._create_schema(conn)
 
@@ -734,8 +737,8 @@ class GlobalLearningStoreBase:
         recalculated ALL pattern priorities after every job completion,
         including patterns with zero applications. The frequency factor
         (``log(2)/log(100) ≈ 0.15``) crushed single-occurrence patterns
-        from 0.5 → ~0.075, below the default ``min_priority=0.3`` query
-        threshold. This made them invisible to the injection path, so
+        from 0.5 → ~0.075, below the old default ``min_priority=0.3`` query
+        threshold (now 0.01). This made them invisible to the injection path, so
         per-sheet feedback never fired and priorities never recovered.
 
         This one-time repair restores such patterns to 0.5 so they can
@@ -758,6 +761,93 @@ class GlobalLearningStoreBase:
         except sqlite3.OperationalError:
             # patterns table may not exist yet on fresh DBs
             pass
+
+    def _drop_pattern_applications_fk_constraints(
+        self, conn: sqlite3.Connection,
+    ) -> None:
+        """Recreate pattern_applications without FOREIGN KEY constraints.
+
+        Issue #129: Legacy databases created pattern_applications with
+        ``REFERENCES patterns(id)`` and ``REFERENCES executions(id)``.
+        The code no longer defines these FK constraints (since they cause
+        IntegrityErrors when pattern IDs from local stores or synthetic
+        execution IDs are recorded), but ``CREATE TABLE IF NOT EXISTS``
+        does not alter existing tables.
+
+        This migration recreates the table without FK constraints,
+        preserving all existing data. SQLite does not support
+        ``ALTER TABLE ... DROP CONSTRAINT``, so we must copy-and-swap.
+        """
+        try:
+            # Check if the table has FK constraints
+            fk_list = conn.execute(
+                "PRAGMA foreign_key_list(pattern_applications)"
+            ).fetchall()
+            if not fk_list:
+                return  # No FK constraints — nothing to do
+
+            self._logger.info(
+                "migrating_pattern_applications_drop_fk",
+                fk_count=len(fk_list),
+            )
+
+            # Disable FK enforcement during migration
+            conn.execute("PRAGMA foreign_keys=OFF")
+
+            # Copy data to temp table
+            conn.execute("""
+                CREATE TABLE pattern_applications_new (
+                    id TEXT PRIMARY KEY,
+                    pattern_id TEXT,
+                    execution_id TEXT,
+                    applied_at TIMESTAMP,
+                    pattern_led_to_success BOOLEAN,
+                    retry_count_before INTEGER,
+                    retry_count_after INTEGER,
+                    grounding_confidence REAL
+                )
+            """)
+            conn.execute("""
+                INSERT INTO pattern_applications_new
+                SELECT id, pattern_id, execution_id, applied_at,
+                       pattern_led_to_success, retry_count_before,
+                       retry_count_after, grounding_confidence
+                FROM pattern_applications
+            """)
+
+            # Swap tables
+            conn.execute("DROP TABLE pattern_applications")
+            conn.execute(
+                "ALTER TABLE pattern_applications_new "
+                "RENAME TO pattern_applications"
+            )
+
+            # Recreate indexes
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_app_pattern "
+                "ON pattern_applications(pattern_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_app_execution "
+                "ON pattern_applications(execution_id)"
+            )
+
+            # Re-enable FK enforcement
+            conn.execute("PRAGMA foreign_keys=ON")
+
+            row_count = conn.execute(
+                "SELECT COUNT(*) as cnt FROM pattern_applications"
+            ).fetchone()
+            self._logger.info(
+                "migrated_pattern_applications_drop_fk",
+                rows_preserved=row_count["cnt"] if row_count else 0,
+            )
+
+        except sqlite3.OperationalError as e:
+            # Table might not exist yet on fresh DBs
+            if "no such table" in str(e).lower():
+                return
+            raise
 
     @staticmethod
     def hash_workspace(workspace_path: Path) -> str:

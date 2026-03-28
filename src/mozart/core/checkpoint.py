@@ -523,11 +523,19 @@ class SheetState(BaseModel):
         Stores the last `max_bytes` of each output stream. Sets output_truncated
         to True if either stream was larger than the limit.
 
+        Credential scanning (F-003): Before storing, both streams are scanned
+        for API key patterns (sk-ant-*, AKIA*, AIzaSy*, Bearer tokens) and
+        matches are replaced with [REDACTED_*] placeholders. This prevents
+        leaked credentials from propagating to learning store, dashboard,
+        diagnostics, and MCP resources.
+
         Args:
             stdout: Full stdout string from execution.
             stderr: Full stderr string from execution.
             max_bytes: Maximum bytes to capture per stream (default 10KB).
         """
+        from mozart.utils.credential_scanner import redact_credentials
+
         # Convert to bytes to measure actual size, then slice
         stdout_bytes = stdout.encode("utf-8", errors="replace")
         stderr_bytes = stderr.encode("utf-8", errors="replace")
@@ -549,6 +557,10 @@ class SheetState(BaseModel):
             )
         else:
             self.stderr_tail = stderr if stderr else None
+
+        # Scan and redact credential patterns before storage (F-003)
+        self.stdout_tail = redact_credentials(self.stdout_tail)
+        self.stderr_tail = redact_credentials(self.stderr_tail)
 
         self.output_truncated = stdout_truncated or stderr_truncated
 

@@ -84,6 +84,18 @@ def estimate_tokens(text: Any) -> int:
     Accepted types: ``str``, ``dict``, ``list``, ``None``. Other types are
     coerced via ``str()``.
 
+    .. warning:: CJK / Non-Latin Text Underestimation
+
+       The ``_CHARS_PER_TOKEN = 3.5`` ratio is calibrated for English text.
+       CJK characters (Chinese, Japanese, Korean) typically tokenize to
+       approximately 1 token per character, meaning this function
+       underestimates CJK token counts by 3.5-7x. For example, 600 CJK
+       characters produce ~172 estimated tokens but consume 600-1200 actual
+       tokens. This can cause context window overflow for non-English content.
+
+       Fix planned: InstrumentProfile.ModelCapacity will provide per-model
+       tokenizers or script-aware estimation ratios.
+
     Args:
         text: Input to estimate. Strings are measured directly. Dicts and lists
             are serialized to JSON. None returns 0.

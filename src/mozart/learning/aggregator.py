@@ -204,8 +204,8 @@ class PatternAggregator:
         Patterns with zero applications (never tested via the per-sheet
         feedback path) keep their initial priority. The frequency factor
         in calculate_priority() crushes single-occurrence patterns to
-        ~0.075, which falls below the default min_priority=0.3 query
-        threshold and prevents them from ever being injected. By skipping
+        ~0.075, which fell below the old default min_priority=0.3 query
+        threshold (now 0.01) and prevented them from ever being injected. By skipping
         unapplied patterns, they retain their initial 0.5 priority until
         the system has real feedback data to recalculate from.
         """

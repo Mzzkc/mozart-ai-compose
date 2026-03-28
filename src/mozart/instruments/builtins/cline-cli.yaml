@@ -1,0 +1,46 @@
+# Cline — Autonomous coding agent with structured exit codes
+#
+# Open source (Apache 2.0). Supports multiple LLM providers via
+# BYOK (Bring Your Own Key). JSONL output with say-event completion.
+# Prompt is a positional argument.
+#
+# Auth: Provider-specific API keys configured in Cline settings.
+
+name: cline-cli
+display_name: "Cline"
+description: "Cline CLI agent with structured exit codes"
+kind: cli
+
+capabilities:
+  - tool_use
+  - file_editing
+  - shell_access
+  - mcp
+  - structured_output
+  - thinking
+  - session_resume
+
+default_timeout_seconds: 1800
+
+cli:
+  command:
+    executable: cline
+    prompt_flag: null  # positional argument
+    model_flag: "-m"
+    auto_approve_flag: "--yolo"
+    output_format_flag: "--json"
+    output_format_value: null  # boolean flag
+    timeout_flag: "--timeout"
+  output:
+    format: jsonl
+    completion_event_type: "say"
+    completion_event_filter:
+      say: "completion_result"
+  errors:
+    success_exit_codes: [0]
+    rate_limit_patterns:
+      - "rate.?limit"
+      - "api_req_failed"
+    auth_error_patterns:
+      - "authentication"
+      - "invalid.?api"

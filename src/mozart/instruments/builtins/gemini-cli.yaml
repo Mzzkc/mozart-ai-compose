@@ -1,0 +1,58 @@
+# Gemini CLI — Google's Gemini coding agent
+#
+# Open source (Apache 2.0). Tool use, file editing, shell access,
+# vision, and structured output. Uses --yolo for auto-approval.
+#
+# Auth: Requires GOOGLE_API_KEY or gcloud auth.
+
+name: gemini-cli
+display_name: "Gemini CLI"
+description: "Google's Gemini CLI with tool use and vision"
+kind: cli
+
+capabilities:
+  - tool_use
+  - file_editing
+  - shell_access
+  - vision
+  - structured_output
+
+default_model: gemini-2.5-pro
+default_timeout_seconds: 1800
+
+models:
+  - name: gemini-2.5-pro
+    context_window: 1000000
+    cost_per_1k_input: 0.00125
+    cost_per_1k_output: 0.005
+    max_output_tokens: 65536
+  - name: gemini-2.5-flash
+    context_window: 1000000
+    cost_per_1k_input: 0.00015
+    cost_per_1k_output: 0.0006
+    max_output_tokens: 65536
+
+cli:
+  command:
+    executable: gemini
+    prompt_flag: "-p"
+    model_flag: "-m"
+    auto_approve_flag: "--yolo"
+    output_format_flag: "--output-format"
+    output_format_value: "json"
+  output:
+    format: json
+    result_path: "response"
+    error_path: "error.message"
+    input_tokens_path: "stats.models.*.tokens.prompt"
+    output_tokens_path: "stats.models.*.tokens.candidates"
+  errors:
+    rate_limit_patterns:
+      - "rate.?limit"
+      - "quota.?exceeded"
+      - "429"
+      - "RESOURCE_EXHAUSTED"
+    auth_error_patterns:
+      - "authenticat"
+      - "unauthorized"
+      - "API key"

@@ -72,7 +72,7 @@ class PatternQueryMixin:
     def get_patterns(
         self,
         pattern_type: str | None = None,
-        min_priority: float = 0.3,
+        min_priority: float = 0.01,
         limit: int = 20,
         context_tags: list[str] | None = None,
         quarantine_status: QuarantineStatus | None = None,
