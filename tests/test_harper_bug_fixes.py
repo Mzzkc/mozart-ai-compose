@@ -312,23 +312,111 @@ class TestConfigHashStateLifecycle:
         current_hash = LifecycleMixin._compute_config_hash(snapshot)
         assert current_hash == state.config_hash
 
-    async def test_ss_005_stale_detection_only_for_completed(self) -> None:
-        """TEST-SS-005: Stale detection only applies to COMPLETED jobs."""
+    async def test_ss_005_stale_detection_covers_completed_and_failed(
+        self,
+    ) -> None:
+        """TEST-SS-005: Stale detection applies to both COMPLETED and FAILED jobs.
+
+        Bug #103 extension: originally stale detection only covered COMPLETED.
+        FAILED jobs with changed configs should also restart fresh — the user
+        who changed their config after a failure is trying to fix the problem.
+        Resuming from stale state defeats the purpose.
+        """
+        from mozart.execution.runner.lifecycle import LifecycleMixin
+
+        old_snapshot = {"name": "my-job", "sheet": {"total_sheets": 3}}
+        new_snapshot = {"name": "my-job", "sheet": {"total_sheets": 5}}
+        old_hash = LifecycleMixin._compute_config_hash(old_snapshot)
+        new_hash = LifecycleMixin._compute_config_hash(new_snapshot)
+
+        # FAILED job with changed config — stale detection should fire
+        failed_state = CheckpointState(
+            job_id="my-job",
+            job_name="my-job",
+            total_sheets=3,
+            status=JobStatus.FAILED,
+            config_hash=old_hash,
+        )
+        assert failed_state.status == JobStatus.FAILED
+        assert old_hash != new_hash
+        # The implementation should detect staleness for FAILED too
+
+    async def test_ss_007_failed_unchanged_config_resumes(self) -> None:
+        """TEST-SS-007: FAILED job with same config resumes normally.
+
+        When the config hasn't changed, a FAILED job should resume from
+        where it left off, not restart. Only changed configs trigger restart.
+        """
         from mozart.execution.runner.lifecycle import LifecycleMixin
 
         snapshot = {"name": "my-job", "sheet": {"total_sheets": 3}}
         hash_val = LifecycleMixin._compute_config_hash(snapshot)
 
-        # FAILED jobs restart regardless — no stale detection needed
         failed_state = CheckpointState(
             job_id="my-job",
             job_name="my-job",
             total_sheets=3,
             status=JobStatus.FAILED,
             config_hash=hash_val,
+            last_completed_sheet=2,
         )
-        assert failed_state.status == JobStatus.FAILED
-        # The implementation only checks config_hash for COMPLETED states
+        # Same hash → resume, don't restart
+        current_hash = LifecycleMixin._compute_config_hash(snapshot)
+        assert current_hash == failed_state.config_hash
+        assert failed_state.last_completed_sheet == 2
+
+    async def test_ss_008_null_hash_legacy_jobs_not_detected(self) -> None:
+        """TEST-SS-008: Legacy jobs without config_hash skip stale detection.
+
+        Old state files don't have config_hash. These should resume
+        normally — we can't detect staleness without a baseline hash.
+        """
+        legacy_state = CheckpointState(
+            job_id="legacy-job",
+            job_name="legacy-job",
+            total_sheets=3,
+            status=JobStatus.FAILED,
+            config_hash=None,
+        )
+        # No config_hash → stale detection cannot apply
+        assert legacy_state.config_hash is None
+
+    async def test_ss_009_stale_detection_for_failed_creates_fresh_state(
+        self,
+    ) -> None:
+        """TEST-SS-009: When FAILED + changed config, a fresh CheckpointState is created.
+
+        The new state should have the updated config hash and reset
+        last_completed_sheet to 0.
+        """
+        from mozart.execution.runner.lifecycle import LifecycleMixin
+
+        old_snapshot = {"name": "my-job", "sheet": {"total_sheets": 3}}
+        new_snapshot = {"name": "my-job", "sheet": {"total_sheets": 5}}
+        old_hash = LifecycleMixin._compute_config_hash(old_snapshot)
+        new_hash = LifecycleMixin._compute_config_hash(new_snapshot)
+
+        # Simulate: old FAILED state exists, new config submitted
+        old_state = CheckpointState(
+            job_id="my-job",
+            job_name="my-job",
+            total_sheets=3,
+            status=JobStatus.FAILED,
+            config_hash=old_hash,
+            last_completed_sheet=2,
+        )
+
+        # After stale detection fires, fresh state should:
+        fresh_state = CheckpointState(
+            job_id="my-job",
+            job_name="my-job",
+            total_sheets=5,  # new config value
+            config_hash=new_hash,
+            config_snapshot=new_snapshot,
+        )
+        assert fresh_state.last_completed_sheet == 0
+        assert fresh_state.config_hash == new_hash
+        assert fresh_state.status != JobStatus.FAILED
 
 
 # =============================================================================

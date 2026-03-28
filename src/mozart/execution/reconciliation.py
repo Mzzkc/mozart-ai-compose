@@ -77,6 +77,9 @@ CONFIG_STATE_MAPPING: dict[str, list[str]] = {
     "notifications": [],
     "on_success": [],
     "concert": [],
+    # Instrument plugin system (v1) — runner recreates backend from profile
+    "instrument": [],
+    "instrument_config": [],
 }
 
 

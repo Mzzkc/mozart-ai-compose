@@ -433,10 +433,13 @@ class LifecycleMixin:
                             reason="permission denied",
                         )
 
-            # Config hash stale detection for COMPLETED jobs (#103).
-            # If the score changed since the last run, a COMPLETED state
-            # is stale and should be restarted, not reused.
-            if state.status == JobStatus.COMPLETED and state.config_hash:
+            # Config hash stale detection for terminal jobs (#103).
+            # If the score changed since the last run, a terminal state
+            # (COMPLETED or FAILED) is stale and should be restarted.
+            # FAILED + changed config: the user modified the score to fix
+            # the problem — resuming from stale state defeats the purpose.
+            _stale_handled = False
+            if state.status in (JobStatus.COMPLETED, JobStatus.FAILED) and state.config_hash:
                 config_snapshot = self.config.model_dump(mode="json")
                 current_hash = self._compute_config_hash(config_snapshot)
                 if current_hash != state.config_hash:
@@ -445,6 +448,7 @@ class LifecycleMixin:
                         job_id=job_id,
                         old_hash=state.config_hash[:12],
                         new_hash=current_hash[:12],
+                        previous_status=state.status.value,
                     )
                     self.console.print(
                         "[yellow]Score has changed since last run — "
@@ -459,12 +463,16 @@ class LifecycleMixin:
                         config_hash=current_hash,
                     )
                     await self.state_backend.save(state)
-                else:
+                    _stale_handled = True
+                elif state.status == JobStatus.COMPLETED:
                     self.console.print(
                         "[green]Job already completed with same config — "
                         "skipping re-execution[/green]"
                     )
-            else:
+                    _stale_handled = True
+                # FAILED + same config: _stale_handled stays False → resume
+
+            if not _stale_handled:
                 # Reset rate limit counters on resume (Bug #100)
                 if state.status == JobStatus.PAUSED:
                     state.rate_limit_waits = 0

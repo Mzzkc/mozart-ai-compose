@@ -457,6 +457,23 @@ class JobConfig(BaseModel):
     workspace: Path = Field(default=Path("./workspace"), description="Output directory")
 
     backend: BackendConfig = Field(default_factory=BackendConfig)
+
+    # Instrument plugin system (v1 — coexists with backend:)
+    instrument: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Name of a registered instrument profile, e.g. 'gemini-cli'. "
+        "Resolved to an InstrumentProfile at job submission. "
+        "Mutually exclusive with backend.type (non-default). "
+        "When omitted, the backend: field determines execution.",
+    )
+    instrument_config: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Score-level overrides for the resolved instrument's defaults. "
+        "Flat key-value pairs: {model: gemini-2.5-flash, timeout_seconds: 600}. "
+        "Only meaningful when instrument: is set.",
+    )
+
     sheet: SheetConfig
     prompt: PromptConfig
     spec: SpecCorpusConfig = Field(
@@ -557,6 +574,30 @@ class JobConfig(BaseModel):
         This eliminates redundant .resolve() calls scattered across consumers.
         """
         self.workspace = self.workspace.resolve()
+        return self
+
+    @model_validator(mode="after")
+    def _validate_instrument_backend_coexistence(self) -> JobConfig:
+        """Validate mutual exclusion between instrument: and backend.type.
+
+        Per the instrument plugin system design spec:
+        - instrument: and backend: are two ways to specify execution
+        - If both present (backend.type non-default) → validation error
+        - If only backend: → works exactly as today
+        - If only instrument: → resolves via profile registry at runtime
+        - If neither → defaults to claude_cli
+
+        The backend: field always exists with defaults. The conflict is
+        only when the user explicitly sets backend.type to a non-default
+        value while also setting instrument:.
+        """
+        if self.instrument is not None and self.backend.type != "claude_cli":
+            raise ValueError(
+                f"Cannot specify both 'instrument: {self.instrument}' and "
+                f"'backend.type: {self.backend.type}'. Use instrument: for "
+                "config-driven instruments, or backend: for native backends. "
+                "Not both."
+            )
         return self
 
     @model_validator(mode="after")
