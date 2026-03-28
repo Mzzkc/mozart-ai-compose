@@ -70,6 +70,11 @@ class PatternSuccessFactorsMixin(_SuccessFactorsBase):
         """
         pattern = self.get_pattern_by_id(pattern_id)
         if not pattern:
+            _logger.warning(
+                "update_success_factors_skipped",
+                pattern_id=pattern_id,
+                reason="pattern_not_found",
+            )
             return None
 
         now = datetime.now()

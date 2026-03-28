@@ -407,6 +407,10 @@ class TestHeaderPanel:
             anomaly_count=3,
         )
         assert panel._anomaly_count == 3
+        # Verify the rendered content includes anomaly text.
+        # Static.update() stores content via name-mangled __content attribute.
+        content = str(getattr(panel, "_Static__content", ""))
+        assert "ANOMALIES" in content or "anomal" in content.lower()
 
 
 class TestHeaderHelpers:
@@ -415,19 +419,21 @@ class TestHeaderHelpers:
     def test_bar_zero(self) -> None:
         from mozart.tui.panels.header import _bar
         result = _bar(0.0, 4)
-        assert result == "\u2591" * 4
+        assert "[bold] 0.0%[/]" in result
+        assert "\\[    ]" in result
 
     def test_bar_full(self) -> None:
         from mozart.tui.panels.header import _bar
         result = _bar(100.0, 4)
-        assert result == "\u2588" * 4
+        assert "[bold]100.0%[/]" in result
+        assert "||||" in result
 
     def test_bar_half(self) -> None:
         from mozart.tui.panels.header import _bar
         result = _bar(50.0, 10)
-        assert "\u2588" in result
-        assert "\u2591" in result
-        assert len(result) == 10
+        assert "|||||" in result
+        assert "     " in result
+        assert "[bold]50.0%[/]" in result
 
     def test_pressure_color_critical(self) -> None:
         from mozart.tui.panels.header import _pressure_color
@@ -656,22 +662,23 @@ class TestDetailPanel:
     """Tests for the detail drill-down panel."""
 
     def test_show_empty(self) -> None:
-        """show_empty doesn't crash."""
+        """show_empty doesn't crash before compose."""
         from mozart.tui.panels.detail import DetailPanel
 
         panel = DetailPanel()
-        # Before compose, _content is None — should be safe
+        # Before compose, _content is None — _set_content is a no-op
         panel.show_empty()
+        assert panel._content is None
 
     def test_show_process(self) -> None:
-        """show_process stores process details."""
+        """show_process is safe before compose (_content is None)."""
         from mozart.tui.panels.detail import DetailPanel
 
         proc = _make_process(pid=42, cpu_percent=88.0, rss_mb=1024.0)
         panel = DetailPanel()
-        # Before compose, _content is None — show_process writes to _content
+        # Before compose, _content is None — _set_content is a no-op
         panel.show_process(proc)
-        # No crash is the test — _content is None before compose
+        assert panel._content is None
 
     def test_show_anomaly(self) -> None:
         """show_anomaly handles anomaly data without crashing."""

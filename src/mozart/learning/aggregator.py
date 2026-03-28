@@ -80,6 +80,7 @@ class PatternAggregator:
         outcomes: list[SheetOutcome],
         workspace_path: Path,
         model: str | None = None,
+        instrument_name: str | None = None,
     ) -> AggregationResult:
         """Aggregate a batch of outcomes into the global store.
 
@@ -89,10 +90,12 @@ class PatternAggregator:
             outcomes: List of sheet outcomes from the completed job.
             workspace_path: Path to the workspace for hashing.
             model: Optional model name used for execution.
+            instrument_name: Optional instrument/backend type for pattern scoping.
 
         Returns:
             AggregationResult with statistics about the aggregation.
         """
+        self._instrument_name = instrument_name
         result = AggregationResult()
 
         if not outcomes:
@@ -160,6 +163,7 @@ class PatternAggregator:
                 description=detected.description,
                 context_tags=detected.context_tags,
                 suggested_action=detected.to_prompt_guidance(),
+                instrument_name=getattr(self, "_instrument_name", None),
             )
             return pattern_id
         except Exception as e:

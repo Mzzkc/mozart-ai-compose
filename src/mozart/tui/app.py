@@ -11,6 +11,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any
 
@@ -59,7 +60,7 @@ class MonitorApp(App[None]):
     }
 
     #header-panel {
-        height: 2;
+        height: 3;
         dock: top;
     }
 
@@ -102,7 +103,7 @@ class MonitorApp(App[None]):
         Binding("enter", "drill_down", "Detail", show=True),
         Binding("s", "cycle_sort", "Sort", show=True),
         Binding("f", "filter_job", "Filter", show=True),
-        Binding("l", "show_learning", "Learning", show=True),
+        Binding("x", "cancel_job", "Kill", show=True),
     ]
 
     def __init__(
@@ -117,6 +118,7 @@ class MonitorApp(App[None]):
         self._latest_snapshot: SystemSnapshot | None = None
         self._conductor_up: bool = False
         self._mount_time: float = 0.0
+        self._stream_task: asyncio.Task[None] | None = None
 
     def compose(self) -> ComposeResult:
         """Build the widget tree."""
@@ -130,15 +132,71 @@ class MonitorApp(App[None]):
         yield DetailPanel(id="detail-panel")
         yield Footer()
 
-    def on_mount(self) -> None:
-        """Start the data refresh timer on mount."""
+    async def on_mount(self) -> None:
+        """Start the event stream listener on mount."""
         self._mount_time = time.monotonic()
-        self.set_interval(self._refresh_interval, self.refresh_data)
-        # Initial refresh
-        self.call_later(self.refresh_data)
+        # Initial data load
+        await self.refresh_data()
+
+        # Start background event stream listener
+        self._stream_task = asyncio.create_task(
+            self._run_event_stream(), name="tui-event-stream"
+        )
+
         # Show empty detail on start
         detail = self.query_one("#detail-panel", DetailPanel)
         detail.show_empty()
+
+    async def on_unmount(self) -> None:
+        """Clean up the stream task."""
+        if self._stream_task is not None:
+            self._stream_task.cancel()
+            try:
+                await self._stream_task
+            except asyncio.CancelledError:
+                pass
+
+    async def _run_event_stream(self) -> None:
+        """Background task that listens for EventBus events via IPC."""
+        try:
+            async for event in self._reader.stream_events():
+                await self._handle_event(event)
+        except Exception:
+            _logger.debug("event_stream_failed", exc_info=True)
+            # Retry after delay
+            await asyncio.sleep(5.0)
+            self._stream_task = asyncio.create_task(self._run_event_stream())
+
+    async def _handle_event(self, event: dict[str, Any]) -> None:
+        """Dispatch an EventBus event to the appropriate panel updates."""
+        evt_type = event.get("event", "")
+
+        if evt_type == "monitor.snapshot":
+            # Real-time system metrics
+            snapshot_data = event.get("data")
+            if snapshot_data:
+                snapshot = SystemSnapshot(**snapshot_data)
+                self._latest_snapshot = snapshot
+
+                # Update header
+                header = self.query_one("#header-panel", HeaderPanel)
+                header.update_data(
+                    snapshot=snapshot,
+                    conductor_up=True,
+                    uptime_seconds=snapshot.conductor_uptime_seconds,
+                )
+
+                # Update jobs panel
+                jobs = self.query_one("#jobs-panel", JobsPanel)
+                jobs.update_data(snapshot)
+
+        elif evt_type.startswith(("sheet.", "monitor.anomaly", "observer.")):
+            # Lifecycle or anomaly events -> update timeline incrementally
+            timeline = self.query_one("#timeline-panel", TimelinePanel)
+            timeline.add_event(event)
+
+            if evt_type in ("sheet.started", "sheet.completed", "sheet.failed"):
+                await self.refresh_data()
 
     async def refresh_data(self) -> None:
         """Fetch latest data from the reader and update all panels."""
@@ -155,13 +213,10 @@ class MonitorApp(App[None]):
             else:
                 self._conductor_up = snapshot is not None
 
-            # Use conductor uptime from the snapshot (actual daemon
-            # lifetime) instead of TUI session time.
             uptime = 0.0
             if snapshot is not None:
                 uptime = snapshot.conductor_uptime_seconds
 
-            # Update header
             header = self.query_one("#header-panel", HeaderPanel)
             header.update_data(
                 snapshot=snapshot,
@@ -169,19 +224,17 @@ class MonitorApp(App[None]):
                 uptime_seconds=uptime,
             )
 
-            # Update timeline with recent events
-            since = time.time() - 300.0  # last 5 minutes
+            # Update timeline with recent events (only on initial load/refresh)
+            # Normal updates come through the event stream
+            since = time.time() - 300.0
             events = await self._reader.get_events(since, limit=50)
-
             observer_events = await self._reader.get_observer_events(limit=50)
 
-            # Filter file events from observer data for the jobs panel
             observer_file_events = [
                 e for e in observer_events
                 if e.get("event", "").startswith("observer.file_")
             ]
 
-            # Update jobs panel with snapshot and observer file events
             jobs = self.query_one("#jobs-panel", JobsPanel)
             jobs.update_data(snapshot, observer_file_events=observer_file_events)
 
@@ -212,16 +265,43 @@ class MonitorApp(App[None]):
         self._update_detail()
 
     def action_cycle_sort(self) -> None:
-        """Cycle sort order (placeholder for future implementation)."""
-        self.notify("Sort: CPU \u2192 MEM \u2192 AGE (not yet implemented)")
+        """Cycle sort order: ID -> CPU -> MEM."""
+        jobs = self.query_one("#jobs-panel", JobsPanel)
+        current = jobs.sort_key
+        if current == "job_id":
+            new_key = "cpu"
+        elif current == "cpu":
+            new_key = "mem"
+        else:
+            new_key = "job_id"
+
+        jobs.sort_key = new_key
+        self.notify(f"Sorting by: {new_key.upper()}")
 
     def action_filter_job(self) -> None:
-        """Filter by job ID (placeholder for future implementation)."""
-        self.notify("Filter by job_id (not yet implemented)")
+        """Toggle filter input."""
+        # Simple implementation for now - clear filter if present, else notify
+        jobs = self.query_one("#jobs-panel", JobsPanel)
+        if jobs.filter_query:
+            jobs.filter_query = ""
+            self.notify("Filter cleared")
+        else:
+            self.notify("Job filtering enabled (via command line for now)")
 
-    def action_show_learning(self) -> None:
-        """Show learning insights (placeholder for future implementation)."""
-        self.notify("Learning insights (not yet implemented)")
+    def action_cancel_job(self) -> None:
+        """Cancel the selected job."""
+        jobs = self.query_one("#jobs-panel", JobsPanel)
+        selected = jobs.selected_item
+        if selected and selected.get("type") == "job":
+            job_id = selected["job_id"]
+            self.notify(f"Cancelling job: {job_id}...")
+            # Use background task to avoid blocking TUI
+            if self._reader._ipc_client is not None:
+                asyncio.create_task(self._reader._ipc_client.cancel_job(job_id, ""))
+            else:
+                self.notify("Not connected to conductor", severity="error")
+        else:
+            self.notify("Select a job root node to cancel", severity="warning")
 
     def _update_detail(self) -> None:
         """Update the detail panel with the currently selected item."""

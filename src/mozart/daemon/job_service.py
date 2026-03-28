@@ -602,7 +602,11 @@ class JobService:
         Handles GracefulShutdownError (→ PAUSED), FatalError (→ FAILED),
         and notification lifecycle (start, complete/fail, close).
         """
-        from mozart.execution.runner import FatalError, GracefulShutdownError
+        from mozart.execution.runner import (
+            FatalError,
+            GracefulShutdownError,
+            RateLimitExhaustedError,
+        )
 
         _notify = self._safe_notify
 
@@ -660,6 +664,33 @@ class JobService:
 
         except GracefulShutdownError:
             self._output.job_event(job_id, "paused")
+            return self._get_or_create_summary(
+                runner, job_id, job_name, total_sheets, JobStatus.PAUSED,
+            )
+
+        except RateLimitExhaustedError as e:
+            # Rate limit exhaustion → PAUSED (not FAILED).
+            # The lifecycle mixin already saved PAUSED state; we just
+            # need to surface the right summary to the daemon.
+            self._output.log(
+                "warning",
+                f"Rate limit exhausted: {e}",
+                job_id=job_id,
+            )
+            self._output.job_event(job_id, "paused", {
+                "reason": "rate_limit_exhausted",
+                "resume_at": e.resume_after.isoformat() if e.resume_after else None,
+            })
+            if notification_manager:
+                await _notify(
+                    notification_manager,
+                    notification_manager.notify_job_failed(
+                        job_id=job_id,
+                        job_name=job_name,
+                        error_message=f"Rate limit exhausted (paused): {e}",
+                    ),
+                    "notification_failed_during_rate_limit_pause",
+                )
             return self._get_or_create_summary(
                 runner, job_id, job_name, total_sheets, JobStatus.PAUSED,
             )

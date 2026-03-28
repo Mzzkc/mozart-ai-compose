@@ -48,6 +48,8 @@ class PatternQueryProtocol(Protocol):
         exclude_quarantined: bool = ...,
         min_trust: float | None = ...,
         max_trust: float | None = ...,
+        include_inactive: bool = ...,
+        instrument_name: str | None = ...,
     ) -> list[PatternRecord]: ...
 
     def get_pattern_by_id(self, pattern_id: str) -> PatternRecord | None: ...
@@ -77,10 +79,13 @@ class PatternQueryMixin:
         exclude_quarantined: bool = False,
         min_trust: float | None = None,
         max_trust: float | None = None,
+        include_inactive: bool = False,
+        instrument_name: str | None = None,
     ) -> list[PatternRecord]:
         """Get patterns from the global store.
 
         v19 Evolution: Extended with quarantine and trust filtering options.
+        v14 (cycle 2): Extended with soft-delete and instrument filtering.
 
         Args:
             pattern_type: Optional filter by pattern type.
@@ -93,6 +98,8 @@ class PatternQueryMixin:
             exclude_quarantined: If True, exclude QUARANTINED patterns.
             min_trust: Filter patterns with trust_score >= this value.
             max_trust: Filter patterns with trust_score <= this value.
+            include_inactive: If True, include soft-deleted patterns (active=0).
+            instrument_name: Filter by instrument name. None means no filter.
 
         Returns:
             List of PatternRecord objects sorted by priority.
@@ -101,8 +108,16 @@ class PatternQueryMixin:
             wb = WhereBuilder()
             wb.add("priority_score >= ?", min_priority)
 
+            # v14: Soft-delete filter — COALESCE handles NULL for pre-v14 rows
+            if not include_inactive:
+                wb.add("COALESCE(active, 1) = 1")
+
             if pattern_type:
                 wb.add("pattern_type = ?", pattern_type)
+
+            # v14: Instrument name filter — only when explicitly provided
+            if instrument_name is not None:
+                wb.add("instrument_name = ?", instrument_name)
 
             # v19: Quarantine status filtering
             if quarantine_status is not None:
@@ -211,6 +226,10 @@ class PatternQueryMixin:
             success_factors_updated_at=datetime.fromisoformat(row["success_factors_updated_at"])
             if row["success_factors_updated_at"]
             else None,
+            # v14 (cycle 2): soft delete, content dedup, instrument scoping
+            active=bool(row["active"]) if row["active"] is not None else True,
+            content_hash=row["content_hash"],
+            instrument_name=row["instrument_name"],
         )
 
     def get_pattern_by_id(self, pattern_id: str) -> PatternRecord | None:

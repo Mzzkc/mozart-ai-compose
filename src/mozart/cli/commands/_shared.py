@@ -400,13 +400,13 @@ async def handle_job_completion(
     else:
         if not is_quiet():
             _console.print(
-                f"[yellow]Job ended with status: {state.status.value}[/yellow]"
+                f"[yellow]Score ended with status: {state.status.value}[/yellow]"
             )
             display_run_summary(summary)
         if notification_manager and state.status == JobStatus.FAILED:
             await notification_manager.notify_job_failed(
                 job_id=job_id,
                 job_name=job_name,
-                error_message=f"Job failed with status: {state.status.value}",
+                error_message=f"Score failed with status: {state.status.value}",
                 sheet_num=state.current_sheet,
             )

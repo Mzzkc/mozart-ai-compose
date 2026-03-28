@@ -77,7 +77,7 @@ async def _get_job_log_file(job_id: str, backend: StateBackend) -> Path:
     """
     state = await backend.load(job_id)
     if state is None:
-        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+        raise HTTPException(status_code=404, detail=f"Score not found: {job_id}")
 
     # Determine workspace path for log file location
     workspace = resolve_job_workspace(state, job_id)
@@ -116,7 +116,7 @@ async def _job_status_stream(
     if state is None:
         error_event = SSEEvent(
             event="error",
-            data=json.dumps({"error": f"Job not found: {job_id}"}),
+            data=json.dumps({"error": f"Score not found: {job_id}"}),
             id=f"error-{datetime.now().timestamp()}"
         )
         yield error_event.format()
@@ -383,7 +383,7 @@ async def stream_job_status(
     # Verify job exists before starting stream
     state = await backend.load(job_id)
     if state is None:
-        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+        raise HTTPException(status_code=404, detail=f"Score not found: {job_id}")
 
     return StreamingResponse(
         _job_status_stream(job_id, backend, sse_manager, poll_interval),

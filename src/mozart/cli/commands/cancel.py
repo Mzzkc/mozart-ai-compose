@@ -20,7 +20,7 @@ from ..output import console
 
 
 def cancel(
-    job_id: str = typer.Argument(..., help="Job ID to cancel"),
+    job_id: str = typer.Argument(..., help="Score ID to cancel"),
     json_output: bool = typer.Option(
         False,
         "--json",
@@ -28,11 +28,11 @@ def cancel(
         help="Output result as JSON",
     ),
 ) -> None:
-    """Cancel a running Mozart job immediately.
+    """Cancel a running Mozart score immediately.
 
-    Unlike `pause`, this does not wait for a sheet boundary. The job's
+    Unlike `pause`, this does not wait for a sheet boundary. The score's
     asyncio task is cancelled, in-progress work is rolled back, and the
-    job is marked as CANCELLED. Use `pause` for graceful stops.
+    score is marked as CANCELLED. Use `pause` for graceful stops.
 
     Examples:
         mozart cancel my-job
@@ -68,6 +68,6 @@ async def _cancel_job(job_id: str, json_output: bool) -> None:
             "success": cancelled, "job_id": job_id,
         }, indent=2))
     elif cancelled:
-        console.print(f"[green]Job '{job_id}' cancelled.[/green]")
+        console.print(f"[green]Score '{job_id}' cancelled.[/green]")
     else:
-        console.print(f"[yellow]Job '{job_id}' not found or already stopped.[/yellow]")
+        console.print(f"[yellow]Score '{job_id}' not found or already stopped.[/yellow]")

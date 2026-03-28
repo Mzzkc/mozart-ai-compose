@@ -1,0 +1,90 @@
+languages:
+  - python
+
+exclude:
+  # Archived/old workspace copies — NOT live code
+  - "workspaces/"
+  - "*-workspace/"
+  - "*-workspace-*/"
+  - "*workspace-*/"
+  - ".daemon-workspace-*/"
+  - "test-workspace-*/"
+
+  # Build/dist artifacts
+  - "build/"
+  - "dist/"
+  - "*.egg-info/"
+  - ".eggs/"
+  - "site/"
+
+  # Virtual environments
+  - ".venv/"
+  - "venv/"
+
+  # Cache/generated
+  - "__pycache__/"
+  - ".hypothesis/"
+  - "htmlcov/"
+  - "tests/temp/"
+
+  # IDE
+  - ".idea/"
+  - ".vscode/"
+
+  # Node/JS (dashboard has JS but Mozart is a Python project)
+  - "node_modules/"
+
+  # Internal scores (YAML configs, not source code)
+  - "scores-internal/"
+
+  # Generated evolution scores at repo root
+  - "mozart-*.yaml"
+
+  # Git internals
+  - ".git/"
+  - ".worktrees/"
+
+  # Coordination workspace (reference material, not live code)
+  - "coordination-workspace/"
+
+  # Flowspec's own cache
+  - ".flowspec/cache/"
+
+analysis:
+  entry_points:
+    - "src/mozart/cli/__init__.py::main"
+    - "src/mozart/daemon/manager.py::DaemonManager"
+    - "src/mozart/execution/runner/sheet.py::SheetRunner"
+    - "src/mozart/execution/runner/lifecycle.py::LifecycleManager"
+  max_call_depth: 20
+  max_type_chain: 10
+
+diagnostics:
+  enabled:
+    - data_dead_end
+    - orphaned_impl
+    - isolated_cluster
+    - contract_mismatch
+    - circular_dependency
+    - layer_violation
+    - incomplete_migration
+    - stale_reference
+    - phantom_dependency
+    - missing_reexport
+    - partial_wiring
+    - duplication
+    - asymmetric_handling
+  suppressions:
+    # Sequential DB migrations — all versions must coexist by design
+    - entity: "src/mozart/state/sqlite_backend.py::_migrate_v1"
+      diagnostic: "incomplete_migration"
+      reason: "Sequential schema migrations — v1 through v4 all run in order"
+    - entity: "src/mozart/state/sqlite_backend.py::_migrate_v2"
+      diagnostic: "incomplete_migration"
+      reason: "Sequential schema migrations — v1 through v4 all run in order"
+    - entity: "src/mozart/state/sqlite_backend.py::_migrate_v3"
+      diagnostic: "incomplete_migration"
+      reason: "Sequential schema migrations — v1 through v4 all run in order"
+    - entity: "src/mozart/state/sqlite_backend.py::_migrate_v4"
+      diagnostic: "incomplete_migration"
+      reason: "Sequential schema migrations — v1 through v4 all run in order"

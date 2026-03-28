@@ -333,7 +333,7 @@ class TestDiagnoseCommand:
             app, ["diagnose", "no-such-job", "--workspace", str(workspace)]
         )
         assert result.exit_code == 1
-        assert "Job not found" in result.stdout
+        assert "Score not found" in result.stdout
 
     def test_diagnose_nonexistent_workspace(self, tmp_path: Path) -> None:
         fake = tmp_path / "nope"
@@ -556,7 +556,7 @@ class TestErrorsCommand:
             app, ["errors", "no-job", "--workspace", str(workspace)]
         )
         assert result.exit_code == 1
-        assert "Job not found" in result.stdout
+        assert "Score not found" in result.stdout
 
 
 class TestLogsCommand:

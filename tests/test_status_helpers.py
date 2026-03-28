@@ -654,11 +654,11 @@ class TestListJobsCommand:
         )
 
     def test_list_no_jobs(self) -> None:
-        """Empty registry should show 'No active jobs' (default active-only filter)."""
+        """Empty registry should show 'No active scores' (default active-only filter)."""
         with self._mock_daemon_route([]):
             result = runner.invoke(app, ["list"])
         assert result.exit_code == 0
-        assert "No active jobs" in result.stdout
+        assert "No active scores" in result.stdout
 
     def test_list_finds_job_files(self) -> None:
         """Should display jobs from the daemon registry."""

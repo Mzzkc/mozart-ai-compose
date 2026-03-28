@@ -35,7 +35,7 @@ from ..output import console
 
 
 def recover(
-    job_id: str = typer.Argument(..., help="Job ID to recover"),
+    job_id: str = typer.Argument(..., help="Score ID to recover"),
     sheet: int | None = typer.Option(
         None,
         "--sheet",
@@ -99,7 +99,7 @@ async def _recover_job(
     try:
         routed, result = await try_daemon_route("job.recover", params)
     except JobSubmissionError as err:
-        console.print(f"[red]Job not found:[/red] {job_id}")
+        console.print(f"[red]Score not found:[/red] {job_id}")
         raise typer.Exit(1) from err
 
     state: CheckpointState | None = None
@@ -118,7 +118,7 @@ async def _recover_job(
         return
 
     if state is None:
-        console.print(f"[red]Job not found:[/red] {job_id}")
+        console.print(f"[red]Score not found:[/red] {job_id}")
         raise typer.Exit(1)
 
     # Reconstruct config from snapshot

@@ -362,11 +362,12 @@ class TestClassifyByExitCode:
         assert result.category == expected_category
         assert result.retriable is expected_retriable
 
-    def test_exit_code_none_falls_through(self, classifier: ErrorClassifier) -> None:
-        """Test exit_code=None falls through to unknown fallback."""
+    def test_exit_code_none_classified_as_transient(self, classifier: ErrorClassifier) -> None:
+        """Test exit_code=None is transient (retriable signal race)."""
         result = classifier.classify(exit_code=None)
         assert result.error_code == ErrorCode.UNKNOWN
-        assert result.category == ErrorCategory.FATAL
+        assert result.category == ErrorCategory.TRANSIENT
+        assert result.retriable is True
 
     def test_unrecognized_exit_code_falls_through(self, classifier: ErrorClassifier) -> None:
         """Test unrecognized exit code (e.g. 42) falls through to unknown fallback."""
@@ -774,10 +775,14 @@ class TestEdgeCases:
     """Edge case tests for ErrorClassifier."""
 
     def test_empty_inputs(self, classifier: ErrorClassifier) -> None:
-        """Test classify with all empty/None inputs."""
+        """Test classify with all empty/None inputs.
+
+        With bug #126 fixed, exit_code=None is classified as TRANSIENT
+        (process killed or disappeared) rather than FATAL.
+        """
         result = classifier.classify()
         assert result.error_code == ErrorCode.UNKNOWN
-        assert result.category == ErrorCategory.FATAL
+        assert result.category == ErrorCategory.TRANSIENT
 
     def test_stdout_and_stderr_combined(self, classifier: ErrorClassifier) -> None:
         """Test that both stdout and stderr are searched for patterns."""
@@ -910,13 +915,14 @@ class TestExitCodeNoneClassification126:
         result = classifier.classify(exit_code=None, exit_reason="timeout")
         assert result.category == ErrorCategory.TIMEOUT
 
-    def test_126_g_exit_code_none_no_reason_still_falls_through(
+    def test_126_g_exit_code_none_no_reason_is_transient(
         self, classifier: ErrorClassifier
     ) -> None:
-        """TEST-126-G: exit_code=None with no exit_reason is unchanged (regression gate).
+        """TEST-126-G: exit_code=None with no exit_reason → TRANSIENT (bug #126 fix).
 
-        The existing test_exit_code_none_falls_through covers exit_reason=None,
-        which should still go to the unknown fallback (FATAL).
+        Before the fix, this fell through to FATAL. After the fix,
+        exit_code=None is always TRANSIENT because process kills produce
+        None exit codes and should be retriable.
         """
         result = classifier.classify(exit_code=None, exit_reason=None)
-        assert result.category == ErrorCategory.FATAL
+        assert result.category == ErrorCategory.TRANSIENT

@@ -175,6 +175,13 @@ class MonitorReader:
                 _logger.debug("reader.observer_events_failed", exc_info=True)
         return []
 
+    async def stream_events(self) -> AsyncIterator[dict[str, Any]]:
+        """Yield EventBus events as they arrive from the daemon via IPC."""
+        await self._ensure_source()
+        if self._source == "ipc" and self._ipc_client is not None:
+            async for event in self._ipc_client.stream("daemon.monitor.stream"):
+                yield event
+
     # ------------------------------------------------------------------
     # Streaming
     # ------------------------------------------------------------------

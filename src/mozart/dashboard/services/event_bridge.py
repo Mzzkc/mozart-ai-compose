@@ -9,7 +9,7 @@ import asyncio
 import json
 import time
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 
 from mozart.core.logging import get_logger
 from mozart.daemon.ipc.client import DaemonClient
@@ -134,7 +134,7 @@ class DaemonEventBridge:
         if isinstance(result, list):
             return result
         if isinstance(result, dict):
-            return result.get("events", [])
+            return cast("list[dict[str, Any]]", result.get("events", []))
         return []
 
     def _deduplicate(

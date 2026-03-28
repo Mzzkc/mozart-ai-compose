@@ -263,7 +263,7 @@ async def delete_job(
         state = await backend.load(job_id)
 
         if state is None:
-            raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+            raise HTTPException(status_code=404, detail=f"Score not found: {job_id}")
         else:
             # Job exists but couldn't be deleted (likely running)
             raise HTTPException(
@@ -299,7 +299,7 @@ async def get_sheet_details(
     """
     state = await backend.load(job_id)
     if state is None:
-        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+        raise HTTPException(status_code=404, detail=f"Score not found: {job_id}")
 
     sheet_state = state.sheets.get(sheet_num)
     if sheet_state is None:

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import fcntl
+import json
 import os
 import signal
 import sys
@@ -31,6 +32,7 @@ if TYPE_CHECKING:
     from mozart.daemon.ipc.handler import RequestHandler
     from mozart.daemon.ipc.server import DaemonServer
     from mozart.daemon.manager import JobManager
+    from mozart.daemon.types import ObserverEvent
 
 _logger = get_logger("conductor")
 
@@ -571,9 +573,37 @@ class DaemonProcess:
             limit = params.get("limit", 50)
             return {"events": self._profiler.get_recent_events(limit=limit)}
 
+        async def handle_monitor_stream(_p: dict[str, Any], writer: asyncio.StreamWriter) -> None:
+            """Stream all EventBus events to the client as JSON-RPC notifications."""
+            queue: asyncio.Queue[ObserverEvent] = asyncio.Queue(maxsize=100)
+
+            def _on_event(event: ObserverEvent) -> None:
+                try:
+                    queue.put_nowait(event)
+                except asyncio.QueueFull:
+                    pass
+
+            sub_id = manager.event_bus.subscribe(_on_event)
+            try:
+                while True:
+                    event = await queue.get()
+                    # Wrap EventBus event in a JSON-RPC notification
+                    notification = {
+                        "jsonrpc": "2.0",
+                        "method": "monitor.event",
+                        "params": event,
+                    }
+                    writer.write(json.dumps(notification).encode() + b"\n")
+                    await writer.drain()
+            except (ConnectionResetError, BrokenPipeError, asyncio.CancelledError):
+                pass
+            finally:
+                manager.event_bus.unsubscribe(sub_id)
+
         handler.register("daemon.top", handle_top)
         handler.register("daemon.top.stream", handle_top_stream)
         handler.register("daemon.events", handle_events)
+        handler.register("daemon.monitor.stream", handle_monitor_stream)
 
         # Observer event recorder IPC — per-job behavioral events
         async def handle_observer_events(

@@ -359,7 +359,7 @@ class TestDaemonProcess:
             "daemon.status", "daemon.shutdown", "daemon.config",
             "daemon.health", "daemon.ready",
             "daemon.top", "daemon.top.stream", "daemon.events",
-            "daemon.observer_events",
+            "daemon.observer_events", "daemon.monitor.stream",
             "daemon.rate_limits", "daemon.learning.patterns",
         }
         assert registered_methods == expected

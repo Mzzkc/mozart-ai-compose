@@ -270,13 +270,13 @@ class TestJobRoutes:
                 success=False,
                 job_id="nonexistent",
                 status="failed",
-                message="Job not found: nonexistent"
+                message="Score not found: nonexistent"
             )
 
             response = client.post("/api/jobs/nonexistent/pause")
 
         assert response.status_code == 404
-        assert "Job not found" in response.json()["detail"]
+        assert "Score not found" in response.json()["detail"]
 
     def test_resume_job_success(self, client):
         """Test successful job resume."""
@@ -341,7 +341,7 @@ class TestJobRoutes:
             response = client.delete("/api/jobs/nonexistent")
 
         assert response.status_code == 404
-        assert "Job not found" in response.json()["detail"]
+        assert "Score not found" in response.json()["detail"]
 
     def test_delete_job_running(self, client, temp_state_dir):
         """Test deleting running job (should fail)."""
@@ -584,7 +584,7 @@ class TestArtifactRoutes:
             response = client.get("/api/jobs/nonexistent/artifacts")
 
         assert response.status_code == 404
-        assert "Job not found" in response.json()["detail"]
+        assert "Score not found" in response.json()["detail"]
 
     def test_list_artifacts_no_worktree(self, client):
         """Test listing artifacts for job without worktree isolation."""
@@ -718,7 +718,7 @@ class TestStreamRoutes:
             response = client.get("/api/jobs/nonexistent/stream")
 
         assert response.status_code == 404
-        assert "Job not found" in response.json()["detail"]
+        assert "Score not found" in response.json()["detail"]
 
     def test_stream_job_status_invalid_poll_interval(self, client, sample_job_state):
         """Test streaming with invalid poll interval."""

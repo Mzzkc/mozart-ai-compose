@@ -52,6 +52,9 @@ CONFIG_STATE_MAPPING: dict[str, list[str]] = {
     "circuit_breaker": [
         "circuit_breaker_history",
     ],
+    "spec": [
+        "spec_corpus_hash",
+    ],
     # Sections where runner recreation handles the reset (no checkpoint state)
     "backend": [],
     "sheet": [],

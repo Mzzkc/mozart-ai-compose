@@ -206,7 +206,7 @@ class LogFollower:
         if displayed == 0:
             console.print("[dim]No log entries match the specified filters.[/dim]")
             if self.job_id:
-                console.print(f"[dim]Job ID filter: {self.job_id}[/dim]")
+                console.print(f"[dim]Score ID filter: {self.job_id}[/dim]")
 
     def follow(self) -> None:
         """Follow log file for new entries (like tail -f)."""
@@ -262,7 +262,7 @@ class LogFollower:
 def logs(
     job_id: str | None = typer.Argument(
         None,
-        help="Job ID to filter logs for (optional, shows all if not specified)",
+        help="Score ID to filter logs for (optional, shows all if not specified)",
     ),
     workspace: Path | None = typer.Option(
         None,
@@ -302,7 +302,7 @@ def logs(
         help="Output raw JSON log entries",
     ),
 ) -> None:
-    """Show or tail log files for a job.
+    """Show or tail log files for a score.
 
     Displays log entries from Mozart log files. Supports both current log files
     and compressed rotated logs (.gz).
@@ -332,7 +332,7 @@ def logs(
         if not available_logs:
             console.print(f"[yellow]No log files found at:[/yellow] {target_log}")
             console.print(
-                "\n[dim]Hint: Logs are created when running jobs with file logging enabled.\n"
+                "\n[dim]Hint: Logs are created when running scores with file logging enabled.\n"
                 "Use --log-file or --log-format=both with mozart run to enable file logging.[/dim]"
             )
             raise typer.Exit(1)
@@ -375,7 +375,7 @@ def logs(
 
 
 def errors(
-    job_id: str = typer.Argument(..., help="Job ID to show errors for"),
+    job_id: str = typer.Argument(..., help="Score ID to show errors for"),
     sheet: int | None = typer.Option(
         None,
         "--sheet",
@@ -404,7 +404,7 @@ def errors(
         None,
         "--workspace",
         "-w",
-        help="Workspace directory to search for job state (debug override)",
+        help="Workspace directory to search for score state (debug override)",
         hidden=True,
     ),
     json_output: bool = typer.Option(
@@ -414,7 +414,7 @@ def errors(
         help="Output errors as JSON",
     ),
 ) -> None:
-    """List all errors for a job with detailed information.
+    """List all errors for a score with detailed information.
 
     Displays errors grouped by sheet, with color-coding by error type:
     - Red: Permanent errors (non-retriable, fatal)
@@ -453,9 +453,9 @@ async def _errors_job(
         routed, result = await try_daemon_route("job.errors", params)
     except JobSubmissionError as err:
         if json_output:
-            console.print(json_module.dumps({"error": f"Job not found: {job_id}"}))
+            console.print(json_module.dumps({"error": f"Score not found: {job_id}"}))
         else:
-            console.print(f"[red]Job not found:[/red] {job_id}")
+            console.print(f"[red]Score not found:[/red] {job_id}")
         raise typer.Exit(1) from err
 
     found_job: CheckpointState | None = None
@@ -473,9 +473,9 @@ async def _errors_job(
 
     if found_job is None:
         if json_output:
-            console.print(json_module.dumps({"error": f"Job not found: {job_id}"}))
+            console.print(json_module.dumps({"error": f"Score not found: {job_id}"}))
         else:
-            console.print(f"[red]Job not found:[/red] {job_id}")
+            console.print(f"[red]Score not found:[/red] {job_id}")
         raise typer.Exit(1)
 
     # Collect all errors from sheet states
@@ -559,7 +559,7 @@ async def _errors_job(
 
     # Display with Rich table
     if not all_errors:
-        console.print(f"[green]No errors found for job:[/green] {job_id}")
+        console.print(f"[green]No errors found for score:[/green] {job_id}")
         if sheet_filter is not None:
             console.print(f"[dim]Sheet filter: {sheet_filter}[/dim]")
         if error_type_filter is not None:
@@ -569,7 +569,7 @@ async def _errors_job(
         return
 
     # Build errors table
-    table = Table(title=f"Errors for Job: {job_id}")
+    table = Table(title=f"Errors for Score: {job_id}")
     table.add_column("Sheet", justify="right", style="cyan", width=6)
     table.add_column("Time", style="dim", width=8)
     table.add_column("Type", width=10)
@@ -624,12 +624,12 @@ async def _errors_job(
 
 
 def diagnose(
-    job_id: str = typer.Argument(..., help="Job ID to diagnose"),
+    job_id: str = typer.Argument(..., help="Score ID to diagnose"),
     workspace: Path | None = typer.Option(
         None,
         "--workspace",
         "-w",
-        help="Workspace directory to search for job state (debug override)",
+        help="Workspace directory to search for score state (debug override)",
         hidden=True,
     ),
     json_output: bool = typer.Option(
@@ -649,10 +649,10 @@ def diagnose(
         help="Include resource profile (peak memory, CPU-time, syscalls, anomalies)",
     ),
 ) -> None:
-    """Generate a comprehensive diagnostic report for a job.
+    """Generate a comprehensive diagnostic report for a score.
 
     The diagnostic report includes:
-    - Job overview and current status
+    - Score overview and current status
     - Preflight warnings from all sheets
     - Prompt metrics (token counts, line counts)
     - Execution timeline with timing information
@@ -661,8 +661,8 @@ def diagnose(
     - (with --include-logs) Inline log content from each log file
     - (with --resources) Resource profile from profiler data
 
-    This command is particularly useful for debugging failed jobs
-    or understanding why a job is running slowly.
+    This command is particularly useful for debugging failed scores
+    or understanding why a score is running slowly.
 
     Examples:
         mozart diagnose my-job                 # Full diagnostic report
@@ -699,9 +699,9 @@ async def _diagnose_job(
     except JobSubmissionError as err:
         # Conductor confirmed: job not found.
         if json_output:
-            console.print(json_module.dumps({"error": f"Job not found: {job_id}"}))
+            console.print(json_module.dumps({"error": f"Score not found: {job_id}"}))
         else:
-            console.print(f"[red]Job not found:[/red] {job_id}")
+            console.print(f"[red]Score not found:[/red] {job_id}")
         raise typer.Exit(1) from err
 
     found_job: CheckpointState | None = None
@@ -726,9 +726,9 @@ async def _diagnose_job(
 
     if found_job is None:
         if json_output:
-            console.print(json_module.dumps({"error": f"Job not found: {job_id}"}))
+            console.print(json_module.dumps({"error": f"Score not found: {job_id}"}))
         else:
-            console.print(f"[red]Job not found:[/red] {job_id}")
+            console.print(f"[red]Score not found:[/red] {job_id}")
         raise typer.Exit(1)
 
     # Build diagnostic report
@@ -868,7 +868,7 @@ async def _attach_resource_profile(report: dict[str, Any], job_id: str) -> None:
         profile = await storage.read_job_resource_profile(job_id)
 
         if not profile or profile.get("unique_pid_count", 0) == 0:
-            resource_profile["error"] = "No profiler data found for this job"
+            resource_profile["error"] = "No profiler data found for this score"
             report["resource_profile"] = resource_profile
             return
 
@@ -1229,7 +1229,7 @@ def _display_diagnostic_report(job: CheckpointState, report: dict[str, Any]) -> 
 
     # Job-level error
     if report.get("job_error"):
-        console.print(f"\n[bold red]Job Error:[/bold red] {report['job_error']}")
+        console.print(f"\n[bold red]Score Error:[/bold red] {report['job_error']}")
 
     # Log files section
     log_files = report.get("log_files", [])
@@ -1306,7 +1306,7 @@ def _display_resource_profile(profile: dict[str, Any], job_id: str) -> None:
         console.print(f"  [dim]{error}[/dim]")
         console.print(
             "  [dim]Ensure the conductor was running with profiling enabled "
-            "during job execution.[/dim]"
+            "during score execution.[/dim]"
         )
         return
 
@@ -1380,7 +1380,7 @@ def _display_resource_profile(profile: dict[str, Any], job_id: str) -> None:
 
 
 def history(
-    job_id: str = typer.Argument(..., help="Job ID to show execution history for"),
+    job_id: str = typer.Argument(..., help="Score ID to show execution history for"),
     sheet: int | None = typer.Option(
         None,
         "--sheet",
@@ -1397,7 +1397,7 @@ def history(
         None,
         "--workspace",
         "-w",
-        help="Workspace directory to search for job state (debug override)",
+        help="Workspace directory to search for score state (debug override)",
         hidden=True,
     ),
     json_output: bool = typer.Option(
@@ -1407,7 +1407,7 @@ def history(
         help="Output history as JSON",
     ),
 ) -> None:
-    """Show execution history for a job.
+    """Show execution history for a score.
 
     Displays a table of past execution attempts from the SQLite state backend,
     including sheet number, attempt number, exit code, duration, and timestamp.
@@ -1447,9 +1447,9 @@ async def _history_job(
         routed, result = await try_daemon_route("job.history", params)
     except JobSubmissionError as err:
         if json_output:
-            console.print(json_module.dumps({"error": f"Job not found: {job_id}"}))
+            console.print(json_module.dumps({"error": f"Score not found: {job_id}"}))
         else:
-            console.print(f"[red]Job not found:[/red] {job_id}")
+            console.print(f"[red]Score not found:[/red] {job_id}")
         raise typer.Exit(1) from err
 
     records: list[dict[str, Any]] = []
@@ -1483,7 +1483,7 @@ async def _history_job(
         if json_output:
             console.print(json_module.dumps({
                 "error": "Execution history requires SQLite state backend",
-                "hint": "Re-run the job with SQLite state to enable history tracking",
+                "hint": "Re-run the score with SQLite state to enable history tracking",
             }))
         else:
             console.print(
@@ -1506,11 +1506,11 @@ async def _history_job(
 
     # Display with Rich table
     if not records:
-        console.print(f"[dim]No execution history found for job:[/dim] {job_id}")
+        console.print(f"[dim]No execution history found for score:[/dim] {job_id}")
         if sheet_filter is not None:
             console.print(f"[dim]Sheet filter: {sheet_filter}[/dim]")
         console.print(
-            "\n[dim]Hint: Execution history is recorded when the job runs "
+            "\n[dim]Hint: Execution history is recorded when the score runs "
             "with the SQLite state backend.[/dim]"
         )
         return

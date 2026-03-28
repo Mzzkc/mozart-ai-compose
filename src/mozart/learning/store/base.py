@@ -92,7 +92,8 @@ class GlobalLearningStoreBase:
     # v11: Renamed outcome_improved → pattern_led_to_success in pattern_applications
     # v12: Renamed first_attempt_success → success_without_retry in executions
     # v13: Repair unapplied pattern priorities crushed by frequency factor
-    SCHEMA_VERSION = 13
+    # v14: Added active (soft delete), content_hash (dedup), instrument_name (scoping)
+    SCHEMA_VERSION = 14
 
     # Expected columns for tables that may need migration
     # Format: {table_name: [(column_name, column_definition), ...]}
@@ -111,6 +112,10 @@ class GlobalLearningStoreBase:
             # v22 additions
             ("success_factors", "TEXT"),
             ("success_factors_updated_at", "TIMESTAMP"),
+            # v14 (cycle 2) additions: soft delete, content dedup, instrument scoping
+            ("active", "INTEGER DEFAULT 1"),
+            ("content_hash", "TEXT"),
+            ("instrument_name", "TEXT"),
         ],
         "pattern_applications": [
             # v12 addition
@@ -371,7 +376,10 @@ class GlobalLearningStoreBase:
                 trust_score REAL DEFAULT 0.5,
                 trust_calculation_date TIMESTAMP,
                 success_factors TEXT,
-                success_factors_updated_at TIMESTAMP
+                success_factors_updated_at TIMESTAMP,
+                active INTEGER DEFAULT 1,
+                content_hash TEXT,
+                instrument_name TEXT
             )
         """)
         conn.execute(
@@ -392,6 +400,14 @@ class GlobalLearningStoreBase:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_patterns_trust "
             "ON patterns(trust_score)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_patterns_content_hash "
+            "ON patterns(content_hash)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_patterns_instrument "
+            "ON patterns(instrument_name)"
         )
 
     @staticmethod

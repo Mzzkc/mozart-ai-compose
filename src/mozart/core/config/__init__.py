@@ -59,6 +59,12 @@ from mozart.core.config.orchestration import (
     PostSuccessHookConfig,
 )
 
+# Specification corpus configuration
+from mozart.core.config.spec import (
+    SpecCorpusConfig,
+    SpecFragment,
+)
+
 # Workspace and environment configuration
 from mozart.core.config.workspace import (
     AIReviewConfig,
@@ -109,6 +115,9 @@ __all__ = [
     "ConductorRole",
     "NotificationConfig",
     "PostSuccessHookConfig",
+    # Spec Corpus
+    "SpecCorpusConfig",
+    "SpecFragment",
     # Workspace
     "AIReviewConfig",
     "CrossSheetConfig",

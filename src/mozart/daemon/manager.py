@@ -2003,7 +2003,10 @@ class JobManager:
                 _logger.info(
                     "hooks.skipped_zero_work",
                     job_id=job_id,
-                    reason="Job completed no new sheets — skipping hooks to prevent infinite self-chaining",
+                    reason=(
+                        "Job completed no new sheets"
+                        " — skipping hooks to prevent infinite self-chaining"
+                    ),
                 )
         except Exception:
             _logger.error(

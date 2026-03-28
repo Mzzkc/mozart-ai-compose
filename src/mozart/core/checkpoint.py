@@ -608,6 +608,10 @@ class CheckpointState(BaseModel):
     total_retry_count: int = Field(default=0, description="Total retries across all sheets")
     rate_limit_waits: int = Field(default=0, description="Number of rate limit waits")
     quota_waits: int = Field(default=0, description="Number of token quota exhaustion waits")
+    resume_at: str | None = Field(
+        default=None,
+        description="ISO timestamp for when to resume after rate limit pause",
+    )
 
     # Cumulative cost tracking (v4 evolution: Cost Circuit Breaker)
     total_input_tokens: int = Field(
@@ -681,6 +685,15 @@ class CheckpointState(BaseModel):
     hook_results: list[dict[str, Any]] = Field(
         default_factory=list,
         description="Persisted hook execution results for post-mortem diagnostics",
+    )
+
+    # Spec corpus tracking (Phase 1: Spec Corpus Pipeline)
+    spec_corpus_hash: str = Field(
+        default="",
+        description="Hash of the spec corpus loaded at job start. "
+        "Used for drift detection — if the corpus changes between runs, "
+        "the learning store can correlate outcomes to the correct corpus version. "
+        "Empty string means no spec corpus was configured.",
     )
 
     # Circuit breaker state history (observability: CB persistence)

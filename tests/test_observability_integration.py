@@ -244,8 +244,9 @@ class TestPreflightIntegration:
         assert metrics.character_count == len(prompt)
         # line_count is newlines + 1, and we have 100 newlines + trailing text
         assert metrics.line_count == 101
-        # Rough token estimate (chars / 4)
-        assert metrics.estimated_tokens == len(prompt) // 4
+        # Token estimate uses math.ceil(chars / 3.5)
+        import math
+        assert metrics.estimated_tokens == math.ceil(len(prompt) / 3.5)
 
     def test_preflight_detects_large_prompts(self, tmp_path: Path):
         """Test that preflight warns about large prompts."""

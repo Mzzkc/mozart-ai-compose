@@ -89,7 +89,7 @@ class CircuitBreakerInference(TypedDict):
 def status(
     job_id: str = typer.Argument(
         ...,
-        help="Job ID to check status for",
+        help="Score ID to check status for",
     ),
     json_output: bool = typer.Option(
         False,
@@ -113,13 +113,13 @@ def status(
         None,
         "--workspace",
         "-w",
-        help="Workspace directory to search for job state (debug override)",
+        help="Workspace directory to search for score state (debug override)",
         hidden=True,
     ),
 ) -> None:
-    """Show detailed status of a specific job.
+    """Show detailed status of a specific score.
 
-    Displays job progress, sheet states, timing information, and any errors.
+    Displays score progress, sheet states, timing information, and any errors.
     Use --json for machine-readable output in scripts.
     Use --watch for continuous monitoring (updates every 5 seconds by default).
 
@@ -140,19 +140,19 @@ def list_jobs(
         False,
         "--all",
         "-a",
-        help="Show all jobs including completed, failed, and cancelled",
+        help="Show all scores including completed, failed, and cancelled",
     ),
     status_filter: str | None = typer.Option(
         None,
         "--status",
         "-s",
-        help="Filter by job status (queued, running, completed, failed, paused)",
+        help="Filter by score status (queued, running, completed, failed, paused)",
     ),
     limit: int = typer.Option(
         20,
         "--limit",
         "-l",
-        help="Maximum number of jobs to display",
+        help="Maximum number of scores to display",
     ),
     workspace: Path | None = typer.Option(
         None,
@@ -162,10 +162,10 @@ def list_jobs(
         hidden=True,
     ),
 ) -> None:
-    """List jobs from the daemon.
+    """List scores from the conductor.
 
-    By default shows only active jobs (queued, running, paused).
-    Use --all to include completed, failed, and cancelled jobs.
+    By default shows only active scores (queued, running, paused).
+    Use --all to include completed, failed, and cancelled scores.
     """
     asyncio.run(_list_jobs(all_jobs, status_filter, limit, workspace))
 
@@ -197,7 +197,7 @@ async def _status_job(
     except JobSubmissionError:
         # Conductor confirmed: job not found.
         if json_output:
-            console.print(json.dumps({"error": f"Job not found: {job_id}"}, indent=2))
+            console.print(json.dumps({"error": f"Score not found: {job_id}"}, indent=2))
         else:
             console.print(f"[red]{ErrorMessages.JOB_NOT_FOUND}:[/red] {job_id}")
         raise typer.Exit(1) from None
@@ -224,7 +224,7 @@ async def _status_job(
         # Conductor returned None — shouldn't happen with current protocol,
         # but handle gracefully.
         if json_output:
-            console.print(json.dumps({"error": f"Job not found: {job_id}"}, indent=2))
+            console.print(json.dumps({"error": f"Score not found: {job_id}"}, indent=2))
         else:
             console.print(f"[red]{ErrorMessages.JOB_NOT_FOUND}:[/red] {job_id}")
         raise typer.Exit(1)
@@ -267,7 +267,7 @@ async def _status_job_watch(
     from mozart.daemon.detect import try_daemon_route
     from mozart.daemon.exceptions import JobSubmissionError
 
-    console.print(f"[dim]Watching job [bold]{job_id}[/bold] (Ctrl+C to stop)[/dim]\n")
+    console.print(f"[dim]Watching score [bold]{job_id}[/bold] (Ctrl+C to stop)[/dim]\n")
 
     try:
         while True:
@@ -331,7 +331,7 @@ async def _status_job_watch(
                 # Exit watch mode if job is completed or failed
                 if found_job.status in (JobStatus.COMPLETED, JobStatus.FAILED):
                     console.print(
-                        f"\n[yellow]Job {found_job.status.value} - exiting watch mode[/yellow]"
+                        f"\n[yellow]Score {found_job.status.value} - exiting watch mode[/yellow]"
                     )
                     break
 
@@ -386,15 +386,18 @@ async def _list_jobs(
 
     if not jobs:
         if status_filter:
-            console.print(f"[dim]No {status_filter} jobs found.[/dim]")
+            console.print(f"[dim]No {status_filter} scores found.[/dim]")
         elif all_jobs:
-            console.print("[dim]No jobs found.[/dim]")
+            console.print("[dim]No scores found.[/dim]")
         else:
-            console.print("[dim]No active jobs.[/dim] Use [bold]--all[/bold] to see job history.")
+            console.print(
+                "[dim]No active scores.[/dim]"
+                " Use [bold]--all[/bold] to see score history."
+            )
         return
 
     # Build rows and compute column widths
-    headers = ("JOB ID", "STATUS", "WORKSPACE", "SUBMITTED")
+    headers = ("SCORE ID", "STATUS", "WORKSPACE", "SUBMITTED")
     rows: list[tuple[str, str, str, str]] = []
     for dj in jobs:
         rows.append((
@@ -428,7 +431,7 @@ async def _list_jobs(
         )
         console.print(styled, soft_wrap=True)
 
-    console.print(f"\n[dim]{len(rows)} job(s)[/dim]")
+    console.print(f"\n[dim]{len(rows)} score(s)[/dim]")
 
 
 def _format_daemon_timestamp(ts: float | None) -> str:
@@ -462,7 +465,7 @@ def _output_meta_status(meta: dict[str, Any], json_output: bool) -> None:
         f"[bold]{job_id}[/bold]\n"
         f"ID: {job_id}\n"
         f"Status: [{color}]{status.upper()}[/{color}]",
-        title="Job Status",
+        title="Score Status",
         border_style=color,
     ))
 
@@ -745,7 +748,7 @@ def _render_cost_summary(job: CheckpointState) -> None:
         console.print(f"  Input tokens:  {job.total_input_tokens:,}")
         console.print(f"  Output tokens: {job.total_output_tokens:,}")
         if job.cost_limit_reached:
-            console.print("  [red]Cost limit reached — job was paused[/red]")
+            console.print("  [red]Cost limit reached — score was paused[/red]")
     elif has_sheet_cost:
         # Sum from individual sheets if job-level totals aren't populated
         total = sum(s.estimated_cost for s in job.sheets.values() if s.estimated_cost)
@@ -885,7 +888,7 @@ def _output_status_rich(job: CheckpointState) -> None:
             elapsed = datetime.now(UTC) - job.started_at
             header_lines.append(f"Running for: {format_duration(elapsed.total_seconds())}")
 
-    console.print(Panel("\n".join(header_lines), title="Job Status"))
+    console.print(Panel("\n".join(header_lines), title="Score Status"))
 
     # Progress bar
     console.print("\n[bold]Progress[/bold]")
@@ -1087,7 +1090,7 @@ def clear(
         None,
         "--job",
         "-j",
-        help="Specific job ID(s) to clear. Can be repeated.",
+        help="Specific score ID(s) to clear. Can be repeated.",
     ),
     status_filter: list[str] | None = typer.Option(
         None,
@@ -1099,7 +1102,7 @@ def clear(
     older_than: float | None = typer.Option(
         None,
         "--older-than",
-        help="Only clear jobs older than this many seconds.",
+        help="Only clear scores older than this many seconds.",
     ),
     yes: bool = typer.Option(
         False,
@@ -1108,17 +1111,17 @@ def clear(
         help="Skip confirmation prompt.",
     ),
 ) -> None:
-    """Clear terminal jobs from the conductor registry.
+    """Clear terminal scores from the conductor registry.
 
-    Removes completed, failed, and/or cancelled jobs from the conductor's
-    tracking. Running and queued jobs are never cleared.
+    Removes completed, failed, and/or cancelled scores from the conductor's
+    tracking. Running and queued scores are never cleared.
 
     Examples:
-        mozart clear                                 # Clear all terminal jobs
-        mozart clear --job conductor-fix             # Clear a specific job
-        mozart clear --status failed                 # Clear only failed jobs
+        mozart clear                                 # Clear all terminal scores
+        mozart clear --job conductor-fix             # Clear a specific score
+        mozart clear --status failed                 # Clear only failed scores
         mozart clear --status failed -s cancelled    # Clear failed + cancelled
-        mozart clear --older-than 3600               # Terminal jobs older than 1h
+        mozart clear --older-than 3600               # Terminal scores older than 1h
         mozart clear -y                              # Skip confirmation
     """
     asyncio.run(_clear_jobs(job, status_filter, older_than, yes))
@@ -1149,7 +1152,7 @@ async def _clear_jobs(
         if job_ids:
             target = ", ".join(job_ids)
         else:
-            target = f"all [{', '.join(statuses)}] jobs"
+            target = f"all [{', '.join(statuses)}] scores"
         age_note = f" older than {older_than}s" if older_than else ""
         if not typer.confirm(f"Clear {target}{age_note}?"):
             console.print("[dim]Cancelled.[/dim]")
@@ -1173,9 +1176,9 @@ async def _clear_jobs(
 
     deleted = result.get("deleted", 0) if isinstance(result, dict) else 0
     if deleted:
-        console.print(f"[green]Cleared {deleted} job(s).[/green]")
+        console.print(f"[green]Cleared {deleted} score(s).[/green]")
     else:
-        console.print("[dim]No matching jobs to clear.[/dim]")
+        console.print("[dim]No matching scores to clear.[/dim]")
 
 
 # =============================================================================

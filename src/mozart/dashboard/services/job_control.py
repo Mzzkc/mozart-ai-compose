@@ -408,7 +408,7 @@ class JobControlService:
                 success=False,
                 job_id=job_id,
                 status=JobStatus.FAILED.value,
-                message=f"Job not found: {job_id}"
+                message=f"Score not found: {job_id}"
             )
 
         if state.status != JobStatus.RUNNING:
@@ -481,7 +481,7 @@ class JobControlService:
                 success=False,
                 job_id=job_id,
                 status=JobStatus.FAILED.value,
-                message=f"Job not found: {job_id}"
+                message=f"Score not found: {job_id}"
             )
 
         if state.status != JobStatus.PAUSED:
@@ -590,7 +590,7 @@ class JobControlService:
                 success=False,
                 job_id=job_id,
                 status=JobStatus.FAILED.value,
-                message=f"Job not found: {job_id}"
+                message=f"Score not found: {job_id}"
             )
 
         if state.status in (JobStatus.COMPLETED, JobStatus.CANCELLED):

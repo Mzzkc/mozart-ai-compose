@@ -39,7 +39,7 @@ from ..output import console
 def validate(
     config_file: Path = typer.Argument(
         ...,
-        help="Path to YAML job configuration file",
+        help="Path to YAML score configuration file",
         exists=True,
         readable=True,
     ),

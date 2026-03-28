@@ -30,7 +30,7 @@ _pynvml_available: bool = False
 try:
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=FutureWarning)
-        import pynvml as _pynvml
+        import pynvml as _pynvml  # type: ignore[import-untyped]  # no stubs available
 
     _pynvml_available = True
 except ImportError:

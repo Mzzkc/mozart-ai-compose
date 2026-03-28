@@ -195,7 +195,7 @@ class TestJobControlService:
 
         assert result.success is False
         assert result.status == JobStatus.FAILED.value
-        assert "Job not found" in result.message
+        assert "not found" in result.message
 
     @pytest.mark.asyncio
     async def test_pause_already_paused_job(

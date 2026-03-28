@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 import jinja2
 
 from mozart.core.config import PromptConfig, ValidationRule
+from mozart.core.config.spec import SpecFragment
 
 if TYPE_CHECKING:
     from mozart.execution.validation import HistoricalFailure, ValidationResult
@@ -199,6 +200,7 @@ class PromptBuilder:
         patterns: list[str] | None = None,
         validation_rules: list[ValidationRule] | None = None,
         failure_history: list["HistoricalFailure"] | None = None,
+        spec_fragments: list[SpecFragment] | None = None,
     ) -> str:
         """Build the standard sheet prompt from config.
 
@@ -212,6 +214,10 @@ class PromptBuilder:
             failure_history: Optional list of historical failures from previous
                 sheets. Injected to help Claude learn from past mistakes and
                 avoid repeating the same errors (Evolution v6).
+            spec_fragments: Optional list of spec corpus fragments to inject
+                as project context. Fragments are inserted after injected
+                context and before failure history per the prompt assembly
+                order (Phase 1: Spec Corpus Pipeline).
 
         Returns:
             Rendered prompt string.
@@ -251,6 +257,13 @@ class PromptBuilder:
         if context.injected_context:
             context_parts = "\n\n".join(context.injected_context)
             prompt = f"{prompt}\n\n## Injected Context\n\n{context_parts}"
+
+        # Inject spec corpus fragments (Phase 1: Spec Corpus Pipeline)
+        # Placed after injected context, before failure history — aligns with
+        # architecture.yaml's prompt assembly order (layer 5→6 boundary).
+        if spec_fragments:
+            spec_section = PromptBuilder._format_spec_fragments(spec_fragments)
+            prompt = f"{prompt}\n\n{spec_section}"
 
         # Inject failure history first (lessons learned from past)
         if failure_history:
@@ -546,6 +559,29 @@ class PromptBuilder:
         if tools:
             parts.append("## Injected Tools\n\n" + "\n\n".join(tools))
         return "\n\n".join(parts)
+
+    @staticmethod
+    def _format_spec_fragments(fragments: list[SpecFragment]) -> str:
+        """Format spec corpus fragments for prompt injection.
+
+        Each fragment is rendered as a markdown section with its name as the
+        header. Structured fragments include both their content and a note
+        about the data section. Text fragments include their content directly.
+
+        Args:
+            fragments: List of SpecFragment instances to format.
+
+        Returns:
+            Formatted markdown string for prompt injection.
+        """
+        if not fragments:
+            return ""
+
+        parts: list[str] = []
+        for fragment in fragments:
+            parts.append(fragment.content)
+
+        return "## Injected Specs\n\n" + "\n\n".join(parts)
 
     def build_completion_prompt(
         self,

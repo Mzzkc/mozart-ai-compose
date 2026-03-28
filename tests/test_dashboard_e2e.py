@@ -393,7 +393,7 @@ class TestSheetDetailsE2E:
         # Test nonexistent job
         response = client.get("/api/jobs/nonexistent/sheets/1")
         assert response.status_code == 404
-        assert "Job not found" in response.json()["detail"]
+        assert "Score not found" in response.json()["detail"]
 
         # Test nonexistent sheet
         job_id = "test-job"

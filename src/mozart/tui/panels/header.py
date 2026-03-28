@@ -11,11 +11,16 @@ from textual.widgets import Static
 from mozart.daemon.profiler.models import SystemSnapshot
 
 
-def _bar(pct: float, width: int = 10) -> str:
-    """Render a simple bar like ████░░░░░░ from a 0-100 percentage."""
+def _bar(pct: float, width: int = 20, color: str = "green") -> str:
+    """Render a high-fidelity htop-style bar like [|||||     ] 25.0%."""
     filled = int(round(pct / 100.0 * width))
     filled = max(0, min(width, filled))
-    return "\u2588" * filled + "\u2591" * (width - filled)
+
+    bar_chars = "|" * filled
+    empty_chars = " " * (width - filled)
+
+    bar_styled = f"[{color}]{bar_chars}[/]" if bar_chars else ""
+    return f"\\[{bar_styled}{empty_chars}] [bold]{pct:4.1f}%[/]"
 
 
 def _pressure_color(level: str) -> str:
@@ -43,14 +48,15 @@ def _format_uptime(seconds: float) -> str:
 class HeaderPanel(Static):
     """Renders the system summary header with Rich markup.
 
-    Layout matches the design doc header bar:
-    ``● Conductor: UP 2h15m  Memory: ██░░ 30%  CPU: █░░░ 12%  GPU: —``
-    ``Pressure: LOW  Jobs: 2/4  Sheets: 3 active  ⚠ 1 anomaly``
+    Layout matches the htop style:
+    Conductor: UP 2h15m
+    CPU [||||      ] 12.0%  Mem [||||||||  ] 45.0%
+    Pressure: LOW  Jobs: 2  Sheets: 3 active
     """
 
     DEFAULT_CSS = """
     HeaderPanel {
-        height: 2;
+        height: 3;
         dock: top;
         background: $surface;
         padding: 0 1;
@@ -88,56 +94,45 @@ class HeaderPanel(Static):
         """Render the header content with Rich markup."""
         snap = self._snapshot
 
-        # Line 1: Conductor status, memory, CPU, GPU
+        # Line 1: Conductor status, uptime
         if self._conductor_up:
             uptime = _format_uptime(self._uptime_seconds)
             status = f"[green]●[/] Conductor: [bold green]UP[/] {uptime}"
         else:
             status = "[red]●[/] Conductor: [bold red]DOWN[/]"
 
+        # Line 2: Resource bars (htop-style)
         if snap is not None:
             mem_total = snap.system_memory_total_mb
             mem_used = snap.system_memory_used_mb
             mem_pct = (mem_used / mem_total * 100.0) if mem_total > 0 else 0.0
-            mem_str = f"Memory: {_bar(mem_pct, 4)} {mem_pct:.0f}%"
 
-            # CPU: sum of per-process CPU (capped at 100 for display)
+            # Use sum of process CPU for bar
             total_cpu = sum(p.cpu_percent for p in snap.processes)
-            cpu_str = f"CPU: {_bar(min(total_cpu, 100), 4)} {total_cpu:.0f}%"
+            cpu_pct = min(total_cpu, 100.0)
 
-            # GPU
-            if snap.gpus:
-                gpu_util = max(g.utilization_pct for g in snap.gpus)
-                gpu_str = f"GPU: {gpu_util:.0f}%"
-            else:
-                gpu_str = "GPU: \u2014"
-        else:
-            mem_str = "Memory: \u2014"
-            cpu_str = "CPU: \u2014"
-            gpu_str = "GPU: \u2014"
+            mem_bar = _bar(mem_pct, 12, "cyan")
+            cpu_bar = _bar(cpu_pct, 12, "green")
 
-        line1 = f"{status}  {mem_str}  {cpu_str}  {gpu_str}"
+            line2 = f"CPU {cpu_bar}  Mem {mem_bar}"
 
-        # Line 2: Pressure, jobs, sheets, anomalies
-        if snap is not None:
+            # Line 3: Pressure, jobs, anomalies
             pressure = snap.pressure_level.upper()
             p_color = _pressure_color(snap.pressure_level)
             pressure_str = f"Pressure: [{p_color}]{pressure}[/]"
-            jobs_str = f"Jobs: {snap.running_jobs}"
-            sheets_str = f"Sheets: {snap.active_sheets} active"
+            jobs_str = f"Jobs: [bold]{snap.running_jobs}[/]"
+            sheets_str = f"Sheets: [bold]{snap.active_sheets}[/] active"
+
+            anomaly_str = ""
+            if self._anomaly_count > 0:
+                anomaly_str = f"  [bold red]\u26a0 {self._anomaly_count} ANOMALIES[/]"
+
+            line3 = f"{pressure_str}  {jobs_str}  {sheets_str}{anomaly_str}"
         else:
-            pressure_str = "Pressure: \u2014"
-            jobs_str = "Jobs: \u2014"
-            sheets_str = "Sheets: \u2014"
+            line2 = "CPU [            ]  \u2014%  Mem [            ]  \u2014%"
+            line3 = "Pressure: \u2014  Jobs: \u2014  Sheets: \u2014"
 
-        anomaly_str = ""
-        if self._anomaly_count > 0:
-            noun = "anomalies" if self._anomaly_count != 1 else "anomaly"
-            anomaly_str = f"  [bold yellow]\u26a0 {self._anomaly_count} {noun}[/]"
-
-        line2 = f"{pressure_str}  {jobs_str}  {sheets_str}{anomaly_str}"
-
-        self.update(f"{line1}\n{line2}")
+        self.update(f"{status}\n{line2}\n{line3}")
 
 
 __all__ = ["HeaderPanel"]

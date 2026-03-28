@@ -5,7 +5,7 @@ backpressure levels, and learning patterns.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from mozart.core.logging import get_logger
 from mozart.daemon.ipc.client import DaemonClient
@@ -31,7 +31,7 @@ class DaemonSystemView:
         Returns ``None`` if the daemon is down or the call fails.
         """
         try:
-            return await self._client.call("daemon.top")
+            return cast("dict[str, Any] | None", await self._client.call("daemon.top"))
         except Exception:
             _logger.debug("get_snapshot_failed", exc_info=True)
             return None
@@ -75,7 +75,7 @@ class DaemonSystemView:
         """Recent learning insights from the daemon."""
         try:
             result = await self._client.learning_patterns(limit)
-            return result.get("patterns", [])
+            return cast("list[dict[str, Any]]", result.get("patterns", []))
         except Exception:
             _logger.debug("learning_patterns_failed", exc_info=True)
             return []

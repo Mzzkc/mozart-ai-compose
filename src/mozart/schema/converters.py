@@ -11,7 +11,7 @@ import json
 import types
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal, Union, get_args, get_origin
+from typing import Any, Literal, Union, cast, get_args, get_origin
 
 from mozart.core.logging import get_logger
 
@@ -101,7 +101,7 @@ def serialize_field(value: Any, annotation: Any) -> SQLParam:
 
     # Enum → .value string
     if isinstance(value, Enum):
-        return value.value
+        return cast("SQLParam", value.value)
 
     # Complex types → JSON
     if isinstance(value, (list, dict)):
@@ -116,7 +116,7 @@ def serialize_field(value: Any, annotation: Any) -> SQLParam:
         return json.dumps(dataclasses.asdict(value), default=_json_default)
 
     # Direct types (str, int, float, bytes)
-    return value
+    return cast("SQLParam", value)
 
 
 def deserialize_field(value: Any, annotation: Any) -> Any:

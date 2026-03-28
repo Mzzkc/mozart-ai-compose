@@ -308,6 +308,11 @@ class ErrorClassifier:
         if exception:
             combined += f"\n{str(exception)}"
 
+        # 0. Negative exit codes indicate signal kills (e.g., -9 = SIGKILL)
+        # Python's subprocess reports killed-by-signal as negative exit codes.
+        if exit_code is not None and exit_code < 0:
+            exit_signal = abs(exit_code)
+
         # 1. Signal-based exits
         if exit_signal is not None:
             result = self._classify_signal(
@@ -366,20 +371,31 @@ class ErrorClassifier:
         if exit_code_result is not None:
             return exit_code_result
 
-        # 5. exit_code=None + exit_reason="error": transient subprocess race condition
-        # The process disappeared before returncode could be captured.
+        # 5. exit_code=None: process killed or disappeared without exit code.
         # Always retriable — this is never a deterministic user error.
-        if exit_code is None and exit_reason == "error":
+        # Check stderr for OOM indicators to set appropriate wait time.
+        if exit_code is None:
+            # OOM/kill indicators in stderr → longer wait (memory needs to free)
+            oom_indicators = ("killed", "out of memory", "oom", "cannot allocate")
+            stderr_lower = stderr.lower() if stderr else ""
+            is_oom = any(indicator in stderr_lower for indicator in oom_indicators)
+            wait_seconds = 60.0 if is_oom else 10.0
+            message = (
+                "Process killed (possible OOM — retrying with longer wait)"
+                if is_oom
+                else "Process exited without exit code (possible signal race — retrying)"
+            )
+
             result = ClassifiedError(
                 category=ErrorCategory.TRANSIENT,
-                message="Process exited without exit code (possible signal race — retrying)",
+                message=message,
                 error_code=ErrorCode.UNKNOWN,
                 original_error=exception,
                 exit_code=exit_code,
                 exit_signal=None,
                 exit_reason=exit_reason,
                 retriable=True,
-                suggested_wait_seconds=30.0,
+                suggested_wait_seconds=wait_seconds,
             )
             _logger.warning(
                 _EVT_ERROR_CLASSIFIED,
@@ -387,6 +403,7 @@ class ErrorClassifier:
                 error_code=result.error_code.value,
                 exit_code=exit_code,
                 retriable=result.retriable,
+                is_oom=is_oom,
                 message=result.message,
             )
             return result

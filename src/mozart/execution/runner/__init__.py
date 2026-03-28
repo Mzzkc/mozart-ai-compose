@@ -51,6 +51,7 @@ from mozart.execution.runner.models import (
     FatalError,
     GracefulShutdownError,
     GroundingDecisionContext,
+    RateLimitExhaustedError,
     RunnerContext,
     RunSummary,
     SheetExecutionMode,
@@ -121,6 +122,7 @@ __all__ = [
     # Exceptions
     "FatalError",
     "GracefulShutdownError",
+    "RateLimitExhaustedError",
     # Mixins (for advanced composition or testing)
     "JobRunnerBase",
     "ContextBuildingMixin",

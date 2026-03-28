@@ -727,6 +727,7 @@ class TestRecoveryEdgeCases:
         host.config = config
         host.console = MagicMock()
         host._logger = MagicMock()
+        host.backend = MagicMock(name="mock-backend")
 
         state = _make_checkpoint()
         state.rate_limit_waits = 2  # at max
@@ -750,6 +751,7 @@ class TestRecoveryEdgeCases:
         host.config = config
         host.console = MagicMock()
         host._logger = MagicMock()
+        host.backend = MagicMock(name="mock-backend")
 
         state = _make_checkpoint()
         state.quota_waits = 2  # at max

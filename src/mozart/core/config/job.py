@@ -38,6 +38,7 @@ from mozart.core.config.orchestration import (
     NotificationConfig,
     PostSuccessHookConfig,
 )
+from mozart.core.config.spec import SpecCorpusConfig
 from mozart.core.config.workspace import (
     AIReviewConfig,
     CrossSheetConfig,
@@ -116,6 +117,17 @@ class SheetConfig(BaseModel):
             "Sheet dependency declarations. Map of sheet_num -> list of prerequisite sheets. "
             "Example: {3: [1, 2], 4: [3]} means sheet 3 needs 1 and 2, sheet 4 needs 3. "
             "Sheets without entries are independent (can run immediately or after config order)."
+        ),
+    )
+
+    # Per-sheet spec corpus tag filtering (Phase 1: Spec Corpus Pipeline)
+    spec_tags: dict[int, list[str]] = Field(
+        default_factory=dict,
+        description=(
+            "Per-sheet spec tag filters. Map of sheet_num -> list of tags. "
+            "Only spec fragments matching at least one tag are injected for that sheet. "
+            "Sheets without entries receive all fragments (no filtering). "
+            "Example: {1: ['goals', 'safety'], 3: ['constraints']}"
         ),
     )
 
@@ -447,6 +459,13 @@ class JobConfig(BaseModel):
     backend: BackendConfig = Field(default_factory=BackendConfig)
     sheet: SheetConfig
     prompt: PromptConfig
+    spec: SpecCorpusConfig = Field(
+        default_factory=SpecCorpusConfig,
+        description="Specification corpus configuration. "
+        "Controls where spec fragments are loaded from and how they are "
+        "filtered for injection into agent prompts. Opt-in: set spec.spec_dir "
+        "to enable.",
+    )
 
     retry: RetryConfig = Field(default_factory=RetryConfig)
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)

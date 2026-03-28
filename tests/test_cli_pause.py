@@ -405,7 +405,7 @@ class TestPauseCommand:
         """Test pause command shows help."""
         result = runner.invoke(app, ["pause", "--help"])
         assert result.exit_code == 0
-        assert "Pause a running Mozart job" in result.output
+        assert "Pause a running Mozart score" in result.output
         # --workspace is a hidden debug option, not shown in help
         assert "--wait" in result.output
         assert "--timeout" in result.output
@@ -516,7 +516,7 @@ class TestPauseCommand:
         assert output["success"] is True
         assert output["job_id"] == state.job_id
         assert "signal_file" in output
-        assert output["message"] == "Pause signal sent. Job will pause at next sheet boundary."
+        assert output["message"] == "Pause signal sent. Score will pause at next sheet boundary."
 
     def test_pause_json_output_error(self, temp_workspace: Path) -> None:
         """Test pause with JSON output format on error."""
@@ -621,7 +621,7 @@ class TestModifyCommand:
         """Test modify command shows help."""
         result = runner.invoke(app, ["modify", "--help"])
         assert result.exit_code == 0
-        assert "Modify a job's configuration" in result.output
+        assert "Modify a score's configuration" in result.output
         assert "--config" in result.output
         assert "--resume" in result.output
         assert "--wait" in result.output
@@ -848,7 +848,7 @@ class TestModifyCommand:
                 ])
 
         # Should show resume message (may fail in mock later, but message should appear)
-        assert "Resuming with new config" in result.output or "Resume Job" in result.output
+        assert "Resuming with new config" in result.output or "Resume Score" in result.output
 
     def test_modify_permission_error(
         self,
@@ -1110,7 +1110,7 @@ class TestModifyEdgeCases:
                 ])
 
         # Should show resume message (may fail in mock later, but message should appear)
-        assert "Resuming with new config" in result.output or "Resume Job" in result.output
+        assert "Resuming with new config" in result.output or "Resume Score" in result.output
 
 
 # ============================================================================

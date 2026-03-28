@@ -93,6 +93,54 @@ class TimelinePanel(RichLog):
             self._observer_events = observer_events
         self._render_timeline()
 
+    def add_event(self, event: dict[str, Any]) -> None:
+        """Add a single event to the timeline incrementally."""
+        line = self._format_event_line(event)
+        if line:
+            self.write(line)
+
+    def _format_event_line(self, event: dict[str, Any]) -> str | None:
+        """Format a single event dict into a Rich markup line."""
+        evt_type = event.get("event", "")
+        ts = event.get("timestamp", time.time())
+        ts_str = _format_timestamp(ts)
+        job_id = event.get("job_id", "")
+
+        if evt_type == "monitor.snapshot":
+            return None # Don't log snapshots in timeline
+
+        if evt_type.startswith("observer.file_"):
+            data = event.get("data") or {}
+            path = data.get("path", "?")
+            if len(path) > 40:
+                path = "..." + path[-37:]
+
+            if "created" in evt_type:
+                action, color, icon = "CREATE", _EVENT_COLORS["observer_file_created"], "\U0001f4c4"
+            elif "deleted" in evt_type:
+                action, color, icon = "DELETE", _EVENT_COLORS["observer_file_deleted"], "\U0001f5d1"
+            else:
+                action, color, icon = "MODIFY", _EVENT_COLORS["observer_file_modified"], "\u270f"
+
+            return f"{ts_str}  [{color}]{icon} {action:<6s}[/] {job_id:<20s} {path}"
+
+        if evt_type.startswith("observer.process_"):
+            data = event.get("data") or {}
+            pid = data.get("pid", "?")
+            label = data.get("name", data.get("role", ""))
+            action = "SPAWN" if "spawned" in evt_type else "EXIT"
+            color = _EVENT_COLORS["observer_process"]
+            return f"{ts_str}  [{color}]\u2699 {action:<6s}[/] {job_id:<20s} PID {pid} {label}"
+
+        if evt_type == "monitor.anomaly":
+            data = event.get("data") or {}
+            sev = data.get("severity", "medium").upper()
+            desc = data.get("description", "")[:50]
+            return f"{ts_str}  [bold yellow]\u26a0 ANOMALY[/] {job_id:<20s} [{sev}] {desc}"
+
+        # Fallback for other events
+        return f"{ts_str}  [dim]\u25cf {evt_type}[/] {job_id:<20s}"
+
     def _render_timeline(self) -> None:
         """Render the timeline with Rich markup."""
         # Merge all entries into a unified timeline

@@ -101,7 +101,7 @@ class TestListCommand:
         with self._mock_route(jobs):
             result = runner.invoke(app, ["list"])
         assert result.exit_code == 0
-        assert "No active jobs" in result.stdout
+        assert "No active scores" in result.stdout
         assert "--all" in result.stdout
 
     def test_list_shows_active_jobs(self) -> None:
@@ -117,7 +117,7 @@ class TestListCommand:
         assert "running-1" in result.stdout
         assert "queued-1" in result.stdout
         assert "completed-1" not in result.stdout
-        assert "2 job(s)" in result.stdout
+        assert "2 score(s)" in result.stdout
 
     def test_list_all_shows_everything(self) -> None:
         """--all flag shows all jobs including completed/failed."""
@@ -132,7 +132,7 @@ class TestListCommand:
         assert "job-0" in result.stdout
         assert "job-1" in result.stdout
         assert "job-2" in result.stdout
-        assert "3 job(s)" in result.stdout
+        assert "3 score(s)" in result.stdout
 
     def test_list_filter_by_status(self) -> None:
         """--status filter overrides default active-only view."""
@@ -147,7 +147,7 @@ class TestListCommand:
         assert "job-0" in result.stdout
         assert "job-2" in result.stdout
         assert "job-1" not in result.stdout
-        assert "2 job(s)" in result.stdout
+        assert "2 score(s)" in result.stdout
 
     def test_list_filter_no_matches(self) -> None:
         """Status filter with no matches shows appropriate message."""
@@ -157,7 +157,7 @@ class TestListCommand:
         with self._mock_route(jobs):
             result = runner.invoke(app, ["list", "--status", "running"])
         assert result.exit_code == 0
-        assert "No running jobs found" in result.stdout
+        assert "No running scores found" in result.stdout
 
     def test_list_with_limit(self) -> None:
         """--limit option caps results."""
@@ -168,7 +168,7 @@ class TestListCommand:
         with self._mock_route(jobs):
             result = runner.invoke(app, ["list", "--limit", "2"])
         assert result.exit_code == 0
-        assert "2 job(s)" in result.stdout
+        assert "2 score(s)" in result.stdout
 
     def test_list_daemon_not_running(self) -> None:
         """List without daemon shows error."""
@@ -192,7 +192,7 @@ class TestRunCommand:
         """Test run command displays configuration panel."""
         result = runner.invoke(app, ["run", str(sample_yaml_config), "--dry-run"])
         assert result.exit_code == 0
-        assert "Job Configuration" in result.stdout
+        assert "Score Configuration" in result.stdout
         assert "test-job" in result.stdout
 
 
@@ -256,7 +256,7 @@ class TestStatusCommand:
             app, ["status", "nonexistent-job", "--workspace", str(workspace)]
         )
         assert result.exit_code == 1
-        assert "Job not found" in result.stdout
+        assert "Score not found" in result.stdout
         assert "nonexistent-job" in result.stdout
 
     def test_status_json_output_format(self, tmp_path: Path) -> None:
@@ -383,7 +383,7 @@ class TestResumeCommand:
             app, ["resume", "nonexistent-job", "--workspace", str(workspace)]
         )
         assert result.exit_code == 1
-        assert "Job not found" in result.stdout
+        assert "Score not found" in result.stdout
         assert "nonexistent-job" in result.stdout
 
     def test_resume_completed_job_blocked(self, tmp_path: Path) -> None:
@@ -474,7 +474,7 @@ class TestResumeCommand:
                 )
 
         # Should have started without errors (may fail later in mock)
-        assert "Resume Job" in result.stdout or "Reconstructed config" in result.stdout
+        assert "Resume Score" in result.stdout or "Reconstructed config" in result.stdout
 
     def test_resume_failed_job_allowed(self, tmp_path: Path, sample_config_dict: dict) -> None:
         """Test resume is allowed for failed jobs."""
@@ -513,7 +513,7 @@ class TestResumeCommand:
                 )
 
         # Verify resume was attempted with correct resume point
-        assert "Resume Job" in result.stdout
+        assert "Resume Score" in result.stdout
         assert "5/10" in result.stdout  # Progress shown
 
     def test_resume_missing_config(self, tmp_path: Path) -> None:
@@ -1159,7 +1159,7 @@ class TestRunCommandJsonOutput:
         )
         assert result.exit_code == 0
         # In quiet mode, config panel is hidden
-        assert "Job Configuration" not in result.stdout
+        assert "Score Configuration" not in result.stdout
 
 
 class TestRunSummaryDisplay:
@@ -1296,7 +1296,7 @@ class TestLoggingOptions:
                 app, ["--log-level", "WARNING", "list"]
             )
         assert result.exit_code == 0
-        assert "No active jobs" in result.stdout
+        assert "No active scores" in result.stdout
 
     def test_log_level_env_var(self, sample_yaml_config: Path) -> None:
         """Test MOZART_LOG_LEVEL environment variable."""
@@ -1351,7 +1351,7 @@ class TestErrorsCommand:
             app, ["errors", "nonexistent-job", "--workspace", str(workspace)]
         )
         assert result.exit_code == 1
-        assert "Job not found" in result.stdout
+        assert "Score not found" in result.stdout
 
     def test_errors_no_errors_found(self, tmp_path: Path) -> None:
         """Test errors command with job that has no errors."""
@@ -1436,7 +1436,7 @@ class TestErrorsCommand:
             app, ["errors", "failed-job", "--workspace", str(tmp_path)]
         )
         assert result.exit_code == 0
-        assert "Errors for Job" in result.stdout
+        assert "Errors for Score" in result.stdout
         assert "Max retries exceeded" in result.stdout or "validation" in result.stdout
 
     def test_errors_sheet_filter(self, tmp_path: Path) -> None:
@@ -1581,7 +1581,7 @@ class TestDiagnoseCommand:
             app, ["diagnose", "nonexistent-job", "--workspace", str(workspace)]
         )
         assert result.exit_code == 1
-        assert "Job not found" in result.stdout
+        assert "Score not found" in result.stdout
 
     def test_diagnose_basic_report(self, tmp_path: Path) -> None:
         """Test diagnose command generates basic report."""
@@ -1641,7 +1641,7 @@ class TestDiagnoseCommand:
             created_at=datetime.now(UTC),
             started_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
-            error_message="Job failed due to max retries",
+            error_message="Score failed due to max retries",
             sheets={
                 1: SheetState(
                     sheet_num=1,

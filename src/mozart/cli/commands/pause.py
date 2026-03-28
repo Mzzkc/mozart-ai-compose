@@ -42,18 +42,18 @@ from ..output import console, output_error
 
 
 def pause(
-    job_id: str = typer.Argument(..., help="Job ID to pause"),
+    job_id: str = typer.Argument(..., help="Score ID to pause"),
     workspace: Path | None = typer.Option(
         None,
         "--workspace",
         "-w",
-        help="Workspace directory containing job state (debug override)",
+        help="Workspace directory containing score state (debug override)",
         hidden=True,
     ),
     wait: bool = typer.Option(
         False,
         "--wait",
-        help="Wait for job to acknowledge pause signal",
+        help="Wait for score to acknowledge pause signal",
     ),
     timeout: int = typer.Option(
         60,
@@ -71,10 +71,10 @@ def pause(
         False,
         "--force",
         "-f",
-        help="Force-cancel the job immediately (does not wait for sheet boundary)",
+        help="Force-cancel the score immediately (does not wait for sheet boundary)",
     ),
 ) -> None:
-    """Pause a running Mozart job gracefully.
+    """Pause a running Mozart score gracefully.
 
     Creates a pause signal that the job will detect at the next sheet boundary.
     The job saves its state and can be resumed with `mozart resume`.
@@ -147,12 +147,12 @@ async def _pause_job(
                     "success": False,
                     "error_code": "E502",
                     "job_id": job_id,
-                    "message": error_msg or f"Failed to pause job '{job_id}'",
+                    "message": error_msg or f"Failed to pause score '{job_id}'",
                 }
                 console.print(json.dumps(err_result, indent=2))
             else:
                 console.print(
-                    f"[red]Error:[/red] {error_msg or f'Failed to pause job {job_id!r}'}"
+                    f"[red]Error:[/red] {error_msg or f'Failed to pause score {job_id!r}'}"
                 )
             raise typer.Exit(1)
 
@@ -162,13 +162,13 @@ async def _pause_job(
                 "success": True,
                 "job_id": job_id,
                 "status": "paused",
-                "message": "Pause signal sent. Job will pause at next sheet boundary.",
+                "message": "Pause signal sent. Score will pause at next sheet boundary.",
                 "acknowledged": True,
             }
             console.print(json.dumps(out, indent=2))
         else:
-            console.print(f"Pause signal sent to job '[cyan]{job_id}[/cyan]'.")
-            console.print("Job will pause at next sheet boundary.")
+            console.print(f"Pause signal sent to score '[cyan]{job_id}[/cyan]'.")
+            console.print("Score will pause at next sheet boundary.")
             console.print()
             console.print(f"To resume: [bold]mozart resume {job_id}[/bold]")
             console.print(
@@ -221,32 +221,32 @@ async def _pause_job_direct(
         if json_output:
             hints: list[str] = []
             if found_state.status == JobStatus.PAUSED:
-                hints.append("Job is already paused")
+                hints.append("Score is already paused")
                 hints.append(f"Use 'mozart resume {job_id}' to resume")
             elif found_state.status == JobStatus.PENDING:
-                hints.append("Use 'mozart run' to start the job")
+                hints.append("Use 'mozart run' to start the score")
             elif found_state.status == JobStatus.COMPLETED:
-                hints.append("Job has already completed")
+                hints.append("Score has already completed")
             err = {
                 "success": False,
                 "error_code": "E502",
                 "job_id": job_id,
                 "status": status_str,
-                "message": f"Job '{job_id}' is {status_str}, not running",
+                "message": f"Score '{job_id}' is {status_str}, not running",
                 "hints": hints,
             }
             console.print(json.dumps(err, indent=2))
         else:
             console.print(
-                f"[red]Error [E502]:[/red] Job '{job_id}' is {status_str}, not running"
+                f"[red]Error [E502]:[/red] Score '{job_id}' is {status_str}, not running"
             )
             if found_state.status == JobStatus.PAUSED:
-                console.print("[dim]Hint: Job is already paused.[/dim]")
+                console.print("[dim]Hint: Score is already paused.[/dim]")
                 console.print(f"[dim]Use 'mozart resume {job_id}' to resume.[/dim]")
             elif found_state.status == JobStatus.PENDING:
-                console.print("[dim]Hint: Use 'mozart run' to start the job.[/dim]")
+                console.print("[dim]Hint: Use 'mozart run' to start the score.[/dim]")
             elif found_state.status == JobStatus.COMPLETED:
-                console.print("[dim]Hint: Job has already completed.[/dim]")
+                console.print("[dim]Hint: Score has already completed.[/dim]")
         raise typer.Exit(1)
 
     try:
@@ -265,7 +265,7 @@ async def _pause_job_direct(
     if wait and found_backend:
         if not json_output:
             console.print(
-                f"[dim]Waiting for job to pause (timeout: {timeout}s)...[/dim]"
+                f"[dim]Waiting for score to pause (timeout: {timeout}s)...[/dim]"
             )
         was_acknowledged = await wait_for_pause_ack(found_backend, job_id, timeout)
         if not was_acknowledged:
@@ -290,17 +290,17 @@ async def _pause_job_direct(
             "success": True,
             "job_id": job_id,
             "status": "running" if not was_acknowledged else "paused",
-            "message": "Pause signal sent. Job will pause at next sheet boundary.",
+            "message": "Pause signal sent. Score will pause at next sheet boundary.",
             "signal_file": str(signal_file),
             "acknowledged": was_acknowledged,
         }
         console.print(json.dumps(out, indent=2))
     else:
         if was_acknowledged:
-            console.print(f"[green]Job '{job_id}' paused successfully.[/green]")
+            console.print(f"[green]Score '{job_id}' paused successfully.[/green]")
         else:
-            console.print(f"Pause signal sent to job '[cyan]{job_id}[/cyan]'.")
-            console.print("Job will pause at next sheet boundary.")
+            console.print(f"Pause signal sent to score '[cyan]{job_id}[/cyan]'.")
+            console.print("Score will pause at next sheet boundary.")
         console.print()
         console.print(f"To resume: [bold]mozart resume {job_id}[/bold]")
         console.print(
@@ -356,7 +356,7 @@ async def _pause_via_conductor(
     )
     if paused and not json_output:
         console.print(
-            f"Pause signal sent to job '[cyan]{job_id}[/cyan]'."
+            f"Pause signal sent to score '[cyan]{job_id}[/cyan]'."
         )
     elif not paused and not quiet:
         error_msg = (
@@ -368,11 +368,11 @@ async def _pause_via_conductor(
                 "success": False,
                 "error_code": "E503",
                 "job_id": job_id,
-                "message": error_msg or f"Failed to pause job '{job_id}'",
+                "message": error_msg or f"Failed to pause score '{job_id}'",
             }
             console.print(json.dumps(result, indent=2))
         else:
-            msg = f"Failed to pause job '{job_id}'"
+            msg = f"Failed to pause score '{job_id}'"
             if error_msg:
                 msg += f": {error_msg}"
             console.print(f"[red]Error [E503]:[/red] {msg}")
@@ -403,7 +403,7 @@ async def _pause_via_filesystem(
         create_pause_signal(workspace, job_id)
         if not json_output:
             console.print(
-                f"Pause signal sent to job '[cyan]{job_id}[/cyan]'."
+                f"Pause signal sent to score '[cyan]{job_id}[/cyan]'."
             )
     except (PermissionError, OSError) as e:
         if json_output:
@@ -421,7 +421,7 @@ async def _pause_via_filesystem(
     if wait and resume_flag and found_backend:
         if not json_output:
             console.print(
-                f"[dim]Waiting for job to pause (timeout: {timeout}s)...[/dim]"
+                f"[dim]Waiting for score to pause (timeout: {timeout}s)...[/dim]"
             )
         was_acknowledged = await wait_for_pause_ack(found_backend, job_id, timeout)
         if not was_acknowledged:
@@ -441,7 +441,7 @@ async def _pause_via_filesystem(
 
 
 def modify(
-    job_id: str = typer.Argument(..., help="Job ID to modify"),
+    job_id: str = typer.Argument(..., help="Score ID to modify"),
     config: Path = typer.Option(
         ...,
         "--config",
@@ -454,7 +454,7 @@ def modify(
         None,
         "--workspace",
         "-w",
-        help="Workspace directory containing job state (debug override)",
+        help="Workspace directory containing score state (debug override)",
         hidden=True,
     ),
     resume_flag: bool = typer.Option(
@@ -466,7 +466,7 @@ def modify(
     wait: bool = typer.Option(
         False,
         "--wait",
-        help="Wait for job to pause before resuming (when --resume)",
+        help="Wait for score to pause before resuming (when --resume)",
     ),
     timeout: int = typer.Option(
         60,
@@ -481,10 +481,10 @@ def modify(
         help="Output result as JSON",
     ),
 ) -> None:
-    """Modify a job's configuration and optionally resume execution.
+    """Modify a score's configuration and optionally resume execution.
 
     This is a convenience command that combines pause + config validation.
-    If the job is running, it will be paused first.
+    If the score is running, it will be paused first.
     Use --resume to immediately resume with the new configuration.
 
     Examples:
@@ -601,7 +601,7 @@ async def _modify_job(
             # failure and let the resume attempt determine the outcome.
             if not json_output:
                 console.print(
-                    "[dim]Job is no longer running, skipping pause.[/dim]"
+                    "[dim]Score is no longer running, skipping pause.[/dim]"
                 )
         elif not pause_ok:
             raise typer.Exit(1)
@@ -615,23 +615,23 @@ async def _modify_job(
                 "error_code": "E502",
                 "job_id": job_id,
                 "status": status_str,
-                "message": f"Job '{job_id}' is {status_str}, cannot modify",
+                "message": f"Score '{job_id}' is {status_str}, cannot modify",
             }
             console.print(json.dumps(result, indent=2))
         else:
             console.print(
-                f"[red]Error [E502]:[/red] Job '{job_id}' is {status_str}"
+                f"[red]Error [E502]:[/red] Score '{job_id}' is {status_str}"
             )
             if found_state.status == JobStatus.COMPLETED:
-                console.print("[dim]Hint: Job has already completed.[/dim]")
+                console.print("[dim]Hint: Score has already completed.[/dim]")
             elif found_state.status == JobStatus.PENDING:
-                console.print("[dim]Hint: Use 'mozart run' to start the job.[/dim]")
+                console.print("[dim]Hint: Use 'mozart run' to start the score.[/dim]")
         raise typer.Exit(1)
 
     # Output success message
     if not json_output:
         console.print(f"[green]Config validated:[/green] {config_file}")
-        console.print(f"[dim]Job name: {new_config.name}[/dim]")
+        console.print(f"[dim]Score name: {new_config.name}[/dim]")
         console.print(f"[dim]Sheets: {new_config.sheet.total_sheets}[/dim]")
 
     # If resume flag is set, let the daemon handle pause→resume atomically
@@ -679,13 +679,13 @@ async def _modify_job(
                 from ..helpers import _wait_for_pause_ack as wait_for_pause_ack
                 if not json_output:
                     console.print(
-                        f"[dim]Waiting for job to pause (timeout: {timeout}s)...[/dim]"
+                        f"[dim]Waiting for score to pause (timeout: {timeout}s)...[/dim]"
                     )
                 paused_ok = await wait_for_pause_ack(found_backend, job_id, timeout)
                 if not paused_ok:
                     if not json_output:
                         console.print(
-                            f"[red]Error:[/red] Timed out waiting for job "
+                            f"[red]Error:[/red] Timed out waiting for score "
                             f"'{job_id}' to pause ({timeout}s)"
                         )
                     raise typer.Exit(1)
@@ -713,7 +713,7 @@ async def _modify_job(
                 "status": found_state.status.value,
                 "config_validated": True,
                 "config_file": str(config_file),
-                "message": "Config validated. Job paused and ready to resume.",
+                "message": "Config validated. Score paused and ready to resume.",
             }
             console.print(json.dumps(result, indent=2))
         else:

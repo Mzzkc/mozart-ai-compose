@@ -118,7 +118,7 @@ async def list_artifacts(
     # Load job state to get workspace
     state = await backend.load(job_id)
     if state is None:
-        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+        raise HTTPException(status_code=404, detail=f"Score not found: {job_id}")
 
     workspace = resolve_job_workspace(state, job_id)
 
@@ -217,7 +217,7 @@ async def get_artifact(
     # Load job state to get workspace
     state = await backend.load(job_id)
     if state is None:
-        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+        raise HTTPException(status_code=404, detail=f"Score not found: {job_id}")
 
     workspace = resolve_job_workspace(state, job_id)
 

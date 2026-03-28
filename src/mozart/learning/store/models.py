@@ -215,6 +215,16 @@ class PatternRecord:
     success_factors_updated_at: datetime | None = None
     """When success_factors were last updated."""
 
+    # v14 (cycle 2): Soft delete, content dedup, instrument scoping
+    active: bool = True
+    """Whether this pattern is active (False = soft-deleted)."""
+
+    content_hash: str | None = None
+    """SHA-256 hash of pattern content for cross-name deduplication."""
+
+    instrument_name: str | None = None
+    """Backend instrument that produced this pattern (e.g., 'claude_cli')."""
+
     def __post_init__(self) -> None:
         """Clamp scored fields to valid ranges."""
         self.trust_score = max(0.0, min(1.0, self.trust_score))

@@ -102,7 +102,7 @@ async def job_details_page(
         # Fetch job details
         state = await backend.load(job_id)
         if state is None:
-            raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+            raise HTTPException(status_code=404, detail=f"Score not found: {job_id}")
 
         from mozart.dashboard.routes import JobDetail
         job_detail = JobDetail.from_checkpoint(state)
@@ -139,7 +139,7 @@ async def job_logs_page(
         # Fetch job details for context
         state = await backend.load(job_id)
         if state is None:
-            raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+            raise HTTPException(status_code=404, detail=f"Score not found: {job_id}")
 
         from mozart.dashboard.routes import JobDetail
         job_detail = JobDetail.from_checkpoint(state)

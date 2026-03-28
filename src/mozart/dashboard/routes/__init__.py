@@ -61,7 +61,7 @@ async def get_job_or_404(
     """
     state = await backend.load(job_id)
     if state is None:
-        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+        raise HTTPException(status_code=404, detail=f"Score not found: {job_id}")
     return state
 
 

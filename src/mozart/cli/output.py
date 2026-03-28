@@ -254,12 +254,12 @@ def create_jobs_table() -> Table:
         Rich Table configured for job list display.
     """
     table = Table(
-        title="Mozart Jobs",
+        title="Mozart Scores",
         show_edge=False,
         pad_edge=False,
         expand=False,
     )
-    table.add_column("Job ID", style="cyan", no_wrap=True)
+    table.add_column("Score ID", style="cyan", no_wrap=True)
     table.add_column("Status", style="bold", no_wrap=True)
     table.add_column("Workspace", style="dim", no_wrap=True)
     table.add_column("Submitted", style="dim", no_wrap=True)
@@ -711,7 +711,7 @@ def print_job_status_header(
             elapsed_str = format_duration(elapsed.total_seconds())
             lines.append(f"Running for: {elapsed_str}")
 
-    out.print(Panel("\n".join(lines), title="Job Status"))
+    out.print(Panel("\n".join(lines), title="Score Status"))
 
 
 def print_timing_section(

@@ -39,7 +39,7 @@ class ErrorMessages:
     and simplifies potential localization.
     """
 
-    JOB_NOT_FOUND = "Job not found"
+    JOB_NOT_FOUND = "Score not found"
     CONFIG_LOAD_ERROR = "Error loading config"
     WORKSPACE_NOT_FOUND = "Workspace not found"
     STATE_FILE_NOT_FOUND = "State file not found"

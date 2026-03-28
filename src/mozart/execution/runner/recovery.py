@@ -52,7 +52,7 @@ from mozart.core.errors import ClassificationResult, ClassifiedError, ErrorClass
 from mozart.core.logging import MozartLogger
 from mozart.state.base import StateBackend
 
-from .models import FatalError
+from .models import FatalError, RateLimitExhaustedError
 
 
 class RecoveryMixin:
@@ -347,8 +347,13 @@ class RecoveryMixin:
                     wait_count=state.quota_waits,
                     max_quota_waits=max_quota_waits,
                 )
-                raise FatalError(
-                    f"Exceeded maximum quota exhaustion waits ({max_quota_waits})"
+                from datetime import UTC, datetime, timedelta
+
+                raise RateLimitExhaustedError(
+                    f"Exceeded maximum quota exhaustion waits ({max_quota_waits})",
+                    resume_after=datetime.now(UTC) + timedelta(seconds=wait_seconds),
+                    backend_type=self.backend.name,
+                    quota_exhaustion=True,
                 )
             self.console.print(
                 f"[yellow]Token quota exhausted. Waiting {wait_minutes:.1f} minutes until reset... "
@@ -369,8 +374,13 @@ class RecoveryMixin:
                     wait_count=state.rate_limit_waits,
                     max_waits=self.config.rate_limit.max_waits,
                 )
-                raise FatalError(
-                    f"Exceeded maximum rate limit waits ({self.config.rate_limit.max_waits})"
+                from datetime import UTC, datetime, timedelta
+
+                raise RateLimitExhaustedError(
+                    f"Exceeded maximum rate limit waits ({self.config.rate_limit.max_waits})",
+                    resume_after=datetime.now(UTC) + timedelta(seconds=wait_seconds),
+                    backend_type=self.backend.name,
+                    quota_exhaustion=False,
                 )
             self.console.print(
                 f"[yellow]Rate limited. Waiting {wait_minutes:.0f} minutes... "

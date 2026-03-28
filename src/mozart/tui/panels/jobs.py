@@ -105,6 +105,8 @@ class JobsPanel(VerticalScroll):
         self._tree: Tree[dict[str, Any]] | None = None
         self._empty_label: Static | None = None
         self._observer_file_events: list[dict[str, Any]] = []
+        self._sort_key: str = "job_id"
+        self._filter_query: str = ""
 
     def compose(self) -> Any:
         """Build the widget tree with a Tree for collapsible jobs."""
@@ -115,6 +117,24 @@ class JobsPanel(VerticalScroll):
         tree.guide_depth = 3
         self._tree = tree
         yield tree
+
+    @property
+    def sort_key(self) -> str:
+        return self._sort_key
+
+    @sort_key.setter
+    def sort_key(self, value: str) -> None:
+        self._sort_key = value
+        self._render_jobs()
+
+    @property
+    def filter_query(self) -> str:
+        return self._filter_query
+
+    @filter_query.setter
+    def filter_query(self, value: str) -> None:
+        self._filter_query = value.lower()
+        self._render_jobs()
 
     @property
     def selected_item(self) -> dict[str, Any] | None:
@@ -172,6 +192,22 @@ class JobsPanel(VerticalScroll):
             self._items = []
             return
 
+        # Apply filtering
+        filtered_processes = snap.processes
+        if self._filter_query:
+            filtered_processes = [
+                p for p in snap.processes
+                if (p.job_id and self._filter_query in p.job_id.lower()) or
+                   (p.command and self._filter_query in p.command.lower())
+            ]
+
+        if not filtered_processes and self._filter_query:
+            tree.display = False
+            if empty is not None:
+                empty.display = True
+                empty.update(f"[yellow]No jobs matching '{self._filter_query}'[/]")
+            return
+
         if empty is not None:
             empty.display = False
         tree.display = True
@@ -180,7 +216,7 @@ class JobsPanel(VerticalScroll):
         by_job: dict[str, list[ProcessMetric]] = defaultdict(list)
         orphans: list[ProcessMetric] = []
 
-        for proc in snap.processes:
+        for proc in filtered_processes:
             if proc.job_id:
                 by_job[proc.job_id].append(proc)
             else:
@@ -196,7 +232,23 @@ class JobsPanel(VerticalScroll):
             jp.job_id: jp for jp in snap.job_progress
         }
 
-        for job_id, procs in sorted(by_job.items()):
+        # Sorting logic
+        sorted_job_ids = sorted(by_job.keys())
+        if self._sort_key == "cpu":
+            sorted_job_ids = sorted(
+                by_job.keys(),
+                key=lambda jid: sum(p.cpu_percent for p in by_job[jid]),
+                reverse=True
+            )
+        elif self._sort_key == "mem":
+            sorted_job_ids = sorted(
+                by_job.keys(),
+                key=lambda jid: sum(p.rss_mb for p in by_job[jid]),
+                reverse=True
+            )
+
+        for job_id in sorted_job_ids:
+            procs = by_job[job_id]
             jp = progress_by_job.get(job_id)
             if jp and jp.total_sheets > 0:
                 progress = _format_progress_bar(jp.last_completed_sheet, jp.total_sheets)

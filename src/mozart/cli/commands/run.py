@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 def run(
     config_file: Path = typer.Argument(
         ...,
-        help="Path to YAML job configuration file",
+        help="Path to YAML score configuration file",
         exists=True,
         readable=True,
     ),
@@ -113,7 +113,7 @@ def run(
             f"Sheets: {config.sheet.total_sheets} "
             f"({config.sheet.size} items each)\n"
             f"Workspace: {config.workspace}",
-            title="Job Configuration",
+            title="Score Configuration",
         ))
 
     # Validate flag compatibility
@@ -208,7 +208,7 @@ async def _try_daemon_submit(
             if json_output:
                 console.print(json.dumps(result, indent=2))
             else:
-                console.print(f"[yellow]Daemon rejected job:[/yellow] {msg}")
+                console.print(f"[yellow]Conductor rejected score:[/yellow] {msg}")
             return False
 
         # Poll briefly to catch early failures (e.g. template errors)
@@ -224,12 +224,12 @@ async def _try_daemon_submit(
         else:
             if early_failed:
                 err = early.get("error_message", "") if isinstance(early, dict) else ""
-                console.print(f"[red]Job failed:[/red] {job_id}")
+                console.print(f"[red]Score failed:[/red] {job_id}")
                 if err:
                     console.print(f"  {err}")
                 console.print(f"\n[dim]Full details:[/dim] mozart diagnose {job_id}")
                 raise typer.Exit(1)
-            console.print(f"[green]Job submitted to daemon:[/green] {job_id}")
+            console.print(f"[green]Score submitted to conductor:[/green] {job_id}")
             if msg:
                 console.print(f"  {msg}")
             console.print(

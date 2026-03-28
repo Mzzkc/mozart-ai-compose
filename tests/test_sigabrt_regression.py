@@ -166,9 +166,11 @@ class TestStreamCancelledErrorReapsZombie:
                     notify_progress=lambda phase: None,
                 )
 
-        # Must kill process group with SIGTERM (graceful first)
-        mock_killpg.assert_called_once_with(proc.pid, signal.SIGTERM)
-        # Must call process.kill() as escalation
+        # Must kill process group: SIGTERM (graceful) then SIGKILL (force)
+        assert mock_killpg.call_count == 2
+        mock_killpg.assert_any_call(proc.pid, signal.SIGTERM)
+        mock_killpg.assert_any_call(proc.pid, signal.SIGKILL)
+        # Must call process.kill() as final escalation
         proc.kill.assert_called_once()
         # Must call process.wait() to reap the zombie
         proc.wait.assert_called_once()

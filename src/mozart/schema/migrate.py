@@ -16,7 +16,6 @@ Design decisions:
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from typing import Union
 
 import aiosqlite
 
@@ -26,7 +25,7 @@ _logger = get_logger("schema.migrate")
 
 # A migration step is either a SQL string (semicolon-separated statements)
 # or an async callable that receives the connection for complex transforms.
-MigrationStep = Union[str, Callable[[aiosqlite.Connection], Awaitable[None]]]
+MigrationStep = str | Callable[[aiosqlite.Connection], Awaitable[None]]
 
 
 async def get_version(db: aiosqlite.Connection) -> int:

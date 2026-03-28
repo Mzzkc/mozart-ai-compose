@@ -43,6 +43,7 @@ if TYPE_CHECKING:
 from mozart.backends.base import Backend
 from mozart.core.checkpoint import CheckpointState, JobStatus, ProgressSnapshotDict
 from mozart.core.config import JobConfig
+from mozart.core.config.spec import SpecFragment
 from mozart.core.errors import ErrorClassifier
 from mozart.core.logging import ExecutionContext, MozartLogger, get_logger
 from mozart.execution.circuit_breaker import CircuitBreaker
@@ -58,6 +59,7 @@ from mozart.execution.retry_strategy import AdaptiveRetryStrategy, RetryStrategy
 from mozart.learning.judgment import JudgmentClient
 from mozart.learning.outcomes import OutcomeStore
 from mozart.prompts.templating import PromptBuilder
+from mozart.spec.loader import SpecCorpusError, SpecCorpusLoader
 from mozart.state.base import StateBackend
 
 from .models import (
@@ -332,6 +334,56 @@ class JobRunnerBase:
                 max_concurrent=config.parallel.max_concurrent,
                 fail_fast=config.parallel.fail_fast,
             )
+
+        # Spec corpus loading (Phase 1: Spec Corpus Pipeline)
+        # Load spec fragments at init time so they're available for all sheets.
+        # Fragments are stored on the runner (not config) because config is frozen.
+        self._spec_fragments: list[SpecFragment] = []
+        self._spec_corpus_hash: str = ""
+        if config.spec.spec_dir:
+            try:
+                self._spec_fragments = SpecCorpusLoader.load(config.spec.spec_dir)
+                # Load CLAUDE.md if configured
+                if config.spec.include_claude_md:
+                    # Infer project root from workspace parent or spec_dir parent
+                    project_root = Path(config.spec.spec_dir).parent
+                    claude_frag = SpecCorpusLoader.load_claude_md(project_root)
+                    if claude_frag is not None:
+                        self._spec_fragments.append(claude_frag)
+                        # Re-sort to maintain deterministic order
+                        self._spec_fragments.sort(key=lambda f: f.name)
+
+                # Compute corpus hash for drift detection
+                from mozart.core.config.spec import SpecCorpusConfig
+                temp_corpus = SpecCorpusConfig(
+                    spec_dir=config.spec.spec_dir,
+                    fragments=self._spec_fragments,
+                )
+                self._spec_corpus_hash = temp_corpus.corpus_hash()
+
+                self._logger.info(
+                    "spec_corpus.loaded",
+                    fragment_count=len(self._spec_fragments),
+                    corpus_hash=self._spec_corpus_hash[:12],
+                    spec_dir=config.spec.spec_dir,
+                )
+            except SpecCorpusError as exc:
+                # Graceful degradation: spec loading failure should not
+                # abort the job. Specs are enhancement, not requirement.
+                self._logger.warning(
+                    "spec_corpus.load_failed",
+                    error=str(exc),
+                    spec_dir=config.spec.spec_dir,
+                )
+            except Exception as exc:
+                # Catch-all for unexpected errors (permission, IO, etc.)
+                # Log with context per M-007, don't crash the runner.
+                self._logger.warning(
+                    "spec_corpus.unexpected_error",
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                    spec_dir=config.spec.spec_dir,
+                )
 
     # ─────────────────────────────────────────────────────────────────────
     # Property Accessors

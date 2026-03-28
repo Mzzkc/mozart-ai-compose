@@ -439,16 +439,16 @@ prompt:
         config = ParallelConfig(max_concurrent=1)
         assert config.max_concurrent == 1
 
-        config = ParallelConfig(max_concurrent=10)
-        assert config.max_concurrent == 10
+        config = ParallelConfig(max_concurrent=20)
+        assert config.max_concurrent == 20
 
         # Invalid: 0
         with pytest.raises(ValidationError):
             ParallelConfig(max_concurrent=0)
 
-        # Invalid: > 10
+        # Invalid: > 20
         with pytest.raises(ValidationError):
-            ParallelConfig(max_concurrent=11)
+            ParallelConfig(max_concurrent=21)
 
 
 # =============================================================================

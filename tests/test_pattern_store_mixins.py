@@ -128,28 +128,48 @@ class TestBayesianEffectiveness:
         assert result < 0.01
 
 
+class _PriorityMock:
+    """Minimal mock providing the FREQUENCY_FACTOR_FLOOR attribute.
+
+    _calculate_priority_score accesses self.FREQUENCY_FACTOR_FLOOR,
+    so we can't pass None as self. This mock provides exactly the
+    attribute the method needs without requiring a full store instance.
+    """
+
+    FREQUENCY_FACTOR_FLOOR = PatternCrudMixin.FREQUENCY_FACTOR_FLOOR
+
+
 class TestPriorityScore:
     """Tests for priority score calculation."""
 
+    _mock = _PriorityMock()
+
     def test_zero_occurrences_gives_zero_priority(self) -> None:
-        """A pattern never seen has zero frequency factor."""
+        """A pattern never seen has zero frequency factor.
+
+        Even with the frequency floor, occurrence_count=0 gives
+        log10(1)/2 = 0, and max(0.6, 0) = 0.6, but effectiveness * 0.6 * 1.0
+        is still > 0 when effectiveness > 0. With the floor, a zero-occurrence
+        pattern with effectiveness=1.0 gets priority = 0.6, not 0.0.
+        """
         result = PatternCrudMixin._calculate_priority_score(
-            None,  # type: ignore[arg-type]
+            self._mock,  # type: ignore[arg-type]
             effectiveness=1.0,
             occurrence_count=0,
             variance=0.0,
         )
-        # log10(0+1)/2 = 0, so priority = 0
-        assert result == 0.0
+        # With floor: max(0.6, log10(1)/2) = max(0.6, 0) = 0.6
+        # priority = 1.0 * 0.6 * 1.0 = 0.6
+        assert result == pytest.approx(0.6, abs=0.01)
 
     def test_high_variance_penalizes_priority(self) -> None:
         """High variance (inconsistent outcomes) reduces priority."""
         low_var = PatternCrudMixin._calculate_priority_score(
-            None,  # type: ignore[arg-type]
+            self._mock,  # type: ignore[arg-type]
             effectiveness=0.8, occurrence_count=100, variance=0.1,
         )
         high_var = PatternCrudMixin._calculate_priority_score(
-            None,  # type: ignore[arg-type]
+            self._mock,  # type: ignore[arg-type]
             effectiveness=0.8, occurrence_count=100, variance=0.9,
         )
         assert high_var < low_var
@@ -159,11 +179,11 @@ class TestPriorityScore:
     def test_more_occurrences_increases_priority(self) -> None:
         """More occurrences increase the frequency factor."""
         few = PatternCrudMixin._calculate_priority_score(
-            None,  # type: ignore[arg-type]
+            self._mock,  # type: ignore[arg-type]
             effectiveness=0.8, occurrence_count=1, variance=0.0,
         )
         many = PatternCrudMixin._calculate_priority_score(
-            None,  # type: ignore[arg-type]
+            self._mock,  # type: ignore[arg-type]
             effectiveness=0.8, occurrence_count=100, variance=0.0,
         )
         assert many > few
@@ -171,7 +191,7 @@ class TestPriorityScore:
     def test_priority_clamped_to_0_1(self) -> None:
         """Priority score is always between 0 and 1."""
         result = PatternCrudMixin._calculate_priority_score(
-            None,  # type: ignore[arg-type]
+            self._mock,  # type: ignore[arg-type]
             effectiveness=1.0, occurrence_count=10000, variance=0.0,
         )
         assert 0.0 <= result <= 1.0

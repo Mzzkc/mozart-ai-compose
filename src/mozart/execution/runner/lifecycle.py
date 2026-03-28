@@ -48,7 +48,7 @@ from mozart.core.logging import ExecutionContext
 from mozart.execution.hooks import ConcertContext, HookExecutor
 from mozart.utils.time import utc_now
 
-from .models import FatalError, RunSummary
+from .models import FatalError, RateLimitExhaustedError, RunSummary
 
 
 class LifecycleMixin:
@@ -389,6 +389,8 @@ class LifecycleMixin:
                 total_sheets=self.config.sheet.total_sheets,
                 config_snapshot=config_snapshot,
                 config_path=config_path,
+                config_hash=self._compute_config_hash(config_snapshot),
+                spec_corpus_hash=getattr(self, "_spec_corpus_hash", ""),
             )
             await self.state_backend.save(state)
             self.console.print("[green]Created new job state[/green]")
@@ -430,9 +432,48 @@ class LifecycleMixin:
                             reason="permission denied",
                         )
 
-            self.console.print(
-                f"[yellow]Resuming from sheet {state.last_completed_sheet + 1}[/yellow]"
-            )
+            # Config hash stale detection for COMPLETED jobs (#103).
+            # If the score changed since the last run, a COMPLETED state
+            # is stale and should be restarted, not reused.
+            if state.status == JobStatus.COMPLETED and state.config_hash:
+                config_snapshot = self.config.model_dump(mode="json")
+                current_hash = self._compute_config_hash(config_snapshot)
+                if current_hash != state.config_hash:
+                    self._logger.info(
+                        "state.stale_config_detected",
+                        job_id=job_id,
+                        old_hash=state.config_hash[:12],
+                        new_hash=current_hash[:12],
+                    )
+                    self.console.print(
+                        "[yellow]Score has changed since last run — "
+                        "restarting with fresh state[/yellow]"
+                    )
+                    state = CheckpointState(
+                        job_id=job_id,
+                        job_name=self.config.name,
+                        total_sheets=self.config.sheet.total_sheets,
+                        config_snapshot=config_snapshot,
+                        config_path=config_path,
+                        config_hash=current_hash,
+                    )
+                    await self.state_backend.save(state)
+                else:
+                    self.console.print(
+                        "[green]Job already completed with same config — "
+                        "skipping re-execution[/green]"
+                    )
+            else:
+                # Reset rate limit counters on resume (Bug #100)
+                if state.status == JobStatus.PAUSED:
+                    state.rate_limit_waits = 0
+                    state.quota_waits = 0
+                    state.resume_at = None
+
+                self.console.print(
+                    f"[yellow]Resuming from sheet "
+                    f"{state.last_completed_sheet + 1}[/yellow]"
+                )
 
         # Override starting sheet if specified
         if start_sheet is not None:
@@ -454,6 +495,25 @@ class LifecycleMixin:
                 state.sheets[sheet_num] = SheetState(sheet_num=sheet_num)
 
         return state
+
+    @staticmethod
+    def _compute_config_hash(config: dict[str, Any]) -> str:
+        """Compute a content-based hash of a config snapshot.
+
+        Uses SHA-256 with sorted keys to ensure deterministic hashing
+        regardless of key insertion order across Python versions.
+
+        Args:
+            config: Serialized config dict (from JobConfig.model_dump).
+
+        Returns:
+            64-character hex digest of the config content.
+        """
+        import hashlib
+        import json
+
+        content = json.dumps(config, sort_keys=True, default=str)
+        return hashlib.sha256(content.encode()).hexdigest()
 
     def _finalize_summary(self, state: CheckpointState) -> None:
         """Finalize run summary with statistics from completed job.
@@ -907,6 +967,25 @@ class LifecycleMixin:
                     sheet_num=next_sheet,
                 )
                 raise
+            except RateLimitExhaustedError as e:
+                # Rate limit exhaustion → PAUSE, not FAIL.
+                # The job can be resumed after the rate limit resets.
+                state.resume_at = (
+                    e.resume_after.isoformat() if e.resume_after else None
+                )
+                state.mark_job_paused()
+                await self.state_backend.save(state)
+                self._finalize_summary(state)
+                self._logger.warning(
+                    "job.paused.rate_limit_exhausted",
+                    job_id=state.job_id,
+                    sheet_num=next_sheet,
+                    backend_type=e.backend_type,
+                    quota_exhaustion=e.quota_exhaustion,
+                    resume_at=state.resume_at,
+                    duration_seconds=round(time.monotonic() - self._run_start_time, 2),
+                )
+                raise
             except FatalError as e:
                 state.mark_job_failed(str(e))
                 await self.state_backend.save(state)
@@ -1223,6 +1302,7 @@ class LifecycleMixin:
             outcomes=outcomes,
             workspace_path=self.config.workspace,
             model=self.config.backend.model,
+            instrument_name=self.config.backend.type,
         )
 
         self._logger.info(

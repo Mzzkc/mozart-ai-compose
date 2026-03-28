@@ -812,3 +812,67 @@ class TestEscalationDataModelProperties:
         )
         assert 0.0 <= suggestion.confidence <= 1.0
         assert 0.0 <= suggestion.validation_pass_rate <= 100.0
+
+
+# ---------------------------------------------------------------------------
+# SpecFragment and SpecCorpusConfig property tests
+# ---------------------------------------------------------------------------
+
+from mozart.core.config.spec import SpecCorpusConfig, SpecFragment
+
+# Strategy for valid SpecFragment names (non-empty, non-whitespace)
+_spec_name = st.text(
+    min_size=1, max_size=50,
+    alphabet=st.characters(categories=("L", "N")),
+).filter(lambda s: s.strip())
+
+# Strategy for valid SpecFragment content (non-empty)
+_spec_content = st.text(
+    min_size=1, max_size=200,
+    alphabet=st.characters(categories=("L", "N", "P", "Z")),
+).filter(lambda s: s.strip())
+
+_spec_tags = st.lists(
+    st.text(min_size=1, max_size=20, alphabet=st.characters(categories=("L",))),
+    min_size=0, max_size=5,
+)
+
+
+class TestSpecFragmentProperties:
+    """Property-based tests for SpecFragment model."""
+
+    @given(name=_spec_name, content=_spec_content, tags=_spec_tags)
+    @settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow])
+    def test_specfragment_round_trip(self, name: str, content: str, tags: list[str]) -> None:
+        """SpecFragment round-trips through model_dump/model_validate."""
+        frag = SpecFragment(name=name, content=content, tags=tags)
+        dumped = frag.model_dump()
+        restored = SpecFragment.model_validate(dumped)
+        assert restored.name == frag.name
+        assert restored.content == frag.content
+        assert restored.tags == frag.tags
+        assert restored.kind == "text"
+        assert restored.data is None
+
+
+class TestSpecCorpusConfigProperties:
+    """Property-based tests for SpecCorpusConfig model."""
+
+    @given(
+        fragments=st.lists(
+            st.builds(
+                SpecFragment,
+                name=_spec_name,
+                content=_spec_content,
+                tags=_spec_tags,
+            ),
+            min_size=0, max_size=5,
+        ),
+    )
+    @settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow])
+    def test_speccorpusconfig_corpus_hash_deterministic(
+        self, fragments: list[SpecFragment],
+    ) -> None:
+        """SpecCorpusConfig.corpus_hash is deterministic for same fragments."""
+        config = SpecCorpusConfig(fragments=fragments)
+        assert config.corpus_hash() == config.corpus_hash()

@@ -1002,6 +1002,80 @@ class TestCostLimitConfig:
             CostLimitConfig(max_cost_per_sheet=0.0)
 
 
+class TestCostLimitAutoEnable:
+    """Tests for CostLimitConfig auto-enable validator (P0 safety).
+
+    When a user sets max_cost_per_job or max_cost_per_sheet but omits
+    enabled: true, the validator must auto-enable cost tracking. Without
+    this, sheet.py:2431 returns early and cost tracking is silently
+    skipped — the user gets zero protection despite configuring limits.
+    """
+
+    def test_auto_enable_with_job_limit(self):
+        """Setting max_cost_per_job without enabled auto-enables tracking."""
+        config = CostLimitConfig(max_cost_per_job=10.0)
+        assert config.enabled is True
+        assert config.max_cost_per_job == 10.0
+
+    def test_auto_enable_with_sheet_limit(self):
+        """Setting max_cost_per_sheet without enabled auto-enables tracking."""
+        config = CostLimitConfig(max_cost_per_sheet=5.0)
+        assert config.enabled is True
+        assert config.max_cost_per_sheet == 5.0
+
+    def test_auto_enable_with_both_limits(self):
+        """Setting both limits without enabled auto-enables tracking."""
+        config = CostLimitConfig(max_cost_per_job=100.0, max_cost_per_sheet=5.0)
+        assert config.enabled is True
+
+    def test_stays_disabled_when_no_limits(self):
+        """Default config with no limits stays disabled."""
+        config = CostLimitConfig()
+        assert config.enabled is False
+        assert config.max_cost_per_sheet is None
+        assert config.max_cost_per_job is None
+
+    def test_explicit_false_respected_with_limits(self):
+        """Explicit enabled=False is respected even when limits are set.
+
+        This is the escape hatch: a user who deliberately sets enabled: false
+        is saying "I know what I'm doing, don't track costs." We must not
+        override that intent. The mode="before" validator sees "enabled" in
+        the dict and skips auto-enable.
+        """
+        config = CostLimitConfig(
+            enabled=False, max_cost_per_job=10.0, max_cost_per_sheet=5.0,
+        )
+        assert config.enabled is False
+
+    def test_explicit_true_without_limits_raises(self):
+        """Enabled=True without any limits is an error — pointless config."""
+        with pytest.raises(ValidationError, match="enabled=True but no limits"):
+            CostLimitConfig(enabled=True)
+
+    def test_auto_enable_via_model_validate(self):
+        """Auto-enable works via model_validate (YAML-like dict input).
+
+        This is the real-world path: score YAML is loaded as a dict and
+        passed to model_validate. The mode="before" validator sees the
+        raw dict, not keyword args.
+        """
+        config = CostLimitConfig.model_validate({
+            "max_cost_per_job": 1.00,
+            "max_cost_per_sheet": 0.50,
+        })
+        assert config.enabled is True
+        assert config.max_cost_per_job == 1.00
+
+    def test_auto_enable_via_model_validate_explicit_false(self):
+        """Explicit enabled: false in YAML dict is respected."""
+        config = CostLimitConfig.model_validate({
+            "enabled": False,
+            "max_cost_per_job": 10.0,
+        })
+        assert config.enabled is False
+
+
 class TestRateLimitConfig:
     """Tests for RateLimitConfig model."""
 

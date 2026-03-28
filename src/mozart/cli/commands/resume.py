@@ -67,7 +67,7 @@ _logger = logging.getLogger(__name__)
 
 
 def resume(
-    job_id: str = typer.Argument(..., help="Job ID to resume"),
+    job_id: str = typer.Argument(..., help="Score ID to resume"),
     config_file: Path | None = typer.Option(
         None,
         "--config",
@@ -80,14 +80,14 @@ def resume(
         None,
         "--workspace",
         "-w",
-        help="Workspace directory to search for job state (debug override)",
+        help="Workspace directory to search for score state (debug override)",
         hidden=True,
     ),
     force: bool = typer.Option(
         False,
         "--force",
         "-f",
-        help="Force resume even if job appears completed",
+        help="Force resume even if score appears completed",
     ),
     escalation: bool = typer.Option(
         False,
@@ -114,9 +114,9 @@ def resume(
         help="Auto-confirm suggested fixes when using --self-healing",
     ),
 ) -> None:
-    """Resume a paused or failed job.
+    """Resume a paused or failed score.
 
-    Loads the job state and continues execution from where it left off.
+    Loads the score state and continues execution from where it left off.
     By default, Mozart auto-reloads config from the original YAML file
     if it still exists on disk. Use --no-reload to use the cached snapshot.
 
@@ -163,7 +163,7 @@ async def _find_job_state(
     if found_state.status not in resumable_statuses:
         if found_state.status == JobStatus.COMPLETED and not force:
             console.print(
-                f"[yellow]Job '{job_id}' is already completed.[/yellow]"
+                f"[yellow]Score '{job_id}' is already completed.[/yellow]"
             )
             console.print(
                 "[dim]Use --force to resume anyway (will restart from last sheet).[/dim]"
@@ -171,9 +171,9 @@ async def _find_job_state(
             raise typer.Exit(1)
         elif found_state.status == JobStatus.PENDING:
             console.print(
-                f"[yellow]Job '{job_id}' has not been started yet.[/yellow]"
+                f"[yellow]Score '{job_id}' has not been started yet.[/yellow]"
             )
-            console.print("[dim]Use 'mozart run' to start the job.[/dim]")
+            console.print("[dim]Use 'mozart run' to start the score.[/dim]")
             raise typer.Exit(1)
 
     return found_state, found_backend
@@ -312,7 +312,7 @@ async def _resume_job(
                 early_status = early.get("status", "") if isinstance(early, dict) else ""
                 if early_status in ("failed", "cancelled"):
                     err = early.get("error_message", "") if isinstance(early, dict) else ""
-                    console.print(f"[red]Job failed after resume:[/red] {job_id_result}")
+                    console.print(f"[red]Score failed after resume:[/red] {job_id_result}")
                     if err:
                         console.print(f"  {err}")
                     console.print(
@@ -388,10 +388,10 @@ async def _resume_job_direct(ctx: ResumeContext) -> None:
             # For force resume, restart from last sheet
             resume_sheet = found_state.total_sheets
             console.print(
-                f"[yellow]Job was completed. Force restarting sheet {resume_sheet}.[/yellow]"
+                f"[yellow]Score was completed. Force restarting sheet {resume_sheet}.[/yellow]"
             )
         else:
-            console.print("[green]Job is already fully completed.[/green]")
+            console.print("[green]Score is already fully completed.[/green]")
             return
 
     # Display resume info
@@ -400,7 +400,7 @@ async def _resume_job_direct(ctx: ResumeContext) -> None:
         f"Status: {found_state.status.value}\n"
         f"Progress: {found_state.last_completed_sheet}/{found_state.total_sheets} sheets\n"
         f"Resuming from sheet: {resume_sheet}",
-        title="Resume Job",
+        title="Resume Score",
     ))
 
     # Reset job status to RUNNING for resume
@@ -500,7 +500,7 @@ async def _resume_job_direct(ctx: ResumeContext) -> None:
     except GracefulShutdownError:
         # Graceful shutdown already saved state and printed resume hint
         progress.stop()
-        console.print("[yellow]Job paused. Exiting gracefully.[/yellow]")
+        console.print("[yellow]Score paused. Exiting gracefully.[/yellow]")
         raise typer.Exit(0) from None
 
     except FatalError as e:

@@ -51,6 +51,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from mozart.core.constants import TRUNCATE_STDOUT_TAIL_CHARS
+from mozart.core.tokens import (
+    TokenBudgetTracker,
+    estimate_tokens,
+    get_effective_window_size,
+)
 from mozart.execution.runner.patterns import PatternFeedbackContext
 
 if TYPE_CHECKING:
@@ -127,9 +132,7 @@ class _StaleExecutionError(Exception):
     def __init__(self, idle_seconds: float, timeout: float) -> None:
         self.idle_seconds = idle_seconds
         self.timeout = timeout
-        super().__init__(
-            f"Sheet idle for {idle_seconds:.1f}s (limit: {timeout}s)"
-        )
+        super().__init__(f"Sheet idle for {idle_seconds:.1f}s (limit: {timeout}s)")
 
 
 class SheetExecutionMixin:
@@ -181,7 +184,10 @@ class SheetExecutionMixin:
         # Methods from JobRunnerBase
         async def _interruptible_sleep(self, seconds: float) -> None: ...
         async def _fire_event(
-            self, event: str, sheet_num: int, data: dict[str, Any] | None = None,
+            self,
+            event: str,
+            sheet_num: int,
+            data: dict[str, Any] | None = None,
         ) -> None: ...
 
         # Methods from PatternsMixin
@@ -217,11 +223,13 @@ class SheetExecutionMixin:
         ) -> None: ...
 
         def _resolve_wait_duration(
-            self, suggested_wait_seconds: float | None,
+            self,
+            suggested_wait_seconds: float | None,
         ) -> float: ...
 
         def _classify_execution(
-            self, result: ExecutionResult,
+            self,
+            result: ExecutionResult,
         ) -> ClassificationResult: ...
 
         def _get_effective_model(self) -> str | None: ...
@@ -325,7 +333,8 @@ class SheetExecutionMixin:
         cfg = self.config.stale_detection
         if not cfg.enabled:
             return await self.backend.execute(
-                prompt, timeout_seconds=timeout_seconds,
+                prompt,
+                timeout_seconds=timeout_seconds,
             )
 
         # Seed the monotonic timestamp so the watchdog has a baseline
@@ -359,7 +368,7 @@ class SheetExecutionMixin:
                 success=False,
                 stdout="",
                 stderr=f"Stale execution: no output for {exc.idle_seconds:.0f}s "
-                       f"(limit: {exc.timeout}s)",
+                f"(limit: {exc.timeout}s)",
                 duration_seconds=time.monotonic() - start,
                 exit_code=None,
                 exit_reason="timeout",
@@ -408,13 +417,23 @@ class SheetExecutionMixin:
         # Query historical validation failures for history-aware prompts (Evolution v6)
         historical_failures = self._query_historical_failures(state, sheet_num)
 
+        # Filter spec fragments by per-sheet tags (Phase 1: Spec Corpus Pipeline)
+        # Tags filter FIRST (reduce count), then budget gating (cheaper on fewer items).
+        sheet_spec_fragments = self._get_filtered_spec_fragments(sheet_num)
+
+        # Apply budget gating: reject fragments that exceed remaining context window.
+        # Budget is shared across ALL prompt components (template, patterns, specs,
+        # validations) — spec fragments are NOT a separate allocation.
+        sheet_spec_fragments = self._apply_spec_budget_gating(sheet_spec_fragments, sheet_num)
+
         # Build original prompt with learned patterns, validation requirements,
-        # and historical failures (Evolution v6: History-Aware Prompt Generation)
+        # spec fragments, and historical failures
         original_prompt = self.prompt_builder.build_sheet_prompt(
             sheet_context,
             patterns=relevant_patterns if relevant_patterns else None,
             validation_rules=applicable_rules if applicable_rules else None,
             failure_history=historical_failures if historical_failures else None,
+            spec_fragments=sheet_spec_fragments if sheet_spec_fragments else None,
         )
         current_prompt = original_prompt
         current_mode = SheetExecutionMode.NORMAL
@@ -453,10 +472,14 @@ class SheetExecutionMixin:
             preflight_warnings=len(preflight_result.warnings),
             patterns_injected=len(relevant_patterns),
         )
-        await self._fire_event("sheet.started", sheet_num, {
-            "execution_mode": current_mode.value,
-            "prompt_tokens": preflight_result.prompt_metrics.estimated_tokens,
-        })
+        await self._fire_event(
+            "sheet.started",
+            sheet_num,
+            {
+                "execution_mode": current_mode.value,
+                "prompt_tokens": preflight_result.prompt_metrics.estimated_tokens,
+            },
+        )
 
         # v21 Evolution: Proactive Checkpoint System
         checkpoint_result = await self._check_proactive_checkpoint(
@@ -508,10 +531,7 @@ class SheetExecutionMixin:
         should proceed normally.
         """
         # Circuit breaker check
-        if (
-            self._circuit_breaker is not None
-            and not await self._circuit_breaker.can_execute()
-        ):
+        if self._circuit_breaker is not None and not await self._circuit_breaker.can_execute():
             wait_time = await self._circuit_breaker.time_until_retry()
             cb_state = await self._circuit_breaker.get_state()
             self._logger.warning(
@@ -543,10 +563,8 @@ class SheetExecutionMixin:
                 is_limited = False
                 wait_seconds = None
                 if effective_model is not None:
-                    is_limited, wait_seconds = (
-                        self._global_learning_store.is_rate_limited(
-                            model=effective_model,
-                        )
+                    is_limited, wait_seconds = self._global_learning_store.is_rate_limited(
+                        model=effective_model,
                     )
                 if is_limited and wait_seconds and wait_seconds > 0:
                     self._logger.info(
@@ -627,8 +645,7 @@ class SheetExecutionMixin:
                 confidence=grounding_ctx.confidence,
             )
             self.console.print(
-                f"[yellow]Sheet {sheet_num}: Grounding failed - "
-                f"{grounding_ctx.message}[/yellow]"
+                f"[yellow]Sheet {sheet_num}: Grounding failed - {grounding_ctx.message}[/yellow]"
             )
             grounding_mode, grounding_reason, _ = await self._decide_with_judgment(
                 sheet_num=sheet_num,
@@ -662,9 +679,7 @@ class SheetExecutionMixin:
                             "escalation",
                         )
                         grounding_sheet_state = state.sheets[sheet_num]
-                        self._update_escalation_outcome(
-                            grounding_sheet_state, "aborted", sheet_num
-                        )
+                        self._update_escalation_outcome(grounding_sheet_state, "aborted", sheet_num)
                         await self.state_backend.save(state)
                         raise FatalError(
                             f"Sheet {sheet_num} aborted via escalation: "
@@ -682,9 +697,7 @@ class SheetExecutionMixin:
                         if grounding_sheet_state.outcome_data is None:
                             grounding_sheet_state.outcome_data = {}
                         grounding_sheet_state.outcome_data["escalation_skipped"] = True
-                        self._update_escalation_outcome(
-                            grounding_sheet_state, "skipped", sheet_num
-                        )
+                        self._update_escalation_outcome(grounding_sheet_state, "skipped", sheet_num)
                         await self.state_backend.save(state)
                         return "break"
                 except FatalError:
@@ -696,7 +709,8 @@ class SheetExecutionMixin:
         execution_duration = time.monotonic() - execution_start_time
 
         outcome_category, success_without_retry = self._classify_success_outcome(
-            normal_attempts, completion_attempts,
+            normal_attempts,
+            completion_attempts,
         )
 
         # Populate SheetState learning fields
@@ -721,8 +735,7 @@ class SheetExecutionMixin:
             sheet_state.grounding_guidance = grounding_ctx.recovery_guidance
 
         escalation_pending = bool(
-            sheet_state.outcome_data
-            and sheet_state.outcome_data.get("escalation_record_id")
+            sheet_state.outcome_data and sheet_state.outcome_data.get("escalation_record_id")
         )
 
         # ===== CRITICAL: Mark completed and save BEFORE auxiliary learning =====
@@ -769,12 +782,16 @@ class SheetExecutionMixin:
             success_without_retry=success_without_retry,
             exit_code_was_nonzero=not result.success,
         )
-        await self._fire_event("sheet.completed", sheet_num, {
-            "duration_seconds": round(execution_duration, 2),
-            "exit_code": result.exit_code,
-            "validation_pass_rate": 100.0,
-            "outcome_category": outcome_category,
-        })
+        await self._fire_event(
+            "sheet.completed",
+            sheet_num,
+            {
+                "duration_seconds": round(execution_duration, 2),
+                "exit_code": result.exit_code,
+                "validation_pass_rate": 100.0,
+                "outcome_category": outcome_category,
+            },
+        )
         # Log validation summary, distinguishing new vs inherited validations
         total_validations = len(validation_result.results)
         new_count = self._count_new_validations(validation_result, sheet_num)
@@ -788,8 +805,7 @@ class SheetExecutionMixin:
             )
         else:
             self.console.print(
-                f"[green]Sheet {sheet_num}: All {total_validations} "
-                f"validations passed[/green]"
+                f"[green]Sheet {sheet_num}: All {total_validations} validations passed[/green]"
             )
         return None
 
@@ -868,12 +884,20 @@ class SheetExecutionMixin:
         # Dispatch to per-failure-mode handler
         if error.is_rate_limit:
             return await self._handle_rate_limit_failure(
-                context, error, normal_attempts, healing_attempts, pending_recovery,
+                context,
+                error,
+                normal_attempts,
+                healing_attempts,
+                pending_recovery,
             )
 
         if not error.should_retry:
             return await self._handle_fatal_error(
-                context, error, normal_attempts, healing_attempts, pending_recovery,
+                context,
+                error,
+                normal_attempts,
+                healing_attempts,
+                pending_recovery,
             )
 
         # Transient error - get adaptive retry recommendation
@@ -885,19 +909,30 @@ class SheetExecutionMixin:
 
         if normal_attempts >= context.max_retries:
             return await self._handle_retries_exhausted(
-                context, error, normal_attempts, healing_attempts,
+                context,
+                error,
+                normal_attempts,
+                healing_attempts,
                 pending_recovery,
             )
 
         if not retry_recommendation.should_retry:
             return await self._handle_adaptive_abort(
-                context, error, retry_recommendation,
-                normal_attempts, healing_attempts, pending_recovery,
+                context,
+                error,
+                retry_recommendation,
+                normal_attempts,
+                healing_attempts,
+                pending_recovery,
             )
 
         return await self._handle_transient_retry(
-            context, error, retry_recommendation,
-            normal_attempts, healing_attempts, pending_recovery,
+            context,
+            error,
+            retry_recommendation,
+            normal_attempts,
+            healing_attempts,
+            pending_recovery,
         )
 
     async def _handle_rate_limit_failure(
@@ -952,10 +987,7 @@ class SheetExecutionMixin:
         failed_validations = context.validation_result.get_failed_results()
         validation_info = ""
         if failed_validations:
-            failed_names = [
-                f.rule.description or "unnamed validation"
-                for f in failed_validations
-            ]
+            failed_names = [f.rule.description or "unnamed validation" for f in failed_validations]
             validation_info = f" (validations failed: {', '.join(failed_names)})"
 
         context.state.mark_sheet_failed(
@@ -986,11 +1018,15 @@ class SheetExecutionMixin:
                 else None
             ),
         )
-        await self._fire_event("sheet.failed", context.sheet_num, {
-            "error_category": error.category.value,
-            "exit_code": context.result.exit_code,
-            "duration_seconds": round(context.result.duration_seconds or 0, 2),
-        })
+        await self._fire_event(
+            "sheet.failed",
+            context.sheet_num,
+            {
+                "error_category": error.category.value,
+                "exit_code": context.result.exit_code,
+                "duration_seconds": round(context.result.duration_seconds or 0, 2),
+            },
+        )
         return FailureHandlingResult(
             action="fatal",
             normal_attempts=normal_attempts,
@@ -1009,10 +1045,7 @@ class SheetExecutionMixin:
     ) -> FailureHandlingResult:
         """Handle retry exhaustion: try self-healing, then fail."""
         # Try self-healing before giving up
-        if (
-            self._healing_coordinator is not None
-            and healing_attempts < context.max_healing_cycles
-        ):
+        if self._healing_coordinator is not None and healing_attempts < context.max_healing_cycles:
             healing_report = await self._try_self_healing(
                 result=context.result,
                 error=error,
@@ -1078,21 +1111,22 @@ class SheetExecutionMixin:
             exit_code=context.result.exit_code,
             duration_seconds=round(context.result.duration_seconds or 0, 2),
         )
-        await self._fire_event("sheet.failed", context.sheet_num, {
-            "error_category": error.category.value,
-            "exit_code": context.result.exit_code,
-            "duration_seconds": round(context.result.duration_seconds or 0, 2),
-            "retries_exhausted": True,
-        })
+        await self._fire_event(
+            "sheet.failed",
+            context.sheet_num,
+            {
+                "error_category": error.category.value,
+                "exit_code": context.result.exit_code,
+                "duration_seconds": round(context.result.duration_seconds or 0, 2),
+                "retries_exhausted": True,
+            },
+        )
         return FailureHandlingResult(
             action="fatal",
             normal_attempts=normal_attempts,
             healing_attempts=healing_attempts,
             pending_recovery=pending_recovery,
-            fatal_message=(
-                f"Sheet {context.sheet_num} failed after"
-                f" {context.max_retries} retries"
-            ),
+            fatal_message=(f"Sheet {context.sheet_num} failed after {context.max_retries} retries"),
         )
 
     async def _handle_adaptive_abort(
@@ -1161,12 +1195,16 @@ class SheetExecutionMixin:
             f"(delay: {retry_recommendation.delay_seconds:.1f}s, "
             f"confidence: {retry_recommendation.confidence:.0%})[/yellow]"
         )
-        await self._fire_event("sheet.retrying", context.sheet_num, {
-            "attempt": normal_attempts,
-            "max_retries": context.max_retries,
-            "reason": error.category.value,
-            "wait_seconds": round(retry_recommendation.delay_seconds, 2),
-        })
+        await self._fire_event(
+            "sheet.retrying",
+            context.sheet_num,
+            {
+                "attempt": normal_attempts,
+                "max_retries": context.max_retries,
+                "reason": error.category.value,
+                "wait_seconds": round(retry_recommendation.delay_seconds, 2),
+            },
+        )
 
         # Track pending recovery for learning outcome
         if self._global_learning_store is not None:
@@ -1339,9 +1377,7 @@ class SheetExecutionMixin:
             state.sheets[sheet_num].outcome_category = OutcomeCategory.SKIPPED_BY_ESCALATION
             self._update_escalation_outcome(state.sheets[sheet_num], "skipped", sheet_num)
             await self.state_backend.save(state)
-            self.console.print(
-                f"[yellow]Sheet {sheet_num}: Skipped via escalation[/yellow]"
-            )
+            self.console.print(f"[yellow]Sheet {sheet_num}: Skipped via escalation[/yellow]")
             return ModeDecisionResult(
                 action="return",
                 current_prompt=current_prompt,
@@ -1377,9 +1413,7 @@ class SheetExecutionMixin:
             current_prompt = ctx.original_prompt
         else:
             current_prompt = response.modified_prompt
-            self.console.print(
-                f"[blue]Sheet {sheet_num}: Retrying with modified prompt[/blue]"
-            )
+            self.console.print(f"[blue]Sheet {sheet_num}: Retrying with modified prompt[/blue]")
         await asyncio.sleep(self._get_retry_delay(normal_attempts))
         return ModeDecisionResult(
             action="continue",
@@ -1544,10 +1578,7 @@ class SheetExecutionMixin:
                         sheet_num=sheet_num,
                         max_guard_waits=self._MAX_GUARD_WAITS,
                     )
-                    msg = (
-                        f"Execution guards blocked "
-                        f"{self._MAX_GUARD_WAITS} consecutive times"
-                    )
+                    msg = f"Execution guards blocked {self._MAX_GUARD_WAITS} consecutive times"
                     state.mark_sheet_failed(sheet_num, error_message=msg)
                     await self.state_backend.save(state)
                     raise FatalError(msg)
@@ -1565,15 +1596,17 @@ class SheetExecutionMixin:
 
             # Post-execution bookkeeping: snapshots, output, cost, history
             await self._record_execution_bookkeeping(
-                state, sheet_num, sheet_state, result,
-                current_prompt, execution_history,
+                state,
+                sheet_num,
+                sheet_state,
+                result,
+                current_prompt,
+                execution_history,
             )
 
             # ===== VALIDATION-FIRST APPROACH =====
             validation_start = time.monotonic()
-            validation_result = await validation_engine.run_validations(
-                self.config.validations
-            )
+            validation_result = await validation_engine.run_validations(self.config.validations)
             validation_duration = time.monotonic() - validation_start
 
             # Update state with validation details
@@ -1586,11 +1619,15 @@ class SheetExecutionMixin:
                 if validation_result.all_passed
                 else "sheet.validation_failed"
             )
-            await self._fire_event(val_event, sheet_num, {
-                "passed_count": validation_result.passed_count,
-                "failed_count": validation_result.failed_count,
-                "pass_rate": validation_result.pass_percentage,
-            })
+            await self._fire_event(
+                val_event,
+                sheet_num,
+                {
+                    "passed_count": validation_result.passed_count,
+                    "failed_count": validation_result.failed_count,
+                    "pass_rate": validation_result.pass_percentage,
+                },
+            )
 
             if validation_result.all_passed:
                 # Delegate success handling to extracted method
@@ -1620,15 +1657,15 @@ class SheetExecutionMixin:
 
             # ===== VALIDATIONS INCOMPLETE =====
             passed_count, failed_count, pass_pct = self._log_incomplete_validations(
-                sheet_num, validation_result,
+                sheet_num,
+                validation_result,
             )
             completion_threshold = self.config.retry.completion_threshold_percent
 
             # Refresh error_message with current validation failures so that
             # completion/escalation modes see up-to-date failure descriptions.
             failed_descs = [
-                r.format_failure_summary()
-                for r in validation_result.get_failed_results()
+                r.format_failure_summary() for r in validation_result.get_failed_results()
             ]
             if failed_descs:
                 sheet_state.error_message = "; ".join(failed_descs[:3])
@@ -1687,20 +1724,22 @@ class SheetExecutionMixin:
                     continue
 
             # ===== JUDGMENT/COMPLETION/ESCALATION/RETRY MODE =====
-            mode_result = await self._apply_mode_decision(ModeDecisionContext(
-                state=state,
-                sheet_num=sheet_num,
-                validation_result=validation_result,
-                execution_history=execution_history,
-                original_prompt=original_prompt,
-                current_prompt=current_prompt,
-                current_mode=current_mode,
-                normal_attempts=normal_attempts,
-                completion_attempts=completion_attempts,
-                max_retries=max_retries,
-                max_completion=max_completion,
-                pass_pct=pass_pct,
-            ))
+            mode_result = await self._apply_mode_decision(
+                ModeDecisionContext(
+                    state=state,
+                    sheet_num=sheet_num,
+                    validation_result=validation_result,
+                    execution_history=execution_history,
+                    original_prompt=original_prompt,
+                    current_prompt=current_prompt,
+                    current_mode=current_mode,
+                    normal_attempts=normal_attempts,
+                    completion_attempts=completion_attempts,
+                    max_retries=max_retries,
+                    max_completion=max_completion,
+                    pass_pct=pass_pct,
+                )
+            )
 
             # Apply updated state from mode decision
             current_prompt = mode_result.current_prompt
@@ -1715,9 +1754,7 @@ class SheetExecutionMixin:
             elif mode_result.action == "continue":
                 continue
             else:
-                raise FatalError(
-                    f"Unknown mode_result action: {mode_result.action!r}"
-                )
+                raise FatalError(f"Unknown mode_result action: {mode_result.action!r}")
 
     async def _configure_and_execute_sheet(
         self,
@@ -1776,29 +1813,27 @@ class SheetExecutionMixin:
         override_params: dict[str, object] | None = None
         if sheet_override:
             override_params = {
-                k: v
-                for k, v in sheet_override.model_dump().items()
-                if v is not None
+                k: v for k, v in sheet_override.model_dump().items() if v is not None
             }
             if "timeout_seconds" in override_params:  # sheet_overrides takes precedence
                 sheet_timeout = float(override_params.pop("timeout_seconds"))  # type: ignore[arg-type]
 
-        self.console.print(
-            f"[blue]Sheet {sheet_num}: {current_mode.value} execution[/blue]"
-        )
+        self.console.print(f"[blue]Sheet {sheet_num}: {current_mode.value} execution[/blue]")
 
         if override_params:
             async with self.backend.override_lock:
                 self.backend.apply_overrides(override_params)
                 try:
                     return await self._execute_with_stale_detection(
-                        current_prompt, timeout_seconds=sheet_timeout,
+                        current_prompt,
+                        timeout_seconds=sheet_timeout,
                     )
                 finally:
                     self.backend.clear_overrides()
         else:
             return await self._execute_with_stale_detection(
-                current_prompt, timeout_seconds=sheet_timeout,
+                current_prompt,
+                timeout_seconds=sheet_timeout,
             )
 
     async def _record_execution_bookkeeping(
@@ -1931,6 +1966,120 @@ class SheetExecutionMixin:
 
         return relevant_patterns
 
+    def _get_filtered_spec_fragments(
+        self,
+        sheet_num: int,
+    ) -> list[Any]:
+        """Get spec fragments for a sheet, filtered by per-sheet tags.
+
+        Tags filter first (reduce fragment count), then returns the filtered
+        set. Budget gating is NOT done here — PromptBuilder handles injection
+        positioning, and the caller is responsible for budget decisions.
+
+        Args:
+            sheet_num: Current sheet number.
+
+        Returns:
+            Filtered list of SpecFragment instances. Empty list if no
+            spec fragments are loaded or none match the sheet's tags.
+        """
+        # Access fragments loaded during runner init (stored on JobRunnerBase)
+        fragments: list[Any] = getattr(self, "_spec_fragments", [])
+        if not fragments:
+            return []
+
+        # Check for per-sheet tag filtering
+        sheet_tags = self.config.sheet.spec_tags.get(sheet_num)
+        if sheet_tags:
+            # Filter: fragment matches if it shares at least one tag
+            tag_set = set(sheet_tags)
+            fragments = [f for f in fragments if tag_set & set(f.tags)]
+            self._logger.debug(
+                "spec.tag_filter",
+                sheet_num=sheet_num,
+                tags=sheet_tags,
+                matched_count=len(fragments),
+            )
+
+        return fragments
+
+    def _apply_spec_budget_gating(
+        self,
+        fragments: list[Any],
+        sheet_num: int,
+    ) -> list[Any]:
+        """Apply token budget gating to spec fragments.
+
+        Rejects fragments that would exceed the instrument's context window
+        budget. The budget is shared across ALL prompt components (template,
+        patterns, specs, validations) — spec fragments are not a separate
+        allocation.
+
+        Fragments are checked in order (alphabetical by name, established
+        at base.py:354). Fragments that fit are included; those that don't
+        are excluded with a WARNING log per M-007 (error paths produce
+        actionable diagnostics).
+
+        Args:
+            fragments: Tag-filtered spec fragments to gate.
+            sheet_num: Current sheet number (for logging).
+
+        Returns:
+            List of fragments that fit within the remaining budget.
+            May be shorter than input or empty if budget is exhausted.
+        """
+        if not fragments:
+            return []
+
+        # Resolve the effective context window for this backend
+        if self.config.backend.type == "claude_cli":
+            effective_model = self.config.backend.cli_model
+        else:
+            effective_model = self.config.backend.model
+        instrument = self.config.backend.type
+        window_size = get_effective_window_size(model=effective_model, instrument=instrument)
+
+        tracker = TokenBudgetTracker(window_size=window_size)
+
+        accepted: list[Any] = []
+        rejected_count = 0
+        for fragment in fragments:
+            fragment_tokens = estimate_tokens(fragment.content)
+            if tracker.can_fit(fragment.content):
+                tracker.allocate(fragment.content, f"spec:{fragment.name}")
+                accepted.append(fragment)
+            else:
+                rejected_count += 1
+                self._logger.warning(
+                    "spec.budget_gating.fragment_rejected",
+                    sheet_num=sheet_num,
+                    fragment_name=fragment.name,
+                    fragment_tokens=fragment_tokens,
+                    remaining_budget=tracker.remaining(),
+                    window_size=window_size,
+                )
+
+        if rejected_count > 0:
+            self._logger.warning(
+                "spec.budget_gating.summary",
+                sheet_num=sheet_num,
+                accepted=len(accepted),
+                rejected=rejected_count,
+                total=len(fragments),
+                budget_used=tracker.allocated,
+                budget_remaining=tracker.remaining(),
+            )
+        elif accepted:
+            self._logger.debug(
+                "spec.budget_gating.all_accepted",
+                sheet_num=sheet_num,
+                fragment_count=len(accepted),
+                budget_used=tracker.allocated,
+                budget_remaining=tracker.remaining(),
+            )
+
+        return accepted
+
     def _query_historical_failures(
         self,
         state: CheckpointState,
@@ -2004,6 +2153,7 @@ class SheetExecutionMixin:
 
         if feedback_config.format == "json":
             import json
+
             try:
                 sheet_state.agent_feedback = json.loads(raw_feedback)
             except json.JSONDecodeError as e:
@@ -2015,6 +2165,7 @@ class SheetExecutionMixin:
         elif feedback_config.format == "yaml":
             try:
                 import yaml
+
                 sheet_state.agent_feedback = yaml.safe_load(raw_feedback)
             except Exception as e:
                 self._logger.warning(
@@ -2169,9 +2320,7 @@ class SheetExecutionMixin:
             },
         )
 
-        results = await self._grounding_engine.run_hooks(
-            context, GroundingPhase.POST_VALIDATION
-        )
+        results = await self._grounding_engine.run_hooks(context, GroundingPhase.POST_VALIDATION)
 
         grounding_ctx = GroundingDecisionContext.from_results(results)
 
@@ -2223,9 +2372,7 @@ class SheetExecutionMixin:
             f"{passed_count} passed ({pass_pct:.0f}%)[/yellow]"
         )
         for failed in validation_result.get_failed_results():
-            self.console.print(
-                f"  [red]✗[/red] {failed.rule.description}"
-            )
+            self.console.print(f"  [red]✗[/red] {failed.rule.description}")
 
         return passed_count, failed_count, pass_pct
 
@@ -2402,9 +2549,10 @@ class SheetExecutionMixin:
         prior_sheet = state.sheets.get(sheet_num - 1) if sheet_num > 1 else None
         prior_status = prior_sheet.status.value if prior_sheet and prior_sheet.status else None
 
-        validation_types: list[str] | None = sorted({
-            r.rule.type for r in validation_result.results if r.rule and r.rule.type
-        }) or None
+        validation_types: list[str] | None = (
+            sorted({r.rule.type for r in validation_result.results if r.rule and r.rule.type})
+            or None
+        )
 
         try:
             await self._record_pattern_feedback(
@@ -2414,9 +2562,7 @@ class SheetExecutionMixin:
                     success_without_retry=success_without_retry,
                     sheet_num=sheet_num,
                     grounding_confidence=(
-                        grounding_ctx.confidence
-                        if grounding_ctx.hooks_executed > 0
-                        else None
+                        grounding_ctx.confidence if grounding_ctx.hooks_executed > 0 else None
                     ),
                     validation_types=validation_types,
                     prior_sheet_status=prior_status,
@@ -2636,14 +2782,9 @@ class SheetExecutionMixin:
 
     def _is_escalation_available(self) -> bool:
         """Check if escalation is configured and a handler is available."""
-        return (
-            self.config.learning.escalation_enabled
-            and self.escalation_handler is not None
-        )
+        return self.config.learning.escalation_enabled and self.escalation_handler is not None
 
-    def _should_enter_completion_mode(
-        self, pass_pct: float, completion_attempts: int
-    ) -> bool:
+    def _should_enter_completion_mode(self, pass_pct: float, completion_attempts: int) -> bool:
         """Check if completion mode should be attempted.
 
         Returns True when pass percentage exceeds the threshold AND
@@ -2710,7 +2851,8 @@ class SheetExecutionMixin:
 
         # High confidence + majority passed -> completion mode
         should_complete = self._should_enter_completion_mode(
-            pass_pct, completion_attempts,
+            pass_pct,
+            completion_attempts,
         )
         if confidence > high_threshold and should_complete:
             return (
@@ -2860,9 +3002,7 @@ class SheetExecutionMixin:
 
             if response.patterns_learned:
                 for pattern in response.patterns_learned:
-                    self.console.print(
-                        f"[dim]Sheet {sheet_num}: Pattern learned: {pattern}[/dim]"
-                    )
+                    self.console.print(f"[dim]Sheet {sheet_num}: Pattern learned: {pattern}[/dim]")
 
             mode = self._map_judgment_to_mode(response, completion_attempts)
             reason = f"RL judgment ({response.confidence:.2f}): {response.reasoning}"
@@ -2913,13 +3053,15 @@ class SheetExecutionMixin:
 
         history_dicts: list[dict[str, Any]] = []
         for result in execution_history:
-            history_dicts.append({
-                "success": result.success,
-                "exit_code": result.exit_code,
-                "duration_seconds": result.duration_seconds,
-                "has_stdout": bool(result.stdout),
-                "has_stderr": bool(result.stderr),
-            })
+            history_dicts.append(
+                {
+                    "success": result.success,
+                    "exit_code": result.exit_code,
+                    "duration_seconds": result.duration_seconds,
+                    "has_stdout": bool(result.stdout),
+                    "has_stderr": bool(result.stderr),
+                }
+            )
 
         return JudgmentQuery(
             job_id=self.config.name,
@@ -2952,9 +3094,7 @@ class SheetExecutionMixin:
 
         # Handle abort (raises) and completion (conditional) separately
         if action == "abort":
-            raise FatalError(
-                f"RL judgment recommends abort: {response.reasoning}"
-            )
+            raise FatalError(f"RL judgment recommends abort: {response.reasoning}")
         if action == "completion":
             max_completion = self.config.retry.max_completion_attempts
             if completion_attempts < max_completion:
@@ -2996,6 +3136,7 @@ class SheetExecutionMixin:
         if self.checkpoint_handler is None:
             if self.config.checkpoints.triggers:
                 from mozart.execution.escalation import ConsoleCheckpointHandler
+
                 self.checkpoint_handler = ConsoleCheckpointHandler()
             else:
                 return None
@@ -3087,9 +3228,7 @@ class SheetExecutionMixin:
             FatalError: If no escalation handler is configured.
         """
         if self.escalation_handler is None:
-            raise FatalError(
-                f"Sheet {sheet_num}: Escalation requested but no handler configured"
-            )
+            raise FatalError(f"Sheet {sheet_num}: Escalation requested but no handler configured")
 
         sheet_state = state.sheets.get(sheet_num)
         if sheet_state is None:

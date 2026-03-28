@@ -139,7 +139,7 @@ class TestRunCommandExecution:
             app, ["run", str(sample_yaml_config), "--dry-run"]
         )
         assert result.exit_code == 0
-        assert "Job Configuration" in result.stdout
+        assert "Score Configuration" in result.stdout
         assert "test-job" in result.stdout
 
     def test_run_nonexistent_config(self, tmp_path: Path) -> None:

@@ -7,7 +7,7 @@ hammering IPC on concurrent page loads.
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any, cast
 
 from mozart.core.checkpoint import CheckpointState, SheetStatus
 from mozart.state.base import StateBackend
@@ -40,7 +40,7 @@ class DaemonAnalytics:
         """
         cached = self._cached("stats")
         if cached is not None:
-            return cached
+            return cast("dict[str, Any]", cached)
 
         jobs = await self._list_jobs_cached()
 
@@ -97,7 +97,7 @@ class DaemonAnalytics:
         """Cost breakdown by job, total spend, avg cost per job."""
         cached = self._cached("cost_rollup")
         if cached is not None:
-            return cached
+            return cast("dict[str, Any]", cached)
 
         jobs = await self._list_jobs_cached()
 
@@ -125,7 +125,7 @@ class DaemonAnalytics:
         """Validation pass rates by rule type, overall pass rate."""
         cached = self._cached("validation_stats")
         if cached is not None:
-            return cached
+            return cast("dict[str, Any]", cached)
 
         jobs = await self._list_jobs_cached()
 
@@ -179,7 +179,7 @@ class DaemonAnalytics:
         """Error counts by category: transient, rate_limit, permanent."""
         cached = self._cached("error_breakdown")
         if cached is not None:
-            return cached
+            return cast("dict[str, Any]", cached)
 
         jobs = await self._list_jobs_cached()
 
@@ -211,7 +211,7 @@ class DaemonAnalytics:
         """Avg sheet duration, total job durations, slowest sheets."""
         cached = self._cached("duration_stats")
         if cached is not None:
-            return cached
+            return cast("dict[str, Any]", cached)
 
         jobs = await self._list_jobs_cached()
 
@@ -276,7 +276,7 @@ class DaemonAnalytics:
         """Fetch jobs from the adapter, using cache to avoid repeated IPC calls."""
         cached = self._cached("_jobs")
         if cached is not None:
-            return cached
+            return cast("list[CheckpointState]", cached)
         jobs = await self._adapter.list_jobs()
         self._set_cache("_jobs", jobs)
         return jobs
