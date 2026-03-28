@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from mozart.core.checkpoint import PromptMetricsDict
+from mozart.core.tokens import estimate_tokens
 
 # Common file path patterns to extract from prompts
 FILE_PATH_PATTERNS = [
@@ -23,9 +24,6 @@ FILE_PATH_PATTERNS = [
     # Exclude newlines and cap length to avoid matching across lines of injected content
     r'["\']([^"\'\n]{1,250}/[^"\'\n]{1,250}\.[a-zA-Z0-9]+)["\']',
 ]
-
-# Characters per token rough estimate (typical for English text with code)
-CHARS_PER_TOKEN = 4
 
 # Warning thresholds
 TOKEN_WARNING_THRESHOLD = 50_000  # Warn if > 50K estimated tokens
@@ -44,7 +42,7 @@ class PromptMetrics:
     """Total character count in the prompt."""
 
     estimated_tokens: int
-    """Estimated token count (chars / 4 as rough approximation)."""
+    """Estimated token count via centralized estimator (tokens.estimate_tokens)."""
 
     line_count: int
     """Number of lines in the prompt."""
@@ -70,7 +68,7 @@ class PromptMetrics:
         """
         character_count = len(prompt)
         line_count = prompt.count("\n") + 1
-        estimated_tokens = character_count // CHARS_PER_TOKEN
+        estimated_tokens = estimate_tokens(prompt)
         word_count = len(prompt.split())
 
         # Extract file references

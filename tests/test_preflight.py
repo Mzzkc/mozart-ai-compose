@@ -2,11 +2,9 @@
 
 from pathlib import Path
 
+from mozart.core.tokens import estimate_tokens
 from mozart.execution.preflight import (
-    CHARS_PER_TOKEN,
     LINE_WARNING_THRESHOLD,
-    TOKEN_ERROR_THRESHOLD,
-    TOKEN_WARNING_THRESHOLD,
     PreflightChecker,
     PreflightResult,
     PromptMetrics,
@@ -24,7 +22,9 @@ class TestPromptMetrics:
 
         assert metrics.character_count == len(prompt)
         assert metrics.line_count == 2
-        assert metrics.estimated_tokens == len(prompt) // CHARS_PER_TOKEN
+        assert metrics.estimated_tokens > 0
+        assert metrics.estimated_tokens < metrics.character_count
+        assert metrics.estimated_tokens == estimate_tokens(prompt)
         assert metrics.word_count == 7
         assert metrics.has_file_references is False
         assert metrics.referenced_paths == []
@@ -72,9 +72,9 @@ class TestPromptMetrics:
         metrics = PromptMetrics.from_prompt(prompt)
 
         assert metrics.character_count == 200_000
-        assert metrics.estimated_tokens == 200_000 // CHARS_PER_TOKEN
-        # Should be 50K tokens
-        assert metrics.estimated_tokens == 50_000
+        assert metrics.estimated_tokens == estimate_tokens(prompt)
+        # Estimated tokens should be in a reasonable range for 200K chars
+        assert 40_000 < metrics.estimated_tokens < 80_000
 
     def test_multiline_prompt(self):
         """Test line counting for multiline prompts."""
@@ -206,8 +206,8 @@ class TestPreflightChecker:
 
     def test_check_large_prompt_warning(self, temp_workspace: Path):
         """Test warning for prompts exceeding token threshold."""
-        # Create prompt that exceeds warning threshold (50K tokens = 200K chars)
-        large_prompt = "x" * (TOKEN_WARNING_THRESHOLD * CHARS_PER_TOKEN + 1000)
+        # Create prompt unambiguously above warning threshold (50K tokens)
+        large_prompt = "x" * 250_000
 
         checker = PreflightChecker(workspace=temp_workspace)
         result = checker.check(large_prompt)
@@ -219,8 +219,8 @@ class TestPreflightChecker:
 
     def test_check_huge_prompt_error(self, temp_workspace: Path):
         """Test error for prompts exceeding error threshold."""
-        # Create prompt that exceeds error threshold (150K tokens = 600K chars)
-        huge_prompt = "x" * (TOKEN_ERROR_THRESHOLD * CHARS_PER_TOKEN + 1000)
+        # Create prompt unambiguously above error threshold (150K tokens)
+        huge_prompt = "x" * 600_000
 
         checker = PreflightChecker(workspace=temp_workspace)
         result = checker.check(huge_prompt)
@@ -305,8 +305,8 @@ class TestPreflightChecker:
         # Use very low thresholds for testing
         checker = PreflightChecker(
             workspace=temp_workspace,
-            token_warning_threshold=10,  # 40 chars
-            token_error_threshold=20,  # 80 chars
+            token_warning_threshold=10,  # ~35 chars at 3.5 ratio
+            token_error_threshold=20,  # ~70 chars at 3.5 ratio
         )
 
         # Should trigger warning but not error
