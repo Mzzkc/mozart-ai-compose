@@ -652,9 +652,11 @@ def _sanitize_for_json(obj: object) -> object:
     """
     import re
 
-    # Pattern: C0 controls (except \t \n \r which are safe in JSON),
-    # plus C1 controls and ANSI escape sequences
-    _CONTROL_RE = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]|\x1b\[[0-9;]*[a-zA-Z]')
+    # Pattern: ANSI escape sequences first (must match before the ESC byte
+    # is consumed by the control character class), then C0 controls (except
+    # \t \n \r which are safe in JSON), then C1 controls.
+    # F-060: Reordered — ANSI sequences before individual control chars.
+    _CONTROL_RE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]')
 
     if isinstance(obj, str):
         return _CONTROL_RE.sub("", obj)
