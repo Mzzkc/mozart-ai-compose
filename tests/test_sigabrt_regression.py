@@ -239,8 +239,9 @@ class TestKillOrphanedProcessAcceptsBaseException:
             patch("os.killpg", side_effect=ProcessLookupError),
             patch("os.getpgid", return_value=proc.pid),
         ):
-            # Should not raise
+            # Should not raise — graceful handling of already-exited process
             await backend._kill_orphaned_process(proc, asyncio.CancelledError())
+        assert proc.kill.called
 
 
 

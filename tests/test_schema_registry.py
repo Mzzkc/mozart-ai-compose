@@ -414,6 +414,7 @@ class TestStateRegistry:
         conn = sqlite3.connect(":memory:")
         conn.execute(sql)
         conn.close()
+        assert "CREATE TABLE" in sql
 
     def test_sheets_mapping_valid_ddl(self) -> None:
         reg = get_state_registry()
@@ -421,6 +422,7 @@ class TestStateRegistry:
         conn = sqlite3.connect(":memory:")
         conn.execute(sql)
         conn.close()
+        assert "CREATE TABLE" in sql
 
     def test_both_tables_coexist(self) -> None:
         """Both tables can be created in the same DB."""

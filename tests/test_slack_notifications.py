@@ -363,6 +363,7 @@ class TestSend:
     async def test_close_when_no_client(self):
         n = SlackNotifier(webhook_url="https://test")
         await n.close()  # Should not raise
+        assert n._client is None
 
 
 # ─── MockSlackNotifier ─────────────────────────────────────────────────

@@ -65,6 +65,16 @@ class SheetAttemptResult:
     validations_passed: int = 0
     validations_total: int = 0
     validation_pass_rate: float = 0.0
+    """Percentage of validations that passed (0.0-100.0).
+
+    **CRITICAL CONTRACT (F-018):** Set to 100.0 when execution succeeds
+    with no validation rules OR when all validations pass. The baton treats
+    the default (0.0) as "all validations failed" and will retry.
+
+    A musician that reports ``execution_success=True`` with
+    ``validations_total=0`` but leaves this at 0.0 will trigger
+    unnecessary retries until max_retries is exhausted.
+    """
     validation_details: dict[str, Any] | None = None
 
     # Error classification (from ErrorClassifier)

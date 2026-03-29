@@ -481,6 +481,7 @@ class TestEnforceCostLimits:
         mixin.config.cost_limits.enabled = False
         state = _make_state()
         await mixin._enforce_cost_limits(self._ok_result(), MagicMock(), state, 1)
+        assert state.cost_limit_reached is False
 
     @pytest.mark.asyncio
     async def test_raises_on_cost_exceeded(self, mixin: _TestableSheetMixin) -> None:
@@ -500,6 +501,7 @@ class TestEnforceCostLimits:
         mixin._check_cost_limits = MagicMock(return_value=(False, None))
         state = _make_state()
         await mixin._enforce_cost_limits(self._ok_result(), MagicMock(), state, 1)
+        assert state.cost_limit_reached is False
 
 
 # ===========================================================================
