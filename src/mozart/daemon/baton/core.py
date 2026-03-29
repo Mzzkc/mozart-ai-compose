@@ -75,6 +75,8 @@ class _JobRecord:
     dependencies: dict[int, list[int]]
     paused: bool = False
     user_paused: bool = False  # Tracks user-initiated pause (PauseJob)
+    escalation_enabled: bool = False  # Enter fermata on exhaustion
+    self_healing_enabled: bool = False  # Try healing on exhaustion
     created_at: float = field(default_factory=time.time)
 
 
@@ -103,14 +105,35 @@ class BatonCore:
     _DEFAULT_INSTRUMENT_CONCURRENCY: int = 4
     """Default max concurrent sheets per instrument when not specified."""
 
-    def __init__(self) -> None:
+    _DEFAULT_MAX_HEALING: int = 1
+    """Default maximum healing attempts before falling through."""
+
+    def __init__(
+        self,
+        *,
+        timer: Any | None = None,
+    ) -> None:
+        """Initialize the baton core.
+
+        Args:
+            timer: Optional TimerWheel for scheduling retry delays.
+                When None, retries are set to RETRY_SCHEDULED without
+                actual timer events (tests or manual event injection).
+        """
         self._inbox: asyncio.Queue[BatonEvent] = asyncio.Queue()
         self._jobs: dict[str, _JobRecord] = {}
         self._instruments: dict[str, InstrumentState] = {}
         self._job_cost_limits: dict[str, float] = {}
+        self._sheet_cost_limits: dict[tuple[str, int], float] = {}
         self._shutting_down = False
         self._running = False
         self._state_dirty = False
+        self._timer = timer
+
+        # Retry backoff configuration (from RetryConfig defaults)
+        self._base_retry_delay: float = 10.0
+        self._retry_exponential_base: float = 2.0
+        self._max_retry_delay: float = 3600.0
 
     @property
     def inbox(self) -> asyncio.Queue[BatonEvent]:
@@ -284,6 +307,153 @@ class BatonCore:
                 },
             )
 
+    def set_sheet_cost_limit(
+        self, job_id: str, sheet_num: int, max_cost_usd: float
+    ) -> None:
+        """Set a per-sheet cost limit. The baton fails the sheet when exceeded.
+
+        Args:
+            job_id: The job containing the sheet.
+            sheet_num: The sheet number.
+            max_cost_usd: Maximum cost in USD for this sheet.
+        """
+        self._sheet_cost_limits[(job_id, sheet_num)] = max_cost_usd
+
+    def _check_sheet_cost_limit(
+        self, job_id: str, sheet_num: int, sheet: SheetExecutionState
+    ) -> bool:
+        """Check if a sheet has exceeded its cost limit.
+
+        Returns:
+            True if the sheet exceeded its cost limit and was failed.
+        """
+        limit = self._sheet_cost_limits.get((job_id, sheet_num))
+        if limit is None:
+            return False
+
+        if sheet.total_cost_usd > limit:
+            sheet.status = BatonSheetStatus.FAILED
+            self._state_dirty = True
+            _logger.warning(
+                "baton.sheet.cost_limit_exceeded",
+                extra={
+                    "job_id": job_id,
+                    "sheet_num": sheet_num,
+                    "total_cost": sheet.total_cost_usd,
+                    "limit": limit,
+                },
+            )
+            self._propagate_failure_to_dependents(job_id, sheet_num)
+            return True
+        return False
+
+    def calculate_retry_delay(self, attempt: int) -> float:
+        """Calculate retry delay using exponential backoff.
+
+        Args:
+            attempt: 0-based attempt index (0 = first retry).
+
+        Returns:
+            Delay in seconds, clamped to ``_max_retry_delay``.
+        """
+        delay = self._base_retry_delay * (
+            self._retry_exponential_base ** attempt
+        )
+        return min(delay, self._max_retry_delay)
+
+    def _schedule_retry(
+        self, job_id: str, sheet_num: int, sheet: SheetExecutionState
+    ) -> None:
+        """Schedule a retry via the timer wheel with backoff delay.
+
+        Sets the sheet to RETRY_SCHEDULED. If a timer wheel is available,
+        schedules a RetryDue event. Otherwise, the sheet sits in
+        RETRY_SCHEDULED until a RetryDue is manually injected.
+
+        The backoff delay is based on the number of normal attempts so far.
+        """
+        sheet.status = BatonSheetStatus.RETRY_SCHEDULED
+        self._state_dirty = True
+
+        attempt_index = max(0, sheet.normal_attempts - 1)
+        delay = self.calculate_retry_delay(attempt_index)
+
+        if self._timer is not None:
+            event = RetryDue(job_id=job_id, sheet_num=sheet_num)
+            self._timer.schedule(delay, event)
+            sheet.next_retry_at = time.monotonic() + delay
+            _logger.info(
+                "baton.retry.scheduled",
+                extra={
+                    "job_id": job_id,
+                    "sheet_num": sheet_num,
+                    "delay_seconds": delay,
+                    "attempt": sheet.normal_attempts,
+                },
+            )
+
+    def _handle_exhaustion(
+        self, job_id: str, sheet_num: int, sheet: SheetExecutionState
+    ) -> None:
+        """Handle retry/completion budget exhaustion.
+
+        The decision tree when budgets are exhausted:
+        1. Self-healing enabled → schedule a healing attempt
+        2. Escalation enabled → enter FERMATA (pause job, await decision)
+        3. Neither → FAILED (propagate to dependents)
+        """
+        job = self._jobs.get(job_id)
+        if job is None:
+            sheet.status = BatonSheetStatus.FAILED
+            self._state_dirty = True
+            return
+
+        # Path 1: Self-healing — try to diagnose and fix
+        if (
+            job.self_healing_enabled
+            and sheet.healing_attempts < self._DEFAULT_MAX_HEALING
+        ):
+            sheet.healing_attempts += 1
+            self._schedule_retry(job_id, sheet_num, sheet)
+            _logger.info(
+                "baton.sheet.healing_attempt",
+                extra={
+                    "job_id": job_id,
+                    "sheet_num": sheet_num,
+                    "healing_attempt": sheet.healing_attempts,
+                },
+            )
+            return
+
+        # Path 2: Escalation — pause for composer decision
+        if job.escalation_enabled:
+            sheet.status = BatonSheetStatus.FERMATA
+            job.paused = True
+            self._state_dirty = True
+            _logger.info(
+                "baton.sheet.escalated",
+                extra={
+                    "job_id": job_id,
+                    "sheet_num": sheet_num,
+                    "normal_attempts": sheet.normal_attempts,
+                    "healing_attempts": sheet.healing_attempts,
+                },
+            )
+            return
+
+        # Path 3: No recovery — fail
+        sheet.status = BatonSheetStatus.FAILED
+        self._state_dirty = True
+        _logger.warning(
+            "baton.sheet.retries_exhausted",
+            extra={
+                "job_id": job_id,
+                "sheet_num": sheet_num,
+                "attempts": sheet.normal_attempts,
+            },
+        )
+        self._propagate_failure_to_dependents(job_id, sheet_num)
+
     # =========================================================================
     # Sheet Registry
     # =========================================================================
@@ -293,6 +463,9 @@ class BatonCore:
         job_id: str,
         sheets: dict[int, SheetExecutionState],
         dependencies: dict[int, list[int]],
+        *,
+        escalation_enabled: bool = False,
+        self_healing_enabled: bool = False,
     ) -> None:
         """Register a job's sheets with the baton for scheduling.
 
@@ -301,6 +474,8 @@ class BatonCore:
             sheets: Map of sheet_num → SheetExecutionState.
             dependencies: Map of sheet_num → list of dependency sheet_nums.
                 Sheets not in this map have no dependencies.
+            escalation_enabled: Whether to enter fermata on exhaustion.
+            self_healing_enabled: Whether to try healing on exhaustion.
         """
         if job_id in self._jobs:
             _logger.warning(
@@ -316,6 +491,8 @@ class BatonCore:
             job_id=job_id,
             sheets=sheets,
             dependencies=dependencies,
+            escalation_enabled=escalation_enabled,
+            self_healing_enabled=self_healing_enabled,
         )
         self._state_dirty = True
 
@@ -602,9 +779,7 @@ class BatonCore:
                     },
                 )
             else:
-                # Completion budget exhausted
-                sheet.status = BatonSheetStatus.FAILED
-                self._state_dirty = True
+                # Completion budget exhausted — escalate, heal, or fail
                 _logger.warning(
                     "baton.sheet.completion_exhausted",
                     extra={
@@ -613,8 +788,8 @@ class BatonCore:
                         "completion_attempts": sheet.completion_attempts,
                     },
                 )
-                self._propagate_failure_to_dependents(
-                    event.job_id, event.sheet_num
+                self._handle_exhaustion(
+                    event.job_id, event.sheet_num, sheet
                 )
             self._check_job_cost_limit(event.job_id)
             return
@@ -639,35 +814,18 @@ class BatonCore:
                 self._check_job_cost_limit(event.job_id)
                 return
 
+        # Per-sheet cost enforcement — fail before retrying if over budget
+        if self._check_sheet_cost_limit(event.job_id, event.sheet_num, sheet):
+            self._check_job_cost_limit(event.job_id)
+            return
+
         # Validation failure (pass_rate == 0) or execution failure
         # Check if retries exhausted (record_attempt already incremented)
         if not sheet.can_retry:
-            sheet.status = BatonSheetStatus.FAILED
-            self._state_dirty = True
-            _logger.warning(
-                "baton.sheet.retries_exhausted",
-                extra={
-                    "job_id": event.job_id,
-                    "sheet_num": event.sheet_num,
-                    "attempts": sheet.normal_attempts,
-                },
-            )
-            self._propagate_failure_to_dependents(
-                event.job_id, event.sheet_num
-            )
+            self._handle_exhaustion(event.job_id, event.sheet_num, sheet)
         else:
-            # Schedule retry
-            sheet.status = BatonSheetStatus.RETRY_SCHEDULED
-            self._state_dirty = True
-            _logger.info(
-                "baton.sheet.retry_scheduled",
-                extra={
-                    "job_id": event.job_id,
-                    "sheet_num": event.sheet_num,
-                    "attempt": sheet.normal_attempts,
-                    "max_retries": sheet.max_retries,
-                },
-            )
+            # Schedule retry via timer wheel with backoff
+            self._schedule_retry(event.job_id, event.sheet_num, sheet)
 
         self._check_job_cost_limit(event.job_id)
 
@@ -889,20 +1047,25 @@ class BatonCore:
         )
 
     def _handle_process_exited(self, event: ProcessExited) -> None:
-        """Backend process died — mark sheet as crashed if running."""
+        """Backend process died — mark sheet as crashed if running.
+
+        Process crashes are treated like execution failures: they consume
+        retry budget and route through the same exhaustion/healing/escalation
+        paths as regular failures.
+        """
         job = self._jobs.get(event.job_id)
         if job is None:
             return
         sheet = job.sheets.get(event.sheet_num)
         if sheet is not None and sheet.status == BatonSheetStatus.DISPATCHED:
             sheet.normal_attempts += 1
+            self._update_instrument_on_failure(sheet.instrument_name)
             if not sheet.can_retry:
-                sheet.status = BatonSheetStatus.FAILED
-                self._propagate_failure_to_dependents(
-                    event.job_id, event.sheet_num
+                self._handle_exhaustion(
+                    event.job_id, event.sheet_num, sheet
                 )
             else:
-                sheet.status = BatonSheetStatus.RETRY_SCHEDULED
+                self._schedule_retry(event.job_id, event.sheet_num, sheet)
             self._state_dirty = True
 
     # =========================================================================
