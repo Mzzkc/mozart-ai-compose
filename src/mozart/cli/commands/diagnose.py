@@ -319,6 +319,10 @@ def logs(
         Log files are stored at {workspace}/logs/mozart.log by default.
         Use --file to specify a different log file path.
     """
+    from ._shared import validate_job_id
+
+    if job_id is not None:
+        job_id = validate_job_id(job_id)
     configure_global_logging(console)
 
     # Determine log file path
@@ -428,6 +432,9 @@ def errors(
         mozart errors my-job --code E001       # Only timeout errors
         mozart errors my-job --verbose         # Show stdout/stderr details
     """
+    from ._shared import validate_job_id
+
+    job_id = validate_job_id(job_id)
     asyncio.run(_errors_job(job_id, sheet, error_type, error_code, verbose, workspace, json_output))
 
 
@@ -670,6 +677,9 @@ def diagnose(
         mozart diagnose my-job --include-logs  # Include inline log content
         mozart diagnose my-job --resources     # Include resource profile
     """
+    from ._shared import validate_job_id
+
+    job_id = validate_job_id(job_id)
     asyncio.run(
         _diagnose_job(
             job_id, workspace, json_output,
@@ -1421,6 +1431,9 @@ def history(
         mozart history my-job --limit 100      # Show more records
         mozart history my-job --json           # Machine-readable output
     """
+    from ._shared import validate_job_id
+
+    job_id = validate_job_id(job_id)
     asyncio.run(_history_job(job_id, sheet, limit, workspace, json_output))
 
 

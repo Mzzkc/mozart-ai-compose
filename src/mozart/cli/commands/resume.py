@@ -125,6 +125,9 @@ def resume(
         mozart resume my-job --config job.yaml
         mozart resume my-job --no-reload  # Use cached config snapshot
     """
+    from ._shared import validate_job_id
+
+    job_id = validate_job_id(job_id)
     asyncio.run(
         _resume_job(
             job_id, config_file, workspace, force, escalation,

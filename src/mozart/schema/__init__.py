@@ -1,8 +1,8 @@
 """Unified schema management for Mozart's SQLite databases.
 
-Provides a model-driven schema registry that maps Pydantic and dataclass
-models to SQLite tables, enabling automatic DDL generation, type-safe
-save/load, migration management, and CI drift detection.
+Provides serialization utilities for converting Python values to/from
+SQLite-compatible types. The registry module exists but is not yet wired
+into production code paths — the state layer uses hand-written SQL.
 """
 
 from mozart.schema.converters import (
@@ -10,29 +10,9 @@ from mozart.schema.converters import (
     deserialize_field,
     serialize_field,
 )
-from mozart.schema.registry import (
-    ColumnSource,
-    FieldSpec,
-    TableMapping,
-    generate_create_table,
-    generate_upsert,
-    get_column_sources,
-    get_expected_columns,
-    get_field_specs,
-    get_sqlite_type,
-)
 
 __all__ = [
-    "ColumnSource",
-    "FieldSpec",
     "SQLParam",
-    "TableMapping",
     "deserialize_field",
-    "generate_create_table",
-    "generate_upsert",
-    "get_column_sources",
-    "get_expected_columns",
-    "get_field_specs",
-    "get_sqlite_type",
     "serialize_field",
 ]

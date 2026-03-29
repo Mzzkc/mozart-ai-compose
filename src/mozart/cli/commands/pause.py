@@ -88,6 +88,9 @@ def pause(
         mozart pause my-job --json
         mozart pause my-job --force
     """
+    from ._shared import validate_job_id
+
+    job_id = validate_job_id(job_id)
     if force:
         from .cancel import _cancel_job
         asyncio.run(_cancel_job(job_id, json_output))
@@ -492,6 +495,9 @@ def modify(
         mozart modify my-job -c new-config.yaml --resume
         mozart modify my-job -c updated.yaml -r --wait
     """
+    from ._shared import validate_job_id
+
+    job_id = validate_job_id(job_id)
     asyncio.run(
         _modify_job(job_id, config, workspace, resume_flag, wait, timeout, json_output)
     )

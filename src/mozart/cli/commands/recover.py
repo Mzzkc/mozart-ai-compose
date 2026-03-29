@@ -71,6 +71,9 @@ def recover(
         mozart recover my-job --sheet 6         # Recover specific sheet
         mozart recover my-job --dry-run         # Check without modifying
     """
+    from ._shared import validate_job_id
+
+    job_id = validate_job_id(job_id)
     asyncio.run(_recover_job(job_id, sheet, workspace, dry_run))
 
 

@@ -38,6 +38,9 @@ def cancel(
         mozart cancel my-job
         mozart cancel my-job --json
     """
+    from ._shared import validate_job_id
+
+    job_id = validate_job_id(job_id)
     asyncio.run(_cancel_job(job_id, json_output))
 
 

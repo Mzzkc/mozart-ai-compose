@@ -129,6 +129,9 @@ def status(
         mozart status my-job --watch
         mozart status my-job --watch --interval 10
     """
+    from ._shared import validate_job_id
+
+    job_id = validate_job_id(job_id)
     if watch:
         asyncio.run(_status_job_watch(job_id, json_output, watch_interval, workspace))
     else:
