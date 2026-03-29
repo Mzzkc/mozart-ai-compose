@@ -31,7 +31,8 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
-from mozart.daemon.baton.core import BatonCore, SheetExecutionState
+from mozart.daemon.baton.core import BatonCore
+from mozart.daemon.baton.state import BatonSheetStatus, SheetExecutionState
 
 _logger = logging.getLogger(__name__)
 
@@ -146,7 +147,7 @@ async def dispatch_ready(
             # Dispatch!
             try:
                 await callback(job_id, sheet.sheet_num, sheet)
-                sheet.status = "dispatched"
+                sheet.status = BatonSheetStatus.DISPATCHED
                 result.record_dispatch(job_id, sheet.sheet_num)
                 global_running += 1
                 instrument_running[instrument] = inst_count + 1
@@ -182,7 +183,7 @@ def _count_dispatched_per_instrument(baton: BatonCore) -> dict[str, int]:
     counts: dict[str, int] = {}
     for job in baton._jobs.values():
         for sheet in job.sheets.values():
-            if sheet.status == "dispatched":
+            if sheet.status == BatonSheetStatus.DISPATCHED:
                 inst = sheet.instrument_name
                 counts[inst] = counts.get(inst, 0) + 1
     return counts

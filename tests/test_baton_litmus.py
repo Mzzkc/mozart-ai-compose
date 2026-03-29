@@ -22,7 +22,8 @@ from __future__ import annotations
 
 import pytest
 
-from mozart.daemon.baton.core import BatonCore, SheetExecutionState
+from mozart.daemon.baton.core import BatonCore
+from mozart.daemon.baton.state import BatonSheetStatus, SheetExecutionState
 from mozart.daemon.baton.events import (
     RetryDue,
     SheetAttemptResult,
@@ -85,7 +86,7 @@ class TestF018ValidationPassRateContract:
         # F-018 FIX: The baton now auto-corrects validation_pass_rate to 100.0
         # when validations_total==0 and execution_success==True. The musician
         # doesn't need to remember to set it — the conductor handles it.
-        assert state.status == "completed", (
+        assert state.status == BatonSheetStatus.COMPLETED, (
             "F-018 fix: validations_total==0 + execution_success should complete"
         )
 
@@ -112,7 +113,7 @@ class TestF018ValidationPassRateContract:
 
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
-        assert state.status == "completed"
+        assert state.status == BatonSheetStatus.COMPLETED
 
     async def test_default_pass_rate_exhausts_retries_and_fails(self) -> None:
         """The F-018 landmine at scale: repeated default-pass-rate attempts
@@ -148,7 +149,7 @@ class TestF018ValidationPassRateContract:
         # When no validations exist and execution succeeds, the sheet completes
         # on the first attempt — no unnecessary retries. This was the whole
         # point of F-018: the default 0.0 was causing false failures.
-        assert state.status == "completed"
+        assert state.status == BatonSheetStatus.COMPLETED
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +186,7 @@ class TestConflictingSignals:
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
         # rate_limited wins — sheet is waiting, NOT completed
-        assert state.status == "waiting"
+        assert state.status == BatonSheetStatus.WAITING
         assert state.normal_attempts == 0
 
     @pytest.mark.adversarial
@@ -218,7 +219,7 @@ class TestConflictingSignals:
 
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
-        assert state.status != "failed"
+        assert state.status != BatonSheetStatus.FAILED
         assert state.normal_attempts == 0
 
     @pytest.mark.adversarial
@@ -248,7 +249,7 @@ class TestConflictingSignals:
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
         # Success + 100% pass rate = completed, even with error_classification
-        assert state.status == "completed"
+        assert state.status == BatonSheetStatus.COMPLETED
 
 
 # ---------------------------------------------------------------------------
@@ -281,7 +282,7 @@ class TestFloatingPointBoundaries:
 
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
-        assert state.status != "completed"
+        assert state.status != BatonSheetStatus.COMPLETED
 
     @pytest.mark.adversarial
     async def test_exactly_100_completes(self) -> None:
@@ -303,7 +304,7 @@ class TestFloatingPointBoundaries:
 
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
-        assert state.status == "completed"
+        assert state.status == BatonSheetStatus.COMPLETED
 
     @pytest.mark.adversarial
     async def test_above_100_still_completes(self) -> None:
@@ -325,7 +326,7 @@ class TestFloatingPointBoundaries:
 
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
-        assert state.status == "completed"
+        assert state.status == BatonSheetStatus.COMPLETED
 
 
 # ---------------------------------------------------------------------------
@@ -359,11 +360,11 @@ class TestFullLifecycle:
         ))
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
-        assert state.status == "retry_scheduled"
+        assert state.status == BatonSheetStatus.RETRY_SCHEDULED
 
         # Timer fires
         await baton.handle_event(RetryDue(job_id="j1", sheet_num=1))
-        assert state.status == "pending"
+        assert state.status == BatonSheetStatus.PENDING
 
         # Attempt 2: succeeds
         await baton.handle_event(SheetAttemptResult(
@@ -376,22 +377,29 @@ class TestFullLifecycle:
             validations_total=3,
             validation_pass_rate=100.0,
         ))
-        assert state.status == "completed"
+        assert state.status == BatonSheetStatus.COMPLETED
         assert state.normal_attempts == 1  # Only the first failure counted
 
     async def test_progressive_validation_improvement(self) -> None:
-        """Validation improves across retries: 0% → 60% → 100% → complete."""
+        """Validation improves: 0% → 60% (completion mode) → 100% → complete.
+
+        The baton uses different strategies based on pass rate:
+        - 0% pass → retry (total validation failure)
+        - 60% pass → completion mode (partial success, try to finish)
+        - 100% pass → complete
+        """
         baton = BatonCore()
         sheets = {
             1: SheetExecutionState(
                 sheet_num=1,
                 instrument_name="claude-code",
                 max_retries=5,
+                max_completion=5,
             ),
         }
         baton.register_job("j1", sheets, {})
 
-        # Attempt 1: 0% pass
+        # Attempt 1: 0% pass → retry (total validation failure)
         await baton.handle_event(SheetAttemptResult(
             job_id="j1", sheet_num=1, instrument_name="claude-code",
             attempt=1, execution_success=True,
@@ -400,20 +408,20 @@ class TestFullLifecycle:
         ))
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
-        assert state.status == "retry_scheduled"
+        assert state.status == BatonSheetStatus.RETRY_SCHEDULED
 
         await baton.handle_event(RetryDue(job_id="j1", sheet_num=1))
 
-        # Attempt 2: 60% pass (progress!)
+        # Attempt 2: 60% pass → completion mode (partial success)
         await baton.handle_event(SheetAttemptResult(
             job_id="j1", sheet_num=1, instrument_name="claude-code",
             attempt=2, execution_success=True,
             validations_passed=3, validations_total=5,
             validation_pass_rate=60.0,
         ))
-        assert state.status == "retry_scheduled"
-
-        await baton.handle_event(RetryDue(job_id="j1", sheet_num=1))
+        # Partial pass enters completion mode — re-dispatch pending
+        assert state.status == BatonSheetStatus.PENDING
+        assert state.completion_attempts == 1
 
         # Attempt 3: 100% pass (success!)
         await baton.handle_event(SheetAttemptResult(
@@ -422,7 +430,7 @@ class TestFullLifecycle:
             validations_passed=5, validations_total=5,
             validation_pass_rate=100.0,
         ))
-        assert state.status == "completed"
+        assert state.status == BatonSheetStatus.COMPLETED
         assert len(state.attempt_results) == 3
 
 
@@ -583,7 +591,7 @@ class TestEventHandlerResilience:
         # Sheet 1 unaffected
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
-        assert state.status == "pending"
+        assert state.status == BatonSheetStatus.PENDING
 
     @pytest.mark.adversarial
     async def test_events_after_job_deregistration(self) -> None:

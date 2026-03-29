@@ -188,7 +188,8 @@ class TestSheetExecutionState:
         assert state.max_retries == 10
         assert state.max_completion == 8
 
-    def test_record_attempt(self) -> None:
+    def test_record_attempt_success_does_not_consume_retry(self) -> None:
+        """Successful attempts don't consume retry budget."""
         state = SheetExecutionState(sheet_num=1, instrument_name="claude-code")
         result = SheetAttemptResult(
             job_id="j1", sheet_num=1, instrument_name="claude-code", attempt=1,
@@ -196,10 +197,23 @@ class TestSheetExecutionState:
             validations_passed=3, validations_total=3, validation_pass_rate=100.0,
         )
         state.record_attempt(result)
-        assert state.normal_attempts == 1
+        assert state.normal_attempts == 0  # Success doesn't consume retry budget
         assert len(state.attempt_results) == 1
         assert state.total_cost_usd == pytest.approx(0.05)
         assert state.total_duration_seconds == pytest.approx(12.5)
+
+    def test_record_attempt_failure_increments_retry_count(self) -> None:
+        """Failed attempts consume retry budget."""
+        state = SheetExecutionState(sheet_num=1, instrument_name="claude-code")
+        result = SheetAttemptResult(
+            job_id="j1", sheet_num=1, instrument_name="claude-code", attempt=1,
+            execution_success=False, cost_usd=0.10, duration_seconds=5.0,
+            error_classification="TRANSIENT",
+        )
+        state.record_attempt(result)
+        assert state.normal_attempts == 1  # Failure consumes retry budget
+        assert len(state.attempt_results) == 1
+        assert state.total_cost_usd == pytest.approx(0.10)
 
     def test_record_rate_limited_attempt_does_not_increment_retries(self) -> None:
         """Rate limits are tempo changes, not failures."""

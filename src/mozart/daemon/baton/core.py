@@ -25,7 +25,10 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from mozart.daemon.baton.dispatch import DispatchConfig
 
 from mozart.daemon.baton.events import (
     BatonEvent,
@@ -50,50 +53,17 @@ from mozart.daemon.baton.events import (
     ShutdownRequested,
     StaleCheck,
 )
+from mozart.daemon.baton.state import (
+    _DISPATCHABLE_BATON_STATUSES,
+    _SATISFIED_BATON_STATUSES,
+    _TERMINAL_BATON_STATUSES,
+    BatonSheetStatus,
+    CircuitBreakerState,
+    InstrumentState,
+    SheetExecutionState,
+)
 
 _logger = logging.getLogger(__name__)
-
-# Terminal statuses — sheets in these states don't need further action
-_TERMINAL_STATUSES = frozenset({"completed", "failed", "skipped", "cancelled"})
-
-# Statuses that satisfy downstream dependencies
-_SATISFIED_STATUSES = frozenset({"completed", "skipped"})
-
-# Statuses that indicate a sheet is ready for dispatch
-_DISPATCHABLE_STATUSES = frozenset({"pending", "ready"})
-
-
-@dataclass
-class SheetExecutionState:
-    """The conductor's per-sheet tracking during a performance.
-
-    This is NOT the same as SheetState in checkpoint.py — that tracks
-    outcomes. This tracks the conductor's scheduling decisions: attempt
-    counts, retry schedules, current mode.
-
-    Attributes:
-        sheet_num: Concrete sheet number (1-indexed).
-        instrument_name: Which instrument executes this sheet.
-        status: Current scheduling status.
-        normal_attempts: Number of execution attempts (not counting
-            rate limits, which are not failures).
-        completion_attempts: Number of completion-mode re-executions.
-        healing_attempts: Number of self-healing attempts.
-        max_retries: Maximum normal retries (from RetryConfig).
-        max_completion: Maximum completion-mode attempts.
-    """
-
-    sheet_num: int
-    instrument_name: str
-    status: str = "pending"  # pending, ready, dispatched, completed, failed,
-    # skipped, cancelled, waiting, retry_scheduled, fermata
-    normal_attempts: int = 0
-    completion_attempts: int = 0
-    healing_attempts: int = 0
-    max_retries: int = 3
-    max_completion: int = 5
-    next_retry_at: float | None = None
-    attempt_results: list[SheetAttemptResult] = field(default_factory=list)
 
 
 @dataclass
@@ -130,9 +100,14 @@ class BatonCore:
         await baton.handle_event(some_event)
     """
 
+    _DEFAULT_INSTRUMENT_CONCURRENCY: int = 4
+    """Default max concurrent sheets per instrument when not specified."""
+
     def __init__(self) -> None:
         self._inbox: asyncio.Queue[BatonEvent] = asyncio.Queue()
         self._jobs: dict[str, _JobRecord] = {}
+        self._instruments: dict[str, InstrumentState] = {}
+        self._job_cost_limits: dict[str, float] = {}
         self._shutting_down = False
         self._running = False
         self._state_dirty = False
@@ -159,8 +134,155 @@ class BatonCore:
             1
             for job in self._jobs.values()
             for sheet in job.sheets.values()
-            if sheet.status == "dispatched"
+            if sheet.status == BatonSheetStatus.DISPATCHED
         )
+
+    # =========================================================================
+    # Instrument Registry
+    # =========================================================================
+
+    def register_instrument(
+        self, name: str, *, max_concurrent: int = 4
+    ) -> InstrumentState:
+        """Register an instrument for tracking.
+
+        If already registered, returns the existing state (idempotent).
+
+        Args:
+            name: Instrument name (matches InstrumentProfile.name).
+            max_concurrent: Maximum concurrent sheets on this instrument.
+
+        Returns:
+            The InstrumentState for the instrument.
+        """
+        if name in self._instruments:
+            return self._instruments[name]
+
+        state = InstrumentState(name=name, max_concurrent=max_concurrent)
+        self._instruments[name] = state
+        _logger.debug(
+            "baton.instrument_registered",
+            extra={"instrument": name, "max_concurrent": max_concurrent},
+        )
+        return state
+
+    def get_instrument_state(self, name: str) -> InstrumentState | None:
+        """Get the tracking state for a specific instrument."""
+        return self._instruments.get(name)
+
+    def build_dispatch_config(
+        self, *, max_concurrent_sheets: int = 10
+    ) -> DispatchConfig:
+        """Build a DispatchConfig from the current instrument state.
+
+        This bridges the gap between the baton's instrument tracking
+        and the dispatch logic's configuration needs. Called before
+        each dispatch cycle.
+
+        Args:
+            max_concurrent_sheets: Global concurrency ceiling.
+
+        Returns:
+            DispatchConfig with rate-limited instruments, open circuit
+            breakers, and per-instrument concurrency limits derived
+            from the current InstrumentState.
+        """
+        # Deferred import to break circular dependency
+        # (dispatch.py imports BatonCore at runtime)
+        from mozart.daemon.baton.dispatch import DispatchConfig  # noqa: N814
+
+        rate_limited: set[str] = set()
+        open_breakers: set[str] = set()
+        concurrency: dict[str, int] = {}
+
+        for name, inst in self._instruments.items():
+            if inst.rate_limited:
+                rate_limited.add(name)
+            if inst.circuit_breaker == CircuitBreakerState.OPEN:
+                open_breakers.add(name)
+            concurrency[name] = inst.max_concurrent
+
+        return DispatchConfig(
+            max_concurrent_sheets=max_concurrent_sheets,
+            instrument_concurrency=concurrency,
+            rate_limited_instruments=rate_limited,
+            open_circuit_breakers=open_breakers,
+        )
+
+    def set_job_cost_limit(self, job_id: str, max_cost_usd: float) -> None:
+        """Set a per-job cost limit. The baton pauses the job when exceeded.
+
+        Args:
+            job_id: The job to set the limit for.
+            max_cost_usd: Maximum total cost in USD.
+        """
+        self._job_cost_limits[job_id] = max_cost_usd
+
+    def get_rate_limited_instruments(self) -> set[str]:
+        """Get the set of currently rate-limited instrument names.
+
+        Used by dispatch logic to skip rate-limited instruments.
+        """
+        return {
+            name for name, inst in self._instruments.items()
+            if inst.rate_limited
+        }
+
+    def get_open_circuit_breakers(self) -> set[str]:
+        """Get the set of instruments with open circuit breakers.
+
+        Used by dispatch logic to skip unhealthy instruments.
+        """
+        return {
+            name for name, inst in self._instruments.items()
+            if inst.circuit_breaker == CircuitBreakerState.OPEN
+        }
+
+    def _auto_register_instruments(
+        self, sheets: dict[int, SheetExecutionState]
+    ) -> None:
+        """Auto-register instruments for any sheets using untracked instruments."""
+        for sheet in sheets.values():
+            if sheet.instrument_name not in self._instruments:
+                self.register_instrument(
+                    sheet.instrument_name,
+                    max_concurrent=self._DEFAULT_INSTRUMENT_CONCURRENCY,
+                )
+
+    def _update_instrument_on_success(self, instrument_name: str) -> None:
+        """Record a successful execution on an instrument."""
+        inst = self._instruments.get(instrument_name)
+        if inst is not None:
+            inst.record_success()
+
+    def _update_instrument_on_failure(self, instrument_name: str) -> None:
+        """Record a failed execution on an instrument."""
+        inst = self._instruments.get(instrument_name)
+        if inst is not None:
+            inst.record_failure()
+
+    def _check_job_cost_limit(self, job_id: str) -> None:
+        """Check if a job has exceeded its cost limit and pause if so."""
+        limit = self._job_cost_limits.get(job_id)
+        if limit is None:
+            return
+
+        job = self._jobs.get(job_id)
+        if job is None:
+            return
+
+        total_cost = sum(s.total_cost_usd for s in job.sheets.values())
+        if total_cost > limit:
+            job.paused = True
+            self._state_dirty = True
+            _logger.warning(
+                "baton.job.cost_limit_exceeded",
+                extra={
+                    "job_id": job_id,
+                    "total_cost": total_cost,
+                    "limit": limit,
+                },
+            )
 
     # =========================================================================
     # Sheet Registry
@@ -186,6 +308,9 @@ class BatonCore:
                 extra={"job_id": job_id},
             )
             return
+
+        # Auto-register any instruments used by the job's sheets
+        self._auto_register_instruments(sheets)
 
         self._jobs[job_id] = _JobRecord(
             job_id=job_id,
@@ -230,7 +355,8 @@ class BatonCore:
         if job is None:
             return False
         return all(
-            sheet.status in _TERMINAL_STATUSES for sheet in job.sheets.values()
+            sheet.status in _TERMINAL_BATON_STATUSES
+            for sheet in job.sheets.values()
         )
 
     # =========================================================================
@@ -251,7 +377,7 @@ class BatonCore:
 
         ready: list[SheetExecutionState] = []
         for sheet_num, sheet in job.sheets.items():
-            if sheet.status not in _DISPATCHABLE_STATUSES:
+            if sheet.status not in _DISPATCHABLE_BATON_STATUSES:
                 continue
 
             # Check dependencies
@@ -274,7 +400,7 @@ class BatonCore:
                 extra={"job_id": job.job_id, "dep_num": dep_num},
             )
             return True
-        return dep_sheet.status in _SATISFIED_STATUSES
+        return dep_sheet.status in _SATISFIED_BATON_STATUSES
 
     # =========================================================================
     # Event Handling
@@ -396,23 +522,25 @@ class BatonCore:
         # Terminal guard: once a sheet reaches a terminal state, no event
         # can change it. Late-arriving results (e.g., from cancelled tasks)
         # are safely ignored.
-        if sheet.status in _TERMINAL_STATUSES:
+        if sheet.status in _TERMINAL_BATON_STATUSES:
             _logger.debug(
                 "baton.attempt_result.terminal_noop",
                 extra={
                     "job_id": event.job_id,
                     "sheet_num": event.sheet_num,
-                    "status": sheet.status,
+                    "status": sheet.status.value,
                 },
             )
             return
 
-        # Record the attempt
-        sheet.attempt_results.append(event)
+        # Record the attempt (tracks cost, duration, and increments
+        # normal_attempts for non-rate-limited results).
+        sheet.record_attempt(event)
 
         if event.rate_limited:
-            # Rate limit — NOT a failure, NOT a retry count increment
-            sheet.status = "waiting"
+            # Rate limit — NOT a failure. record_attempt() already
+            # skipped normal_attempts increment for rate-limited results.
+            sheet.status = BatonSheetStatus.WAITING
             self._state_dirty = True
             _logger.info(
                 "baton.sheet.rate_limited",
@@ -438,7 +566,8 @@ class BatonCore:
 
         if event.execution_success and effective_pass_rate >= 100.0:
             # Perfect execution — mark complete
-            sheet.status = "completed"
+            sheet.status = BatonSheetStatus.COMPLETED
+            self._update_instrument_on_success(event.instrument_name)
             self._state_dirty = True
             _logger.info(
                 "baton.sheet.completed",
@@ -449,15 +578,53 @@ class BatonCore:
                     "cost_usd": event.cost_usd,
                 },
             )
+            # Cost enforcement: even on success, check if job cost exceeded
+            self._check_job_cost_limit(event.job_id)
             return
 
         if event.execution_success and effective_pass_rate > 0:
-            # Partial pass — could use completion mode in the future
-            sheet.normal_attempts += 1
-        elif not event.execution_success:
-            # Execution failed
+            # Partial validation pass — completion mode
+            # The musician succeeded in execution but some validations failed.
+            # Try re-dispatching with "finish your work" context.
+            self._update_instrument_on_success(event.instrument_name)
+            sheet.completion_attempts += 1
+            if sheet.can_complete:
+                sheet.status = BatonSheetStatus.PENDING
+                self._state_dirty = True
+                _logger.info(
+                    "baton.sheet.completion_mode",
+                    extra={
+                        "job_id": event.job_id,
+                        "sheet_num": event.sheet_num,
+                        "pass_rate": effective_pass_rate,
+                        "completion_attempt": sheet.completion_attempts,
+                        "max_completion": sheet.max_completion,
+                    },
+                )
+            else:
+                # Completion budget exhausted
+                sheet.status = BatonSheetStatus.FAILED
+                self._state_dirty = True
+                _logger.warning(
+                    "baton.sheet.completion_exhausted",
+                    extra={
+                        "job_id": event.job_id,
+                        "sheet_num": event.sheet_num,
+                        "completion_attempts": sheet.completion_attempts,
+                    },
+                )
+                self._propagate_failure_to_dependents(
+                    event.job_id, event.sheet_num
+                )
+            self._check_job_cost_limit(event.job_id)
+            return
+
+        if not event.execution_success:
+            # Execution failed — update instrument failure tracking
+            self._update_instrument_on_failure(event.instrument_name)
+
             if event.error_classification == "AUTH_FAILURE":
-                sheet.status = "failed"
+                sheet.status = BatonSheetStatus.FAILED
                 self._state_dirty = True
                 _logger.error(
                     "baton.sheet.auth_failure",
@@ -466,16 +633,16 @@ class BatonCore:
                         "sheet_num": event.sheet_num,
                     },
                 )
-                self._propagate_failure_to_dependents(event.job_id, event.sheet_num)
+                self._propagate_failure_to_dependents(
+                    event.job_id, event.sheet_num
+                )
+                self._check_job_cost_limit(event.job_id)
                 return
-            sheet.normal_attempts += 1
-        else:
-            # Validation failure (0% pass rate)
-            sheet.normal_attempts += 1
 
-        # Check if retries exhausted
-        if sheet.normal_attempts >= sheet.max_retries:
-            sheet.status = "failed"
+        # Validation failure (pass_rate == 0) or execution failure
+        # Check if retries exhausted (record_attempt already incremented)
+        if not sheet.can_retry:
+            sheet.status = BatonSheetStatus.FAILED
             self._state_dirty = True
             _logger.warning(
                 "baton.sheet.retries_exhausted",
@@ -485,10 +652,12 @@ class BatonCore:
                     "attempts": sheet.normal_attempts,
                 },
             )
-            self._propagate_failure_to_dependents(event.job_id, event.sheet_num)
+            self._propagate_failure_to_dependents(
+                event.job_id, event.sheet_num
+            )
         else:
             # Schedule retry
-            sheet.status = "retry_scheduled"
+            sheet.status = BatonSheetStatus.RETRY_SCHEDULED
             self._state_dirty = True
             _logger.info(
                 "baton.sheet.retry_scheduled",
@@ -499,6 +668,8 @@ class BatonCore:
                     "max_retries": sheet.max_retries,
                 },
             )
+
+        self._check_job_cost_limit(event.job_id)
 
     def _handle_sheet_skipped(self, event: SheetSkipped) -> None:
         """Mark a sheet as skipped.
@@ -512,17 +683,17 @@ class BatonCore:
         sheet = job.sheets.get(event.sheet_num)
         if sheet is None:
             return
-        if sheet.status in _TERMINAL_STATUSES:
+        if sheet.status in _TERMINAL_BATON_STATUSES:
             _logger.debug(
                 "baton.sheet_skipped.terminal_noop",
                 extra={
                     "job_id": event.job_id,
                     "sheet_num": event.sheet_num,
-                    "status": sheet.status,
+                    "status": sheet.status.value,
                 },
             )
             return
-        sheet.status = "skipped"
+        sheet.status = BatonSheetStatus.SKIPPED
         self._state_dirty = True
         _logger.info(
             "baton.sheet.skipped",
@@ -536,27 +707,55 @@ class BatonCore:
     def _handle_rate_limit_hit(self, event: RateLimitHit) -> None:
         """Mark instrument as rate-limited. NOT a sheet failure.
 
+        Updates both the per-sheet status (to WAITING for dispatched/running
+        sheets) and the per-instrument state (rate_limited=True). This ensures
+        the dispatch logic knows to skip this instrument for all jobs.
+
         Only transition sheets that are currently dispatched or running.
         Pending/ready sheets haven't been sent to an instrument yet;
         terminal sheets must never regress.
         """
-        job = self._jobs.get(event.job_id)
-        if job is None:
-            return
-        sheet = job.sheets.get(event.sheet_num)
-        if sheet is not None and sheet.status in ("dispatched", "running"):
-            sheet.status = "waiting"
-        self._state_dirty = True
+        # Update instrument-level state
+        inst = self._instruments.get(event.instrument)
+        if inst is not None:
+            inst.rate_limited = True
+            inst.rate_limit_expires_at = time.monotonic() + event.wait_seconds
 
-    def _handle_rate_limit_expired(self, event: RateLimitExpired) -> None:
-        """Rate limit cleared — move waiting sheets back to pending."""
+        # Update sheet-level state — ALL dispatched/running sheets on this
+        # instrument across ALL jobs move to waiting, not just the one that
+        # triggered the rate limit. Rate limits are per-instrument, not per-sheet.
         for job in self._jobs.values():
             for sheet in job.sheets.values():
                 if (
-                    sheet.status == "waiting"
+                    sheet.instrument_name == event.instrument
+                    and sheet.status in (
+                        BatonSheetStatus.DISPATCHED,
+                        BatonSheetStatus.RUNNING,
+                    )
+                ):
+                    sheet.status = BatonSheetStatus.WAITING
+        self._state_dirty = True
+
+    def _handle_rate_limit_expired(self, event: RateLimitExpired) -> None:
+        """Rate limit cleared — unmark instrument and move waiting sheets back to pending.
+
+        Clears the instrument-level rate limit flag so the dispatch logic
+        will resume dispatching sheets to this instrument.
+        """
+        # Clear instrument-level rate limit
+        inst = self._instruments.get(event.instrument)
+        if inst is not None:
+            inst.rate_limited = False
+            inst.rate_limit_expires_at = None
+
+        # Move waiting sheets back to pending
+        for job in self._jobs.values():
+            for sheet in job.sheets.values():
+                if (
+                    sheet.status == BatonSheetStatus.WAITING
                     and sheet.instrument_name == event.instrument
                 ):
-                    sheet.status = "pending"
+                    sheet.status = BatonSheetStatus.PENDING
         self._state_dirty = True
 
     def _handle_retry_due(self, event: RetryDue) -> None:
@@ -565,8 +764,8 @@ class BatonCore:
         if job is None:
             return
         sheet = job.sheets.get(event.sheet_num)
-        if sheet is not None and sheet.status == "retry_scheduled":
-            sheet.status = "pending"
+        if sheet is not None and sheet.status == BatonSheetStatus.RETRY_SCHEDULED:
+            sheet.status = BatonSheetStatus.PENDING
             self._state_dirty = True
 
     def _handle_job_timeout(self, event: JobTimeout) -> None:
@@ -575,8 +774,8 @@ class BatonCore:
         if job is None:
             return
         for sheet in job.sheets.values():
-            if sheet.status not in _TERMINAL_STATUSES:
-                sheet.status = "cancelled"
+            if sheet.status not in _TERMINAL_BATON_STATUSES:
+                sheet.status = BatonSheetStatus.CANCELLED
         self._state_dirty = True
         _logger.warning(
             "baton.job.timeout",
@@ -594,8 +793,8 @@ class BatonCore:
         if job is None:
             return
         sheet = job.sheets.get(event.sheet_num)
-        if sheet is not None and sheet.status not in _TERMINAL_STATUSES:
-            sheet.status = "fermata"
+        if sheet is not None and sheet.status not in _TERMINAL_BATON_STATUSES:
+            sheet.status = BatonSheetStatus.FERMATA
         job.paused = True
         self._state_dirty = True
 
@@ -609,17 +808,19 @@ class BatonCore:
         if job is None:
             return
         sheet = job.sheets.get(event.sheet_num)
-        if sheet is not None and sheet.status == "fermata":
+        if sheet is not None and sheet.status == BatonSheetStatus.FERMATA:
             # Apply decision
             if event.decision == "retry":
-                sheet.status = "pending"
+                sheet.status = BatonSheetStatus.PENDING
             elif event.decision == "skip":
-                sheet.status = "skipped"
+                sheet.status = BatonSheetStatus.SKIPPED
             elif event.decision == "accept":
-                sheet.status = "completed"
+                sheet.status = BatonSheetStatus.COMPLETED
             else:
-                sheet.status = "failed"
-                self._propagate_failure_to_dependents(event.job_id, event.sheet_num)
+                sheet.status = BatonSheetStatus.FAILED
+                self._propagate_failure_to_dependents(
+                    event.job_id, event.sheet_num
+                )
         # Only unpause if the user hasn't independently paused the job
         if not job.user_paused:
             job.paused = False
@@ -634,9 +835,11 @@ class BatonCore:
         if job is None:
             return
         sheet = job.sheets.get(event.sheet_num)
-        if sheet is not None and sheet.status == "fermata":
-            sheet.status = "failed"
-            self._propagate_failure_to_dependents(event.job_id, event.sheet_num)
+        if sheet is not None and sheet.status == BatonSheetStatus.FERMATA:
+            sheet.status = BatonSheetStatus.FAILED
+            self._propagate_failure_to_dependents(
+                event.job_id, event.sheet_num
+            )
         # Only unpause if the user hasn't independently paused the job
         if not job.user_paused:
             job.paused = False
@@ -663,8 +866,8 @@ class BatonCore:
         job = self._jobs.get(event.job_id)
         if job is not None:
             for sheet in job.sheets.values():
-                if sheet.status not in _TERMINAL_STATUSES:
-                    sheet.status = "cancelled"
+                if sheet.status not in _TERMINAL_BATON_STATUSES:
+                    sheet.status = BatonSheetStatus.CANCELLED
             self.deregister_job(event.job_id)
             _logger.info(
                 "baton.job.cancelled",
@@ -678,8 +881,8 @@ class BatonCore:
             # Cancel all non-terminal sheets
             for job in self._jobs.values():
                 for sheet in job.sheets.values():
-                    if sheet.status not in _TERMINAL_STATUSES:
-                        sheet.status = "cancelled"
+                    if sheet.status not in _TERMINAL_BATON_STATUSES:
+                        sheet.status = BatonSheetStatus.CANCELLED
         _logger.info(
             "baton.shutdown",
             extra={"graceful": event.graceful},
@@ -691,13 +894,15 @@ class BatonCore:
         if job is None:
             return
         sheet = job.sheets.get(event.sheet_num)
-        if sheet is not None and sheet.status == "dispatched":
+        if sheet is not None and sheet.status == BatonSheetStatus.DISPATCHED:
             sheet.normal_attempts += 1
-            if sheet.normal_attempts >= sheet.max_retries:
-                sheet.status = "failed"
-                self._propagate_failure_to_dependents(event.job_id, event.sheet_num)
+            if not sheet.can_retry:
+                sheet.status = BatonSheetStatus.FAILED
+                self._propagate_failure_to_dependents(
+                    event.job_id, event.sheet_num
+                )
             else:
-                sheet.status = "retry_scheduled"
+                sheet.status = BatonSheetStatus.RETRY_SCHEDULED
             self._state_dirty = True
 
     # =========================================================================
@@ -721,7 +926,8 @@ class BatonCore:
         if job is None:
             return
 
-        # Build a reverse dependency map: sheet_num → list of sheets that depend on it
+        # Build a reverse dependency map: sheet_num → list of sheets
+        # that depend on it
         dependents: dict[int, list[int]] = {}
         for sheet_num, deps in job.dependencies.items():
             for dep in deps:
@@ -744,8 +950,8 @@ class BatonCore:
                 continue
 
             # Only fail non-terminal sheets
-            if sheet.status not in _TERMINAL_STATUSES:
-                sheet.status = "failed"
+            if sheet.status not in _TERMINAL_BATON_STATUSES:
+                sheet.status = BatonSheetStatus.FAILED
                 _logger.info(
                     "baton.sheet.dependency_failed",
                     extra={
@@ -780,7 +986,8 @@ class BatonCore:
             while not self._shutting_down:
                 event = await self._inbox.get()
                 await self.handle_event(event)
-                # dispatch_ready() would be called here when wired to conductor
+                # dispatch_ready() would be called here when wired to
+                # conductor
         except asyncio.CancelledError:
             _logger.info("baton.cancelled")
             raise
@@ -805,7 +1012,8 @@ class BatonCore:
         status_counts: dict[str, int] = {}
         instruments_used: set[str] = set()
         for sheet in job.sheets.values():
-            status_counts[sheet.status] = status_counts.get(sheet.status, 0) + 1
+            status_key = sheet.status.value
+            status_counts[status_key] = status_counts.get(status_key, 0) + 1
             instruments_used.add(sheet.instrument_name)
 
         return {

@@ -46,7 +46,9 @@ class BatonSheetStatus(str, Enum):
     - ``READY`` — dependencies met, eligible for dispatch
     - ``DISPATCHED`` — sent to a musician, not yet running
     - ``WAITING`` — blocked on a rate-limited instrument
+    - ``RETRY_SCHEDULED`` — failed, awaiting retry timer
     - ``FERMATA`` — paused for human/AI escalation decision
+    - ``CANCELLED`` — cancelled by user or timeout
     """
 
     PENDING = "pending"
@@ -56,17 +58,37 @@ class BatonSheetStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     SKIPPED = "skipped"
+    CANCELLED = "cancelled"
     WAITING = "waiting"
+    RETRY_SCHEDULED = "retry_scheduled"
     FERMATA = "fermata"
 
     @property
     def is_terminal(self) -> bool:
         """Whether this status represents a final state (no more transitions)."""
-        return self in (
-            BatonSheetStatus.COMPLETED,
-            BatonSheetStatus.FAILED,
-            BatonSheetStatus.SKIPPED,
-        )
+        return self in _TERMINAL_BATON_STATUSES
+
+
+# Frozenset for O(1) terminal status checks — used by BatonSheetStatus.is_terminal
+# and by core.py for event handler guards.
+_TERMINAL_BATON_STATUSES = frozenset({
+    BatonSheetStatus.COMPLETED,
+    BatonSheetStatus.FAILED,
+    BatonSheetStatus.SKIPPED,
+    BatonSheetStatus.CANCELLED,
+})
+
+# Statuses that satisfy downstream dependencies
+_SATISFIED_BATON_STATUSES = frozenset({
+    BatonSheetStatus.COMPLETED,
+    BatonSheetStatus.SKIPPED,
+})
+
+# Statuses eligible for dispatch
+_DISPATCHABLE_BATON_STATUSES = frozenset({
+    BatonSheetStatus.PENDING,
+    BatonSheetStatus.READY,
+})
 
 
 class AttemptMode(str, Enum):
@@ -188,14 +210,20 @@ class SheetExecutionState:
     def record_attempt(self, result: SheetAttemptResult) -> None:
         """Record an attempt result and update tracking state.
 
-        Rate-limited attempts are recorded in ``attempt_results`` but
-        do NOT increment ``normal_attempts`` — rate limits are not failures.
+        Only non-successful, non-rate-limited attempts increment
+        ``normal_attempts``. Successes and rate-limited attempts are
+        recorded in ``attempt_results`` for history but don't consume
+        retry budget. This matches the baton design spec: retry budget
+        tracks failures, not total attempts.
         """
         self.attempt_results.append(result)
         self.total_cost_usd += result.cost_usd
         self.total_duration_seconds += result.duration_seconds
 
-        if not result.rate_limited:
+        # Only count failed, non-rate-limited attempts toward retry budget.
+        # Successful attempts don't consume retries. Rate-limited attempts
+        # are tempo changes, not failures.
+        if not result.rate_limited and not result.execution_success:
             self.normal_attempts += 1
 
     @property
