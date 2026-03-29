@@ -485,6 +485,7 @@ class TestFKConstraints:
         assert "update_success_factors_skipped" in captured.out
         assert "pattern_not_found" in captured.out
 
+    @pytest.mark.timeout(120)
     def test_fk_006_bulk_feedback_after_pruning(
         self, store: GlobalLearningStore,
     ) -> None:

@@ -576,7 +576,7 @@ class TestConcurrencyStress:
                 job_id = f"stress-job-{i % 5}"
                 await backend.load(job_id)
                 operations_completed["read"] += 1
-                await asyncio.sleep(0.005)
+                await asyncio.sleep(0)
 
         async def write_worker() -> None:
             for i in range(10):

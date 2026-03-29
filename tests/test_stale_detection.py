@@ -336,6 +336,7 @@ class TestIdleWatchdogDirect:
             check_interval=0.05,
             execution_task=task,
         )
+        assert task.done(), "execution task should be complete after watchdog returns"
 
     @pytest.mark.asyncio
     async def test_watchdog_raises_on_idle(self) -> None:
