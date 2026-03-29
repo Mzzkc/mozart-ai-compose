@@ -20,7 +20,7 @@ import typer
 import yaml
 from rich.table import Table
 
-from ..output import console
+from ..output import console, output_error
 
 _logger = logging.getLogger(__name__)
 
@@ -199,7 +199,10 @@ def show(
         try:
             effective = DaemonConfig.model_validate(file_data)
         except Exception as e:
-            console.print(f"[red]Error loading config:[/red] {e}")
+            output_error(
+                f"Error loading config: {e}",
+                hints=["Check ~/.mozart/conductor.yaml syntax."],
+            )
             raise typer.Exit(1) from None
 
         source_label = f"[dim]{path}[/dim]" if path.exists() else "[dim](defaults)[/dim]"
@@ -296,7 +299,10 @@ def set_value(
     try:
         DaemonConfig.model_validate(data)
     except Exception as e:
-        console.print(f"[red]Invalid value:[/red] {e}")
+        output_error(
+            f"Invalid value: {e}",
+            hints=["Run 'mozart config show --all' to see current values."],
+        )
         raise typer.Exit(1) from None
 
     _save_config_data(path, data)
@@ -395,7 +401,10 @@ def check(
 
     path = _resolve_config_path(config_file)
     if not path.exists():
-        console.print(f"[red]Config file not found:[/red] {path}")
+        output_error(
+            f"Config file not found: {path}",
+            hints=["Run 'mozart config init' to create a default config."],
+        )
         raise typer.Exit(1)
 
     data = _load_config_data(path)
@@ -403,8 +412,10 @@ def check(
     try:
         DaemonConfig.model_validate(data)
     except Exception as e:
-        console.print(f"[red]Invalid config:[/red] {path}")
-        console.print(f"  {e}")
+        output_error(
+            f"Invalid config: {path} — {e}",
+            hints=["Run 'mozart config show' to see the expected schema."],
+        )
         raise typer.Exit(1) from None
 
     console.print(f"[green]Valid config:[/green] {path}")

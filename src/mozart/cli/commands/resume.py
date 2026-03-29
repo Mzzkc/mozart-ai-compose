@@ -42,7 +42,7 @@ from ..helpers import (
     is_quiet,
     require_conductor,
 )
-from ..output import console, format_duration
+from ..output import console, format_duration, output_error
 from ._shared import (
     create_progress_bar,
     handle_job_completion,
@@ -213,7 +213,7 @@ def _reconstruct_config(
             console.print(f"[dim]Using config from: {config_file}[/dim]")
             return config, True
         except Exception as e:
-            console.print(f"[red]Error loading config file:[/red] {e}")
+            output_error(f"Error loading config file: {e}")
             raise typer.Exit(1) from None
 
     # Priority 2: Auto-reload from stored config_path (unless --no-reload)
@@ -227,7 +227,7 @@ def _reconstruct_config(
                 )
                 return config, True
             except Exception as e:
-                console.print(f"[red]Error reloading config:[/red] {e}")
+                output_error(f"Error reloading config: {e}")
                 raise typer.Exit(1) from None
         else:
             # File doesn't exist — fall through to snapshot
@@ -245,16 +245,18 @@ def _reconstruct_config(
                 console.print("[dim]Using cached config snapshot[/dim]")
             return config, False
         except Exception as e:
-            console.print(f"[red]Error reconstructing config from snapshot:[/red] {e}")
-            console.print(
-                "[dim]Hint: Provide a config file with --config flag.[/dim]"
+            output_error(
+                f"Error reconstructing config from snapshot: {e}",
+                hints=["Provide a config file with --config flag."],
             )
             raise typer.Exit(1) from None
 
-    console.print(
-        "[red]Cannot resume: No config available.[/red]\n"
-        "The job state doesn't contain a config snapshot.\n"
-        "Please provide a config file with --config flag."
+    output_error(
+        "Cannot resume: No config available.",
+        hints=[
+            "The job state doesn't contain a config snapshot.",
+            "Provide a config file with --config flag.",
+        ],
     )
     raise typer.Exit(1)
 
@@ -300,7 +302,10 @@ async def _resume_job(
         routed, result = await try_daemon_route("job.resume", params)
     except Exception as exc:
         # Business logic error from conductor (e.g., job not found)
-        console.print(f"[red]Error:[/red] {exc}")
+        output_error(
+            str(exc),
+            hints=["Run 'mozart list' to see available scores."],
+        )
         raise typer.Exit(1) from None
 
     if routed:
@@ -315,11 +320,12 @@ async def _resume_job(
                 early_status = early.get("status", "") if isinstance(early, dict) else ""
                 if early_status in ("failed", "cancelled"):
                     err = early.get("error_message", "") if isinstance(early, dict) else ""
-                    console.print(f"[red]Score failed after resume:[/red] {job_id_result}")
+                    msg = f"Score failed after resume: {job_id_result}"
                     if err:
-                        console.print(f"  {err}")
-                    console.print(
-                        f"\n[dim]Full details:[/dim] mozart diagnose {job_id_result}"
+                        msg += f" — {err}"
+                    output_error(
+                        msg,
+                        hints=[f"Run 'mozart diagnose {job_id_result}' for details."],
                     )
                     raise typer.Exit(1)
 
@@ -508,7 +514,7 @@ async def _resume_job_direct(ctx: ResumeContext) -> None:
 
     except FatalError as e:
         progress.stop()
-        console.print(f"[red]Fatal error: {e}[/red]")
+        output_error(f"Fatal error: {e}")
 
         # Send failure notification (must not mask the original error)
         if notification_manager:

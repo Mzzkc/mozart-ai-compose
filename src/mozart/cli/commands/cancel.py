@@ -9,14 +9,13 @@ stops; use `cancel` when the job must stop now.
 from __future__ import annotations
 
 import asyncio
-import json
 
 import typer
 
 from mozart.daemon.exceptions import DaemonError
 
 from ..helpers import configure_global_logging, require_conductor
-from ..output import console
+from ..output import console, output_error, output_json
 
 
 def cancel(
@@ -53,12 +52,11 @@ async def _cancel_job(job_id: str, json_output: bool) -> None:
     try:
         routed, result = await try_daemon_route("job.cancel", params)
     except (OSError, ConnectionError, DaemonError) as exc:
-        if json_output:
-            console.print(json.dumps({
-                "success": False, "job_id": job_id, "message": str(exc),
-            }, indent=2))
-        else:
-            console.print(f"[red]Error:[/red] {exc}")
+        output_error(
+            str(exc),
+            hints=["Check conductor status: mozart conductor-status"],
+            json_output=json_output,
+        )
         raise typer.Exit(1) from None
 
     if not routed:
@@ -67,9 +65,7 @@ async def _cancel_job(job_id: str, json_output: bool) -> None:
 
     cancelled = result.get("cancelled", False)
     if json_output:
-        console.print(json.dumps({
-            "success": cancelled, "job_id": job_id,
-        }, indent=2))
+        output_json({"success": cancelled, "job_id": job_id})
     elif cancelled:
         console.print(f"[green]Score '{job_id}' cancelled.[/green]")
     else:

@@ -621,7 +621,13 @@ def output_error(
             result[k] = v
         import json as _json
 
-        out.print(_json.dumps(result, indent=2))
+        sanitized = _sanitize_for_json(result)
+        out.print(
+            _json.dumps(sanitized, indent=2, default=str),
+            markup=False,
+            highlight=False,
+            soft_wrap=True,
+        )
         return
 
     if error_code:
@@ -635,6 +641,28 @@ def output_error(
         out.print("[dim]Hints:[/dim]")
         for hint in hints:
             out.print(f"  - {hint}")
+
+
+def _sanitize_for_json(obj: object) -> object:
+    """Recursively sanitize data for JSON serialization.
+
+    Strips control characters (C0/C1) from string values to prevent
+    invalid JSON output. ANSI escape sequences in stdout_tail/stderr_tail
+    are the primary offender (F-032).
+    """
+    import re
+
+    # Pattern: C0 controls (except \t \n \r which are safe in JSON),
+    # plus C1 controls and ANSI escape sequences
+    _CONTROL_RE = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]|\x1b\[[0-9;]*[a-zA-Z]')
+
+    if isinstance(obj, str):
+        return _CONTROL_RE.sub("", obj)
+    elif isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_sanitize_for_json(item) for item in obj]
+    return obj
 
 
 def output_json(
@@ -652,15 +680,19 @@ def output_json(
     Also handles non-serializable types (datetime, enum) via
     ``default=str`` to prevent serialization crashes on real-world data.
 
+    Control characters and ANSI escape sequences in string values are
+    stripped to prevent invalid JSON (F-032).
+
     Args:
         data: JSON-serializable dict or list.
         console_instance: Console to print to. Defaults to module console.
     """
     import json
 
+    sanitized = _sanitize_for_json(data)
     out = console_instance or console
     out.print(
-        json.dumps(data, indent=2, default=str),
+        json.dumps(sanitized, indent=2, default=str),
         markup=False,
         highlight=False,
         soft_wrap=True,

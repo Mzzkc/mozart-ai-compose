@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Literal, TypedDict
 
 import typer
+from rich.console import Console
 from rich.panel import Panel
 from rich.progress import (
     BarColumn,
@@ -38,6 +39,7 @@ from mozart.core.checkpoint import (
     CheckpointState,
     ErrorRecord,
     JobStatus,
+    SheetState,
     SheetStatus,
     ValidationDetailDict,
 )
@@ -214,10 +216,11 @@ async def _status_job(
         # Conductor error (crash, resource exhaustion, etc.) — report truthfully.
         error_detail = f"{type(exc).__name__}: {exc}"
         _logger.error("status_conductor_error", error=error_detail, exc_info=True)
-        if json_output:
-            output_json({"error": f"Conductor error: {error_detail}"})
-        else:
-            console.print(f"[red]Conductor error:[/red] {error_detail}")
+        output_error(
+            f"Conductor error: {error_detail}",
+            hints=["Check conductor logs: tail -f ~/.mozart/mozart.log"],
+            json_output=json_output,
+        )
         raise typer.Exit(1) from None
 
     if routed and result:
@@ -296,7 +299,7 @@ async def _status_job_watch(
                 error_detail = f"{type(exc).__name__}: {exc}"
                 _logger.warning("watch_daemon_error", error=error_detail)
                 console.clear()
-                console.print(f"[red]Conductor error:[/red] {error_detail}")
+                output_error(f"Conductor error: {error_detail}")
                 await asyncio.sleep(interval)
                 continue
 
@@ -324,7 +327,10 @@ async def _status_job_watch(
                     err_msg = f"{ErrorMessages.JOB_NOT_FOUND}: {job_id}"
                     output_json({"error": err_msg})
                 else:
-                    console.print(f"[red]{ErrorMessages.JOB_NOT_FOUND}:[/red] {job_id}")
+                    output_error(
+                        f"{ErrorMessages.JOB_NOT_FOUND}: {job_id}",
+                        hints=["Run 'mozart list' to see available scores."],
+                    )
             else:
                 if json_output:
                     _output_status_json(found_job)
@@ -503,9 +509,9 @@ async def _list_jobs(
 
     routed, result = await try_daemon_route("job.list", {})
     if not routed:
-        console.print(
-            "[red]Error:[/red] Mozart conductor is not running.\n"
-            "Start it with: [bold]mozart start[/bold]"
+        output_error(
+            "Mozart conductor is not running.",
+            hints=["Start it with: mozart start"],
         )
         raise typer.Exit(1)
 
@@ -732,10 +738,252 @@ def _output_status_json(job: CheckpointState) -> None:
         "error": job.error_message,
         "sheets": sheets_json,
     }
+
+    # Add movement grouping when movement data is available (M3 step 31)
+    if _has_movement_data(job):
+        output["movements"] = _build_movement_groups(job)
+
     output_json(output)
 
 
 _LARGE_SCORE_THRESHOLD = 50  # Switch to summary view above this sheet count
+
+
+# =============================================================================
+# Movement-Grouped Status Display (M3 step 31)
+# =============================================================================
+
+
+def _has_movement_data(job: CheckpointState) -> bool:
+    """Check whether any sheet in the job has movement metadata populated.
+
+    Returns True when at least one sheet has a non-None movement field,
+    indicating the job was executed with sheet-first architecture entities.
+    Legacy jobs (pre-instrument-plugin) will have all movements as None.
+    """
+    return any(s.movement is not None for s in job.sheets.values())
+
+
+def _build_movement_groups(
+    job: CheckpointState,
+) -> list[dict[str, Any]]:
+    """Build structured movement group data for JSON output or rendering.
+
+    Groups sheets by their movement number and computes per-movement
+    status, voice count, instrument, and descriptions. Movements are
+    returned in sorted order.
+
+    Args:
+        job: The CheckpointState with sheet-first movement metadata.
+
+    Returns:
+        List of dicts, one per movement, with keys:
+        - movement: int
+        - status: str (completed, running, failed, pending, skipped)
+        - sheet_count: int
+        - voice_count: int (number of distinct voices, 0 for solo)
+        - completed_count: int
+        - instrument: str | None
+        - description: str | None
+        - sheets: list of sheet_num in this movement
+    """
+    from collections import defaultdict
+
+    groups: dict[int, list[tuple[int, SheetState]]] = defaultdict(list)
+    for sheet_num in sorted(job.sheets.keys()):
+        sheet = job.sheets[sheet_num]
+        mv = sheet.movement if sheet.movement is not None else 0
+        groups[mv].append((sheet_num, sheet))
+
+    # Extract descriptions from config snapshot
+    descriptions: dict[int, str] = {}
+    if job.config_snapshot:
+        sheet_cfg = job.config_snapshot.get("sheet", {})
+        raw_descs = sheet_cfg.get("descriptions", {})
+        descriptions = {int(k): v for k, v in raw_descs.items()}
+
+    result: list[dict[str, Any]] = []
+    for mv_num in sorted(groups.keys()):
+        mv_sheets = groups[mv_num]
+        statuses = []
+        voices: set[int] = set()
+        instruments: set[str] = set()
+        completed_count = 0
+
+        for _sheet_num, sheet in mv_sheets:
+            display_label, _ = format_sheet_display_status(
+                sheet.status, sheet.validation_passed,
+            )
+            statuses.append(display_label)
+            if sheet.voice is not None:
+                voices.add(sheet.voice)
+            if sheet.instrument_name:
+                instruments.add(sheet.instrument_name)
+            if display_label == "completed":
+                completed_count += 1
+
+        # Derive movement-level status
+        if all(s == "completed" for s in statuses):
+            mv_status = "completed"
+        elif any(s == "failed" for s in statuses):
+            mv_status = "failed"
+        elif any(s in ("in_progress", "running") for s in statuses):
+            mv_status = "running"
+        elif all(s == "skipped" for s in statuses):
+            mv_status = "skipped"
+        else:
+            mv_status = "pending"
+
+        # Find the description — use the first sheet's description if available
+        first_sheet_num = mv_sheets[0][0]
+        desc = descriptions.get(first_sheet_num)
+
+        result.append({
+            "movement": mv_num,
+            "status": mv_status,
+            "sheet_count": len(mv_sheets),
+            "voice_count": len(voices),
+            "completed_count": completed_count,
+            "instrument": next(iter(instruments)) if len(instruments) == 1 else None,
+            "instruments": sorted(instruments) if len(instruments) > 1 else [],
+            "description": desc,
+            "sheets": [sn for sn, _ in mv_sheets],
+        })
+
+    return result
+
+
+def _render_movement_grouped_details(
+    job: CheckpointState,
+    target_console: Console | None = None,
+) -> None:
+    """Render sheet details grouped by movement for rich status output.
+
+    The hierarchy is:
+      Movement N: Description    [status, duration]    instrument
+        Voice 1: ...             [status, duration]
+        Voice 2: ...             [status, duration]
+
+    When all movements use the same instrument, the instrument column
+    is suppressed to reduce noise. When there are no voices (solo
+    movements), the voice sub-items are omitted.
+
+    Args:
+        job: CheckpointState with movement metadata on sheets.
+        target_console: Console to print to. Uses module-level console if None.
+    """
+    con = target_console or console
+    groups = _build_movement_groups(job)
+
+    if not groups:
+        return
+
+    # Determine if instruments are heterogeneous
+    all_instruments: set[str] = set()
+    for g in groups:
+        if g["instrument"]:
+            all_instruments.add(g["instrument"])
+        for instr in g.get("instruments", []):
+            all_instruments.add(instr)
+    show_instruments = len(all_instruments) > 1
+
+    # Status icons
+    icons: dict[str, str] = {
+        "completed": "\u2713",
+        "running": "\u25b6",
+        "failed": "\u2717",
+        "pending": "\u00b7",
+        "skipped": "\u2298",
+    }
+    colors: dict[str, str] = {
+        "completed": "green",
+        "running": "blue",
+        "failed": "red",
+        "pending": "dim",
+        "skipped": "dim",
+    }
+
+    con.print("\n[bold]Movements[/bold]")
+
+    for g in groups:
+        mv_num = g["movement"]
+        mv_status = g["status"]
+        icon = icons.get(mv_status, " ")
+        color = colors.get(mv_status, "white")
+
+        # Build the movement header line
+        parts: list[str] = []
+        parts.append(f"  [{color}]{icon}[/{color}]")
+        parts.append(f" [bold]Movement {mv_num}[/bold]")
+
+        if g["description"]:
+            parts.append(f": {g['description']}")
+
+        # Voice count
+        if g["voice_count"] > 0:
+            parts.append(f" ({g['voice_count']} voices)")
+
+        # Status detail
+        status_detail = f"[{color}]{mv_status}[/{color}]"
+        if mv_status == "running" and g["voice_count"] > 0:
+            status_detail = (
+                f"[{color}]{g['completed_count']}/{g['sheet_count']} complete[/{color}]"
+            )
+        elif mv_status == "completed":
+            # Show duration if we can compute it
+            durations = []
+            for sn in g["sheets"]:
+                sheet = job.sheets.get(sn)
+                if sheet and sheet.execution_duration_seconds is not None:
+                    durations.append(sheet.execution_duration_seconds)
+            if durations:
+                total_dur = max(durations)  # parallel: max, not sum
+                status_detail += f" [dim]({format_duration(total_dur)})[/dim]"
+
+        parts.append(f"    [{color}]{status_detail}[/{color}]" if mv_status != "completed"
+                     else f"    {status_detail}")
+
+        # Instrument (only when heterogeneous)
+        if show_instruments:
+            instr = g["instrument"] or ", ".join(g.get("instruments", []))
+            if instr:
+                parts.append(f"  [dim]{instr}[/dim]")
+
+        con.print("".join(parts))
+
+        # Show voice sub-items for harmonized movements
+        if g["voice_count"] > 1:
+            for sn in g["sheets"]:
+                sheet = job.sheets.get(sn)
+                if sheet is None or sheet.voice is None:
+                    continue
+                v_label, v_color = format_sheet_display_status(
+                    sheet.status, sheet.validation_passed,
+                )
+                v_icon = icons.get(v_label, " ")
+
+                voice_parts: list[str] = []
+                voice_parts.append(f"      [{v_color}]{v_icon}[/{v_color}]")
+                voice_parts.append(f" Voice {sheet.voice}")
+
+                # Duration
+                if sheet.status == SheetStatus.IN_PROGRESS and sheet.started_at:
+                    elapsed = (
+                        datetime.now(UTC) - sheet.started_at
+                    ).total_seconds()
+                    voice_parts.append(
+                        f"  [{v_color}]{v_label}[/{v_color}]"
+                        f" [dim]({format_duration(elapsed)})[/dim]"
+                    )
+                elif sheet.execution_duration_seconds is not None:
+                    voice_parts.append(
+                        f"  [{v_color}]{v_label}[/{v_color}]"
+                        f" [dim]({format_duration(sheet.execution_duration_seconds)})[/dim]"
+                    )
+                else:
+                    voice_parts.append(f"  [{v_color}]{v_label}[/{v_color}]")
+
+                con.print("".join(voice_parts))
 
 
 def _render_sheet_details(job: CheckpointState) -> None:
@@ -747,8 +995,16 @@ def _render_sheet_details(job: CheckpointState) -> None:
 
     For large scores (50+ sheets), shows a summary of counts-by-status
     with only non-pending/non-completed sheets listed individually.
+
+    When sheets have movement metadata (sheet-first architecture), renders
+    a movement-grouped hierarchical view instead of a flat table.
     """
     if not job.sheets:
+        return
+
+    # Movement-grouped display when movement data is available (M3 step 31)
+    if _has_movement_data(job):
+        _render_movement_grouped_details(job)
         return
 
     # Large scores get a summary view to avoid 700+ row tables (F-038)
@@ -1464,7 +1720,7 @@ async def _clear_jobs(
     try:
         routed, result = await try_daemon_route("job.clear", params)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        output_error(str(exc))
         raise typer.Exit(1) from None
 
     if not routed:

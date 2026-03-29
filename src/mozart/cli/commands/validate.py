@@ -33,7 +33,7 @@ from mozart.validation import (
 )
 
 from ..helpers import configure_global_logging
-from ..output import console
+from ..output import console, output_error
 
 
 def validate(
@@ -76,30 +76,36 @@ def validate(
     try:
         raw_yaml = config_file.read_text()
     except Exception as e:
-        if json_output:
-            console.print('{"valid": false, "error": "Cannot read file: ' + str(e) + '"}')
-        else:
-            console.print(f"[red]Cannot read config file:[/red] {e}")
+        output_error(
+            f"Cannot read score file: {e}",
+            hints=["Check that the file exists and you have read permission."],
+            json_output=json_output,
+        )
         raise typer.Exit(2) from None
 
     # Try to parse YAML
     try:
         yaml.safe_load(raw_yaml)
     except yaml.YAMLError as e:
-        if json_output:
-            console.print('{"valid": false, "error": "YAML syntax error: ' + str(e) + '"}')
-        else:
-            console.print(f"[red]YAML syntax error:[/red] {e}")
+        output_error(
+            f"YAML syntax error: {e}",
+            hints=["Check for indentation issues or invalid YAML characters."],
+            json_output=json_output,
+        )
         raise typer.Exit(2) from None
 
     # Try Pydantic validation
     try:
         config = JobConfig.from_yaml(config_file)
     except Exception as e:
-        if json_output:
-            console.print('{"valid": false, "error": "Schema validation failed: ' + str(e) + '"}')
-        else:
-            console.print(f"[red]Schema validation failed:[/red] {e}")
+        output_error(
+            f"Schema validation failed: {e}",
+            hints=[
+                "Ensure your score has at minimum: name, sheet, and prompt sections.",
+                "See: docs/score-writing-guide.md",
+            ],
+            json_output=json_output,
+        )
         raise typer.Exit(2) from None
 
     # Show basic info first
