@@ -5,6 +5,7 @@
 from .cancel import cancel
 from .diagnose import diagnose, errors, history, logs
 from .doctor import doctor
+from .init_cmd import init
 from .pause import modify, pause
 from .recover import recover
 from .resume import resume
@@ -22,6 +23,8 @@ __all__ = [
     "history",
     # doctor.py
     "doctor",
+    # init_cmd.py
+    "init",
     # pause.py
     "pause",
     "modify",

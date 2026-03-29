@@ -14,7 +14,7 @@ import typer
 from rich.panel import Panel
 from rich.table import Table
 
-from ...output import console
+from ...output import console, output_error
 
 
 def patterns_why(
@@ -65,15 +65,18 @@ def patterns_why(
         matching = [p for p in patterns_list if p.id.startswith(pattern_id)]
 
         if not matching:
-            console.print(f"[red]No pattern found with ID starting with '{pattern_id}'[/red]")
+            output_error(
+                f"No pattern found with ID starting with '{pattern_id}'",
+                hints=["Run 'mozart patterns-list' to see available patterns."],
+            )
             raise typer.Exit(1)
 
         if len(matching) > 1:
-            console.print(f"[yellow]Multiple patterns match '{pattern_id}':[/yellow]")
-            for p in matching[:5]:
-                console.print(f"  [cyan]{p.id}[/cyan] - {p.pattern_name}")
-            console.print(
-                "[dim]Please provide more characters to uniquely identify the pattern.[/dim]"
+            match_lines = [f"  {p.id} - {p.pattern_name}" for p in matching[:5]]
+            output_error(
+                f"Multiple patterns match '{pattern_id}':\n" + "\n".join(match_lines),
+                severity="warning",
+                hints=["Provide more characters to uniquely identify the pattern."],
             )
             raise typer.Exit(1)
 

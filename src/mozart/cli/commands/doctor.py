@@ -15,7 +15,6 @@ import os
 import platform
 import shutil
 import sys
-from pathlib import Path
 from typing import Any
 
 import typer
@@ -23,8 +22,7 @@ import typer
 from mozart import __version__
 from mozart.cli.output import console as default_console
 from mozart.core.config.instruments import InstrumentProfile
-from mozart.instruments.loader import InstrumentProfileLoader
-from mozart.instruments.registry import InstrumentRegistry, register_native_instruments
+from mozart.instruments.loader import load_all_profiles
 
 
 def _check_conductor_status() -> tuple[str, int | None]:
@@ -73,34 +71,12 @@ def _check_instrument_binary(profile: InstrumentProfile) -> tuple[bool, str | No
     return (path is not None, path)
 
 
-def _build_instrument_registry() -> InstrumentRegistry:
-    """Build a registry with native + built-in + user instruments."""
-    registry = InstrumentRegistry()
-    register_native_instruments(registry)
+def _get_all_profiles() -> dict[str, InstrumentProfile]:
+    """Get all instrument profiles from all sources.
 
-    # Load built-in profiles
-    builtins_dir = Path(__file__).resolve().parent.parent.parent / "instruments" / "builtins"
-    if builtins_dir.is_dir():
-        for name, profile in InstrumentProfileLoader.load_directory(builtins_dir).items():
-            if name not in registry:
-                registry.register(profile)
-            else:
-                # Built-in profiles don't override native instruments
-                pass
-
-    # Load user profiles (org-level)
-    org_dir = Path.home() / ".mozart" / "instruments"
-    if org_dir.is_dir():
-        for _name, profile in InstrumentProfileLoader.load_directory(org_dir).items():
-            registry.register(profile, override=True)
-
-    # Load venue profiles (project-level)
-    venue_dir = Path(".mozart") / "instruments"
-    if venue_dir.is_dir():
-        for _name, profile in InstrumentProfileLoader.load_directory(venue_dir).items():
-            registry.register(profile, override=True)
-
-    return registry
+    Delegates to the shared ``load_all_profiles()`` in the loader module.
+    """
+    return load_all_profiles()
 
 
 def doctor(
@@ -153,11 +129,11 @@ def doctor(
         warnings.append("Conductor not running")
 
     # --- Instruments ---
-    registry = _build_instrument_registry()
+    all_profiles = _get_all_profiles()
     instrument_results: list[dict[str, Any]] = []
     ready_count = 0
 
-    for profile in registry.list_all():
+    for profile in all_profiles.values():
         available, binary_path = _check_instrument_binary(profile)
 
         if profile.kind == "http":

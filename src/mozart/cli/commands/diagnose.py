@@ -57,6 +57,7 @@ from ..output import (
     format_error_details,
     infer_error_type,
     output_error,
+    output_json,
 )
 
 # =============================================================================
@@ -182,7 +183,7 @@ class LogFollower:
                 with open(self.log_path, encoding="utf-8") as f:
                     all_lines = f.readlines()
         except OSError as e:
-            console.print(f"[red]Error reading log file:[/red] {e}")
+            output_error(f"Cannot read log file: {e}")
             return []
 
         if num_lines and num_lines > 0:
@@ -245,7 +246,7 @@ class LogFollower:
         except KeyboardInterrupt:
             console.print("\n[dim]Stopped following logs.[/dim]")
         except OSError as e:
-            console.print(f"[red]Error following log file:[/red] {e}")
+            output_error(f"Cannot follow log file: {e}")
             raise typer.Exit(1) from None
         finally:
             if file_handle:
@@ -564,7 +565,7 @@ async def _errors_job(
                 for sheet_num, error in all_errors
             ],
         }
-        console.print(json_module.dumps(output, indent=2, default=str))
+        output_json(output)
         return
 
     # Display with Rich table
@@ -1502,10 +1503,10 @@ async def _history_job(
     # Check if backend supports execution history
     if not has_history:
         if json_output:
-            console.print(json_module.dumps({
+            output_json({
                 "error": "Execution history requires SQLite state backend",
                 "hint": "Re-run the score with SQLite state to enable history tracking",
-            }))
+            })
         else:
             console.print(
                 "[yellow]Execution history requires the SQLite state backend.[/yellow]\n"
@@ -1522,7 +1523,7 @@ async def _history_job(
         }
         if sheet_filter is not None:
             output["sheet_filter"] = sheet_filter
-        console.print(json_module.dumps(output, indent=2, default=str))
+        output_json(output)
         return
 
     # Display with Rich table

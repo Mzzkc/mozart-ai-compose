@@ -61,6 +61,8 @@ from .commands import (
     doctor,
     errors,
     history,
+    # init_cmd.py
+    init,
     # status.py
     list_jobs,
     logs,
@@ -234,6 +236,9 @@ def main(
 # =============================================================================
 # Core command registration
 # =============================================================================
+
+# Getting started
+app.command(rich_help_panel="Getting Started")(init)
 
 # Job execution commands
 app.command(rich_help_panel="Jobs")(run)

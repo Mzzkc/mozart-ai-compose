@@ -14,15 +14,13 @@ from __future__ import annotations
 
 import json
 import shutil
-from pathlib import Path
 
 import typer
 from rich.table import Table
 
 from mozart.cli.output import console, output_error
 from mozart.core.config.instruments import InstrumentProfile
-from mozart.instruments.loader import InstrumentProfileLoader
-from mozart.instruments.registry import InstrumentRegistry, register_native_instruments
+from mozart.instruments.loader import load_all_profiles
 
 # ---------------------------------------------------------------------------
 # Typer app for ``mozart instruments`` subcommand
@@ -43,33 +41,9 @@ instruments_app = typer.Typer(
 def _load_all_profiles() -> dict[str, InstrumentProfile]:
     """Load all instrument profiles from all sources.
 
-    Loading order (later overrides earlier):
-        1. Native instruments (4 built-in backends)
-        2. Built-in YAML profiles (shipped with Mozart)
-        3. Organization profiles (~/.mozart/instruments/)
-        4. Venue profiles (.mozart/instruments/)
+    Delegates to the shared ``load_all_profiles()`` in the loader module.
     """
-    # Start with native instruments via registry
-    registry = InstrumentRegistry()
-    register_native_instruments(registry)
-
-    profiles: dict[str, InstrumentProfile] = {
-        p.name: p for p in registry.list_all()
-    }
-
-    # Layer on YAML profiles from directories
-    builtins_dir = Path(__file__).resolve().parent.parent.parent / "instruments" / "builtins"
-    org_dir = Path.home() / ".mozart" / "instruments"
-    venue_dir = Path(".mozart") / "instruments"
-
-    yaml_profiles = InstrumentProfileLoader.load_directories(
-        [builtins_dir, org_dir, venue_dir]
-    )
-
-    # YAML profiles override native ones
-    profiles.update(yaml_profiles)
-
-    return profiles
+    return load_all_profiles()
 
 
 def _check_binary(profile: InstrumentProfile) -> tuple[bool, str | None]:
@@ -139,6 +113,7 @@ def _list_table(profiles: dict[str, InstrumentProfile]) -> None:
     table.add_column("DEFAULT MODEL")
 
     ready_count = 0
+    unchecked_count = 0
 
     for name in sorted(profiles.keys()):
         profile = profiles[name]
@@ -151,18 +126,22 @@ def _list_table(profiles: dict[str, InstrumentProfile]) -> None:
             else:
                 status_str = "[red]✗ not found[/red]"
         else:
-            # HTTP instruments — show the endpoint as status
-            status_str = "[dim]http[/dim]"
-            ready_count += 1  # HTTP instruments are always "ready" (connectivity not checked)
+            # HTTP instruments — connectivity not checked at list time
+            status_str = "[dim]? unchecked[/dim]"
+            unchecked_count += 1
 
         model_str = profile.default_model or "(instrument default)"
 
         table.add_row(name, profile.kind, status_str, model_str)
 
     console.print(table)
-    console.print(
-        f"\n{len(profiles)} instruments configured ({ready_count} ready)"
-    )
+
+    parts = [f"{len(profiles)} instruments configured"]
+    if ready_count:
+        parts.append(f"{ready_count} ready")
+    if unchecked_count:
+        parts.append(f"{unchecked_count} unchecked")
+    console.print(f"\n{' ('.join(parts)})" if len(parts) > 1 else f"\n{parts[0]}")
 
 
 def _list_json(profiles: dict[str, InstrumentProfile]) -> None:
@@ -172,11 +151,18 @@ def _list_json(profiles: dict[str, InstrumentProfile]) -> None:
         profile = profiles[name]
         found, binary_path = _check_binary(profile)
 
+        # HTTP instruments are "unchecked" (no connectivity test at list time)
+        if profile.kind == "cli":
+            status = "ready" if found else "not_found"
+        else:
+            status = "unchecked"
+
         result.append({
             "name": profile.name,
             "display_name": profile.display_name,
             "kind": profile.kind,
-            "ready": found,
+            "status": status,
+            "ready": found if profile.kind == "cli" else None,
             "binary_path": binary_path,
             "default_model": profile.default_model,
             "capabilities": sorted(profile.capabilities),
@@ -265,7 +251,13 @@ def _check_rich(profile: InstrumentProfile) -> None:
     if all_ok:
         console.print(f"[green]{profile.name} is ready.[/green]")
     else:
-        console.print(f"[red]{profile.name} is not ready.[/red]")
+        output_error(
+            f"{profile.name} is not ready.",
+            hints=[
+                f"Check that '{profile.name}' is installed and in your PATH.",
+                "Run 'mozart doctor' for a full environment check.",
+            ],
+        )
         raise typer.Exit(1)
 
 
