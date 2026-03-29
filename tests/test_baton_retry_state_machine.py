@@ -19,7 +19,8 @@ from __future__ import annotations
 
 import pytest
 
-from mozart.daemon.baton.core import BatonCore, SheetExecutionState
+from mozart.daemon.baton.core import BatonCore
+from mozart.daemon.baton.state import BatonSheetStatus, SheetExecutionState
 from mozart.daemon.baton.events import (
     PauseJob,
     RetryDue,
@@ -60,7 +61,7 @@ class TestRetryExhaustion:
 
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
-        assert state.status == "failed"
+        assert state.status == BatonSheetStatus.FAILED
         assert state.normal_attempts == 3
 
     async def test_one_before_max_retries_still_schedulable(self) -> None:
@@ -88,7 +89,7 @@ class TestRetryExhaustion:
 
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
-        assert state.status == "retry_scheduled"
+        assert state.status == BatonSheetStatus.RETRY_SCHEDULED
         assert state.normal_attempts == 2
 
     async def test_zero_max_retries_fails_immediately(self) -> None:
@@ -114,7 +115,7 @@ class TestRetryExhaustion:
 
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
-        assert state.status == "failed"
+        assert state.status == BatonSheetStatus.FAILED
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +153,7 @@ class TestRateLimitHandling:
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
         assert state.normal_attempts == 0
-        assert state.status != "failed"
+        assert state.status != BatonSheetStatus.FAILED
 
     @pytest.mark.adversarial
     async def test_rate_limit_followed_by_real_failure(self) -> None:
@@ -191,7 +192,7 @@ class TestRateLimitHandling:
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
         assert state.normal_attempts == 1
-        assert state.status == "retry_scheduled"
+        assert state.status == BatonSheetStatus.RETRY_SCHEDULED
 
     @pytest.mark.adversarial
     async def test_rate_limit_then_success(self) -> None:
@@ -230,7 +231,7 @@ class TestRateLimitHandling:
 
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
-        assert state.status == "completed"
+        assert state.status == BatonSheetStatus.COMPLETED
         assert state.normal_attempts == 0
 
 
@@ -266,7 +267,7 @@ class TestAuthFailure:
 
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
-        assert state.status == "failed"
+        assert state.status == BatonSheetStatus.FAILED
         # Auth failure should not increment normal_attempts
         # (it bypasses the retry logic entirely)
 
@@ -300,7 +301,7 @@ class TestValidationPassRate:
 
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
-        assert state.status == "completed"
+        assert state.status == BatonSheetStatus.COMPLETED
 
     async def test_zero_percent_pass_rate_retries(self) -> None:
         """0% validation pass rate triggers retry."""
@@ -323,7 +324,7 @@ class TestValidationPassRate:
 
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
-        assert state.status in ("retry_scheduled", "pending")
+        assert state.status in (BatonSheetStatus.RETRY_SCHEDULED, BatonSheetStatus.PENDING)
 
     async def test_partial_pass_rate_retries(self) -> None:
         """Partial validation triggers retry (future: completion mode)."""
@@ -347,7 +348,7 @@ class TestValidationPassRate:
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
         # Should retry (not fail, not complete)
-        assert state.status in ("retry_scheduled", "pending")
+        assert state.status in (BatonSheetStatus.RETRY_SCHEDULED, BatonSheetStatus.PENDING)
 
     async def test_no_validations_still_completes(self) -> None:
         """0 validations total with success and 100% pass rate completes."""
@@ -370,7 +371,7 @@ class TestValidationPassRate:
 
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
-        assert state.status == "completed"
+        assert state.status == BatonSheetStatus.COMPLETED
 
 
 # ---------------------------------------------------------------------------
@@ -466,7 +467,7 @@ class TestMultiJobInteraction:
         # j2's sheet should be unaffected
         state2 = baton.get_sheet_state("j2", 1)
         assert state2 is not None
-        assert state2.status == "pending"
+        assert state2.status == BatonSheetStatus.PENDING
 
     @pytest.mark.adversarial
     async def test_pause_one_job_does_not_pause_another(self) -> None:
@@ -615,14 +616,14 @@ class TestRetryDueIntegration:
 
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
-        assert state.status == "retry_scheduled"
+        assert state.status == BatonSheetStatus.RETRY_SCHEDULED
 
         # Timer fires — sheet becomes pending
         await baton.handle_event(RetryDue(job_id="j1", sheet_num=1))
 
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
-        assert state.status == "pending"
+        assert state.status == BatonSheetStatus.PENDING
 
     async def test_retry_due_for_non_retry_scheduled_is_noop(self) -> None:
         """RetryDue for a sheet not in retry_scheduled is ignored."""
@@ -637,7 +638,7 @@ class TestRetryDueIntegration:
 
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
-        assert state.status == "pending"  # Unchanged
+        assert state.status == BatonSheetStatus.PENDING  # Unchanged
 
     async def test_full_retry_cycle(self) -> None:
         """Fail → retry_scheduled → RetryDue → pending → (dispatchable)."""
@@ -660,11 +661,11 @@ class TestRetryDueIntegration:
             execution_success=False,
             error_classification="TRANSIENT",
         ))
-        assert baton.get_sheet_state("j1", 1).status == "retry_scheduled"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("j1", 1).status == BatonSheetStatus.RETRY_SCHEDULED  # type: ignore[union-attr]
 
         # Timer fires
         await baton.handle_event(RetryDue(job_id="j1", sheet_num=1))
-        assert baton.get_sheet_state("j1", 1).status == "pending"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("j1", 1).status == BatonSheetStatus.PENDING  # type: ignore[union-attr]
 
         # Now the sheet should be in the ready list
         ready = baton.get_ready_sheets("j1")

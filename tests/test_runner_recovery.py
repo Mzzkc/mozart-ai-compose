@@ -277,6 +277,8 @@ class TestLogRateLimitEvent:
         h = self._harness(max_waits=24)
         state = _make_state(rate_limit_waits=5)
         h._log_rate_limit_event(state, is_quota=False, wait_seconds=60.0)
+        # Should complete without raising — verify state unchanged
+        assert state.rate_limit_waits == 5
 
     def test_rate_limit_at_max_raises_fatal(self) -> None:
         h = self._harness(max_waits=10)
@@ -317,6 +319,8 @@ class TestLogRateLimitEvent:
         h = self._harness(max_quota_waits=48)
         state = _make_state(quota_waits=10)
         h._log_rate_limit_event(state, is_quota=True, wait_seconds=3600.0)
+        # Should complete without raising — verify state unchanged
+        assert state.quota_waits == 10
 
     def test_quota_at_max_raises_fatal(self) -> None:
         h = self._harness(max_quota_waits=5)

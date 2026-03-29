@@ -85,11 +85,25 @@ def validate(
 
     # Try to parse YAML
     try:
-        yaml.safe_load(raw_yaml)
+        parsed = yaml.safe_load(raw_yaml)
     except yaml.YAMLError as e:
         output_error(
             f"YAML syntax error: {e}",
             hints=["Check for indentation issues or invalid YAML characters."],
+            json_output=json_output,
+        )
+        raise typer.Exit(2) from None
+
+    # Ensure parsed YAML is a mapping (dict), not a scalar or list
+    if not isinstance(parsed, dict):
+        got_type = type(parsed).__name__ if parsed is not None else "empty file"
+        output_error(
+            f"Score must be a YAML mapping (key-value pairs), got: {got_type}",
+            hints=[
+                "A Mozart score needs key-value fields like: name: my-score",
+                "Check that your file isn't plain text, a list, or empty.",
+                "See: docs/score-writing-guide.md",
+            ],
             json_output=json_output,
         )
         raise typer.Exit(2) from None

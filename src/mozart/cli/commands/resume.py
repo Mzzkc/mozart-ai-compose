@@ -165,18 +165,18 @@ async def _find_job_state(
     }
     if found_state.status not in resumable_statuses:
         if found_state.status == JobStatus.COMPLETED and not force:
-            console.print(
-                f"[yellow]Score '{job_id}' is already completed.[/yellow]"
-            )
-            console.print(
-                "[dim]Use --force to resume anyway (will restart from last sheet).[/dim]"
+            output_error(
+                f"Score '{job_id}' is already completed",
+                severity="warning",
+                hints=["Use --force to resume anyway (will restart from last sheet)."],
             )
             raise typer.Exit(1)
         elif found_state.status == JobStatus.PENDING:
-            console.print(
-                f"[yellow]Score '{job_id}' has not been started yet.[/yellow]"
+            output_error(
+                f"Score '{job_id}' has not been started yet",
+                severity="warning",
+                hints=["Use 'mozart run' to start the score."],
             )
-            console.print("[dim]Use 'mozart run' to start the score.[/dim]")
             raise typer.Exit(1)
 
     return found_state, found_backend
@@ -339,8 +339,9 @@ async def _resume_job(
                 )
                 return
             else:
-                console.print(
-                    f"[red]Error:[/red] {message or f'Resume rejected for {job_id!r}'}"
+                output_error(
+                    message or f"Resume rejected for {job_id!r}",
+                    hints=[f"Run: mozart diagnose {job_id}"],
                 )
                 raise typer.Exit(1)
         return

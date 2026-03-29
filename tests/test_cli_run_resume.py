@@ -715,3 +715,71 @@ class TestSharedHelpers:
             )
         # Verify it completed and called display_run_summary
         assert mock_display.called
+
+
+# =============================================================================
+# Resume error message standardization (M3 step 35)
+# =============================================================================
+
+
+class TestResumeErrorMessages:
+    """Resume error messages use output_error() with hints."""
+
+    @pytest.mark.asyncio
+    async def test_completed_job_uses_output_error(self, tmp_path: Path) -> None:
+        """Completed job without --force shows warning with hint."""
+        from mozart.cli.commands.resume import _find_job_state
+
+        state = CheckpointState(
+            job_id="done-job",
+            job_name="Done",
+            status=JobStatus.COMPLETED,
+            total_sheets=3,
+            last_completed_sheet=3,
+        )
+
+        import typer
+
+        with patch(
+            "mozart.cli.commands.resume.require_job_state",
+            new_callable=AsyncMock,
+            return_value=(state, AsyncMock()),
+        ), patch(
+            "mozart.cli.commands.resume.output_error"
+        ) as mock_err, pytest.raises(typer.Exit):
+            await _find_job_state("done-job", tmp_path, force=False)
+
+        mock_err.assert_called_once()
+        call_kwargs = mock_err.call_args
+        assert "already completed" in call_kwargs[0][0]
+        assert call_kwargs[1]["severity"] == "warning"
+        assert any("--force" in h for h in call_kwargs[1]["hints"])
+
+    @pytest.mark.asyncio
+    async def test_pending_job_uses_output_error(self, tmp_path: Path) -> None:
+        """Pending job shows warning with hint to use 'mozart run'."""
+        from mozart.cli.commands.resume import _find_job_state
+
+        state = CheckpointState(
+            job_id="pending-job",
+            job_name="Pending",
+            status=JobStatus.PENDING,
+            total_sheets=3,
+        )
+
+        import typer
+
+        with patch(
+            "mozart.cli.commands.resume.require_job_state",
+            new_callable=AsyncMock,
+            return_value=(state, AsyncMock()),
+        ), patch(
+            "mozart.cli.commands.resume.output_error"
+        ) as mock_err, pytest.raises(typer.Exit):
+            await _find_job_state("pending-job", tmp_path, force=False)
+
+        mock_err.assert_called_once()
+        call_kwargs = mock_err.call_args
+        assert "not been started" in call_kwargs[0][0]
+        assert call_kwargs[1]["severity"] == "warning"
+        assert any("mozart run" in h for h in call_kwargs[1]["hints"])

@@ -12,6 +12,8 @@ from pathlib import Path
 
 import typer
 
+from ..output import output_error
+
 
 def start(
     config_file: Path | None = typer.Option(None, "--config", "-c", help="YAML config file"),
@@ -72,7 +74,10 @@ def restart(
     # Without this, start_conductor sees the dying process and says
     # "already running" (race condition).
     if not wait_for_conductor_exit(pid_file, timeout=30.0):
-        typer.echo("Old conductor did not exit within 30s — try 'mozart stop --force'")
+        output_error(
+            "Old conductor did not exit within 30 seconds.",
+            hints=["Try 'mozart stop --force' to send SIGKILL."],
+        )
         raise typer.Exit(1)
 
     start_conductor(

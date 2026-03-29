@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import pytest
 
-from mozart.daemon.baton.core import BatonCore, SheetExecutionState
+from mozart.daemon.baton.core import BatonCore
+from mozart.daemon.baton.state import BatonSheetStatus, SheetExecutionState
 from mozart.daemon.baton.events import (
     CancelJob,
     EscalationNeeded,
@@ -64,7 +65,7 @@ class TestSarahsFirstScore:
             validations_passed=2, validations_total=2, validation_pass_rate=100.0,
         ))
 
-        assert baton.get_sheet_state("sarah-first", 1).status == "completed"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("sarah-first", 1).status == BatonSheetStatus.COMPLETED  # type: ignore[union-attr]
         ready = baton.get_ready_sheets("sarah-first")
         assert len(ready) == 1
         assert ready[0].sheet_num == 2
@@ -76,13 +77,13 @@ class TestSarahsFirstScore:
             error_classification="TRANSIENT", error_message="Process timed out",
         ))
 
-        assert baton.get_sheet_state("sarah-first", 2).status == "retry_scheduled"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("sarah-first", 2).status == BatonSheetStatus.RETRY_SCHEDULED  # type: ignore[union-attr]
         # Movement 3 is NOT ready — still depends on 2
         assert len(baton.get_ready_sheets("sarah-first")) == 0
 
         # Timer fires — retry
         await baton.handle_event(RetryDue(job_id="sarah-first", sheet_num=2))
-        assert baton.get_sheet_state("sarah-first", 2).status == "pending"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("sarah-first", 2).status == BatonSheetStatus.PENDING  # type: ignore[union-attr]
 
         # Movement 2 succeeds on retry
         await baton.handle_event(SheetAttemptResult(
@@ -91,7 +92,7 @@ class TestSarahsFirstScore:
             validations_passed=1, validations_total=1, validation_pass_rate=100.0,
         ))
 
-        assert baton.get_sheet_state("sarah-first", 2).status == "completed"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("sarah-first", 2).status == BatonSheetStatus.COMPLETED  # type: ignore[union-attr]
         ready = baton.get_ready_sheets("sarah-first")
         assert len(ready) == 1
         assert ready[0].sheet_num == 3
@@ -102,12 +103,12 @@ class TestSarahsFirstScore:
             attempt=1, execution_success=False, rate_limited=True,
         ))
 
-        assert baton.get_sheet_state("sarah-first", 3).status == "waiting"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("sarah-first", 3).status == BatonSheetStatus.WAITING  # type: ignore[union-attr]
         assert baton.get_sheet_state("sarah-first", 3).normal_attempts == 0  # type: ignore[union-attr]
 
         # Rate limit clears
         await baton.handle_event(RateLimitExpired(instrument="claude-code"))
-        assert baton.get_sheet_state("sarah-first", 3).status == "pending"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("sarah-first", 3).status == BatonSheetStatus.PENDING  # type: ignore[union-attr]
 
         # Movement 3 succeeds
         await baton.handle_event(SheetAttemptResult(
@@ -116,7 +117,7 @@ class TestSarahsFirstScore:
             validations_passed=3, validations_total=3, validation_pass_rate=100.0,
         ))
 
-        assert baton.get_sheet_state("sarah-first", 3).status == "completed"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("sarah-first", 3).status == BatonSheetStatus.COMPLETED  # type: ignore[union-attr]
         assert baton.is_job_complete("sarah-first")
 
     @pytest.mark.adversarial
@@ -194,7 +195,7 @@ class TestMultiInstrumentOrchestra:
         ))
 
         # claude-code sheet is waiting, but gemini-cli sheet 3 is still ready
-        assert baton.get_sheet_state("orchestra", 1).status == "waiting"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("orchestra", 1).status == BatonSheetStatus.WAITING  # type: ignore[union-attr]
         ready = baton.get_ready_sheets("orchestra")
         ready_nums = sorted(s.sheet_num for s in ready)
         assert 3 in ready_nums  # gemini-cli is unaffected
@@ -231,15 +232,15 @@ class TestMultiInstrumentOrchestra:
             attempt=1, execution_success=False, rate_limited=True,
         ))
 
-        assert baton.get_sheet_state("inst-test", 1).status == "waiting"  # type: ignore[union-attr]
-        assert baton.get_sheet_state("inst-test", 2).status == "waiting"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("inst-test", 1).status == BatonSheetStatus.WAITING  # type: ignore[union-attr]
+        assert baton.get_sheet_state("inst-test", 2).status == BatonSheetStatus.WAITING  # type: ignore[union-attr]
 
         # Only gemini-cli rate limit clears
         await baton.handle_event(RateLimitExpired(instrument="gemini-cli"))
 
         # gemini sheet is pending, claude sheet is still waiting
-        assert baton.get_sheet_state("inst-test", 2).status == "pending"  # type: ignore[union-attr]
-        assert baton.get_sheet_state("inst-test", 1).status == "waiting"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("inst-test", 2).status == BatonSheetStatus.PENDING  # type: ignore[union-attr]
+        assert baton.get_sheet_state("inst-test", 1).status == BatonSheetStatus.WAITING  # type: ignore[union-attr]
 
 
 # =============================================================================
@@ -289,10 +290,10 @@ class TestInterruptedPerformance:
         ))
 
         # Sheet 3 is failed
-        assert baton.get_sheet_state("auth-expire", 3).status == "failed"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("auth-expire", 3).status == BatonSheetStatus.FAILED  # type: ignore[union-attr]
         # Sheet 1 and 2 are still completed (not rolled back)
-        assert baton.get_sheet_state("auth-expire", 1).status == "completed"  # type: ignore[union-attr]
-        assert baton.get_sheet_state("auth-expire", 2).status == "completed"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("auth-expire", 1).status == BatonSheetStatus.COMPLETED  # type: ignore[union-attr]
+        assert baton.get_sheet_state("auth-expire", 2).status == BatonSheetStatus.COMPLETED  # type: ignore[union-attr]
         # Sheet 4 depends on both 2 and 3 — 3 is failed (not in _SATISFIED_STATUSES)
         # So sheet 4 should NOT be ready
         ready = baton.get_ready_sheets("auth-expire")
@@ -305,7 +306,7 @@ class TestInterruptedPerformance:
         sheets = {
             1: SheetExecutionState(
                 sheet_num=1, instrument_name="claude-code",
-                status="dispatched",  # Already dispatched, running
+                status=BatonSheetStatus.DISPATCHED,  # Already dispatched, running
                 max_retries=3,
             ),
         }
@@ -319,7 +320,7 @@ class TestInterruptedPerformance:
         state = baton.get_sheet_state("crash-test", 1)
         assert state is not None
         # Should retry, not fail (crash = transient)
-        assert state.status == "retry_scheduled"
+        assert state.status == BatonSheetStatus.RETRY_SCHEDULED
         assert state.normal_attempts == 1
 
     @pytest.mark.adversarial
@@ -327,17 +328,17 @@ class TestInterruptedPerformance:
         """Job timeout cancels all non-terminal sheets but preserves completed ones."""
         baton = BatonCore()
         sheets = {
-            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code", status="completed"),
-            2: SheetExecutionState(sheet_num=2, instrument_name="claude-code", status="dispatched"),
-            3: SheetExecutionState(sheet_num=3, instrument_name="claude-code", status="pending"),
+            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.COMPLETED),
+            2: SheetExecutionState(sheet_num=2, instrument_name="claude-code", status=BatonSheetStatus.DISPATCHED),
+            3: SheetExecutionState(sheet_num=3, instrument_name="claude-code", status=BatonSheetStatus.PENDING),
         }
         baton.register_job("timeout-test", sheets, {})
 
         await baton.handle_event(JobTimeout(job_id="timeout-test"))
 
-        assert baton.get_sheet_state("timeout-test", 1).status == "completed"  # type: ignore[union-attr]
-        assert baton.get_sheet_state("timeout-test", 2).status == "cancelled"  # type: ignore[union-attr]
-        assert baton.get_sheet_state("timeout-test", 3).status == "cancelled"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("timeout-test", 1).status == BatonSheetStatus.COMPLETED  # type: ignore[union-attr]
+        assert baton.get_sheet_state("timeout-test", 2).status == BatonSheetStatus.CANCELLED  # type: ignore[union-attr]
+        assert baton.get_sheet_state("timeout-test", 3).status == BatonSheetStatus.CANCELLED  # type: ignore[union-attr]
 
 
 # =============================================================================
@@ -367,7 +368,7 @@ class TestEscalationDance:
             options=["retry", "accept", "skip"],
         ))
 
-        assert baton.get_sheet_state("esc-test", 1).status == "fermata"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("esc-test", 1).status == BatonSheetStatus.FERMATA  # type: ignore[union-attr]
         assert baton.is_job_paused("esc-test")
         assert len(baton.get_ready_sheets("esc-test")) == 0
 
@@ -388,7 +389,7 @@ class TestEscalationDance:
             job_id="esc-retry", sheet_num=1, decision="retry",
         ))
 
-        assert baton.get_sheet_state("esc-retry", 1).status == "pending"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("esc-retry", 1).status == BatonSheetStatus.PENDING  # type: ignore[union-attr]
         assert not baton.is_job_paused("esc-retry")
 
     @pytest.mark.adversarial
@@ -404,14 +405,14 @@ class TestEscalationDance:
             job_id="esc-timeout", sheet_num=1,
             reason="test", options=["retry"],
         ))
-        assert baton.get_sheet_state("esc-timeout", 1).status == "fermata"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("esc-timeout", 1).status == BatonSheetStatus.FERMATA  # type: ignore[union-attr]
 
         # Nobody responds. Timeout fires.
         await baton.handle_event(EscalationTimeout(
             job_id="esc-timeout", sheet_num=1,
         ))
 
-        assert baton.get_sheet_state("esc-timeout", 1).status == "failed"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("esc-timeout", 1).status == BatonSheetStatus.FAILED  # type: ignore[union-attr]
         # Job should be unpaused after timeout resolution
         assert not baton.is_job_paused("esc-timeout")
 
@@ -433,7 +434,7 @@ class TestEscalationDance:
         await baton.handle_event(EscalationTimeout(
             job_id="late-resolve", sheet_num=1,
         ))
-        assert baton.get_sheet_state("late-resolve", 1).status == "failed"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("late-resolve", 1).status == BatonSheetStatus.FAILED  # type: ignore[union-attr]
 
         # Late resolution arrives — sheet is no longer in fermata
         await baton.handle_event(EscalationResolved(
@@ -442,7 +443,7 @@ class TestEscalationDance:
 
         # The late resolution should NOT change the failed status
         # because the sheet is no longer in fermata
-        assert baton.get_sheet_state("late-resolve", 1).status == "failed"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("late-resolve", 1).status == BatonSheetStatus.FAILED  # type: ignore[union-attr]
 
 
 # =============================================================================
@@ -461,16 +462,16 @@ class TestGracefulShutdown:
         """Graceful shutdown doesn't cancel already-completed sheets."""
         baton = BatonCore()
         sheets = {
-            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code", status="completed"),
-            2: SheetExecutionState(sheet_num=2, instrument_name="claude-code", status="dispatched"),
-            3: SheetExecutionState(sheet_num=3, instrument_name="claude-code", status="pending"),
+            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.COMPLETED),
+            2: SheetExecutionState(sheet_num=2, instrument_name="claude-code", status=BatonSheetStatus.DISPATCHED),
+            3: SheetExecutionState(sheet_num=3, instrument_name="claude-code", status=BatonSheetStatus.PENDING),
         }
         baton.register_job("shutdown-test", sheets, {})
 
         await baton.handle_event(ShutdownRequested(graceful=True))
 
         # Graceful shutdown doesn't cancel anything — just signals the loop to stop
-        assert baton.get_sheet_state("shutdown-test", 1).status == "completed"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("shutdown-test", 1).status == BatonSheetStatus.COMPLETED  # type: ignore[union-attr]
         # Graceful leaves in-flight sheets alone for the conductor to handle
         assert baton._shutting_down  # noqa: SLF001 — test needs internals
 
@@ -479,21 +480,21 @@ class TestGracefulShutdown:
         """Forced shutdown cancels all non-terminal sheets."""
         baton = BatonCore()
         sheets = {
-            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code", status="completed"),
-            2: SheetExecutionState(sheet_num=2, instrument_name="claude-code", status="dispatched"),
-            3: SheetExecutionState(sheet_num=3, instrument_name="claude-code", status="pending"),
-            4: SheetExecutionState(sheet_num=4, instrument_name="claude-code", status="failed"),
-            5: SheetExecutionState(sheet_num=5, instrument_name="claude-code", status="retry_scheduled"),
+            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.COMPLETED),
+            2: SheetExecutionState(sheet_num=2, instrument_name="claude-code", status=BatonSheetStatus.DISPATCHED),
+            3: SheetExecutionState(sheet_num=3, instrument_name="claude-code", status=BatonSheetStatus.PENDING),
+            4: SheetExecutionState(sheet_num=4, instrument_name="claude-code", status=BatonSheetStatus.FAILED),
+            5: SheetExecutionState(sheet_num=5, instrument_name="claude-code", status=BatonSheetStatus.RETRY_SCHEDULED),
         }
         baton.register_job("force-shutdown", sheets, {})
 
         await baton.handle_event(ShutdownRequested(graceful=False))
 
-        assert baton.get_sheet_state("force-shutdown", 1).status == "completed"  # type: ignore[union-attr]
-        assert baton.get_sheet_state("force-shutdown", 2).status == "cancelled"  # type: ignore[union-attr]
-        assert baton.get_sheet_state("force-shutdown", 3).status == "cancelled"  # type: ignore[union-attr]
-        assert baton.get_sheet_state("force-shutdown", 4).status == "failed"  # type: ignore[union-attr]
-        assert baton.get_sheet_state("force-shutdown", 5).status == "cancelled"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("force-shutdown", 1).status == BatonSheetStatus.COMPLETED  # type: ignore[union-attr]
+        assert baton.get_sheet_state("force-shutdown", 2).status == BatonSheetStatus.CANCELLED  # type: ignore[union-attr]
+        assert baton.get_sheet_state("force-shutdown", 3).status == BatonSheetStatus.CANCELLED  # type: ignore[union-attr]
+        assert baton.get_sheet_state("force-shutdown", 4).status == BatonSheetStatus.FAILED  # type: ignore[union-attr]
+        assert baton.get_sheet_state("force-shutdown", 5).status == BatonSheetStatus.CANCELLED  # type: ignore[union-attr]
 
     @pytest.mark.adversarial
     async def test_cancel_job_then_deregister(self) -> None:
@@ -554,7 +555,7 @@ class TestValidationPassRateLandmine:
         state = baton.get_sheet_state("f018", 1)
         assert state is not None
         # The F-018 guard converts 0.0 → 100.0 when validations_total=0
-        assert state.status == "completed"
+        assert state.status == BatonSheetStatus.COMPLETED
         assert state.normal_attempts == 0
 
     @pytest.mark.adversarial
@@ -577,7 +578,7 @@ class TestValidationPassRateLandmine:
 
         state = baton.get_sheet_state("f018-correct", 1)
         assert state is not None
-        assert state.status == "completed"
+        assert state.status == BatonSheetStatus.COMPLETED
 
 
 # =============================================================================
@@ -620,7 +621,7 @@ class TestGhostEvents:
             attempt=1, execution_success=False,
         ))
         # Should not crash; existing sheet unaffected
-        assert baton.get_sheet_state("real-job", 1).status == "pending"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("real-job", 1).status == BatonSheetStatus.PENDING  # type: ignore[union-attr]
 
     @pytest.mark.adversarial
     async def test_retry_due_for_cancelled_job(self) -> None:
@@ -717,7 +718,7 @@ class TestLargeScaleOrchestra:
             sheets[i] = SheetExecutionState(
                 sheet_num=i,
                 instrument_name="claude-code" if i <= 50 else "gemini-cli",
-                status="completed" if i <= 30 else "pending",
+                status=BatonSheetStatus.COMPLETED if i <= 30 else BatonSheetStatus.PENDING,
             )
 
         baton.register_job("big-job", sheets, {})
@@ -782,7 +783,7 @@ class TestSkipCascade:
             error_classification="EXECUTION_ERROR",
         ))
 
-        assert baton.get_sheet_state("fail-block", 1).status == "failed"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("fail-block", 1).status == BatonSheetStatus.FAILED  # type: ignore[union-attr]
         # Sheet 2 should NOT be ready — failed is not a satisfied state
         ready = baton.get_ready_sheets("fail-block")
         assert len(ready) == 0
@@ -817,7 +818,7 @@ class TestInterleavedChaos:
             attempt=1, execution_success=False,
             error_classification="TRANSIENT",
         ))
-        assert baton.get_sheet_state("race-1", 1).status == "retry_scheduled"  # type: ignore[union-attr]
+        assert baton.get_sheet_state("race-1", 1).status == BatonSheetStatus.RETRY_SCHEDULED  # type: ignore[union-attr]
 
         # But a delayed success result from a parallel path arrives
         await baton.handle_event(SheetAttemptResult(
@@ -829,7 +830,7 @@ class TestInterleavedChaos:
         # The success should complete the sheet even though it was retry_scheduled
         state = baton.get_sheet_state("race-1", 1)
         assert state is not None
-        assert state.status == "completed"
+        assert state.status == BatonSheetStatus.COMPLETED
 
     @pytest.mark.adversarial
     async def test_multiple_rapid_failures_count_correctly(self) -> None:
@@ -852,4 +853,4 @@ class TestInterleavedChaos:
         state = baton.get_sheet_state("rapid", 1)
         assert state is not None
         assert state.normal_attempts == 7
-        assert state.status == "retry_scheduled"  # Not failed yet (max=10)
+        assert state.status == BatonSheetStatus.RETRY_SCHEDULED  # Not failed yet (max=10)

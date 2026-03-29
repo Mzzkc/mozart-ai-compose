@@ -11,7 +11,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
-from mozart.daemon.baton.core import BatonCore, SheetExecutionState
+from mozart.daemon.baton.core import BatonCore
+from mozart.daemon.baton.state import BatonSheetStatus, SheetExecutionState
 from mozart.daemon.baton.dispatch import DispatchConfig, dispatch_ready
 from mozart.daemon.baton.events import SheetAttemptResult
 

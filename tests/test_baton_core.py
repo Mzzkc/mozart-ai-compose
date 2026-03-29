@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import asyncio
 
-from mozart.daemon.baton.core import BatonCore, SheetExecutionState
+from mozart.daemon.baton.core import BatonCore
+from mozart.daemon.baton.state import BatonSheetStatus, SheetExecutionState
 from mozart.daemon.baton.events import (
     CancelJob,
     PauseJob,
@@ -99,7 +100,7 @@ class TestSheetRegistry:
         assert state is not None
         assert state.sheet_num == 1
         assert state.instrument_name == "claude-code"
-        assert state.status == "pending"
+        assert state.status == BatonSheetStatus.PENDING
 
     async def test_get_sheet_state_nonexistent(self) -> None:
         baton = BatonCore()
@@ -117,7 +118,7 @@ class TestSheetExecutionState:
 
     def test_defaults(self) -> None:
         state = SheetExecutionState(sheet_num=1, instrument_name="claude-code")
-        assert state.status == "pending"
+        assert state.status == BatonSheetStatus.PENDING
         assert state.normal_attempts == 0
         assert state.completion_attempts == 0
         assert state.healing_attempts == 0
@@ -165,7 +166,7 @@ class TestEventProcessing:
 
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
-        assert state.status == "completed"
+        assert state.status == BatonSheetStatus.COMPLETED
 
     async def test_process_sheet_failed_increments_attempts(self) -> None:
         """A failed sheet attempt increments normal_attempts."""
@@ -189,7 +190,7 @@ class TestEventProcessing:
         assert state is not None
         assert state.normal_attempts == 1
         # Should be in retry_scheduled, not failed (still has retries)
-        assert state.status in ("retry_scheduled", "pending")
+        assert state.status in (BatonSheetStatus.RETRY_SCHEDULED, BatonSheetStatus.PENDING)
 
     async def test_process_sheet_skipped(self) -> None:
         """A skipped sheet is marked accordingly."""
@@ -204,7 +205,7 @@ class TestEventProcessing:
 
         state = baton.get_sheet_state("j1", 1)
         assert state is not None
-        assert state.status == "skipped"
+        assert state.status == BatonSheetStatus.SKIPPED
 
     async def test_process_pause_job(self) -> None:
         """PauseJob pauses dispatching for the job."""
@@ -434,12 +435,12 @@ class TestRunLoop:
             deadline = asyncio.get_event_loop().time() + 2.0
             while asyncio.get_event_loop().time() < deadline:
                 state = baton.get_sheet_state("j1", 1)
-                if state and state.status == "skipped":
+                if state and state.status == BatonSheetStatus.SKIPPED:
                     break
                 await asyncio.sleep(0.05)
             state = baton.get_sheet_state("j1", 1)
             assert state is not None
-            assert state.status == "skipped"
+            assert state.status == BatonSheetStatus.SKIPPED
         finally:
             await baton.inbox.put(ShutdownRequested(graceful=False))
             try:

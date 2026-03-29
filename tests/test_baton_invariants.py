@@ -21,7 +21,8 @@ import asyncio
 
 import pytest
 
-from mozart.daemon.baton.core import BatonCore, SheetExecutionState
+from mozart.daemon.baton.core import BatonCore
+from mozart.daemon.baton.state import BatonSheetStatus, SheetExecutionState
 from mozart.daemon.baton.dispatch import DispatchConfig, dispatch_ready
 from mozart.daemon.baton.events import (
     CancelJob,
@@ -84,7 +85,7 @@ def _fail_sheet(baton: BatonCore, job_id: str, sheet_num: int) -> None:
     """Simulate a sheet failing after exhausting retries."""
     sheet = baton.get_sheet_state(job_id, sheet_num)
     assert sheet is not None
-    sheet.status = "dispatched"  # Must be dispatched first
+    sheet.status = BatonSheetStatus.DISPATCHED  # Must be dispatched first
     # Exhaust retries
     for attempt in range(sheet.max_retries):
         asyncio.get_event_loop().run_until_complete(
@@ -105,7 +106,7 @@ async def _dispatch_noop(
     job_id: str, sheet_num: int, state: SheetExecutionState
 ) -> None:
     """No-op dispatch callback for testing."""
-    state.status = "dispatched"
+    state.status = BatonSheetStatus.DISPATCHED
 
 
 # =============================================================================
@@ -130,7 +131,7 @@ class TestDependencyFailurePropagation:
         # Complete sheet 1
         sheet1 = baton.get_sheet_state("test-job", 1)
         assert sheet1 is not None
-        sheet1.status = "dispatched"
+        sheet1.status = BatonSheetStatus.DISPATCHED
         await baton.handle_event(
             SheetAttemptResult(
                 job_id="test-job",
@@ -146,7 +147,7 @@ class TestDependencyFailurePropagation:
         # Fail sheet 2 (exhaust retries)
         sheet2 = baton.get_sheet_state("test-job", 2)
         assert sheet2 is not None
-        sheet2.status = "dispatched"
+        sheet2.status = BatonSheetStatus.DISPATCHED
         for attempt in range(sheet2.max_retries):
             await baton.handle_event(
                 SheetAttemptResult(
@@ -175,7 +176,7 @@ class TestDependencyFailurePropagation:
         # Complete sheet 1
         sheet1 = baton.get_sheet_state("test-job", 1)
         assert sheet1 is not None
-        sheet1.status = "dispatched"
+        sheet1.status = BatonSheetStatus.DISPATCHED
         await baton.handle_event(
             SheetAttemptResult(
                 job_id="test-job",
@@ -190,7 +191,7 @@ class TestDependencyFailurePropagation:
         # Fail sheet 2
         sheet2 = baton.get_sheet_state("test-job", 2)
         assert sheet2 is not None
-        sheet2.status = "dispatched"
+        sheet2.status = BatonSheetStatus.DISPATCHED
         for attempt in range(sheet2.max_retries):
             await baton.handle_event(
                 SheetAttemptResult(
@@ -230,7 +231,7 @@ class TestDependencyFailurePropagation:
         # Complete sheet 1
         sheet1 = baton.get_sheet_state("test-job", 1)
         assert sheet1 is not None
-        sheet1.status = "dispatched"
+        sheet1.status = BatonSheetStatus.DISPATCHED
         await baton.handle_event(
             SheetAttemptResult(
                 job_id="test-job",
@@ -246,7 +247,7 @@ class TestDependencyFailurePropagation:
         for num in (2, 4):
             sheet = baton.get_sheet_state("test-job", num)
             assert sheet is not None
-            sheet.status = "dispatched"
+            sheet.status = BatonSheetStatus.DISPATCHED
             await baton.handle_event(
                 SheetAttemptResult(
                     job_id="test-job",
@@ -261,7 +262,7 @@ class TestDependencyFailurePropagation:
         # Fail sheet 3
         sheet3 = baton.get_sheet_state("test-job", 3)
         assert sheet3 is not None
-        sheet3.status = "dispatched"
+        sheet3.status = BatonSheetStatus.DISPATCHED
         for attempt in range(sheet3.max_retries):
             await baton.handle_event(
                 SheetAttemptResult(
@@ -294,17 +295,17 @@ class TestDependencyFailurePropagation:
         # Complete sheet 1
         sheet1 = baton.get_sheet_state("test-job", 1)
         assert sheet1 is not None
-        sheet1.status = "completed"
+        sheet1.status = BatonSheetStatus.COMPLETED
 
         # Complete sheet 2
         sheet2 = baton.get_sheet_state("test-job", 2)
         assert sheet2 is not None
-        sheet2.status = "completed"
+        sheet2.status = BatonSheetStatus.COMPLETED
 
         # Sheet 3 has no dependency that failed, so nothing to propagate
         # But even if we manually set sheet 1 to failed, sheet 2 should
         # remain completed
-        sheet1.status = "failed"
+        sheet1.status = BatonSheetStatus.FAILED
         # Trigger propagation manually if a method exists
         if hasattr(baton, "_propagate_failure_to_dependents"):
             baton._propagate_failure_to_dependents("test-job", 1)
@@ -451,7 +452,7 @@ class TestRateLimitHitStatusGuard:
             1: SheetExecutionState(sheet_num=1, instrument_name="claude-code"),
         }
         baton.register_job("test-job", sheets, {})
-        sheets[1].status = "dispatched"
+        sheets[1].status = BatonSheetStatus.DISPATCHED
 
         await baton.handle_event(
             RateLimitHit(
@@ -499,7 +500,7 @@ class TestRateLimitHitStatusGuard:
             1: SheetExecutionState(sheet_num=1, instrument_name="claude-code"),
         }
         baton.register_job("test-job", sheets, {})
-        sheets[1].status = "completed"
+        sheets[1].status = BatonSheetStatus.COMPLETED
 
         await baton.handle_event(
             RateLimitHit(
@@ -534,7 +535,7 @@ class TestF018ValidationPassRateGuard:
             1: SheetExecutionState(sheet_num=1, instrument_name="claude-code"),
         }
         baton.register_job("test-job", sheets, {})
-        sheets[1].status = "dispatched"
+        sheets[1].status = BatonSheetStatus.DISPATCHED
 
         await baton.handle_event(
             SheetAttemptResult(
@@ -564,7 +565,7 @@ class TestF018ValidationPassRateGuard:
             1: SheetExecutionState(sheet_num=1, instrument_name="claude-code"),
         }
         baton.register_job("test-job", sheets, {})
-        sheets[1].status = "dispatched"
+        sheets[1].status = BatonSheetStatus.DISPATCHED
 
         await baton.handle_event(
             SheetAttemptResult(
@@ -591,7 +592,7 @@ class TestF018ValidationPassRateGuard:
             1: SheetExecutionState(sheet_num=1, instrument_name="claude-code"),
         }
         baton.register_job("test-job", sheets, {})
-        sheets[1].status = "dispatched"
+        sheets[1].status = BatonSheetStatus.DISPATCHED
 
         await baton.handle_event(
             SheetAttemptResult(
@@ -605,9 +606,13 @@ class TestF018ValidationPassRateGuard:
                 validation_pass_rate=66.7,
             )
         )
-        # Should NOT be completed — only 66.7% passed
+        # Should NOT be completed — only 66.7% passed.
+        # With the new design, partial passes use completion mode
+        # (not retry budget). The sheet goes back to PENDING for
+        # re-dispatch with "finish your work" context.
         assert sheets[1].status != "completed"
-        assert sheets[1].normal_attempts == 1
+        assert sheets[1].normal_attempts == 0  # successes don't consume retries
+        assert sheets[1].completion_attempts == 1  # tracked as completion attempt
 
     async def test_all_validations_pass_completes(self) -> None:
         """When all validations pass, the sheet completes."""
@@ -616,7 +621,7 @@ class TestF018ValidationPassRateGuard:
             1: SheetExecutionState(sheet_num=1, instrument_name="claude-code"),
         }
         baton.register_job("test-job", sheets, {})
-        sheets[1].status = "dispatched"
+        sheets[1].status = BatonSheetStatus.DISPATCHED
 
         await baton.handle_event(
             SheetAttemptResult(
@@ -666,7 +671,7 @@ class TestCancelJobObservability:
             1: SheetExecutionState(sheet_num=1, instrument_name="claude-code"),
             2: SheetExecutionState(sheet_num=2, instrument_name="claude-code"),
         }
-        sheets[1].status = "completed"
+        sheets[1].status = BatonSheetStatus.COMPLETED
         baton.register_job("test-job", sheets, {})
 
         # Capture the status BEFORE deregister
@@ -700,7 +705,7 @@ class TestAttemptResultForTerminalSheet:
             1: SheetExecutionState(sheet_num=1, instrument_name="claude-code"),
         }
         baton.register_job("test-job", sheets, {})
-        sheets[1].status = "completed"
+        sheets[1].status = BatonSheetStatus.COMPLETED
 
         await baton.handle_event(
             SheetAttemptResult(
@@ -724,7 +729,7 @@ class TestAttemptResultForTerminalSheet:
             1: SheetExecutionState(sheet_num=1, instrument_name="claude-code"),
         }
         baton.register_job("test-job", sheets, {})
-        sheets[1].status = "failed"
+        sheets[1].status = BatonSheetStatus.FAILED
 
         await baton.handle_event(
             SheetAttemptResult(

@@ -23,7 +23,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from mozart.daemon.baton.core import BatonCore, SheetExecutionState
+from mozart.daemon.baton.core import BatonCore
+from mozart.daemon.baton.state import BatonSheetStatus, SheetExecutionState
 from mozart.daemon.baton.dispatch import DispatchConfig, dispatch_ready
 from mozart.daemon.baton.events import (
     CancelJob,
@@ -171,7 +172,7 @@ class TestCancelLatEventOrdering:
     async def test_cancel_then_attempt_result(self) -> None:
         """Late SheetAttemptResult after CancelJob should be silent."""
         baton = _make_baton_with_job()
-        baton.get_sheet_state("test-job", 1).status = "dispatched"
+        baton.get_sheet_state("test-job", 1).status = BatonSheetStatus.DISPATCHED
 
         # Cancel the job
         await baton.handle_event(CancelJob(job_id="test-job"))
@@ -242,9 +243,9 @@ class TestRateLimitExpiredEdgeCases:
         """Only sheets on the expired instrument should move."""
         baton = BatonCore()
         sheets = {
-            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code", status="waiting"),
-            2: SheetExecutionState(sheet_num=2, instrument_name="gemini-cli", status="waiting"),
-            3: SheetExecutionState(sheet_num=3, instrument_name="claude-code", status="waiting"),
+            1: SheetExecutionState(sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.WAITING),
+            2: SheetExecutionState(sheet_num=2, instrument_name="gemini-cli", status=BatonSheetStatus.WAITING),
+            3: SheetExecutionState(sheet_num=3, instrument_name="claude-code", status=BatonSheetStatus.WAITING),
         }
         baton.register_job("j1", sheets, {})
 
@@ -260,7 +261,7 @@ class TestRateLimitExpiredEdgeCases:
         for jid in ["j1", "j2", "j3"]:
             sheets = {
                 1: SheetExecutionState(
-                    sheet_num=1, instrument_name="claude-code", status="waiting"
+                    sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.WAITING
                 ),
             }
             baton.register_job(jid, sheets, {})
@@ -275,7 +276,7 @@ class TestRateLimitExpiredEdgeCases:
         due to terminal guard on attempt_result, but verify the interaction)."""
         baton = _make_baton_with_job()
         sheet = baton.get_sheet_state("test-job", 1)
-        sheet.status = "completed"
+        sheet.status = BatonSheetStatus.COMPLETED
 
         # This should NOT change completed to pending
         await baton.handle_event(RateLimitExpired(instrument="claude-code"))
@@ -340,7 +341,7 @@ class TestDependencyPropagationComplex:
         baton = BatonCore()
         sheets = {
             1: SheetExecutionState(sheet_num=1, instrument_name="x", max_retries=1),
-            2: SheetExecutionState(sheet_num=2, instrument_name="x", status="completed"),
+            2: SheetExecutionState(sheet_num=2, instrument_name="x", status=BatonSheetStatus.COMPLETED),
             3: SheetExecutionState(sheet_num=3, instrument_name="x"),
         }
         deps = {2: [1], 3: [1]}
@@ -419,7 +420,7 @@ class TestEscalationEdgeCases:
     async def test_escalation_then_job_timeout(self) -> None:
         """JobTimeout while in fermata should cancel (not double-transition)."""
         baton = _make_baton_with_job()
-        baton.get_sheet_state("test-job", 1).status = "dispatched"
+        baton.get_sheet_state("test-job", 1).status = BatonSheetStatus.DISPATCHED
 
         # Enter fermata
         await baton.handle_event(EscalationNeeded(
@@ -439,7 +440,7 @@ class TestEscalationEdgeCases:
     async def test_escalation_resolved_after_timeout_is_noop(self) -> None:
         """Resolving an escalation after the sheet was cancelled should be safe."""
         baton = _make_baton_with_job()
-        baton.get_sheet_state("test-job", 1).status = "fermata"
+        baton.get_sheet_state("test-job", 1).status = BatonSheetStatus.FERMATA
         baton._jobs["test-job"].paused = True
 
         # Timeout cancels everything
@@ -456,7 +457,7 @@ class TestEscalationEdgeCases:
     async def test_user_pause_during_escalation(self) -> None:
         """User pauses while escalation is active. Both should compose correctly."""
         baton = _make_baton_with_job()
-        baton.get_sheet_state("test-job", 1).status = "dispatched"
+        baton.get_sheet_state("test-job", 1).status = BatonSheetStatus.DISPATCHED
 
         # Escalation pauses the job
         await baton.handle_event(EscalationNeeded(
@@ -482,8 +483,8 @@ class TestEscalationEdgeCases:
     async def test_multiple_escalations_same_job(self) -> None:
         """Two sheets in the same job escalate. Both should be resolvable."""
         baton = _make_baton_with_job()
-        baton.get_sheet_state("test-job", 1).status = "dispatched"
-        baton.get_sheet_state("test-job", 2).status = "dispatched"
+        baton.get_sheet_state("test-job", 1).status = BatonSheetStatus.DISPATCHED
+        baton.get_sheet_state("test-job", 2).status = BatonSheetStatus.DISPATCHED
 
         # Both escalate
         await baton.handle_event(EscalationNeeded(
@@ -511,7 +512,7 @@ class TestEscalationEdgeCases:
     async def test_escalation_timeout_with_user_pause(self) -> None:
         """Escalation timeout should not unpause a user-paused job."""
         baton = _make_baton_with_job()
-        baton.get_sheet_state("test-job", 1).status = "dispatched"
+        baton.get_sheet_state("test-job", 1).status = BatonSheetStatus.DISPATCHED
 
         # User pauses first
         await baton.handle_event(PauseJob(job_id="test-job"))
@@ -554,7 +555,7 @@ class TestDispatchEdgeCases:
         """No dispatchable sheets when everything is terminal."""
         baton = _make_baton_with_job()
         for sheet in baton._jobs["test-job"].sheets.values():
-            sheet.status = "completed"
+            sheet.status = BatonSheetStatus.COMPLETED
 
         config = DispatchConfig()
         callback = AsyncMock()
@@ -809,7 +810,7 @@ class TestStateMutationInterleaving:
     async def test_success_then_success_is_idempotent(self) -> None:
         """Two success events for the same sheet — second is a no-op."""
         baton = _make_baton_with_job()
-        baton.get_sheet_state("test-job", 1).status = "dispatched"
+        baton.get_sheet_state("test-job", 1).status = BatonSheetStatus.DISPATCHED
 
         await baton.handle_event(_success_event(sheet_num=1))
         assert baton.get_sheet_state("test-job", 1).status == "completed"
@@ -825,7 +826,7 @@ class TestStateMutationInterleaving:
     async def test_failure_then_success_is_impossible(self) -> None:
         """Once failed, a success event should not resurrect the sheet."""
         baton = _make_baton_with_job(max_retries=1)
-        baton.get_sheet_state("test-job", 1).status = "dispatched"
+        baton.get_sheet_state("test-job", 1).status = BatonSheetStatus.DISPATCHED
 
         await baton.handle_event(_failure_event(sheet_num=1))
         assert baton.get_sheet_state("test-job", 1).status == "failed"
@@ -883,7 +884,7 @@ class TestProcessExitEdgeCases:
         """Process exit for pending/completed/failed sheets is a no-op."""
         baton = _make_baton_with_job()
 
-        for status in ["pending", "completed", "failed", "waiting", "retry_scheduled"]:
+        for status in [BatonSheetStatus.PENDING, BatonSheetStatus.COMPLETED, BatonSheetStatus.FAILED, BatonSheetStatus.WAITING, BatonSheetStatus.RETRY_SCHEDULED]:
             baton.get_sheet_state("test-job", 1).status = status
             baton.get_sheet_state("test-job", 1).normal_attempts = 0
 
@@ -897,7 +898,7 @@ class TestProcessExitEdgeCases:
     async def test_process_exit_exhausts_retries(self) -> None:
         """Process exit with max_retries=1 should fail the sheet."""
         baton = _make_baton_with_job(max_retries=1)
-        baton.get_sheet_state("test-job", 1).status = "dispatched"
+        baton.get_sheet_state("test-job", 1).status = BatonSheetStatus.DISPATCHED
 
         await baton.handle_event(ProcessExited(
             job_id="test-job", sheet_num=1, pid=123, exit_code=137,
@@ -908,7 +909,7 @@ class TestProcessExitEdgeCases:
     async def test_process_exit_with_retries_remaining(self) -> None:
         """Process exit with retries remaining should schedule retry."""
         baton = _make_baton_with_job(max_retries=3)
-        baton.get_sheet_state("test-job", 1).status = "dispatched"
+        baton.get_sheet_state("test-job", 1).status = BatonSheetStatus.DISPATCHED
 
         await baton.handle_event(ProcessExited(
             job_id="test-job", sheet_num=1, pid=123, exit_code=1,
@@ -941,8 +942,8 @@ class TestDiagnosticsEdgeCases:
         """Diagnostics should count every possible status."""
         baton = BatonCore()
         statuses = [
-            "pending", "dispatched", "completed", "failed", "skipped",
-            "cancelled", "waiting", "retry_scheduled", "fermata",
+            BatonSheetStatus.PENDING, BatonSheetStatus.DISPATCHED, BatonSheetStatus.COMPLETED, BatonSheetStatus.FAILED, BatonSheetStatus.SKIPPED,
+            BatonSheetStatus.CANCELLED, BatonSheetStatus.WAITING, BatonSheetStatus.RETRY_SCHEDULED, BatonSheetStatus.FERMATA,
         ]
         sheets = {
             i + 1: SheetExecutionState(

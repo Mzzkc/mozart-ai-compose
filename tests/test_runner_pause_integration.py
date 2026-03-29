@@ -120,6 +120,8 @@ class TestJobRunnerPauseDetection:
 
         # Should not raise error when no file exists
         runner._clear_pause_signal(state)
+        # Verify the state is still intact (nothing was corrupted)
+        assert state.job_id is not None
 
     async def test_check_pause_signal_no_job_id(self, runner_with_mocks):
         """Test pause signal check with invalid job_id."""

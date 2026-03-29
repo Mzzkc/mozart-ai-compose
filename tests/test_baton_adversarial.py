@@ -26,7 +26,7 @@ import time
 
 import pytest
 
-from mozart.daemon.baton.core import BatonCore, SheetExecutionState
+from mozart.daemon.baton.core import BatonCore
 from mozart.daemon.baton.dispatch import (
     DispatchConfig,
     dispatch_ready,
@@ -52,6 +52,7 @@ from mozart.daemon.baton.state import (
     BatonSheetStatus,
     CircuitBreakerState,
     InstrumentState,
+    SheetExecutionState,
 )
 from mozart.daemon.baton.state import (
     SheetExecutionState as RichSheetExecutionState,
@@ -754,7 +755,7 @@ class TestEventHandlerSafety:
         baton = BatonCore()
         sheets = {
             1: SheetExecutionState(
-                sheet_num=1, instrument_name="claude-code", status="pending"
+                sheet_num=1, instrument_name="claude-code", status=BatonSheetStatus.PENDING
             ),
         }
         baton.register_job("j1", sheets, {})
@@ -867,7 +868,7 @@ class TestMultiEventInterleaving:
             1: SheetExecutionState(
                 sheet_num=1,
                 instrument_name="claude-code",
-                status="dispatched",
+                status=BatonSheetStatus.DISPATCHED,
             ),
             2: SheetExecutionState(sheet_num=2, instrument_name="claude-code"),
         }
@@ -888,17 +889,17 @@ class TestMultiEventInterleaving:
             1: SheetExecutionState(
                 sheet_num=1,
                 instrument_name="claude-code",
-                status="dispatched",
+                status=BatonSheetStatus.DISPATCHED,
             ),
             2: SheetExecutionState(sheet_num=2, instrument_name="claude-code"),
             3: SheetExecutionState(
                 sheet_num=3,
                 instrument_name="claude-code",
-                status="completed",
+                status=BatonSheetStatus.COMPLETED,
             ),
         }
         # Manually set sheet 3 as completed
-        sheets[3].status = "completed"
+        sheets[3].status = BatonSheetStatus.COMPLETED
         baton.register_job("j1", sheets, {})
 
         await baton.handle_event(ShutdownRequested(graceful=False))
@@ -922,7 +923,7 @@ class TestMultiEventInterleaving:
         baton.register_job("j1", sheets, {})
 
         # Sheet 1 must be dispatched for rate limit to transition it
-        sheets[1].status = "dispatched"
+        sheets[1].status = BatonSheetStatus.DISPATCHED
 
         # Rate limit on claude-code
         await baton.handle_event(
@@ -950,16 +951,16 @@ class TestMultiEventInterleaving:
             1: SheetExecutionState(
                 sheet_num=1,
                 instrument_name="inst-a",
-                status="waiting",
+                status=BatonSheetStatus.WAITING,
             ),
             2: SheetExecutionState(
                 sheet_num=2,
                 instrument_name="inst-b",
-                status="waiting",
+                status=BatonSheetStatus.WAITING,
             ),
         }
-        sheets[1].status = "waiting"
-        sheets[2].status = "waiting"
+        sheets[1].status = BatonSheetStatus.WAITING
+        sheets[2].status = BatonSheetStatus.WAITING
         baton.register_job("j1", sheets, {})
 
         # Only clear inst-a
@@ -976,10 +977,10 @@ class TestMultiEventInterleaving:
                 sheet_num=1,
                 instrument_name="claude-code",
                 max_retries=2,
-                status="dispatched",
+                status=BatonSheetStatus.DISPATCHED,
             ),
         }
-        sheets[1].status = "dispatched"
+        sheets[1].status = BatonSheetStatus.DISPATCHED
         baton.register_job("j1", sheets, {})
 
         # First crash — retry scheduled
@@ -992,7 +993,7 @@ class TestMultiEventInterleaving:
         assert state.status == "retry_scheduled"
 
         # Move back to dispatched for second crash
-        state.status = "dispatched"
+        state.status = BatonSheetStatus.DISPATCHED
 
         # Second crash — retries exhausted
         await baton.handle_event(
