@@ -1,9 +1,11 @@
 # Score Writing Guide
 
 A Mozart **score** is a YAML configuration file that orchestrates multi-stage
-Claude execution — the same way a musical score orchestrates instruments through
-a composition. Each score defines what work to do, how to execute it, how to
-validate outputs, and how to recover from failures.
+AI execution — the same way a musical score orchestrates instruments through
+a composition. Each score defines what work to do, which instrument to use,
+how to validate outputs, and how to recover from failures. Mozart supports
+multiple instruments (Claude CLI, Gemini CLI, Codex CLI, Aider, Goose, and
+more) — run `mozart instruments list` to see what's available.
 
 This guide covers everything you need to author your own scores, from minimal
 examples to complex parallel fan-out workflows.
@@ -34,15 +36,16 @@ examples to complex parallel fan-out workflows.
 A score is a YAML file that defines:
 
 1. **What to do** — A Jinja2 prompt template describing the work for each sheet
-2. **How to execute** — Backend configuration (Claude CLI, API, or Ollama)
+2. **Which instrument** — The AI tool to execute with (Claude CLI, Gemini, Codex, Aider, etc.)
 3. **How to structure** — Sheet sizing, dependencies, and parallel execution
 4. **How to validate** — Rules that verify each sheet's output
 5. **How to recover** — Retry logic, rate limit handling, and partial completion
 
 Mozart reads the score, divides the work into **sheets** (numbered stages),
-executes each sheet by sending a rendered prompt to Claude, validates the
-output, and retries on failure. Sheets can run sequentially, in parallel
-based on a dependency DAG, or as fan-out instances of the same logical stage.
+executes each sheet by sending a rendered prompt to the instrument, validates
+the output, and retries on failure. Sheets can run sequentially, in parallel
+based on a dependency DAG, or as fan-out instances of the same logical stage
+(called **movements** and **voices** in Mozart's orchestral vocabulary).
 
 ### Minimal Example
 
@@ -267,13 +270,31 @@ marked with **(required)**.
 | `state_path` | Path | `null` | Custom state file path. Default: `{workspace}/.mozart-state.{ext}` |
 | `pause_between_sheets_seconds` | int | `10` | Seconds to wait between sheets (rate limit courtesy). |
 
+### `instrument` (recommended) or `backend`
+
+Controls which AI instrument executes sheets. You can use `instrument:` (a named
+instrument from `mozart instruments list`) or `backend:` (the original syntax).
+Both work — use `instrument:` for new scores.
+
+```yaml
+# New syntax — use a named instrument
+instrument: claude-code
+
+# Equivalent old syntax — both produce the same result
+backend:
+  type: claude_cli
+```
+
+Run `mozart instruments list` to see all available instruments.
+
 ### `backend`
 
-Controls how sheets are executed.
+Detailed backend configuration. Used when you need fine-grained control or
+when using the original syntax.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `type` | `"claude_cli"` \| `"anthropic_api"` \| `"recursive_light"` \| `"ollama"` | `"claude_cli"` | Backend type. |
+| `type` | `"claude_cli"` \| `"anthropic_api"` \| `"recursive_light"` \| `"ollama"` | `"claude_cli"` | Backend type. Also accepts any named instrument. |
 | `skip_permissions` | bool | `true` | Skip permission prompts for unattended execution. Maps to `--dangerously-skip-permissions`. |
 | `disable_mcp` | bool | `true` | Disable MCP server loading for faster execution (~2x speedup). |
 | `output_format` | `"json"` \| `"text"` \| `"stream-json"` | `"text"` | Claude CLI output format. |
@@ -407,12 +428,17 @@ These are always available in every template:
 Available when `fan_out` is configured. When no fan-out is used, these default
 to identity values (`stage` = `sheet_num`, `instance` = 1, `fan_count` = 1).
 
-| Variable | Type | Description |
-|----------|------|-------------|
-| `stage` | int | Logical stage number (1-indexed). Multiple sheets can share the same stage. |
-| `instance` | int | Instance within the fan-out group (1-indexed). |
-| `fan_count` | int | Total instances in this stage's fan-out group. |
-| `total_stages` | int | Original stage count before fan-out expansion. |
+| Variable | Alias | Type | Description |
+|----------|-------|------|-------------|
+| `stage` | `movement` | int | Logical stage number (1-indexed). Multiple sheets can share the same stage. |
+| `instance` | `voice` | int | Instance within the fan-out group (1-indexed). |
+| `fan_count` | `voice_count` | int | Total instances in this stage's fan-out group. |
+| `total_stages` | `total_movements` | int | Original stage count before fan-out expansion. |
+
+The aliases `movement`, `voice`, `voice_count`, and `total_movements` are
+equivalent to their originals — use whichever reads better in your score.
+Mozart's mental model draws from orchestral music: a score has movements
+(sequential phases) and voices (parallel instances within a movement).
 
 **Example usage in templates:**
 

@@ -1,6 +1,6 @@
 # Getting Started with Mozart AI Compose
 
-Mozart AI Compose is an orchestration tool for running multiple AI sessions with configurable prompts. It handles sheet-based execution, retries, state management, and more.
+Mozart AI Compose orchestrates multi-phase AI workflows with checkpointing, validation gates, and automatic recovery. You write a declarative YAML configuration (a **score**), and Mozart decomposes it into **sheets** (execution stages), runs each one through an AI **instrument**, validates the output, and recovers from failures automatically.
 
 **Repository:** [github.com/Mzzkc/mozart-ai-compose](https://github.com/Mzzkc/mozart-ai-compose)
 
@@ -45,9 +45,29 @@ Mozart uses Claude CLI as its default instrument. Ensure you have:
 
 After installation, run `mozart doctor` to verify your environment is ready.
 
+## Quick Start: Run hello.yaml
+
+The fastest way to see Mozart in action:
+
+```bash
+# 1. Start the conductor (required for execution)
+mozart start
+
+# 2. Run the hello score
+mozart run examples/hello.yaml
+
+# 3. Watch progress
+mozart status hello-mozart
+
+# 4. Read the result
+cat workspaces/hello-mozart/03-finale.md
+```
+
+`hello.yaml` creates an interconnected fiction collection in three movements: a world setting, three parallel character vignettes, and a finale that weaves them together. Five sheets, ~5 minutes, real creative output.
+
 ## How Sheets Work
 
-Mozart splits work into **sheets** — chunks of items processed one at a time. You write one prompt template, and Mozart runs it once per sheet with different variables:
+Mozart splits work into **sheets** — execution stages processed one at a time (or in parallel when dependencies allow). You write one prompt template, and Mozart runs it once per sheet with different variables:
 
 | Config | Meaning |
 |--------|---------|
@@ -57,7 +77,7 @@ Mozart splits work into **sheets** — chunks of items processed one at a time. 
 
 Each sheet gets its own `{{ sheet_num }}`, `{{ start_item }}`, and `{{ end_item }}` — so one template produces multiple runs.
 
-## Your First Job
+## Your First Custom Score
 
 ### Step 1: Create a Configuration File
 
@@ -130,7 +150,7 @@ mozart run my-first-job.yaml --dry-run
 This shows:
 - Job configuration summary
 - Sheet plan with item ranges
-- Prompt that will be sent to the backend
+- Prompt that will be sent to the instrument
 
 ### Step 4: Start the Daemon
 
@@ -358,19 +378,21 @@ This creates a 3-stage pipeline: setup → 3 parallel reviewers → synthesis. E
 
 Available in prompts and validation paths (see syntax note below):
 
-| Variable | Example | Description |
-|----------|---------|-------------|
-| `sheet_num` | `1` | Current sheet (1-indexed) |
-| `total_sheets` | `3` | Total number of sheets |
-| `start_item` | `1` | First item in sheet |
-| `end_item` | `10` | Last item in sheet |
-| `workspace` | `./workspace` | Workspace path |
-| `stakes` | `"Be careful!"` | Custom stakes text |
-| `thinking_method` | `"Think step by step"` | Thinking guidance |
-| `stage` | `2` | Logical stage number (with fan-out) |
-| `instance` | `1` | Instance within fan-out group |
-| `fan_count` | `3` | Total instances in stage |
-| `total_stages` | `7` | Original stage count |
+| Variable | Alias | Example | Description |
+|----------|-------|---------|-------------|
+| `sheet_num` | | `1` | Current sheet (1-indexed) |
+| `total_sheets` | | `3` | Total number of sheets |
+| `start_item` | | `1` | First item in sheet |
+| `end_item` | | `10` | Last item in sheet |
+| `workspace` | | `./workspace` | Workspace path |
+| `stakes` | | `"Be careful!"` | Custom stakes text |
+| `thinking_method` | | `"Think step by step"` | Thinking guidance |
+| `stage` | `movement` | `2` | Logical stage number (with fan-out) |
+| `instance` | `voice` | `1` | Instance within fan-out group |
+| `fan_count` | `voice_count` | `3` | Total instances in stage |
+| `total_stages` | `total_movements` | `7` | Original stage count |
+
+> **New terminology:** `movement`, `voice`, `voice_count`, and `total_movements` are aliases for `stage`, `instance`, `fan_count`, and `total_stages`. Both forms work — use whichever reads better in your score.
 
 ### Syntax Difference: Prompts vs Validation Paths
 
@@ -416,7 +438,7 @@ mozart dashboard --port 3000
 - [Configuration Reference](configuration-reference.md) — Every config field documented
 
 **Explore examples:**
-- [Examples](../examples/) — 24 working configurations across software, research, writing, and planning
+- [Examples](../examples/) — 30+ working configurations across software, research, writing, and planning
 - [Mozart Score Playspace](https://github.com/Mzzkc/mozart-score-playspace) — Creative showcase with real output: philosophy, worldbuilding, education, and more
 
 **Go deeper:**

@@ -61,6 +61,23 @@ and constraints are extracted directly from the Pydantic v2 config models in
 | `name` | `str` | **required** | Unique job name |
 | `description` | `str \| None` | `None` | Human-readable description |
 | `workspace` | `Path` | `./workspace` | Output directory. Resolved to absolute path at construction time. |
+| `instrument` | `str \| None` | `None` | Named instrument to use (e.g., `claude-code`, `gemini-cli`). Alternative to `backend.type`. Run `mozart instruments list` to see available instruments. Cannot be used together with `backend`. |
+| `instrument_config` | `dict` | `{}` | Per-score overrides for the named instrument's defaults (e.g., `model`, `timeout_seconds`). Only valid when `instrument` is set. |
+
+```yaml
+# Using instrument: (recommended for new scores)
+instrument: gemini-cli
+instrument_config:
+  model: gemini-2.5-flash
+  timeout_seconds: 600
+
+# Using backend: (original syntax, still fully supported)
+backend:
+  type: claude_cli
+  skip_permissions: true
+```
+
+> **Note:** `instrument:` and `backend:` are mutually exclusive. Use one or the other. If neither is specified, Mozart defaults to `claude_cli`.
 
 ---
 

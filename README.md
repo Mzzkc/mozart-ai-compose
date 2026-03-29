@@ -98,50 +98,20 @@ mozart --version
 
 ## Quick Start
 
-### 1. Create a Configuration
-
-Create a file named `hello-world.yaml`:
-
-```yaml
-name: hello-world
-description: Simple demonstration of Mozart execution
-workspace: ./workspace/hello-world
-
-backend:
-  type: claude_cli
-  skip_permissions: true
-  timeout_seconds: 120
-
-sheet:
-  size: 1
-  total_items: 3
-
-prompt:
-  template: |
-    You are executing sheet {{ sheet_num }} of {{ total_sheets }}.
-
-    Task: Write a haiku about the number {{ sheet_num }}.
-
-    Save your haiku to: {{ workspace }}/haiku-{{ sheet_num }}.txt
-
-validations:
-  - type: file_exists
-    path: "{workspace}/haiku-{sheet_num}.txt"
-    description: "Haiku file must exist"
-```
-
-### 2. Validate Configuration
+### 1. Check Your Environment
 
 ```bash
-mozart validate hello-world.yaml
+mozart doctor
 ```
 
-Expected output:
+This verifies Python, conductor status, and available instruments.
 
-```
-Configuration valid: hello-world.yaml
-  3 sheets will be executed
-  Workspace: ./workspace/hello-world
+### 2. Validate the Hello Score
+
+Mozart ships with `examples/hello.yaml` — a score that creates an interconnected fiction collection in three movements: a world setting, three parallel character vignettes, and a finale.
+
+```bash
+mozart validate examples/hello.yaml
 ```
 
 ### 3. Start the Conductor
@@ -153,28 +123,36 @@ mozart start
 mozart conductor-status   # Verify it's running
 ```
 
-### 4. Run the Job
+### 4. Run the Score
 
 ```bash
-mozart run hello-world.yaml
+mozart run examples/hello.yaml
 ```
 
-Mozart executes each sheet sequentially, validating output before proceeding to the next.
+Mozart executes each sheet, validating output before proceeding. The three character vignettes in movement 2 run in parallel.
 
 ### 5. Monitor Progress
 
-While the job runs (or after), check status:
+While the score runs (or after), check status:
 
 ```bash
-mozart status hello-world
+mozart status hello-mozart
 ```
 
-### 6. Resume if Interrupted
+### 6. Read the Output
+
+```bash
+cat workspaces/hello-mozart/03-finale.md
+```
+
+The workspace contains five files: a world setting, three character vignettes, and a finale that weaves them together.
+
+### 7. Resume if Interrupted
 
 If the job is interrupted (Ctrl+C, rate limit, error), resume from where it left off:
 
 ```bash
-mozart resume hello-world
+mozart resume hello-mozart
 ```
 
 ## Features
@@ -391,11 +369,17 @@ notifications:
 
 Mozart includes examples demonstrating various use cases:
 
+### Getting Started
+
+| Example | Description |
+|---------|-------------|
+| [hello.yaml](examples/hello.yaml) | Your first score — interconnected fiction in three movements with parallel voices |
+
 ### Software Development
 
 | Example | Description |
 |---------|-------------|
-| [simple-sheet.yaml](examples/simple-sheet.yaml) | Minimal configuration to get started |
+| [simple-sheet.yaml](examples/simple-sheet.yaml) | Minimal configuration showing core features |
 | [api-backend.yaml](examples/api-backend.yaml) | Using Anthropic API directly |
 | [self-improvement.yaml](examples/self-improvement.yaml) | Incremental codebase improvement with test gates |
 | [sheet-review.yaml](examples/sheet-review.yaml) | Multi-agent coordinated code review |

@@ -1,0 +1,213 @@
+# hello.yaml — Your First Mozart Score
+#
+# This score creates a short interactive fiction experience in three
+# movements. Movement 1 generates the world. Movement 2 writes three
+# parallel character vignettes. Movement 3 weaves them into a finale.
+#
+# The result is a folder of interconnected stories — a real creative
+# artifact, not a dry exercise. Run it, read the output, and see what
+# orchestrated AI can produce.
+#
+# Usage:
+#   mozart start                        # Start the conductor
+#   mozart run examples/hello.yaml      # Run the score
+#   mozart status hello-mozart           # Watch progress
+#
+# Output:
+#   workspaces/hello-mozart/
+#     01-world.md         — The setting
+#     02-character-1.md   — First vignette
+#     02-character-2.md   — Second vignette
+#     02-character-3.md   — Third vignette
+#     03-finale.md        — Where all paths converge
+#
+# Time: ~5 minutes  |  Cost: ~$0.50  |  Sheets: 5
+
+name: hello-mozart
+description: "Three movements, three characters, one world — your first Mozart score"
+
+workspace: ../workspaces/hello-mozart
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  timeout_seconds: 600
+
+sheet:
+  size: 1
+  total_items: 3
+  fan_out:
+    2: 3                    # Movement 2 fans out to 3 parallel characters
+  dependencies:
+    2: [1]                  # Characters depend on world
+    3: [2]                  # Finale depends on all characters
+
+parallel:
+  enabled: true
+  max_concurrent: 3
+
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 4000
+  lookback_sheets: 4
+
+retry:
+  max_retries: 1
+
+prompt:
+  variables:
+    genre: "solarpunk"
+    setting: "a floating garden-city above the clouds, fifty years from now"
+    themes:
+      - "what we owe to the places that made us"
+      - "the courage it takes to stay vs the courage it takes to leave"
+      - "small acts of repair in a world that's healing"
+    characters:
+      1:
+        name: "Lira"
+        role: "a wind-mapper who reads the sky like sheet music"
+        secret: "she's been secretly repairing the oldest bridge — the one everyone says should be torn down"
+      2:
+        name: "Fen"
+        role: "a soil-singer who tends the deep gardens where roots hold the city aloft"
+        secret: "he's growing something in the lowest garden that shouldn't be possible at this altitude"
+      3:
+        name: "Cael"
+        role: "a memory-keeper who maintains the archive of weather patterns and old songs"
+        secret: "she's discovered that the city's founding song contains coordinates to something below the clouds"
+
+  template: |
+    {% if stage == 1 %}
+    # Movement 1: The World
+
+    You are a fiction writer. Your task is to create the setting for a
+    short interconnected story collection.
+
+    ## The Setting
+    Genre: {{ genre }}
+    Place: {{ setting }}
+    Themes: {{ themes | join("; ") }}
+
+    ## Characters Who Live Here
+    {% for id, char in characters.items() %}
+    - **{{ char.name }}**: {{ char.role }}
+    {% endfor %}
+
+    ## Your Task
+
+    Write a vivid, immersive introduction to this world (800-1200 words).
+    Make the reader FEEL the place — the light, the sounds, the way air
+    moves differently up here. Establish the culture without explaining it.
+    Show how the city works through small, specific details: what breakfast
+    looks like, how people greet each other, what the children play.
+
+    End with a single paragraph that hints — just hints — that something
+    is changing. A shift in the wind. A new sound from below the clouds.
+    Something the city hasn't heard in a long time.
+
+    Write the setting document with rich markdown formatting — headers,
+    emphasis, evocative section breaks. This is literature, not a report.
+
+    Save to: {{ workspace }}/01-world.md
+
+    {% elif stage == 2 %}
+    {% set char = characters[instance] %}
+    # Movement 2, Voice {{ instance }}: {{ char.name }}
+
+    You are a fiction writer. You're writing one chapter of an interconnected
+    story collection set in a solarpunk floating city.
+
+    ## Read the World First
+    Read {{ workspace }}/01-world.md — this is the shared setting that all
+    three character stories inhabit. Stay true to its tone and details.
+
+    ## Your Character
+    - **Name**: {{ char.name }}
+    - **Role**: {{ char.role }}
+    - **Secret**: {{ char.secret }}
+
+    ## Themes
+    {{ themes | join("; ") }}
+
+    ## Your Task
+
+    Write {{ char.name }}'s vignette (600-1000 words). This is one morning
+    in their life — but the morning when things begin to change.
+
+    Requirements:
+    - Start in the middle of {{ char.name }}'s daily routine
+    - Show their relationship to the city through their work
+    - Let their secret emerge naturally, not as exposition
+    - End on a moment of decision: something they see or hear that
+      connects to the "something changing" from the world document
+    - The ending should make the reader want to know what happens next
+
+    Write with literary quality — varied sentence rhythm, sensory detail,
+    internal thought. Use markdown formatting: headers, emphasis, section
+    breaks where they serve the story.
+
+    Save to: {{ workspace }}/02-character-{{ instance }}.md
+
+    {% elif stage == 3 %}
+    # Movement 3: The Finale
+
+    You are a fiction writer. You're writing the closing chapter of an
+    interconnected story collection. Three characters' paths are about to
+    converge.
+
+    ## Read Everything First
+    Read all files in {{ workspace }}/:
+    - 01-world.md — the shared setting
+    - 02-character-1.md — Lira's vignette
+    - 02-character-2.md — Fen's vignette
+    - 02-character-3.md — Cael's vignette
+
+    ## Your Task
+
+    Write the finale (800-1200 words) where all three paths converge.
+
+    Requirements:
+    - Pick up where each character's vignette left off
+    - Bring all three characters to the same place at the same time
+    - Their individual secrets, when combined, reveal something larger
+      about the city — something none of them could have seen alone
+    - Don't resolve everything. End on an image, not an answer.
+      The best endings open doors rather than close them.
+    - Reference specific details from each vignette — show that you read them
+
+    Also create a colophon at the end:
+
+    ---
+    *This story was composed by Mozart AI Compose — an orchestration system
+    that coordinates AI agents through declarative YAML scores. The world
+    was written first. Three character vignettes were generated in parallel,
+    each reading the shared world but not each other. This finale read
+    everything and wove the threads together.*
+
+    *Score: `hello.yaml` | Movements: 3 | Voices: 5 | Time: ~5 minutes*
+    ---
+
+    Save to: {{ workspace }}/03-finale.md
+    {% endif %}
+
+validations:
+  - type: file_exists
+    path: "{workspace}/01-world.md"
+    condition: "stage == 1"
+    description: "World setting document exists"
+
+  - type: file_exists
+    path: "{workspace}/02-character-{instance}.md"
+    condition: "stage == 2"
+    description: "Character vignette exists"
+
+  - type: file_exists
+    path: "{workspace}/03-finale.md"
+    condition: "stage == 3"
+    description: "Finale document exists"
+
+  - type: content_contains
+    path: "{workspace}/03-finale.md"
+    pattern: "Mozart AI Compose"
+    condition: "stage == 3"
+    description: "Finale contains colophon"
