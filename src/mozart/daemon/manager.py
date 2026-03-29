@@ -1860,7 +1860,9 @@ class JobManager:
             result["error_message"] = f"command is required for {hook_type} hooks"
             return result
 
-        command = self._expand_hook_vars(command, meta.workspace, meta.job_id)
+        command = self._expand_hook_vars(
+            command, meta.workspace, meta.job_id, for_shell=use_shell,
+        )
         cwd = hook.get("working_directory") or str(meta.workspace)
         timeout = hook.get("timeout_seconds", 300.0)
 
@@ -1901,7 +1903,11 @@ class JobManager:
 
     @staticmethod
     def _expand_hook_vars(
-        template: str, workspace: Path, job_id: str,
+        template: str,
+        workspace: Path,
+        job_id: str,
+        *,
+        for_shell: bool = False,
     ) -> str:
         """Expand template variables in hook paths/commands.
 
@@ -1912,6 +1918,7 @@ class JobManager:
 
         return expand_hook_variables(
             template, workspace=workspace, job_id=job_id,
+            for_shell=for_shell,
         )
 
     def _on_task_done(self, job_id: str, task: asyncio.Task[Any]) -> None:

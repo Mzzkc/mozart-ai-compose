@@ -19,7 +19,99 @@ import pytest
 from pydantic import ValidationError
 
 from mozart.core.config import JobConfig, PostSuccessHookConfig
-from mozart.execution.hooks import ConcertContext, HookExecutor, HookResult
+from mozart.execution.hooks import (
+    ConcertContext,
+    HookExecutor,
+    HookResult,
+    expand_hook_variables,
+)
+
+
+class TestExpandHookVariablesShellSafety:
+    """Tests for expand_hook_variables for_shell parameter (F-020 regression)."""
+
+    def test_for_shell_quotes_spaces(self) -> None:
+        """Workspace with spaces must be quoted for shell safety."""
+        result = expand_hook_variables(
+            "ls {workspace}",
+            workspace="/path with spaces",
+            job_id="job-1",
+            for_shell=True,
+        )
+        assert "'/path with spaces'" in result
+
+    def test_for_shell_quotes_dollar_sign(self) -> None:
+        """$() command substitution in workspace must be neutralized."""
+        result = expand_hook_variables(
+            "echo {workspace}",
+            workspace="/tmp/$(whoami)",
+            job_id="job-1",
+            for_shell=True,
+        )
+        # shlex.quote wraps in single quotes, preventing $() expansion
+        assert "'/tmp/$(whoami)'" in result
+
+    def test_for_shell_quotes_backticks(self) -> None:
+        """Backtick command substitution must be neutralized."""
+        result = expand_hook_variables(
+            "echo {workspace}",
+            workspace="/tmp/`id`/work",
+            job_id="job-1",
+            for_shell=True,
+        )
+        assert "'/tmp/`id`/work'" in result
+
+    def test_for_shell_quotes_semicolon(self) -> None:
+        """Semicolon-based command chaining must be neutralized."""
+        result = expand_hook_variables(
+            "ls {workspace}",
+            workspace="/tmp; rm -rf /",
+            job_id="j1",
+            for_shell=True,
+        )
+        assert "'/tmp; rm -rf /'" in result
+
+    def test_for_shell_quotes_job_id(self) -> None:
+        """Job ID with shell metacharacters must be quoted."""
+        result = expand_hook_variables(
+            "echo {job_id}",
+            workspace="/work",
+            job_id="job; cat /etc/passwd",
+            for_shell=True,
+        )
+        assert "'job; cat /etc/passwd'" in result
+
+    def test_for_shell_quotes_sheet_count(self) -> None:
+        """Sheet count is also quoted for consistency."""
+        result = expand_hook_variables(
+            "echo {sheet_count}",
+            workspace="/work",
+            job_id="j1",
+            sheet_count=42,
+            for_shell=True,
+        )
+        # Numbers don't actually need quoting but shlex.quote still
+        # returns them unquoted or quoted — either is safe
+        assert "42" in result
+
+    def test_no_for_shell_preserves_raw_values(self) -> None:
+        """Without for_shell, values are NOT quoted (for path usage)."""
+        result = expand_hook_variables(
+            "{workspace}/output/{job_id}.json",
+            workspace="/path with spaces",
+            job_id="my-job",
+        )
+        assert result == "/path with spaces/output/my-job.json"
+
+    def test_for_shell_pipe_injection(self) -> None:
+        """Pipe-based injection must be neutralized."""
+        result = expand_hook_variables(
+            "cat {workspace}",
+            workspace="/tmp | cat /etc/shadow",
+            job_id="j1",
+            for_shell=True,
+        )
+        assert "'/tmp | cat /etc/shadow'" in result
 
 
 class TestHookResult:
@@ -149,6 +241,78 @@ class TestHookExecutor:
         result = executor._expand_hook_variables("Processed {sheet_count} sheets")
 
         assert result == "Processed 1 sheets"
+
+    def test_expand_hook_variables_for_shell_quotes_workspace(
+        self, minimal_config: JobConfig,
+    ) -> None:
+        """for_shell=True should apply shlex.quote to workspace (F-020 fix)."""
+        executor = HookExecutor(
+            config=minimal_config,
+            workspace=Path("/path with spaces/work"),
+        )
+        result = executor._expand_hook_variables(
+            "ls {workspace}", for_shell=True,
+        )
+        assert result == "ls '/path with spaces/work'"
+
+    def test_expand_hook_variables_for_shell_quotes_job_id(
+        self, minimal_config: JobConfig,
+    ) -> None:
+        """for_shell=True should apply shlex.quote to job_id (F-020 fix)."""
+        executor = HookExecutor(
+            config=minimal_config,
+            workspace=Path("/work"),
+        )
+        result = executor._expand_hook_variables(
+            "echo {job_id}", for_shell=True,
+        )
+        # job_id is "test-job" — shlex.quote only adds quotes if needed
+        assert "test-job" in result
+
+    def test_expand_hook_variables_for_shell_prevents_injection(
+        self, minimal_config: JobConfig,
+    ) -> None:
+        """for_shell=True must prevent shell metacharacter injection (F-020)."""
+        # A workspace path with shell metacharacters
+        executor = HookExecutor(
+            config=minimal_config,
+            workspace=Path("/tmp/$(whoami)/workspace"),
+        )
+        result = executor._expand_hook_variables(
+            "ls {workspace}", for_shell=True,
+        )
+        # The $() must be neutralized by quoting
+        assert "$(whoami)" not in result or "'" in result
+        # Verify quoting actually protects
+        import shlex
+        assert shlex.quote("/tmp/$(whoami)/workspace") in result
+
+    def test_expand_hook_variables_without_for_shell_no_quotes(
+        self, minimal_config: JobConfig,
+    ) -> None:
+        """Without for_shell, workspace should NOT be quoted (path usage)."""
+        executor = HookExecutor(
+            config=minimal_config,
+            workspace=Path("/path with spaces/work"),
+        )
+        result = executor._expand_hook_variables("{workspace}/output.json")
+        # No quotes — this is for filesystem paths
+        assert result == "/path with spaces/work/output.json"
+
+    def test_expand_hook_variables_for_shell_semicolon_injection(
+        self, minimal_config: JobConfig,
+    ) -> None:
+        """for_shell must neutralize semicolon-based command injection (F-020)."""
+        executor = HookExecutor(
+            config=minimal_config,
+            workspace=Path("/tmp; rm -rf /; echo"),
+        )
+        result = executor._expand_hook_variables(
+            "ls {workspace}", for_shell=True,
+        )
+        # The semicolons must be inside quotes — not interpreted by shell
+        import shlex
+        assert shlex.quote("/tmp; rm -rf /; echo") in result
 
     @pytest.mark.asyncio
     async def test_no_hooks_returns_empty(self, minimal_config: JobConfig) -> None:

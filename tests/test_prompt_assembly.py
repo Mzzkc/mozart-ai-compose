@@ -477,6 +477,240 @@ class TestSpecFragmentInjection:
 
 
 # ---------------------------------------------------------------------------
+# Cross-sheet context (D-003 gap: previously untested)
+# ---------------------------------------------------------------------------
+
+
+class TestCrossSheetContext:
+    """Cross-sheet context allows sheets to reference previous outputs."""
+
+    def test_previous_outputs_in_template(self) -> None:
+        """previous_outputs dict is accessible in Jinja2 templates."""
+        config = PromptConfig(
+            template="Previous result: {{ previous_outputs[1] }}",
+        )
+        builder = PromptBuilder(config)
+        ctx = SheetContext(
+            sheet_num=2, total_sheets=3, start_item=2, end_item=2,
+            workspace=Path("/ws"),
+            previous_outputs={1: "Sheet 1 generated auth module"},
+        )
+        prompt = builder.build_sheet_prompt(ctx)
+        assert "Sheet 1 generated auth module" in prompt
+
+    def test_previous_files_in_template(self) -> None:
+        """previous_files dict is accessible in Jinja2 templates."""
+        config = PromptConfig(
+            template="Architecture: {{ previous_files['arch.md'] }}",
+        )
+        builder = PromptBuilder(config)
+        ctx = SheetContext(
+            sheet_num=2, total_sheets=3, start_item=2, end_item=2,
+            workspace=Path("/ws"),
+            previous_files={"arch.md": "# Microservices architecture"},
+        )
+        prompt = builder.build_sheet_prompt(ctx)
+        assert "# Microservices architecture" in prompt
+
+    def test_multiple_previous_outputs(self) -> None:
+        """Multiple previous outputs accessible by sheet number."""
+        config = PromptConfig(
+            template="S1={{ previous_outputs[1] }}, S2={{ previous_outputs[2] }}",
+        )
+        builder = PromptBuilder(config)
+        ctx = SheetContext(
+            sheet_num=3, total_sheets=5, start_item=3, end_item=3,
+            workspace=Path("/ws"),
+            previous_outputs={1: "plan", 2: "code"},
+        )
+        prompt = builder.build_sheet_prompt(ctx)
+        assert "S1=plan" in prompt
+        assert "S2=code" in prompt
+
+    def test_empty_previous_outputs_no_crash(self) -> None:
+        """Empty previous_outputs doesn't break template rendering."""
+        config = PromptConfig(
+            template="{% if previous_outputs %}Has context{% else %}No context{% endif %}",
+        )
+        builder = PromptBuilder(config)
+        ctx = SheetContext(
+            sheet_num=1, total_sheets=1, start_item=1, end_item=1,
+            workspace=Path("/ws"),
+        )
+        prompt = builder.build_sheet_prompt(ctx)
+        assert "No context" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Template file rendering (D-003 gap)
+# ---------------------------------------------------------------------------
+
+
+class TestTemplateFileRendering:
+    """Template files are loaded from disk and rendered with variables."""
+
+    def test_template_file_rendered_with_variables(self, tmp_path: Path) -> None:
+        """Template file is loaded, parsed, and rendered with context."""
+        tpl = tmp_path / "prompt.j2"
+        tpl.write_text(
+            "Sheet {{ sheet_num }}: process items {{ start_item }}-{{ end_item }}"
+        )
+        config = PromptConfig(template_file=tpl)
+        builder = PromptBuilder(config)
+        ctx = SheetContext(
+            sheet_num=3, total_sheets=10, start_item=21, end_item=30,
+            workspace=Path("/ws"),
+        )
+        prompt = builder.build_sheet_prompt(ctx)
+        assert "Sheet 3: process items 21-30" in prompt
+
+    def test_template_file_with_jinja_conditionals(self, tmp_path: Path) -> None:
+        """Jinja2 conditionals work in template files."""
+        tpl = tmp_path / "conditional.j2"
+        tpl.write_text(
+            "{% if stage == 1 %}Planning{% else %}Building{% endif %}"
+        )
+        config = PromptConfig(template_file=tpl)
+        builder = PromptBuilder(config)
+
+        ctx1 = SheetContext(
+            sheet_num=1, total_sheets=5, start_item=1, end_item=1,
+            workspace=Path("/ws"), stage=1,
+        )
+        ctx2 = SheetContext(
+            sheet_num=2, total_sheets=5, start_item=2, end_item=2,
+            workspace=Path("/ws"), stage=2,
+        )
+        assert "Planning" in builder.build_sheet_prompt(ctx1)
+        assert "Building" in builder.build_sheet_prompt(ctx2)
+
+
+# ---------------------------------------------------------------------------
+# Adversarial edge cases (D-003 gap)
+# ---------------------------------------------------------------------------
+
+
+class TestPromptAdversarial:
+    """Edge cases and adversarial inputs for prompt assembly."""
+
+    def test_empty_template_produces_output(self) -> None:
+        """An empty template string still produces some output."""
+        config = PromptConfig(template="")
+        builder = PromptBuilder(config)
+        ctx = SheetContext(
+            sheet_num=1, total_sheets=1, start_item=1, end_item=1,
+            workspace=Path("/ws"),
+        )
+        # Empty template renders to empty string — but injections can add content
+        rules = [
+            ValidationRule(
+                type="file_exists", path="/out.txt",
+                description="Output exists",
+            ),
+        ]
+        prompt = builder.build_sheet_prompt(ctx, validation_rules=rules)
+        assert "Output exists" in prompt
+
+    def test_special_chars_in_workspace_path(self) -> None:
+        """Workspace paths with special characters render correctly."""
+        config = PromptConfig(
+            template="Working in {{ workspace }}",
+        )
+        builder = PromptBuilder(config)
+        ctx = SheetContext(
+            sheet_num=1, total_sheets=1, start_item=1, end_item=1,
+            workspace=Path("/tmp/user's workspace (v2)"),
+        )
+        prompt = builder.build_sheet_prompt(ctx)
+        assert "user's workspace (v2)" in prompt
+
+    def test_very_large_previous_output(self) -> None:
+        """Large previous output doesn't crash template rendering."""
+        config = PromptConfig(
+            template="Previous: {{ previous_outputs[1][:50] }}...",
+        )
+        builder = PromptBuilder(config)
+        large_output = "x" * 100_000
+        ctx = SheetContext(
+            sheet_num=2, total_sheets=2, start_item=1, end_item=1,
+            workspace=Path("/ws"),
+            previous_outputs={1: large_output},
+        )
+        prompt = builder.build_sheet_prompt(ctx)
+        assert "x" * 50 in prompt
+
+    def test_unicode_in_variables(self) -> None:
+        """Unicode characters in variables render correctly."""
+        config = PromptConfig(
+            template="Project: {{ project_name }}",
+            variables={"project_name": "モーツァルト AI 作曲"},
+        )
+        builder = PromptBuilder(config)
+        ctx = SheetContext(
+            sheet_num=1, total_sheets=1, start_item=1, end_item=1,
+            workspace=Path("/ws"),
+        )
+        prompt = builder.build_sheet_prompt(ctx)
+        assert "モーツァルト AI 作曲" in prompt
+
+    def test_pattern_with_jinja_syntax_doesnt_crash(self) -> None:
+        """Patterns containing {{ }} don't break Jinja2 rendering."""
+        config = PromptConfig(template="Task")
+        builder = PromptBuilder(config)
+        ctx = SheetContext(
+            sheet_num=1, total_sheets=1, start_item=1, end_item=1,
+            workspace=Path("/ws"),
+        )
+        # Pattern text that happens to look like Jinja2
+        patterns = ["Use {{ variable }} syntax in templates"]
+        prompt = builder.build_sheet_prompt(ctx, patterns=patterns)
+        # Pattern should be in the prompt as-is (not rendered as Jinja2)
+        assert "variable" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Historical failure injection (D-003 gap: only tested in order test)
+# ---------------------------------------------------------------------------
+
+
+class TestHistoricalFailureInjection:
+    """Historical failures provide lessons from previous sheets."""
+
+    def test_failure_history_section_present(self) -> None:
+        """Failure history creates a dedicated section."""
+        config = PromptConfig(template="Task")
+        builder = PromptBuilder(config)
+        ctx = SheetContext(
+            sheet_num=3, total_sheets=5, start_item=3, end_item=3,
+            workspace=Path("/ws"),
+        )
+
+        @dataclass
+        class FakeFailure:
+            sheet_num: int = 1
+            description: str = "Tests failed"
+            failure_category: str = "test"
+            failure_reason: str = "Import error"
+            suggested_fix: str = "Fix the import"
+
+        prompt = builder.build_sheet_prompt(
+            ctx, failure_history=[FakeFailure()],  # type: ignore[list-item]
+        )
+        assert "Previous Sheets" in prompt or "failure" in prompt.lower()
+
+    def test_no_failures_no_section(self) -> None:
+        """Without failures, no failure section appears."""
+        config = PromptConfig(template="Task")
+        builder = PromptBuilder(config)
+        ctx = SheetContext(
+            sheet_num=1, total_sheets=1, start_item=1, end_item=1,
+            workspace=Path("/ws"),
+        )
+        prompt = builder.build_sheet_prompt(ctx)
+        assert "Lessons" not in prompt
+
+
+# ---------------------------------------------------------------------------
 # Completion prompt
 # ---------------------------------------------------------------------------
 

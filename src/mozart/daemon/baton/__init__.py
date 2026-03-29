@@ -15,11 +15,12 @@ Package layout::
     timer.py        — Timer wheel (priority queue of future events)
     state.py        — Baton state models (sheet/instrument/job tracking)
     core.py         — Event inbox, main loop, sheet registry
+    musician.py     — Single-attempt sheet execution (play once, report)
     backend_pool.py — Per-instrument backend instance management
 """
 
 from mozart.daemon.baton.backend_pool import BackendPool
-from mozart.daemon.baton.core import BatonCore, SheetExecutionState
+from mozart.daemon.baton.core import BatonCore
 from mozart.daemon.baton.events import (
     BatonEvent,
     CancelJob,
@@ -43,6 +44,7 @@ from mozart.daemon.baton.events import (
     ShutdownRequested,
     StaleCheck,
 )
+from mozart.daemon.baton.musician import sheet_task
 from mozart.daemon.baton.state import (
     AttemptContext,
     AttemptMode,
@@ -50,6 +52,7 @@ from mozart.daemon.baton.state import (
     BatonSheetStatus,
     CircuitBreakerState,
     InstrumentState,
+    SheetExecutionState,
 )
 from mozart.daemon.baton.timer import TimerHandle, TimerWheel
 
@@ -89,4 +92,6 @@ __all__ = [
     "BackendPool",
     "BatonCore",
     "SheetExecutionState",
+    # Musician
+    "sheet_task",
 ]

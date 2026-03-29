@@ -170,6 +170,7 @@ def expand_hook_variables(
     workspace: str | Path,
     job_id: str,
     sheet_count: int | None = None,
+    for_shell: bool = False,
 ) -> str:
     """Expand template variables in hook paths/commands.
 
@@ -178,13 +179,30 @@ def expand_hook_variables(
 
     Known variables: {workspace}, {job_id}, {sheet_count}.
     Warns on unrecognized {var} patterns that remain after expansion.
+
+    Args:
+        template: Template string with {variable} placeholders.
+        workspace: Workspace path to substitute.
+        job_id: Job identifier to substitute.
+        sheet_count: Optional sheet count to substitute.
+        for_shell: When True, apply shlex.quote() to variable values
+            before substitution. Use this when the expanded result will
+            be passed to create_subprocess_shell. Do NOT use when the
+            result will be used as a filesystem path (e.g., run_job
+            hook's job_path).
     """
-    result = (
-        template.replace("{workspace}", str(workspace))
-        .replace("{job_id}", job_id)
-    )
+    ws_str = str(workspace)
+    jid_str = job_id
+    if for_shell:
+        ws_str = shlex.quote(ws_str)
+        jid_str = shlex.quote(jid_str)
+
+    result = template.replace("{workspace}", ws_str).replace("{job_id}", jid_str)
     if sheet_count is not None:
-        result = result.replace("{sheet_count}", str(sheet_count))
+        sc_str = str(sheet_count)
+        if for_shell:
+            sc_str = shlex.quote(sc_str)
+        result = result.replace("{sheet_count}", sc_str)
     # Warn about unrecognized template variables
     for match in re.finditer(r"\{(\w+)\}", result):
         var_name = match.group(1)
@@ -225,16 +243,24 @@ class HookExecutor:
         # Track results
         self.hook_results: list[HookResult] = []
 
-    def _expand_hook_variables(self, template: str) -> str:
+    def _expand_hook_variables(
+        self, template: str, *, for_shell: bool = False,
+    ) -> str:
         """Expand template variables in hook paths/commands.
 
         Delegates to the module-level expand_hook_variables() function.
+
+        Args:
+            template: Template string with {variable} placeholders.
+            for_shell: When True, apply shlex.quote() to values for
+                safe shell expansion. Use for run_command hooks.
         """
         return expand_hook_variables(
             template,
             workspace=self.workspace,
             job_id=self.config.name,
             sheet_count=self.config.sheet.total_sheets,
+            for_shell=for_shell,
         )
 
     async def execute_hooks(self) -> list[HookResult]:
@@ -615,8 +641,8 @@ class HookExecutor:
                 error_message="command is required for run_command hooks",
             )
 
-        # Expand template variables
-        command = self._expand_hook_variables(hook.command)
+        # Expand template variables with shell quoting (F-020 fix)
+        command = self._expand_hook_variables(hook.command, for_shell=True)
 
         # Determine working directory
         cwd = hook.working_directory or self.workspace
