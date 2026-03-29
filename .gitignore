@@ -100,6 +100,9 @@ site/
 # Hypothesis property-based testing cache
 .hypothesis/
 
+# Flowspec (cache and generated output — config.yaml IS tracked)
+.flowspec/cache/
+
 # OS
 .DS_Store
 Thumbs.db

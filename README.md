@@ -29,7 +29,7 @@ Mozart is a general-purpose orchestration system for AI-assisted workflows. It d
 - **Automatic recovery**: Checkpoint state enables resume after interruption, rate limits, or failures
 - **Self-healing**: Diagnose and fix common issues automatically when retries are exhausted
 - **Learning system**: Record outcomes and detect patterns across executions
-- **Multiple backends**: Claude CLI, Anthropic API, Ollama (local models), or Recursive Light
+- **Multiple instruments**: Claude CLI, Anthropic API, Ollama, plus config-driven instruments (Gemini CLI, Codex CLI, Cline, Aider, Goose, and any CLI tool via YAML profiles)
 
 ### When to Use Mozart
 
@@ -166,7 +166,7 @@ Mozart executes each sheet sequentially, validating output before proceeding to 
 While the job runs (or after), check status:
 
 ```bash
-mozart status hello-world --workspace ./workspace/hello-world
+mozart status hello-world
 ```
 
 ### 6. Resume if Interrupted
@@ -174,7 +174,7 @@ mozart status hello-world --workspace ./workspace/hello-world
 If the job is interrupted (Ctrl+C, rate limit, error), resume from where it left off:
 
 ```bash
-mozart resume hello-world --workspace ./workspace/hello-world
+mozart resume hello-world
 ```
 
 ## Features
@@ -224,10 +224,18 @@ mozart resume hello-world --workspace ./workspace/hello-world
 
 | Command | Purpose |
 |---------|---------|
+| `mozart doctor` | Check environment health (Python, conductor, instruments) |
 | `mozart logs <job-id>` | View or tail log files |
 | `mozart errors <job-id>` | List job errors with color-coded output |
 | `mozart diagnose <job-id>` | Comprehensive diagnostic report |
-| `mozart recover <job-id>` | Re-validate without re-execution (hidden) |
+| `mozart recover <job-id>` | Re-validate without re-execution |
+
+### Instruments
+
+| Command | Purpose |
+|---------|---------|
+| `mozart instruments list` | Show all available instruments and their readiness |
+| `mozart instruments check <name>` | Deep diagnostic on a specific instrument |
 
 ### Dashboard & MCP
 
@@ -263,7 +271,7 @@ Starts the web dashboard for visual monitoring and control.
 
 | Option | Applies To | Description |
 |--------|-----------|-------------|
-| `--workspace, -w <path>` | most commands | Workspace directory for job artifacts |
+| `--workspace, -w <path>` | `run`, `resume` | Workspace directory override |
 | `--dry-run, -n` | `run` | Validate and show execution plan without running |
 | `--self-healing, -H` | `run`, `resume` | Enable automatic diagnosis and remediation |
 | `--yes, -y` | `run`, `resume` | Auto-confirm suggested self-healing fixes |
@@ -353,7 +361,7 @@ notifications:
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `type` | string | Backend type: `claude_cli`, `anthropic_api`, `ollama`, or `recursive_light` |
+| `type` | string | Backend type: `claude_cli`, `anthropic_api`, `ollama`, `recursive_light`, or any named instrument |
 | `skip_permissions` | bool | Skip Claude CLI permission prompts (required for unattended) |
 | `disable_mcp` | bool | Disable MCP servers for faster execution |
 | `timeout_seconds` | int | Maximum execution time per sheet (default: 1800) |
@@ -463,7 +471,7 @@ See [examples/README.md](examples/README.md) for detailed documentation of each 
 
 - **Validation**: Rules that determine whether a sheet completed successfully. Mozart's validation-first philosophy means exit code 0 is insufficient; validations must pass.
 
-- **Backend**: The execution engine that runs prompts. Claude CLI provides subprocess execution with tool access; Anthropic API provides direct API calls; Ollama provides local model execution; Recursive Light provides HTTP API integration.
+- **Instrument**: The execution engine that runs prompts. Mozart supports native backends (Claude CLI, Anthropic API, Ollama) and config-driven CLI instruments defined via YAML profiles. Run `mozart instruments list` to see available instruments.
 
 - **Checkpoint**: Persistent state saved after each sheet, enabling resume from any point. Atomic writes prevent corruption on interruption.
 
