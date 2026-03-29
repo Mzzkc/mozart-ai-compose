@@ -225,19 +225,17 @@ mozart modify my-job -c updated.yaml --resume --wait
 
 ### `mozart status`
 
-Show detailed status of a specific job.
+Show score status. With no arguments, shows an overview of all active scores. With a score ID, shows detailed status for that specific score.
 
 ```
-Usage: mozart status [OPTIONS] JOB_ID
+Usage: mozart status [OPTIONS] [SCORE_ID]
 ```
-
-Displays job progress, sheet states, timing information, and any errors. Use `--watch` for continuous monitoring.
 
 #### Arguments
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `JOB_ID` | Yes | Job ID to check status for |
+| `SCORE_ID` | No | Score ID to check status for. Omit to see all active scores. |
 
 #### Options
 
@@ -250,40 +248,66 @@ Displays job progress, sheet states, timing information, and any errors. Use `--
 
 > **Note:** `mozart status` routes through the conductor by default. The `--workspace` flag is a hidden debug override for direct filesystem access when the conductor is unavailable.
 
-#### Examples
+#### Overview Mode (No Arguments)
+
+When called without a score ID, shows a conductor overview:
+
+- **Conductor status** — whether the conductor is running and its uptime
+- **Active scores** — all running, queued, and paused scores with elapsed time
+- **Recent scores** — the 5 most recently completed or failed scores
+
+This is the natural first command after `mozart run` — like `git status` showing your working tree.
 
 ```bash
-# Show job status (routes through conductor)
-mozart status my-job
+# Show overview of all scores
+mozart status
+
+# Overview as JSON
+mozart status --json
+```
+
+#### Per-Score Mode
+
+When given a score ID, shows detailed status for that score:
+
+- Score name, status, and timing
+- Progress bar with sheet counts
+- Per-sheet details with validation results
+- Cost tracking (if available)
+- Error summaries with `mozart diagnose` suggestion on failure
+
+For large scores (50+ sheets), a compact summary is shown instead of the full sheet table: counts by status, then only interesting sheets (running, failed, validation-failed) capped at 20 entries. Small scores retain the full detail table.
+
+```bash
+# Detailed status for a specific score
+mozart status my-score
 
 # JSON output
-mozart status my-job --json
+mozart status my-score --json
 
 # Continuous monitoring
-mozart status my-job --watch
+mozart status my-score --watch
 
 # Watch with custom interval
-mozart status my-job --watch --interval 10
-
-# Custom workspace
-mozart status my-job --workspace ./jobs
+mozart status my-score --watch --interval 10
 ```
 
 #### Output
 
-Standard output includes:
-- Job name and ID
+Standard per-score output includes:
+- Score name and ID
 - Status (running, completed, failed, paused, pending)
 - Progress bar with sheet counts
 - Timing information
 - Error messages (if any)
-- Sheet details table
+- Sheet details table (or compact summary for 50+ sheets)
+- Suggestion to run `mozart diagnose` on failure
 
 JSON output structure:
 ```json
 {
-  "job_id": "my-job",
-  "job_name": "My Job",
+  "job_id": "my-score",
+  "job_name": "My Score",
   "status": "running",
   "progress": {
     "completed": 5,
@@ -535,6 +559,66 @@ mozart diagnose my-job --json
 
 # Include inline log content
 mozart diagnose my-job --include-logs
+```
+
+---
+
+### `mozart doctor`
+
+Check Mozart environment health.
+
+```
+Usage: mozart doctor [OPTIONS]
+```
+
+Validates that your environment is ready to run Mozart scores. Checks Python version, Mozart installation, conductor status, available instruments, and safety configuration. This command works without a running conductor — it is designed to be the first thing you run after installation.
+
+#### Options
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--json` | | false | Output results as JSON |
+
+#### Checks Performed
+
+| Check | What It Verifies |
+|-------|-----------------|
+| Python | Version 3.11+ installed |
+| Mozart | Mozart package installed, version displayed |
+| Conductor | Whether the conductor daemon is running (PID file + process check) |
+| Instruments | Each registered instrument's binary availability on PATH |
+| Safety | Whether cost limits are configured |
+
+For instruments, CLI instruments are checked by looking for the executable on PATH (via `shutil.which`). HTTP instruments are reported as available without a connectivity probe — they are assumed reachable if configured.
+
+#### Examples
+
+```bash
+# Check environment
+mozart doctor
+
+# JSON output for scripting
+mozart doctor --json
+```
+
+#### Sample Output
+
+```
+Mozart Doctor
+
+  ✓ Python 3.12                   installed
+  ✓ Mozart v1.0.0                 installed
+  ✓ Conductor                     running (pid 12345)
+
+  Instruments:
+  ✓ claude-code                   /usr/local/bin/claude
+  · gemini-cli                    not found (gemini)
+  · codex-cli                     not found (codex)
+
+  Safety:
+  ⚠ No cost limits configured     Recommend: cost_limits.max_cost_per_job
+
+1 warning. Mozart is ready.
 ```
 
 ---
@@ -837,6 +921,108 @@ mozart config check --config /path/to/custom.yaml
 | Option | Short | Description |
 |--------|-------|-------------|
 | `--config` | `-c` | Path to daemon config file to validate (default: `~/.mozart/daemon.yaml`) |
+
+---
+
+## Instrument Commands
+
+These commands manage and inspect available instruments — the AI tools Mozart can use to execute scores. Instruments include CLI tools (Claude Code, Gemini CLI, Codex CLI, Aider, Goose) and HTTP APIs (Anthropic API, Ollama).
+
+### `mozart instruments list`
+
+List all available instruments and their readiness status.
+
+```
+Usage: mozart instruments list [OPTIONS]
+```
+
+Shows every registered instrument: native backends (built into Mozart), built-in profiles (shipped as YAML), organization profiles (`~/.mozart/instruments/`), and venue profiles (`.mozart/instruments/`). Later profiles override earlier ones on name collision.
+
+#### Options
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--json` | | false | Output as JSON |
+
+#### Examples
+
+```bash
+# List all instruments
+mozart instruments list
+
+# JSON output
+mozart instruments list --json
+```
+
+#### Sample Output
+
+```
+                    Instruments
+  NAME              KIND    STATUS          DEFAULT MODEL
+  aider             cli     ✗ not found     (instrument default)
+  anthropic_api     http    http            claude-sonnet-4-5-20250929
+  claude-code       cli     ✓ ready         (instrument default)
+  claude_cli        cli     ✓ ready         (instrument default)
+  gemini-cli        cli     ✓ ready         gemini-2.5-pro
+  ollama            http    http            llama3.1:8b
+
+10 instruments configured (6 ready)
+```
+
+**Status values:**
+- `✓ ready` — CLI binary found on PATH
+- `✗ not found` — CLI binary not on PATH (install the tool to use it)
+- `http` — HTTP instrument (connectivity not probed; assumed reachable if configured)
+
+---
+
+### `mozart instruments check`
+
+Check readiness and configuration of a specific instrument.
+
+```
+Usage: mozart instruments check [OPTIONS] NAME
+```
+
+Provides detailed information about a single instrument: binary location, capabilities, available models with pricing, and overall readiness.
+
+#### Arguments
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `NAME` | Yes | Instrument name to check (as shown in `instruments list`) |
+
+#### Options
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--json` | | false | Output as JSON |
+
+#### Examples
+
+```bash
+# Check a specific instrument
+mozart instruments check gemini-cli
+
+# JSON output
+mozart instruments check claude-code --json
+```
+
+#### Sample Output
+
+```
+Checking gemini-cli...
+  Display name:  Gemini CLI
+  Description:   Google's Gemini CLI with tool use and vision
+  Kind:          cli
+  Binary:        /usr/local/bin/gemini ✓
+  Capabilities:  file_editing, shell_access, structured_output, tool_use, vision
+  Default model: gemini-2.5-pro
+    gemini-2.5-pro: 1,000,000 ctx ($0.0013/1K in, $0.0050/1K out)
+    gemini-2.5-flash: 1,000,000 ctx ($0.0002/1K in, $0.0006/1K out)
+
+gemini-cli is ready.
+```
 
 ---
 

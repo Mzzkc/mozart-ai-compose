@@ -1,19 +1,21 @@
 # Mozart AI Compose Documentation
 
-Orchestration tool for Claude AI sessions — define multi-stage workflows as YAML scores, and let Mozart handle execution, retries, rate limiting, validation, and cross-stage context.
+Orchestration infrastructure for collaborative intelligence — define multi-stage AI workflows as declarative YAML scores, and let Mozart decompose them into sheets, execute through multiple instruments (Claude Code, Gemini CLI, Codex CLI, and more), validate outputs, and learn from outcomes.
 
 ## Suggested Reading Paths
 
 **New Users:**
-1. [Getting Started](getting-started.md) — Installation, daemon setup, first job
+1. [Getting Started](getting-started.md) — Installation, environment check, first score
 2. [Score Writing Guide](score-writing-guide.md) — How to author Mozart scores
-3. [Examples Directory](../examples/) — 24 working score configurations
+3. [Instrument Guide](instrument-guide.md) — Available instruments and how to add your own
+4. [Examples Directory](../examples/) — Working score configurations
 
 **Score Authors:**
 1. [Score Writing Guide](score-writing-guide.md) — Comprehensive authoring guide
-2. [Configuration Reference](configuration-reference.md) — Every config field documented
-3. [Examples Directory](../examples/) — Real-world score patterns
-4. [Mozart Score Playspace](https://github.com/Mzzkc/mozart-score-playspace) — Creative showcase with real output
+2. [Instrument Guide](instrument-guide.md) — Choosing and configuring instruments
+3. [Configuration Reference](configuration-reference.md) — Every config field documented
+4. [Examples Directory](../examples/) — Real-world score patterns
+5. [Mozart Score Playspace](https://github.com/Mzzkc/mozart-score-playspace) — Creative showcase with real output
 
 **System Administrators:**
 1. [Daemon Guide](daemon-guide.md) — Conductor setup, configuration, troubleshooting
@@ -24,8 +26,9 @@ Orchestration tool for Claude AI sessions — define multi-stage workflows as YA
 
 ### Getting Started
 
-- [**Getting Started**](getting-started.md) — Installation, daemon setup, first job
+- [**Getting Started**](getting-started.md) — Installation, environment check, first score
 - [**Score Writing Guide**](score-writing-guide.md) — Comprehensive guide to authoring Mozart scores
+- [**Instrument Guide**](instrument-guide.md) — Available instruments, adding your own, profile reference
 
 ### Reference
 
