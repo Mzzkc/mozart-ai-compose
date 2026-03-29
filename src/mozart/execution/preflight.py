@@ -27,7 +27,7 @@ FILE_PATH_PATTERNS = [
 
 # Warning thresholds
 TOKEN_WARNING_THRESHOLD = 50_000  # Warn if > 50K estimated tokens
-TOKEN_ERROR_THRESHOLD = 150_000  # Error if > 150K estimated tokens (near context limits)
+TOKEN_ERROR_THRESHOLD = 150_000  # Error if > 150K estimated tokens (conservative default)
 LINE_WARNING_THRESHOLD = 5_000  # Warn if > 5K lines
 
 

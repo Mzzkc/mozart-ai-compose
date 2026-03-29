@@ -244,6 +244,8 @@ class JobManager:
             event_callback=self._on_event,
             state_publish_callback=self._on_state_published,
             registry=self._registry,
+            token_warning_threshold=self._config.preflight.token_warning_threshold,
+            token_error_threshold=self._config.preflight.token_error_threshold,
         )
         # Start semantic analyzer after event bus (needs bus for subscription).
         # Failure must not prevent the conductor from starting.
@@ -345,6 +347,11 @@ class JobManager:
                 )
 
         self._config = new_config
+
+        # Propagate preflight thresholds to job service for new runners
+        if self._service is not None:
+            self._service._token_warning_threshold = new_config.preflight.token_warning_threshold
+            self._service._token_error_threshold = new_config.preflight.token_error_threshold
 
     def update_job_config_metadata(
         self,

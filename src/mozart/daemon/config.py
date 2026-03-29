@@ -12,6 +12,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from mozart.core.config.backend import BackendConfig
+from mozart.core.config.execution import PreflightConfig
 from mozart.core.logging import get_logger
 from mozart.daemon.profiler.models import ProfilerConfig
 
@@ -312,6 +313,12 @@ class DaemonConfig(BaseModel):
         default_factory=ProfilerConfig,
         description="System profiler configuration for resource monitoring, "
         "anomaly detection, and correlation analysis.",
+    )
+    preflight: PreflightConfig = Field(
+        default_factory=PreflightConfig,
+        description="Pre-flight prompt analysis thresholds. "
+        "Controls when prompts are warned or rejected based on estimated token count. "
+        "Set higher for large-context instruments (1M+ context windows).",
     )
     config_file: Path | None = Field(
         default=None,

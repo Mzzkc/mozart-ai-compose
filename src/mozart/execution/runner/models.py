@@ -591,6 +591,13 @@ class RunnerContext:
     Signature: (job_id, sheet_num, event, data) -> Awaitable[None].
     """
 
+    # Preflight thresholds (from daemon config)
+    token_warning_threshold: int | None = None
+    """Override preflight token warning threshold. None uses module default."""
+
+    token_error_threshold: int | None = None
+    """Override preflight token error threshold. None uses module default."""
+
     # In-process pause signaling (workspace-independent job control)
     pause_event: asyncio.Event | None = None
     """Async event set by the daemon's JobManager to request graceful pause.

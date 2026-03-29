@@ -198,9 +198,15 @@ class JobRunnerBase:
         )
 
         # Preflight checker for workspace validation
+        _preflight_kwargs: dict[str, int] = {}
+        if context and context.token_warning_threshold is not None:
+            _preflight_kwargs["token_warning_threshold"] = context.token_warning_threshold
+        if context and context.token_error_threshold is not None:
+            _preflight_kwargs["token_error_threshold"] = context.token_error_threshold
         self.preflight_checker = PreflightChecker(
             workspace=config.workspace,
             working_directory=config.backend.working_directory or config.workspace,
+            **_preflight_kwargs,
         )
 
         # Global learning store for cross-workspace learning

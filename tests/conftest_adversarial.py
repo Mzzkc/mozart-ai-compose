@@ -190,6 +190,24 @@ def stale_detection_config_strategy() -> st.SearchStrategy[dict[str, Any]]:
     )
 
 
+def preflight_config_strategy() -> st.SearchStrategy[dict[str, Any]]:
+    """Strategy for PreflightConfig as a dict."""
+    return st.one_of(
+        # Defaults
+        st.just({}),
+        # Disabled (both zero)
+        st.just({"token_warning_threshold": 0, "token_error_threshold": 0}),
+        # Custom thresholds (warning < error)
+        st.builds(
+            lambda warn: {
+                "token_warning_threshold": warn,
+                "token_error_threshold": warn * 3,  # always > warning
+            },
+            warn=st.integers(min_value=1_000, max_value=500_000),
+        ),
+    )
+
+
 # --- job.py strategies ---
 
 def sheet_config_strategy() -> st.SearchStrategy[dict[str, Any]]:

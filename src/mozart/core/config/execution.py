@@ -286,6 +286,58 @@ class StaleDetectionConfig(BaseModel):
         return self
 
 
+class PreflightConfig(BaseModel):
+    """Configuration for pre-flight prompt analysis before sheet execution.
+
+    Controls token count thresholds for warning and error during preflight
+    checks. Different instruments have different context windows — a 150K
+    threshold that's correct for a 200K-context model is wrong for a
+    1M-context model. Set thresholds appropriate for the instruments in use.
+
+    This config lives at the daemon level because the conductor manages
+    all execution and knows which instruments are available. Individual
+    scores inherit the daemon's thresholds unless overridden.
+
+    Example (daemon config for large-context instruments):
+        preflight:
+          token_warning_threshold: 200000
+          token_error_threshold: 800000
+
+    Example (disable the error threshold entirely):
+        preflight:
+          token_error_threshold: 0
+    """
+
+    token_warning_threshold: int = Field(
+        default=50_000,
+        ge=0,
+        description="Prompt token count above which to warn during preflight. "
+        "Default: 50,000. Set higher for large-context instruments. "
+        "Set to 0 to disable warnings.",
+    )
+    token_error_threshold: int = Field(
+        default=150_000,
+        ge=0,
+        description="Prompt token count above which to error during preflight. "
+        "Default: 150,000. Set higher for large-context instruments "
+        "(e.g., 800000 for 1M-context models). Set to 0 to disable the check.",
+    )
+
+    @model_validator(mode="after")
+    def _validate_threshold_ordering(self) -> PreflightConfig:
+        """Ensure warning threshold is less than error threshold when both are set."""
+        if (
+            self.token_warning_threshold > 0
+            and self.token_error_threshold > 0
+            and self.token_warning_threshold >= self.token_error_threshold
+        ):
+            raise ValueError(
+                f"token_warning_threshold ({self.token_warning_threshold}) must be less than "
+                f"token_error_threshold ({self.token_error_threshold})"
+            )
+        return self
+
+
 class ParallelConfig(BaseModel):
     """Configuration for parallel sheet execution (v17 evolution).
 

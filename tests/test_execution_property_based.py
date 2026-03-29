@@ -876,3 +876,32 @@ class TestSpecCorpusConfigProperties:
         """SpecCorpusConfig.corpus_hash is deterministic for same fragments."""
         config = SpecCorpusConfig(fragments=fragments)
         assert config.corpus_hash() == config.corpus_hash()
+
+
+# ---------------------------------------------------------------------------
+# PreflightConfig property tests
+# ---------------------------------------------------------------------------
+
+
+class TestPreflightConfigProperties:
+    """Property-based tests for PreflightConfig invariants."""
+
+    @given(data=st.fixed_dictionaries({
+        "token_warning_threshold": st.integers(min_value=0, max_value=500_000),
+        "token_error_threshold": st.integers(min_value=0, max_value=1_000_000),
+    }))
+    @settings(max_examples=50)
+    def test_preflight_config_threshold_validation(self, data: dict[str, int]) -> None:
+        """PreflightConfig rejects warning >= error when both are nonzero."""
+        from mozart.core.config.execution import PreflightConfig
+
+        warn = data["token_warning_threshold"]
+        error = data["token_error_threshold"]
+
+        if warn > 0 and error > 0 and warn >= error:
+            with pytest.raises(ValueError, match="token_warning_threshold"):
+                PreflightConfig(**data)
+        else:
+            config = PreflightConfig(**data)
+            assert config.token_warning_threshold == warn
+            assert config.token_error_threshold == error

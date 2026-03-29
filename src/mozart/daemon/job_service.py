@@ -118,6 +118,8 @@ class JobService:
         event_callback: EventCallback | None = None,
         state_publish_callback: StatePublishCallback | None = None,
         registry: JobRegistry | None = None,
+        token_warning_threshold: int | None = None,
+        token_error_threshold: int | None = None,
     ) -> None:
         self._output = output or NullOutput()
         self._learning_store = global_learning_store
@@ -125,6 +127,8 @@ class JobService:
         self._event_callback = event_callback
         self._state_publish_callback = state_publish_callback
         self._registry = registry
+        self._token_warning_threshold = token_warning_threshold
+        self._token_error_threshold = token_error_threshold
         self._notification_consecutive_failures = 0
         self._notifications_degraded = False
 
@@ -505,6 +509,8 @@ class JobService:
             self_healing_auto_confirm=self_healing_auto_confirm,
             pause_event=pause_event,
             daemon_managed=True,
+            token_warning_threshold=self._token_warning_threshold,
+            token_error_threshold=self._token_error_threshold,
         )
 
         return JR(
