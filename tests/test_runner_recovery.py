@@ -358,6 +358,8 @@ class TestLogRateLimitEvent:
         h = self._harness(max_waits=1)
         state = _make_state(rate_limit_waits=0)
         h._log_rate_limit_event(state, is_quota=False, wait_seconds=60.0)
+        # No FatalError raised — first wait is allowed even with max_waits=1
+        assert state.rate_limit_waits == 0  # state not mutated by log method
 
     def test_rate_limit_one_wait_raises_at_one(self) -> None:
         """With max_waits=1, second wait (count=1) raises."""

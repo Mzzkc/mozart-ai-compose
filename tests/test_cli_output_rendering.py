@@ -28,6 +28,7 @@ from mozart.cli.output import (
     create_run_summary_panel,
     create_server_panel,
     create_sheet_details_table,
+    format_sheet_display_status,
     create_sheet_plan_table,
     create_simple_table,
     create_status_progress,
@@ -186,6 +187,51 @@ class TestStatusColors:
         assert StatusColors.get_error_color("transient") == "yellow"
         assert StatusColors.get_error_color("rate_limit") == "blue"
         assert StatusColors.get_error_color("unknown") == "white"
+
+
+class TestFormatSheetDisplayStatus:
+    """Tests for format_sheet_display_status (F-045).
+
+    'completed' + validation_failed should show as 'failed' to avoid
+    confusing users who read 'completed' as meaning 'done successfully'.
+    """
+
+    def test_completed_with_validation_passed_shows_completed(self) -> None:
+        label, color = format_sheet_display_status(SheetStatus.COMPLETED, True)
+        assert label == "completed"
+        assert color == "green"
+
+    def test_completed_with_validation_failed_shows_failed(self) -> None:
+        """Core F-045 fix: retry-exhausted sheets show 'failed' not 'completed'."""
+        label, color = format_sheet_display_status(SheetStatus.COMPLETED, False)
+        assert label == "failed"
+        assert color == "red"
+
+    def test_completed_with_validation_none_shows_completed(self) -> None:
+        """Sheets with no validations (None) keep 'completed'."""
+        label, color = format_sheet_display_status(SheetStatus.COMPLETED, None)
+        assert label == "completed"
+        assert color == "green"
+
+    def test_failed_status_unchanged(self) -> None:
+        label, color = format_sheet_display_status(SheetStatus.FAILED, None)
+        assert label == "failed"
+        assert color == "red"
+
+    def test_pending_status_unchanged(self) -> None:
+        label, color = format_sheet_display_status(SheetStatus.PENDING, None)
+        assert label == "pending"
+        assert color == "yellow"
+
+    def test_in_progress_status_unchanged(self) -> None:
+        label, color = format_sheet_display_status(SheetStatus.IN_PROGRESS, None)
+        assert label == "in_progress"
+        assert color == "blue"
+
+    def test_skipped_status_unchanged(self) -> None:
+        label, color = format_sheet_display_status(SheetStatus.SKIPPED, None)
+        assert label == "skipped"
+        assert color == "dim"
 
 
 # ---------------------------------------------------------------------------

@@ -11,7 +11,6 @@ job plan without executing anything (no conductor needed).
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -22,7 +21,7 @@ from rich.table import Table
 from mozart.core.logging import get_logger
 
 from ..helpers import await_early_failure, is_quiet
-from ..output import console
+from ..output import console, output_error, output_json
 from ._shared import validate_start_sheet
 
 _logger = get_logger("cli.run")
@@ -96,9 +95,12 @@ def run(
         config = JobConfig.from_yaml(config_file)
     except Exception as e:
         if json_output:
-            console.print(json.dumps({"error": str(e)}, indent=2))
+            output_json({"error": str(e)})
         else:
-            console.print(f"[red]Error loading config:[/red] {e}")
+            output_error(
+                str(e),
+                hint="Check your score YAML syntax with: mozart validate <file>",
+            )
         raise typer.Exit(1) from None
 
     # Validate start_sheet (must be positive if provided)
@@ -140,9 +142,9 @@ def run(
             "supported."
         )
         if json_output:
-            console.print(json.dumps({"error": _msg}, indent=2))
+            output_json({"error": _msg})
         else:
-            console.print(f"[red]Error:[/red] {_msg}")
+            output_error(_msg)
         raise typer.Exit(1)
 
     if dry_run:
@@ -150,12 +152,12 @@ def run(
             console.print("\n[yellow]Dry run - not executing[/yellow]")
             _show_dry_run(config, config_file)
         else:
-            console.print(json.dumps({
+            output_json({
                 "dry_run": True,
                 "job_name": config.name,
                 "total_sheets": config.sheet.total_sheets,
                 "workspace": str(config.workspace),
-            }, indent=2))
+            })
         return
 
     # Route through daemon (required)
@@ -170,12 +172,14 @@ def run(
 
     # Daemon not available or submission failed
     if json_output:
-        console.print(json.dumps({
+        output_json({
             "error": "Mozart conductor is not running. Start with: mozart start",
-        }))
+        })
     else:
-        console.print("[red]Error:[/red] Mozart conductor is not running.")
-        console.print("Start it with: [bold]mozart start[/bold]")
+        output_error(
+            "Mozart conductor is not running.",
+            hint="Start it with: mozart start",
+        )
     raise typer.Exit(1)
 
 
@@ -222,7 +226,7 @@ async def _try_daemon_submit(
 
         if status != "accepted":
             if json_output:
-                console.print(json.dumps(result, indent=2))
+                output_json(result)
             else:
                 console.print(f"[yellow]Conductor rejected score:[/yellow] {msg}")
             return False
@@ -234,16 +238,18 @@ async def _try_daemon_submit(
 
         if json_output:
             if early_failed:
-                console.print(json.dumps(early, indent=2))
+                output_json(early)
                 raise typer.Exit(1)
-            console.print(json.dumps(result, indent=2))
+            output_json(result)
         else:
             if early_failed:
                 err = early.get("error_message", "") if isinstance(early, dict) else ""
-                console.print(f"[red]Score failed:[/red] {job_id}")
+                output_error(
+                    f"Score failed: {job_id}",
+                    hint=f"Run: mozart diagnose {job_id}",
+                )
                 if err:
                     console.print(f"  {err}")
-                console.print(f"\n[dim]Full details:[/dim] mozart diagnose {job_id}")
                 raise typer.Exit(1)
             console.print(f"[green]Score submitted to conductor:[/green] {job_id}")
             if msg:

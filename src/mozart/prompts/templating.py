@@ -98,17 +98,31 @@ class SheetContext:
     """Resolved content from 'tool' category injections."""
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for template rendering."""
+        """Convert to dictionary for template rendering.
+
+        Provides both old terminology (stage, instance, fan_count, total_stages)
+        and new terminology (movement, voice, voice_count, total_movements) so
+        templates can use either vocabulary. Matches Sheet.template_variables().
+        """
+        effective_stage = self.stage if self.stage > 0 else self.sheet_num
+        effective_total = self.total_stages if self.total_stages > 0 else self.total_sheets
         return {
             "sheet_num": self.sheet_num,
             "total_sheets": self.total_sheets,
             "start_item": self.start_item,
             "end_item": self.end_item,
             "workspace": str(self.workspace),
-            "stage": self.stage if self.stage > 0 else self.sheet_num,
+            # Old terminology (backward compat)
+            "stage": effective_stage,
             "instance": self.instance,
             "fan_count": self.fan_count,
-            "total_stages": self.total_stages if self.total_stages > 0 else self.total_sheets,
+            "total_stages": effective_total,
+            # New terminology aliases (movement/voice vocabulary)
+            "movement": effective_stage,
+            "voice": self.instance,
+            "voice_count": self.fan_count,
+            "total_movements": effective_total,
+            # Cross-sheet context
             "previous_outputs": self.previous_outputs,
             "previous_files": self.previous_files,
             "injected_context": self.injected_context,

@@ -54,7 +54,7 @@ The simplest possible score (`examples/simple-sheet.yaml`):
 ```yaml
 name: "simple-sheet"
 description: "Minimal example showing core Mozart features"
-workspace: "./simple-workspace"
+workspace: "../workspaces/simple-workspace"
 
 backend:
   type: claude_cli

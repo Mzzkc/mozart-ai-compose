@@ -128,6 +128,31 @@ class StatusColors:
         return cls.ERROR_TYPE.get(error_type, "white")
 
 
+def format_sheet_display_status(
+    status: SheetStatus,
+    validation_passed: bool | None,
+) -> tuple[str, str]:
+    """Return (display_label, color) for a sheet's user-facing status.
+
+    Maps 'completed' with failed validations to 'failed' in user-facing
+    output. A sheet that exhausted retries and was marked terminal is not
+    'completed' in any meaningful sense — displaying it as such misleads
+    users (F-045).
+
+    Args:
+        status: The sheet's internal status enum.
+        validation_passed: Whether validations passed. False = failed,
+            None = no validations or not yet validated, True = passed.
+
+    Returns:
+        Tuple of (display_label, rich_color_name).
+    """
+    if status == SheetStatus.COMPLETED and validation_passed is False:
+        return ("failed", "red")
+    color = StatusColors.get_sheet_color(status)
+    return (status.value, color)
+
+
 # =============================================================================
 # Duration formatting
 # =============================================================================
@@ -612,6 +637,36 @@ def output_error(
             out.print(f"  - {hint}")
 
 
+def output_json(
+    data: object,
+    *,
+    console_instance: Console | None = None,
+) -> None:
+    """Output JSON data safely without Rich markup interpretation.
+
+    Rich's ``console.print()`` interprets square bracket patterns like
+    ``[red]`` as markup tags, which corrupts JSON output. This function
+    ensures JSON is output verbatim using ``markup=False`` and
+    ``highlight=False``.
+
+    Also handles non-serializable types (datetime, enum) via
+    ``default=str`` to prevent serialization crashes on real-world data.
+
+    Args:
+        data: JSON-serializable dict or list.
+        console_instance: Console to print to. Defaults to module console.
+    """
+    import json
+
+    out = console_instance or console
+    out.print(
+        json.dumps(data, indent=2, default=str),
+        markup=False,
+        highlight=False,
+        soft_wrap=True,
+    )
+
+
 def format_error_details(error: CheckpointErrorRecord) -> str:
     """Format detailed error information for display.
 
@@ -752,6 +807,8 @@ __all__ = [
     "format_timestamp",
     "format_validation_status",
     "output_error",
+    "output_json",
+    "format_sheet_display_status",
     "format_error_details",
     "format_job_status_line",
     "infer_error_type",

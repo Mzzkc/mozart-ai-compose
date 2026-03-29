@@ -22,7 +22,6 @@ This module implements job status display commands:
 from __future__ import annotations
 
 import asyncio
-import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, TypedDict
@@ -61,9 +60,11 @@ from ..output import (
     create_sheet_details_table,
     create_synthesis_table,
     format_duration,
+    format_sheet_display_status,
     format_timestamp,
     format_validation_status,
     output_error,
+    output_json,
 )
 from ..output import (
     infer_error_type as _infer_error_type,
@@ -88,9 +89,9 @@ class CircuitBreakerInference(TypedDict):
 
 
 def status(
-    job_id: str = typer.Argument(
-        ...,
-        help="Score ID to check status for",
+    job_id: str | None = typer.Argument(
+        None,
+        help="Score ID to check status for. Omit to see all active scores.",
     ),
     json_output: bool = typer.Option(
         False,
@@ -118,18 +119,21 @@ def status(
         hidden=True,
     ),
 ) -> None:
-    """Show detailed status of a specific score.
+    """Show score status. Run with no arguments for an overview of all scores.
 
-    Displays score progress, sheet states, timing information, and any errors.
-    Use --json for machine-readable output in scripts.
-    Use --watch for continuous monitoring (updates every 5 seconds by default).
+    With no arguments: shows conductor status and all active scores.
+    With a score ID: shows detailed status for that specific score.
 
     Examples:
+        mozart status
         mozart status my-job
         mozart status my-job --json
         mozart status my-job --watch
-        mozart status my-job --watch --interval 10
     """
+    if job_id is None:
+        asyncio.run(_status_overview(json_output))
+        return
+
     from ._shared import validate_job_id
 
     job_id = validate_job_id(job_id)
@@ -211,7 +215,7 @@ async def _status_job(
         error_detail = f"{type(exc).__name__}: {exc}"
         _logger.error("status_conductor_error", error=error_detail, exc_info=True)
         if json_output:
-            console.print(json.dumps({"error": f"Conductor error: {error_detail}"}, indent=2))
+            output_json({"error": f"Conductor error: {error_detail}"})
         else:
             console.print(f"[red]Conductor error:[/red] {error_detail}")
         raise typer.Exit(1) from None
@@ -318,7 +322,7 @@ async def _status_job_watch(
             if not found_job:
                 if json_output:
                     err_msg = f"{ErrorMessages.JOB_NOT_FOUND}: {job_id}"
-                    console.print(json.dumps({"error": err_msg}, indent=2))
+                    output_json({"error": err_msg})
                 else:
                     console.print(f"[red]{ErrorMessages.JOB_NOT_FOUND}:[/red] {job_id}")
             else:
@@ -348,6 +352,143 @@ async def _status_job_watch(
 
 
 _ACTIVE_STATUSES = {"queued", "running", "paused"}
+_RECENT_TERMINAL = {"completed", "failed", "cancelled"}
+
+
+async def _status_overview(json_output: bool) -> None:
+    """Show overview of all scores — like 'git status' for Mozart.
+
+    Displays conductor status, active scores, and recent completions.
+    """
+    from mozart.daemon.detect import try_daemon_route
+
+    # Check conductor
+    try:
+        routed, result = await try_daemon_route("daemon.health", {})
+    except Exception:
+        routed = False
+        result = None
+
+    if not routed:
+        output_error(
+            "Mozart conductor is not running.",
+            hints=["Start it with: mozart start"],
+            json_output=json_output,
+        )
+        raise typer.Exit(1)
+
+    # Get job list
+    try:
+        _, jobs_data = await try_daemon_route("job.list", {})
+    except Exception:
+        jobs_data = []
+
+    jobs: list[dict[str, Any]] = jobs_data if isinstance(jobs_data, list) else []
+
+    # Split into active and recent
+    active = [j for j in jobs if str(j.get("status", "")).lower() in _ACTIVE_STATUSES]
+    recent = [
+        j for j in jobs
+        if str(j.get("status", "")).lower() in _RECENT_TERMINAL
+    ]
+    # Sort recent by submission time descending, limit to 5
+    recent.sort(key=lambda j: j.get("submitted_at", 0) or 0, reverse=True)
+    recent = recent[:5]
+
+    if json_output:
+        output_json({
+            "conductor": "running",
+            "active_count": len(active),
+            "active": active,
+            "recent_count": len(recent),
+            "recent": recent,
+        })
+        return
+
+    # Conductor header
+    health = result if isinstance(result, dict) else {}
+    uptime_str = _format_uptime(health.get("uptime_seconds"))
+    console.print(
+        f"[bold]Mozart Conductor:[/bold] [green]RUNNING[/green]"
+        f"{f'  ({uptime_str})' if uptime_str else ''}"
+    )
+    console.print()
+
+    # Active scores
+    if active:
+        console.print("[bold]ACTIVE[/bold]")
+        _render_overview_jobs(active, show_elapsed=True)
+    else:
+        console.print("[dim]No active scores.[/dim]")
+
+    # Recent completions
+    if recent:
+        console.print("\n[bold]RECENT[/bold]")
+        _render_overview_jobs(recent, show_elapsed=False)
+
+    total = len(active)
+    summary_parts = []
+    if total:
+        summary_parts.append(f"{total} score{'s' if total != 1 else ''} active")
+    else:
+        summary_parts.append("No active scores")
+
+    console.print(f"\n[dim]{'. '.join(summary_parts)}."
+                  " Use 'mozart status <score>' for details.[/dim]")
+
+
+def _render_overview_jobs(
+    jobs: list[dict[str, Any]],
+    *,
+    show_elapsed: bool,
+) -> None:
+    """Render a compact list of jobs for the overview display."""
+    _colors: dict[str, str] = {
+        "queued": "yellow",
+        "running": "green",
+        "completed": "bright_green",
+        "paused": "yellow",
+        "failed": "red",
+        "cancelled": "dim",
+    }
+
+    for dj in jobs:
+        job_id = dj.get("job_id", "?")
+        raw_status = str(dj.get("status", "unknown")).lower()
+        color = _colors.get(raw_status, "white")
+        status_str = f"[{color}]{raw_status.upper()}[/{color}]"
+
+        # Build info parts
+        parts = [f"  {job_id:<24s} {status_str}"]
+
+        # Elapsed or total time
+        submitted_at = dj.get("submitted_at")
+        if show_elapsed and submitted_at and raw_status == "running":
+            elapsed = datetime.now(UTC).timestamp() - submitted_at
+            parts.append(f"  {format_duration(elapsed)} elapsed")
+        elif not show_elapsed and submitted_at:
+            parts.append(f"  {_format_daemon_timestamp(submitted_at)}")
+
+        console.print("".join(parts))
+
+
+def _format_uptime(seconds: float | None) -> str:
+    """Format uptime seconds into a human-readable string."""
+    if seconds is None:
+        return ""
+    s = int(seconds)
+    if s < 60:
+        return f"uptime {s}s"
+    if s < 3600:
+        return f"uptime {s // 60}m {s % 60}s"
+    hours = s // 3600
+    minutes = (s % 3600) // 60
+    if hours < 24:
+        return f"uptime {hours}h {minutes}m"
+    days = hours // 24
+    remaining_hours = hours % 24
+    return f"uptime {days}d {remaining_hours}h"
+
 
 async def _list_jobs(
     all_jobs: bool,
@@ -460,7 +601,7 @@ def _output_meta_status(meta: dict[str, Any], json_output: bool) -> None:
     resolve to a loadable state backend.
     """
     if json_output:
-        console.print(json.dumps(meta, indent=2, default=str))
+        output_json(meta)
         return
 
     job_id = meta.get("job_id", "unknown")
@@ -516,8 +657,12 @@ def _output_status_json(job: CheckpointState) -> None:
     # Build per-sheet JSON with enhanced fields
     sheets_json: dict[str, dict[str, Any]] = {}
     for num, sheet in job.sheets.items():
+        display_label, _ = format_sheet_display_status(
+            sheet.status, sheet.validation_passed,
+        )
         sheet_data: dict[str, Any] = {
             "status": sheet.status.value,
+            "display_status": display_label,
             "attempt_count": sheet.attempt_count,
             "validation_passed": sheet.validation_passed,
             "error_message": sheet.error_message,
@@ -587,7 +732,7 @@ def _output_status_json(job: CheckpointState) -> None:
         "error": job.error_message,
         "sheets": sheets_json,
     }
-    console.print(json.dumps(output, indent=2))
+    output_json(output)
 
 
 def _render_sheet_details(job: CheckpointState) -> None:
@@ -615,11 +760,13 @@ def _render_sheet_details(job: CheckpointState) -> None:
 
     for sheet_num in sorted(job.sheets.keys()):
         sheet = job.sheets[sheet_num]
-        sheet_color = StatusColors.get_sheet_color(sheet.status)
+        display_label, sheet_color = format_sheet_display_status(
+            sheet.status, sheet.validation_passed,
+        )
         val_str = format_validation_status(sheet.validation_passed)
 
         # Build status string with elapsed time for in-progress sheets
-        status_str = f"[{sheet_color}]{sheet.status.value}[/{sheet_color}]"
+        status_str = f"[{sheet_color}]{display_label}[/{sheet_color}]"
         if sheet.status == SheetStatus.IN_PROGRESS and sheet.started_at:
             elapsed = datetime.now(UTC) - sheet.started_at
             status_str += f" [dim]({format_duration(elapsed.total_seconds())})[/dim]"
@@ -997,6 +1144,12 @@ def _output_status_rich(job: CheckpointState) -> None:
         console.print(f"  Consecutive failures: {cb_state['consecutive_failures']}")
         if reason:
             console.print(f"  [dim]{reason}[/dim]")
+
+    # Suggest diagnose for failed jobs
+    if job.status == JobStatus.FAILED:
+        console.print(
+            f"\n[yellow]Run 'mozart diagnose {job.job_id}' for a full diagnostic report.[/yellow]"
+        )
 
 
 # =============================================================================

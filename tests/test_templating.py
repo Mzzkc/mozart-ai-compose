@@ -60,6 +60,59 @@ class TestSheetContext:
         assert result["end_item"] == 10
         assert result["workspace"] == "/test"
 
+    def test_to_dict_includes_movement_aliases(self) -> None:
+        """to_dict should include movement/voice/voice_count aliases (F-052).
+
+        Canyon's Sheet entity provides both old (stage, instance, fan_count)
+        and new (movement, voice, voice_count) terminology. SheetContext.to_dict()
+        must do the same so templates can use either vocabulary.
+        """
+        ctx = SheetContext(
+            sheet_num=3,
+            total_sheets=10,
+            start_item=1,
+            end_item=5,
+            workspace=Path("/ws"),
+            stage=2,
+            instance=1,
+            fan_count=3,
+            total_stages=4,
+        )
+
+        result = ctx.to_dict()
+
+        # Old terminology (backward compat)
+        assert result["stage"] == 2
+        assert result["instance"] == 1
+        assert result["fan_count"] == 3
+        assert result["total_stages"] == 4
+
+        # New terminology aliases (F-052)
+        assert result["movement"] == 2
+        assert result["voice"] == 1
+        assert result["voice_count"] == 3
+        assert result["total_movements"] == 4
+
+    def test_to_dict_aliases_fallback_when_unset(self) -> None:
+        """movement/total_movements fall back like stage/total_stages when 0."""
+        ctx = SheetContext(
+            sheet_num=5,
+            total_sheets=8,
+            start_item=1,
+            end_item=1,
+            workspace=Path("/ws"),
+            # stage=0 (default) -> falls back to sheet_num
+            # total_stages=0 (default) -> falls back to total_sheets
+        )
+
+        result = ctx.to_dict()
+
+        # Both old and new should fall back to sheet_num/total_sheets
+        assert result["stage"] == 5  # falls back to sheet_num
+        assert result["movement"] == 5  # same fallback
+        assert result["total_stages"] == 8  # falls back to total_sheets
+        assert result["total_movements"] == 8  # same fallback
+
 
 class TestPromptBuilder:
     """Tests for PromptBuilder class."""
