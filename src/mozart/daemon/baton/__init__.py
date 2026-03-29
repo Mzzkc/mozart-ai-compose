@@ -11,10 +11,15 @@ them to execution when they're ready and the system can handle them.
 
 Package layout::
 
-    events.py   — All BatonEvent types (dataclasses)
-    (future)    — timer.py, state.py, dispatch.py, core.py
+    events.py       — All BatonEvent types (dataclasses)
+    timer.py        — Timer wheel (priority queue of future events)
+    state.py        — Baton state models (sheet/instrument/job tracking)
+    core.py         — Event inbox, main loop, sheet registry
+    backend_pool.py — Per-instrument backend instance management
 """
 
+from mozart.daemon.baton.backend_pool import BackendPool
+from mozart.daemon.baton.core import BatonCore, SheetExecutionState
 from mozart.daemon.baton.events import (
     BatonEvent,
     CancelJob,
@@ -38,6 +43,15 @@ from mozart.daemon.baton.events import (
     ShutdownRequested,
     StaleCheck,
 )
+from mozart.daemon.baton.state import (
+    AttemptContext,
+    AttemptMode,
+    BatonJobState,
+    BatonSheetStatus,
+    CircuitBreakerState,
+    InstrumentState,
+)
+from mozart.daemon.baton.timer import TimerHandle, TimerWheel
 
 __all__ = [
     "BatonEvent",
@@ -61,4 +75,18 @@ __all__ = [
     "SheetSkipped",
     "ShutdownRequested",
     "StaleCheck",
+    # Timer
+    "TimerHandle",
+    "TimerWheel",
+    # State models
+    "AttemptContext",
+    "AttemptMode",
+    "BatonJobState",
+    "BatonSheetStatus",
+    "CircuitBreakerState",
+    "InstrumentState",
+    # Core
+    "BackendPool",
+    "BatonCore",
+    "SheetExecutionState",
 ]
