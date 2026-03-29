@@ -132,7 +132,10 @@ async def _recover_job(
 
     # Reconstruct config from snapshot
     if not state.config_snapshot:
-        console.print("[red]No config snapshot in state - cannot run validations[/red]")
+        output_error(
+            "No config snapshot in state — cannot run validations",
+            hints=["The score may need to be re-run with 'mozart run'."],
+        )
         raise typer.Exit(1)
 
     config = JobConfig.model_validate(state.config_snapshot)

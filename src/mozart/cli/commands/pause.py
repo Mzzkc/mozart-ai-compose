@@ -127,16 +127,13 @@ async def _pause_job(
         routed, result = await try_daemon_route("job.pause", params)
     except (OSError, ConnectionError, DaemonError) as exc:
         # Business logic error from conductor (e.g., job not found)
-        if json_output:
-            err_result = {
-                "success": False,
-                "error_code": "E501",
-                "job_id": job_id,
-                "message": str(exc),
-            }
-            console.print(json.dumps(err_result, indent=2))
-        else:
-            console.print(f"[red]Error:[/red] {exc}")
+        output_error(
+            str(exc),
+            error_code="E501",
+            hints=["Run 'mozart list' to see available scores."],
+            json_output=json_output,
+            job_id=job_id,
+        )
         raise typer.Exit(1) from None
 
     if routed:
@@ -145,18 +142,16 @@ async def _pause_job(
 
         if not paused:
             error_msg = result.get("error", "") if isinstance(result, dict) else ""
-            if json_output:
-                err_result = {
-                    "success": False,
-                    "error_code": "E502",
-                    "job_id": job_id,
-                    "message": error_msg or f"Failed to pause score '{job_id}'",
-                }
-                console.print(json.dumps(err_result, indent=2))
-            else:
-                console.print(
-                    f"[red]Error:[/red] {error_msg or f'Failed to pause score {job_id!r}'}"
-                )
+            output_error(
+                error_msg or f"Failed to pause score '{job_id}'",
+                error_code="E502",
+                hints=[
+                    f"Check score status: mozart status {job_id}",
+                    "Only running scores can be paused.",
+                ],
+                json_output=json_output,
+                job_id=job_id,
+            )
             raise typer.Exit(1)
 
         # Output success
@@ -221,35 +216,22 @@ async def _pause_job_direct(
 
     if found_state.status != JobStatus.RUNNING:
         status_str = found_state.status.value
-        if json_output:
-            hints: list[str] = []
-            if found_state.status == JobStatus.PAUSED:
-                hints.append("Score is already paused")
-                hints.append(f"Use 'mozart resume {job_id}' to resume")
-            elif found_state.status == JobStatus.PENDING:
-                hints.append("Use 'mozart run' to start the score")
-            elif found_state.status == JobStatus.COMPLETED:
-                hints.append("Score has already completed")
-            err = {
-                "success": False,
-                "error_code": "E502",
-                "job_id": job_id,
-                "status": status_str,
-                "message": f"Score '{job_id}' is {status_str}, not running",
-                "hints": hints,
-            }
-            console.print(json.dumps(err, indent=2))
-        else:
-            console.print(
-                f"[red]Error [E502]:[/red] Score '{job_id}' is {status_str}, not running"
-            )
-            if found_state.status == JobStatus.PAUSED:
-                console.print("[dim]Hint: Score is already paused.[/dim]")
-                console.print(f"[dim]Use 'mozart resume {job_id}' to resume.[/dim]")
-            elif found_state.status == JobStatus.PENDING:
-                console.print("[dim]Hint: Use 'mozart run' to start the score.[/dim]")
-            elif found_state.status == JobStatus.COMPLETED:
-                console.print("[dim]Hint: Score has already completed.[/dim]")
+        hints: list[str] = []
+        if found_state.status == JobStatus.PAUSED:
+            hints.append("Score is already paused.")
+            hints.append(f"Use 'mozart resume {job_id}' to resume.")
+        elif found_state.status == JobStatus.PENDING:
+            hints.append("Use 'mozart run' to start the score.")
+        elif found_state.status == JobStatus.COMPLETED:
+            hints.append("Score has already completed.")
+        output_error(
+            f"Score '{job_id}' is {status_str}, not running.",
+            error_code="E502",
+            hints=hints,
+            json_output=json_output,
+            job_id=job_id,
+            status=status_str,
+        )
         raise typer.Exit(1)
 
     try:
@@ -272,20 +254,18 @@ async def _pause_job_direct(
             )
         was_acknowledged = await wait_for_pause_ack(found_backend, job_id, timeout)
         if not was_acknowledged:
-            if json_output:
-                err = {
-                    "success": False,
-                    "error_code": "E504",
-                    "job_id": job_id,
-                    "message": f"Pause not acknowledged within {timeout}s",
-                    "signal_file": str(signal_file),
-                }
-                console.print(json.dumps(err, indent=2))
-            else:
-                console.print(
-                    f"[yellow]Warning [E504]:[/yellow] "
-                    f"Pause not acknowledged within {timeout}s"
-                )
+            output_error(
+                f"Pause not acknowledged within {timeout}s.",
+                error_code="E504",
+                severity="warning",
+                hints=[
+                    "The score may still pause at the next sheet boundary.",
+                    f"Check status: mozart status {job_id}",
+                ],
+                json_output=json_output,
+                job_id=job_id,
+                signal_file=str(signal_file),
+            )
             raise typer.Exit(2)
 
     if json_output:
@@ -338,16 +318,12 @@ async def _pause_via_conductor(
         )
     except (OSError, ConnectionError, DaemonError) as exc:
         if not quiet:
-            if json_output:
-                result = {
-                    "success": False,
-                    "error_code": "E503",
-                    "job_id": job_id,
-                    "message": str(exc),
-                }
-                console.print(json.dumps(result, indent=2))
-            else:
-                console.print(f"[red]Error [E503]:[/red] {exc}")
+            output_error(
+                str(exc),
+                error_code="E503",
+                json_output=json_output,
+                job_id=job_id,
+            )
         return False
 
     if not pause_routed:
@@ -366,19 +342,15 @@ async def _pause_via_conductor(
             pause_result.get("error", "")
             if isinstance(pause_result, dict) else ""
         )
-        if json_output:
-            result = {
-                "success": False,
-                "error_code": "E503",
-                "job_id": job_id,
-                "message": error_msg or f"Failed to pause score '{job_id}'",
-            }
-            console.print(json.dumps(result, indent=2))
-        else:
-            msg = f"Failed to pause score '{job_id}'"
-            if error_msg:
-                msg += f": {error_msg}"
-            console.print(f"[red]Error [E503]:[/red] {msg}")
+        msg = f"Failed to pause score '{job_id}'"
+        if error_msg:
+            msg += f": {error_msg}"
+        output_error(
+            msg,
+            error_code="E503",
+            json_output=json_output,
+            job_id=job_id,
+        )
     return paused
 
 
@@ -409,16 +381,13 @@ async def _pause_via_filesystem(
                 f"Pause signal sent to score '[cyan]{job_id}[/cyan]'."
             )
     except (PermissionError, OSError) as e:
-        if json_output:
-            result = {
-                "success": False,
-                "error_code": "E503",
-                "job_id": job_id,
-                "message": f"Cannot create pause signal: {e}",
-            }
-            console.print(json.dumps(result, indent=2))
-        else:
-            console.print(f"[red]Error [E503]:[/red] Cannot create pause signal: {e}")
+        output_error(
+            f"Cannot create pause signal: {e}",
+            error_code="E503",
+            hints=["Check workspace directory permissions."],
+            json_output=json_output,
+            job_id=job_id,
+        )
         raise typer.Exit(1) from None
 
     if wait and resume_flag and found_backend:
@@ -428,18 +397,17 @@ async def _pause_via_filesystem(
             )
         was_acknowledged = await wait_for_pause_ack(found_backend, job_id, timeout)
         if not was_acknowledged:
-            if json_output:
-                result = {
-                    "success": False,
-                    "error_code": "E504",
-                    "job_id": job_id,
-                    "message": f"Pause not acknowledged within {timeout}s",
-                }
-                console.print(json.dumps(result, indent=2))
-            else:
-                console.print(
-                    f"[yellow]Warning:[/yellow] Pause not acknowledged within {timeout}s"
-                )
+            output_error(
+                f"Pause not acknowledged within {timeout}s.",
+                error_code="E504",
+                severity="warning",
+                hints=[
+                    "The score may still pause at the next sheet boundary.",
+                    f"Check status: mozart status {job_id}",
+                ],
+                json_output=json_output,
+                job_id=job_id,
+            )
             raise typer.Exit(2)
 
 
@@ -531,17 +499,14 @@ async def _modify_job(
     try:
         new_config = JobConfig.from_yaml(config_file)
     except (OSError, ValueError, yaml.YAMLError, ValidationError) as e:
-        if json_output:
-            result = {
-                "success": False,
-                "error_code": "E505",
-                "job_id": job_id,
-                "message": f"Invalid config file: {e}",
-                "config_file": str(config_file),
-            }
-            console.print(json.dumps(result, indent=2))
-        else:
-            console.print(f"[red]Error [E505]:[/red] Invalid config file: {e}")
+        output_error(
+            f"Invalid config file: {e}",
+            error_code="E505",
+            hints=["Check YAML syntax and schema in your score file."],
+            json_output=json_output,
+            job_id=job_id,
+            config_file=str(config_file),
+        )
         raise typer.Exit(1) from None
 
     from mozart.daemon.detect import try_daemon_route
@@ -615,23 +580,19 @@ async def _modify_job(
     elif found_state.status not in _resumable_statuses:
         # Job is in a state that can't be modified (completed, pending)
         status_str = found_state.status.value
-        if json_output:
-            result = {
-                "success": False,
-                "error_code": "E502",
-                "job_id": job_id,
-                "status": status_str,
-                "message": f"Score '{job_id}' is {status_str}, cannot modify",
-            }
-            console.print(json.dumps(result, indent=2))
-        else:
-            console.print(
-                f"[red]Error [E502]:[/red] Score '{job_id}' is {status_str}"
-            )
-            if found_state.status == JobStatus.COMPLETED:
-                console.print("[dim]Hint: Score has already completed.[/dim]")
-            elif found_state.status == JobStatus.PENDING:
-                console.print("[dim]Hint: Use 'mozart run' to start the score.[/dim]")
+        modify_hints: list[str] = []
+        if found_state.status == JobStatus.COMPLETED:
+            modify_hints.append("Score has already completed.")
+        elif found_state.status == JobStatus.PENDING:
+            modify_hints.append("Use 'mozart run' to start the score.")
+        output_error(
+            f"Score '{job_id}' is {status_str}, cannot modify.",
+            error_code="E502",
+            hints=modify_hints,
+            json_output=json_output,
+            job_id=job_id,
+            status=status_str,
+        )
         raise typer.Exit(1)
 
     # Output success message
@@ -664,10 +625,11 @@ async def _modify_job(
                 status = modify_result.get("status", "")
                 if status == "rejected":
                     msg = modify_result.get("message", "Modify rejected")
-                    if json_output:
-                        console.print(json.dumps(modify_result, indent=2))
-                    else:
-                        console.print(f"[red]Error:[/red] {msg}")
+                    output_error(
+                        msg,
+                        json_output=json_output,
+                        job_id=job_id,
+                    )
                     raise typer.Exit(1)
 
                 msg = modify_result.get("message", "Modify accepted")
@@ -689,11 +651,16 @@ async def _modify_job(
                     )
                 paused_ok = await wait_for_pause_ack(found_backend, job_id, timeout)
                 if not paused_ok:
-                    if not json_output:
-                        console.print(
-                            f"[red]Error:[/red] Timed out waiting for score "
-                            f"'{job_id}' to pause ({timeout}s)"
-                        )
+                    output_error(
+                        f"Timed out waiting for score '{job_id}' to pause ({timeout}s).",
+                        error_code="E504",
+                        hints=[
+                            "The score may still pause at the next sheet boundary.",
+                            f"Check status: mozart status {job_id}",
+                        ],
+                        json_output=json_output,
+                        job_id=job_id,
+                    )
                     raise typer.Exit(1)
 
         if not json_output:

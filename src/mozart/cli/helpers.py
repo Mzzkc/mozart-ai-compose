@@ -154,7 +154,9 @@ def configure_global_logging(console: Console) -> None:
         # If debugging is needed, use --log-file to redirect logs
     except ValueError as e:
         # Handle configuration errors (e.g., format="both" without file_path)
-        console.print(f"[red]Logging configuration error:[/red] {e}")
+        from .output import output_error
+
+        output_error(f"Logging configuration error: {e}")
         raise typer.Exit(1) from None
 
 
@@ -361,14 +363,13 @@ def require_conductor(
     if routed:
         return
 
-    from .output import console as _console
+    from .output import output_error
 
-    msg = "Mozart conductor is not running. Start it with: mozart start"
-    if json_output:
-        import json
-        _console.print(json.dumps({"error": msg}, indent=2))
-    else:
-        _console.print(f"[red]Error:[/red] {msg}")
+    output_error(
+        "Mozart conductor is not running.",
+        hints=["Start it with: mozart start"],
+        json_output=json_output,
+    )
     raise typer.Exit(1)
 
 
