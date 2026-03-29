@@ -5,6 +5,7 @@ This prevents credentials from propagating to CheckpointState, learning
 store, dashboard, diagnostics, and MCP resources.
 
 Addresses F-003: No output scanning for credential patterns.
+Addresses F-023: Missing GitHub, Slack, and Hugging Face token patterns.
 
 Key patterns detected:
 - Anthropic API keys: sk-ant-api* (30+ chars after prefix)
@@ -12,6 +13,9 @@ Key patterns detected:
 - Google API keys: AIzaSy* (35+ chars)
 - AWS access keys: AKIA* (20 chars total)
 - Bearer tokens: Authorization: Bearer <token>
+- GitHub tokens: ghp_*, gho_*, github_pat_* (36+ chars after prefix)
+- Slack tokens: xoxb-*, xoxp-*, xapp-* (hyphenated segments)
+- Hugging Face tokens: hf_* (20+ alphanumeric chars after prefix)
 
 The scanner is deliberately conservative — better to miss a non-credential
 than to redact legitimate output. False positives degrade output quality;
@@ -61,6 +65,44 @@ _CREDENTIAL_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
         re.compile(r"(?<=Bearer\s)[a-zA-Z0-9._-]{20,}"),
         "[REDACTED_BEARER_TOKEN]",
         "Bearer token",
+    ),
+    # GitHub Personal Access Tokens: ghp_ (classic), gho_ (OAuth), github_pat_ (fine-grained)
+    (
+        re.compile(r"ghp_[a-zA-Z0-9]{36,}"),
+        "[REDACTED_GITHUB_TOKEN]",
+        "GitHub classic PAT",
+    ),
+    (
+        re.compile(r"gho_[a-zA-Z0-9]{36,}"),
+        "[REDACTED_GITHUB_TOKEN]",
+        "GitHub OAuth token",
+    ),
+    (
+        re.compile(r"github_pat_[a-zA-Z0-9_]{36,}"),
+        "[REDACTED_GITHUB_TOKEN]",
+        "GitHub fine-grained PAT",
+    ),
+    # Slack tokens: xoxb- (bot), xoxp- (user), xapp- (app-level)
+    (
+        re.compile(r"xoxb-[a-zA-Z0-9-]{20,}"),
+        "[REDACTED_SLACK_TOKEN]",
+        "Slack bot token",
+    ),
+    (
+        re.compile(r"xoxp-[a-zA-Z0-9-]{20,}"),
+        "[REDACTED_SLACK_TOKEN]",
+        "Slack user token",
+    ),
+    (
+        re.compile(r"xapp-[a-zA-Z0-9-]{20,}"),
+        "[REDACTED_SLACK_TOKEN]",
+        "Slack app token",
+    ),
+    # Hugging Face tokens: hf_<20+ alphanumeric chars>
+    (
+        re.compile(r"hf_[a-zA-Z0-9]{20,}"),
+        "[REDACTED_HF_TOKEN]",
+        "Hugging Face token",
     ),
 ]
 

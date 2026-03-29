@@ -128,6 +128,99 @@ class TestRedactCredentials:
         assert "secret12345" not in result
 
 
+class TestGitHubTokenRedaction:
+    """Tests for GitHub PAT token redaction (F-023 fix)."""
+
+    def test_github_pat_classic_redacted(self) -> None:
+        """Classic GitHub PAT (ghp_) is redacted."""
+        from mozart.utils.credential_scanner import redact_credentials
+
+        text = "git clone https://ghp_ABCDEFghijklmnop1234567890abcdefghijklmn@github.com/repo"
+        result = redact_credentials(text)
+        assert "ghp_ABCDEF" not in result
+        assert "[REDACTED_GITHUB_TOKEN]" in result
+
+    def test_github_oauth_token_redacted(self) -> None:
+        """GitHub OAuth token (gho_) is redacted."""
+        from mozart.utils.credential_scanner import redact_credentials
+
+        text = "GITHUB_TOKEN=gho_ABCDEFghijklmnop1234567890abcdefghijklmn"
+        result = redact_credentials(text)
+        assert "gho_ABCDEF" not in result
+        assert "[REDACTED_GITHUB_TOKEN]" in result
+
+    def test_github_fine_grained_pat_redacted(self) -> None:
+        """Fine-grained GitHub PAT (github_pat_) is redacted."""
+        from mozart.utils.credential_scanner import redact_credentials
+
+        text = "export GH_TOKEN=github_pat_11ABCDEFG0abcdefghijklmnopqrstuvwxyz1234567890"
+        result = redact_credentials(text)
+        assert "github_pat_11ABCDEFG0" not in result
+        assert "[REDACTED_GITHUB_TOKEN]" in result
+
+    @pytest.mark.adversarial
+    def test_short_ghp_not_false_positive(self) -> None:
+        """Short ghp_ prefix without sufficient chars is not redacted."""
+        from mozart.utils.credential_scanner import redact_credentials
+
+        text = "ghp_short is not a token"
+        result = redact_credentials(text)
+        assert "ghp_short" in result  # too short to be a real token
+
+
+class TestSlackTokenRedaction:
+    """Tests for Slack token redaction (F-023 fix)."""
+
+    def test_slack_bot_token_redacted(self) -> None:
+        """Slack bot token (xoxb-) is redacted."""
+        from mozart.utils.credential_scanner import redact_credentials
+
+        text = "SLACK_TOKEN=xoxb-123456789012-1234567890123-abcdefghijklmnopqrstuvwx"
+        result = redact_credentials(text)
+        assert "xoxb-123456789012" not in result
+        assert "[REDACTED_SLACK_TOKEN]" in result
+
+    def test_slack_user_token_redacted(self) -> None:
+        """Slack user token (xoxp-) is redacted."""
+        from mozart.utils.credential_scanner import redact_credentials
+
+        text = "token: xoxp-123456789012-1234567890123-1234567890123-abcdefghijklmnopqrstuvwxyz123456"
+        result = redact_credentials(text)
+        assert "xoxp-123456789012" not in result
+        assert "[REDACTED_SLACK_TOKEN]" in result
+
+    def test_slack_app_token_redacted(self) -> None:
+        """Slack app-level token (xapp-) is redacted."""
+        from mozart.utils.credential_scanner import redact_credentials
+
+        text = "SLACK_APP=xapp-1-A1234567890-1234567890123-abcdefghijklmnopqrstuvwx"
+        result = redact_credentials(text)
+        assert "xapp-1-A123456" not in result
+        assert "[REDACTED_SLACK_TOKEN]" in result
+
+
+class TestHuggingFaceTokenRedaction:
+    """Tests for Hugging Face token redaction (F-023 fix)."""
+
+    def test_hf_token_redacted(self) -> None:
+        """Hugging Face token (hf_) is redacted."""
+        from mozart.utils.credential_scanner import redact_credentials
+
+        text = "HF_TOKEN=hf_ABCDEFghijklmnopQRSTUV"
+        result = redact_credentials(text)
+        assert "hf_ABCDEFghijklmnop" not in result
+        assert "[REDACTED_HF_TOKEN]" in result
+
+    @pytest.mark.adversarial
+    def test_short_hf_not_false_positive(self) -> None:
+        """Short hf_ prefix is not redacted."""
+        from mozart.utils.credential_scanner import redact_credentials
+
+        text = "hf_short is not enough"
+        result = redact_credentials(text)
+        assert "hf_short" in result  # too short
+
+
 class TestScanForCredentials:
     """Tests for scan_for_credentials — detection without redaction."""
 
@@ -146,3 +239,30 @@ class TestScanForCredentials:
 
         found = scan_for_credentials("No credentials here")
         assert found == []
+
+    def test_detects_github_token(self) -> None:
+        """Detects GitHub PAT presence."""
+        from mozart.utils.credential_scanner import scan_for_credentials
+
+        text = "ghp_ABCDEFghijklmnop1234567890abcdefghijklmn"
+        found = scan_for_credentials(text)
+        assert len(found) > 0
+        assert any("github" in f.lower() for f in found)
+
+    def test_detects_slack_token(self) -> None:
+        """Detects Slack token presence."""
+        from mozart.utils.credential_scanner import scan_for_credentials
+
+        text = "xoxb-123456789012-1234567890123-abcdefghijklmnopqrstuvwx"
+        found = scan_for_credentials(text)
+        assert len(found) > 0
+        assert any("slack" in f.lower() for f in found)
+
+    def test_detects_hf_token(self) -> None:
+        """Detects Hugging Face token presence."""
+        from mozart.utils.credential_scanner import scan_for_credentials
+
+        text = "hf_ABCDEFghijklmnopQRSTUV"
+        found = scan_for_credentials(text)
+        assert len(found) > 0
+        assert any("hugging" in f.lower() for f in found)
