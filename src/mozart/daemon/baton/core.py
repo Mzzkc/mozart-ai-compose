@@ -570,12 +570,17 @@ class BatonCore:
         )
 
     def _handle_escalation_needed(self, event: EscalationNeeded) -> None:
-        """Enter fermata — pause job, await composer decision."""
+        """Enter fermata — pause job, await composer decision.
+
+        Terminal sheets are not affected — a completed/failed/skipped sheet
+        cannot enter fermata. The job is still paused to await the composer's
+        decision about the escalation context.
+        """
         job = self._jobs.get(event.job_id)
         if job is None:
             return
         sheet = job.sheets.get(event.sheet_num)
-        if sheet is not None:
+        if sheet is not None and sheet.status not in _TERMINAL_STATUSES:
             sheet.status = "fermata"
         job.paused = True
         self._state_dirty = True
