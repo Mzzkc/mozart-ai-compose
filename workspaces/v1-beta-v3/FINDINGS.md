@@ -915,3 +915,37 @@ Each finding should include:
 - **Description:** `mozart validate examples/hello.yaml` (working tree version with `instrument: claude-code`) shows `Backend: claude_cli` in the Configuration summary. The user writes `instrument:` and the system reports `Backend:`. The display code at the validate summary section doesn't check whether the score used `instrument:` or `backend:` and always displays the backend terminology.
 - **Impact:** Minor but counteracts the instrument migration effort. Reinforces the impression that `instrument:` is just an alias. The configuration summary should reflect what the user wrote.
 - **Action:** Show `Instrument: claude-code` when the score uses `instrument:` field. Show `Backend: claude_cli` when the score uses the legacy `backend:` field. The display should match the user's chosen syntax.
+
+### F-092: V101 False Positive on Jinja2 Loop Variables in hello.yaml
+- **Found by:** Newcomer, Movement 2
+- **Severity:** P3 (low — cosmetic warning on flagship example)
+- **Status:** Open
+- **Description:** `mozart validate examples/hello.yaml` warns: `[V101] Undefined variable 'char' in prompt.template`. But `char` is a Jinja2 loop variable set via `{% for id, char in characters.items() %}` (hello.yaml:91) and `{% set char = characters[instance] %}` (hello.yaml:113). The V101 checker doesn't understand Jinja2 loop variables or `{% set %}` assignments — it only checks against top-level template variables.
+- **Impact:** The first command a newcomer runs on the flagship example produces a warning. Introduces doubt about whether the example is broken. A false positive on the best example is worse than no check at all.
+- **Action:** Either suppress V101 for variables that appear as Jinja2 loop/set targets, or document this as a known limitation of the validator.
+
+### F-093: 34 of 37 Example Scores Fail Validation — Workspace Path Bug
+- **Found by:** Newcomer, Movement 2
+- **Severity:** P0 (critical — examples are the product's teaching corpus)
+- **Status:** Open
+- **Description:** 34 of 37 example scores in `examples/` fail `mozart validate` with `[V002] Workspace parent directory does not exist`. The cause: these scores use `workspace: "./workspaces/[name]"` which resolves relative to the score file's directory (`examples/`). The `examples/workspaces/` directory does not exist. Only two scores pass: `hello.yaml` and `simple-sheet.yaml`, which use `workspace: "../workspaces/[name]"` (navigating up to the repo root where `workspaces/` exists). Additionally, `iterative-dev-loop.yaml` fails with a Pydantic schema error (`cross_sheet.max_output_chars: 0` violates `gt=0` constraint at line 3077), and `iterative-dev-loop-config.yaml` fails because it's a generator config, not a Mozart score.
+- **Impact:** A newcomer who finishes the hello.yaml quickstart and tries ANY other example immediately hits a validation error. The examples corpus — 37 scores spanning software dev, research, writing, and planning — is effectively unusable beyond the two that use `../workspaces/`. This undermines the "Beyond Coding" positioning and the entire learning path from hello.yaml to real-world scores.
+- **Error class:** The V002 error message is helpful (suggests `mkdir -p`) but the suggested fix is wrong — creating `examples/workspaces/` would put workspaces in the wrong location. The root cause is inconsistent workspace path conventions between scores.
+- **Action:** Change all 34 scores from `./workspaces/` to `../workspaces/` (consistent with hello.yaml and simple-sheet.yaml). Fix `iterative-dev-loop.yaml` `max_output_chars: 0`. Either move `iterative-dev-loop-config.yaml` out of examples/ or mark it clearly as a generator config, not a runnable score.
+
+### F-094: README Configuration Reference Teaches Obsolete `backend:` Syntax
+- **Found by:** Newcomer, Movement 2
+- **Severity:** P2 (medium — documentation inconsistency in the main README)
+- **Status:** Open
+- **Description:** The README's Configuration section was partially migrated to `instrument:` syntax. The YAML example (line 291) correctly uses `instrument: claude-code`. But the Configuration Reference immediately below (line 335) is titled "Backend Options" and documents a `type` field for the old `backend:` block. Prerequisites (line 55) say "for `claude_cli` backend". Architecture diagram (line 430) has a box labeled "Backend". Key Concepts (line 455) says "native backends".
+- **Impact:** A newcomer reading the README sees `instrument:` in the example, then `Backend Options` with `type: claude_cli` in the reference table 10 lines below. This teaches contradictory patterns. The migration of examples (F-083) without migrating the README reference creates a split personality.
+- **Action:** Rename "Backend Options" to "Instrument Configuration". Update the table to document `instrument_config:` fields. Change "claude_cli backend" in prerequisites. Update architecture diagram label. Decide whether `backend:` needs legacy documentation or should be removed from the README entirely.
+
+### F-095: `mozart init` Generates Deprecated `backend:` Syntax — Contradicts F-083 Migration
+- **Found by:** Adversary, Movement 2
+- **Severity:** P1 (high — first thing every new user sees)
+- **Status:** Open
+- **Description:** `mozart init` generates a starter score using the deprecated `backend:` syntax (`init_cmd.py:74`). The template contains `backend: type: claude_cli` with a comment on the line above (line 73) saying "use `instrument: claude-code` instead of backend:". The entire orchestra spent movement 2 migrating 37 examples from `backend:` to `instrument:` (F-083), but the command that generates NEW scores still uses the old syntax. Every new user's first score teaches the wrong pattern.
+- **Impact:** New users who run `mozart init` → edit → run get a working score using deprecated syntax. When they later read the docs or examples (which now use `instrument:`), the inconsistency creates confusion. The init command contradicts the migration it should support.
+- **Fix:** Change `init_cmd.py` starter score template from `backend: type: claude_cli` to `instrument: claude-code` with `instrument_config: timeout_seconds: 300`. Also update the comments to remove the "use instrument: instead of backend:" hint (since it would already be using `instrument:`). 5-minute fix.
+- **Error class:** Same pattern as F-094 (README Configuration Reference teaches old syntax) and F-089 (uncommitted migration files). The migration changed old files but didn't update code that generates new files.
