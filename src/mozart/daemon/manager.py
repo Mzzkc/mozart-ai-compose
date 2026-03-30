@@ -176,6 +176,13 @@ class JobManager:
         # Initialized eagerly, started in start() after event bus.
         self._observer_recorder: ObserverRecorder | None = None
 
+        # Step 28: Baton adapter — feature-flagged replacement for monolithic execution.
+        # Lazy-initialized in start() when use_baton is True.
+        # Import deferred to avoid circular import at module level.
+        from mozart.daemon.baton.adapter import BatonAdapter
+        self._baton_adapter: BatonAdapter | None = None
+        self._baton_loop_task: asyncio.Task[Any] | None = None
+
     # ─── Lifecycle ────────────────────────────────────────────────────
 
     async def start(self) -> None:
@@ -215,9 +222,20 @@ class JobManager:
         # Restore ALL job metadata from registry into memory so that
         # RPC handlers (status, resume, pause, errors, …) work for
         # jobs from previous daemon sessions without per-method fallback.
+        # F-077: Also restore hook_config so on_success hooks fire after restart.
         all_records = await self._registry.list_jobs(limit=10_000)
         for record in all_records:
             if record.job_id not in self._job_meta:
+                # Restore hook_config from registry (F-077: was missing,
+                # causing on_success hooks to silently stop after restart)
+                hook_config: list[dict[str, Any]] | None = None
+                hook_json = await self._registry.get_hook_config(
+                    record.job_id,
+                )
+                if hook_json:
+                    import json
+                    hook_config = json.loads(hook_json)
+
                 self._job_meta[record.job_id] = JobMeta(
                     job_id=record.job_id,
                     config_path=Path(record.config_path),
@@ -226,6 +244,7 @@ class JobManager:
                     started_at=record.started_at,
                     status=record.status,
                     error_message=record.error_message,
+                    hook_config=hook_config,
                 )
         if all_records:
             _logger.info(
@@ -278,6 +297,21 @@ class JobManager:
             )
             await self._observer_recorder.start(self._event_bus)
 
+        # Step 28: Initialize baton adapter when use_baton is enabled.
+        if self._config.use_baton:
+            from mozart.daemon.baton.adapter import BatonAdapter
+
+            self._baton_adapter = BatonAdapter(
+                event_bus=self._event_bus,
+                max_concurrent_sheets=self._config.max_concurrent_sheets,
+            )
+            # Start the baton's event loop as a background task
+            self._baton_loop_task = asyncio.create_task(
+                self._baton_adapter.run(),
+                name="baton-loop",
+            )
+            _logger.info("manager.baton_adapter_started")
+
         _logger.info(
             "manager.started",
             scheduler_status="lazy_not_wired",
@@ -285,6 +319,7 @@ class JobManager:
             "yet driving execution. Jobs run monolithically via JobService.",
             semantic_analyzer="active" if self._semantic_analyzer else "unavailable",
             observer_recorder="active" if self._observer_recorder else "unavailable",
+            baton_adapter="active" if self._baton_adapter else "disabled",
         )
 
     @property
@@ -1520,16 +1555,8 @@ class JobManager:
     async def _run_job_task(self, job_id: str, request: JobRequest) -> None:
         """Task coroutine that runs a single job.
 
-        Currently runs jobs monolithically via ``JobService.start_job()``.
-
-        TODO(Phase 3 — scheduler integration): Replace monolithic execution
-        with per-sheet dispatch through ``self._scheduler``:
-          1. Parse sheets from config: ``config.sheets``
-          2. Build SheetInfo list + dependency DAG
-          3. ``await self._scheduler.register_job(job_id, sheets, deps)``
-          4. Dispatch loop: ``entry = await self._scheduler.next_sheet()``
-          5. Spawn per-sheet tasks, call ``mark_complete()`` on finish
-          6. On error/cancel: ``await self._scheduler.deregister_job(job_id)``
+        Routes through the BatonAdapter when use_baton is enabled,
+        otherwise falls back to monolithic JobService.start_job().
         """
 
         async def _execute() -> DaemonJobStatus:
@@ -1561,6 +1588,11 @@ class JobManager:
                     },
                 )
 
+            # Step 28: Route through baton when enabled
+            if self._baton_adapter is not None:
+                return await self._run_via_baton(job_id, config, request)
+
+            # Monolithic execution (default — pre-baton path)
             summary = await self._checked_service.start_job(
                 config,
                 conductor_job_id=job_id,
@@ -1582,6 +1614,86 @@ class JobManager:
             return self._map_job_status(summary.final_status)
 
         await self._run_managed_task(job_id, _execute())
+
+    async def _run_via_baton(
+        self,
+        job_id: str,
+        config: Any,
+        request: JobRequest,
+    ) -> DaemonJobStatus:
+        """Execute a job through the baton adapter.
+
+        Converts the config into Sheet entities, registers them with the
+        baton, and waits for the baton to complete execution.
+
+        Args:
+            job_id: Conductor job ID.
+            config: Parsed and adjusted JobConfig.
+            request: Original job request.
+
+        Returns:
+            DaemonJobStatus reflecting the job's outcome.
+        """
+        from mozart.core.sheet import build_sheets
+        from mozart.daemon.baton.adapter import extract_dependencies
+
+        assert self._baton_adapter is not None  # Caller checks this
+        adapter = self._baton_adapter
+
+        # Build Sheet entities from config
+        sheets = build_sheets(config)
+        deps = extract_dependencies(config)
+
+        # Extract retry/cost settings from config
+        max_retries = config.backend.max_retries
+        max_cost: float | None = None
+        if config.cost_limits.enabled and config.cost_limits.max_cost_usd:
+            max_cost = config.cost_limits.max_cost_usd
+
+        # Publish job.started event
+        await adapter.publish_job_event(job_id, "job.started", {
+            "sheet_count": len(sheets),
+            "instrument": config.backend.type,
+        })
+
+        # Register job with the baton
+        adapter.register_job(
+            job_id,
+            sheets,
+            deps,
+            max_cost_usd=max_cost,
+            max_retries=max_retries,
+            escalation_enabled=request.self_healing,
+            self_healing_enabled=request.self_healing,
+        )
+
+        try:
+            # Wait for the baton to complete all sheets
+            all_success = await adapter.wait_for_completion(job_id)
+
+            # Publish completion event
+            await adapter.publish_job_event(
+                job_id,
+                "job.completed" if all_success else "job.failed",
+                {"all_success": all_success},
+            )
+
+            return (
+                DaemonJobStatus.COMPLETED if all_success
+                else DaemonJobStatus.FAILED
+            )
+
+        except asyncio.CancelledError:
+            adapter.deregister_job(job_id)
+            raise
+        except Exception:
+            _logger.error(
+                "baton.job_execution_failed",
+                job_id=job_id,
+                exc_info=True,
+            )
+            adapter.deregister_job(job_id)
+            return DaemonJobStatus.FAILED
 
     async def _resume_job_task(self, job_id: str, workspace: Path) -> None:
         """Task coroutine that resumes a paused job."""

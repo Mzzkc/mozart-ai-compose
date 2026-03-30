@@ -97,7 +97,7 @@ This is the highest priority task. You are running inside a live conductor. You 
 - [x] [Circuit] Implement rate limit handling (instrument-level, timer-based) (priority: P0) [source: roadmap step 25 / issue #100]
 - [x] [Circuit] Implement failure evaluation: completion mode, cost enforcement, instrument state tracking (priority: P0) [source: roadmap step 26]
 - [x] [Maverick] Implement BackendPool (acquire/release) (priority: P0) [source: roadmap step 27]
-- [ ] [Foundation] Wire baton into conductor (replace monolithic execution) (priority: P0) [source: roadmap step 28] — Canyon wrote wiring analysis: movement-2/step-28-wiring-analysis.md (8 surfaces, 5 phases, ~900 lines estimated)
+- [x] [Foundation, Canyon] Wire baton into conductor (replace monolithic execution) (priority: P0) [source: roadmap step 28] — Foundation built BatonAdapter module (775 lines, 39 tests, abbbeac). Canyon added completion signaling (wait_for_completion, _check_completions), wired use_baton feature flag in manager.py (_run_job_task routing, start() initialization), 8 additional TDD tests (47 total). Remaining: full prompt assembly (PromptBuilder), CheckpointState sync, concert support.
 - [ ] Implement restart recovery (reconcile baton-state + CheckpointState) (priority: P0) [source: roadmap step 29 / issue #111]
 - [x] [Circuit] Reconcile dual SheetExecutionState (core.py vs state.py) before baton ships (priority: P1) [source: F-017]
 - [x] [Axiom] Fix musician-baton validation_pass_rate contract + dependency failure propagation + escalation unpause bug (priority: P1) [source: F-018, invariant analysis]

@@ -650,3 +650,135 @@ class TestDependencyExtraction:
 
         # Sheet 4 (stage 2): depends on ALL of stage 1 (sheets 1,2,3)
         assert sorted(deps.get(4, [])) == [1, 2, 3]
+
+
+# =========================================================================
+# Completion Signaling
+# =========================================================================
+
+
+class TestCompletionSignaling:
+    """Test that the adapter signals job completion correctly."""
+
+    def test_completion_event_created_on_register(self) -> None:
+        """Registering a job creates a completion event."""
+        from mozart.daemon.baton.adapter import BatonAdapter
+
+        adapter = BatonAdapter()
+        sheet = _make_sheet(num=1)
+        adapter.register_job("j1", [sheet], {1: []})
+        assert "j1" in adapter._completion_events
+        assert not adapter._completion_events["j1"].is_set()
+
+    def test_completion_event_removed_on_deregister(self) -> None:
+        """Deregistering a job removes the completion event."""
+        from mozart.daemon.baton.adapter import BatonAdapter
+
+        adapter = BatonAdapter()
+        sheet = _make_sheet(num=1)
+        adapter.register_job("j1", [sheet], {1: []})
+        adapter.deregister_job("j1")
+        assert "j1" not in adapter._completion_events
+
+    def test_check_completions_signals_when_all_terminal(self) -> None:
+        """_check_completions signals when all sheets reach terminal state."""
+        from mozart.daemon.baton.adapter import BatonAdapter
+
+        adapter = BatonAdapter()
+        sheet = _make_sheet(num=1)
+        adapter.register_job("j1", [sheet], {1: []})
+
+        # Manually set sheet to COMPLETED in the baton
+        job = adapter.baton._jobs["j1"]
+        job.sheets[1].status = BatonSheetStatus.COMPLETED
+
+        adapter._check_completions()
+
+        assert adapter._completion_events["j1"].is_set()
+        assert adapter._completion_results["j1"] is True
+
+    def test_check_completions_reports_failure(self) -> None:
+        """_check_completions reports failure when any sheet is FAILED."""
+        from mozart.daemon.baton.adapter import BatonAdapter
+
+        adapter = BatonAdapter()
+        sheets = [_make_sheet(num=1), _make_sheet(num=2)]
+        adapter.register_job("j1", sheets, {1: [], 2: []})
+
+        # One completed, one failed
+        job = adapter.baton._jobs["j1"]
+        job.sheets[1].status = BatonSheetStatus.COMPLETED
+        job.sheets[2].status = BatonSheetStatus.FAILED
+
+        adapter._check_completions()
+
+        assert adapter._completion_events["j1"].is_set()
+        assert adapter._completion_results["j1"] is False
+
+    def test_check_completions_skips_non_terminal(self) -> None:
+        """_check_completions doesn't signal if sheets are still running."""
+        from mozart.daemon.baton.adapter import BatonAdapter
+
+        adapter = BatonAdapter()
+        sheets = [_make_sheet(num=1), _make_sheet(num=2)]
+        adapter.register_job("j1", sheets, {1: [], 2: []})
+
+        # One completed, one still pending
+        job = adapter.baton._jobs["j1"]
+        job.sheets[1].status = BatonSheetStatus.COMPLETED
+        # sheet 2 is still PENDING (default)
+
+        adapter._check_completions()
+
+        assert not adapter._completion_events["j1"].is_set()
+
+    @pytest.mark.asyncio
+    async def test_wait_for_completion_returns_on_signal(self) -> None:
+        """wait_for_completion unblocks when the completion event is set."""
+        from mozart.daemon.baton.adapter import BatonAdapter
+
+        adapter = BatonAdapter()
+        sheet = _make_sheet(num=1)
+        adapter.register_job("j1", [sheet], {1: []})
+
+        # Set completion from a background task
+        async def _complete_later() -> None:
+            await asyncio.sleep(0.01)
+            job = adapter.baton._jobs["j1"]
+            job.sheets[1].status = BatonSheetStatus.COMPLETED
+            adapter._check_completions()
+
+        task = asyncio.create_task(_complete_later())
+        result = await asyncio.wait_for(
+            adapter.wait_for_completion("j1"), timeout=2.0
+        )
+        assert result is True
+        await task
+
+    @pytest.mark.asyncio
+    async def test_wait_for_completion_raises_on_unknown_job(self) -> None:
+        """wait_for_completion raises KeyError for unknown jobs."""
+        from mozart.daemon.baton.adapter import BatonAdapter
+
+        adapter = BatonAdapter()
+        with pytest.raises(KeyError, match="not registered"):
+            await adapter.wait_for_completion("nonexistent")
+
+    def test_check_completions_idempotent(self) -> None:
+        """_check_completions doesn't signal twice for the same job."""
+        from mozart.daemon.baton.adapter import BatonAdapter
+
+        adapter = BatonAdapter()
+        sheet = _make_sheet(num=1)
+        adapter.register_job("j1", [sheet], {1: []})
+
+        job = adapter.baton._jobs["j1"]
+        job.sheets[1].status = BatonSheetStatus.COMPLETED
+
+        # Call twice
+        adapter._check_completions()
+        adapter._check_completions()
+
+        # Should still be set (idempotent)
+        assert adapter._completion_events["j1"].is_set()
+        assert adapter._completion_results["j1"] is True

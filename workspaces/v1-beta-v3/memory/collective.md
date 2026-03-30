@@ -51,17 +51,17 @@ Movement 3 — IN PROGRESS.
 |-----------|--------|--------|
 | M0 Stabilization | COMPLETE | 18/18 tasks |
 | M1 Foundation | COMPLETE | 13/13 tasks |
-| M2 Baton | 90% | Step 28: BatonAdapter module DONE (Foundation M3, ~450 lines, 39 tests). Feature flag in DaemonConfig. Manager wiring and step 29 remain. |
+| M2 Baton | 94% | Step 28: BatonAdapter + manager wiring DONE (Foundation + Canyon M3, 775+ lines, 47 tests). Feature flag active. Prompt assembly + state sync + concert support remain. Step 29 remains. |
 | M3 UX & Polish | 94% | 15/16 tasks. Step 35 (error standardization) ~95% complete. |
 | --conductor-clone | 12% | Audit done. Implementation not started. |
 
-**Step 28 Progress (Foundation, M3):**
-- BatonAdapter (`src/mozart/daemon/baton/adapter.py`) implements 6 of 8 integration surfaces from Canyon's wiring analysis: state sync, job registration, dispatch callback, EventBus bridge, rate limit bridge, feature flag.
-- Surfaces remaining: manager wiring (Phase C/D), concert support (Phase D2).
-- `DaemonConfig.use_baton: bool = False` — feature flag added. Old path untouched.
-- 39 TDD tests in `tests/test_baton_adapter.py` — all passing.
+**Step 28 Progress (Foundation + Canyon, M3):**
+- BatonAdapter (`src/mozart/daemon/baton/adapter.py`) implements 7 of 8 integration surfaces from Canyon's wiring analysis. Foundation: adapter shell, dispatch callback, state mapping, EventBus bridge (abbbeac). Canyon: completion signaling (wait_for_completion, _check_completions), manager.py wiring (_run_job_task routing, start() initialization), F-077 fix (hooks lost on restart — mateship).
+- Surfaces remaining: full prompt assembly via PromptBuilder (Surface 3 — currently uses raw template), CheckpointState synchronization (Surface 4 — status mapping exists but no per-event sync), concert support (Surface 7).
+- `DaemonConfig.use_baton: bool = False` — feature flag. When True, _run_job_task routes through BatonAdapter. Baton event loop starts as background task in start(). DO NOT enable in production until prompt assembly is wired.
+- 47 TDD tests in `tests/test_baton_adapter.py` — all passing.
 
-**Critical path:** Step 28 Phase C/D (wire adapter into manager) → Step 29 (restart recovery).
+**Critical path:** Step 28 remaining surfaces (3, 4, 7) → Step 29 (restart recovery).
 
 **Top risks:** (1) Uncommitted M4 work breaks mypy + reconciliation test (F-096), (2) F-075/F-076/F-077 production bugs from Rosetta Score, (3) F-009 learning store effectiveness inert, (4) --conductor-clone blocks safe daemon testing.
 
