@@ -4,7 +4,7 @@
 name: "observability-demo"
 description: "Demo job showcasing observability features"
 
-workspace: "./workspaces/observability-demo-workspace"
+workspace: "../workspaces/observability-demo-workspace"
 
 instrument: claude-code
 instrument_config:

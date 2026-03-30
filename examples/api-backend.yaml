@@ -15,7 +15,7 @@
 name: "api-sheet"
 description: "Sheet processing using Anthropic API"
 
-workspace: "./workspaces/api-workspace"
+workspace: "../workspaces/api-workspace"
 
 # Instrument: use the Anthropic Messages API directly
 # This is a native instrument — no YAML profile needed.

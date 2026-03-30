@@ -160,7 +160,10 @@ def validate(
             console.print()
             console.print("[dim]Configuration summary:[/dim]")
             console.print(f"  Sheets: {config.sheet.total_sheets}")
-            console.print(f"  Backend: {config.backend.type}")
+            if config.instrument:
+                console.print(f"  Instrument: {config.instrument}")
+            else:
+                console.print(f"  Backend: {config.backend.type}")
             console.print(f"  Validations: {len(config.validations)}")
             console.print(f"  Notifications: {len(config.notifications)}")
 

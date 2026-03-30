@@ -132,10 +132,10 @@ This is the highest priority task. You are running inside a live conductor. You 
 
 ## M4: Multi-Instrument & Demo — CRITICAL PATH
 
-- [ ] Per-sheet instrument assignment (sheets.N.instrument) (priority: P0) [source: roadmap step 38]
-- [ ] Score-level instruments: named profiles (priority: P0) [source: roadmap step 39]
-- [ ] sheet.instrument_map for batch assignment (priority: P1) [source: roadmap step 40]
-- [ ] movements: YAML key (priority: P0) [source: roadmap step 41]
+- [x] [Blueprint] Per-sheet instrument assignment (sheets.N.instrument) (priority: P0) [source: roadmap step 38] — InstrumentDef + per_sheet_instruments/per_sheet_instrument_config on SheetConfig, resolution chain in build_sheets(), 33 TDD + 2 property-based tests
+- [x] [Blueprint] Score-level instruments: named profiles (priority: P0) [source: roadmap step 39] — InstrumentDef model, instruments: dict on JobConfig, YAML parsing validated
+- [x] [Blueprint] sheet.instrument_map for batch assignment (priority: P1) [source: roadmap step 40] — instrument_map on SheetConfig with duplicate sheet validation, integrated into resolution chain
+- [x] [Blueprint] movements: YAML key (priority: P0) [source: roadmap step 41] — MovementDef model, movements: dict on JobConfig with validators, movement-level instrument resolution in build_sheets()
 - [ ] Cron scheduling (priority: P1) [source: roadmap step 42 / issue #67]
 - [ ] Lovable demo score (priority: P0) [source: roadmap step 43]
 - [ ] [Guide] Documentation: getting started, score writing, instrument guide, migration (priority: P0) [source: roadmap step 44] — Guide M1: updated getting-started.md, score-writing-guide.md, configuration-reference.md, README.md with instrument terminology + template variable aliases + hello.yaml references. Guide M2: added instrument_config section to score-writing-guide.md, migrated score-writing-guide code samples to instrument: syntax, updated examples/README.md with 15 missing examples. Remaining: instrument migration guide, full docs review pass.

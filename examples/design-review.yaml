@@ -31,7 +31,7 @@
 name: "design-review"
 description: "TDF-aligned design document review for completeness and gaps"
 
-workspace: "./workspaces/design-review-workspace"
+workspace: "../workspaces/design-review-workspace"
 
 instrument: claude-code
 instrument_config:

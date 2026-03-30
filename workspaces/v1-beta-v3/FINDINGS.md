@@ -720,7 +720,8 @@ Each finding should include:
 ### F-075: Resume After Fan-Out Failure Corrupts Sheet State and Violates Dependencies
 - **Found by:** Composer, Movement 2
 - **Severity:** P0 (correctness — violates M-009, breaks dependency enforcement)
-- **Status:** open
+- **Status:** Resolved (movement 3, Forge — mateship pickup of unnamed musician's fix)
+- **Resolution:** Fix in `lifecycle.py:495-500`: GH#42 loop now defines `_terminal = (COMPLETED, FAILED, SKIPPED)` and only marks sheets as COMPLETED if their status is not already terminal. 3 TDD tests in `test_production_bug_fixes.py` (TestF075ResumeFanOutCorruption). Fix + tests were found uncommitted in the working tree — 5th occurrence of this pattern.
 - **Description:** When a parallel fan-out batch has mixed results (some sheets complete, some fail), resuming the job silently overwrites the failed sheet's status to COMPLETED and skips retrying it. Downstream dependent sheets then execute against incomplete inputs.
 - **Root Cause:** Three interacting bugs in the runner's resume path:
   1. **High-water mark misrepresents progress** (`src/mozart/core/checkpoint.py:892`): `last_completed_sheet` only advances, never retreats. In a fan-out where sheets 3-7 complete but sheet 2 fails, `last_completed_sheet=7` — hiding the failure below the watermark.
@@ -758,7 +759,8 @@ Each finding should include:
 ### F-077: on_success Hooks Never Fire After Conductor Restart — hook_config Not Restored From Registry
 - **Found by:** Composer, Movement 2
 - **Severity:** P0 (correctness — self-chaining scores silently stop chaining after conductor restart)
-- **Status:** open
+- **Status:** Resolved (movement 3, Forge)
+- **Resolution:** Added `registry.get_hook_config()` call to the restoration loop in `manager.py:225-231`. hook_config JSON is loaded, parsed, and set on `JobMeta` during startup. 2 TDD tests in test_daemon_manager.py (TestHookConfigRestoration). Note: `concert_config` and `chain_depth` are NOT persisted in the registry — a future sibling fix is needed (see error class below).
 - **Description:** When the conductor restarts, it restores `JobMeta` from the registry DB for all known jobs (`manager.py:221-229`). However, the restoration code does not load `hook_config_json` from the DB, leaving `meta.hook_config = None`. When a resumed job later completes, the hook dispatch condition at `manager.py:2004` (`meta.hook_config`) evaluates to `None` and hooks are silently skipped. No log entry is produced because the `None` check comes before both the execution branch and the `hooks.skipped_zero_work` branch.
 - **Root Cause:** `manager.py:221-229` constructs `JobMeta` with only 7 fields from the registry record. It never calls `registry.get_hook_config(job_id)` to populate `hook_config`. The `store_hook_config` method (`registry.py:330`) correctly persists hook config at submission time, and the `get_hook_config` method (`registry.py:338`) exists to read it back, but the restoration loop never uses it.
 - **Observed In:** the-rosetta-score (2026-03-30). The score has `on_success: [{type: run_job, ...}]` for self-chaining. The job was submitted, failed (sheet 2 rate limit), the conductor was restarted, the job was resumed, completed all remaining sheets, but never chained. `mozart status` shows: `WARNING: 1 on_success hook(s) configured but no results recorded`. The conductor log shows `hooks.skipped_daemon_managed` (runner deferred to daemon) but no daemon hook execution or skip log — the hook dispatch code was never reached because `meta.hook_config` was `None`.
@@ -911,7 +913,8 @@ Each finding should include:
 ### F-091: `mozart validate` Configuration Summary Shows "Backend:" for Scores Using `instrument:`
 - **Found by:** Ember, Movement 2
 - **Severity:** P3 (low — terminology mismatch in display)
-- **Status:** Open
+- **Status:** Resolved (movement 3, Blueprint)
+- **Resolution:** validate.py now checks `config.instrument` and shows "Instrument: {name}" when set, falls back to "Backend: {type}" for legacy scores.
 - **Description:** `mozart validate examples/hello.yaml` (working tree version with `instrument: claude-code`) shows `Backend: claude_cli` in the Configuration summary. The user writes `instrument:` and the system reports `Backend:`. The display code at the validate summary section doesn't check whether the score used `instrument:` or `backend:` and always displays the backend terminology.
 - **Impact:** Minor but counteracts the instrument migration effort. Reinforces the impression that `instrument:` is just an alias. The configuration summary should reflect what the user wrote.
 - **Action:** Show `Instrument: claude-code` when the score uses `instrument:` field. Show `Backend: claude_cli` when the score uses the legacy `backend:` field. The display should match the user's chosen syntax.
@@ -927,7 +930,8 @@ Each finding should include:
 ### F-093: 34 of 37 Example Scores Fail Validation — Workspace Path Bug
 - **Found by:** Newcomer, Movement 2
 - **Severity:** P0 (critical — examples are the product's teaching corpus)
-- **Status:** Open
+- **Status:** Resolved (movement 3, Blueprint)
+- **Resolution:** Changed all 35 examples from `./workspaces/` to `../workspaces/` (consistent with hello.yaml and simple-sheet.yaml). Also fixed `iterative-dev-loop.yaml` invalid `max_output_chars: 0` (removed, since `auto_capture_stdout: false` already disables capture).
 - **Description:** 34 of 37 example scores in `examples/` fail `mozart validate` with `[V002] Workspace parent directory does not exist`. The cause: these scores use `workspace: "./workspaces/[name]"` which resolves relative to the score file's directory (`examples/`). The `examples/workspaces/` directory does not exist. Only two scores pass: `hello.yaml` and `simple-sheet.yaml`, which use `workspace: "../workspaces/[name]"` (navigating up to the repo root where `workspaces/` exists). Additionally, `iterative-dev-loop.yaml` fails with a Pydantic schema error (`cross_sheet.max_output_chars: 0` violates `gt=0` constraint at line 3077), and `iterative-dev-loop-config.yaml` fails because it's a generator config, not a Mozart score.
 - **Impact:** A newcomer who finishes the hello.yaml quickstart and tries ANY other example immediately hits a validation error. The examples corpus — 37 scores spanning software dev, research, writing, and planning — is effectively unusable beyond the two that use `../workspaces/`. This undermines the "Beyond Coding" positioning and the entire learning path from hello.yaml to real-world scores.
 - **Error class:** The V002 error message is helpful (suggests `mkdir -p`) but the suggested fix is wrong — creating `examples/workspaces/` would put workspaces in the wrong location. The root cause is inconsistent workspace path conventions between scores.
@@ -944,7 +948,8 @@ Each finding should include:
 ### F-095: `mozart init` Generates Deprecated `backend:` Syntax — Contradicts F-083 Migration
 - **Found by:** Adversary, Movement 2
 - **Severity:** P1 (high — first thing every new user sees)
-- **Status:** Open
+- **Status:** Resolved (movement 3, Blueprint)
+- **Resolution:** Changed `init_cmd.py` starter score template from `backend: type: claude_cli` to `instrument: claude-code` with `instrument_config: timeout_seconds: 300`. Updated comments to list available instruments and reference `mozart instruments list`.
 - **Description:** `mozart init` generates a starter score using the deprecated `backend:` syntax (`init_cmd.py:74`). The template contains `backend: type: claude_cli` with a comment on the line above (line 73) saying "use `instrument: claude-code` instead of backend:". The entire orchestra spent movement 2 migrating 37 examples from `backend:` to `instrument:` (F-083), but the command that generates NEW scores still uses the old syntax. Every new user's first score teaches the wrong pattern.
 - **Impact:** New users who run `mozart init` → edit → run get a working score using deprecated syntax. When they later read the docs or examples (which now use `instrument:`), the inconsistency creates confusion. The init command contradicts the migration it should support.
 - **Fix:** Change `init_cmd.py` starter score template from `backend: type: claude_cli` to `instrument: claude-code` with `instrument_config: timeout_seconds: 300`. Also update the comments to remove the "use instrument: instead of backend:" hint (since it would already be using `instrument:`). 5-minute fix.

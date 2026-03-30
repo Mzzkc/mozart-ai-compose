@@ -83,6 +83,83 @@ class InjectionItem(BaseModel):
     )
 
 
+class InstrumentDef(BaseModel):
+    """A named instrument definition within a score.
+
+    Allows a score to declare reusable instrument aliases that reference
+    registered instrument profiles with optional configuration overrides.
+    These aliases can then be referenced by name in per-sheet or per-movement
+    instrument assignments.
+
+    Example YAML::
+
+        instruments:
+          fast-writer:
+            profile: gemini-cli
+            config:
+              model: gemini-2.5-flash
+              timeout_seconds: 300
+          deep-thinker:
+            profile: claude-code
+            config:
+              timeout_seconds: 3600
+    """
+
+    profile: str = Field(
+        min_length=1,
+        description="Name of the registered instrument profile, e.g. 'gemini-cli'",
+    )
+    config: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Configuration overrides for this instrument definition. "
+        "Flat key-value pairs merged with the profile's defaults.",
+    )
+
+
+class MovementDef(BaseModel):
+    """Declaration of a movement within a score.
+
+    Movements are sequential execution phases. Each movement can specify
+    a name, an instrument (overriding the score default), instrument config,
+    and a voice count (shorthand for fan-out).
+
+    Example YAML::
+
+        movements:
+          1:
+            name: Planning
+            instrument: claude-code
+          2:
+            name: Implementation
+            voices: 3
+            instrument: gemini-cli
+          3:
+            name: Review
+    """
+
+    name: str | None = Field(
+        default=None,
+        description="Human-readable name for this movement",
+    )
+    instrument: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Instrument for all sheets in this movement. "
+        "Overrides the score-level instrument: but is overridden "
+        "by per-sheet assignments.",
+    )
+    instrument_config: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Instrument configuration overrides for this movement",
+    )
+    voices: int | None = Field(
+        default=None,
+        ge=1,
+        description="Number of parallel voices in this movement. "
+        "Shorthand for fan_out: {N: voices}.",
+    )
+
+
 class SheetConfig(BaseModel):
     """Configuration for sheet processing.
 
@@ -205,6 +282,83 @@ class SheetConfig(BaseModel):
             "Survives serialization for resume support."
         ),
     )
+
+    # Per-sheet instrument assignment (M4: multi-instrument support)
+    per_sheet_instruments: dict[int, str] = Field(
+        default_factory=dict,
+        description=(
+            "Per-sheet instrument overrides. Map of sheet_num -> instrument name. "
+            "Overrides score-level, movement-level, and instrument_map assignments. "
+            "Example: {3: 'gemini-cli', 5: 'codex-cli'}"
+        ),
+    )
+
+    per_sheet_instrument_config: dict[int, dict[str, Any]] = Field(
+        default_factory=dict,
+        description=(
+            "Per-sheet instrument configuration overrides. "
+            "Map of sheet_num -> config dict. "
+            "Merged with the resolved instrument's defaults for that sheet. "
+            "Example: {3: {model: 'gemini-2.5-flash', timeout_seconds: 300}}"
+        ),
+    )
+
+    # Batch instrument assignment (M4: convenience for large scores)
+    instrument_map: dict[str, list[int]] = Field(
+        default_factory=dict,
+        description=(
+            "Batch instrument assignment. Map of instrument_name -> list of sheet numbers. "
+            "Overrides score-level instrument for listed sheets. "
+            "Overridden by per_sheet_instruments for specific sheets. "
+            "Example: {'gemini-cli': [1, 2, 3], 'claude-code': [4, 5, 6]}"
+        ),
+    )
+
+    @field_validator("per_sheet_instruments")
+    @classmethod
+    def validate_per_sheet_instruments(
+        cls, v: dict[int, str],
+    ) -> dict[int, str]:
+        """Validate per-sheet instrument assignments."""
+        for sheet_num, instrument in v.items():
+            if not isinstance(sheet_num, int) or sheet_num < 1:
+                raise ValueError(
+                    f"Per-sheet instrument key must be a positive integer, "
+                    f"got {sheet_num}"
+                )
+            if not instrument:
+                raise ValueError(
+                    f"Per-sheet instrument name for sheet {sheet_num} "
+                    f"must not be empty"
+                )
+        return v
+
+    @field_validator("instrument_map")
+    @classmethod
+    def validate_instrument_map(
+        cls, v: dict[str, list[int]],
+    ) -> dict[str, list[int]]:
+        """Validate instrument_map: no duplicate sheets, valid names."""
+        seen_sheets: dict[int, str] = {}
+        for instrument, sheets in v.items():
+            if not instrument:
+                raise ValueError(
+                    "Instrument name in instrument_map must not be empty"
+                )
+            for sheet_num in sheets:
+                if not isinstance(sheet_num, int) or sheet_num < 1:
+                    raise ValueError(
+                        f"Sheet number in instrument_map must be a positive "
+                        f"integer, got {sheet_num} for instrument '{instrument}'"
+                    )
+                if sheet_num in seen_sheets:
+                    raise ValueError(
+                        f"Sheet {sheet_num} assigned to multiple instruments "
+                        f"in instrument_map: '{seen_sheets[sheet_num]}' and "
+                        f"'{instrument}'"
+                    )
+                seen_sheets[sheet_num] = instrument
+        return v
 
     @property
     def total_sheets(self) -> int:
@@ -474,6 +628,24 @@ class JobConfig(BaseModel):
         "Only meaningful when instrument: is set.",
     )
 
+    # Score-level named instrument definitions (M4: multi-instrument support)
+    instruments: dict[str, InstrumentDef] = Field(
+        default_factory=dict,
+        description="Named instrument definitions local to this score. "
+        "Each entry declares a reusable alias referencing a registered "
+        "instrument profile with optional configuration overrides. "
+        "Referenced by name in per-sheet or per-movement instrument: fields.",
+    )
+
+    # Movement declarations (M4: movement-level instrument and voice config)
+    movements: dict[int, MovementDef] = Field(
+        default_factory=dict,
+        description="Movement declarations. Map of movement_num -> MovementDef. "
+        "Each movement can specify a name, instrument, instrument config, "
+        "and voice count. Movement instruments override the score-level "
+        "instrument: but are overridden by per-sheet assignments.",
+    )
+
     sheet: SheetConfig
     prompt: PromptConfig
     spec: SpecCorpusConfig = Field(
@@ -566,6 +738,20 @@ class JobConfig(BaseModel):
         ge=0,
         description="Seconds to wait between sheets",
     )
+
+    @field_validator("movements")
+    @classmethod
+    def _validate_movement_keys(
+        cls, v: dict[int, MovementDef],
+    ) -> dict[int, MovementDef]:
+        """Validate movement numbers are positive integers."""
+        for movement_num in v:
+            if not isinstance(movement_num, int) or movement_num < 1:
+                raise ValueError(
+                    f"Movement number must be a positive integer, "
+                    f"got {movement_num}"
+                )
+        return v
 
     @model_validator(mode="after")
     def _resolve_workspace(self) -> JobConfig:

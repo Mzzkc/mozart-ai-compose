@@ -45,7 +45,7 @@
 name: "palimpsest"
 description: "Five translations of a single text, seeking the meaning that survives"
 
-workspace: "./workspaces/palimpsest-workspace"
+workspace: "../workspaces/palimpsest-workspace"
 
 instrument: claude-code
 instrument_config:

@@ -11,7 +11,7 @@
 name: "prelude-cadenza-demo"
 description: "Demonstrates prelude/cadenza context injection"
 
-workspace: "./workspaces/prelude-demo-workspace"
+workspace: "../workspaces/prelude-demo-workspace"
 
 instrument: claude-code
 instrument_config:

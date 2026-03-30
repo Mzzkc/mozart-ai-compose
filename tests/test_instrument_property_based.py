@@ -27,6 +27,7 @@ from mozart.core.config.instruments import (
     InstrumentProfile,
     ModelCapacity,
 )
+from mozart.core.config.job import InstrumentDef, MovementDef
 
 # ---------------------------------------------------------------------------
 # Strategies
@@ -221,3 +222,54 @@ def test_instrument_profile_roundtrip(data: dict[str, Any]) -> None:
     assert restored.name == profile.name
     assert restored.cli is not None
     assert restored.cli.command.executable == profile.cli.command.executable
+
+
+# ---------------------------------------------------------------------------
+# M4: InstrumentDef and MovementDef strategies and tests
+# ---------------------------------------------------------------------------
+
+def instrument_def_strategy() -> st.SearchStrategy[dict[str, Any]]:
+    """Strategy for InstrumentDef as a dict."""
+    return st.fixed_dictionaries({
+        "profile": _nonempty_text,
+        "config": st.fixed_dictionaries({}, optional={
+            "model": _nonempty_text,
+            "timeout_seconds": _nonneg_float,
+        }),
+    })
+
+
+def movement_def_strategy() -> st.SearchStrategy[dict[str, Any]]:
+    """Strategy for MovementDef as a dict."""
+    return st.fixed_dictionaries({}, optional={
+        "name": _nonempty_text,
+        "instrument": _nonempty_text,
+        "instrument_config": st.fixed_dictionaries({}, optional={
+            "model": _nonempty_text,
+        }),
+        "voices": _positive_int,
+    })
+
+
+@pytest.mark.property_based
+@_pb_settings
+@given(data=instrument_def_strategy())
+def test_instrument_def_roundtrip(data: dict[str, Any]) -> None:
+    """InstrumentDef roundtrips through serialization."""
+    idef = InstrumentDef.model_validate(data)
+    assert idef.profile == data["profile"]
+    restored = InstrumentDef.model_validate(idef.model_dump())
+    assert restored.profile == idef.profile
+    assert restored.config == idef.config
+
+
+@pytest.mark.property_based
+@_pb_settings
+@given(data=movement_def_strategy())
+def test_movement_def_roundtrip(data: dict[str, Any]) -> None:
+    """MovementDef roundtrips through serialization."""
+    mdef = MovementDef.model_validate(data)
+    restored = MovementDef.model_validate(mdef.model_dump())
+    assert restored.name == mdef.name
+    assert restored.instrument == mdef.instrument
+    assert restored.voices == mdef.voices

@@ -34,7 +34,7 @@
 name: "skill-builder"
 description: "Progressive skill-building curriculum generator"
 
-workspace: "./workspaces/skill-builder-workspace"
+workspace: "../workspaces/skill-builder-workspace"
 
 instrument: claude-code
 instrument_config:

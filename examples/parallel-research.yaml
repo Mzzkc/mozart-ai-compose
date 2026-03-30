@@ -36,7 +36,7 @@
 name: "parallel-research"
 description: "Multi-source research with parallel execution and synthesis"
 
-workspace: "./workspaces/parallel-workspace"
+workspace: "../workspaces/parallel-workspace"
 
 instrument: claude-code
 instrument_config:

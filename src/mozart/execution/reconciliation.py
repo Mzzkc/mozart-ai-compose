@@ -80,6 +80,9 @@ CONFIG_STATE_MAPPING: dict[str, list[str]] = {
     # Instrument plugin system (v1) — runner recreates backend from profile
     "instrument": [],
     "instrument_config": [],
+    # M4: Multi-instrument support — runner reconstructs sheets from these
+    "instruments": [],
+    "movements": [],
 }
 
 

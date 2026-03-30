@@ -68,11 +68,10 @@ description: "A starter score — edit this with your task"
 workspace: ./workspaces/{name}
 
 # Which instrument plays the score.
-# Built-in backends: claude_cli, anthropic_api, ollama
-# Named instruments: claude-code, gemini-cli, codex-cli, aider, goose
-#   (use `instrument: claude-code` instead of backend: for named instruments)
-backend:
-  type: claude_cli
+# Available instruments: claude-code, gemini-cli, codex-cli, aider, goose, cline-cli
+# Run `mozart instruments list` to see what's available.
+instrument: claude-code
+instrument_config:
   timeout_seconds: 300
 
 # How the score is divided.

@@ -31,7 +31,7 @@
 name: "worldbuilder"
 description: "Generate a fictional world through parallel creative lenses"
 
-workspace: "./workspaces/worldbuilder-workspace"
+workspace: "../workspaces/worldbuilder-workspace"
 
 instrument: claude-code
 instrument_config:

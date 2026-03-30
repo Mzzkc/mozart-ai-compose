@@ -32,7 +32,7 @@
 name: "dinner-party"
 description: "Plan a dinner party with parallel planning tracks"
 
-workspace: "./workspaces/dinner-party-workspace"
+workspace: "../workspaces/dinner-party-workspace"
 
 instrument: claude-code
 instrument_config:

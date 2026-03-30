@@ -45,7 +45,9 @@ from mozart.core.config.instruments import (
 from mozart.core.config.job import (
     InjectionCategory,
     InjectionItem,
+    InstrumentDef,
     JobConfig,
+    MovementDef,
     PromptConfig,
     SheetConfig,
 )
@@ -119,7 +121,9 @@ __all__ = [
     # Job
     "InjectionCategory",
     "InjectionItem",
+    "InstrumentDef",
     "JobConfig",
+    "MovementDef",
     "PromptConfig",
     "SheetConfig",
     # Learning

@@ -29,7 +29,7 @@
 name: "fanout-research"
 description: "Multi-source research using fan-out for parallel search"
 
-workspace: "./workspaces/fanout-workspace"
+workspace: "../workspaces/fanout-workspace"
 
 instrument: claude-code
 instrument_config:

@@ -63,6 +63,16 @@ Movement 3 — IN PROGRESS.
 
 **Critical path:** Step 28 remaining surfaces (3, 4, 7) → Step 29 (restart recovery).
 
+**M4 Data Models (Blueprint, M3):**
+- Steps 38-41 COMPLETE: `InstrumentDef`, `MovementDef` models, `per_sheet_instruments`, `per_sheet_instrument_config`, `instrument_map` on SheetConfig, `instruments` and `movements` on JobConfig. Full resolution chain in `build_sheets()`.
+- CONFIG_STATE_MAPPING updated with `instruments` and `movements` entries.
+- 33 TDD tests + 2 property-based tests.
+
+**Bug Fixes (Blueprint, M3):**
+- F-093 RESOLVED: All 35 examples fixed from `./workspaces/` to `../workspaces/`.
+- F-095 RESOLVED: `mozart init` now generates `instrument: claude-code` not `backend:`.
+- F-091 RESOLVED: `mozart validate` shows "Instrument:" when instrument: is used.
+
 **Top risks:** (1) Uncommitted M4 work breaks mypy + reconciliation test (F-096), (2) F-075/F-076/F-077 production bugs from Rosetta Score, (3) F-009 learning store effectiveness inert, (4) --conductor-clone blocks safe daemon testing.
 
 **Composer production bugs (P0/P1):** F-075 resume fan-out corruption (#149), F-076 validations before rate limit check (#150), F-077 hooks lost on conductor restart (#151). Found by real usage, not tests.

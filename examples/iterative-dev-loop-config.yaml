@@ -15,7 +15,7 @@
 
 # Job identity
 name: "iterative-dev-loop-example"
-workspace: "./workspaces/dev-loop-example"
+workspace: "../workspaces/dev-loop-example"
 spec_dir: "./specs/my-feature/"
 
 # How many development cycles before forced exit (early exit via verdicts)

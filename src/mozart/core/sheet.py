@@ -198,6 +198,12 @@ def build_sheets(config: JobConfig) -> list[Sheet]:
     sheets: list[Sheet] = []
     total_sheets = config.sheet.total_sheets
 
+    # Pre-build reverse lookup for instrument_map: sheet_num -> instrument_name
+    instrument_map_lookup: dict[int, str] = {}
+    for instr_name, sheet_nums in config.sheet.instrument_map.items():
+        for sn in sheet_nums:
+            instrument_map_lookup[sn] = instr_name
+
     for sheet_num in range(1, total_sheets + 1):
         # --- Identity ---
         fan_meta = config.sheet.get_fan_out_metadata(sheet_num)
@@ -207,10 +213,46 @@ def build_sheets(config: JobConfig) -> list[Sheet]:
 
         description = config.sheet.descriptions.get(sheet_num)
 
-        # --- Instrument ---
-        # For now: backend.type is the instrument name.
-        # When instrument: field lands (step 6), this will use the resolution chain.
-        instrument_name = config.backend.type
+        # --- Instrument resolution chain ---
+        # Priority: per_sheet > instrument_map > movement > score instrument > backend.type
+        instrument_config: dict[str, Any] = dict(config.instrument_config)
+
+        # Walk the resolution chain from highest to lowest priority
+        resolved_instrument: str | None = None
+
+        if sheet_num in config.sheet.per_sheet_instruments:
+            # Highest priority: explicit per-sheet assignment
+            resolved_instrument = config.sheet.per_sheet_instruments[sheet_num]
+        elif sheet_num in instrument_map_lookup:
+            # Batch assignment via instrument_map
+            resolved_instrument = instrument_map_lookup[sheet_num]
+        else:
+            # Check movement-level instrument
+            if movement in config.movements:
+                movement_def = config.movements[movement]
+                if movement_def.instrument is not None:
+                    resolved_instrument = movement_def.instrument
+                    # Movement-level config merges with score-level
+                    if movement_def.instrument_config:
+                        instrument_config = {
+                            **instrument_config,
+                            **movement_def.instrument_config,
+                        }
+            # Fall through to score-level or backend default
+            if resolved_instrument is None:
+                if config.instrument is not None:
+                    resolved_instrument = config.instrument
+                else:
+                    resolved_instrument = config.backend.type
+
+        instrument_name: str = resolved_instrument
+
+        # Per-sheet instrument config overrides everything
+        if sheet_num in config.sheet.per_sheet_instrument_config:
+            instrument_config = {
+                **instrument_config,
+                **config.sheet.per_sheet_instrument_config[sheet_num],
+            }
 
         # --- Timeout ---
         # Resolution: sheet_overrides.timeout_seconds > timeout_overrides > backend.timeout_seconds
@@ -249,6 +291,7 @@ def build_sheets(config: JobConfig) -> list[Sheet]:
                 description=description,
                 workspace=config.workspace,
                 instrument_name=instrument_name,
+                instrument_config=instrument_config,
                 prompt_template=prompt_template,
                 template_file=template_file,
                 variables=variables,

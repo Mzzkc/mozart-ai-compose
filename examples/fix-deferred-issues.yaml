@@ -42,7 +42,7 @@
 name: "fix-deferred-issues"
 description: "Fix failing tests, mypy errors, production bug, and structural debt"
 
-workspace: "./workspaces/deferred-workspace"
+workspace: "../workspaces/deferred-workspace"
 
 instrument: claude-code
 instrument_config:

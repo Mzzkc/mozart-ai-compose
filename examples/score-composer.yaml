@@ -30,7 +30,7 @@
 name: "score-composer"
 description: "Compose an implementation score from a design document"
 
-workspace: "./workspaces/score-composer-workspace"
+workspace: "../workspaces/score-composer-workspace"
 
 instrument: claude-code
 instrument_config:
@@ -73,7 +73,7 @@ prompt:
 
     # Where should the implementation score write its code?
     # This becomes the workspace for the GENERATED score.
-    target_workspace: "./workspaces/libretto-impl-workspace"
+    target_workspace: "../workspaces/libretto-impl-workspace"
 
     # What backend should the generated score use?
     target_backend: "claude_cli"

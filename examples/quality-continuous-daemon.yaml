@@ -57,7 +57,7 @@
 name: "quality-continuous-daemon"
 description: "General daemon quality review — architecture, testing, code quality, integration"
 
-workspace: "./workspaces/quality-daemon-workspace-2"
+workspace: "../workspaces/quality-daemon-workspace-2"
 
 workspace_lifecycle:
   archive_on_fresh: true

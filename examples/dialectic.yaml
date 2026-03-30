@@ -31,7 +31,7 @@
 name: "dialectic"
 description: "Thesis-antithesis-synthesis argumentation"
 
-workspace: "./workspaces/dialectic-workspace"
+workspace: "../workspaces/dialectic-workspace"
 
 instrument: claude-code
 instrument_config:
