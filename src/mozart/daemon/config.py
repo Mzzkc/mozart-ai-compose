@@ -320,6 +320,12 @@ class DaemonConfig(BaseModel):
         "Controls when prompts are warned or rejected based on estimated token count. "
         "Set higher for large-context instruments (1M+ context windows).",
     )
+    use_baton: bool = Field(
+        default=False,
+        description="Enable the baton execution model. When True, job execution "
+        "uses the event-driven BatonCore instead of the monolithic JobRunner. "
+        "Feature-flagged for safe rollout — old and new paths coexist.",
+    )
     config_file: Path | None = Field(
         default=None,
         description="Path to the YAML config file this config was loaded from. "

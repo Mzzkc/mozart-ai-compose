@@ -17,8 +17,10 @@ Package layout::
     core.py         — Event inbox, main loop, sheet registry
     musician.py     — Single-attempt sheet execution (play once, report)
     backend_pool.py — Per-instrument backend instance management
+    adapter.py      — Wires baton into conductor (step 28)
 """
 
+from mozart.daemon.baton.adapter import BatonAdapter
 from mozart.daemon.baton.backend_pool import BackendPool
 from mozart.daemon.baton.core import BatonCore
 from mozart.daemon.baton.events import (
@@ -90,6 +92,7 @@ __all__ = [
     "InstrumentState",
     # Core
     "BackendPool",
+    "BatonAdapter",
     "BatonCore",
     "SheetExecutionState",
     # Musician

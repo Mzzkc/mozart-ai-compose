@@ -949,3 +949,16 @@ Each finding should include:
 - **Impact:** New users who run `mozart init` → edit → run get a working score using deprecated syntax. When they later read the docs or examples (which now use `instrument:`), the inconsistency creates confusion. The init command contradicts the migration it should support.
 - **Fix:** Change `init_cmd.py` starter score template from `backend: type: claude_cli` to `instrument: claude-code` with `instrument_config: timeout_seconds: 300`. Also update the comments to remove the "use instrument: instead of backend:" hint (since it would already be using `instrument:`). 5-minute fix.
 - **Error class:** Same pattern as F-094 (README Configuration Reference teaches old syntax) and F-089 (uncommitted migration files). The migration changed old files but didn't update code that generates new files.
+
+---
+
+## New Findings (Movement 3)
+
+### F-096: Uncommitted M4 Work Breaks mypy + Reconciliation Test
+- **Found by:** Foundation, Movement 3
+- **Severity:** P1 (high — blocks CI-clean main)
+- **Status:** Open
+- **Description:** Uncommitted changes in `src/mozart/core/config/job.py`, `src/mozart/core/config/__init__.py`, and `src/mozart/core/sheet.py` add M4 features (`movements`, `instruments`, `per_sheet_instruments`, `instrument_map`). These changes introduce: (1) a mypy error at `sheet.py:229` where `config.movements[movement].instrument` is `str | None` but is assigned to `instrument_name: str`, and (2) a failing reconciliation test (`test_mapping_covers_all_config_sections`) because `movements` and `instruments` are new JobConfig fields without CONFIG_STATE_MAPPING entries. This is the 5th occurrence of uncommitted work in the orchestra.
+- **Impact:** Any musician who runs the full test suite sees failures. mypy is not clean. This blocks the quality gate for main.
+- **Fix:** The musician who added these fields needs to: (1) add a `None` guard at `sheet.py:229`, (2) add `movements` and `instruments` entries to `CONFIG_STATE_MAPPING` in `reconciliation.py`, and (3) commit the work.
+- **Error class:** Same as F-013, F-019, F-057, F-080, F-089 — uncommitted work. 5th occurrence across 3 movements.
