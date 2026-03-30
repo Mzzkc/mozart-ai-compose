@@ -6,8 +6,11 @@ This directory contains example Mozart configurations for various use cases. Moz
 
 | Example | Purpose | Complexity |
 |---------|---------|------------|
+| [hello.yaml](hello.yaml) | Your first Mozart score — interconnected fiction in 3 movements with parallel voices | Simple |
 | [simple-sheet.yaml](simple-sheet.yaml) | Minimal Mozart configuration to get started | Simple |
 | [api-backend.yaml](api-backend.yaml) | Using Anthropic API directly instead of CLI | Simple |
+| [prelude-cadenza-example.yaml](prelude-cadenza-example.yaml) | Demonstrates prelude and cadenza context injection | Simple |
+| [cross-sheet-test.yaml](cross-sheet-test.yaml) | Cross-sheet context sharing between execution stages | Simple |
 
 ## Software Development Examples
 
@@ -22,6 +25,10 @@ This directory contains example Mozart configurations for various use cases. Moz
 | [issue-fixer.yaml](issue-fixer.yaml) | GitHub issue fixing workflow | Medium |
 | [agent-spike.yaml](agent-spike.yaml) | Agent experimentation and exploration | Medium |
 | [docs-generator.yaml](docs-generator.yaml) | Documentation generation orchestration | Medium |
+| [iterative-dev-loop.yaml](iterative-dev-loop.yaml) | Multi-cycle investigation → implementation → testing loop | High |
+| [iterative-dev-loop-config.yaml](iterative-dev-loop-config.yaml) | Configurable variant of the iterative development loop | High |
+| [design-review.yaml](design-review.yaml) | Multi-perspective design review with parallel expert agents | High |
+| [score-composer.yaml](score-composer.yaml) | AI-assisted Mozart score authoring | High |
 | [issue-solver.yaml](issue-solver.yaml) | Roadmap-driven 17-stage issue solver with fan-out reviewers and self-chaining | High |
 | [fix-deferred-issues.yaml](fix-deferred-issues.yaml) | Parallel bug fixing across 3 categories with quality gates | High |
 | [fix-observability.yaml](fix-observability.yaml) | 13-stage observability improvements with parallel reviewers | High |
@@ -46,6 +53,13 @@ Mozart is a general-purpose cognitive orchestration system. These examples demon
 | [training-data-curation.yaml](training-data-curation.yaml) | Data | 7 | Inter-annotator agreement metrics |
 | [nonfiction-book.yaml](nonfiction-book.yaml) | Writing | 8 | Snowflake Method with word count gates |
 | [strategic-plan.yaml](strategic-plan.yaml) | Planning | 8 | Multi-framework synthesis (PESTEL, Porter, SWOT) |
+| [context-engineering-lab.yaml](context-engineering-lab.yaml) | AI Research | 10 | Context engineering methodology exploration |
+| [dialectic.yaml](dialectic.yaml) | Philosophy | 5 | Hegelian dialectic: thesis → 3 antitheses → synthesis |
+| [thinking-lab.yaml](thinking-lab.yaml) | Meta-cognition | 7 | Multi-perspective analysis through parallel lenses |
+| [dinner-party.yaml](dinner-party.yaml) | Hospitality | 7 | Parallel planning across menu, drinks, ambiance, logistics |
+| [worldbuilder.yaml](worldbuilder.yaml) | Creative writing | 7 | Build fictional worlds through independent creative lenses |
+| [palimpsest.yaml](palimpsest.yaml) | Literature | 5 | Multi-layered narrative construction |
+| [skill-builder.yaml](skill-builder.yaml) | Education | 7 | Progressive curriculum from guided to mastery |
 
 ---
 
@@ -93,17 +107,7 @@ Mozart is a general-purpose cognitive orchestration system. These examples demon
 
 ### Creative & Experimental
 
-For scores exploring Mozart's expressive capabilities in non-traditional domains, see the [Mozart Score Playspace](https://github.com/Mzzkc/mozart-score-playspace):
-
-| Score | Domain | Fan-Out Pattern | Description |
-|-------|--------|----------------|-------------|
-| [dialectic.yaml](https://github.com/Mzzkc/mozart-score-playspace/blob/main/scores/dialectic.yaml) | Philosophy | Adversarial | Hegelian dialectic: thesis → 3 independent antitheses → synthesis |
-| [thinking-lab.yaml](https://github.com/Mzzkc/mozart-score-playspace/blob/main/scores/thinking-lab.yaml) | Meta-cognition | Perspectival | Multi-perspective analysis through 5 parallel lenses |
-| [dinner-party.yaml](https://github.com/Mzzkc/mozart-score-playspace/blob/main/scores/dinner-party.yaml) | Hospitality | Functional | Parallel planning across menu, drinks, ambiance, logistics |
-| [skill-builder.yaml](https://github.com/Mzzkc/mozart-score-playspace/blob/main/scores/skill-builder.yaml) | Education | Graduated | Progressive curriculum from guided to mastery |
-| [worldbuilder.yaml](https://github.com/Mzzkc/mozart-score-playspace/blob/main/scores/worldbuilder.yaml) | Creative writing | Generative | Build fictional worlds through 5 independent creative lenses |
-
-These scores include real output in their workspace directories.
+These scores explore Mozart's expressive capabilities beyond software development. For scores with real output artifacts, see the [Mozart Score Playspace](https://github.com/Mzzkc/mozart-score-playspace).
 
 ---
 
@@ -267,8 +271,11 @@ All examples pass `mozart validate`:
 
 | Example | Status | Description |
 |---------|--------|-------------|
+| hello.yaml | ✓ | First Mozart score — interconnected fiction |
 | simple-sheet.yaml | ✓ | Minimal configuration |
-| api-backend.yaml | ✓ | Anthropic API backend |
+| api-backend.yaml | ✓ | Anthropic API instrument |
+| cross-sheet-test.yaml | ✓ | Cross-sheet context sharing |
+| prelude-cadenza-example.yaml | ✓ | Prelude and cadenza injection |
 | self-improvement.yaml | ✓ | Codebase improvement with quality gates |
 | sheet-review.yaml | ✓ | Multi-agent code review |
 | worktree-isolation.yaml | ✓ | Git worktree parallel execution |
@@ -278,6 +285,9 @@ All examples pass `mozart validate`:
 | issue-fixer.yaml | ✓ | GitHub issue fixing |
 | agent-spike.yaml | ✓ | Agent experimentation |
 | docs-generator.yaml | ✓ | Documentation generation |
+| design-review.yaml | ✓ | Multi-perspective design review |
+| iterative-dev-loop.yaml | ✓ | Multi-cycle development loop |
+| score-composer.yaml | ✓ | AI-assisted score authoring |
 | quality-continuous.yaml | ✓ | Python quality improvement (fan-out) |
 | quality-continuous-generic.yaml | ✓ | Language-agnostic quality (fan-out) |
 | quality-daemon.yaml | ✓ | Daemon mode quality improvement |
@@ -286,6 +296,13 @@ All examples pass `mozart validate`:
 | training-data-curation.yaml | ✓ | ML dataset creation |
 | nonfiction-book.yaml | ✓ | Non-fiction book authoring |
 | strategic-plan.yaml | ✓ | Multi-framework strategic planning |
+| context-engineering-lab.yaml | ✓ | Context engineering exploration |
+| dialectic.yaml | ✓ | Hegelian dialectic |
+| thinking-lab.yaml | ✓ | Multi-perspective analysis |
+| dinner-party.yaml | ✓ | Parallel event planning |
+| worldbuilder.yaml | ✓ | Fictional world creation |
+| palimpsest.yaml | ✓ | Multi-layered narrative |
+| skill-builder.yaml | ✓ | Progressive curriculum |
 | issue-solver.yaml | ✓ | Roadmap-driven issue solving with fan-out |
 | fix-deferred-issues.yaml | ✓ | Parallel bug fixing with quality gates |
 | fix-observability.yaml | ✓ | Observability gap fixes with parallel reviews |

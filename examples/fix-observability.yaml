@@ -32,7 +32,7 @@
 # ║    mozart validate examples/fix-observability.yaml                           ║
 # ║    setsid mozart run examples/fix-observability.yaml \                       ║
 # ║      > .observability-workspace/mozart.log 2>&1 &                            ║
-# ║    mozart status fix-observability -w .observability-workspace --watch       ║
+# ║    mozart status fix-observability --watch                                   ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 name: "fix-observability"
@@ -40,12 +40,10 @@ description: "Fix all visibility gaps — detached hook logging, execution histo
 
 workspace: "./workspaces/observability-workspace"
 
-backend:
-  type: claude_cli
-  skip_permissions: true
+instrument: claude-code
+instrument_config:
   working_directory: /home/emzi/Projects/mozart-ai-compose
   timeout_seconds: 2400   # 40 min — these are focused changes
-  disable_mcp: false
 
 cross_sheet:
   auto_capture_stdout: true

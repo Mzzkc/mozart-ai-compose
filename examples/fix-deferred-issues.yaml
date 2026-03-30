@@ -36,7 +36,7 @@
 # ║    mozart validate examples/fix-deferred-issues.yaml                         ║
 # ║    setsid mozart run examples/fix-deferred-issues.yaml \                     ║
 # ║      > .deferred-workspace/mozart.log 2>&1 &                                 ║
-# ║    mozart status fix-deferred-issues -w .deferred-workspace --watch          ║
+# ║    mozart status fix-deferred-issues --watch                                 ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 name: "fix-deferred-issues"
@@ -44,12 +44,10 @@ description: "Fix failing tests, mypy errors, production bug, and structural deb
 
 workspace: "./workspaces/deferred-workspace"
 
-backend:
-  type: claude_cli
-  skip_permissions: true
+instrument: claude-code
+instrument_config:
   working_directory: /home/emzi/Projects/mozart-ai-compose
   timeout_seconds: 3600   # 60 min — structural refactoring needs more time
-  disable_mcp: false
 
 cross_sheet:
   auto_capture_stdout: true

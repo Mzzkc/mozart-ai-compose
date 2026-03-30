@@ -17,8 +17,11 @@ description: "Sheet processing using Anthropic API"
 
 workspace: "./workspaces/api-workspace"
 
-backend:
-  type: anthropic_api
+# Instrument: use the Anthropic Messages API directly
+# This is a native instrument — no YAML profile needed.
+# See `mozart instruments list` for all available instruments.
+instrument: anthropic_api
+instrument_config:
   model: claude-sonnet-4-20250514
   api_key_env: ANTHROPIC_API_KEY  # Environment variable name
   max_tokens: 4096

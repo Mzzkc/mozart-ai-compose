@@ -56,9 +56,8 @@ name: "simple-sheet"
 description: "Minimal example showing core Mozart features"
 workspace: "../workspaces/simple-workspace"
 
-backend:
-  type: claude_cli
-  skip_permissions: true
+instrument: claude-code
+instrument_config:
   timeout_seconds: 600
 
 sheet:
@@ -219,7 +218,8 @@ investigates it, and either fixes it directly or generates a subordinate
 Mozart score for complex fixes. Self-chains to the next issue.
 
 ```yaml
-backend:
+instrument: claude-code
+instrument_config:
   timeout_seconds: 3600
   timeout_overrides:
     7: 28800            # 8 hours for monitoring subordinate jobs
@@ -287,10 +287,35 @@ backend:
 
 Run `mozart instruments list` to see all available instruments.
 
+### `instrument_config`
+
+Score-level overrides for the resolved instrument's defaults. Flat key-value
+pairs — the available keys depend on the instrument. Common overrides:
+
+```yaml
+instrument: claude-code
+instrument_config:
+  timeout_seconds: 3600          # Override default timeout
+  timeout_overrides:
+    7: 28800                     # Per-sheet timeout overrides
+  working_directory: ./my-project
+```
+
+For the Anthropic API instrument:
+
+```yaml
+instrument: anthropic_api
+instrument_config:
+  model: claude-sonnet-4-20250514
+  api_key_env: ANTHROPIC_API_KEY
+  max_tokens: 4096
+  timeout_seconds: 120
+```
+
 ### `backend`
 
-Detailed backend configuration. Used when you need fine-grained control or
-when using the original syntax.
+Detailed backend configuration. The original syntax, still fully supported.
+Use `instrument:` + `instrument_config:` for new scores.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|

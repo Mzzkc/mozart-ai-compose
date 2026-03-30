@@ -63,9 +63,8 @@ workspace_lifecycle:
   archive_on_fresh: true
   max_archives: 5
 
-backend:
-  type: claude_cli
-  skip_permissions: true
+instrument: claude-code
+instrument_config:
   working_directory: /home/emzi/Projects/mozart-ai-compose
   timeout_seconds: 3000
 
