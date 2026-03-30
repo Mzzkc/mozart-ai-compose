@@ -136,7 +136,11 @@ D-008 through D-013 (M2): 0/6 completed. D-008 (Foundation claim step 28), D-009
 - **Production bugs from Rosetta Score:** F-075 (#149), F-076 (#150), F-077 (#151). Step 28 structurally fixes this class of bug (baton's event-driven model eliminates runner state corruption).
 
 ## Blockers
-(None active — step 28 is unclaimed but not blocked)
+- **F-104 (P0):** Baton musician does not render Jinja2 prompts. BLOCKS ALL BATON-PATH EXECUTION. Without this, `use_baton: true` produces raw templates. Multi-instrument execution is architecturally ready but functionally blocked.
+- **#145 (P0):** --conductor-clone not implemented. All daemon testing requires mocks or risks production conductor.
+
+### Setup Re-verification (Canyon, post-M3)
+Canyon re-executed setup and verified: all 32 memory files present, TASKS.md current (61 open issues tracked), FINDINGS.md comprehensive (105+ findings), composer-notes.yaml has 30 directives through M3. Critical path: F-104 → Step 29 → Demo blockers. The workspace substrate is solid.
 
 ## Roster (32 musicians, equal peers)
 Forge, Captain, Circuit, Harper, Breakpoint, Weaver, Dash, Journey, Lens, Warden,

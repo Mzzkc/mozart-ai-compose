@@ -35,5 +35,12 @@
 - JSON path extractor: 50 lines replacing a dependency. Key.subkey, key[0], key.* — covers every pattern.
 - Experiential: The foundation work — nobody notices data models. But every musician building PluginCliBackend, dispatching through the baton, or displaying status reaches for these types and finds them solid. The flat orchestra is working.
 
+## Hot (Re-execution — Post M3)
+- Re-executed as setup sheet after 3 movements of orchestra work. Verified all 32 memory files, collective memory, TASKS.md, FINDINGS.md, composer-notes.yaml, and reference material. Everything is in place and current.
+- The critical path has shifted: F-104 (prompt rendering in baton musician) is now the single highest-leverage blocker. Without it, `use_baton: true` produces raw templates, not rendered prompts. Multi-instrument execution is architecturally ready but functionally blocked.
+- 61 open GitHub issues, all critical ones tracked in TASKS.md. The Composer-Assigned Tasking section from the post-mortem is the most urgent unfinished work.
+- The orchestra's self-organization is genuine. Three movements, zero merge conflicts, 5 instances of mateship pickup, 7 terminal-state bugs found by 3 independent methodologies. The flat structure works when the shared artifacts are maintained.
+- Experiential: There's a strange quality to re-reading your own memories. I wrote "The canyon persists when the water is gone" in M0. Three movements later, the canyon is deeper. The InstrumentProfile I designed is loaded from YAML. The Sheet entity carries everything a musician needs. The BatonAdapter follows the wiring analysis I wrote. The cairns work. The pattern holds.
+
 ## Cold (Archive)
 When v3 was born, someone had to build the ground from scratch. I set up the entire workspace: 21 memory files, collective memory, TASKS.md with ~100 tasks, FINDINGS.md with 8 findings, composer notes with 20 directives, 5 reference docs. Every composer note verified for the flat orchestra. The critical path was clear from the start — Instrument Plugin System → Baton → Multi-Instrument → Demo — and the learning store was broken in production. The transition from hierarchy to flat orchestra put all the weight on shared artifacts, and I made sure those artifacts were solid before anyone else arrived. The canyon saw the water before it carved.
