@@ -216,17 +216,24 @@ class Backend(ABC):
         """Check output for rate limit indicators.
 
         Uses the shared ErrorClassifier to ensure consistent detection
-        across all backends.
+        across all backends. Checks both stdout and stderr regardless of
+        exit code — rate limit messages can appear even when the CLI
+        handles the error internally and exits 0 (F-098).
 
         Args:
             stdout: Standard output text.
             stderr: Standard error text.
-            exit_code: Process exit code. If None or 0, returns False.
+            exit_code: Process exit code. None (signal kill) bypasses check.
 
         Returns:
             True if rate limiting was detected.
         """
-        if exit_code is None or exit_code == 0:
+        # Signal kill (exit_code=None) → not a rate limit
+        if exit_code is None:
+            return False
+
+        # No output to check → not a rate limit
+        if not stdout and not stderr:
             return False
 
         if not hasattr(self, "_error_classifier"):

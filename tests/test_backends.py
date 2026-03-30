@@ -267,11 +267,17 @@ class TestAnthropicApiBackendRateLimitDetection:
                 f"Failed for: {message}"
             )
 
-    def test_exit_code_zero_never_rate_limited(self, backend: AnthropicApiBackend) -> None:
-        """Successful execution (exit_code=0) should never be classified as rate-limited."""
-        assert backend._detect_rate_limit("capacity exceeded", "", exit_code=0) is False
-        assert backend._detect_rate_limit("rate limit exceeded", "", exit_code=0) is False
-        assert backend._detect_rate_limit("429 error", "", exit_code=0) is False
+    def test_exit_code_zero_with_rate_limit_text_detected(
+        self, backend: AnthropicApiBackend,
+    ) -> None:
+        """Rate limit text detected even when exit_code=0 (F-098).
+
+        Backends can handle rate limits internally and exit 0. The detector
+        must check output patterns regardless of exit code.
+        """
+        assert backend._detect_rate_limit("capacity exceeded", "", exit_code=0) is True
+        assert backend._detect_rate_limit("rate limit exceeded", "", exit_code=0) is True
+        assert backend._detect_rate_limit("429 error", "", exit_code=0) is True
 
     def test_exit_code_one_with_rate_limit_text(self, backend: AnthropicApiBackend) -> None:
         """Failed execution with rate limit text should still be detected."""
@@ -636,11 +642,19 @@ class TestClaudeCliBackendRateLimitDetection:
                 backend._detect_rate_limit(message, "") is False
             ), f"Failed for: {message}"
 
-    def test_exit_code_zero_never_rate_limited(self, backend: ClaudeCliBackend) -> None:
-        """Successful execution (exit_code=0) should never be classified as rate-limited."""
-        assert backend._detect_rate_limit("capacity exceeded", "", exit_code=0) is False
-        assert backend._detect_rate_limit("rate limit exceeded", "", exit_code=0) is False
-        assert backend._detect_rate_limit("429 error", "", exit_code=0) is False
+    def test_exit_code_zero_with_rate_limit_text_detected(
+        self, backend: ClaudeCliBackend,
+    ) -> None:
+        """Rate limit text in stdout is detected even when exit_code=0 (F-098).
+
+        The Claude CLI can handle rate limits internally and exit 0 while
+        printing "API Error: Rate limit reached" to stdout. The backend
+        must detect this so the runner can use rate limit backoff instead
+        of treating the output as valid.
+        """
+        assert backend._detect_rate_limit("capacity exceeded", "", exit_code=0) is True
+        assert backend._detect_rate_limit("rate limit exceeded", "", exit_code=0) is True
+        assert backend._detect_rate_limit("429 error", "", exit_code=0) is True
 
     def test_exit_code_one_with_rate_limit_text(self, backend: ClaudeCliBackend) -> None:
         """Failed execution with rate limit text should still be detected."""

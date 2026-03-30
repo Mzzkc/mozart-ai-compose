@@ -45,6 +45,7 @@ from typing import TYPE_CHECKING, Any, cast
 from mozart.core.sheet import Sheet
 from mozart.daemon.baton.core import BatonCore
 from mozart.daemon.baton.events import (
+    DispatchRetry,
     SheetAttemptResult,
     SheetSkipped,
 )
@@ -57,7 +58,9 @@ from mozart.daemon.baton.state import (
 )
 
 if TYPE_CHECKING:
+    from mozart.core.config.job import PromptConfig
     from mozart.daemon.baton.backend_pool import BackendPool
+    from mozart.daemon.baton.prompt import PromptRenderer
     from mozart.daemon.event_bus import EventBus
     from mozart.daemon.types import ObserverEvent
 
@@ -325,6 +328,9 @@ class BatonAdapter:
         # BackendPool — injected via set_backend_pool()
         self._backend_pool: BackendPool | None = None
 
+        # Per-job PromptRenderer — created when prompt_config is provided
+        self._job_renderers: dict[str, PromptRenderer] = {}
+
         # Per-job completion events — set when all sheets reach terminal state
         self._completion_events: dict[str, asyncio.Event] = {}
 
@@ -370,6 +376,8 @@ class BatonAdapter:
         max_completion: int = 5,
         escalation_enabled: bool = False,
         self_healing_enabled: bool = False,
+        prompt_config: PromptConfig | None = None,
+        parallel_enabled: bool = False,
     ) -> None:
         """Register a job with the baton for event-driven execution.
 
@@ -385,9 +393,27 @@ class BatonAdapter:
             max_completion: Max completion mode attempts per sheet.
             escalation_enabled: Enter fermata on exhaustion.
             self_healing_enabled: Try self-healing on exhaustion.
+            prompt_config: Optional PromptConfig for full prompt rendering.
+                When provided, creates a PromptRenderer for this job that
+                handles the complete 9-layer prompt assembly pipeline.
+            parallel_enabled: Whether parallel execution is enabled
+                (for preamble concurrency warning).
         """
         # Store sheets for prompt rendering at dispatch time
         self._job_sheets[job_id] = {s.num: s for s in sheets}
+
+        # Create PromptRenderer if config is available (F-104)
+        if prompt_config is not None:
+            from mozart.daemon.baton.prompt import PromptRenderer
+
+            total_sheets = len(sheets)
+            total_stages = len({s.movement for s in sheets}) or 1
+            self._job_renderers[job_id] = PromptRenderer(
+                prompt_config=prompt_config,
+                total_sheets=total_sheets,
+                total_stages=total_stages,
+                parallel_enabled=parallel_enabled,
+            )
 
         # Create completion event for this job
         self._completion_events[job_id] = asyncio.Event()
@@ -423,6 +449,11 @@ class BatonAdapter:
             },
         )
 
+        # Kick the event loop so dispatch_ready runs for the newly registered
+        # sheets.  Without this the loop blocks on inbox.get() forever
+        # because no musician or timer has produced an event yet.
+        self._baton.inbox.put_nowait(DispatchRetry())
+
     def deregister_job(self, job_id: str) -> None:
         """Remove a job from the adapter and baton.
 
@@ -442,8 +473,9 @@ class BatonAdapter:
         # Remove from baton
         self._baton.deregister_job(job_id)
 
-        # Remove sheet mapping and completion tracking
+        # Remove sheet mapping, renderer, and completion tracking
         self._job_sheets.pop(job_id, None)
+        self._job_renderers.pop(job_id, None)
         self._completion_events.pop(job_id, None)
         self._completion_results.pop(job_id, None)
 
@@ -644,12 +676,32 @@ class BatonAdapter:
             # This is safe because SheetAttemptResult IS a BatonEvent.
             # We cast to satisfy the invariant Queue type parameter.
             inbox = cast(asyncio.Queue[SheetAttemptResult], self._baton.inbox)
+
+            # Compute job-level totals for template rendering (F-104)
+            job_sheets = self._job_sheets.get(job_id, {})
+            total_sheets = len(job_sheets)
+            # Count distinct movements across all sheets
+            total_movements = len({s.movement for s in job_sheets.values()}) or 1
+
+            # Use PromptRenderer if available (full 9-layer pipeline)
+            renderer = self._job_renderers.get(job_id)
+            pre_rendered: str | None = None
+            pre_preamble: str | None = None
+            if renderer is not None:
+                rendered = renderer.render(sheet, context)
+                pre_rendered = rendered.prompt
+                pre_preamble = rendered.preamble
+
             await sheet_task(
                 job_id=job_id,
                 sheet=sheet,
                 backend=backend,
                 attempt_context=context,
                 inbox=inbox,
+                total_sheets=total_sheets,
+                total_movements=total_movements,
+                rendered_prompt=pre_rendered,
+                preamble=pre_preamble,
             )
         finally:
             # Always release the backend

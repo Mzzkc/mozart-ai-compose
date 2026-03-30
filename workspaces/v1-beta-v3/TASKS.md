@@ -193,6 +193,41 @@ This is the highest priority task. You are running inside a live conductor. You 
 
 ---
 
+## Composer-Assigned Tasking (Post-Mortem — v3 Failure Investigation)
+
+These tasks were identified by the composer during failure investigation of the v3 job.
+See FINDINGS.md F-097 through F-102 for full context.
+
+### Timeout & Stale Detection (F-097, F-102)
+- [ ] Increase `idle_timeout_seconds` from 1800 to 7200 in `generate-v3.py` (priority: P0) [source: F-097, F-102]
+- [ ] Regenerate `mozart-orchestra-v3.yaml` with updated timeouts (priority: P0) [source: F-097]
+- [x] [Blueprint] Add distinct error code E006 for stale detection (differentiate from backend timeout E001) (priority: P1) [source: F-097] — E006 EXECUTION_STALE added to ErrorCode enum, RetryBehavior (120s delay), WARNING severity. Classifier differentiates stale from timeout via "stale execution" in stderr. Both classify() and classify_execution() paths handled. 10 TDD tests.
+- [ ] Fix error display: stale detection shows `Code: timeout` instead of error code (priority: P1) [source: F-097]
+
+### Rate Limit Classification (F-098, F-099)
+- [x] [Blueprint] Update error classifier to detect rate limit patterns in stdout, not just stderr (priority: P0) [source: F-098] — Added Phase 4.5 "Rate Limit Override" to classify_execution() that always scans stdout+stderr for rate limit patterns, even when Phase 1 found structured JSON errors. Patterns "rate.?limit", "hit.{0,10}limit", "limit.{0,10}resets?" already existed but were unreachable when Phase 1 masked them. 6 TDD tests including the core F-098 regression case.
+- [x] [Blueprint] Add patterns: "API Error: Rate limit reached", "You've hit your limit", "resets" (priority: P0) [source: F-098] — Patterns already existed in _DEFAULT_RATE_LIMIT_PATTERNS. The bug was Phase 4 being skipped when Phase 1 found JSON errors. Phase 4.5 override fixes this.
+- [ ] Consider staggering fan-out launches (100ms delay between starts) to reduce rate limit surge (priority: P2) [source: F-099]
+
+### Multi-Instrument Support (F-100, F-101, F-103, F-104, F-105)
+- [x] [Composer] Fix baton `config.backend.max_retries` → `config.retry.max_retries` (priority: P0) [source: F-103]
+- [x] [Composer] Add DispatchRetry kick after job registration (priority: P0) [source: F-103]
+- [x] [Composer] Wire BackendPool creation + injection in manager startup (priority: P0) [source: F-103]
+- [x] [Forge] Wire prompt rendering pipeline into baton musician `_build_prompt()` (priority: P0) [source: F-104] — Rewrote `_build_prompt()` with full 5-layer assembly: preamble (build_preamble), Jinja2 template rendering (Sheet.template_variables()), prelude/cadenza injection resolution, validation requirements formatting, completion mode suffix. Added `_render_template()`, `_resolve_injections()`, `_format_injection_section()`, `_format_validation_requirements()`. Updated `sheet_task()` with `total_sheets`/`total_movements` params. Adapter computes totals from registered sheets. 17 TDD tests. **UNBLOCKS BATON EXECUTION.**
+- [ ] Enable `use_baton: true` in conductor config after F-104 (priority: P1) [source: F-100]
+- [ ] Route claude-cli through PluginCliBackend (not native ClaudeCliBackend) (priority: P1) [source: F-105]
+- [x] [Blueprint] Expand instrument YAML schema: timeout/crash/capacity/stale patterns (priority: P1) [source: F-105] — Added crash_patterns and stale_patterns to CliErrorConfig (timeout_patterns and capacity_patterns already existed). 6 TDD tests. Log capture rules deferred.
+- [ ] Verify `PluginCliBackend._classify_error()` uses profile-defined error patterns (priority: P1) [source: F-101]
+- [ ] Add gemini-cli rate limit test: submit a sheet, mock rate limit response, verify E101/E102 classification (priority: P2) [source: F-101]
+
+### Gemini CLI Agent Assignment (TDF Analysis — Composer Recommendation)
+- [ ] Assign gemini-cli instrument to dreamer agents (6 per movement) — memory consolidation, low tool use (priority: P1) [source: composer TDF analysis]
+- [ ] Assign gemini-cli instrument to reviewer agents (prism, axiom, ember) — read-heavy analysis, low tool use (priority: P2) [source: composer TDF analysis]
+- [ ] Keep claude-cli for: setup (canyon, bedrock), work (all 32 musicians), quality-gate (bedrock), antagonists (newcomer, adversary) (priority: P1) [source: composer TDF analysis]
+- [ ] Add `instrument_map` or `per_sheet_instruments` to `generate-v3.py` for gemini-cli assignments (priority: P1) [source: composer TDF analysis]
+
+---
+
 ## Deferred (v1.1+)
 
 - [ ] HTTP instrument backends [source: roadmap]
