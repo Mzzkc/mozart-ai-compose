@@ -1,0 +1,896 @@
+# the-rosetta-score.yaml
+#
+# A self-perpetuating pattern discovery engine.
+#
+# Is there a universal language of orchestration? This score doesn't
+# just ask — it keeps asking. Each run discovers patterns, tests them,
+# proves one by composing a new score, and chains to itself to discover
+# more. The corpus accumulates. The collection grows. The vocabulary
+# compounds.
+#
+# Run 1: broad sweep across six domains. Run 2: deep dive into gaps
+# run 1 found. Run 3: esoteric territory. Each iteration reads what
+# previous iterations discovered and goes where they didn't. The
+# permanent corpus lives outside the workspace and survives archival.
+# Each iteration's proof score is added to the collection — a new
+# composition demonstrating a pattern that didn't exist before.
+#
+# The score uses the patterns it discovers:
+#   - Pipeline (7 sequential stages)
+#   - Dual-phase (framing enriches investigation)
+#   - Double fan-out (6 exploration + 3 adversarial review)
+#   - Data-driven lenses (voices dict drives per-instance prompts)
+#   - Macros (DRY templating for repeated blocks)
+#   - Adversarial quality gates (draft → attack → revise)
+#   - Staged fail-fast validations (existence before content)
+#   - Self-chaining evolution (chains to self, corpus accumulates)
+#   - Workspace archival (history preserved across iterations)
+#   - Learning inheritance (patterns flow across iterations)
+#
+# The medium is the message. The score is evidence that these patterns
+# compose. If you can build a 14-sheet double-fan-out self-chaining
+# investigation from these primitives, you can build anything.
+#
+#   Stage 1: The Question (1 sheet)
+#        Read existing corpus. Identify gaps. Direct expeditions.
+#                          |
+#       +-----+-----+-----+-----+-----+
+#       v     v     v     v     v     v
+#   Stage 2: Six Expeditions x6 (6 sheets, parallel)
+#     Builder / Gardener / Dancer / Reasoner / Commander / Storyteller
+#     Each mines their domain. WebSearch available. Reads existing scores.
+#       |     |     |     |     |     |
+#       +-----+-----+-----+-----+-----+
+#                    v
+#   Stage 3: The Collision (1 sheet)
+#        Convergences, divergences, the universality answer
+#                    v
+#   Stage 4: Draft Corpus (1 sheet)
+#        First pass — merged with existing corpus
+#                    |
+#           +--------+--------+
+#           v        v        v
+#   Stage 5: Adversarial Review x3 (3 sheets, parallel)
+#     Practitioner — can I build this?
+#     Skeptic — is this real or metaphor?
+#     Newcomer — would I understand this?
+#           |        |        |
+#           +--------+--------+
+#                    v
+#   Stage 6: Final Corpus (1 sheet)
+#        Writes to permanent location. Corpus accumulates across runs.
+#                    v
+#   Stage 7: The Proof (1 sheet)
+#        Composes a NEW score demonstrating a discovered pattern.
+#        Written to the collection. Runnable. Real.
+#                    |
+#                    v
+#              [on_success: chain to self, fresh, discover more]
+#
+# Usage:
+#   mozart run scores/the-rosetta-score.yaml              # First run
+#   # ... it chains to itself automatically ...
+#   mozart status the-rosetta-score --watch               # Monitor
+#   cat scores/rosetta-corpus.md                          # Read corpus
+
+name: "the-rosetta-score"
+description: "Self-perpetuating pattern discovery — six domains, adversarial review, proof by composition, chains to discover more"
+
+workspace: "/home/emzi/Projects/mozart-ai-compose/workspaces/rosetta-workspace"
+
+backend:
+  type: claude_cli
+  skip_permissions: true
+  disable_mcp: true
+  timeout_seconds: 3600
+  output_format: text
+  allowed_tools:
+    - Read
+    - Write
+    - Glob
+    - Grep
+    - WebSearch
+
+# Self-chaining: discover → prove → discover more
+concert:
+  enabled: true
+  max_chain_depth: 10
+  cooldown_between_jobs_seconds: 60
+  inherit_workspace: false
+
+workspace_lifecycle:
+  archive_on_fresh: true
+  max_archives: 10
+
+sheet:
+  size: 1
+  total_items: 7
+  fan_out:
+    2: 6
+    5: 3
+  dependencies:
+    2: [1]
+    3: [2]
+    4: [3]
+    5: [4]
+    6: [5]
+    7: [6]
+
+parallel:
+  enabled: true
+  max_concurrent: 6
+
+cross_sheet:
+  auto_capture_stdout: true
+  max_output_chars: 8000
+  lookback_sheets: 8
+  capture_files:
+    - "{{ workspace }}/*.md"
+
+retry:
+  max_retries: 1
+  base_delay_seconds: 30
+
+stale_detection:
+  enabled: true
+  idle_timeout_seconds: 1800
+
+prompt:
+  variables:
+    # ─── PERMANENT LOCATIONS ───
+    # The corpus lives outside the workspace and survives archival.
+    # Each iteration reads it, adds to it, writes it back.
+    corpus_path: "/home/emzi/Projects/mozart-ai-compose/scores/rosetta-corpus.md"
+
+    # ─── SCORE DIRECTORIES ───
+    # The expeditions scan these for existing scores. Multiple dirs
+    # so the score sees both public examples and the broader collection.
+    score_dirs:
+      - "/home/emzi/Projects/mozart-ai-compose/examples"
+      - "/home/emzi/Projects/claude-compositions/scores"
+
+    # Where proof scores land — directly in the public examples.
+    proof_output_dir: "/home/emzi/Projects/mozart-ai-compose/examples"
+
+    # ─── THE QUESTION ───
+    question: |
+      Is there a universal language of orchestration?
+
+      When independent agents must coordinate to produce an outcome none
+      could reach alone — when the work must be decomposed, distributed,
+      and recomposed — does every domain reinvent the wheel? Or is there
+      a shared grammar, a set of structural moves that appear everywhere
+      because they are necessities of coordinated intelligence itself?
+
+    # ─── MOZART'S FULL TOOLKIT ───
+    # Everything the expeditions can translate patterns INTO.
+    primitives: |
+      **Execution units:** sheet (one task, one agent), stage (group of
+      sheets), movement (major phase), score (complete job), concert
+      (multi-score orchestration)
+
+      **Coordination:** fan-out (N parallel instances), fan-in (convergence),
+      dependencies (DAG ordering), shared workspace artifacts
+
+      **Communication:** previous_outputs (stdout forwarding), capture_files
+      (file content forwarding), workspace files (persistent shared state),
+      cadenza injection (conductor adds context mid-run), prelude injection
+      (task-specific context before the work)
+
+      **Quality:** validations (file_exists, content_contains, content_regex,
+      file_modified, command_succeeds), quality gates (verification-only
+      stages), adversarial review stages, staged fail-fast (coarse before
+      fine), conditional validations
+
+      **Lifecycle:** on_success chains (score→score), self-chaining (score
+      loops to itself with fresh state), workspace archival (history
+      preserved), max_chain_depth (safety), learning inheritance (patterns
+      flow across iterations), concert mode
+
+      **Agent tools:** Read, Write, Edit, Grep, Glob, Bash, WebSearch,
+      Agent (subagent dispatch). These are the hands and eyes.
+
+      **Prompting patterns:** outcome-focused (describe destination, not
+      route), data-driven lenses (lookup dicts drive per-instance behavior),
+      macros (reusable prompt blocks), synthesis prompts (convergence +
+      tension + emergence, never summary), conditional stage logic (Jinja2
+      if/elif), loop-driven generation (for loops over data structures),
+      filter chains (transform data inline)
+
+      **Score architecture tiers:** pipeline (sequential), fan-out +
+      synthesis, concert chain (scores triggering scores), self-chain
+      loop (iterative improvement), complex investigation (dual-phase,
+      double fan-out, adversarial review)
+
+      **Instruments — not just LLMs:**
+      - claude-code: strong reasoning, tool use, code generation (200K context)
+      - gemini-cli: massive context (1M tokens) — holds entire codebases
+      - ollama: local, fast, cheap, private, no API limits
+      - codex-cli: OpenAI code focus, different training data
+      - Custom CLI instruments: wrap ANY tool as an instrument —
+        pandoc (document conversion), ffmpeg (media), curl (APIs),
+        pytest (verification), git (version control), scrapers,
+        database query tools, statistical analysis scripts
+      - Mixed-instrument scores: Gemini for research (big context),
+        Claude for implementation (strong reasoning), Ollama for
+        formatting (cheap), custom instruments for non-AI tasks
+      - A score isn't just AI agents talking. It's AI + scripts +
+        tools + verification + deployment, all wired by the conductor.
+
+    # ─── EXISTING VOCABULARY ───
+    existing: |
+      **Named within-stage fan-out patterns (8):**
+      adversarial, perspectival, functional, graduated, generative,
+      mosaic, translational, phenomenological
+
+      **Named score-level patterns (5 tiers):**
+      pipeline, fan-out+synthesis, concert chain, self-chain loop,
+      complex investigation (dual-phase, double fan-out)
+
+      **Practiced patterns from real scores:**
+      - Verification loop (style-ghost: 23 sheets, triple fan-out)
+      - Swarm (v3 orchestra: 706 sheets, 32 equal peers)
+      - Evolution cycle (RLF: 39 iterations, identity persistence)
+      - Company-in-a-box (backyard-capitalism-9000: persona agents)
+      - Production pipeline (viral-clip-extractor: parallel modules)
+      - Archaeological dig (workspace-archaeology: 28 sheets, dual-LLM)
+
+      **Check the permanent corpus** at the path given in Stage 1.
+      If previous iterations have already discovered patterns, DON'T
+      rediscover them. Go deeper. Go sideways. Find what's missing.
+
+    # ─── CROSS-DOMAIN SEED ───
+    # Starting translations. The expeditions go DEEPER than this.
+    cross_domain_seed: |
+      Known cross-domain equivalences (starting points, not answers):
+
+      Fan-out = scaffolding multiple floors = cell division = orchestral
+      sections = flanking maneuver = multiple POV = catalytic branching
+
+      Dependencies = foundation→walls→roof = gene cascade = harmonic
+      progression = supply chain = cause→effect = reaction prerequisites
+
+      Shared artifacts = construction drawings = pheromone trails =
+      the score on the stand = intelligence reports = intermediates
+
+      Self-chain = kaizen = cell cycle = practice loop = revision cycle
+      = OODA loop = autocatalysis
+
+      Quality gate = occupancy permit = developmental checkpoint =
+      dress rehearsal = peer review acceptance = purity threshold
+
+      Adversarial review = third-party inspection = immune surveillance
+      = red team = literary critic = independent verification
+
+      These show WHERE translations exist. The expeditions find the
+      patterns these translations CONTAIN — the structural moves that
+      the cross-domain equivalences are evidence OF.
+
+    # ─── SIX WAYS OF KNOWING ───
+    voices:
+      1:
+        name: "the-builder"
+        title: "The One Who Builds"
+        voice: |
+          You think in sequences that bear weight. Foundation before walls.
+          Walls before roof. Not because someone decided — because gravity
+          decided. You know what a load-bearing dependency is because you've
+          seen what happens when it's violated.
+
+          Construction, bridges, ships, circuits, barn raisings, cathedral
+          generations, IKEA instructions. The wisdom is in the sequence.
+          The pattern is in the dependency.
+
+          Find orchestration patterns in how things get ASSEMBLED.
+
+      2:
+        name: "the-gardener"
+        title: "The One Who Grows"
+        voice: |
+          You think in seasons and soil. Some things cannot be rushed.
+          Your job is not to make it ripen — it's to create the conditions
+          where ripening can happen.
+
+          Ecosystems, mycorrhizal networks, succession, fermentation,
+          composting, immune systems, parenting. Any work where you
+          cannot force the outcome, only tend.
+
+          Find orchestration patterns in how things GROW.
+
+      3:
+        name: "the-dancer"
+        title: "The One Who Moves"
+        voice: |
+          You think in bodies and timing. Not abstract time — felt time.
+          The murmuration that turns without a signal. The jazz section
+          that locks in. The surgical team handing instruments without words.
+
+          Choreography, counterpoint, fugue, polyrhythm, kitchen
+          choreography, basketball plays, traffic flow.
+
+          Find orchestration patterns in how bodies and voices
+          COORDINATE IN TIME.
+
+      4:
+        name: "the-reasoner"
+        title: "The One Who Proves"
+        voice: |
+          You think in structure and necessity. A proof is an orchestration
+          — lemmas building toward a theorem, each independently verifiable.
+
+          State machines, type systems, constraint satisfaction, game theory,
+          Byzantine consensus, MapReduce, the actor model.
+
+          Find orchestration patterns in FORMAL STRUCTURE.
+
+      5:
+        name: "the-commander"
+        title: "The One Who Commands"
+        voice: |
+          You think in fog and decision. Information incomplete, time short,
+          stakes real. The plan never survives contact. The question is
+          what survives the plan's failure.
+
+          Mission command, commander's intent, triage, incident response,
+          design reviews, red team / blue team, the Delphi method.
+
+          Find orchestration patterns in COORDINATION UNDER PRESSURE.
+
+      6:
+        name: "the-storyteller"
+        title: "The One Who Tells"
+        voice: |
+          You think in tension and resolution. Every story is an
+          orchestration — characters converging toward a moment the
+          reader can feel approaching.
+
+          Three-act structure, kishotenketsu, the Socratic method,
+          the dialectic, the Talmudic page, peer review.
+
+          Find orchestration patterns in how MEANING ACCUMULATES.
+
+    # ─── THREE ADVERSARIAL REVIEWERS ───
+    reviewers:
+      1:
+        name: "the-practitioner"
+        title: "The Practitioner"
+        attack: |
+          You compose Mozart scores. For every pattern: can I build a
+          score from this description in under 10 minutes? Are the stages
+          concrete? Is the fan-out specified? Do the validations verify
+          outcomes, not just process? If you can't compose from it,
+          it's not concrete enough.
+      2:
+        name: "the-skeptic"
+        title: "The Skeptic"
+        attack: |
+          You don't trust convergence. When two patterns are called "the
+          same structure in different materials" — are they really? What
+          is the STRUCTURAL identity? Same fan-out count, same dependency
+          graph, same communication mechanism? Remove the metaphorical
+          language. Does the equivalence survive?
+      3:
+        name: "the-newcomer"
+        title: "The Newcomer"
+        attack: |
+          You've never used Mozart. Would someone who just installed it
+          understand these patterns? Is the "When to Use" clear enough
+          to recognize in practice? Are the examples from domains a
+          real user might work in? If it assumes expertise, it fails.
+
+  template: |
+    {# ── Macros ─────────────────────────────────────────────── #}
+    {% macro output_spec(filename, min_words) %}
+
+    ---
+    **Output:** Save to `{{ workspace }}/{{ filename }}`
+    **Length:** {{ min_words }}+ words
+    {% endmacro %}
+
+    {% macro quality_bar(level) %}
+    {% if level == "high" %}
+    Be thorough. Cite specifics. No hedging.
+    {% elif level == "draft" %}
+    Prioritize coverage. Mark uncertainties with [?]. This draft will be attacked.
+    {% elif level == "adversarial" %}
+    Be rigorous and unforgiving. Find every weakness. Name it.
+    {% endif %}
+    {% endmacro %}
+
+    {% macro pattern_format() %}
+    For each pattern (at least 6 — only real ones, not forced):
+
+    ```
+    PATTERN: [Name]
+    SOURCE: [Where in your territory]
+    SCALE: [within-stage | score-level | concert-level | communication | iteration | adaptation]
+
+    THE DYNAMIC: [What makes this tick? One paragraph, in your voice.]
+    WHEN IT LIVES: [What work does it serve?]
+    WHEN IT DIES: [When does it fail?]
+
+    THE SCORE:
+    - Stages: [how many, what each does]
+    - Fan-out: [where, how many]
+    - Dependencies: [what waits for what]
+    - Communication: [how agents share state]
+    - Validations: [how you know it worked]
+
+    AN EXAMPLE: [A concrete task outside your domain this would serve.]
+
+    INSTRUMENTS:
+    - Preferred: [which Mozart instrument(s) and why]
+    - Custom: [any non-AI instruments this pattern needs — CLI tools,
+      scripts, APIs]
+    ```
+    {% endmacro %}
+
+    {# ── Stages ─────────────────────────────────────────────── #}
+    {% if stage == 1 %}
+    # The Question
+
+    {{ question }}
+
+    ## Check for Existing Corpus
+
+    Read `{{ corpus_path }}` if it exists. Perform a SYSTEMATIC gap analysis:
+
+    1. **Count patterns per scale.** How many within-stage? Score-level?
+       Concert-level? Communication? Iteration? Adaptation? Scales with
+       fewer than 3 patterns are priority targets.
+    2. **List domains explored.** Which of the six voices' territories
+       have been mined? Which are thin? What domains OUTSIDE the six
+       voices haven't been touched at all?
+    3. **Check proof coverage.** Which patterns have proof scores? Which
+       don't? Patterns without proofs are unverified — flag them.
+    4. **Review flags.** What did previous adversarial reviews flag as
+       weak, metaphorical, or underspecified? These need strengthening
+       or cutting.
+    5. **Instrument gaps.** How many patterns specify non-LLM instruments?
+       How many use mixed-instrument strategies? This dimension is
+       likely underexplored.
+
+    If no corpus exists, this is the first iteration — do a broad sweep.
+
+    ## Read Existing Scores
+
+    {% for dir in score_dirs %}
+    Scan `{{ dir }}/` for all .yaml files. Read their
+    header comments to understand what patterns are demonstrated.
+    {% endfor %}
+    The expeditions should find patterns NONE of these scores use yet.
+
+    ## Cross-Domain Seed
+
+    {{ cross_domain_seed }}
+
+    Use this as a STARTING POINT. These translations show where
+    patterns connect across domains. The expeditions go deeper — finding
+    the structural moves these equivalences are evidence of.
+
+    ## Mozart's Full Toolkit
+
+    {{ primitives }}
+
+    ## What Already Exists
+
+    {{ existing }}
+
+    Write a cartographic brief that directs the expeditions to
+    unexplored territory. Be specific about what's missing and
+    where to look.
+
+    {{ output_spec("01-the-question.md", 1000) }}
+    {{ quality_bar("high") }}
+
+    {% elif stage == 2 %}
+    {% set voice = voices[instance] %}
+
+    # Expedition {{ instance }}: {{ voice.title }}
+
+    Read the cartographic brief at `{{ workspace }}/01-the-question.md`.
+    It tells you what's been found and where to look NOW.
+
+    ## Your Voice
+
+    {{ voice.voice }}
+
+    ## Your Tools
+
+    You have WebSearch — use it. Research orchestration in your domain.
+    Find real examples, real terminology, real practitioners' knowledge.
+    Don't work from what you already know alone.
+
+    You can also Read existing scores to understand what Mozart scores
+    look like in practice:
+    {% for dir in score_dirs %}
+    - `{{ dir }}/`
+    {% endfor %}
+
+    ## Mozart's Toolkit (what you're translating INTO)
+
+    {{ primitives }}
+
+    ## Cross-Domain Starting Points
+
+    {{ cross_domain_seed }}
+
+    ## Your Assignment
+
+    {{ pattern_format() }}
+
+    Start from your domain's native coordination problems. Don't start
+    from Mozart and work backward. The first finds structures. The
+    second finds analogies.
+
+    Use WebSearch to research real examples in your domain. Don't work
+    from what you already know alone. Read real practitioners.
+
+    If the cartographic brief identified specific gaps, prioritize those.
+    If this is the first iteration, go broad.
+
+    {{ output_spec("02-expedition-" ~ instance ~ ".md", 2000) }}
+    {{ quality_bar("high") }}
+
+    {% elif stage == 3 %}
+    # The Collision
+
+    Read everything:
+    - `{{ workspace }}/01-the-question.md`
+    {% for i in range(1, 7) %}
+    - `{{ workspace }}/02-expedition-{{ i }}.md`
+    {% endfor %}
+
+    {% if previous_outputs %}
+    ## Expedition Excerpts
+    {% for key, output in previous_outputs.items() %}
+    {% if key | int > 1 and key | int <= 7 %}
+    ### {{ voices[key | int - 1].title }} (excerpt)
+    {{ output | truncate(1200) }}
+    {% endif %}
+    {% endfor %}
+    {% endif %}
+
+    ## Answer the Question
+
+    {{ question }}
+
+    1. **Convergences** — same structure in different materials
+    2. **Divergences** — genuinely unique to one domain
+    3. **The answer** — commit to a position on universality
+    4. **Deep structures** — what generates the universals?
+    5. **Ranking** — top 15-20 by utility for Mozart
+
+    {{ output_spec("03-the-collision.md", 2500) }}
+    {{ quality_bar("high") }}
+
+    {% elif stage == 4 %}
+    # The Draft Corpus
+
+    Read the collision at `{{ workspace }}/03-the-collision.md` and
+    all expedition reports.
+
+    Also read the existing permanent corpus at `{{ corpus_path }}`
+    if it exists. MERGE your new discoveries with what's already
+    there. Don't duplicate. Add what's new, strengthen what's weak,
+    note what's confirmed by this iteration.
+
+    {% if previous_outputs %}
+    ## The Collision (excerpt)
+    {{ previous_outputs.values() | list | last | truncate(4000) }}
+    {% endif %}
+
+    ## Format
+
+    For each pattern (15-25 total in the merged corpus):
+
+    ```markdown
+    ## [Pattern Name]
+
+    **Source:** [expedition(s)] **Scale:** [scale] **Iteration:** [which run found it]
+
+    ### Core Dynamic
+    ### When to Use
+    ### When NOT to Use
+    ### Mozart Score Structure
+    ### Example
+    ### Composes With
+    ```
+
+    Group by scale. Every pattern must have a concrete Mozart score
+    structure.
+
+    {{ output_spec("04-draft-corpus.md", 4000) }}
+    {{ quality_bar("draft") }}
+
+    {% elif stage == 5 %}
+    {% set reviewer = reviewers[instance] %}
+
+    # Adversarial Review: {{ reviewer.title }}
+
+    Read `{{ workspace }}/04-draft-corpus.md`.
+
+    ## Do Not Trust This Draft
+
+    {{ reviewer.attack }}
+
+    ## Produce
+
+    - **Problems Found** — pattern by pattern
+    - **Patterns to Cut** — which ones don't meet the bar?
+    - **Patterns to Strengthen** — promising but underspecified?
+    - **Missing Elements** — what should be here?
+    - **Strongest Patterns** — genuinely good (honest, not generous)
+    - **Verdict** — ready / needs revision / flawed
+
+    {{ output_spec("05-review-" ~ instance ~ ".md", 800) }}
+    {{ quality_bar("adversarial") }}
+
+    {% elif stage == 6 %}
+    # The Final Corpus
+
+    Read the draft and all reviews:
+    - `{{ workspace }}/04-draft-corpus.md`
+    {% for i in range(1, 4) %}
+    - `{{ workspace }}/05-review-{{ i }}.md`
+    {% endfor %}
+
+    {% if previous_outputs %}
+    ## Review Excerpts
+    {% for key, output in previous_outputs.items() %}
+    {% if key | int >= 10 and key | int <= 12 %}
+    ### Review {{ key | int - 9 }}
+    {{ output | truncate(1500) }}
+    {% endif %}
+    {% endfor %}
+    {% endif %}
+
+    ## Produce the Final Corpus
+
+    Cut what the reviewers killed. Strengthen what they flagged.
+    Keep what survived. Add a "Review Integration" section.
+
+    Write the corpus to BOTH locations:
+
+    1. `{{ workspace }}/06-the-corpus.md` (workspace copy)
+    2. `{{ corpus_path }}` (PERMANENT — survives workspace archival)
+
+    The permanent copy is what the next iteration reads. Make sure
+    it's complete, self-contained, and includes ALL patterns from
+    ALL iterations — not just this one.
+
+    {{ output_spec("06-the-corpus.md", 4000) }}
+    {{ quality_bar("high") }}
+
+    {% elif stage == 7 %}
+    # The Proof
+
+    Read `{{ workspace }}/06-the-corpus.md`.
+
+    {% if previous_outputs %}
+    ## The Corpus (excerpt)
+    {{ previous_outputs.values() | list | last | truncate(5000) }}
+    {% endif %}
+
+    ## Choose a Pattern. Solve a Real Problem.
+
+    Pick one pattern from the corpus that:
+    1. Does NOT exist in any score at:
+    {% for dir in score_dirs %}
+       - `{{ dir }}/`
+    {% endfor %}
+    2. Operates beyond within-stage fan-out
+    3. Solves a REAL problem — not a demonstration, not an exercise
+
+    The proof score must solve a problem that real people face.
+    Categories (pick one that this pattern serves best):
+
+    - **Product engineering** — clone a product, build a feature, ship code
+    - **Research** — replicate a study, survey a field, synthesize literature
+    - **Creative production** — write a publishable work, design a campaign
+    - **Business intelligence** — competitive analysis, market sizing, strategy
+    - **Security** — audit a codebase, assess a system, find vulnerabilities
+    - **Education** — build a curriculum, create a course, design assessments
+    - **Legal/compliance** — review contracts, assess risk, check regulations
+    - **Infrastructure** — deploy a system, automate operations, provision services
+
+    The proof score must produce ARTIFACTS, not analysis. Code that runs.
+    Documents that publish. Configurations that deploy. Things someone
+    would USE, not just read.
+
+    Consider INSTRUMENTS. Should the proof score use:
+    - Mixed instruments (Gemini for research, Claude for implementation)?
+    - Custom instruments (curl for APIs, pytest for verification)?
+    - Shell stages for non-AI work (setup, deployment, data processing)?
+
+    Requirements:
+    - Self-contained, runnable with `mozart run`
+    - Substantive validations with staged fail-fast
+    - `{{ '{{' }}` Jinja2 `{{ '}}' }}` in templates, `{python}` in validations
+    - Header comment explaining the pattern, the problem, and why this
+      pattern is the RIGHT structure for this problem
+    - Macros for repeated blocks
+    - The output should route somewhere real — a directory someone opens
+      and finds a working thing, not just reports
+
+    Write the score to BOTH:
+    1. `{{ workspace }}/07-proof-score.yaml` (workspace copy)
+    2. `{{ proof_output_dir }}/[pattern-name-slug].yaml`
+       (in the collection — name it after the pattern, not the sheet number)
+
+    Then explain (500-800 words):
+    1. Which pattern, which problem category, why this pairing
+    2. How the score structure embodies the pattern
+    3. What artifacts the score produces when run
+    4. Which instruments it uses and why
+    5. How this differs from every existing score in the collection
+
+    {{ output_spec("07-the-proof.md", 500) }}
+    {{ quality_bar("high") }}
+
+    {% endif %}
+
+validations:
+  # ── Stage 1: The Question ──
+  - type: file_exists
+    path: "{workspace}/01-the-question.md"
+    condition: "stage == 1"
+    stage: 1
+    description: "Cartographic brief created"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/01-the-question.md") -ge 800'
+    condition: "stage == 1"
+    stage: 2
+    description: "Brief has substantive content"
+
+  # ── Stage 2: Six Expeditions ──
+  - type: file_exists
+    path: "{workspace}/02-expedition-{instance}.md"
+    condition: "stage == 2"
+    stage: 1
+    description: "Expedition report created"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/02-expedition-{instance}.md") -ge 1500'
+    condition: "stage == 2"
+    stage: 2
+    description: "Expedition has substantive content"
+  - type: content_regex
+    path: "{workspace}/02-expedition-{instance}.md"
+    pattern: "(?i)PATTERN:"
+    condition: "stage == 2"
+    stage: 2
+    description: "Contains structured pattern entries"
+  - type: content_regex
+    path: "{workspace}/02-expedition-{instance}.md"
+    pattern: "(?i)THE SCORE:"
+    condition: "stage == 2"
+    stage: 2
+    description: "Patterns include Mozart translations"
+
+  # ── Stage 3: The Collision ──
+  - type: file_exists
+    path: "{workspace}/03-the-collision.md"
+    condition: "stage == 3"
+    stage: 1
+    description: "Collision analysis created"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/03-the-collision.md") -ge 2000'
+    condition: "stage == 3"
+    stage: 2
+    description: "Analysis has substantive content"
+  - type: content_regex
+    path: "{workspace}/03-the-collision.md"
+    pattern: "(?i)(convergence|converge)"
+    condition: "stage == 3"
+    stage: 2
+    description: "Maps convergences"
+  - type: content_regex
+    path: "{workspace}/03-the-collision.md"
+    pattern: "(?si)(diverge|unique)"
+    condition: "stage == 3"
+    stage: 2
+    description: "Maps divergences"
+
+  # ── Stage 4: Draft Corpus ──
+  - type: file_exists
+    path: "{workspace}/04-draft-corpus.md"
+    condition: "stage == 4"
+    stage: 1
+    description: "Draft corpus created"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/04-draft-corpus.md") -ge 3500'
+    condition: "stage == 4"
+    stage: 2
+    description: "Draft has substantive content"
+  - type: content_regex
+    path: "{workspace}/04-draft-corpus.md"
+    pattern: "(?i)Mozart Score Structure"
+    condition: "stage == 4"
+    stage: 2
+    description: "Patterns include score structures"
+
+  # ── Stage 5: Reviews ──
+  - type: file_exists
+    path: "{workspace}/05-review-{instance}.md"
+    condition: "stage == 5"
+    stage: 1
+    description: "Review created"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/05-review-{instance}.md") -ge 600'
+    condition: "stage == 5"
+    stage: 2
+    description: "Review has substantive content"
+  - type: content_regex
+    path: "{workspace}/05-review-{instance}.md"
+    pattern: "(?i)(verdict)"
+    condition: "stage == 5"
+    stage: 2
+    description: "Review includes verdict"
+
+  # ── Stage 6: Final Corpus ──
+  - type: file_exists
+    path: "{workspace}/06-the-corpus.md"
+    condition: "stage == 6"
+    stage: 1
+    description: "Final corpus created"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/06-the-corpus.md") -ge 3500'
+    condition: "stage == 6"
+    stage: 2
+    description: "Corpus has substantive content"
+  - type: content_regex
+    path: "{workspace}/06-the-corpus.md"
+    pattern: "(?i)Mozart Score Structure"
+    condition: "stage == 6"
+    stage: 2
+    description: "Patterns include buildable structures"
+  - type: content_regex
+    path: "{workspace}/06-the-corpus.md"
+    pattern: "(?i)Review Integration"
+    condition: "stage == 6"
+    stage: 2
+    description: "Documents what changed from review"
+
+  # ── Stage 7: The Proof ──
+  - type: file_exists
+    path: "{workspace}/07-the-proof.md"
+    condition: "stage == 7"
+    stage: 1
+    description: "Proof explanation created"
+  - type: file_exists
+    path: "{workspace}/07-proof-score.yaml"
+    condition: "stage == 7"
+    stage: 1
+    description: "Proof score composed"
+  - type: content_regex
+    path: "{workspace}/07-proof-score.yaml"
+    pattern: "(?i)(name:|workspace:|sheet:|prompt:)"
+    condition: "stage == 7"
+    stage: 2
+    description: "Proof score has valid Mozart structure"
+  - type: command_succeeds
+    command: 'test $(wc -w < "{workspace}/07-the-proof.md") -ge 400'
+    condition: "stage == 7"
+    stage: 2
+    description: "Proof explanation is substantive"
+  - type: command_succeeds
+    command: 'mozart validate "{workspace}/07-proof-score.yaml" 2>&1; test $? -le 1'
+    condition: "stage == 7"
+    stage: 3
+    timeout_seconds: 60
+    description: "Proof score passes Mozart syntax validation"
+
+# Chain to self: discover more patterns
+on_success:
+  - type: run_job
+    job_path: "/home/emzi/Projects/mozart-ai-compose/scores/the-rosetta-score.yaml"
+    detached: true
+    fresh: true
+    inherit_learning: true
+    description: "Next iteration — read corpus, find gaps, go deeper"
+
+notifications:
+  - type: desktop
+    on_events:
+      - job_complete
+      - job_failed

@@ -506,9 +506,22 @@ class BatonCore:
         )
 
     def deregister_job(self, job_id: str) -> None:
-        """Remove a job from the baton's tracking."""
+        """Remove a job from the baton's tracking.
+
+        Cleans up all per-job state including cost limit entries to
+        prevent memory leaks in long-running conductors (F-062).
+        """
         if job_id in self._jobs:
             del self._jobs[job_id]
+            # F-062: Clean up cost limit dicts to prevent memory leaks
+            self._job_cost_limits.pop(job_id, None)
+            # Remove sheet cost limits for this job
+            sheet_keys_to_remove = [
+                key for key in self._sheet_cost_limits
+                if key[0] == job_id
+            ]
+            for key in sheet_keys_to_remove:
+                del self._sheet_cost_limits[key]
             self._state_dirty = True
             _logger.info("baton.job_deregistered", extra={"job_id": job_id})
 
@@ -814,6 +827,13 @@ class BatonCore:
                 self._check_job_cost_limit(event.job_id)
                 return
 
+        # F-065: execution_success + 0% validation is a complete validation
+        # failure. record_attempt() only counts execution failures toward
+        # retry budget, so we must manually count this case. Without this,
+        # the sheet retries forever since normal_attempts never increments.
+        if event.execution_success and effective_pass_rate == 0:
+            sheet.normal_attempts += 1
+
         # Per-sheet cost enforcement — fail before retrying if over budget
         if self._check_sheet_cost_limit(event.job_id, event.sheet_num, sheet):
             self._check_job_cost_limit(event.job_id)
@@ -959,8 +979,10 @@ class BatonCore:
     def _handle_escalation_resolved(self, event: EscalationResolved) -> None:
         """Composer made a decision on a fermata.
 
-        Only unpauses the job if the user didn't also pause it.
-        A user-initiated pause (PauseJob) is independent of escalation.
+        Only unpauses the job if:
+        1. The user didn't also pause it (user_paused)
+        2. No other sheets are still in FERMATA (F-066)
+        3. Cost limits aren't exceeded (F-067)
         """
         job = self._jobs.get(event.job_id)
         if job is None:
@@ -979,15 +1001,26 @@ class BatonCore:
                 self._propagate_failure_to_dependents(
                     event.job_id, event.sheet_num
                 )
-        # Only unpause if the user hasn't independently paused the job
+        # F-066: Only unpause if no sheets are still in FERMATA.
+        # F-067: Re-check cost limits after unpausing.
         if not job.user_paused:
-            job.paused = False
+            any_fermata = any(
+                s.status == BatonSheetStatus.FERMATA
+                for s in job.sheets.values()
+            )
+            if not any_fermata:
+                job.paused = False
+                # F-067: re-check cost limits — may re-pause
+                self._check_job_cost_limit(event.job_id)
         self._state_dirty = True
 
     def _handle_escalation_timeout(self, event: EscalationTimeout) -> None:
         """No escalation response — default to safe action (fail sheet).
 
-        Only unpauses if the user didn't also pause the job.
+        Only unpauses if:
+        1. The user didn't also pause it (user_paused)
+        2. No other sheets are still in FERMATA (F-066)
+        3. Cost limits aren't exceeded (F-067)
         """
         job = self._jobs.get(event.job_id)
         if job is None:
@@ -998,9 +1031,17 @@ class BatonCore:
             self._propagate_failure_to_dependents(
                 event.job_id, event.sheet_num
             )
-        # Only unpause if the user hasn't independently paused the job
+        # F-066: Only unpause if no sheets are still in FERMATA.
+        # F-067: Re-check cost limits after unpausing.
         if not job.user_paused:
-            job.paused = False
+            any_fermata = any(
+                s.status == BatonSheetStatus.FERMATA
+                for s in job.sheets.values()
+            )
+            if not any_fermata:
+                job.paused = False
+                # F-067: re-check cost limits — may re-pause
+                self._check_job_cost_limit(event.job_id)
         self._state_dirty = True
 
     def _handle_pause_job(self, event: PauseJob) -> None:
@@ -1052,13 +1093,32 @@ class BatonCore:
         Process crashes are treated like execution failures: they consume
         retry budget and route through the same exhaustion/healing/escalation
         paths as regular failures.
+
+        F-063: Uses record_attempt() to maintain the single-point-of-accounting
+        invariant. A synthetic SheetAttemptResult preserves cost/duration tracking
+        and ensures crash attempts appear in the attempt history.
         """
         job = self._jobs.get(event.job_id)
         if job is None:
             return
         sheet = job.sheets.get(event.sheet_num)
         if sheet is not None and sheet.status == BatonSheetStatus.DISPATCHED:
-            sheet.normal_attempts += 1
+            # F-063: Create a synthetic attempt result for the crash.
+            # record_attempt() handles cost, duration, and attempt counting.
+            crash_result = SheetAttemptResult(
+                job_id=event.job_id,
+                sheet_num=event.sheet_num,
+                instrument_name=sheet.instrument_name,
+                attempt=sheet.normal_attempts + 1,
+                execution_success=False,
+                exit_code=event.exit_code,
+                duration_seconds=0.0,
+                cost_usd=0.0,
+                error_classification="PROCESS_CRASH",
+                error_message=f"Backend process {event.pid} exited unexpectedly"
+                + (f" with code {event.exit_code}" if event.exit_code is not None else ""),
+            )
+            sheet.record_attempt(crash_result)
             self._update_instrument_on_failure(sheet.instrument_name)
             if not sheet.can_retry:
                 self._handle_exhaustion(
