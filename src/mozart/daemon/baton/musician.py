@@ -112,8 +112,11 @@ async def sheet_task(
         exec_result = await _execute(backend, prompt, sheet.timeout_seconds)
 
         # Step 4: Run validations (only if execution succeeded)
+        # F-118: pass total_sheets/total_movements for rich context
         val_passed, val_total, val_rate, val_details = await _validate(
-            sheet, exec_result
+            sheet, exec_result,
+            total_sheets=total_sheets,
+            total_movements=total_movements,
         )
 
         # Step 5: Record output with credential redaction
@@ -485,6 +488,9 @@ async def _execute(
 async def _validate(
     sheet: Sheet,
     exec_result: ExecutionResult,
+    *,
+    total_sheets: int = 1,
+    total_movements: int = 1,
 ) -> tuple[int, int, float, dict[str, Any] | None]:
     """Run validations on the execution output.
 
@@ -493,6 +499,10 @@ async def _validate(
 
     F-018 contract: when execution succeeds with no validations,
     pass_rate is 100.0. The default 0.0 would cause unnecessary retries.
+
+    F-118 fix: passes rich sheet context to ValidationEngine, matching
+    the runner's behavior. Validations using {workspace}, {movement},
+    {job_name} etc. in paths now resolve correctly under the baton path.
     """
     # Don't run validations if execution failed
     if not exec_result.success:
@@ -502,13 +512,23 @@ async def _validate(
     if not sheet.validations:
         return 0, 0, 100.0, None
 
+    # Build rich context matching the runner's ValidationEngine contract.
+    # Uses Sheet.template_variables() which provides all built-in vars
+    # (workspace, movement, voice, stage, instance, etc.) plus custom
+    # score-level variables. This closes the F-118 gap where the baton
+    # musician only passed {"sheet_num": N}.
+    sheet_context = sheet.template_variables(
+        total_sheets=total_sheets,
+        total_movements=total_movements,
+    )
+
     # Run validations through the validation engine
     try:
         from mozart.execution.validation.engine import ValidationEngine
 
         engine = ValidationEngine(
             workspace=sheet.workspace,
-            sheet_context={"sheet_num": sheet.num},
+            sheet_context=sheet_context,
         )
         result = await engine.run_validations(sheet.validations)
 

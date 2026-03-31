@@ -1283,11 +1283,11 @@ Each finding should include:
 ### F-118: ValidationEngine Context Gap Between Runner and Baton Musician
 - **Found by:** Prism, Movement 1 (Cycle 2)
 - **Severity:** P2 (medium — validations using `{job_name}` will fail under baton path)
-- **Status:** Open
+- **Status:** Resolved (movement 1, Axiom)
 - **Description:** `musician.py:509-511` creates `ValidationEngine(workspace=sheet.workspace, sheet_context={"sheet_num": sheet.num})`. The runner's equivalent at `sheet.py:1506-1520` passes richer context: `job_name`, `total_sheets`, `workspace`, `sheet_num`, and all template variables. Validations that reference `{job_name}` in paths or commands will get `KeyError` under the baton path.
 - **Impact:** Most validations use `{workspace}` and `{sheet_num}` which are present in both paths. But `{job_name}` is a documented template variable for validations. Any score using it will silently break when moved to `use_baton: true`.
 - **Error class:** Integration boundary contract gap. Both sides are individually correct — the musician passes what it has, the ValidationEngine uses what it receives. The gap exists because they were built at different times against different assumptions.
-- **Action:** Expand `sheet_context` in `musician.py:_validate()` to include `job_name`, `total_sheets`, and custom prompt variables from the Sheet entity.
+- **Resolution:** `_validate()` now accepts `total_sheets` and `total_movements` keyword args, calls `sheet.template_variables(total_sheets, total_movements)` to build the full context dict, and passes it to `ValidationEngine`. This provides workspace, movement, voice, voice_count, stage, instance, fan_count, total_stages, total_movements, instrument_name, and all custom score variables. The call site in `sheet_task()` threads the totals through. 8 TDD tests in `test_axiom_boundary_bugs.py`.
 
 ### F-119: Baton Event Stubs Silently Drop 5 Event Types
 - **Found by:** Prism, Movement 1 (Cycle 2)
@@ -1324,3 +1324,51 @@ Each finding should include:
 - **Impact:** Clone test isolation is incomplete. The hooks.py bypass is most critical — self-chaining scores tested with `--conductor-clone` will silently submit chained jobs to the production conductor. Same error class as F-090 (config_cmd.py bypass, fixed by Ghost in 42d3d1a).
 - **Error class:** No centralized DaemonClient factory. Developers use the obvious `DaemonClient(DaemonConfig().socket.path)` pattern. The correct pattern (`_resolve_socket_path()` from detect.py) requires knowing it exists.
 - **Action:** Replace all 4 callsites with `_resolve_socket_path()`. For hooks.py (runner-side), the clone name may not be available in the execution context — consider passing the resolved socket path through RunnerContext or JobMeta.
+
+### F-123: README.md References 3 Deleted Example Files — Broken Links
+- **Found by:** Newcomer, Movement 1 (Cycle 3)
+- **Severity:** P1 (high — broken links in the primary README)
+- **Status:** Resolved (movement 1 cycle 3, Newcomer)
+- **Description:** `README.md` lines 389-401 referenced three example files that were deleted as part of the F-088 cleanup (hardcoded absolute paths): `fix-deferred-issues.yaml`, `fix-observability.yaml`, and `quality-continuous-daemon.yaml`. The files were removed from the working tree but the README's examples table was never updated. A newcomer clicking these links gets a 404 on GitHub or "file not found" locally.
+- **Impact:** Three broken links in the most visible document in the repository. A newcomer browsing the examples table clicks a link and hits nothing. This is the same error class as F-082 (fix applied to one location but not swept across all docs).
+- **Error class:** F-088 cleanup removed files without sweeping all references. Same pattern as F-026 → F-082 (fix-the-instance-not-the-pattern).
+- **Resolution:** Removed all 3 broken rows from README.md examples tables.
+
+### F-124: score-writing-guide.md References Deleted fix-deferred-issues.yaml
+- **Found by:** Newcomer, Movement 1 (Cycle 3)
+- **Severity:** P2 (medium — broken example reference in documentation)
+- **Status:** Resolved (movement 1 cycle 3, Newcomer)
+- **Description:** `docs/score-writing-guide.md:215` referenced `examples/fix-deferred-issues.yaml` as the example for the "Code Automation" pattern. This file was deleted in the F-088 cleanup. The reference now points to nothing.
+- **Impact:** A user reading the score writing guide and looking for the code automation example finds nothing. The pattern description becomes abstract with no concrete example to learn from.
+- **Resolution:** Replaced with `examples/issue-solver.yaml` which demonstrates the same class of pattern (multi-stage code automation with fan-out reviewers).
+
+### F-125: iterative-dev-loop-config.yaml in examples/ Is Not a Mozart Score
+- **Found by:** Newcomer, Movement 1 (Cycle 3)
+- **Severity:** P3 (low — misleading file placement)
+- **Status:** Open
+- **Description:** `examples/iterative-dev-loop-config.yaml` is a generator config for `scripts/generate-iterative-dev-loop.py`, not a runnable Mozart score. It fails `mozart validate` with schema errors (missing `sheet` and `prompt` fields). It sits alongside 36 valid scores in `examples/` with no distinguishing marker. The examples/README.md lists it as "Configurable variant of the iterative development loop" at High complexity — implying it's a runnable score. The Validation Summary table also lists it with a ✓ checkmark, which is false.
+- **Impact:** A newcomer browsing examples tries to validate or run this file and gets a confusing schema error. The file has a useful purpose (generator config) but its placement in examples/ is misleading.
+- **Action:** Either move to `scripts/` (where the generator script lives) or rename to `iterative-dev-loop-config.generator.yaml` and add a clear note in examples/README.md that this is a generator config, not a runnable score.
+
+### F-126: README "Beyond Coding" Section Missing 7 Creative Examples
+- **Found by:** Newcomer, Movement 1 (Cycle 3)
+- **Severity:** P3 (low — README undersells creative capabilities)
+- **Status:** Open
+- **Description:** The README's "Beyond Coding" table (line 405-416) lists only 6 examples and says "For creative and experimental scores...see the Mozart Score Playspace" (external repo). But 7 creative scores that ARE in `examples/` are not listed: `dialectic.yaml`, `thinking-lab.yaml`, `dinner-party.yaml`, `worldbuilder.yaml`, `palimpsest.yaml`, `skill-builder.yaml`, `context-engineering-lab.yaml`. These ARE documented in `examples/README.md` but NOT in the main README. The README sends users to an external repo for scores that are already present locally.
+- **Impact:** A newcomer reading the README sees 6 "Beyond Coding" examples and is told to go elsewhere for more. The 7 additional creative examples — which demonstrate Mozart's versatility — are hidden. The main README undersells the project's capabilities.
+- **Action:** Add the 7 missing creative examples to the README's "Beyond Coding" table. Remove or soften the redirect to the external Playspace repo (it can remain as an additional resource, not the primary destination).
+
+### F-127: Diagnose Shows "success_first_try" for Sheets With 18 Attempts
+- **Found by:** Ember, Movement 1 (Cycle 3)
+- **Severity:** P2 (medium — diagnostic tool misleads)
+- **Status:** Open
+- **Description:** `mozart diagnose mozart-orchestra-v3` shows `success_first_try` in the Outcome column for sheets that required 18, 17, 10, 6, and 4 attempts respectively. The cause: `_classify_success_outcome()` at `src/mozart/execution/runner/sheet.py:2480` checks `normal_attempts <= 1` where `normal_attempts` is a session-local counter that resets when the conductor restarts and the job is resumed. Meanwhile, the Attempts column shows `attempt_count` from SheetState, which is the cumulative lifetime count. After a restart+resume, `normal_attempts` is 1 (current session) but `attempt_count` is 18 (cumulative) — the same table row contains contradictory information.
+- **Evidence:** `mozart diagnose mozart-orchestra-v3` output:
+  ```
+  │    9 │ completed   │    1800.7s │      18 │ normal       │ success_first_try │
+  │   12 │ completed   │    1530.6s │      17 │ normal       │ success_first_try │
+  │   14 │ completed   │    1170.5s │      17 │ normal       │ success_first_try │
+  ```
+- **Impact:** A user investigating why sheet 9 took 1800 seconds sees "18 attempts" and "success_first_try" in the same row. The outcome category provides no useful information. It actively misleads — the user may think the display is broken (it is, but not in the way they expect).
+- **Root cause:** `_classify_success_outcome()` is correct for single-session execution but wrong for resumed jobs. The session-local `normal_attempts` and the persisted `attempt_count` diverge after restart+resume.
+- **Fix direction:** Either (a) classify from cumulative `sheet_state.attempt_count` instead of session-local `normal_attempts`, or (b) add a `cumulative_outcome_category` field that considers the full history, distinct from the session outcome.

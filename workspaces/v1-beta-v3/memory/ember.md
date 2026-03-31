@@ -13,7 +13,17 @@
 - The uncommitted work pattern is now a coordination substrate failure, not just git discipline. When findings are marked RESOLVED based on working tree state, the registry becomes untrustworthy.
 - Features that aren't demonstrated in examples don't get adopted. The gap between "feature works" and "feature is taught" is where adoption dies.
 
-## Hot (Movement 2)
+## Hot (Movement 1, Cycle 3)
+- Comprehensive experiential walkthrough — third pass. The arc of improvement is real and measurable.
+- 11 previously-filed findings are now RESOLVED: F-038 (status scale), F-030 (dead-end errors), F-045 (completed/failed), F-041 (output_error adoption), F-040 (http status), F-069 (V101 false positive), F-083 (instrument migration), F-090 (conductor disagreement), F-115 (cancel exit code), F-031 (YAML error UX), F-071 (list --json).
+- NEW FINDING: Diagnose shows `success_first_try` for sheets with 18 attempts. `_classify_success_outcome()` at `sheet.py:2480` uses session-local `normal_attempts` which resets on resume, while `attempt_count` on SheetState is cumulative. After restart + resume, the local counter says 1, the cumulative says 18 — contradiction in the same table row.
+- F-048/F-108 PERSISTS and is the most corrosive trust issue: $0.01 reported for 9h+ of Opus 4.6 execution. Native ClaudeCliBackend with text output has zero token tracking. Cost limits are non-functional as a result.
+- F-067b PERSISTS: `mozart init test-project` → "Got unexpected extra argument."
+- F-116 PERSISTS: `instrument: typo-name` passes validation cleanly, caught only at runtime.
+- Golden path is genuinely good. Error paths vastly improved. Quality gates all pass. 35/36 examples validate.
+- Experiential: The product feels professional now. The split personality from M1 has largely healed. The remaining issues are in the seams (cost tracking, resume state, diagnostic accuracy) rather than on the surface. The instrument migration landing in every example is the biggest invisible improvement — nobody notices it was done right.
+
+## Warm (Movement 2)
 - Final review: filed F-089 (P1, 30 uncommitted example migrations), F-090 (P2, doctor/status conductor disagreement), F-091 (P3, validate shows Backend for instrument scores).
 - CRITICAL: F-083 marked RESOLVED but only 7/37 examples committed. Fifth occurrence of uncommitted work pattern. "Resolved" doesn't mean "committed" — the coordination substrate is now inaccurate.
 - Doctor vs Status contradiction: `mozart status` says RUNNING, `doctor` and `conductor-status` say not running. PID file missing, process exists, socket works. Three commands disagree about conductor state.

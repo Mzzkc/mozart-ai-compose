@@ -47,14 +47,19 @@
 ## Current Status
 Movement 4 — IN PROGRESS.
 
-**Prism M1C2 (current cycle — review):**
-- All 3 P0 blockers RESOLVED: F-104 (Forge/Canyon/Foundation), #145 (Spark/Ghost/Harper), F-103 (verified on HEAD).
-- Quality gate baselines updated: 1073→1080 (MagicMock), 108→109 (assertion-less). Gate passes.
-- Filed F-118 (P2): ValidationEngine context gap between runner and baton musician. musician.py creates ValidationEngine with minimal context — {job_name} missing.
-- Uncommitted work: Journey's cancel.py fix + 5 tests + 3 findings. Rosetta corpus expansion (18→38 patterns). New prefabrication.yaml example. Smallest uncommitted footprint in orchestra history.
-- Step 29 (restart recovery) remains sole P0 blocker. Nobody has claimed it. The baton is architecturally complete and operationally non-deployable without it.
-- 9 sites verify _TERMINAL_BATON_STATUSES guards in core.py. F-065/F-018/F-040/F-066 fixes all verified on HEAD by line number.
-- mypy clean, ruff clean, all targeted test suites pass.
+**Prism M1C2 (current cycle — comprehensive review):**
+- Reviewed 28 commits from 17 musicians. All quality gates GREEN: mypy clean, ruff clean, 1,006 baton tests, 784 CLI tests pass.
+- F-104 VERIFIED COMPLETE: musician._build_prompt() has 5-layer assembly (preamble, Jinja2, injection, validation checklist, completion suffix). MORE thorough than old runner — lenient injection, credential redaction pre-inbox. 17 TDD tests.
+- --conductor-clone VERIFIED COMPLETE: 58 TDD tests across 3 musicians, socket/PID/config/log isolation confirmed.
+- Error taxonomy VERIFIED: E006 stale detection, Phase 4.5 rate limit override, crash_patterns/stale_patterns schema.
+- Production bug fixes ALL VERIFIED: F-075, F-076, F-077, F-109, F-113 — each with TDD tests in test_production_bug_fixes.py. All in legacy runner path (the production path).
+- Baton core.py (1,250 lines): 15 event types handled, 5 unimplemented stubs. Terminal guard pattern complete across ALL 19 status transitions. is_job_complete() correct. _propagate_failure_to_dependents() uses iterative BFS with cycle protection.
+- Filed F-119 (P2, baton event stubs silently drop events), F-120 (P1, step 29 unclaimed 4 movements), F-121 (P3, #152 closable + rosetta uncommitted).
+- **CRITICAL ASSESSMENT:** The baton and runner are diverging. Every production fix goes to the runner. Every test validates the runner. The baton has 1,006 tests and has never executed a real sheet through the conductor. Step 29 is the bridge. Nobody is building it.
+- **CRITICAL ASSESSMENT:** F-009 (learning effectiveness) diagnosed 3 movements ago. Zero implementation. 27,578 patterns at baseline. The intelligence thesis is unproven.
+- **CRITICAL ASSESSMENT:** Demo work (Lovable, Wordware) has not been started or claimed. The tasks that make Mozart visible are untouched.
+- #152 verified closable (F-093 in commit 75bebed). #149, #150, #151 have fixes but need reviewer verification.
+- Convergence: integration risk MEDIUM (down from HIGH), state sync HIGH (flat), intelligence gap CRITICAL (worsening), uncommitted work MEDIUM (improving), demo readiness HIGH (new risk).
 
 **Journey M1C4 (current cycle):**
 - 44 new edge case user journey tests in `tests/test_user_journey_edge_cases.py` (commit 34c5e61). 7 stories: Dana's iterative editing, Marcus multi-instrument, Priya's forgotten score, YAML edge cases, validate→run gap, help system (18 parameterized), kitchen-sink score.
@@ -184,6 +189,15 @@ Movement 4 — IN PROGRESS.
 - Minimal demo (hello.yaml on old runner) possible TODAY. No baton required for first impression.
 - Strategic concern: F-009 (learning store) unimplemented for 5 movements. Lovable demo + Wordware demos not started. The orchestra builds infrastructure, not product.
 
+**Ember M1C3 (current cycle — experiential review):**
+- Third experiential walkthrough. 11 previously-filed findings now RESOLVED: F-038 (status scale), F-030 (dead-end errors), F-045 (completed/failed), F-041 (output_error), F-040 (http status), F-069 (V101), F-083 (instrument migration), F-090 (conductor disagreement), F-115 (cancel), F-031 (YAML error), F-071 (list --json).
+- NEW FINDING: diagnose shows `success_first_try` for sheets with 18 attempts. `_classify_success_outcome` uses session-local `normal_attempts` which resets on resume, while diagnose displays cumulative `attempt_count`. Root: `sheet.py:2480`.
+- F-048/F-108 PERSISTS: $0.01 reported for 9h+ Opus execution. Native ClaudeCliBackend with text output has zero token tracking. Cost limits non-functional as a result.
+- F-067b PERSISTS: `mozart init test-project` → "Got unexpected extra argument."
+- F-116 PERSISTS: `instrument: typo-name` passes validation cleanly, caught only at runtime.
+- Quality gates: mypy clean, ruff clean, 35/36 examples validate. Golden path works end-to-end.
+- Assessment: The product feels professional. Error paths are vastly improved. The remaining issues are in seams (cost tracking, resume state, diagnostic accuracy) rather than on the surface.
+
 **Top risks (updated by Atlas, current movement):**
 1. **Step 29 (P0):** Restart recovery not started. Primary blocker for production baton usage. Nobody has claimed it.
 2. **F-009 (P1 → should be P0):** Learning store effectiveness still inert after 5+ movements. Root cause known (Oracle M2: narrow tag matching). Nobody implementing. This undermines Mozart's identity as an intelligence layer.
@@ -281,3 +295,10 @@ Three waves defined the movement: a build wave (Canyon, Ghost, Harper, Forge, Ma
 The learning store remained the deepest systemic concern — 225,000+ executions, 25,000+ patterns, and the system cannot tell good from bad. Oracle's F-009 finding (uniform 0.5000 effectiveness) represents a philosophical challenge to the project's identity as an intelligence layer. A trimodal distribution (0.50, 0.55, 0.98) with 720 differentiated patterns emerged by movement end — breadcrumbs of quality signal.
 
 Key M1 numbers: Canyon 2,324 lines/90 tests, Foundation 144 tests, Circuit 116 tests, Blueprint 87 tests, Breakpoint 65 adversarial tests, Maverick 62 tests, Theorem 59 property-based tests, Forge 40 tests. 24/24 pre-flight sheets from Cycle 1 completed at 100% first-attempt success. 11 design specs from v1 beta spec session. Critical path: Instrument Plugin → Baton → Multi-Instrument → Lovable Demo.
+
+**Newcomer M1C3 (current cycle):**
+- Fresh-eyes UX audit: golden path is solid. Error messages consistent with hints and non-zero exit codes. All 37 examples use `instrument:` syntax. 35/37 pass validation.
+- Fixed 4 broken documentation links: README.md referenced 3 deleted example files (F-123, RESOLVED), score-writing-guide.md referenced 1 deleted file (F-124, RESOLVED). Error class: F-088 cleanup deleted files without sweeping all references.
+- Filed F-125 (P3, iterative-dev-loop-config.yaml is not a score but lives in examples/), F-126 (P3, README "Beyond Coding" section missing 7 creative examples that ARE in examples/).
+- Confirmed F-116: invalid instrument names pass validation silently. No registry check.
+- Key observation: the tool has matured dramatically since M1. Three movements ago, the first ten minutes were a minefield. Now they're professional. Remaining issues are documentation hygiene, not design failures.
