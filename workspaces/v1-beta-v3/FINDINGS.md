@@ -249,10 +249,11 @@ Each finding should include:
 ### F-025: PluginCliBackend Passes Full Parent Environment (Spec Violation)
 - **Found by:** Warden, Movement 1
 - **Severity:** P2 (medium — acceptable for v1 trusted instruments, needs fixing for v1.1)
-- **Status:** Open
+- **Status:** Resolved (movement 1 current cycle, Warden)
 - **Description:** `src/mozart/execution/instruments/cli_backend.py:193` builds subprocess environment with `dict(os.environ)` — the full parent environment. The safety hardening design spec explicitly requires: "The PluginCliBackend passes only explicitly declared env vars to subprocesses." Current implementation does the opposite: every credential in the parent environment (ANTHROPIC_API_KEY, OPENAI_API_KEY, AWS_SECRET_ACCESS_KEY, etc.) is passed to every plugin instrument subprocess.
 - **Impact:** For trusted built-in instruments (gemini-cli, codex-cli), this is acceptable — they need API keys. For user-authored or third-party instrument profiles, this is a credential exposure vector. A malicious CLI binary disguised as an instrument would receive every secret.
 - **Action:** Implement env filtering per the safety hardening spec. This is M5 roadmap step 47 — already tracked. For v1, document the risk in the instrument authoring guide.
+- **Resolution:** Added `required_env: list[str] | None` field to `CliCommand` (`src/mozart/core/config/instruments.py`). When set, `PluginCliBackend._build_env()` filters the parent environment to only include declared vars + system essentials (PATH, HOME, TERM, LANG, etc. — defined in `SYSTEM_ENV_VARS` frozenset). Updated 3 built-in profiles: `gemini-cli.yaml` (GOOGLE_API_KEY, GOOGLE_APPLICATION_CREDENTIALS), `claude-code.yaml` (ANTHROPIC_API_KEY + Bedrock/Vertex vars), `codex-cli.yaml` (OPENAI_API_KEY, CODEX_API_KEY). Multi-provider instruments (aider, goose, cline) left without required_env — they genuinely need multiple provider credentials. 19 TDD tests in `tests/test_credential_env_filtering.py`. Backward compatible: `required_env: null` (default) inherits full parent environment.
 
 ### F-026: README Quick Start References Removed --workspace Flag on status
 - **Found by:** Newcomer, Movement 1
@@ -1233,6 +1234,16 @@ Each finding should include:
 - **Severity:** P2 (medium)
 - **Status:** Resolved (movement 1 current cycle, Dash)
 - **Resolution:** Renamed "Backend Options" section to "Instrument Configuration". Updated all fields to `instrument`/`instrument_config.*` syntax. Updated prerequisites from "claude_cli backend" to instrument terminology. Updated architecture diagram from "Backend" to "Instrument". Added legacy `backend:` note pointing to configuration reference.
+
+### F-114: Phase 4.5 Rate Limit Override Misses Quota-Only Patterns
+- **Found by:** Breakpoint, Movement 1 (current cycle)
+- **Severity:** P3 (low — narrow gap, most quota messages also match rate limit patterns)
+- **Status:** open
+- **Description:** `classify_execution()` Phase 4.5 at `classifier.py:1113-1147` checks rate limit patterns first, then checks quota exhaustion patterns only if rate limit patterns matched. Text that matches `quota_exhaustion_patterns` but NOT `rate_limit_patterns` (e.g., "Token budget exhausted — usage resets at 9pm") is invisible to Phase 4.5 when Phase 1 found JSON errors. The quota check is nested inside the rate limit gate.
+- **Evidence:** Test `test_quota_pattern_without_rate_limit_pattern_missed_by_phase45` in `tests/test_baton_m4_adversarial.py` demonstrates the gap. Text containing "Token budget exhausted" matches quota patterns but not rate limit patterns — Phase 4.5 never fires.
+- **Root cause:** Phase 4.5 was designed as a rate limit override. Quota exhaustion is a sub-type of rate limiting, so the quota check was nested inside the rate limit gate. However, the two pattern sets are not strict subsets — there are quota patterns that don't also match rate limit patterns.
+- **Fix:** Either: (1) add independent quota exhaustion check in Phase 4.5 alongside the rate limit check, or (2) ensure all quota_exhaustion_patterns also trigger at least one rate_limit_pattern (add "exhausted" to rate_limit_patterns). Option 2 is simpler.
+- **Impact:** Low. In practice, most quota messages from Claude/Gemini include words like "quota" or "limit" that match rate_limit_patterns. The gap is for messages that ONLY use "exhausted"/"budget" without "limit"/"quota"/"rate". Documented with a sentinel test.
 
 ### F-029: CLI Uses "JOB_ID" in Error Messages — PARTIALLY RESOLVED
 - **Found by:** Newcomer, Movement 1

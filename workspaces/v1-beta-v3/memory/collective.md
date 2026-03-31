@@ -47,6 +47,13 @@
 ## Current Status
 Movement 4 — IN PROGRESS.
 
+**Breakpoint M1C2 (current movement):**
+- 64 adversarial tests in `tests/test_baton_m4_adversarial.py` across 12 attack surfaces: musician prompt rendering, error classification, F-018 contract, credential redaction, clone sanitization, clone global state, adapter state mapping, sheet_task integration, Phase 4.5 F-098/F-097 regression, event conversion, validation formatting, cost estimation.
+- Found F-114 (P3): Phase 4.5 rate limit override misses quota-only patterns. Quota exhaustion text that doesn't also match rate_limit_patterns is invisible when Phase 1 found JSON errors. Narrow gap — sentinel test documents it.
+- Key verifications: F-098 exact production regression tested and passes, E006/E001 stale differentiation correct (120s vs 60s), adapter state mapping complete (all 11→5 forward, all 5→baton reverse, terminal round-trip preserved), credential redaction before inbox confirmed, clone sanitization handles path traversal/null bytes/unicode/long names.
+- Quality gates: mypy clean, ruff clean, 64/64 tests pass.
+- Total adversarial test count: 188 (65 M1 + 59 M2 + 64 M4). One bug found across 4 movements (F-114, P3). The codebase is well-hardened.
+
 **Theorem M1C2 (current movement):**
 - 44 new property-based tests proving 11 invariant families across 5 subsystems (baton, adapter, musician, error classifier, sheet entity).
 - Key proofs: adapter state mapping is a total function (every BatonSheetStatus maps to checkpoint status), terminal→terminal preservation, prompt assembly determinism, F-018/F-065 guards verified under hypothesis, Phase 4.5 rate limit override verified, failure propagation through chains and fan-out DAGs.
