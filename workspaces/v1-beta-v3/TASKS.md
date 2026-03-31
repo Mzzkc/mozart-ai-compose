@@ -106,8 +106,10 @@ This is the highest priority task. You are running inside a live conductor. You 
 - [x] [Axiom] Fix musician-baton validation_pass_rate contract + dependency failure propagation + escalation unpause bug (priority: P1) [source: F-018, invariant analysis]
 - [x] [Breakpoint] Adversarial tests for baton infrastructure (65 tests: retry state machine, circuit breaker, dispatch, serialization, timer, event safety) (priority: P1) [source: adversarial testing]
 - [x] [Breakpoint] M2 adversarial tests (59 tests: exhaustion paths, cost enforcement, completion mode, failure propagation, process crash, concurrent races, serialization) (priority: P1) [source: adversarial testing, dcfaf31]
+- [x] [Breakpoint] M4 adversarial tests (45 tests: musician prompt rendering, error classification, clone sanitization, adapter state mapping, F-018 contract, credential redaction, injection resolution) (priority: P1) [source: adversarial testing, movement 1 cycle 2]
 - [x] [Tempo] Configurable preflight token thresholds (PreflightConfig in DaemonConfig) (priority: P1) [source: investigation — committed as mateship pickup, F-019 resolved]
 - [x] [Theorem] Property-based tests for movement 2 features — 27 new tests (59→86) proving 10 new invariants: completion mode, F-018 guard, cost enforcement, exhaustion decision tree, rate limit cross-job isolation, dispatch config correctness, record_attempt F-055, retry delay monotonicity, process crash routing, auth failure terminality (priority: P1) [source: invariant analysis, movement 2]
+- [x] [Theorem] Property-based tests for M1C2 cross-system invariants — 44 new tests (86→130) proving 11 invariant families: adapter state mapping totality, record_attempt budget, sheet template variables, baton decision tree, terminal state resistance, error taxonomy (E006/Phase 4.5), status set consistency, prompt assembly pipeline, deregister cleanup, enum completeness, failure propagation. (priority: P1) [source: invariant analysis, movement 1 cycle 2]
 - [x] [Axiom] Fix 3 M2 baton state machine bugs: infinite retry on 0% validation (F-065), escalation unpause ignoring FERMATA sheets (F-066), escalation overriding cost-enforcement pause (F-067). 10 TDD tests. (priority: P1) [source: backward-tracing invariant analysis, movement 2]
 
 ---
@@ -162,7 +164,7 @@ This is the highest priority task. You are running inside a live conductor. You 
 
 - [ ] Workspace path validation fixes (priority: P1) [source: roadmap step 45 / issue #95]
 - [ ] Command injection prevention (priority: P1) [source: roadmap step 46]
-- [ ] Credential env filtering for PluginCliBackend (priority: P1) [source: roadmap step 47]
+- [x] [Warden] Credential env filtering for PluginCliBackend (priority: P1) [source: roadmap step 47] — Added `required_env` field to CliCommand. When set, only declared vars + system essentials (PATH, HOME, etc.) pass to subprocess. Updated gemini-cli, claude-code, codex-cli built-in profiles with required_env. 19 TDD tests in test_credential_env_filtering.py. F-025 RESOLVED.
 - [ ] Config reload fixes (#98, #96, #131) (priority: P1) [source: roadmap step 48]
 - [ ] Fan-out edge cases (#120, #119, #128) (priority: P1) [source: roadmap step 49]
 - [ ] Resume improvements (#93, #103, #122) (priority: P1) [source: roadmap step 50]

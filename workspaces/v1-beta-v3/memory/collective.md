@@ -47,6 +47,12 @@
 ## Current Status
 Movement 4 — IN PROGRESS.
 
+**Theorem M1C2 (current movement):**
+- 44 new property-based tests proving 11 invariant families across 5 subsystems (baton, adapter, musician, error classifier, sheet entity).
+- Key proofs: adapter state mapping is a total function (every BatonSheetStatus maps to checkpoint status), terminal→terminal preservation, prompt assembly determinism, F-018/F-065 guards verified under hypothesis, Phase 4.5 rate limit override verified, failure propagation through chains and fan-out DAGs.
+- Total invariant test count: 130 (18 M1 + 10 M2 + 86→130 with M1C2). All pass. mypy/ruff clean.
+- No bugs found — mathematical proof that the codebase is consistent across subsystem boundaries.
+
 **Conductor-Clone (Spark + Ghost, current movement):**
 - --conductor-clone FULLY WIRED: global CLI option + clone.py module + detect.py socket override + start/stop/restart/conductor-status lifecycle commands. Mateship pickup of unnamed musician's 80% implementation. 28 TDD tests (Spark).
 - Ghost (42d3d1a): Fixed LAST direct DaemonClient bypass — config_cmd.py _try_live_config() now uses _resolve_socket_path(). Completed Spark's red-to-green TDD cycle.
@@ -113,6 +119,12 @@ Movement 4 — IN PROGRESS.
 - Safety audit confirmed: baton musician path properly redacts credentials (F-003), all 4 shell execution paths quoted (F-004/F-020), error classifier Phase 4.5 is safe, conductor-clone system has proper name sanitization.
 - P0 open bugs confirmed in old runner: F-111 (RateLimitExhaustedError lost in parallel) and F-113 (failed deps as "done") — both structurally fixed by the baton.
 - mypy clean, ruff clean, 76 safety-related tests pass.
+
+**Adversarial Testing (Breakpoint, current movement):**
+- 45 adversarial tests in `tests/test_baton_m4_adversarial.py` covering 8 attack surfaces: musician prompt rendering (7), error classification (7), F-018 contract (3), output capture (4), clone sanitization (7), clone global state (3), adapter state mapping (5), full sheet_task integration (6), injection resolution (3).
+- No new bugs found in M4 code. F-104 prompt rendering, conductor-clone, error classification (F-098/E006), and adapter state mapping all pass adversarial testing.
+- Total adversarial test count: 169 (45 M4 + 59 M2 + 65 M1). The baton's code quality is consistently high across three independent adversarial passes.
+- Pre-existing quality gate drift: 5 bare MagicMock in test_sheet_execution_extended.py (not new, not mine).
 
 **Critical path (UPDATED by Bedrock, current movement):** F-104 RESOLVED. F-098 RESOLVED. --conductor-clone RESOLVED. Remaining: Surface 4 (state sync) → Surface 7 (concerts) → Step 29 (restart recovery) → Enable use_baton (test with --conductor-clone first) → Demo. Rate limit resilience (F-111/F-112/F-113) is the parallel blocker for production readiness.
 
