@@ -337,6 +337,41 @@ The `daemon.health` and `daemon.ready` IPC methods are available for integration
 - **Liveness** (`daemon.health`): Returns OK if the conductor can execute the handler — minimal cost, no resource checks.
 - **Readiness** (`daemon.ready`): Returns `ready` when memory is within limits, failure rate is normal, notifications are functional, and the conductor is not shutting down.
 
+## Conductor Clones
+
+A **clone conductor** is an isolated conductor instance used for testing.
+Clones have their own socket, PID file, state database, and log — so you can
+test scores and CLI behavior without risking your production conductor.
+
+```bash
+# Start a clone
+mozart --conductor-clone start
+
+# Submit a score to the clone
+mozart --conductor-clone run my-test-score.yaml
+
+# Check the clone's status
+mozart --conductor-clone conductor-status
+
+# Named clones for parallel testing
+mozart --conductor-clone=staging start
+mozart --conductor-clone=staging run staging-test.yaml
+
+# Stop when done
+mozart --conductor-clone stop
+```
+
+**Key behaviors:**
+- The clone inherits your production `~/.mozart/conductor.yaml` config.
+- Clone paths: `/tmp/mozart-clone.sock` (socket), `/tmp/mozart-clone.pid` (PID).
+- Named clones: `/tmp/mozart-clone-staging.sock`, etc.
+- Clone names are sanitized (64-character limit, safe characters only).
+- Commands that don't interact with the conductor (`validate`, `--help`) ignore the flag.
+
+See the [CLI Reference](cli-reference.md#conductor-clones) for full details.
+
+---
+
 ## What's Built But NOT Yet Wired (Phase 3)
 
 Two significant components are **fully built and tested** but **not yet integrated** into the execution path:

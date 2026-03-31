@@ -15,10 +15,44 @@ These options apply to all `mozart` commands:
 | `--version` | `-V` | Show version and exit | |
 | `--verbose` | `-v` | Show detailed output with additional information | |
 | `--quiet` | `-q` | Show minimal output (errors only) | |
+| `--conductor-clone` | | Route all daemon interactions to a clone conductor (see below) | |
 | `--log-level` | `-L` | Logging level: `DEBUG`, `INFO`, `WARNING`, `ERROR` | `MOZART_LOG_LEVEL` |
 | `--log-file` | | Path for log file output | `MOZART_LOG_FILE` |
 | `--log-format` | | Log format: `json`, `console`, or `both` | `MOZART_LOG_FORMAT` |
 | `--help` | | Show help message | |
+
+### Conductor Clones
+
+The `--conductor-clone` option starts or connects to a **clone conductor** — an
+isolated conductor instance with its own socket, PID file, state database, and
+log. This lets you test scores, CLI features, and conductor behavior without
+risking your production conductor.
+
+```bash
+# Start a default clone conductor
+mozart --conductor-clone start
+
+# Submit a score to the clone
+mozart --conductor-clone run my-score.yaml
+
+# Check clone status
+mozart --conductor-clone status
+
+# Named clones for parallel testing
+mozart --conductor-clone=staging start
+mozart --conductor-clone=staging run staging-test.yaml
+mozart --conductor-clone=staging conductor-status
+
+# Stop the clone when done
+mozart --conductor-clone stop
+```
+
+**Key behaviors:**
+- The clone inherits your production `~/.mozart/conductor.yaml` config unless overridden.
+- Clone paths: `/tmp/mozart-clone.sock` (socket), `/tmp/mozart-clone.pid` (PID file).
+- Named clones use the name in the path: `/tmp/mozart-clone-staging.sock`.
+- Clone names are sanitized (64 character limit, safe characters only).
+- Commands that don't interact with the conductor (`validate`, `--help`) ignore this flag.
 
 ---
 
@@ -414,6 +448,134 @@ mozart validate job.yaml --verbose
 
 # JSON output for CI/CD
 mozart validate job.yaml --json
+```
+
+---
+
+### `mozart init`
+
+Scaffold a new Mozart project with a starter score.
+
+```
+Usage: mozart init [OPTIONS]
+```
+
+Creates a starter score YAML and `.mozart/` project directory. The generated
+score includes comments explaining every field — edit it with your task, then
+run it.
+
+#### Options
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--path` | `-p` | `.` | Directory to initialize |
+| `--name` | `-n` | `my-score` | Name for the starter score |
+| `--force` | `-f` | false | Overwrite existing files |
+| `--json` | `-j` | false | Output result as JSON |
+
+#### Examples
+
+```bash
+# Initialize current directory
+mozart init
+
+# Initialize with a custom name
+mozart init --name data-pipeline
+
+# Initialize in a specific directory
+mozart init --path ./my-project
+
+# Machine-readable output
+mozart init --json
+```
+
+#### What It Creates
+
+```
+./
+├── my-score.yaml        # Starter score — edit with your task
+└── .mozart/             # Project configuration directory
+```
+
+**Next steps** after init: edit the score YAML, then `mozart start && mozart run my-score.yaml`.
+
+---
+
+### `mozart cancel`
+
+Cancel a running score immediately.
+
+```
+Usage: mozart cancel [OPTIONS] SCORE_ID
+```
+
+Unlike `pause`, this does not wait for a sheet boundary. The score's task is
+cancelled, in-progress work is rolled back, and the score is marked as
+CANCELLED.
+
+#### Arguments
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `SCORE_ID` | Yes | Score to cancel |
+
+#### Options
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--json` | `-j` | false | Output result as JSON |
+
+#### Examples
+
+```bash
+# Cancel a running score
+mozart cancel my-job
+
+# Cancel with JSON output
+mozart cancel my-job --json
+```
+
+**Tip:** Use `mozart pause` for graceful stops that wait for the current sheet to finish. Use `cancel` when the score must stop now.
+
+---
+
+### `mozart clear`
+
+Clear terminal scores from the conductor registry.
+
+```
+Usage: mozart clear [OPTIONS]
+```
+
+Removes completed, failed, and/or cancelled scores from the conductor's
+tracking. Running and queued scores are never cleared.
+
+#### Options
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--job` | `-j` | | Specific score ID(s) to clear. Can be repeated. |
+| `--status` | `-s` | all terminal | Status(es) to clear: `failed`, `completed`, `cancelled`. Can be repeated. |
+| `--older-than` | | | Only clear scores older than this many seconds |
+| `--yes` | `-y` | false | Skip confirmation prompt |
+
+#### Examples
+
+```bash
+# Clear all terminal scores
+mozart clear
+
+# Clear a specific score
+mozart clear --job conductor-fix
+
+# Clear only failed scores
+mozart clear --status failed
+
+# Clear failed + cancelled scores
+mozart clear --status failed -s cancelled
+
+# Clear scores older than 1 hour, skip confirmation
+mozart clear --older-than 3600 -y
 ```
 
 ---
@@ -840,6 +1002,55 @@ mozart mcp --workspace ./projects
 ```
 
 See [MCP Integration Guide](MCP-INTEGRATION.md) for Claude Desktop setup and available tools.
+
+---
+
+### `mozart top`
+
+Real-time system monitor — like htop for your conductor.
+
+```
+Usage: mozart top [OPTIONS]
+```
+
+Shows a job-centric process tree, resource metrics, event timeline, anomaly
+detection, and learning insights. Four operating modes:
+
+| Mode | Flag | Description |
+|------|------|-------------|
+| TUI | *(default)* | Rich terminal UI with live updates |
+| JSON | `--json` | Stream NDJSON snapshots to stdout |
+| History | `--history 1h` | Replay historical data from profiler DB |
+| Trace | `--trace PID` | Attach strace to a specific process |
+
+#### Options
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--json` | | false | Stream JSON snapshots (NDJSON format) |
+| `--history` | | | Replay historical data (e.g., `1h`, `30m`, `2h30m`) |
+| `--trace` | | | Attach strace to a specific PID |
+| `--job` | `-j` | | Filter by score ID |
+| `--interval` | `-i` | `2.0` | Refresh interval in seconds |
+
+#### Examples
+
+```bash
+# Live TUI monitor
+mozart top
+
+# Filter to a specific score
+mozart top --job my-pipeline
+
+# JSON output for scripting
+mozart top --json
+
+# Replay the last hour of data
+mozart top --history 1h
+
+# Faster refresh rate
+mozart top --interval 0.5
+```
 
 ---
 
@@ -1281,6 +1492,7 @@ Usage: mozart start [OPTIONS]
 | `--config` | `-c` | | Path to conductor config file |
 | `--foreground` | `-f` | false | Run in foreground (for development) |
 | `--log-level` | `-l` | `info` | Logging level |
+| `--profile` | `-p` | | Daemon operational profile: `dev`, `intensive`, `minimal`. Overrides config file defaults. |
 
 ```bash
 # Start in background (production)

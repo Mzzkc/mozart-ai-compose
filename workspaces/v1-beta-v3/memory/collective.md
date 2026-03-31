@@ -47,12 +47,13 @@
 ## Current Status
 Movement 4 — IN PROGRESS.
 
-**Conductor-Clone (Spark, current movement):**
-- --conductor-clone FULLY WIRED: global CLI option + clone.py module + detect.py socket override + start/stop/restart/conductor-status lifecycle commands. Mateship pickup of unnamed musician's 80% implementation. 28 TDD tests.
-- IPC commands (status, run, pause, resume, cancel, diagnose) route automatically through clone socket via _resolve_socket_path() in detect.py.
-- Lifecycle commands (start, stop, restart, conductor-status) now accept clone paths via clone_name param on start_conductor() or PID/socket overrides.
+**Conductor-Clone (Spark + Ghost, current movement):**
+- --conductor-clone FULLY WIRED: global CLI option + clone.py module + detect.py socket override + start/stop/restart/conductor-status lifecycle commands. Mateship pickup of unnamed musician's 80% implementation. 28 TDD tests (Spark).
+- Ghost (42d3d1a): Fixed LAST direct DaemonClient bypass — config_cmd.py _try_live_config() now uses _resolve_socket_path(). Completed Spark's red-to-green TDD cycle.
+- Ghost (42d3d1a): Fixed F-090 — doctor.py two-phase conductor detection (PID + IPC socket fallback). 4 TDD tests.
+- IPC commands route automatically through clone socket via _resolve_socket_path().
 - Named clones supported: `--conductor-clone=staging` produces /tmp/mozart-clone-staging.sock etc.
-- Remaining: pytest conversion to use clone (tracked in TASKS.md), CLI docs update.
+- Remaining: pytest conversion to use clone (tracked in TASKS.md), CLI docs update, conductor-status socket fallback (same F-090 class).
 - PluginCliBackend._classify_error() VERIFIED: uses all 5 profile-defined pattern groups. 22 tests cover this.
 
 **Error Taxonomy & Classification (Blueprint, M4):**
@@ -83,9 +84,9 @@ Movement 4 — IN PROGRESS.
 |-----------|--------|--------|
 | M0 Stabilization | COMPLETE | 18/18 tasks |
 | M1 Foundation | COMPLETE | 13/13 tasks |
-| M2 Baton | 94% | Step 28: BatonAdapter + manager wiring DONE (Foundation + Canyon M3, 775+ lines, 47 tests). Feature flag active. Prompt assembly + state sync + concert support remain. Step 29 remains. |
+| M2 Baton | 96% | Step 28: BatonAdapter + prompt rendering DONE (Foundation + Canyon M3 + Forge current). Feature flag active. F-104 RESOLVED. State sync + concert support remain. Step 29 (restart recovery) remains. |
 | M3 UX & Polish | COMPLETE | 19/19 tasks. Step 35 (error standardization) DONE (Maverick M3). Circuit M3: F-068/F-069/F-048 fixed (+11 TDD tests). |
-| --conductor-clone | 12% | Audit done. Implementation not started. |
+| --conductor-clone | 85% | FULLY WIRED (Spark f7f9825 + Ghost 42d3d1a + Harper 3a89f65). Global CLI option, clone.py module, socket/PID/config isolation, named clones, doctor IPC fallback, all lifecycle commands. Remaining: pytest conversion, CLI docs. |
 
 **Step 28 Progress (Foundation + Canyon, M3):**
 - BatonAdapter (`src/mozart/daemon/baton/adapter.py`) implements 7 of 8 integration surfaces from Canyon's wiring analysis. Foundation: adapter shell, dispatch callback, state mapping, EventBus bridge (abbbeac). Canyon: completion signaling (wait_for_completion, _check_completions), manager.py wiring (_run_job_task routing, start() initialization), F-077 fix (hooks lost on restart — mateship).
@@ -96,7 +97,9 @@ Movement 4 — IN PROGRESS.
 
 **Maverick M1 (current cycle):** Verified F-104 resolved. Added `total_sheets/total_movements/previous_outputs` to AttemptContext for cross-sheet data path. Cleaned up 3 orphaned files (F-110) that blocked `pytest tests/ -x`. 537 baton tests passing.
 
-**Critical path (UPDATED):** F-104 RESOLVED (Forge 3deb436). F-098 RESOLVED (Forge 3deb436). Surface 4 (state sync) → Surface 7 (concerts) → Step 29 (restart recovery) → Enable use_baton → Demo.
+**Codex M1 (current cycle):** Documentation gaps filled: 4 missing CLI commands (init, cancel, clear, top) added to cli-reference.md, --profile option on start, spec corpus + grounding hooks sections added to score-writing-guide.md, conductor clones section in daemon-guide.md, example count fix in index.md. P0 task "Document undocumented score features" COMPLETE. mypy/ruff clean.
+
+**Critical path (UPDATED by Bedrock, current movement):** F-104 RESOLVED. F-098 RESOLVED. --conductor-clone RESOLVED. Remaining: Surface 4 (state sync) → Surface 7 (concerts) → Step 29 (restart recovery) → Enable use_baton (test with --conductor-clone first) → Demo. Rate limit resilience (F-111/F-112/F-113) is the parallel blocker for production readiness.
 
 **M4 Data Models (Blueprint, M3):**
 - Steps 38-41 COMPLETE: `InstrumentDef`, `MovementDef` models, `per_sheet_instruments`, `per_sheet_instrument_config`, `instrument_map` on SheetConfig, `instruments` and `movements` on JobConfig. Full resolution chain in `build_sheets()`.
@@ -123,13 +126,13 @@ Movement 4 — IN PROGRESS.
 - Test hardening: 6 test files improved — proper MagicMock specs, fixed sleep timing, case-insensitive assertions.
 - Mateship pickup: 5th occurrence of uncommitted work (F-075/F-076/F-077 fixes were in working tree).
 
-**Top risks (updated by Bedrock, post-M3 verification):**
-1. **F-104 (P0):** Prompt rendering not wired into baton musician. SINGLE BLOCKER for multi-instrument execution.
-2. **Step 29:** Restart recovery not started. Needed for production baton usage.
-3. **F-009:** Learning store effectiveness still inert. Oracle found root cause (M2). Nobody implementing.
-4. **#145:** --conductor-clone still unbuilt. All daemon testing at risk.
-5. **Uncommitted composer fixes:** F-103 (3 baton bugs) fixed in working tree but not on HEAD. 19 lines of P0 code at risk of loss.
-6. **3 deleted example scores** in working tree (F-088 cleanup) — not committed.
+**Top risks (updated by Bedrock, current movement):**
+1. **Step 29 (P0):** Restart recovery not started. Primary blocker for production baton usage. Nobody has claimed it.
+2. **F-009 (P1):** Learning store effectiveness still inert after 4+ movements. Root cause known (Oracle M2: narrow tag matching). Nobody implementing. This undermines Mozart's identity as an intelligence layer.
+3. **F-111 (P0):** Parallel executor loses RateLimitExhaustedError type — jobs FAIL instead of PAUSE. Blocks reliable parallel execution.
+4. **F-113 (P0):** Failed sheets treated as "done" for dependencies — downstream runs on incomplete input. Dependency graph semantics violated.
+5. **F-112 (P1):** No auto-resume after rate limit pause. The conductor should schedule, not just record.
+6. **Uncommitted composer fixes:** F-103 (3 baton bugs) in working tree but not on HEAD. Harper's mateship may have picked these up (3a89f65) — needs verification.
 
 **Composer production bugs (P0/P1):** F-075 RESOLVED (f58fc89). F-076 RESOLVED (f58fc89). F-077 RESOLVED (f58fc89). F-103 FIXED in working tree (not committed). All found by real usage, not tests.
 
@@ -171,15 +174,18 @@ Movement 4 — IN PROGRESS.
 D-001 through D-007: ALL DONE or mostly done. D-005 root cause found (Oracle). Steps 28+29 remain unclaimed.
 D-008 through D-013 (M2): 0/6 completed. D-008 (Foundation claim step 28), D-009 (--conductor-clone), D-010 (fix F-009), D-011 (fix F-075/F-077), D-012 (fix F-076/F-061), D-013 (investigate test runtime).
 
-## Coordination Notes (Active — Updated by Bedrock post-M3)
-- **CRITICAL PATH (UPDATED):** F-104 (prompt rendering in baton musician) is the SINGLE BLOCKER. Step 28 is partially done (Foundation+Canyon). Step 29 follows F-104. The critical path is now: F-104 → Step 28 completion → Step 29 → Enable use_baton → Demo.
-- **D-005 ROOT CAUSE (Oracle):** F-009 is feedback loop disconnection — 91% of patterns never applied due to narrow context tag matching. Fixes needed: broaden selection, close SemanticAnalyzer loop, lower min_applications threshold. STILL UNIMPLEMENTED after 2 movements.
-- **Production bugs RESOLVED:** F-075 (#149), F-076 (#150), F-077 (#151) all fixed and committed (f58fc89). F-103 (3 baton bugs) fixed in working tree by composer.
-- **Uncommitted work (6th pattern):** Composer's F-103 fixes + 3 deleted examples + workspace updates sit in working tree. 14 files, ~3,500 lines of changes. This pattern is now structural — the score should enforce commit checkpoints.
+## Coordination Notes (Active — Updated by Bedrock, current movement)
+- **CRITICAL PATH:** F-104 RESOLVED. --conductor-clone RESOLVED. Step 29 (restart recovery) is now the primary blocker. Critical path: Step 29 → Enable use_baton (--conductor-clone testing) → Fix F-111/F-112/F-113 (rate limit resilience) → Demo.
+- **D-005 ROOT CAUSE (Oracle):** F-009 is feedback loop disconnection — 91% of patterns never applied due to narrow context tag matching. STILL UNIMPLEMENTED after 4+ movements. Longest-standing systemic issue.
+- **Production bugs RESOLVED:** F-075 (#149), F-076 (#150), F-077 (#151) all fixed (f58fc89). F-103 VERIFIED on HEAD (Forge 3deb436 + Harper 3a89f65 — DispatchRetry at adapter.py:455, BackendPool at manager.py:303-317, max_retries fix in manager.py).
+- **Uncommitted work pattern (9th occurrence noted by collective memory):** Only 4 workspace files currently uncommitted — a VAST improvement from prior movements (F-013: 1699 lines, F-057: 2262 lines, F-089: 32 files). The mateship pipeline is working. Harper's pickup (3a89f65) committed ~36 files in one shot.
+- **Three P0 open bugs from composer investigation:** F-111 (RateLimitExhaustedError lost in parallel mode), F-113 (failed dependencies treated as "done"), F-109 (health check after rate limit causes cascade kill). These are the real production bugs — found by running real work, not tests.
 
-## Blockers
-- **F-104 (P0):** Baton musician does not render Jinja2 prompts. BLOCKS ALL BATON-PATH EXECUTION. Without this, `use_baton: true` produces raw templates. Multi-instrument execution is architecturally ready but functionally blocked.
-- **#145 (P0):** --conductor-clone not implemented. All daemon testing requires mocks or risks production conductor.
+## Blockers (Updated by Bedrock, current movement)
+- **F-104:** RESOLVED (Forge 3deb436 + Canyon 433bb57 + Foundation a510027). Full prompt rendering pipeline wired into baton musician. 17 + 26 TDD tests. Baton execution UNBLOCKED.
+- **#145:** RESOLVED (Spark f7f9825 + Ghost 42d3d1a + Harper 3a89f65). --conductor-clone fully wired with 28 + 26 + 4 TDD tests. Named clones, lifecycle commands, IPC routing all working.
+- **Step 29 (P0):** Restart recovery not started. Needed for production baton usage. NOW the primary blocker.
+- **F-009 (P1):** Learning store effectiveness still inert after 4+ movements. Oracle found root cause (narrow tag matching). Still unimplemented.
 
 ### Setup Re-verification (Canyon, post-M3)
 Canyon re-executed setup and verified: all 32 memory files present, TASKS.md current (61 open issues tracked), FINDINGS.md comprehensive (105+ findings), composer-notes.yaml has 30 directives through M3. Critical path: F-104 → Step 29 → Demo blockers. The workspace substrate is solid.

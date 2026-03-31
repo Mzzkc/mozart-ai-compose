@@ -26,6 +26,8 @@ examples to complex parallel fan-out workflows.
 - [Fan-Out and Dependencies](#fan-out-and-dependencies)
 - [Cross-Sheet Context](#cross-sheet-context)
 - [Prelude and Cadenza (Context Injection)](#prelude-and-cadenza-context-injection)
+- [Specification Corpus](#specification-corpus)
+- [Grounding Hooks](#grounding-hooks)
 - [Concert Chaining and Hooks](#concert-chaining-and-hooks)
 - [Testing Your Score](#testing-your-score)
 - [Best Practices](#best-practices)
@@ -1700,6 +1702,139 @@ directives that apply across the score.
 
 `mozart validate` checks static prelude/cadenza file paths (V108 warning)
 but skips Jinja-templated paths that can't be resolved before execution.
+
+---
+
+## Specification Corpus
+
+The specification corpus lets you inject project-level context — goals, conventions,
+constraints, quality standards — into every agent prompt automatically. Instead of
+copying the same context into every score's prelude, you maintain it once in a
+directory and Mozart injects relevant fragments per sheet.
+
+### Setting Up a Spec Corpus
+
+Create a directory with YAML or Markdown spec files:
+
+```
+.mozart/spec/
+├── intent.yaml        # Goals, trade-offs, decision authority
+├── conventions.yaml   # Code patterns, naming, testing rules
+├── constraints.yaml   # Must-do and must-not rules
+├── quality.yaml       # Test requirements, review checklists
+└── architecture.yaml  # System layers, invariants
+```
+
+Each YAML spec file follows this structure:
+
+```yaml
+name: conventions
+tags: [code, style, patterns]
+kind: structured
+content: |
+  ## Code Patterns
+  - Async throughout. All I/O uses asyncio.
+  - Pydantic v2 for all config models.
+  - Every field has Field(description=...).
+data:
+  language: python
+  test_framework: pytest
+```
+
+Markdown files are loaded as text fragments with tags derived from their filename.
+
+### Enabling Spec Injection
+
+Add the `spec:` section to your score:
+
+```yaml
+spec:
+  spec_dir: ".mozart/spec"        # Path to spec directory (relative to project root)
+  include_claude_md: false        # Also inject CLAUDE.md as a fragment
+```
+
+When `spec_dir` is set, Mozart loads all YAML and Markdown files from that
+directory at job start and injects their content into agent prompts as an
+"Injected Context" section.
+
+### Per-Sheet Tag Filtering
+
+Not every sheet needs every spec fragment. Use `spec_tags` on `sheet:` to
+filter which fragments each sheet receives:
+
+```yaml
+sheet:
+  size: 1
+  total_items: 4
+  spec_tags:
+    1: [goals, architecture]     # Planning sheet gets goals + architecture
+    2: [code, style, patterns]   # Coding sheet gets conventions
+    3: [testing, quality]        # Testing sheet gets quality standards
+    4: [code, testing]           # Review sheet gets both
+
+spec:
+  spec_dir: ".mozart/spec"
+```
+
+Fragments match if they have **at least one tag** in common with the filter
+list. Sheets without a `spec_tags` entry receive **all** fragments. An empty
+tag list `[]` also returns all fragments.
+
+### When to Use Spec Corpus vs. Prelude
+
+| Use case | Mechanism |
+|----------|-----------|
+| Project-wide conventions all agents should follow | Spec corpus |
+| Task-specific context for one score | Prelude |
+| Per-sheet focused context | Spec corpus with `spec_tags` |
+| Files that change between runs | Prelude with Jinja paths |
+
+The spec corpus is for **stable project knowledge** that applies across many
+scores. Preludes are for **score-specific context** that varies per job.
+
+---
+
+## Grounding Hooks
+
+Grounding hooks validate sheet outputs against external sources — APIs,
+databases, file checksums — to prevent model drift and ensure output quality.
+They run **after** standard validations pass, as an additional quality gate.
+
+### Enabling Grounding
+
+```yaml
+grounding:
+  enabled: true
+  fail_on_grounding_failure: true    # Fail the sheet if grounding fails
+  escalate_on_failure: true          # Escalate to composer on failure
+  timeout_seconds: 30                # Max wait per hook
+  hooks:
+    - type: file_checksum
+      expected_checksums:
+        "critical_file.py": "sha256:abc123..."
+```
+
+### How Grounding Works
+
+1. A sheet executes and standard validations pass.
+2. Mozart runs each grounding hook against the sheet's output.
+3. If a hook fails:
+   - `fail_on_grounding_failure: true` → sheet fails (retries apply).
+   - `escalate_on_failure: true` → escalates to composer (fermata).
+4. If all hooks pass → sheet is marked complete.
+
+### When to Use Grounding
+
+- **Deterministic outputs**: Verify specific files weren't corrupted.
+- **Schema compliance**: Check that generated config matches a schema.
+- **External validation**: Call an API to verify generated content.
+- **Regression prevention**: Ensure key files maintain expected checksums.
+
+Grounding hooks are complementary to validations. Validations check "did the
+agent produce output?" Grounding checks "is the output trustworthy?"
+
+See the [Configuration Reference](configuration-reference.md#grounding) for
+all grounding hook types and options.
 
 ---
 
