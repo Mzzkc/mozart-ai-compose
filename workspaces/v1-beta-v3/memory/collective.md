@@ -99,6 +99,13 @@ Movement 4 — IN PROGRESS.
 
 **Codex M1 (current cycle):** Documentation gaps filled: 4 missing CLI commands (init, cancel, clear, top) added to cli-reference.md, --profile option on start, spec corpus + grounding hooks sections added to score-writing-guide.md, conductor clones section in daemon-guide.md, example count fix in index.md. P0 task "Document undocumented score features" COMPLETE. mypy/ruff clean.
 
+**CLI Error UX (Lens, current movement):**
+- F-031 RESOLVED: `run.py` catches `yaml.YAMLError` separately with "YAML syntax error" message + hints. 5 TDD tests.
+- F-110 PARTIALLY RESOLVED: Backpressure/shutdown rejections no longer trigger "conductor is not running" fallback. User sees actual rejection reason with hints. 3 TDD tests.
+- Fixed `hint=` (singular) misuse in `run.py` — `output_error()` only accepts `hints=` (list). Hints were invisible in terminal mode.
+- F-073 VERIFIED RESOLVED: `resume.py` already distinguishes "not found" from "not resumable".
+- Commit 5ed495a on main. mypy clean, ruff clean, 232 CLI tests pass.
+
 **Critical path (UPDATED by Bedrock, current movement):** F-104 RESOLVED. F-098 RESOLVED. --conductor-clone RESOLVED. Remaining: Surface 4 (state sync) → Surface 7 (concerts) → Step 29 (restart recovery) → Enable use_baton (test with --conductor-clone first) → Demo. Rate limit resilience (F-111/F-112/F-113) is the parallel blocker for production readiness.
 
 **M4 Data Models (Blueprint, M3):**
@@ -181,11 +188,29 @@ D-008 through D-013 (M2): 0/6 completed. D-008 (Foundation claim step 28), D-009
 - **Uncommitted work pattern (9th occurrence noted by collective memory):** Only 4 workspace files currently uncommitted — a VAST improvement from prior movements (F-013: 1699 lines, F-057: 2262 lines, F-089: 32 files). The mateship pipeline is working. Harper's pickup (3a89f65) committed ~36 files in one shot.
 - **Three P0 open bugs from composer investigation:** F-111 (RateLimitExhaustedError lost in parallel mode), F-113 (failed dependencies treated as "done"), F-109 (health check after rate limit causes cascade kill). These are the real production bugs — found by running real work, not tests.
 
+**Security Review (Sentinel, current movement):**
+- Full security audit: zero new findings. All 4 open findings (F-021 sandbox, F-022 CSP, F-025 env passthrough, F-061 dependency CVEs) verified unchanged.
+- F-061: 8 CVEs in 7 packages. 3 critical (cryptography, pyjwt, requests) have fix versions. Blocks public release.
+- All 4 shell execution paths PROTECTED with shlex.quote() — verified against HEAD.
+- Credential scanner: 13 patterns, 2 independent scan points (checkpoint.py + musician.py). Defense in depth.
+- Baton musician (F-104): CLEAN — no shell paths, credential redaction before inbox, exception containment.
+- Conductor clone (clone.py): CLEAN — name sanitization prevents path traversal, Pydantic validates config.
+- Complete subprocess audit: 17+ spawn sites, zero unprotected shell paths.
+- FastAPI dashboard templates confirmed autoescaping — XSS protection independent of CSP.
+
 ## Blockers (Updated by Bedrock, current movement)
 - **F-104:** RESOLVED (Forge 3deb436 + Canyon 433bb57 + Foundation a510027). Full prompt rendering pipeline wired into baton musician. 17 + 26 TDD tests. Baton execution UNBLOCKED.
 - **#145:** RESOLVED (Spark f7f9825 + Ghost 42d3d1a + Harper 3a89f65). --conductor-clone fully wired with 28 + 26 + 4 TDD tests. Named clones, lifecycle commands, IPC routing all working.
 - **Step 29 (P0):** Restart recovery not started. Needed for production baton usage. NOW the primary blocker.
 - **F-009 (P1):** Learning store effectiveness still inert after 4+ movements. Oracle found root cause (narrow tag matching). Still unimplemented.
+
+**Oracle M1 (Cycle 2) — Codebase Health Assessment:**
+- 93,415 source lines (+2.7%), 9,377 test functions (+12.5%), 101 Pydantic models, 264 test files.
+- Baton: 5,037 lines (+93.1%), 795 tests (+162.4%). All quality gates pass (mypy, ruff, pytest).
+- Flowspec: 16,307 entities, 1,994 warnings, 0 critical. Warning-to-entity ratio improved.
+- Learning store: 27,578 patterns. 88.7% at baseline. 3,111 differentiated. 83 validated. Feedback loop (F-009) still unimplemented after 4 movements.
+- Execution: 233,907 total. p99=30.2m (=stale detection boundary). 99.6% success among terminal executions. 94 rate limit events in March.
+- GitHub: 5 issues closable (#149, #150, #151, #152, #145). Predictive model: ~3 movements to demo-ready.
 
 ### Setup Re-verification (Canyon, post-M3)
 Canyon re-executed setup and verified: all 32 memory files present, TASKS.md current (61 open issues tracked), FINDINGS.md comprehensive (105+ findings), composer-notes.yaml has 30 directives through M3. Critical path: F-104 → Step 29 → Demo blockers. The workspace substrate is solid.
