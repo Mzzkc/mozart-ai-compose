@@ -386,8 +386,6 @@ Mozart includes examples demonstrating various use cases:
 | [observability-demo.yaml](examples/observability-demo.yaml) | Demonstration of Mozart's observability features |
 | [issue-fixer.yaml](examples/issue-fixer.yaml) | GitHub issue fixing |
 | [issue-solver.yaml](examples/issue-solver.yaml) | Roadmap-driven, dependency-aware issue solver |
-| [fix-deferred-issues.yaml](examples/fix-deferred-issues.yaml) | Resolve long-deferred issues with zero failing tests |
-| [fix-observability.yaml](examples/fix-observability.yaml) | Fix observability gaps — no silent failures |
 | [cross-sheet-test.yaml](examples/cross-sheet-test.yaml) | Demonstrates cross-sheet context passing |
 | [agent-spike.yaml](examples/agent-spike.yaml) | Agent experimentation |
 | [docs-generator.yaml](examples/docs-generator.yaml) | Documentation generation orchestration |
@@ -398,7 +396,6 @@ Mozart includes examples demonstrating various use cases:
 | Example | Description |
 |---------|-------------|
 | [quality-daemon.yaml](examples/quality-daemon.yaml) | Quality improvement via daemon |
-| [quality-continuous-daemon.yaml](examples/quality-continuous-daemon.yaml) | Continuous quality improvement with daemon |
 | [quality-continuous.yaml](examples/quality-continuous.yaml) | Continuous quality improvement (standalone) |
 | [quality-continuous-generic.yaml](examples/quality-continuous-generic.yaml) | Generic continuous quality template |
 

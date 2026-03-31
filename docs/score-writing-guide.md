@@ -212,9 +212,9 @@ documentation, any multi-phase creative workflow.
 **Pattern:** Targeted code modifications with parallel independent fixes,
 phased commits, and automated code review.
 
-**Example:** `examples/fix-deferred-issues.yaml` — 16 stages, 18 sheets.
-Fixes failing tests in parallel, resolves a production bug, performs
-structural refactoring, then runs 3 parallel code reviewers.
+**Example:** `examples/issue-solver.yaml` — Roadmap-driven 17-stage issue
+solver with fan-out reviewers and self-chaining. Demonstrates parallel
+code review, dependency-aware execution, and automated issue resolution.
 
 **Example:** `examples/issue-fixer.yaml` — Picks one open GitHub issue,
 investigates it, and either fixes it directly or generates a subordinate
