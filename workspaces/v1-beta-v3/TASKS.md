@@ -138,6 +138,7 @@ This is the highest priority task. You are running inside a live conductor. You 
 - [x] [Dash] Add --json to `mozart list` (F-071) — JSON array output for machine parsing. 5 TDD tests. (priority: P3) [source: F-071]
 - [x] [Dash] Fix F-094: README Configuration Reference — renamed "Backend Options" to "Instrument Configuration", updated all fields to instrument_config syntax, updated architecture diagram, fixed prerequisites. (priority: P2) [source: F-094]
 - [x] [Dash] Fix F-029 (partial): user-facing error messages say "Score ID" instead of "Job ID" in validate_job_id(). 19 test assertions updated. (priority: P2) [source: F-029]
+- [x] [Journey] Fix F-115: cancel not-found uses output_error() + hints + exit 1. 5 TDD tests. (priority: P2) [source: F-115, exploratory testing]
 
 ---
 

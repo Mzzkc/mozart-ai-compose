@@ -64,9 +64,15 @@ async def _cancel_job(job_id: str, json_output: bool) -> None:
         return
 
     cancelled = result.get("cancelled", False)
-    if json_output:
-        output_json({"success": cancelled, "job_id": job_id})
-    elif cancelled:
-        console.print(f"[green]Score '{job_id}' cancelled.[/green]")
+    if cancelled:
+        if json_output:
+            output_json({"success": True, "job_id": job_id})
+        else:
+            console.print(f"[green]Score '{job_id}' cancelled.[/green]")
     else:
-        console.print(f"[yellow]Score '{job_id}' not found or already stopped.[/yellow]")
+        output_error(
+            f"Score '{job_id}' not found or already stopped.",
+            hints=["Run 'mozart list' to see available scores."],
+            json_output=json_output,
+        )
+        raise typer.Exit(1)

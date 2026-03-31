@@ -47,6 +47,14 @@
 ## Current Status
 Movement 4 — IN PROGRESS.
 
+**Journey M1C3 (current cycle):**
+- Exploratory testing of full CLI UX: golden path works (init→validate→dry-run→status→doctor→instruments).
+- F-115 RESOLVED: cancel command not-found now uses output_error() + hints + exit 1. Was exiting 0 with raw console.print.
+- F-116 FILED (P2): `mozart validate` doesn't check instrument names against registry — typos pass silently.
+- F-117 FILED (P3): Intermittent "not running" during conductor restart — misleading error message.
+- 5 TDD tests (test_cli_cancel_ux.py) + 3 new user journey tests (test_cli_user_journeys.py stories 6-7).
+- All quality gates pass: mypy clean, ruff clean.
+
 **Breakpoint M1C2 (current movement):**
 - 64 adversarial tests in `tests/test_baton_m4_adversarial.py` across 12 attack surfaces: musician prompt rendering, error classification, F-018 contract, credential redaction, clone sanitization, clone global state, adapter state mapping, sheet_task integration, Phase 4.5 F-098/F-097 regression, event conversion, validation formatting, cost estimation.
 - Found F-114 (P3): Phase 4.5 rate limit override misses quota-only patterns. Quota exhaustion text that doesn't also match rate_limit_patterns is invisible when Phase 1 found JSON errors. Narrow gap — sentinel test documents it.

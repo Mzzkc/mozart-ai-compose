@@ -334,7 +334,8 @@ class TestErrorConsistency:
         empty.write_text("")
         result = runner.invoke(app, ["validate", str(empty)])
         assert result.exit_code != 0
-        assert "hint" in result.stdout.lower() or "see:" in result.stdout.lower() or "score" in result.stdout.lower()
+        out = result.stdout.lower()
+        assert "hint" in out or "see:" in out or "score" in out
 
     @pytest.mark.adversarial
     def test_no_error_contains_python_traceback(self, tmp_path: Path) -> None:
@@ -368,3 +369,73 @@ class TestErrorConsistency:
         assert result.exit_code != 0
         # Must mention --force as the solution
         assert "force" in result.stdout.lower()
+
+
+# =============================================================================
+# Story 6: The Cost-Conscious User
+#
+# Clara runs expensive scores. She cares deeply about cost visibility.
+# When cost limits are disabled (the default!), she should STILL see
+# cost information — how much was spent, not just "$0.00".
+# =============================================================================
+
+
+class TestCostVisibility:
+    """Cost information should always be visible, even without limits enabled."""
+
+    @pytest.mark.adversarial
+    def test_dry_run_shows_cost_warning_when_limits_disabled(self) -> None:
+        """Dry-run warns when cost tracking is disabled."""
+        result = runner.invoke(app, ["run", "--dry-run", "examples/hello.yaml"])
+        assert result.exit_code == 0
+        output = result.output.lower()
+        assert "cost" in output, (
+            "Dry-run should mention cost — either the warning about disabled "
+            "limits or the cost_limits config suggestion"
+        )
+
+
+# =============================================================================
+# Story 7: The Cancel Confusion
+#
+# David wants to cancel a score but gets the name wrong. The error
+# should tell him what to do, not just say "nope".
+# =============================================================================
+
+
+class TestCancelJourney:
+    """Cancel command provides helpful guidance for all cases."""
+
+    @pytest.mark.adversarial
+    def test_cancel_wrong_name_suggests_list(self) -> None:
+        """Wrong score name suggests 'mozart list'."""
+        from unittest.mock import AsyncMock, patch
+
+        with patch(
+            "mozart.daemon.detect.try_daemon_route",
+            new_callable=AsyncMock,
+            return_value=(True, {"cancelled": False}),
+        ):
+            result = runner.invoke(app, ["cancel", "typo-score-xyz"])
+
+        assert result.exit_code != 0
+        output = result.output.lower()
+        assert "list" in output, (
+            "Cancel not-found should suggest 'mozart list' like other commands"
+        )
+
+    @pytest.mark.adversarial
+    def test_cancel_wrong_name_exits_nonzero(self) -> None:
+        """Failing to cancel should exit non-zero."""
+        from unittest.mock import AsyncMock, patch
+
+        with patch(
+            "mozart.daemon.detect.try_daemon_route",
+            new_callable=AsyncMock,
+            return_value=(True, {"cancelled": False}),
+        ):
+            result = runner.invoke(app, ["cancel", "nonexistent"])
+
+        assert result.exit_code != 0, (
+            "Cancel failing should be exit code 1, not 0"
+        )

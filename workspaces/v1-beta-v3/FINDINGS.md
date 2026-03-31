@@ -1250,3 +1250,32 @@ Each finding should include:
 - **Severity:** P1 (high)
 - **Status:** Partially resolved (movement 1 current cycle, Dash)
 - **Resolution:** Updated user-facing error messages in `validate_job_id()` from "Job ID" to "Score ID" (3 error messages). Updated 19 test assertions to match. Full metavar rename (`job_id` parameter → `score_id`) deferred — it's an E-002 escalation trigger and would risk merge conflicts with concurrent musicians.
+
+---
+
+## New Findings (Movement 1, Cycle 3 — Journey)
+
+### F-115: `mozart cancel` Exits 0 on Not-Found + Uses Raw console.print Instead of output_error()
+- **Found by:** Journey, Movement 1 (Cycle 3)
+- **Severity:** P2 (medium — inconsistent error handling, wrong exit code)
+- **Status:** Resolved (movement 1 cycle 3, Journey)
+- **Description:** `cancel.py:72` used `console.print(f"[yellow]Score '{job_id}' not found or already stopped.[/yellow]")` for the not-found case. Three problems: (1) Exit code 0 — the operation failed but the process reports success. Scripts checking `$?` would think the cancel worked. (2) No `output_error()` — inconsistent with status, diagnose, resume, which all use `output_error()` with hints for not-found. (3) No hint — user gets a dead end. Status/diagnose say "Run 'mozart list' to see available scores." Cancel said nothing.
+- **Impact:** CI/CD scripts checking exit codes see success when cancel fails. Users hit dead ends without guidance. JSON mode gets a `{"success": false}` but no error details for the not-found case.
+- **Resolution:** Changed cancel not-found to use `output_error()` with hint "Run 'mozart list' to see available scores." and `raise typer.Exit(1)`. JSON mode now gets structured error. Successful cancel moved inside the `if cancelled:` branch with proper JSON handling. 5 TDD tests in `tests/test_cli_cancel_ux.py`.
+- **Error class:** Same as F-047 (output_error() underadoption). The cancel command was missed during the M3 error standardization sweep.
+
+### F-116: `mozart validate` Does Not Check Instrument Name Against Registry
+- **Found by:** Journey, Movement 1 (Cycle 3)
+- **Severity:** P2 (medium — user discovers typo only at runtime, not at validation)
+- **Status:** Open
+- **Description:** A score with `instrument: nonexistent-instrument-12345` passes both schema validation (Pydantic accepts any string) and extended validation (no V-check for instrument name). The user discovers the error only at runtime when the conductor tries to resolve the instrument. Verified: `mozart validate /tmp/bad-instrument.yaml` shows "Schema validation passed" with zero instrument-related warnings.
+- **Impact:** A typo in the instrument name (`instrument: clause-code` instead of `claude-code`) silently passes validation. The user submits the job, waits for the conductor, and gets a runtime error. This is exactly the class of mistake that validation should catch early. The gap exists because `mozart validate` is stateless — it doesn't query the instrument registry.
+- **Action:** Add a V-check (e.g., V210) that loads available instrument profiles (built-in + user + project) and warns when the instrument name doesn't match any known profile. This should be a WARNING, not an error — the conductor may have instruments the validator doesn't know about. The check can use `load_all_profiles()` from `instruments.py` which already scans all profile directories.
+
+### F-117: `mozart list` Intermittent Failure During Conductor Restart — Misleading Error
+- **Found by:** Journey, Movement 1 (Cycle 3)
+- **Severity:** P3 (low — transient, self-resolving)
+- **Status:** Open
+- **Description:** During a conductor restart (uptime went from 4h28m to 1m49s between two invocations), `mozart list` returned "Mozart conductor is not running" with exit code 1. The conductor WAS running — it was briefly unresponsive during startup. `mozart list --json` and `mozart list --all` succeeded seconds later. The error message is misleading: "not running" is the wrong diagnosis when the conductor is starting/restarting.
+- **Impact:** Low — the condition is transient and self-resolves within seconds. But the error message teaches the wrong mental model: the user thinks the conductor crashed when it's actually restarting. A user who trusts this message might run `mozart start` and get a "already running" conflict.
+- **Action:** Change the error message from "Mozart conductor is not running" to "Could not connect to the Mozart conductor. It may be starting up — try again in a few seconds." Add a retry hint. Alternatively, add a 1-retry with 2s delay before declaring the conductor unreachable.
