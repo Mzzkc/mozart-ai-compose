@@ -467,6 +467,7 @@ These are always available in every template:
 | `start_item` | int | First item number for this sheet. |
 | `end_item` | int | Last item number for this sheet. |
 | `workspace` | str | Absolute path to the workspace directory. |
+| `instrument_name` | str | Name of the instrument executing this sheet (e.g., `claude-code`). |
 
 ### Fan-Out Variables
 

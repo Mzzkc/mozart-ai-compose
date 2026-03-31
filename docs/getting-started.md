@@ -59,11 +59,12 @@ mozart run examples/hello.yaml
 # 3. Watch progress
 mozart status hello-mozart
 
-# 4. Read the result
-cat workspaces/hello-mozart/03-finale.md
+# 4. Open the result in your browser
+open workspaces/hello-mozart/the-sky-library.html   # macOS
+# xdg-open workspaces/hello-mozart/the-sky-library.html  # Linux
 ```
 
-`hello.yaml` creates an interconnected fiction collection in three movements: a world setting, three parallel character vignettes, and a finale that weaves them together. Five sheets, ~5 minutes, real creative output.
+`hello.yaml` creates an interconnected fiction experience in three movements: a world setting, three parallel character vignettes, and a finale that weaves them together — all presented as a beautifully designed HTML page you can open in any browser. Five sheets, ~5 minutes, real creative output.
 
 ## How Sheets Work
 

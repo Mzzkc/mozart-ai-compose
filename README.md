@@ -390,6 +390,8 @@ Mozart includes examples demonstrating various use cases:
 | [agent-spike.yaml](examples/agent-spike.yaml) | Agent experimentation |
 | [docs-generator.yaml](examples/docs-generator.yaml) | Documentation generation orchestration |
 | [phase3-wiring.yaml](examples/phase3-wiring.yaml) | Wires GlobalSheetScheduler into execution path |
+| [echelon-security-audit.yaml](examples/echelon-security-audit.yaml) | Tiered security audit with severity-matched instruments |
+| [prefabrication.yaml](examples/prefabrication.yaml) | Parallel backend + frontend with shared interface contract |
 
 ### Quality & Continuous Improvement
 
@@ -409,8 +411,15 @@ Mozart includes examples demonstrating various use cases:
 | [strategic-plan.yaml](examples/strategic-plan.yaml) | Planning | Strategic plan with multi-framework analysis |
 | [parallel-research.yaml](examples/parallel-research.yaml) | Research | Parallel source collection with synthesis |
 | [parallel-research-fanout.yaml](examples/parallel-research-fanout.yaml) | Research | Parallel research using fan-out |
+| [dialectic.yaml](examples/dialectic.yaml) | Philosophy | Hegelian dialectic: thesis, 3 antitheses, synthesis |
+| [thinking-lab.yaml](examples/thinking-lab.yaml) | Meta-cognition | Multi-perspective analysis through parallel lenses |
+| [dinner-party.yaml](examples/dinner-party.yaml) | Hospitality | Parallel planning across menu, drinks, ambiance, logistics |
+| [worldbuilder.yaml](examples/worldbuilder.yaml) | Creative writing | Build fictional worlds through independent creative lenses |
+| [palimpsest.yaml](examples/palimpsest.yaml) | Literature | Multi-layered narrative construction |
+| [skill-builder.yaml](examples/skill-builder.yaml) | Education | Progressive curriculum from guided to mastery |
+| [context-engineering-lab.yaml](examples/context-engineering-lab.yaml) | AI Research | Context engineering methodology exploration |
 
-For creative and experimental scores exploring fan-out patterns in philosophy, worldbuilding, and education, see the [Mozart Score Playspace](https://github.com/Mzzkc/mozart-score-playspace).
+For additional creative scores, see the [Mozart Score Playspace](https://github.com/Mzzkc/mozart-score-playspace).
 
 See [examples/README.md](examples/README.md) for detailed documentation of each example.
 
