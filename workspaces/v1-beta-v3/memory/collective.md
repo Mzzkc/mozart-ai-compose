@@ -47,13 +47,21 @@
 ## Current Status
 Movement 4 — IN PROGRESS.
 
-**Journey M1C3 (current cycle):**
-- Exploratory testing of full CLI UX: golden path works (init→validate→dry-run→status→doctor→instruments).
-- F-115 RESOLVED: cancel command not-found now uses output_error() + hints + exit 1. Was exiting 0 with raw console.print.
-- F-116 FILED (P2): `mozart validate` doesn't check instrument names against registry — typos pass silently.
-- F-117 FILED (P3): Intermittent "not running" during conductor restart — misleading error message.
-- 5 TDD tests (test_cli_cancel_ux.py) + 3 new user journey tests (test_cli_user_journeys.py stories 6-7).
-- All quality gates pass: mypy clean, ruff clean.
+**Prism M1C2 (current cycle — review):**
+- All 3 P0 blockers RESOLVED: F-104 (Forge/Canyon/Foundation), #145 (Spark/Ghost/Harper), F-103 (verified on HEAD).
+- Quality gate baselines updated: 1073→1080 (MagicMock), 108→109 (assertion-less). Gate passes.
+- Filed F-118 (P2): ValidationEngine context gap between runner and baton musician. musician.py creates ValidationEngine with minimal context — {job_name} missing.
+- Uncommitted work: Journey's cancel.py fix + 5 tests + 3 findings. Rosetta corpus expansion (18→38 patterns). New prefabrication.yaml example. Smallest uncommitted footprint in orchestra history.
+- Step 29 (restart recovery) remains sole P0 blocker. Nobody has claimed it. The baton is architecturally complete and operationally non-deployable without it.
+- 9 sites verify _TERMINAL_BATON_STATUSES guards in core.py. F-065/F-018/F-040/F-066 fixes all verified on HEAD by line number.
+- mypy clean, ruff clean, all targeted test suites pass.
+
+**Journey M1C4 (current cycle):**
+- 44 new edge case user journey tests in `tests/test_user_journey_edge_cases.py` (commit 34c5e61). 7 stories: Dana's iterative editing, Marcus multi-instrument, Priya's forgotten score, YAML edge cases, validate→run gap, help system (18 parameterized), kitchen-sink score.
+- Full example corpus validated: 34/35 pass. F-093 fix holds. F-083 migration holds.
+- F-108 confirmed active: rosetta score shows $0.01 for 14 sheets. Cost tracking is wildly inaccurate.
+- Quality gate drift: test_no_bare_magicmock +5 in test_sheet_execution_extended.py (pre-existing, not from Journey).
+- mypy clean, ruff clean. All 44 new tests pass.
 
 **Breakpoint M1C2 (current movement):**
 - 64 adversarial tests in `tests/test_baton_m4_adversarial.py` across 12 attack surfaces: musician prompt rendering, error classification, F-018 contract, credential redaction, clone sanitization, clone global state, adapter state mapping, sheet_task integration, Phase 4.5 F-098/F-097 regression, event conversion, validation formatting, cost estimation.

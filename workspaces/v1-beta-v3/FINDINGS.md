@@ -1279,3 +1279,12 @@ Each finding should include:
 - **Description:** During a conductor restart (uptime went from 4h28m to 1m49s between two invocations), `mozart list` returned "Mozart conductor is not running" with exit code 1. The conductor WAS running — it was briefly unresponsive during startup. `mozart list --json` and `mozart list --all` succeeded seconds later. The error message is misleading: "not running" is the wrong diagnosis when the conductor is starting/restarting.
 - **Impact:** Low — the condition is transient and self-resolves within seconds. But the error message teaches the wrong mental model: the user thinks the conductor crashed when it's actually restarting. A user who trusts this message might run `mozart start` and get a "already running" conflict.
 - **Action:** Change the error message from "Mozart conductor is not running" to "Could not connect to the Mozart conductor. It may be starting up — try again in a few seconds." Add a retry hint. Alternatively, add a 1-retry with 2s delay before declaring the conductor unreachable.
+
+### F-118: ValidationEngine Context Gap Between Runner and Baton Musician
+- **Found by:** Prism, Movement 1 (Cycle 2)
+- **Severity:** P2 (medium — validations using `{job_name}` will fail under baton path)
+- **Status:** Open
+- **Description:** `musician.py:509-511` creates `ValidationEngine(workspace=sheet.workspace, sheet_context={"sheet_num": sheet.num})`. The runner's equivalent at `sheet.py:1506-1520` passes richer context: `job_name`, `total_sheets`, `workspace`, `sheet_num`, and all template variables. Validations that reference `{job_name}` in paths or commands will get `KeyError` under the baton path.
+- **Impact:** Most validations use `{workspace}` and `{sheet_num}` which are present in both paths. But `{job_name}` is a documented template variable for validations. Any score using it will silently break when moved to `use_baton: true`.
+- **Error class:** Integration boundary contract gap. Both sides are individually correct — the musician passes what it has, the ValidationEngine uses what it receives. The gap exists because they were built at different times against different assumptions.
+- **Action:** Expand `sheet_context` in `musician.py:_validate()` to include `job_name`, `total_sheets`, and custom prompt variables from the Sheet entity.
