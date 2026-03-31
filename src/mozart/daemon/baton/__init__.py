@@ -47,6 +47,7 @@ from mozart.daemon.baton.events import (
     StaleCheck,
 )
 from mozart.daemon.baton.musician import sheet_task
+from mozart.daemon.baton.prompt import PromptRenderer, RenderedPrompt
 from mozart.daemon.baton.state import (
     AttemptContext,
     AttemptMode,
@@ -97,4 +98,7 @@ __all__ = [
     "SheetExecutionState",
     # Musician
     "sheet_task",
+    # Prompt rendering
+    "PromptRenderer",
+    "RenderedPrompt",
 ]
