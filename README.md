@@ -52,7 +52,7 @@ Mozart is NOT for:
 ### Prerequisites
 
 - Python 3.11+
-- Claude CLI installed and authenticated (for `claude_cli` backend)
+- At least one AI CLI tool installed and authenticated (e.g., Claude CLI for `claude-code` instrument). Run `mozart instruments list` to see available instruments.
 
 ### Quick Setup (Recommended)
 
@@ -332,16 +332,18 @@ notifications:
 
 ### Configuration Reference
 
-#### Backend Options
+#### Instrument Configuration
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `type` | string | Backend type: `claude_cli`, `anthropic_api`, `ollama`, `recursive_light`, or any named instrument |
-| `skip_permissions` | bool | Skip Claude CLI permission prompts (required for unattended) |
-| `disable_mcp` | bool | Disable MCP servers for faster execution |
-| `timeout_seconds` | int | Maximum execution time per sheet (default: 1800) |
-| `allowed_tools` | list | Restrict available tools |
-| `cli_model` | string | Override default model |
+| `instrument` | string | Named instrument: `claude-code`, `gemini-cli`, `codex-cli`, `aider`, `goose`, or any registered instrument |
+| `instrument_config.timeout_seconds` | int | Maximum execution time per sheet (default: 1800) |
+| `instrument_config.model` | string | Override default model for the instrument |
+| `instrument_config.skip_permissions` | bool | Skip permission prompts (required for unattended execution) |
+| `instrument_config.disable_mcp` | bool | Disable MCP servers for faster execution |
+| `instrument_config.allowed_tools` | list | Restrict available tools |
+
+Legacy `backend:` syntax is still supported for backward compatibility. See the [Configuration Reference](docs/configuration-reference.md) for details.
 
 #### Validation Types
 
@@ -424,10 +426,10 @@ See [examples/README.md](examples/README.md) for detailed documentation of each 
                                        |
                                        v
 +------------------+          +--------+----------+          +------------------+
-|   CLI (Typer)    +--------->|  Execution Runner +--------->|  Backend         |
-+--------+---------+          +--------+----------+          |  (Claude CLI /   |
-         |                             |                     |   Anthropic API /|
-         v (required)                  v                     |   Ollama)        |
+|   CLI (Typer)    +--------->|  Execution Runner +--------->|  Instrument      |
++--------+---------+          +--------+----------+          |  (Claude Code /  |
+         |                             |                     |   Gemini CLI /   |
+         v (required)                  v                     |   Codex / ...)   |
 +--------+---------+          +--------+----------+          +------------------+
 |  Conductor      |          |  State Manager    |
 |  Job Manager     |          |  (JSON/SQLite)    |
@@ -452,7 +454,7 @@ See [examples/README.md](examples/README.md) for detailed documentation of each 
 
 - **Validation**: Rules that determine whether a sheet completed successfully. Mozart's validation-first philosophy means exit code 0 is insufficient; validations must pass.
 
-- **Instrument**: The execution engine that runs prompts. Mozart supports native backends (Claude CLI, Anthropic API, Ollama) and config-driven CLI instruments defined via YAML profiles. Run `mozart instruments list` to see available instruments.
+- **Instrument**: The execution engine that runs prompts. Mozart supports 10+ instruments including Claude Code, Gemini CLI, Codex CLI, Aider, and Goose — all defined as config-driven YAML profiles. Run `mozart instruments list` to see available instruments.
 
 - **Checkpoint**: Persistent state saved after each sheet, enabling resume from any point. Atomic writes prevent corruption on interruption.
 

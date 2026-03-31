@@ -167,6 +167,11 @@ def list_jobs(
         "-l",
         help="Maximum number of scores to display",
     ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Output as JSON array for machine parsing",
+    ),
     workspace: Path | None = typer.Option(
         None,
         "--workspace",
@@ -180,7 +185,7 @@ def list_jobs(
     By default shows only active scores (queued, running, paused).
     Use --all to include completed, failed, and cancelled scores.
     """
-    asyncio.run(_list_jobs(all_jobs, status_filter, limit, workspace))
+    asyncio.run(_list_jobs(all_jobs, status_filter, limit, workspace, json_output))
 
 
 # =============================================================================
@@ -504,6 +509,7 @@ async def _list_jobs(
     status_filter: str | None,
     limit: int,
     workspace: Path | None,
+    json_output: bool = False,
 ) -> None:
     """List jobs from the daemon's persistent registry."""
     from mozart.daemon.detect import try_daemon_route
@@ -515,20 +521,11 @@ async def _list_jobs(
         output_error(
             "Mozart conductor is not running.",
             hints=["Start it with: mozart start"],
+            json_output=json_output,
         )
         raise typer.Exit(1)
 
     jobs: list[dict[str, Any]] = result if isinstance(result, list) else []
-
-    # Status color map
-    _colors: dict[str, str] = {
-        "queued": "yellow",
-        "running": "green",
-        "completed": "bright_green",
-        "paused": "yellow",
-        "failed": "red",
-        "cancelled": "dim",
-    }
 
     # Filter: explicit --status overrides --all, otherwise default to active-only
     if status_filter:
@@ -539,6 +536,11 @@ async def _list_jobs(
 
     # Limit
     jobs = jobs[:limit]
+
+    # JSON output mode (F-071): machine-parseable array
+    if json_output:
+        output_json(jobs)
+        return
 
     if not jobs:
         if status_filter:
@@ -551,6 +553,16 @@ async def _list_jobs(
                 " Use [bold]--all[/bold] to see score history."
             )
         return
+
+    # Status color map
+    _colors: dict[str, str] = {
+        "queued": "yellow",
+        "running": "green",
+        "completed": "bright_green",
+        "paused": "yellow",
+        "failed": "red",
+        "cancelled": "dim",
+    }
 
     # Build rows and compute column widths
     headers = ("SCORE ID", "STATUS", "WORKSPACE", "SUBMITTED")
@@ -1216,8 +1228,9 @@ def _render_recent_errors(job: CheckpointState) -> None:
             source_parts.append(str(backend))
         source_str = ", ".join(source_parts)
 
+        code = _format_error_code(error.error_code, None)
         console.print(
-            f"  [{type_style}]\u2022[/{type_style}] [{type_style}]{_format_error_code(error.error_code, None)}[/{type_style}]"
+            f"  [{type_style}]\u2022[/{type_style}] [{type_style}]{code}[/{type_style}]"
             f" [dim]({source_str})[/dim] - {message}"
         )
 

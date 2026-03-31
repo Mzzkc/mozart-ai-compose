@@ -47,6 +47,14 @@
 ## Current Status
 Movement 4 — IN PROGRESS.
 
+**Conductor-Clone (Spark, current movement):**
+- --conductor-clone FULLY WIRED: global CLI option + clone.py module + detect.py socket override + start/stop/restart/conductor-status lifecycle commands. Mateship pickup of unnamed musician's 80% implementation. 28 TDD tests.
+- IPC commands (status, run, pause, resume, cancel, diagnose) route automatically through clone socket via _resolve_socket_path() in detect.py.
+- Lifecycle commands (start, stop, restart, conductor-status) now accept clone paths via clone_name param on start_conductor() or PID/socket overrides.
+- Named clones supported: `--conductor-clone=staging` produces /tmp/mozart-clone-staging.sock etc.
+- Remaining: pytest conversion to use clone (tracked in TASKS.md), CLI docs update.
+- PluginCliBackend._classify_error() VERIFIED: uses all 5 profile-defined pattern groups. 22 tests cover this.
+
 **Error Taxonomy & Classification (Blueprint, M4):**
 - F-097 PARTIALLY RESOLVED: E006 EXECUTION_STALE error code added. Stale detection now classified distinctly from backend timeout. 10 TDD tests.
 - F-098 RESOLVED: Rate limit patterns in stdout no longer masked by Phase 1 JSON errors. Added Phase 4.5 "Rate Limit Override" that always scans. 6 TDD tests.
@@ -57,6 +65,12 @@ Movement 4 — IN PROGRESS.
 - 18 additional TDD tests proving F-098 and F-097 fixes (test_rate_limit_stdout_detection.py). Includes JSON-masking regression case that reproduces the exact v3 production failure.
 - Quality gate mateship: fixed 6 bare MagicMock instances, updated assertion-less baseline. 9638 tests pass, mypy clean, ruff clean.
 - 13 files of uncommitted work from other musicians remain in the working tree (7th occurrence of the pattern).
+
+**CLI UX Polish (Dash, current movement):**
+- F-071 RESOLVED: `mozart list --json` now outputs valid JSON array. 5 TDD tests. Last major CLI command to get JSON support.
+- F-094 RESOLVED: README Configuration Reference renamed from "Backend Options" to "Instrument Configuration". Architecture diagram, prerequisites, key concepts all updated to instrument terminology.
+- F-029 PARTIALLY RESOLVED: User-facing error messages in `validate_job_id()` now say "Score ID" instead of "Job ID". 19 test assertions updated. Full metavar rename deferred (E-002).
+- mypy clean, ruff clean.
 
 | Milestone | Status | Detail |
 |-----------|--------|--------|

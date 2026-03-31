@@ -11,12 +11,13 @@ Format: `- [ ] Task description (priority: P0/P1/P2/P3) [source: roadmap step N 
 
 This is the highest priority task. You are running inside a live conductor. You cannot test against it.
 
-- [ ] Implement --conductor-clone as a global CLI option (priority: P0) [source: composer directive, movement 1]
+- [x] [Spark, unnamed musician] Implement --conductor-clone as a global CLI option (priority: P0) [source: composer directive, movement 1] — Spark: mateship pickup of unnamed musician's clone.py + detect.py + cli/__init__.py. Added clone_name param to start_conductor in process.py, wired start/restart/conductor-status with clone paths. 28 TDD tests.
 - [x] [Ghost] Full accounting of ALL mozart CLI commands — which ones interact with the daemon? (priority: P0) — Audit at movement-2/cli-daemon-audit.md: 20 commands, 14 interact with daemon, 10 IPC methods, 3 direct DaemonClient sites, implementation recommendations
-- [ ] Each daemon-interacting command gains --conductor-clone support (priority: P0)
-- [ ] Clone conductor uses isolated socket (/tmp/mozart-clone.sock), PID (/tmp/mozart-clone.pid), state DB, logs (priority: P0)
-- [ ] Clone inherits production daemon config unless overridden (priority: P0)
-- [ ] Support named clones: --conductor-clone=name (priority: P1)
+- [x] [Spark, unnamed musician] Each daemon-interacting command gains --conductor-clone support (priority: P0) — IPC commands route via _resolve_socket_path() clone override. Lifecycle commands (start/stop/restart/conductor-status) wired with clone PID/socket/config overrides.
+- [x] [Spark, unnamed musician] Clone conductor uses isolated socket (/tmp/mozart-clone.sock), PID (/tmp/mozart-clone.pid), state DB, logs (priority: P0) — resolve_clone_paths() + build_clone_config(). start_conductor() applies clone path overrides to loaded config.
+- [x] [Spark, unnamed musician] Clone inherits production daemon config unless overridden (priority: P0) — _load_config() runs normally, then clone paths applied on top via model_dump/model_validate.
+- [x] [Spark, unnamed musician] Support named clones: --conductor-clone=name (priority: P1) — _sanitize_name() ensures safe file paths. Named clones produce unique paths: /tmp/mozart-clone-{name}.sock etc.
+- [x] [Harper] Harden clone name sanitization: long name truncation (64 char cap), fix TYPE_CHECKING type signatures (object→DaemonConfig). 26 TDD tests in test_conductor_clone_hardening.py covering adversarial inputs, config inheritance, path isolation, built-in profile validation. (priority: P1) [source: mateship review of Spark's clone implementation]
 - [ ] Convert ALL pytests that touch the daemon to use --conductor-clone or appropriate mocking (priority: P0)
 - [ ] Audit CLI UX during the full command accounting — document improvement opportunities (priority: P1)
 - [ ] Update CLI reference docs to document --conductor-clone (priority: P1)
@@ -130,6 +131,9 @@ This is the highest priority task. You are running inside a live conductor. You 
 - [x] [Circuit] Fix F-068: "Completed:" timestamp hidden for RUNNING/PAUSED jobs (priority: P2) [source: F-068] — terminal status guard at status.py:1487, 4 TDD tests
 - [x] [Circuit] Fix F-069/F-092: V101 false positive on Jinja2 {% set %}/{% for %} variables (priority: P2) [source: F-069, F-092] — AST walker in jinja.py:250 extracts template-declared vars, 5 TDD tests, hello.yaml now validates clean
 - [x] [Circuit] Fix F-048: cost tracking when cost limits disabled (priority: P2) [source: F-048] — _track_cost() now runs before cost_limits.enabled gate in sheet.py, 2 TDD tests
+- [x] [Dash] Add --json to `mozart list` (F-071) — JSON array output for machine parsing. 5 TDD tests. (priority: P3) [source: F-071]
+- [x] [Dash] Fix F-094: README Configuration Reference — renamed "Backend Options" to "Instrument Configuration", updated all fields to instrument_config syntax, updated architecture diagram, fixed prerequisites. (priority: P2) [source: F-094]
+- [x] [Dash] Fix F-029 (partial): user-facing error messages say "Score ID" instead of "Job ID" in validate_job_id(). 19 test assertions updated. (priority: P2) [source: F-029]
 
 ---
 
@@ -202,12 +206,19 @@ See FINDINGS.md F-097 through F-102 for full context.
 - [ ] Increase `idle_timeout_seconds` from 1800 to 7200 in `generate-v3.py` (priority: P0) [source: F-097, F-102]
 - [ ] Regenerate `mozart-orchestra-v3.yaml` with updated timeouts (priority: P0) [source: F-097]
 - [x] [Blueprint] Add distinct error code E006 for stale detection (differentiate from backend timeout E001) (priority: P1) [source: F-097] — E006 EXECUTION_STALE added to ErrorCode enum, RetryBehavior (120s delay), WARNING severity. Classifier differentiates stale from timeout via "stale execution" in stderr. Both classify() and classify_execution() paths handled. 10 TDD tests.
-- [ ] Fix error display: stale detection shows `Code: timeout` instead of error code (priority: P1) [source: F-097]
+- [x] [Spark] Fix error display: stale detection shows `Code: timeout` instead of error code (priority: P1) [source: F-097] — Added `error_code` field to SheetState, wired through `mark_sheet_failed()` and runner failure handlers. Added `format_error_code_for_display()` in output.py that maps ErrorCategory values to canonical error codes when structured error_code is None. Updated status.py, diagnose.py, and format_error_details. 26 TDD tests.
 
 ### Rate Limit Classification (F-098, F-099)
 - [x] [Blueprint] Update error classifier to detect rate limit patterns in stdout, not just stderr (priority: P0) [source: F-098] — Added Phase 4.5 "Rate Limit Override" to classify_execution() that always scans stdout+stderr for rate limit patterns, even when Phase 1 found structured JSON errors. Patterns "rate.?limit", "hit.{0,10}limit", "limit.{0,10}resets?" already existed but were unreachable when Phase 1 masked them. 6 TDD tests including the core F-098 regression case.
 - [x] [Blueprint] Add patterns: "API Error: Rate limit reached", "You've hit your limit", "resets" (priority: P0) [source: F-098] — Patterns already existed in _DEFAULT_RATE_LIMIT_PATTERNS. The bug was Phase 4 being skipped when Phase 1 found JSON errors. Phase 4.5 override fixes this.
 - [ ] Consider staggering fan-out launches (100ms delay between starts) to reduce rate limit surge (priority: P2) [source: F-099]
+
+### Rate Limit Backpressure UX (F-110)
+- [ ] Accept jobs in PENDING state during rate limit backpressure instead of rejecting (priority: P1) [source: F-110]
+- [ ] Pending jobs start automatically when rate limit clears (priority: P1) [source: F-110]
+- [ ] Pending jobs can be cancelled via `mozart cancel` (priority: P1) [source: F-110]
+- [ ] `mozart run` / `mozart resume` shows time remaining when rate-limited: "Rate limit on claude-cli — clears in Xm Ys" (priority: P1) [source: F-110]
+- [ ] Fix misleading "Mozart conductor is not running" error on backpressure rejection (priority: P1) [source: F-110]
 
 ### Multi-Instrument Support (F-100, F-101, F-103, F-104, F-105)
 - [x] [Composer] Fix baton `config.backend.max_retries` → `config.retry.max_retries` (priority: P0) [source: F-103]
@@ -217,7 +228,7 @@ See FINDINGS.md F-097 through F-102 for full context.
 - [ ] Enable `use_baton: true` in conductor config after F-104 (priority: P1) [source: F-100]
 - [ ] Route claude-cli through PluginCliBackend (not native ClaudeCliBackend) (priority: P1) [source: F-105]
 - [x] [Blueprint] Expand instrument YAML schema: timeout/crash/capacity/stale patterns (priority: P1) [source: F-105] — Added crash_patterns and stale_patterns to CliErrorConfig (timeout_patterns and capacity_patterns already existed). 6 TDD tests. Log capture rules deferred.
-- [ ] Verify `PluginCliBackend._classify_error()` uses profile-defined error patterns (priority: P1) [source: F-101]
+- [x] [Spark] Verify `PluginCliBackend._classify_error()` uses profile-defined error patterns (priority: P1) [source: F-101] — Verified: _check_rate_limit() uses rate_limit_patterns, _classify_output_errors() uses auth_error_patterns/crash_patterns/stale_patterns/timeout_patterns/capacity_patterns. All from profile. 22 existing tests in test_plugin_cli_backend.py cover this.
 - [ ] Add gemini-cli rate limit test: submit a sheet, mock rate limit response, verify E101/E102 classification (priority: P2) [source: F-101]
 
 ### Gemini CLI Agent Assignment (TDF Analysis — Composer Recommendation)

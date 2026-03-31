@@ -440,16 +440,16 @@ def validate_job_id(job_id: str) -> str:
     import typer
 
     if not job_id:
-        raise typer.BadParameter("Job ID cannot be empty")
+        raise typer.BadParameter("Score ID cannot be empty")
 
     if len(job_id) > _JOB_ID_MAX_LENGTH:
         raise typer.BadParameter(
-            f"Job ID too long ({len(job_id)} chars, max {_JOB_ID_MAX_LENGTH})"
+            f"Score ID too long ({len(job_id)} chars, max {_JOB_ID_MAX_LENGTH})"
         )
 
     if not _JOB_ID_PATTERN.match(job_id):
         raise typer.BadParameter(
-            f"Invalid job ID '{job_id}'. "
+            f"Invalid score ID '{job_id}'. "
             "Must start with a letter or digit and contain only "
             "letters, digits, hyphens, underscores, and dots."
         )

@@ -58,97 +58,97 @@ class TestValidateJobId:
 
     def test_reject_shell_metachar_semicolon(self) -> None:
         """Shell metacharacter ; is rejected."""
-        with pytest.raises(typer.BadParameter, match="Invalid job ID"):
+        with pytest.raises(typer.BadParameter, match="Invalid score ID"):
             validate_job_id("job;rm -rf /")
 
     def test_reject_shell_metachar_pipe(self) -> None:
         """Shell metacharacter | is rejected."""
-        with pytest.raises(typer.BadParameter, match="Invalid job ID"):
+        with pytest.raises(typer.BadParameter, match="Invalid score ID"):
             validate_job_id("job|cat")
 
     def test_reject_shell_metachar_ampersand(self) -> None:
         """Shell metacharacter & is rejected."""
-        with pytest.raises(typer.BadParameter, match="Invalid job ID"):
+        with pytest.raises(typer.BadParameter, match="Invalid score ID"):
             validate_job_id("job&bg")
 
     def test_reject_space(self) -> None:
         """Spaces are rejected."""
-        with pytest.raises(typer.BadParameter, match="Invalid job ID"):
+        with pytest.raises(typer.BadParameter, match="Invalid score ID"):
             validate_job_id("my job")
 
     def test_reject_slash(self) -> None:
         """Path traversal characters are rejected."""
-        with pytest.raises(typer.BadParameter, match="Invalid job ID"):
+        with pytest.raises(typer.BadParameter, match="Invalid score ID"):
             validate_job_id("../etc/passwd")
 
     def test_reject_starts_with_hyphen(self) -> None:
         """IDs starting with hyphen are rejected (could look like flags)."""
-        with pytest.raises(typer.BadParameter, match="Invalid job ID"):
+        with pytest.raises(typer.BadParameter, match="Invalid score ID"):
             validate_job_id("-job")
 
     def test_reject_starts_with_dot(self) -> None:
         """IDs starting with dot are rejected (hidden files)."""
-        with pytest.raises(typer.BadParameter, match="Invalid job ID"):
+        with pytest.raises(typer.BadParameter, match="Invalid score ID"):
             validate_job_id(".hidden-job")
 
     def test_reject_backtick(self) -> None:
         """Backticks for command substitution are rejected."""
-        with pytest.raises(typer.BadParameter, match="Invalid job ID"):
+        with pytest.raises(typer.BadParameter, match="Invalid score ID"):
             validate_job_id("job`whoami`")
 
     def test_reject_dollar(self) -> None:
         """Dollar signs for variable expansion are rejected."""
-        with pytest.raises(typer.BadParameter, match="Invalid job ID"):
+        with pytest.raises(typer.BadParameter, match="Invalid score ID"):
             validate_job_id("job$HOME")
 
     def test_reject_null_byte(self) -> None:
         """Null bytes are rejected — can bypass C-level string operations."""
-        with pytest.raises(typer.BadParameter, match="Invalid job ID"):
+        with pytest.raises(typer.BadParameter, match="Invalid score ID"):
             validate_job_id("job\x00evil")
 
     def test_reject_newline(self) -> None:
         """Newlines are rejected — can split log entries or HTTP headers."""
-        with pytest.raises(typer.BadParameter, match="Invalid job ID"):
+        with pytest.raises(typer.BadParameter, match="Invalid score ID"):
             validate_job_id("job\nevil")
 
     def test_reject_tab(self) -> None:
         """Tab characters are rejected."""
-        with pytest.raises(typer.BadParameter, match="Invalid job ID"):
+        with pytest.raises(typer.BadParameter, match="Invalid score ID"):
             validate_job_id("job\tevil")
 
     def test_reject_unicode(self) -> None:
         """Non-ASCII unicode is rejected — job IDs are identifiers."""
-        with pytest.raises(typer.BadParameter, match="Invalid job ID"):
+        with pytest.raises(typer.BadParameter, match="Invalid score ID"):
             validate_job_id("jöb-ümlaut")
 
     def test_reject_json_quote(self) -> None:
         """Double quotes are rejected — JSON injection prevention."""
-        with pytest.raises(typer.BadParameter, match="Invalid job ID"):
+        with pytest.raises(typer.BadParameter, match="Invalid score ID"):
             validate_job_id('job"inject')
 
     def test_reject_curly_braces(self) -> None:
         """Curly braces are rejected — template injection prevention."""
-        with pytest.raises(typer.BadParameter, match="Invalid job ID"):
+        with pytest.raises(typer.BadParameter, match="Invalid score ID"):
             validate_job_id("job{evil}")
 
     def test_reject_parentheses(self) -> None:
         """Parentheses are rejected — shell subshell prevention."""
-        with pytest.raises(typer.BadParameter, match="Invalid job ID"):
+        with pytest.raises(typer.BadParameter, match="Invalid score ID"):
             validate_job_id("job(1)")
 
     def test_reject_backslash(self) -> None:
         """Backslashes are rejected — Windows path traversal prevention."""
-        with pytest.raises(typer.BadParameter, match="Invalid job ID"):
+        with pytest.raises(typer.BadParameter, match="Invalid score ID"):
             validate_job_id("..\\windows")
 
     def test_reject_hash(self) -> None:
         """Hash/pound is rejected — comment injection prevention."""
-        with pytest.raises(typer.BadParameter, match="Invalid job ID"):
+        with pytest.raises(typer.BadParameter, match="Invalid score ID"):
             validate_job_id("job#comment")
 
     def test_reject_at_sign(self) -> None:
         """At sign is rejected — email/URL confusion prevention."""
-        with pytest.raises(typer.BadParameter, match="Invalid job ID"):
+        with pytest.raises(typer.BadParameter, match="Invalid score ID"):
             validate_job_id("job@host")
 
 

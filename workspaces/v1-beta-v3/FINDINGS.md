@@ -1152,6 +1152,14 @@ Each finding should include:
 - **Resolution:** Complete rewrite of `_build_prompt()` with full 5-layer prompt assembly pipeline: (1) preamble via `build_preamble()`, (2) Jinja2 template rendering via `Sheet.template_variables()`, (3) prelude/cadenza injection resolution with Jinja path expansion, (4) validation requirements formatted as success checklist, (5) completion mode suffix. Added helper functions `_render_template()`, `_resolve_injections()`, `_format_injection_section()`, `_format_validation_requirements()`. Updated `sheet_task()` with `total_sheets`/`total_movements` params. Adapter computes job-level totals. 17 TDD tests in `test_musician_prompt_rendering.py`. AttemptContext expanded with `total_sheets`, `total_movements`, `previous_outputs` fields for cross-sheet data path.
 - **Impact:** UNBLOCKS all baton-path execution. `use_baton: true` can now be tested with real scores that use Jinja2 templates.
 
+### F-108: Token Counts Are Near-Zero — Native ClaudeCliBackend Doesn't Track Tokens
+- **Found by:** Composer observation (v3 job status showing 4,144 input / 2,072 output tokens after 7 completed sheets)
+- **Severity:** P1 (high — cost tracking is blind, budget controls non-functional)
+- **Status:** open
+- **Description:** The v3 score uses `output_format: text` which means the native `ClaudeCliBackend` gets raw text on stdout with no structured metadata. The backend has zero token tracking — `grep -n "token" claude_cli.py` returns no matches. The cost summary in `mozart status` shows implausibly low numbers (4K input tokens for 7 sheets that each inject ~50KB of cadenzas). These numbers likely come from `estimate_tokens()` applied to captured stdout (the agent's output), not the actual prompt input. Real token usage across 7 sheets with the full spec corpus, CLAUDE.md, meditation, compose overview, workspace files, and v3 template is likely 500K-1M+ input tokens.
+- **Impact:** (1) Cost tracking is non-functional — the score reports $0.04 when actual spend is likely $5-15+. (2) `cost_limits` budget controls can't enforce limits they can't measure. (3) No visibility into which agents/sheets are expensive. (4) The `PluginCliBackend` with `output_format: json` DOES track tokens via `usage.input_tokens` / `usage.output_tokens` in Claude's JSON output — this is another reason to route all execution through the instrument path.
+- **Fix:** Route all execution through `PluginCliBackend` (F-105). The instrument path already handles token extraction correctly for any instrument via profile-defined `input_tokens_path` / `output_tokens_path`. The native `ClaudeCliBackend` is the problem — it should not exist as a separate code path.
+
 ### F-110: Two Orphaned Broken Test Files Block `pytest tests/ -x`
 - **Found by:** Maverick, Movement 1 (current cycle)
 - **Severity:** P2 (medium — blocks full test suite collection)
@@ -1159,3 +1167,73 @@ Each finding should include:
 - **Description:** Two untracked test files were left by a musician who planned a class-based `PromptRenderer` approach (never implemented): `test_baton_prompt_renderer.py` (552 lines, imports `mozart.daemon.baton.prompt` which doesn't exist) and `test_baton_prompt_rendering.py` (494 lines, imports `_configure_backend` which doesn't exist). Both caused `ImportError` during pytest collection, blocking `pytest tests/ -x` with `-x` flag.
 - **Root cause:** Two musicians independently started TDD for F-104 with different architectures (class-based PromptRenderer vs function-based _build_prompt). The function-based approach won (simpler, no state). The class-based test files were never cleaned up.
 - **Resolution:** Deleted both orphaned files. The working tests are in `test_musician_prompt_rendering.py` (17 tests, committed in 3deb436). Also reverted a broken `__init__.py` change that imported the non-existent `PromptRenderer`.
+
+### F-109: Health Check After Rate Limit Wait Consumes a Request — Causes Fatal Cascade
+- **Found by:** Composer investigation (v3 job failure at sheet 9)
+- **Severity:** P0 (critical — kills entire parallel batch on any rate limit)
+- **Status:** Fixed (composer — `recovery.py`)
+- **Description:** After a rate limit wait completes, `_health_check_after_wait()` at `recovery.py:435` called `self.backend.health_check()` which sends a real prompt ("Say 'ready' and nothing else"). If the rate limit hasn't fully cleared, the health check itself gets rate-limited, returns `False`, and raises `FatalError`. This kills all in-progress sheets in the parallel batch (`fail_fast`), not just the one that hit the limit. The quota path (E104) correctly used `availability_check()` (binary exists, no API call) with 3 retries + backoff. The rate limit path (E101) used the destructive `health_check()` with zero retries.
+- **Evidence:** Conductor log shows: `rate_limit.detected` → 60-min wait → `rate_limit.health_check_failed` → `parallel.sheet_failed` (FatalError) → all 6 sheets (9-14) cancelled. Sheet 12 was the trigger — its health check failed, killing sheets 9-11 and 13-14 as collateral.
+- **Fix:** Changed rate limit path to use `availability_check()` with 3 retries + 30s backoff (same pattern as quota path). The rate limit wait already waited the recommended duration — the post-wait check just needs to verify the binary is still there, not re-test the API. The actual retry will determine if the limit has cleared.
+
+### F-110: Backpressure Rejects Jobs During Rate Limits — Should Queue as Pending
+- **Found by:** Composer (attempting to launch rosetta alongside rate-limited v3)
+- **Severity:** P1 (high — UX is hostile, blocks legitimate concurrent work)
+- **Status:** open
+- **Description:** When any backend has an active rate limit, `BackpressureController.current_level()` at `backpressure.py:121` escalates to `PressureLevel.HIGH` via `self._rate_coordinator.active_limits`. At HIGH, `should_accept_job()` returns False, and the CLI shows "Conductor rejected score: System under high pressure — try again later" followed by the misleading "Mozart conductor is not running." The user has no information about *why* the rejection happened, *when* it will clear, or any way to leave the job with the conductor for later execution.
+- **Root cause correctly diagnosed:** The rate limit was NOT stale — it was a legitimate 3600s limit registered at 01:03 with submissions attempted at 01:35 (only 32 minutes in). The coordinator's `active_limits` property correctly filters by `resume_at > now`. A conductor restart cleared it only because the coordinator is in-memory.
+- **Three UX changes needed:**
+  1. **Accept jobs in PENDING state during rate limits.** The conductor should queue the work and start it when the limit clears. Pending jobs can be cancelled by the user. This is how a real conductor works — you hand over the score, they decide when to play it.
+  2. **Show time remaining on rejection.** If `mozart run` or `mozart resume` is rejected due to rate limits, show: "Rate limit active on claude-cli — clears in 27m 32s. Job queued as pending." (or if rejecting: "Resubmit after 02:03 UTC").
+  3. **Fix the misleading error message.** "Mozart conductor is not running" is wrong — it IS running. The error should say what's actually happening: rate limit backpressure.
+- **Impact:** Users (and self-chaining scores) can't submit work during rate limits. This breaks concert chains — if a score completes and chains to the next, but a rate limit is active from a *different* job, the chain breaks. The conductor should be a reliable place to leave work, not a bouncer that turns you away.
+
+### F-111: Parallel Executor Loses RateLimitExhaustedError Type — Jobs FAIL Instead of PAUSE
+- **Found by:** Composer investigation (flowspec trace of `_execute_parallel_mode` → `FatalError`)
+- **Severity:** P0 (critical — rate limit recovery is completely broken for parallel scores)
+- **Status:** open
+- **Description:** The conductor was designed to handle rate limit exhaustion gracefully: `RateLimitExhaustedError` carries a `resume_after` timestamp, the lifecycle catches it and calls `mark_job_paused()`, the JobService catches it and returns `JobStatus.PAUSED`. But in parallel mode, this chain is broken:
+  1. Sheet-level recovery raises `RateLimitExhaustedError` (recovery.py:352)
+  2. The parallel executor (`ParallelBatchExecutor`) catches it as a generic exception, stores the message string in `result.error_details`
+  3. `_execute_parallel_mode` at lifecycle.py:1159 calls `state.mark_job_failed()` — FAILED, not PAUSED
+  4. lifecycle.py:1169 raises `FatalError(f"Sheet {first_failed} failed: {error_msg}")` — plain `FatalError`, not the original `RateLimitExhaustedError`
+  5. The lifecycle's `except RateLimitExhaustedError` handler (line 986) never fires
+  6. The `resume_after` timestamp is lost
+  7. The job ends up FAILED. Nobody schedules a resume.
+- **Evidence:** Flowspec confirms `_execute_parallel_mode` calls `FatalError` directly (2 call sites). Conductor log shows rosetta went through 48 quota waits then `"event": "job_failed"` — not `"job.paused.rate_limit_exhausted"`.
+- **Fix:** The parallel batch handler at lifecycle.py:1154-1169 must check if the error string indicates rate limit exhaustion (or better, preserve the exception type through the parallel executor). If `RateLimitExhaustedError`, call `mark_job_paused()` instead of `mark_job_failed()` and re-raise the original error type so the lifecycle handler fires correctly.
+
+### F-112: No Auto-Resume After Rate Limit PAUSE — resume_after Timestamp Is Computed But Never Read
+- **Found by:** Composer investigation
+- **Severity:** P1 (high — the conductor's whole job is to manage execution timing)
+- **Status:** open
+- **Description:** Even if F-111 is fixed and jobs correctly PAUSE on rate limit exhaustion, nobody schedules an auto-resume. The `resume_after` timestamp flows through: `RateLimitExhaustedError.resume_after` → `state.resume_at` (lifecycle.py:989) → `job_event("paused", {"resume_at": ...})` (job_service.py:688). But `JobManager` has no code that reads `resume_at` and schedules a resume. `grep "resume_after\|auto_resume\|schedule.*resume" manager.py` returns nothing. The job sits in PAUSED state until a human runs `mozart resume`.
+- **Impact:** The conductor knows EXACTLY when to resume (the timestamp is computed from the API's rate limit reset time) but does nothing with it. This is the core behavior gap — the conductor should be a scheduler, not a message board.
+- **Fix:** When a job pauses with `resume_at`, the manager should schedule a timer (or use the baton's timer wheel) to fire `mozart resume <job-id>` at that time. This is what makes the conductor a conductor.
+
+### F-113: Permanently Failed Sheets Treated as "Done" for Dependencies — Downstream Runs on Incomplete Input
+- **Found by:** Composer observation (rosetta sheet 2 failed, but sheets 5-6 ran anyway)
+- **Severity:** P0 (critical — dependency graph semantics violated, downstream produces garbage)
+- **Status:** open
+- **Description:** `ParallelExecutor.get_next_parallel_batch()` at `execution/parallel.py:441` adds permanently failed sheets to the "done" set for DAG resolution: `done_for_dag = completed | self._permanently_failed`. This means when a fan-out instance fails (e.g., rosetta sheet 2 = expedition-1), the synthesis stage sees ALL dependencies as "done" and dispatches — even though one input is missing. The synthesis runs on 5 of 6 expedition outputs and produces an incomplete corpus.
+- **Evidence:** Rosetta status shows sheet 2 failed (49 attempts, quota exhaustion), but sheets 3-5 completed and sheet 6 (synthesis, depends on stage 2) is in_progress. The dependency `3: [2]` means stage 3 depends on ALL of stage 2's fan-out instances. Sheet 2 failed, so sheet 8 (stage 3 after expansion) should have been blocked or failed.
+- **Root cause:** The comment at line 439 explains the intent: "so downstream sheets aren't blocked forever waiting for them." This prevents deadlock when `fail_fast=False`, but it violates the dependency contract. A failed dependency is not a completed dependency.
+- **Fix:** Failed dependencies should propagate failure to downstream sheets, not silently pass. Options: (1) Mark downstream sheets as FAILED with "dependency failed" reason, (2) Add a `dependency_policy` config: `block` (wait/fail), `skip` (mark downstream as skipped), `proceed` (current behavior, for fault-tolerant pipelines). Default should be `block`. The current behavior should only be available as an explicit opt-in for pipelines where partial input is acceptable.
+
+### F-071: `mozart list --json` Not Supported — RESOLVED
+- **Found by:** Journey, Movement 2
+- **Severity:** P3 (low)
+- **Status:** Resolved (movement 1 current cycle, Dash)
+- **Resolution:** Added `--json` option to `list_jobs()` command. When set, outputs a JSON array of job objects with job_id, status, workspace, submitted_at fields. Empty result returns `[]`. Status filter and --all work with JSON output. Conductor-down case produces JSON error via `output_error(json_output=True)`. 5 TDD tests in `test_status_helpers.py::TestListJobsJsonOutput`.
+
+### F-094: README Configuration Reference Teaches Obsolete `backend:` Syntax — RESOLVED
+- **Found by:** Newcomer, Movement 2
+- **Severity:** P2 (medium)
+- **Status:** Resolved (movement 1 current cycle, Dash)
+- **Resolution:** Renamed "Backend Options" section to "Instrument Configuration". Updated all fields to `instrument`/`instrument_config.*` syntax. Updated prerequisites from "claude_cli backend" to instrument terminology. Updated architecture diagram from "Backend" to "Instrument". Added legacy `backend:` note pointing to configuration reference.
+
+### F-029: CLI Uses "JOB_ID" in Error Messages — PARTIALLY RESOLVED
+- **Found by:** Newcomer, Movement 1
+- **Severity:** P1 (high)
+- **Status:** Partially resolved (movement 1 current cycle, Dash)
+- **Resolution:** Updated user-facing error messages in `validate_job_id()` from "Job ID" to "Score ID" (3 error messages). Updated 19 test assertions to match. Full metavar rename (`job_id` parameter → `score_id`) deferred — it's an E-002 escalation trigger and would risk merge conflicts with concurrent musicians.

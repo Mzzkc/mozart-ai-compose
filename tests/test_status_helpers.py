@@ -217,7 +217,7 @@ class TestCollectRecentErrors:
 
         assert len(result) == 1
         assert result[0][1].error_message == "CLI not found"
-        assert result[0][1].error_code == "validation"
+        assert result[0][1].error_code == "E201"  # "validation" → E201 via format_error_code_for_display
 
 
 # ---------------------------------------------------------------------------
@@ -847,3 +847,94 @@ class TestCostSummaryAlwaysVisible:
         _render_cost_summary(job)
         captured = capsys.readouterr()
         assert "limit reached" in captured.out.lower() or "paused" in captured.out.lower()
+
+
+# ---------------------------------------------------------------------------
+# F-071: mozart list --json (Dash, M4)
+# ---------------------------------------------------------------------------
+
+
+class TestListJobsJsonOutput:
+    """Tests for --json flag on the list command (F-071)."""
+
+    @staticmethod
+    def _mock_daemon_route(jobs: list[dict[str, Any]]):
+        """Return a patch that makes try_daemon_route return the given jobs."""
+        return patch(
+            "mozart.daemon.detect.try_daemon_route",
+            new_callable=AsyncMock,
+            return_value=(True, jobs),
+        )
+
+    def test_list_json_outputs_valid_json(self) -> None:
+        """--json flag should produce valid JSON array."""
+        jobs = [
+            {
+                "job_id": "json-test",
+                "status": "running",
+                "workspace": "/tmp/ws",
+                "submitted_at": 1711900000.0,
+            }
+        ]
+        with self._mock_daemon_route(jobs):
+            result = runner.invoke(app, ["list", "--json"])
+        assert result.exit_code == 0
+        parsed = json.loads(result.stdout)
+        assert isinstance(parsed, list)
+        assert len(parsed) == 1
+        assert parsed[0]["job_id"] == "json-test"
+
+    def test_list_json_empty_returns_empty_array(self) -> None:
+        """--json with no matching jobs returns []."""
+        with self._mock_daemon_route([]):
+            result = runner.invoke(app, ["list", "--all", "--json"])
+        assert result.exit_code == 0
+        parsed = json.loads(result.stdout)
+        assert parsed == []
+
+    def test_list_json_includes_all_fields(self) -> None:
+        """JSON output should include id, status, workspace, submitted_at."""
+        jobs = [
+            {
+                "job_id": "field-test",
+                "status": "completed",
+                "workspace": "/tmp/ws",
+                "submitted_at": 1711900000.0,
+            }
+        ]
+        with self._mock_daemon_route(jobs):
+            result = runner.invoke(app, ["list", "--all", "--json"])
+        assert result.exit_code == 0
+        parsed = json.loads(result.stdout)
+        item = parsed[0]
+        assert "job_id" in item
+        assert "status" in item
+        assert "workspace" in item
+        assert "submitted_at" in item
+
+    def test_list_json_respects_status_filter(self) -> None:
+        """--json with --status should filter results."""
+        jobs = [
+            {"job_id": "running-1", "status": "running", "workspace": "/tmp"},
+            {"job_id": "done-1", "status": "completed", "workspace": "/tmp"},
+        ]
+        with self._mock_daemon_route(jobs):
+            result = runner.invoke(
+                app, ["list", "--status", "completed", "--json"]
+            )
+        assert result.exit_code == 0
+        parsed = json.loads(result.stdout)
+        assert len(parsed) == 1
+        assert parsed[0]["job_id"] == "done-1"
+
+    def test_list_json_no_conductor_returns_error(self) -> None:
+        """--json without conductor should return JSON error."""
+        with patch(
+            "mozart.daemon.detect.try_daemon_route",
+            new_callable=AsyncMock,
+            return_value=(False, None),
+        ):
+            result = runner.invoke(app, ["list", "--json"])
+        assert result.exit_code == 1
+        # Should contain error info, not a table
+        assert "error" in result.stdout.lower() or "conductor" in result.stdout.lower()
