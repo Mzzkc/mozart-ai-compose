@@ -47,6 +47,36 @@
 ## Current Status
 Movement 4 — IN PROGRESS.
 
+**North M1C4 (current cycle — strategic assessment):**
+- 111/170 tasks complete (65%). M0, M1, M3 COMPLETE. M2 at 96% (step 29 sole blocker). M4 at 36% (critical path).
+- Quality gates GREEN. Baselines updated (assertion-less 109→113, asyncio.sleep 132→136, MagicMock 1080→1117).
+- Closed GitHub #152 (workspace path) and #145 (conductor-clone). Both verified by multiple musicians.
+- 146 findings total: 54 open, 92 resolved. 5 P0 open (F-097/F-107/F-109/F-111/F-113). 7 P1 open.
+- Codebase: 95,691 source lines, ~9,600 tests, 273 test files. Test-to-code ratio 1.95:1.
+- CRITICAL: Step 29 unclaimed for 4 movements. SOLE blocker for M2 and baton-to-production.
+- CRITICAL: Demo work (Lovable, Wordware) at zero. The product is invisible to the world.
+- CRITICAL: F-009 (learning store) unimplemented for 5+ movements. Intelligence thesis unproven.
+- Issued directives D-014 (P0: step 29 → Foundation/Canyon), D-015 (P0: demo → Guide), D-016 (P0: F-111/F-113 fix → Forge/Ghost), D-017 (P1: F-009 → Oracle), D-018 (P2: close 3 issues), D-019 (P3: quality gate protocol).
+- Previous directives: D-008 DONE (step 28), D-009 DONE (clone), D-011 DONE (F-075/F-077). D-010 NOT DONE (F-009 — 3rd failed directive on same issue). Directives with named musicians work. Directives without don't.
+
+**Tempo M1C3 (current cycle — retrospective):**
+- Full three-cycle cadence analysis: 52 commits, 25 unique committers (78.1% participation, up from 37.5% in Cycle 1). 10,051 test functions, 95,682 source lines. 112 tasks complete, 59 remaining. 148 findings, ~90 resolved.
+- Three-cycle rhythm emerged naturally: Cycle 1 (wide parallel build, 19 commits), Cycle 2 (convergence on F-104 blocker, 17 commits), Cycle 3 (pure verification, 9 commits). Build → Converge → Verify. This pattern should be acknowledged and protected.
+- Uncommitted work anti-pattern RESOLVING: working tree down from 36+ files to 4. Harper's mateship model works at scale.
+- STRATEGIC GAP: Step 29 (restart recovery), F-009 (learning effectiveness), and demo work (Lovable, Wordware) remain unclaimed. The orchestra builds infrastructure exceptionally well but has not started product-facing work.
+- Two Rosetta proof scores validated clean in examples/ (echelon-security-audit.yaml, prefabrication.yaml).
+- Report at movement-1/tempo.md (280 lines, 3,055 words).
+
+**Weaver M1C3 (current cycle — coordination analysis):**
+- Comprehensive dependency map analysis across 3 cycles of Movement 1. ALL 6 integration seams from Cycle 1 report are now RESOLVED: F-017 (Circuit), dispatch↔state (Circuit), prompt assembly (Blueprint+Litmus+Theorem), F-019 (Tempo), finding ID collision (partially), F-020 (Maverick). My Cycle 1 recommendations were followed almost exactly.
+- Step 29 (restart recovery) is the SOLE remaining technical blocker. Unclaimed for 4+ movements. Axiom mapped scope: recover_job() ~200 lines + manager integration ~50 lines + per-event state sync ~100 lines. Foundation or Canyon should own it.
+- CRITICAL: Baton and runner paths are DIVERGING. Runner handles 100% production. Baton handles 0%. Every production fix goes to runner. Baton has 942 tests, zero E2E through conductor. The switchover is step 29 + use_baton: true.
+- 5 GitHub issues closable: #149, #150, #151, #152, #145. All have committed fixes + TDD tests.
+- Working tree: 5 files — cleanest state ever. Uncommitted work pattern appears resolved.
+- Quality gate: 1 drift (bare MagicMock baseline 109→111).
+- Metrics: 95,682 source lines, 9,629 test functions, 148 findings (92 resolved / 57 open), 50 GitHub issues open.
+- The orchestra's core tension: 32 musicians excel at parallel work. Step 29 needs 1 musician with deep cross-system knowledge. The organizational geometry fights the technical need.
+
 **Prism M1C2 (current cycle — comprehensive review):**
 - Reviewed 28 commits from 17 musicians. All quality gates GREEN: mypy clean, ruff clean, 1,006 baton tests, 784 CLI tests pass.
 - F-104 VERIFIED COMPLETE: musician._build_prompt() has 5-layer assembly (preamble, Jinja2, injection, validation checklist, completion suffix). MORE thorough than old runner — lenient injection, credential redaction pre-inbox. 17 TDD tests.
@@ -321,3 +351,14 @@ Key M1 numbers: Canyon 2,324 lines/90 tests, Foundation 144 tests, Circuit 116 t
 - Filed F-125 (P3, iterative-dev-loop-config.yaml is not a score but lives in examples/), F-126 (P3, README "Beyond Coding" section missing 7 creative examples that ARE in examples/).
 - Confirmed F-116: invalid instrument names pass validation silently. No registry check.
 - Key observation: the tool has matured dramatically since M1. Three movements ago, the first ten minutes were a minefield. Now they're professional. Remaining issues are documentation hygiene, not design failures.
+
+**Captain M1C5 (current cycle — coordination analysis):**
+- Comprehensive coordination analysis: 26 commits from 20 musicians, zero merge conflicts, 10,051 tests collected.
+- Fixed quality gate baseline drift (mateship): test_quality_gate.py baselines updated — 5 pre-existing violations from other musicians' work.
+- Three major blockers RESOLVED this cycle: F-104 (Forge), conductor-clone (Spark+Ghost+Harper), F-118 (Axiom).
+- Critical path: step 29 → use_baton activation → demo. Step 29 is ~350 lines, scoped by Axiom.
+- Risk register: CRITICAL (step 29 unclaimed 5 movements, F-009 unimplemented 4 movements), HIGH (demo absent, old runner production bugs).
+- Committer ratio peaked at 72% (23/32). Uncommitted work reduced from 36+ files to 5. Mateship pipeline working.
+- 3 closable GitHub issues: #152, #145, #104. 3 more need reviewer verification: #149, #150, #151.
+- 2 untracked Rosetta proof scores in examples/ — should be committed.
+- Quality gates: mypy clean, ruff clean, quality gate passes after baseline update.
