@@ -20,6 +20,7 @@ examples to complex parallel fan-out workflows.
 - [Template Variables Reference](#template-variables-reference)
 - [Expressive Templates](#expressive-templates)
 - [Fan-Out Patterns](#fan-out-patterns)
+- [Movements and Multi-Instrument Scores](#movements-and-multi-instrument-scores)
 - [Philosophy of Score Design](#philosophy-of-score-design)
 - [Validation Types](#validation-types)
 - [Fan-Out and Dependencies](#fan-out-and-dependencies)
@@ -268,7 +269,9 @@ marked with **(required)**.
 | `workspace` | Path | `./workspace` | Output directory. Resolved to absolute path at parse time. |
 | `state_backend` | `"json"` \| `"sqlite"` | `"sqlite"` | Storage backend for checkpoint state. |
 | `state_path` | Path | `null` | Custom state file path. Default: `{workspace}/.mozart-state.{ext}` |
-| `pause_between_sheets_seconds` | int | `10` | Seconds to wait between sheets (rate limit courtesy). |
+| `pause_between_sheets_seconds` | int | `2` | Seconds to wait between sheets (rate limit courtesy). |
+| `instruments` | dict[str, InstrumentDef] | `{}` | Named instrument definitions local to this score. See [Multi-Instrument Scores](#multi-instrument-scores). |
+| `movements` | dict[int, MovementDef] | `{}` | Movement declarations with names, instruments, and voice counts. See [Multi-Instrument Scores](#multi-instrument-scores). |
 
 ### `instrument` (recommended) or `backend`
 
@@ -312,6 +315,15 @@ instrument_config:
   timeout_seconds: 120
 ```
 
+### Multi-Instrument Scores
+
+Mozart can assign different instruments to different parts of a score — use a
+powerful instrument for complex reasoning and a fast one for routine work. The
+`instruments:`, `movements:`, `sheet.per_sheet_instruments`, and
+`sheet.instrument_map` fields work together for this. See
+[Movements and Multi-Instrument Scores](#movements-and-multi-instrument-scores)
+for full details with examples and resolution precedence.
+
 ### `backend`
 
 Detailed backend configuration. The original syntax, still fully supported.
@@ -330,7 +342,7 @@ Use `instrument:` + `instrument_config:` for new scores.
 | `system_prompt_file` | Path | `null` | Path to custom system prompt file. |
 | `working_directory` | Path | `null` | Working directory for execution. Defaults to config file directory. |
 | `cli_extra_args` | list[str] | `[]` | Escape hatch for CLI flags not yet exposed. Applied last. |
-| `max_output_capture_bytes` | int | `10240` | Maximum stdout/stderr to capture per sheet (10KB default). |
+| `max_output_capture_bytes` | int | `51200` | Maximum stdout/stderr to capture per sheet (50KB default). |
 
 **API-specific fields** (when `type: anthropic_api`):
 
@@ -356,6 +368,12 @@ Defines how work is divided into sheets.
 | `skip_when_command` | dict[int, SkipWhenCommand] | `{}` | Command-based conditional skip rules. Shell command exit 0 = skip, non-zero = run. See [Conditional Sheet Skipping](#conditional-sheet-skipping). |
 | `prelude` | list[InjectionItem] | `[]` | Shared file injections for ALL sheets. See [Prelude and Cadenza](#prelude-and-cadenza-context-injection). |
 | `cadenzas` | dict[int, list[InjectionItem]] | `{}` | Per-sheet file injections. See [Prelude and Cadenza](#prelude-and-cadenza-context-injection). |
+| `per_sheet_instruments` | dict[int, str] | `{}` | Per-sheet instrument overrides. See [Multi-Instrument Scores](#multi-instrument-scores). |
+| `per_sheet_instrument_config` | dict[int, dict] | `{}` | Per-sheet instrument config overrides. |
+| `instrument_map` | dict[str, list[int]] | `{}` | Batch instrument assignment. See [Multi-Instrument Scores](#multi-instrument-scores). |
+| `descriptions` | dict[int, str] | `{}` | Human-readable labels for sheets, displayed in `mozart status`. |
+| `spec_tags` | dict[int, list[str]] | `{}` | Per-sheet spec corpus tag filters. Only matching fragments are injected. |
+| `prompt_extensions` | dict[int, list[str]] | `{}` | Per-sheet additional prompt directives (inline text or file paths). |
 
 ### `prompt`
 
@@ -1079,6 +1097,139 @@ finds unexpected coherence.
 
 > For creative examples with real output, see the
 > [Mozart Score Playspace](https://github.com/Mzzkc/mozart-score-playspace).
+
+---
+
+## Movements and Multi-Instrument Scores
+
+Mozart scores can use multiple instruments in a single job. Different movements or
+individual sheets can each use the instrument best suited to their task — a planning
+phase on a deep-reasoning model, parallel implementation on a fast code model, review
+on a different provider entirely.
+
+### Declaring Movements
+
+The `movements:` key lets you name and configure each sequential phase of your score.
+Movement numbers correspond to stage numbers (the logical phases before fan-out
+expansion).
+
+```yaml
+name: multi-instrument-pipeline
+workspace: ../workspaces/multi-instrument
+
+instrument: claude-code    # default instrument
+
+movements:
+  1:
+    name: Architecture
+    instrument: claude-code
+    instrument_config:
+      timeout_seconds: 600
+  2:
+    name: Implementation
+    voices: 3                          # equivalent to fan_out: {2: 3}
+    instrument: gemini-cli
+    instrument_config:
+      model: gemini-2.5-flash
+  3:
+    name: Review
+
+sheet:
+  size: 1
+  total_items: 3
+  dependencies:
+    2: [1]
+    3: [2]
+```
+
+Movement names appear in `mozart status` output, making large scores readable:
+
+```
+multi-instrument-pipeline: RUNNING (2/3 movements)
+
+  ✓ Movement 1: Architecture        [completed, 2m 10s]   claude-code
+  ► Movement 2: Implementation      [1/3 complete]         gemini-cli
+      ✓ Voice 1                     [completed, 4m 22s]
+      ► Voice 2                     [running, 3m 15s]
+      · Voice 3                     [waiting]
+  · Movement 3: Review              [waiting]              claude-code
+```
+
+The `voices:` field is shorthand for `fan_out: {N: voices}` — they produce the same
+result.
+
+### Named Instrument Definitions
+
+For scores that reference the same instrument configuration in multiple places, declare
+reusable aliases with `instruments:`:
+
+```yaml
+instruments:
+  fast-writer:
+    profile: gemini-cli
+    config:
+      model: gemini-2.5-flash
+      timeout_seconds: 300
+  deep-thinker:
+    profile: claude-code
+    config:
+      timeout_seconds: 3600
+
+movements:
+  1:
+    name: Planning
+    instrument: deep-thinker       # references the alias above
+  2:
+    name: Drafting
+    voices: 4
+    instrument: fast-writer        # references the alias above
+  3:
+    name: Synthesis
+    instrument: deep-thinker
+```
+
+Each alias has a `profile:` (the registered instrument name from `mozart instruments list`)
+and an optional `config:` (overrides merged with the profile's defaults).
+
+### Per-Sheet Instrument Assignment
+
+For fine-grained control, assign instruments to individual sheets:
+
+```yaml
+sheet:
+  size: 1
+  total_items: 6
+  # Batch assignment: multiple sheets to one instrument
+  instrument_map:
+    gemini-cli: [1, 2, 3]
+    claude-code: [4, 5, 6]
+  # Per-sheet override (highest precedence)
+  per_sheet_instruments:
+    5: codex-cli
+  per_sheet_instrument_config:
+    5:
+      timeout_seconds: 1800
+```
+
+**Resolution precedence** (highest wins):
+1. `per_sheet_instruments` — explicit per-sheet override
+2. `instrument_map` — batch assignment
+3. `movements.N.instrument` — per-movement default
+4. Top-level `instrument:` — score default
+5. `backend.type` — legacy syntax
+6. `claude_cli` — built-in default
+
+### When to Use Multi-Instrument
+
+Use different instruments when the task demands different capabilities:
+
+- **Planning + coding**: Deep reasoning (Opus/Pro) for architecture, fast coding (Sonnet/Flash) for implementation
+- **Cross-provider verification**: Write code with one provider, review with another for independent perspective
+- **Cost optimization**: Expensive models for critical sheets, cheaper models for routine work
+- **Capability matching**: Tools that support MCP for integration sheets, simple models for text generation
+
+A single-instrument score is always simpler. Add instruments when the quality or cost
+difference justifies the complexity.
 
 ---
 

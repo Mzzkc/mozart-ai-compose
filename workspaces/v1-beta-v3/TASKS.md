@@ -231,6 +231,10 @@ See FINDINGS.md F-097 through F-102 for full context.
 - [x] [Spark] Verify `PluginCliBackend._classify_error()` uses profile-defined error patterns (priority: P1) [source: F-101] — Verified: _check_rate_limit() uses rate_limit_patterns, _classify_output_errors() uses auth_error_patterns/crash_patterns/stale_patterns/timeout_patterns/capacity_patterns. All from profile. 22 existing tests in test_plugin_cli_backend.py cover this.
 - [ ] Add gemini-cli rate limit test: submit a sheet, mock rate limit response, verify E101/E102 classification (priority: P2) [source: F-101]
 
+### Skill Rename: mozart:usage → mozart:operations (or similar)
+- [ ] Rename `mozart:usage` skill to `mozart:command` — collides with built-in `/usage` (Claude token usage). Every user who types `/usage` gets Mozart debugging help instead of their token count. (priority: P1) [source: composer directive]
+- [ ] Update all references across project: CLAUDE.md, skill files, memory-bank, docs, score comments, session protocols (priority: P1)
+
 ### Gemini CLI Agent Assignment (TDF Analysis — Composer Recommendation)
 - [ ] Assign gemini-cli instrument to dreamer agents (6 per movement) — memory consolidation, low tool use (priority: P1) [source: composer TDF analysis]
 - [ ] Assign gemini-cli instrument to reviewer agents (prism, axiom, ember) — read-heavy analysis, low tool use (priority: P2) [source: composer TDF analysis]

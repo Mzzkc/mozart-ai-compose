@@ -5,6 +5,16 @@
 # non-interactive prompt execution with JSON output.
 #
 # Auth: Requires valid Claude Code login (claude login).
+#
+# Verified: 2026-03-31 against Claude Code (production use across 3 orchestra runs)
+#   - JSON output: {"result": "...", "usage": {...}} on stdout when -o json
+#   - Text output: raw response on stdout when -o text (used by v3 score)
+#   - Error format: non-JSON on stdout for rate limits ("API Error: Rate limit
+#     reached", "You've hit your limit · resets <time>")
+#   - Exit code: 0 on success, 1 on error (but rate limits sometimes exit 0)
+#   - Rate limit messages appear on STDOUT not stderr — classifier must check both
+#   - Single model per execution (no multi-model routing)
+#   - Token paths are direct (no wildcard needed)
 
 name: claude-code
 display_name: "Claude Code"
@@ -58,13 +68,32 @@ cli:
     error_path: "error.message"
     input_tokens_path: "usage.input_tokens"
     output_tokens_path: "usage.output_tokens"
+    aggregate_tokens: false  # Single model, no aggregation needed
   errors:
+    # Exit codes
+    success_exit_codes: [0]
+    # Rate limit patterns (CRITICAL: check stdout too — Claude CLI puts rate
+    # limit messages on stdout, not stderr. See F-098.)
     rate_limit_patterns:
       - "rate.?limit"
       - "overloaded"
       - "429"
       - "529"
+      - "You've hit your limit"
+      - "API Error: Rate limit"
+      - "resets.*\\(\\w+/\\w+\\)"
+    # Auth/permission errors
     auth_error_patterns:
       - "not authenticated"
       - "login required"
       - "unauthorized"
+      - "invalid.*api.*key"
+    # Capacity/overload errors (retriable)
+    capacity_patterns:
+      - "overloaded"
+      - "503"
+      - "capacity"
+    # Timeout patterns
+    timeout_patterns:
+      - "timed?.?out"
+      - "timeout"

@@ -205,7 +205,7 @@ class TestBuildDiagnosticReport:
         assert report["error_count"] == 1
         err = report["errors"][0]
         assert err["error_message"] == "CLI not found"
-        assert err["error_code"] == "validation"
+        assert err["error_code"] == "E201"  # "validation" → E201 via format_error_code_for_display
         assert err["context"]["exit_code"] == 127
 
     def test_no_errors_when_clean(self) -> None:

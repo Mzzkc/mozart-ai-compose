@@ -4,6 +4,16 @@
 # vision, and structured output. Uses --yolo for auto-approval.
 #
 # Auth: Requires GOOGLE_API_KEY or gcloud auth.
+#
+# Verified: 2026-03-31 against gemini-cli 0.35.1
+#   - JSON output: clean on stdout, preamble (YOLO warnings, keychain) on stderr
+#   - Error format: {"error": {"type": "...", "message": "...", "code": N}} on stdout
+#   - Stack traces on stderr (verbose Node.js, not structured — ignore)
+#   - Exit code: 0 on success, 1 on error
+#   - Multi-model routing: flash-lite for routing, flash/pro for execution
+#     Token counts span multiple models under stats.models.*
+#     Token paths use aggregate: true to sum across all models
+#   - Rate limit patterns: untested (need live rate limit hit to verify)
 
 name: gemini-cli
 display_name: "Gemini CLI"
@@ -31,6 +41,11 @@ models:
     cost_per_1k_input: 0.00015
     cost_per_1k_output: 0.0006
     max_output_tokens: 65536
+  - name: gemini-3-flash-preview
+    context_window: 1000000
+    cost_per_1k_input: 0.00015
+    cost_per_1k_output: 0.0006
+    max_output_tokens: 65536
 
 cli:
   command:
@@ -38,21 +53,42 @@ cli:
     prompt_flag: "-p"
     model_flag: "-m"
     auto_approve_flag: "--yolo"
-    output_format_flag: "--output-format"
+    output_format_flag: "-o"
     output_format_value: "json"
   output:
     format: json
     result_path: "response"
     error_path: "error.message"
+    # Gemini uses multi-model routing (flash-lite router + main model).
+    # Token counts must be summed across all models, not first-match.
     input_tokens_path: "stats.models.*.tokens.prompt"
     output_tokens_path: "stats.models.*.tokens.candidates"
+    aggregate_tokens: true  # Sum across wildcard matches, not first-match
   errors:
+    # Exit codes
+    success_exit_codes: [0]
+    # Rate limit patterns (stdout + stderr are both checked)
     rate_limit_patterns:
       - "rate.?limit"
       - "quota.?exceeded"
       - "429"
       - "RESOURCE_EXHAUSTED"
+      - "Too Many Requests"
+    # Auth/permission errors
     auth_error_patterns:
       - "authenticat"
       - "unauthorized"
       - "API key"
+      - "PERMISSION_DENIED"
+      - "PermissionDeniedError"
+    # Capacity/overload errors (retriable)
+    capacity_patterns:
+      - "503"
+      - "overloaded"
+      - "UNAVAILABLE"
+      - "ServerError"
+    # Timeout patterns
+    timeout_patterns:
+      - "deadline.?exceeded"
+      - "DEADLINE_EXCEEDED"
+      - "timed?.?out"

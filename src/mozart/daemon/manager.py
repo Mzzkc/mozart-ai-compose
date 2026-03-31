@@ -300,11 +300,22 @@ class JobManager:
         # Step 28: Initialize baton adapter when use_baton is enabled.
         if self._config.use_baton:
             from mozart.daemon.baton.adapter import BatonAdapter
+            from mozart.daemon.baton.backend_pool import BackendPool
+            from mozart.instruments.loader import load_all_profiles
+            from mozart.instruments.registry import InstrumentRegistry
+
+            # Build instrument registry with all available profiles
+            profiles = load_all_profiles()
+            registry = InstrumentRegistry()
+            for profile in profiles.values():
+                registry.register(profile, override=True)
 
             self._baton_adapter = BatonAdapter(
                 event_bus=self._event_bus,
                 max_concurrent_sheets=self._config.max_concurrent_sheets,
             )
+            self._baton_adapter.set_backend_pool(BackendPool(registry))
+
             # Start the baton's event loop as a background task
             self._baton_loop_task = asyncio.create_task(
                 self._baton_adapter.run(),
@@ -743,12 +754,12 @@ class JobManager:
         """
         meta = self._job_meta.get(job_id)
         if meta is None:
-            raise JobSubmissionError(f"Job '{job_id}' not found")
+            raise JobSubmissionError(f"Score '{job_id}' not found")
         _resumable = (DaemonJobStatus.PAUSED, DaemonJobStatus.FAILED, DaemonJobStatus.CANCELLED)
         if meta.status not in _resumable:
             raise JobSubmissionError(
-                f"Job '{job_id}' is {meta.status.value}, "
-                "only PAUSED, FAILED, or CANCELLED jobs can be resumed"
+                f"Score '{job_id}' is {meta.status.value}, "
+                "only PAUSED, FAILED, or CANCELLED scores can be resumed"
             )
 
         # Cancel stale task to prevent detached execution
@@ -1645,7 +1656,7 @@ class JobManager:
         deps = extract_dependencies(config)
 
         # Extract retry/cost settings from config
-        max_retries = config.backend.max_retries
+        max_retries = config.retry.max_retries
         max_cost: float | None = None
         if config.cost_limits.enabled and config.cost_limits.max_cost_usd:
             max_cost = config.cost_limits.max_cost_usd

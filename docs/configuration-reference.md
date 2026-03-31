@@ -9,6 +9,10 @@ and constraints are extracted directly from the Pydantic v2 config models in
 ## Table of Contents
 
 - [Top-Level Fields](#top-level-fields)
+- [instruments](#instruments)
+  - [InstrumentDef Sub-Config](#instrumentdef-sub-config)
+- [movements](#movements)
+  - [MovementDef Sub-Config](#movementdef-sub-config)
 - [workspace_lifecycle](#workspace_lifecycle)
 - [backend](#backend)
   - [Ollama Sub-Config](#ollama-sub-config)
@@ -18,6 +22,7 @@ and constraints are extracted directly from the Pydantic v2 config models in
 - [sheet](#sheet)
   - [SkipWhenCommand Sub-Config](#skipwhencommand-sub-config)
   - [InjectionItem Sub-Config](#injectionitem-sub-config)
+- [spec](#spec)
 - [prompt](#prompt)
 - [parallel](#parallel)
 - [retry](#retry)
@@ -63,6 +68,8 @@ and constraints are extracted directly from the Pydantic v2 config models in
 | `workspace` | `Path` | `./workspace` | Output directory. Resolved to absolute path at construction time. |
 | `instrument` | `str \| None` | `None` | Named instrument to use (e.g., `claude-code`, `gemini-cli`). Alternative to `backend.type`. Run `mozart instruments list` to see available instruments. Cannot be used together with `backend`. |
 | `instrument_config` | `dict` | `{}` | Per-score overrides for the named instrument's defaults (e.g., `model`, `timeout_seconds`). Only valid when `instrument` is set. |
+| `instruments` | `dict[str, InstrumentDef]` | `{}` | Named instrument definitions local to this score. Declares reusable aliases referencing registered instrument profiles with optional overrides. Referenced by name in per-sheet or per-movement `instrument:` fields. See [instruments](#instruments). |
+| `movements` | `dict[int, MovementDef]` | `{}` | Movement declarations. Map of movement number to MovementDef. Each movement can specify a name, instrument, instrument config, and voice count. See [movements](#movements). |
 
 ```yaml
 # Using instrument: (recommended for new scores)
@@ -78,6 +85,87 @@ backend:
 ```
 
 > **Note:** `instrument:` and `backend:` are mutually exclusive. Use one or the other. If neither is specified, Mozart defaults to `claude_cli`.
+
+---
+
+## instruments
+
+*Source: `src/mozart/core/config/job.py` — `JobConfig.instruments`*
+
+Named instrument definitions local to this score. Each entry declares a reusable alias that
+references a registered instrument profile with optional configuration overrides. These aliases
+can then be used in `instrument:` fields on per-sheet or per-movement assignments.
+
+```yaml
+instruments:
+  fast-writer:
+    profile: gemini-cli
+    config:
+      model: gemini-2.5-flash
+      timeout_seconds: 300
+  deep-thinker:
+    profile: claude-code
+    config:
+      timeout_seconds: 3600
+```
+
+### InstrumentDef Sub-Config
+
+*Source: `src/mozart/core/config/job.py` — `InstrumentDef`*
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `profile` | `str` | **required** | min_length=1 | Name of the registered instrument profile (e.g., `gemini-cli`, `claude-code`). Must match a profile loaded by `mozart instruments list`. |
+| `config` | `dict` | `{}` | | Configuration overrides merged with the profile's defaults. Flat key-value pairs. |
+
+---
+
+## movements
+
+*Source: `src/mozart/core/config/job.py` — `JobConfig.movements`*
+
+Movement declarations. Map of movement number to MovementDef. Movements are sequential execution
+phases. Each movement can specify a name (for display in `mozart status`), an instrument
+(overriding the score default), instrument configuration, and a voice count (shorthand for `fan_out`).
+
+Movement numbers must be positive integers within the range `[1, total_items]`.
+
+```yaml
+movements:
+  1:
+    name: Planning
+    instrument: claude-code
+  2:
+    name: Implementation
+    voices: 3
+    instrument: gemini-cli
+    instrument_config:
+      model: gemini-2.5-flash
+  3:
+    name: Review
+    instrument: claude-code
+    instrument_config:
+      timeout_seconds: 600
+```
+
+### MovementDef Sub-Config
+
+*Source: `src/mozart/core/config/job.py` — `MovementDef`*
+
+| Field | Type | Default | Constraints | Description |
+|-------|------|---------|-------------|-------------|
+| `name` | `str \| None` | `None` | | Human-readable name for this movement. Shown in `mozart status` output. |
+| `instrument` | `str \| None` | `None` | min_length=1 | Instrument for all sheets in this movement. Overrides the score-level `instrument:` but is overridden by per-sheet assignments. Can reference a score-local `instruments:` alias or a registered profile name. |
+| `instrument_config` | `dict` | `{}` | | Instrument configuration overrides for this movement. Merged with the resolved instrument's defaults. |
+| `voices` | `int \| None` | `None` | `>= 1` | Number of parallel voices in this movement. Shorthand for `fan_out: {N: voices}`. |
+
+**Instrument resolution precedence** (highest to lowest):
+1. `sheet.per_sheet_instruments` (per-sheet override)
+2. `sheet.instrument_map` (batch assignment)
+3. `movements.N.instrument` (per-movement)
+4. Top-level `instrument:` (score default)
+5. `backend.type` (legacy)
+6. `claude_cli` (built-in default)
 
 ---
 
@@ -243,6 +331,10 @@ Defines how the work is divided into sheets (execution units).
 | `cadenzas` | `dict[int, list[InjectionItem]]` | `{}` | | Per-sheet context injections. Map of `sheet_num -> list of InjectionItems`. Applied in addition to prelude items for the specified sheet. |
 | `fan_out` | `dict[int, int]` | `{}` | Requires `size=1`, `start_item=1` | Fan-out declarations. Map of `stage_num -> instance_count`. Creates parallel instances of stages. Cleared after expansion. |
 | `fan_out_stage_map` | `dict[int, dict[str, int]] \| None` | `None` | | Per-sheet fan-out metadata, populated by expansion. Survives serialization for resume support. |
+| `spec_tags` | `dict[int, list[str]]` | `{}` | | Per-sheet spec fragment tag filters. Map of `sheet_num -> list of tags`. Only fragments matching at least one tag are injected for that sheet. Sheets without entries receive all fragments. |
+| `per_sheet_instruments` | `dict[int, str]` | `{}` | Positive int keys | Per-sheet instrument overrides. Map of `sheet_num -> instrument_name`. Highest precedence in the instrument resolution chain. Example: `{3: 'gemini-cli', 5: 'codex-cli'}`. |
+| `per_sheet_instrument_config` | `dict[int, dict]` | `{}` | | Per-sheet instrument configuration overrides. Map of `sheet_num -> config dict`. Merged with the resolved instrument's defaults for that sheet. Example: `{3: {model: 'gemini-2.5-flash'}}`. |
+| `instrument_map` | `dict[str, list[int]]` | `{}` | No duplicate sheets | Batch instrument assignment. Map of `instrument_name -> list of sheet numbers`. Overrides score-level instrument for listed sheets. Overridden by `per_sheet_instruments`. A sheet cannot appear in multiple instrument lists. |
 
 ```yaml
 sheet:
@@ -270,6 +362,15 @@ sheet:
         as: context
   fan_out:
     2: 3    # 3 parallel instances of stage 2
+  # Multi-instrument assignment
+  per_sheet_instruments:
+    3: gemini-cli         # Sheet 3 uses Gemini
+  per_sheet_instrument_config:
+    3:
+      model: gemini-2.5-flash
+  instrument_map:
+    claude-code: [1, 2, 4, 5, 6, 7]
+    gemini-cli: [3]
 ```
 
 **Computed properties** (not configurable):
@@ -343,6 +444,33 @@ sheet:
 - Missing files for `context` category log a warning and are skipped.
 - Missing files for `skill` or `tool` category log an error and are skipped.
 - `mozart validate` checks static file paths (V108 warning) but skips Jinja-templated paths that can't be resolved at validation time.
+
+---
+
+## spec
+
+*Source: `src/mozart/core/config/spec.py` — `SpecCorpusConfig`*
+
+Configuration for the specification corpus. Controls where spec fragments are loaded
+from and how they are filtered for injection into agent prompts. Spec loading is opt-in —
+set `spec_dir` to enable.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `spec_dir` | `str` | `""` | Path to the specification corpus directory, relative to the project root. Empty string disables spec loading. |
+| `include_claude_md` | `bool` | `false` | Include CLAUDE.md as a spec fragment. The loader looks for CLAUDE.md in the project root and includes it with `name='claude_md'`. |
+
+```yaml
+spec:
+  spec_dir: ".mozart/spec"
+  include_claude_md: true
+```
+
+When `spec_dir` is set, Mozart loads all YAML files in that directory as spec fragments.
+Each fragment has a name, tags, kind, and content. Tags are used for per-sheet filtering
+via `sheet.spec_tags` in `SheetConfig` — a map of `sheet_num -> list of tags`. Sheets
+with spec_tags receive only fragments matching those tags; sheets without spec_tags
+receive all fragments.
 
 ---
 

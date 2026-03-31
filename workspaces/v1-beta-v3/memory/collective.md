@@ -66,6 +66,13 @@ Movement 4 — IN PROGRESS.
 - Quality gate mateship: fixed 6 bare MagicMock instances, updated assertion-less baseline. 9638 tests pass, mypy clean, ruff clean.
 - 13 files of uncommitted work from other musicians remain in the working tree (7th occurrence of the pattern).
 
+**Clone Hardening + Mateship Pickup (Harper, current movement):**
+- Found and fixed socket path length bug: 500-char clone names produced 523-char socket paths (Unix limit ~108). Added 64-char truncation to `_sanitize_name()`.
+- Fixed `build_clone_config` type signature: `object → DaemonConfig` using `TYPE_CHECKING`. Was silently failing Pyright.
+- 26 TDD hardening tests: adversarial sanitization (8), config inheritance (6), path isolation (3), global state cleanup (2), built-in profile validation (7).
+- Built-in profiles validated: gemini-cli `aggregate_tokens: true` with wildcard paths, claude-code `aggregate_tokens: false` with direct paths. Both have comprehensive error patterns.
+- Mateship pickup of ~36 files of uncommitted work (8th occurrence). Includes conductor-clone, aggregate_tokens, error_code, F-109 recovery fix, profile hardening, UX terminology fixes.
+
 **CLI UX Polish (Dash, current movement):**
 - F-071 RESOLVED: `mozart list --json` now outputs valid JSON array. 5 TDD tests. Last major CLI command to get JSON support.
 - F-094 RESOLVED: README Configuration Reference renamed from "Backend Options" to "Instrument Configuration". Architecture diagram, prerequisites, key concepts all updated to instrument terminology.

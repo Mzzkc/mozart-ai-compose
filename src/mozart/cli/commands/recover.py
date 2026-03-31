@@ -192,6 +192,7 @@ async def _recover_job(
                 state.sheets[snum].validation_details = vresult.to_dict_list()
                 state.sheets[snum].error_message = None
                 state.sheets[snum].error_category = None
+                state.sheets[snum].error_code = None
 
                 # Update last_completed_sheet if this extends it
                 if snum > state.last_completed_sheet:

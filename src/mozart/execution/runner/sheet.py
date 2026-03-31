@@ -998,12 +998,14 @@ class SheetExecutionMixin:
             exit_signal=context.result.exit_signal,
             exit_reason=context.result.exit_reason,
             execution_duration_seconds=context.result.duration_seconds,
+            error_code=error.error_code.value,
         )
         await self.state_backend.save(context.state)
         self._logger.error(
             "sheet.failed",
             sheet_num=context.sheet_num,
             error_category=error.category.value,
+            error_code=error.error_code.value,
             error_message=error.message,
             exit_code=context.result.exit_code,
             exit_signal=context.result.exit_signal,
@@ -1099,6 +1101,7 @@ class SheetExecutionMixin:
             exit_signal=context.result.exit_signal,
             exit_reason=context.result.exit_reason,
             execution_duration_seconds=context.result.duration_seconds,
+            error_code=error.error_code.value,
         )
         await self.state_backend.save(context.state)
         self._logger.error(
@@ -1147,6 +1150,7 @@ class SheetExecutionMixin:
             exit_signal=context.result.exit_signal,
             exit_reason=context.result.exit_reason,
             execution_duration_seconds=context.result.duration_seconds,
+            error_code=error.error_code.value,
         )
         await self.state_backend.save(context.state)
         self._logger.warning(

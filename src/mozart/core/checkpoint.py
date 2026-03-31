@@ -235,6 +235,11 @@ class SheetState(BaseModel):
     exit_code: int | None = None
     error_message: str | None = None
     error_category: ErrorCategory | None = None
+    error_code: str | None = Field(
+        default=None,
+        description="Structured error code from ErrorClassifier (e.g., 'E001', 'E006'). "
+        "More specific than error_category — distinguishes stale (E006) from timeout (E001).",
+    )
     validation_passed: bool | None = None
     validation_details: list[ValidationDetailDict] | None = None
 
@@ -925,6 +930,7 @@ class CheckpointState(BaseModel):
         exit_signal: int | None = None,
         exit_reason: ExitReason | None = None,
         execution_duration_seconds: float | None = None,
+        error_code: str | None = None,
     ) -> None:
         """Mark a sheet as failed.
 
@@ -936,6 +942,8 @@ class CheckpointState(BaseModel):
             exit_signal: Signal number if killed by signal (e.g., 9=SIGKILL, 15=SIGTERM).
             exit_reason: Why execution ended ("completed", "timeout", "killed", "error").
             execution_duration_seconds: How long the sheet execution took.
+            error_code: Structured error code (e.g., "E001", "E006"). More specific
+                than error_category — distinguishes stale (E006) from timeout (E001).
         """
         self.updated_at = utc_now()
 
@@ -952,6 +960,7 @@ class CheckpointState(BaseModel):
                 _logger.warning("unknown_error_category", value=error_category)
                 error_category = None
         sheet.error_category = error_category
+        sheet.error_code = error_code
         sheet.exit_code = exit_code
         sheet.exit_signal = exit_signal
         sheet.exit_reason = exit_reason

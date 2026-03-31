@@ -61,9 +61,7 @@ prompt:
     Work until this sheet is fully complete with all reports written.
 
   variables:
-    skill_files:
-      - /home/emzi/.claude/skills/commit-review-coordination.md
-      - /home/emzi/.claude/skills/multi-agent-coordination.md
+    skill_files: []  # Add paths to relevant skill/context files for your project
     context_files:
       - coordination-workspace/VERIFICATION-PROTOCOL.md
       - coordination-workspace/LONGFORM-REVIEW.md

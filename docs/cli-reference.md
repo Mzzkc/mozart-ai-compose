@@ -1442,19 +1442,26 @@ Core variables available in all prompt templates (from `SheetContext.to_dict()`)
 | `{{ previous_outputs }}` | Dict of previous sheet outputs (when `cross_sheet` is configured) |
 | `{{ start_item }}` | First item number for this sheet |
 | `{{ end_item }}` | Last item number for this sheet |
-| `{{ stage }}` | Current stage number (in fan-out, same as `sheet_num` without fan-out) |
-| `{{ instance }}` | Fan-out instance number (1 for non-fan-out) |
-| `{{ fan_count }}` | Total fan-out instances for this stage (1 for non-fan-out) |
-| `{{ total_stages }}` | Total logical stages (may differ from `total_sheets` with fan-out) |
+| `{{ stage }}` / `{{ movement }}` | Current stage (movement) number. Same as `sheet_num` without fan-out. |
+| `{{ instance }}` / `{{ voice }}` | Fan-out instance (voice) number (1 for non-fan-out) |
+| `{{ fan_count }}` / `{{ voice_count }}` | Total fan-out instances (voices) for this stage (1 for non-fan-out) |
+| `{{ total_stages }}` / `{{ total_movements }}` | Total logical stages (movements). May differ from `total_sheets` with fan-out. |
 
-### Backend Types
+### Instruments
 
-| Type | Description |
-|------|-------------|
-| `claude_cli` | Primary backend, uses Claude CLI subprocess (default) |
-| `anthropic_api` | Uses Anthropic Python SDK directly with model selection |
-| `ollama` | Community-contributed Ollama integration for local models |
-| `recursive_light` | Experimental recursive backend |
+Run `mozart instruments list` to see all available instruments. Built-in instruments:
+
+| Instrument | Kind | Description |
+|------------|------|-------------|
+| `claude-code` | CLI | Claude Code CLI (default) |
+| `gemini-cli` | CLI | Google Gemini CLI |
+| `codex-cli` | CLI | OpenAI Codex CLI |
+| `cline-cli` | CLI | Cline CLI |
+| `aider` | CLI | Aider pair programming |
+| `goose` | CLI | Block's Goose agent |
+
+Legacy `backend.type` values (`claude_cli`, `anthropic_api`, `ollama`, `recursive_light`)
+are still supported. New scores should use `instrument:` instead.
 
 ### Validation Types
 
@@ -1465,6 +1472,73 @@ Core variables available in all prompt templates (from `SheetContext.to_dict()`)
 | `content_contains` | Check for literal string in file content |
 | `content_regex` | Match regex patterns in file content |
 | `command_succeeds` | Execute shell commands as quality checks |
+
+### Error Codes
+
+Mozart classifies every execution failure into a structured error code. Use
+`mozart errors <job> --code E001` to filter by code. The error code determines
+retry behavior, delay timing, and severity.
+
+**E0xx — Execution Errors** (process-level failures)
+
+| Code | Name | Retriable | Severity | Delay |
+|------|------|-----------|----------|-------|
+| E001 | EXECUTION_TIMEOUT | Yes | ERROR | 60s |
+| E002 | EXECUTION_KILLED | Yes | ERROR | 30s |
+| E003 | EXECUTION_CRASHED | No | CRITICAL | — |
+| E004 | EXECUTION_INTERRUPTED | No | ERROR | — |
+| E005 | EXECUTION_OOM | No | CRITICAL | — |
+| E006 | EXECUTION_STALE | Yes | WARNING | 120s |
+| E009 | EXECUTION_UNKNOWN | Yes | ERROR | 10s |
+
+E006 (stale detection) fires when an agent produces no output for longer than
+`stale_detection.idle_timeout_seconds`. It is distinct from E001 (backend timeout)
+— stale detection kills agents that go silent, while backend timeout caps total
+execution time.
+
+**E1xx — Rate Limit / Capacity**
+
+| Code | Name | Retriable | Delay |
+|------|------|-----------|-------|
+| E101 | RATE_LIMIT_API | Yes | 1 hour |
+| E102 | RATE_LIMIT_CLI | Yes | 15 min |
+| E103 | CAPACITY_EXCEEDED | Yes | 5 min |
+| E104 | QUOTA_EXHAUSTED | Yes | Dynamic |
+
+**E2xx — Validation Errors** (output didn't meet acceptance criteria)
+
+| Code | Name | Retriable | Delay |
+|------|------|-----------|-------|
+| E201 | VALIDATION_FILE_MISSING | Yes | 5s |
+| E202 | VALIDATION_CONTENT_MISMATCH | Yes | 5s |
+| E203 | VALIDATION_COMMAND_FAILED | Yes | 10s |
+| E204 | VALIDATION_TIMEOUT | Yes | 30s |
+
+**E3xx — Configuration** (not retriable — requires user fix)
+
+| Code | Name | Description |
+|------|------|-------------|
+| E301 | CONFIG_INVALID | Invalid score YAML |
+| E302 | CONFIG_MISSING_FIELD | Required field missing |
+| E303 | CONFIG_PATH_NOT_FOUND | Referenced path doesn't exist |
+| E304 | CONFIG_PARSE_ERROR | YAML syntax error |
+
+**E5xx — Backend** (instrument/connection issues)
+
+| Code | Name | Retriable | Delay |
+|------|------|-----------|-------|
+| E501 | BACKEND_CONNECTION | Yes | 30s |
+| E502 | BACKEND_AUTH | No | — |
+| E503 | BACKEND_RESPONSE | Yes | 15s |
+| E504 | BACKEND_TIMEOUT | Yes | 60s |
+| E505 | BACKEND_NOT_FOUND | No | — |
+
+**E9xx — Network / Unknown**
+
+| Code | Name | Retriable | Delay |
+|------|------|-----------|-------|
+| E901 | NETWORK_CONNECTION_FAILED | Yes | 30s |
+| E999 | UNKNOWN | Yes | 30s |
 
 ---
 

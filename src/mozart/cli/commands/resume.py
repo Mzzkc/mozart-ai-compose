@@ -330,7 +330,7 @@ async def _resume_job(
                     raise typer.Exit(1)
 
                 console.print(
-                    f"[green]Resume accepted for job '[cyan]{job_id}[/cyan]'.[/green]"
+                    f"[green]Resume accepted for score '[cyan]{job_id}[/cyan]'.[/green]"
                 )
                 if message:
                     console.print(f"[dim]{message}[/dim]")
@@ -339,9 +339,19 @@ async def _resume_job(
                 )
                 return
             else:
+                # Distinguish "not found" from "not resumable" for hints
+                is_not_found = "not found" in (message or "").lower()
+                hints = (
+                    ["Run 'mozart list' to see available scores."]
+                    if is_not_found
+                    else [
+                        f"Run 'mozart diagnose {job_id}' for details.",
+                        "Run 'mozart list' to see available scores.",
+                    ]
+                )
                 output_error(
-                    message or f"Resume rejected for {job_id!r}",
-                    hints=[f"Run: mozart diagnose {job_id}"],
+                    message or f"Resume rejected for score '{job_id}'",
+                    hints=hints,
                 )
                 raise typer.Exit(1)
         return

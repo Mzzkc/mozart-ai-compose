@@ -118,7 +118,7 @@ sheet:
 
 parallel:
   enabled: true
-  max_concurrent: 6
+  max_concurrent: 2
 
 cross_sheet:
   auto_capture_stdout: true

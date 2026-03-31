@@ -30,8 +30,6 @@ This directory contains example Mozart configurations for various use cases. Moz
 | [design-review.yaml](design-review.yaml) | Multi-perspective design review with parallel expert agents | High |
 | [score-composer.yaml](score-composer.yaml) | AI-assisted Mozart score authoring | High |
 | [issue-solver.yaml](issue-solver.yaml) | Roadmap-driven 17-stage issue solver with fan-out reviewers and self-chaining | High |
-| [fix-deferred-issues.yaml](fix-deferred-issues.yaml) | Parallel bug fixing across 3 categories with quality gates | High |
-| [fix-observability.yaml](fix-observability.yaml) | 13-stage observability improvements with parallel reviewers | High |
 | [phase3-wiring.yaml](phase3-wiring.yaml) | Wire GlobalSheetScheduler and RateCoordinator into daemon | High |
 
 ## Quality & Continuous Improvement
@@ -41,7 +39,6 @@ This directory contains example Mozart configurations for various use cases. Moz
 | [quality-continuous.yaml](quality-continuous.yaml) | Backlog-driven quality improvement for Python projects (18 sheets, fan-out + tool agents) | High |
 | [quality-continuous-generic.yaml](quality-continuous-generic.yaml) | Language-agnostic quality improvement with parallel reviews (16 sheets, fan-out) | High |
 | [quality-daemon.yaml](quality-daemon.yaml) | Quality improvement via daemon mode | High |
-| [quality-continuous-daemon.yaml](quality-continuous-daemon.yaml) | Continuous quality improvement with daemon orchestration | High |
 
 ## Beyond Coding
 
@@ -291,7 +288,6 @@ All examples pass `mozart validate`:
 | quality-continuous.yaml | ✓ | Python quality improvement (fan-out) |
 | quality-continuous-generic.yaml | ✓ | Language-agnostic quality (fan-out) |
 | quality-daemon.yaml | ✓ | Daemon mode quality improvement |
-| quality-continuous-daemon.yaml | ✓ | Continuous quality via daemon |
 | systematic-literature-review.yaml | ✓ | PRISMA-compliant research |
 | training-data-curation.yaml | ✓ | ML dataset creation |
 | nonfiction-book.yaml | ✓ | Non-fiction book authoring |
@@ -304,8 +300,6 @@ All examples pass `mozart validate`:
 | palimpsest.yaml | ✓ | Multi-layered narrative |
 | skill-builder.yaml | ✓ | Progressive curriculum |
 | issue-solver.yaml | ✓ | Roadmap-driven issue solving with fan-out |
-| fix-deferred-issues.yaml | ✓ | Parallel bug fixing with quality gates |
-| fix-observability.yaml | ✓ | Observability gap fixes with parallel reviews |
 | phase3-wiring.yaml | ✓ | Daemon scheduler/rate-coordinator wiring |
 
 ---

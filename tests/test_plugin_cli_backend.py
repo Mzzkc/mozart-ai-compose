@@ -45,6 +45,11 @@ def _make_profile(
     extra_flags: list[str] | None = None,
     success_exit_codes: list[int] | None = None,
     rate_limit_patterns: list[str] | None = None,
+    auth_error_patterns: list[str] | None = None,
+    timeout_patterns: list[str] | None = None,
+    crash_patterns: list[str] | None = None,
+    stale_patterns: list[str] | None = None,
+    capacity_patterns: list[str] | None = None,
     auto_approve_flag: str | None = None,
     output_format_flag: str | None = None,
     output_format_value: str | None = None,
@@ -94,6 +99,11 @@ def _make_profile(
             errors=CliErrorConfig(
                 success_exit_codes=success_exit_codes or [0],
                 rate_limit_patterns=rate_limit_patterns or [],
+                auth_error_patterns=auth_error_patterns or [],
+                timeout_patterns=timeout_patterns or [],
+                crash_patterns=crash_patterns or [],
+                stale_patterns=stale_patterns or [],
+                capacity_patterns=capacity_patterns or [],
             ),
         ),
     )
@@ -344,6 +354,113 @@ class TestErrorClassification:
         backend = PluginCliBackend(profile)
         result = backend._parse_output(
             "429 Too Many Requests", "", exit_code=1,
+        )
+        assert result.rate_limited is True
+
+    def test_auth_error_pattern_sets_error_type(self) -> None:
+        """Auth error patterns from the profile should set error_type='auth'."""
+        from mozart.execution.instruments.cli_backend import PluginCliBackend
+
+        profile = _make_profile(
+            auth_error_patterns=[r"invalid.?api.?key", r"authentication failed"],
+        )
+        backend = PluginCliBackend(profile)
+        result = backend._parse_output(
+            "", "Error: invalid api key", exit_code=1,
+        )
+        assert result.error_type == "auth"
+
+    def test_timeout_pattern_sets_error_type(self) -> None:
+        """Timeout patterns from the profile should set error_type='timeout'."""
+        from mozart.execution.instruments.cli_backend import PluginCliBackend
+
+        profile = _make_profile(
+            timeout_patterns=[r"request timed out", r"deadline exceeded"],
+        )
+        backend = PluginCliBackend(profile)
+        result = backend._parse_output(
+            "", "Error: request timed out after 300s", exit_code=1,
+        )
+        assert result.error_type == "timeout"
+
+    def test_crash_pattern_sets_error_type(self) -> None:
+        """Crash patterns from the profile should set error_type='crash'."""
+        from mozart.execution.instruments.cli_backend import PluginCliBackend
+
+        profile = _make_profile(
+            crash_patterns=[r"segmentation fault", r"bus error"],
+        )
+        backend = PluginCliBackend(profile)
+        result = backend._parse_output(
+            "", "segmentation fault (core dumped)", exit_code=139,
+        )
+        assert result.error_type == "crash"
+
+    def test_stale_pattern_sets_error_type(self) -> None:
+        """Stale patterns from the profile should set error_type='stale'."""
+        from mozart.execution.instruments.cli_backend import PluginCliBackend
+
+        profile = _make_profile(
+            stale_patterns=[r"no output for \d+s", r"idle timeout"],
+        )
+        backend = PluginCliBackend(profile)
+        result = backend._parse_output(
+            "", "Stale: no output for 1800s", exit_code=1,
+        )
+        assert result.error_type == "stale"
+
+    def test_capacity_pattern_sets_error_type(self) -> None:
+        """Capacity patterns from the profile should set error_type='capacity'."""
+        from mozart.execution.instruments.cli_backend import PluginCliBackend
+
+        profile = _make_profile(
+            capacity_patterns=[r"overloaded", r"capacity exceeded"],
+        )
+        backend = PluginCliBackend(profile)
+        result = backend._parse_output(
+            "", "Error: server overloaded, try again later", exit_code=1,
+        )
+        assert result.error_type == "capacity"
+
+    def test_no_pattern_match_leaves_error_type_none(self) -> None:
+        """When no patterns match, error_type should be None."""
+        from mozart.execution.instruments.cli_backend import PluginCliBackend
+
+        profile = _make_profile(
+            auth_error_patterns=[r"invalid key"],
+            timeout_patterns=[r"timed out"],
+        )
+        backend = PluginCliBackend(profile)
+        result = backend._parse_output(
+            "", "Some other error", exit_code=1,
+        )
+        assert result.error_type is None
+
+    def test_success_does_not_classify_error_type(self) -> None:
+        """Successful executions should not have error_type set."""
+        from mozart.execution.instruments.cli_backend import PluginCliBackend
+
+        profile = _make_profile(
+            auth_error_patterns=[r"auth"],
+        )
+        backend = PluginCliBackend(profile)
+        # Even if "auth" appears in output, success means no error classification
+        result = backend._parse_output(
+            "auth check passed", "", exit_code=0,
+        )
+        assert result.error_type is None
+
+    def test_rate_limit_takes_priority_over_other_patterns(self) -> None:
+        """Rate limiting should be detected even when other patterns match."""
+        from mozart.execution.instruments.cli_backend import PluginCliBackend
+
+        profile = _make_profile(
+            rate_limit_patterns=[r"rate.?limit"],
+            auth_error_patterns=[r"error"],
+        )
+        backend = PluginCliBackend(profile)
+        result = backend._parse_output(
+            "", "rate limit error", exit_code=1,
         )
         assert result.rate_limited is True
 

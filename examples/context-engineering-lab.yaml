@@ -122,7 +122,7 @@ prompt:
     # ════════════════════════════════════════════════════════════
     project:
       name: "Mozart AI Compose"
-      path: "/home/emzi/Projects/mozart-ai-compose"
+      path: "."  # Set to your project's root directory
       description: >-
         An orchestration system that replaces software teams with
         specification-driven AI agents. Declarative YAML scores define

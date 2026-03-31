@@ -298,8 +298,8 @@ async def _find_job_state_direct(
             f"{ErrorMessages.JOB_NOT_FOUND}: {job_id}",
             error_code="E501",
             hints=[
-                "Use --workspace to specify the directory containing the job state",
-                "Run 'mozart list' to see available jobs",
+                "Use --workspace to specify the directory containing the score state",
+                "Run 'mozart list' to see available scores",
             ],
             json_output=json_output,
             job_id=job_id,

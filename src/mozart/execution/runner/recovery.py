@@ -390,11 +390,13 @@ class RecoveryMixin:
     async def _health_check_after_wait(
         self, state: CheckpointState, is_quota: bool,
     ) -> None:
-        """Run health check after rate limit wait and log resumption.
+        """Run availability check after rate limit wait and log resumption.
 
-        After quota exhaustion, uses the lightweight availability_check()
-        (no API calls) with retries, since sending a prompt would likely
-        fail again. After regular rate limits, uses full health_check().
+        Both quota exhaustion and rate limit paths use the lightweight
+        availability_check() (binary exists, no API calls) with retries.
+        Sending a real prompt (health_check) after a rate limit wait
+        consumes a request — if the limit hasn't cleared, the check
+        itself gets rate-limited, triggering FatalError (F-109).
 
         Args:
             state: Current job state.
@@ -433,14 +435,31 @@ class RecoveryMixin:
                 )
                 await self._interruptible_sleep(retry_wait)
         else:
-            if not await self.backend.health_check():
-                self._logger.error(
-                    f"{event_type}.health_check_failed",
+            # After rate limit wait, use availability_check (binary exists)
+            # instead of health_check (sends a real prompt). A health_check
+            # here consumes a request — if the rate limit hasn't fully
+            # cleared, the check itself gets rate-limited, which triggers
+            # FatalError and kills the batch. The rate limit wait already
+            # waited the recommended duration; just verify the binary is
+            # still there and let the actual retry determine if the limit
+            # has cleared.  Retry with backoff like the quota path (F-109).
+            max_retries = 3
+            for attempt in range(1, max_retries + 1):
+                if await self.backend.availability_check():
+                    break
+                self._logger.warning(
+                    f"{event_type}.availability_check_failed",
                     job_id=state.job_id,
+                    attempt=attempt,
+                    max_retries=max_retries,
                 )
-                raise FatalError(
-                    f"Backend health check failed after {event_type} wait"
-                )
+                if attempt == max_retries:
+                    raise FatalError(
+                        f"Backend unavailable after {max_retries} availability "
+                        f"checks following {event_type} wait"
+                    )
+                retry_wait = 30.0 * attempt
+                await self._interruptible_sleep(retry_wait)
 
         wait_count = state.quota_waits if is_quota else state.rate_limit_waits
         self._logger.info(

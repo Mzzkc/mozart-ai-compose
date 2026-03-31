@@ -226,8 +226,11 @@ class PluginCliBackend(Backend):
         # Determine success from exit code
         is_success = exit_code in errors.success_exit_codes
 
-        # Check rate limiting
+        # Check rate limiting and error classification
         rate_limited = self._check_rate_limit(stdout, stderr)
+        error_type = self._classify_output_errors(
+            stdout, stderr, is_success=is_success,
+        )
 
         # Default result
         result_text = stdout
@@ -253,13 +256,27 @@ class PluginCliBackend(Backend):
 
                 # Extract tokens
                 if output.input_tokens_path:
-                    tok = extract_json_path(data, output.input_tokens_path)
-                    if isinstance(tok, (int, float)):
-                        input_tokens = int(tok)
+                    if output.aggregate_tokens:
+                        from mozart.utils.json_path import extract_json_path_all
+                        toks = extract_json_path_all(data, output.input_tokens_path)
+                        total = sum(int(t) for t in toks if isinstance(t, (int, float)))
+                        if total > 0:
+                            input_tokens = total
+                    else:
+                        tok = extract_json_path(data, output.input_tokens_path)
+                        if isinstance(tok, (int, float)):
+                            input_tokens = int(tok)
                 if output.output_tokens_path:
-                    tok = extract_json_path(data, output.output_tokens_path)
-                    if isinstance(tok, (int, float)):
-                        output_tokens = int(tok)
+                    if output.aggregate_tokens:
+                        from mozart.utils.json_path import extract_json_path_all
+                        toks = extract_json_path_all(data, output.output_tokens_path)
+                        total = sum(int(t) for t in toks if isinstance(t, (int, float)))
+                        if total > 0:
+                            output_tokens = total
+                    else:
+                        tok = extract_json_path(data, output.output_tokens_path)
+                        if isinstance(tok, (int, float)):
+                            output_tokens = int(tok)
 
             except json.JSONDecodeError:
                 _logger.warning(
@@ -285,6 +302,7 @@ class PluginCliBackend(Backend):
             duration_seconds=0.0,  # Caller sets actual duration
             exit_code=normalized_exit_code,
             rate_limited=rate_limited,
+            error_type=error_type,
             error_message=error_message,
             model=self._model,
             input_tokens=input_tokens,
@@ -371,6 +389,58 @@ class PluginCliBackend(Backend):
             if re.search(pattern, combined, re.IGNORECASE):
                 return True
         return False
+
+    def _classify_output_errors(
+        self,
+        stdout: str,
+        stderr: str,
+        *,
+        is_success: bool,
+    ) -> str | None:
+        """Classify error type using profile-defined patterns.
+
+        Scans combined output for instrument-specific error patterns.
+        Only runs on failure — successful executions return None.
+
+        Pattern priority (first match wins):
+        1. auth_error_patterns → "auth"
+        2. crash_patterns → "crash"
+        3. stale_patterns → "stale"
+        4. timeout_patterns → "timeout"
+        5. capacity_patterns → "capacity"
+
+        Auth and crash are checked first because they are non-retriable
+        and should not be masked by retriable patterns.
+
+        Args:
+            stdout: Standard output text.
+            stderr: Standard error text.
+            is_success: Whether the execution succeeded.
+
+        Returns:
+            Error type string, or None if no patterns match or execution succeeded.
+        """
+        if is_success:
+            return None
+
+        combined = f"{stdout}\n{stderr}"
+        errors = self._cli.errors
+
+        # Priority order: non-retriable first, then retriable
+        pattern_groups: list[tuple[list[str], str]] = [
+            (errors.auth_error_patterns, "auth"),
+            (errors.crash_patterns, "crash"),
+            (errors.stale_patterns, "stale"),
+            (errors.timeout_patterns, "timeout"),
+            (errors.capacity_patterns, "capacity"),
+        ]
+
+        for patterns, error_type in pattern_groups:
+            for pattern in patterns:
+                if re.search(pattern, combined, re.IGNORECASE):
+                    return error_type
+
+        return None
 
     async def execute(
         self,

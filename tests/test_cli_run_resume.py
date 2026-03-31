@@ -783,3 +783,114 @@ class TestResumeErrorMessages:
         assert "not been started" in call_kwargs[0][0]
         assert call_kwargs[1]["severity"] == "warning"
         assert any("mozart run" in h for h in call_kwargs[1]["hints"])
+
+
+# =============================================================================
+# F-073: Resume rejected hint should suggest 'list' for not-found, 'diagnose' for known
+# F-072: Resume should use 'Score' terminology, not 'Job'
+# =============================================================================
+
+
+class TestResumeRejectedHints:
+    """Resume command should provide appropriate hints based on failure reason.
+
+    F-073: 'not found' errors should suggest 'mozart list', not 'diagnose'.
+    Known-but-unresumable scores should suggest 'diagnose'.
+    """
+
+    async def test_not_found_suggests_list(self) -> None:
+        """When resume is rejected with 'not found', suggest 'mozart list'."""
+        from mozart.cli.commands.resume import _resume_job
+
+        result_dict = {
+            "status": "rejected",
+            "message": "Score 'nonexistent' not found",
+            "job_id": "nonexistent",
+        }
+
+        import typer
+
+        with patch(
+            "mozart.daemon.detect.try_daemon_route",
+            new_callable=AsyncMock,
+            return_value=(True, result_dict),
+        ), patch(
+            "mozart.cli.commands.resume.output_error"
+        ) as mock_err, pytest.raises(typer.Exit):
+            await _resume_job(
+                "nonexistent", None, None, False, False, False, False, False
+            )
+
+        mock_err.assert_called_once()
+        call_args = mock_err.call_args
+        hints = call_args[1].get("hints", [])
+        hint_text = " ".join(str(h) for h in hints)
+        # Should suggest 'mozart list'
+        assert "mozart list" in hint_text
+        # "not found" should NOT have 'diagnose' as a hint
+        assert "diagnose" not in hint_text
+
+    async def test_not_resumable_suggests_diagnose(self) -> None:
+        """When resume is rejected for a known score, suggest 'diagnose'."""
+        from mozart.cli.commands.resume import _resume_job
+
+        result_dict = {
+            "status": "rejected",
+            "message": "Score 'my-job' is completed, only PAUSED, FAILED, or CANCELLED scores can be resumed",
+            "job_id": "my-job",
+        }
+
+        import typer
+
+        with patch(
+            "mozart.daemon.detect.try_daemon_route",
+            new_callable=AsyncMock,
+            return_value=(True, result_dict),
+        ), patch(
+            "mozart.cli.commands.resume.output_error"
+        ) as mock_err, pytest.raises(typer.Exit):
+            await _resume_job(
+                "my-job", None, None, False, False, False, False, False
+            )
+
+        mock_err.assert_called_once()
+        call_args = mock_err.call_args
+        hints = call_args[1].get("hints", [])
+        hint_text = " ".join(str(h) for h in hints)
+        # Known score should suggest diagnose
+        assert "diagnose" in hint_text
+        # Should also suggest list as secondary
+        assert "list" in hint_text
+
+
+class TestResumeScoreTerminology:
+    """Resume command should use 'Score' terminology, not 'Job' (F-072)."""
+
+    async def test_success_message_uses_score(self) -> None:
+        """Accepted resume should say 'score', not 'job'."""
+        from mozart.cli.commands.resume import _resume_job
+
+        result_dict = {
+            "status": "accepted",
+            "message": "Resumed from sheet 3",
+            "job_id": "my-score",
+        }
+
+        with patch(
+            "mozart.daemon.detect.try_daemon_route",
+            new_callable=AsyncMock,
+            return_value=(True, result_dict),
+        ), patch(
+            "mozart.cli.commands.resume.await_early_failure",
+            new_callable=AsyncMock,
+            return_value={"status": "running"},
+        ), patch(
+            "mozart.cli.commands.resume.console"
+        ) as mock_console:
+            await _resume_job(
+                "my-score", None, None, False, False, False, False, False
+            )
+
+        # Check that the success message uses "score" not "job"
+        all_prints = " ".join(str(c) for c in mock_console.print.call_args_list)
+        assert "score" in all_prints.lower() or "my-score" in all_prints

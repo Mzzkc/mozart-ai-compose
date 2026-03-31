@@ -422,11 +422,16 @@ class TestRateLimitHandling:
         assert state.quota_waits == 3
 
     @pytest.mark.asyncio
-    async def test_health_check_failure_raises_fatal_error(
+    async def test_availability_check_failure_raises_fatal_error(
         self,
         runner_with_global_store: JobRunner,
     ) -> None:
-        """Test that failed health check raises FatalError."""
+        """Test that failed availability check after rate limit raises FatalError.
+
+        F-109: After rate limit wait, the code uses availability_check (binary
+        exists) instead of health_check (sends a real prompt) to avoid
+        consuming a request that could itself get rate-limited.
+        """
         state = CheckpointState(
             job_id="test-job",
             job_name="Test Job",
@@ -434,8 +439,11 @@ class TestRateLimitHandling:
             status=JobStatus.RUNNING,
         )
 
-        # Make health check fail
-        runner_with_global_store.backend.health_check = AsyncMock(return_value=False)
+        # Make availability check fail (F-109: rate limit path now uses
+        # availability_check, not health_check)
+        runner_with_global_store.backend.availability_check = AsyncMock(
+            return_value=False,
+        )
 
         with (
             pytest.raises(FatalError) as exc_info,
@@ -447,7 +455,7 @@ class TestRateLimitHandling:
                 suggested_wait_seconds=1.0,
             )
 
-        assert "health check failed" in str(exc_info.value).lower()
+        assert "unavailable" in str(exc_info.value).lower()
 
     @pytest.mark.asyncio
     async def test_quota_exhaustion_uses_availability_check(
@@ -537,11 +545,18 @@ class TestRateLimitHandling:
         assert runner_with_global_store.backend.availability_check.call_count == 3
 
     @pytest.mark.asyncio
-    async def test_regular_rate_limit_still_uses_health_check(
+    async def test_regular_rate_limit_uses_availability_check(
         self,
         runner_with_global_store: JobRunner,
     ) -> None:
-        """Regular rate limit (E101) still uses health_check, not availability_check."""
+        """Regular rate limit (E101) uses availability_check, not health_check.
+
+        F-109: Both quota and rate limit paths now use availability_check
+        (binary exists, no API call) instead of health_check (sends a real
+        prompt). A health_check after rate limit wait consumes a request —
+        if the limit hasn't cleared, the check itself gets rate-limited,
+        triggering FatalError and killing the entire parallel batch.
+        """
         state = CheckpointState(
             job_id="test-job",
             job_name="Test Job",
@@ -563,8 +578,8 @@ class TestRateLimitHandling:
                 suggested_wait_seconds=1.0,
             )
 
-        runner_with_global_store.backend.health_check.assert_called_once()
-        runner_with_global_store.backend.availability_check.assert_not_called()
+        runner_with_global_store.backend.availability_check.assert_called_once()
+        runner_with_global_store.backend.health_check.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_records_to_global_store(
