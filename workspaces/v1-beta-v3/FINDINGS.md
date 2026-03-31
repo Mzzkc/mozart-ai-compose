@@ -1288,3 +1288,39 @@ Each finding should include:
 - **Impact:** Most validations use `{workspace}` and `{sheet_num}` which are present in both paths. But `{job_name}` is a documented template variable for validations. Any score using it will silently break when moved to `use_baton: true`.
 - **Error class:** Integration boundary contract gap. Both sides are individually correct — the musician passes what it has, the ValidationEngine uses what it receives. The gap exists because they were built at different times against different assumptions.
 - **Action:** Expand `sheet_context` in `musician.py:_validate()` to include `job_name`, `total_sheets`, and custom prompt variables from the Sheet entity.
+
+### F-119: Baton Event Stubs Silently Drop 5 Event Types
+- **Found by:** Prism, Movement 1 (Cycle 2)
+- **Severity:** P2 (medium — silent event loss)
+- **Status:** Open
+- **Description:** `core.py:628-675` has 5 event handlers that are `pass` stubs with TODO comments: StaleCheck (line 629), CronTick (line 632), PacingComplete (line 638), ConfigReloaded (line 661), ResourceAnomaly (line 671). Events arriving at the baton inbox for these types are silently discarded. No log entry, no warning, no counter.
+- **Impact:** If the timer wheel fires StaleCheck events (which it's designed to do), the baton silently ignores them. Stale detection is non-functional through the baton path. Same for cron, pacing, config reload, and backpressure.
+- **Action:** Add `_logger.warning("baton.event.unimplemented", event_type=type(event).__name__)` to each stub. Implement stale detection first — F-097 showed stale detection killing agents at 30 minutes.
+
+### F-120: Step 29 (Restart Recovery) Unclaimed After 4 Movements
+- **Found by:** Prism, Movement 1 (Cycle 2)
+- **Severity:** P1 (high — blocks baton-to-production migration)
+- **Status:** Open
+- **Description:** Step 29 in TASKS.md ("Implement restart recovery — reconcile baton-state + CheckpointState") is the ONLY remaining P0 task blocking `use_baton: true` in production. It has never been claimed. No investigation, no design doc, no test plan. The baton has 1,006 passing tests, 1,250 lines of core logic, and has never executed a real sheet through the conductor.
+- **Impact:** The baton accumulates correctness in isolation while the legacy runner receives all production fixes. Every movement that passes without step 29 increases integration risk. The two execution paths are diverging, not converging.
+- **Action:** Claim step 29 for next movement. Break into subtasks: (1) define reconciliation requirements, (2) write algorithm, (3) crash/restart test scenarios, (4) integration test through conductor.
+
+### F-121: GitHub Issue #152 Verified Closable
+- **Found by:** Prism, Movement 1 (Cycle 2)
+- **Severity:** P3 (low — housekeeping)
+- **Status:** Open
+- **Description:** Issue #152 ("34 of 37 example scores fail validation — workspace path bug") was filed based on F-093. F-093 was resolved in commit 75bebed (all 35 examples fixed from `./workspaces/` to `../workspaces/`). Verification confirms zero examples use the old pattern. Per composer directive, Prism/Axiom verify fixes before closing.
+- **Action:** Close #152 with reference to commit 75bebed and F-093 resolution.
+
+### F-122: 4 IPC Callsites Bypass --conductor-clone (Hardcoded Production Socket)
+- **Found by:** Prism, Movement 1 (Cycle 2)
+- **Severity:** P1 (high — breaks clone test isolation for hooks, MCP, and dashboard)
+- **Status:** Open
+- **Description:** Four IPC callsites create `DaemonClient` with hardcoded production socket paths, bypassing the `_resolve_socket_path()` clone-aware resolution that all CLI commands use:
+  1. `src/mozart/execution/hooks.py:129` — `DaemonClient(SocketConfig().path)`. On_success hook chaining submits to production conductor even when `--conductor-clone` is active.
+  2. `src/mozart/mcp/tools.py:52` — `DaemonClient(DaemonConfig().socket.path)`. MCP tools query/control production during clone testing.
+  3. `src/mozart/dashboard/routes/jobs.py:362` — `DaemonClient(DaemonConfig().socket.path)`. Dashboard targets production.
+  4. `src/mozart/dashboard/services/job_control.py:76` — `DaemonClient(DaemonConfig().socket.path)`. Dashboard job control targets production.
+- **Impact:** Clone test isolation is incomplete. The hooks.py bypass is most critical — self-chaining scores tested with `--conductor-clone` will silently submit chained jobs to the production conductor. Same error class as F-090 (config_cmd.py bypass, fixed by Ghost in 42d3d1a).
+- **Error class:** No centralized DaemonClient factory. Developers use the obvious `DaemonClient(DaemonConfig().socket.path)` pattern. The correct pattern (`_resolve_socket_path()` from detect.py) requires knowing it exists.
+- **Action:** Replace all 4 callsites with `_resolve_socket_path()`. For hooks.py (runner-side), the clone name may not be available in the execution context — consider passing the resolved socket path through RunnerContext or JobMeta.
