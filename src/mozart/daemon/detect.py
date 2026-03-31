@@ -21,9 +21,23 @@ _logger = get_logger("daemon.detect")
 
 
 def _resolve_socket_path(socket_path: Path | None) -> Path:
-    """Resolve socket path, falling back to SocketConfig default."""
+    """Resolve socket path, falling back to clone path or SocketConfig default.
+
+    Resolution order:
+    1. Explicit socket_path parameter (always wins)
+    2. Clone socket path (if --conductor-clone is active)
+    3. SocketConfig default (production path)
+    """
     if socket_path is not None:
         return socket_path
+
+    # Check if a clone is active
+    from mozart.daemon.clone import get_clone_name, resolve_clone_paths
+
+    clone_name = get_clone_name()
+    if clone_name is not None:
+        return resolve_clone_paths(clone_name).socket
+
     from mozart.daemon.config import SocketConfig
 
     return SocketConfig().path

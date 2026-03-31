@@ -26,6 +26,7 @@ def start(
     ),
 ) -> None:
     """Start the Mozart conductor."""
+    from mozart.daemon.clone import get_clone_name, is_clone_active
     from mozart.daemon.process import start_conductor
 
     start_conductor(
@@ -33,6 +34,7 @@ def start(
         foreground=foreground,
         log_level=log_level,
         profile=profile,
+        clone_name=get_clone_name() if is_clone_active() else None,
     )
 
 
@@ -41,7 +43,14 @@ def stop(
     force: bool = typer.Option(False, "--force", help="Send SIGKILL instead of SIGTERM"),
 ) -> None:
     """Stop the Mozart conductor."""
+    from mozart.daemon.clone import is_clone_active
     from mozart.daemon.process import stop_conductor
+
+    if is_clone_active() and pid_file is None:
+        from mozart.daemon.clone import get_clone_name, resolve_clone_paths
+
+        clone = resolve_clone_paths(get_clone_name())
+        pid_file = clone.pid_file
 
     stop_conductor(pid_file=pid_file, force=force)
 
@@ -58,11 +67,21 @@ def restart(
     ),
 ) -> None:
     """Restart the Mozart conductor (stop + start)."""
+    from mozart.daemon.clone import get_clone_name, is_clone_active
     from mozart.daemon.process import (
         start_conductor,
         stop_conductor,
         wait_for_conductor_exit,
     )
+
+    # When clone is active, redirect PID file to clone's PID
+    clone_name: str | None = None
+    if is_clone_active():
+        from mozart.daemon.clone import resolve_clone_paths
+
+        clone_name = get_clone_name()
+        if pid_file is None:
+            pid_file = resolve_clone_paths(clone_name).pid_file
 
     # Stop (ignore exit if not running)
     try:
@@ -85,6 +104,7 @@ def restart(
         foreground=foreground,
         log_level=log_level,
         profile=profile,
+        clone_name=clone_name,
     )
 
 
@@ -93,6 +113,17 @@ def conductor_status(
     socket_path: Path | None = typer.Option(None, "--socket", help="Unix socket path"),
 ) -> None:
     """Check Mozart conductor status."""
+    from mozart.daemon.clone import get_clone_name, is_clone_active
     from mozart.daemon.process import get_conductor_status
+
+    # When clone is active, redirect to clone PID and socket
+    if is_clone_active():
+        from mozart.daemon.clone import resolve_clone_paths
+
+        clone_paths = resolve_clone_paths(get_clone_name())
+        if pid_file is None:
+            pid_file = clone_paths.pid_file
+        if socket_path is None:
+            socket_path = clone_paths.socket
 
     get_conductor_status(pid_file=pid_file, socket_path=socket_path)

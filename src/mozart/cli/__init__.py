@@ -173,6 +173,26 @@ def log_format_callback(value: str | None) -> str | None:
     return value
 
 
+def conductor_clone_callback(value: str | None) -> str | None:
+    """Set the active conductor clone name.
+
+    When --conductor-clone is passed, all daemon interactions are routed
+    to a clone conductor instead of the production one. The clone has
+    its own socket, PID file, state DB, and log file.
+
+    This enables safe testing without risking the production conductor.
+
+    Usage:
+        mozart --conductor-clone status          # Default clone
+        mozart --conductor-clone=staging run x.yaml  # Named clone
+    """
+    if value is not None:
+        from mozart.daemon.clone import set_clone_name
+
+        set_clone_name(value)
+    return value
+
+
 @app.callback()
 def main(
     version: bool = typer.Option(
@@ -199,6 +219,18 @@ def main(
         is_eager=True,
         help="Show minimal output (errors only)",
     ),
+    conductor_clone: Annotated[
+        str | None,
+        typer.Option(
+            "--conductor-clone",
+            callback=conductor_clone_callback,
+            is_eager=True,
+            help="Route all daemon interactions to a clone conductor. "
+            "Pass without value for default clone, or with name "
+            "(e.g., --conductor-clone=staging) for a named clone. "
+            "The clone has its own socket, PID file, state DB, and log.",
+        ),
+    ] = None,
     log_level: Annotated[
         str | None,
         typer.Option(

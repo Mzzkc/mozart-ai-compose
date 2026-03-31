@@ -49,17 +49,36 @@ def start_conductor(
     foreground: bool = False,
     log_level: str = "info",
     profile: str | None = None,
+    clone_name: str | None = None,
 ) -> None:
     """Start the Mozart conductor process.
 
     Called by ``mozart start`` via ``cli/commands/conductor.py``.
+
+    When *clone_name* is provided, the conductor runs with isolated
+    paths (socket, PID file, state DB, log) so it can coexist with the
+    production conductor.  The base config is loaded normally, then
+    clone-specific paths are applied on top.
     """
     config = _load_config(config_file, profile=profile)
     config.log_level = cast(Any, log_level)
 
+    # Apply clone path overrides when running as a clone conductor
+    if clone_name is not None:
+        from mozart.daemon.clone import resolve_clone_paths
+
+        clone_paths = resolve_clone_paths(clone_name)
+        config_dict = config.model_dump()
+        config_dict["socket"] = {"path": str(clone_paths.socket)}
+        config_dict["pid_file"] = str(clone_paths.pid_file)
+        config = DaemonConfig.model_validate(config_dict)
+        config.log_level = cast(Any, log_level)
+        config.log_file = clone_paths.log_file
+
     pid = _read_pid(config.pid_file)
     if pid is not None and _pid_alive(pid):
-        typer.echo(f"Mozart conductor is already running (PID {pid})")
+        label = "clone conductor" if clone_name is not None else "Mozart conductor"
+        typer.echo(f"{label} is already running (PID {pid})")
         raise typer.Exit(1)
 
     # Detect concurrent start race via advisory lock
@@ -88,7 +107,12 @@ def start_conductor(
     if not foreground:
         _daemonize(config)
     else:
-        _logger.info("daemon.starting", pid=os.getpid(), foreground=True)
+        _logger.info(
+            "daemon.starting",
+            pid=os.getpid(),
+            foreground=True,
+            clone=clone_name,
+        )
 
     daemon = DaemonProcess(config)
     asyncio.run(daemon.run())
