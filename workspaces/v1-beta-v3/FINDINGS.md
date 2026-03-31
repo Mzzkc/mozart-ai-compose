@@ -971,3 +971,191 @@ Each finding should include:
 - **Impact:** Any musician who runs the full test suite sees failures. mypy is not clean. This blocks the quality gate for main.
 - **Fix:** The musician who added these fields needs to: (1) add a `None` guard at `sheet.py:229`, (2) add `movements` and `instruments` entries to `CONFIG_STATE_MAPPING` in `reconciliation.py`, and (3) commit the work.
 - **Error class:** Same as F-013, F-019, F-057, F-080, F-089 — uncommitted work. 5th occurrence across 3 movements.
+
+---
+
+## Post-Mortem Findings (Composer Investigation — v3 Job Failure)
+
+### F-097: Stale Detection Kills Agents, Reported as Generic "timeout" — Not E001
+- **Found by:** Composer investigation
+- **Severity:** P0 (critical — caused job failure, misdiagnosed as backend timeout)
+- **Status:** open
+- **Description:** The v3 job (mozart-orchestra-v3) failed at sheet 95 after running for ~42 hours. Sheets 66 (journey, M2) and 95 (forge, M3) were killed by stale detection at 30 minutes despite `backend.timeout_seconds: 10800` (3 hours). The stale detection `idle_timeout_seconds: 1800` fires when no stdout is produced for 30 minutes. For code-heavy work (running tests, reading large codebases, complex reasoning), agents routinely go silent for >30 minutes.
+- **Root cause:** `_idle_watchdog()` at `src/mozart/execution/runner/sheet.py:290-320` cancels the execution task after `idle_timeout_seconds` of no progress callbacks. The resulting `_StaleExecutionError` is converted to `ExecutionResult(exit_reason="timeout", error_type="stale")` at `sheet.py:367-377`. The error classifier at `classifier.py:338` maps `exit_reason="timeout"` to `ErrorCode.EXECUTION_TIMEOUT` (E001), but the error display shows `Code: timeout` rather than `E001` — the error code string is not being surfaced properly in the status/errors commands.
+- **Impact:** (1) Agents killed prematurely. (2) Error displayed as `Code: timeout` instead of `E001`, making diagnosis harder. (3) Stale detection is indistinguishable from backend timeout in error output.
+- **Fix:** Increase `idle_timeout_seconds` to at least 3600 (1 hour) for work stages. Fix error code display to show E001. Consider adding a distinct error code for stale detection (E006?) to differentiate from backend timeout.
+- **Evidence:** `mozart status mozart-orchestra-v3` shows Sheet 66 "failed (30m 0s)" and Sheet 95 "failed (30m 30s)". Both have `exit_reason=timeout` in error context. Score config has `timeout_seconds: 10800` but `stale_detection.idle_timeout_seconds: 1800`.
+
+### F-098: Rate Limit Errors Classified as E999 (Permanent) — Should Be E101/E102
+- **Found by:** Composer investigation
+- **Severity:** P1 (high — agents retried 16-28 times without rate limit wait logic)
+- **Status:** open
+- **Description:** Sheets 11 (spark, M1), 13 (lens, M1), 20 (litmus, M1), 55 (spark, M2), 57 (lens, M2), 72 (adversary, M2) all failed with rate limit messages ("API Error: Rate limit reached", "You've hit your limit · resets 11pm") but were classified as `E999` (permanent/unknown) instead of `E101` or `E102` (rate limit). This means the rate limit wait/backoff logic never engaged — instead, sheets retried immediately up to 28 times, wasting execution budget.
+- **Root cause:** The Claude CLI error output for rate limits ("API Error: Rate limit reached" and "You've hit your limit · resets ...") is being captured in stdout but not matched by the error classifier's rate limit patterns. The classifier likely checks stderr or specific exit codes. When the CLI hits a rate limit, it may exit with code 0 or a non-standard code, causing the classifier to fall through to E999.
+- **Impact:** (1) Up to 28 wasted retries per sheet (litmus had 16, adversary had 17, spark M2 had 28). (2) No rate limit backoff — retries hit rate limit again immediately. (3) Multiple agents hitting rate limits simultaneously amplify the problem.
+- **Fix:** Update error classifier to detect rate limit patterns in stdout (not just stderr). Patterns to match: `"API Error: Rate limit reached"`, `"You've hit your limit"`, `"resets"`. Map these to E101/E102 so rate limit wait logic engages.
+- **Evidence:** `logs/sheet-11.stdout.log`: "ready\nAPI Error: Rate limit reached". `logs/sheet-55.stdout.log`: "You've hit your limit · resets 11pm (Europe/Berlin)". `logs/sheet-72.stdout.log`: "You've hit your limit · resets Apr 3, 5pm (Europe/Berlin)". All classified as E999 with up to 28 attempts.
+
+### F-099: 6 Agents Failed Consistently Across M1 — Same Instance Positions
+- **Found by:** Composer investigation
+- **Severity:** P2 (medium — pattern suggests rate limit surge, not individual agent issue)
+- **Status:** open (mitigated by F-098 fix)
+- **Description:** In Movement 1, instances 9 (spark), 10 (dash), 11 (lens), 12 (codex), 15 (atlas), 18 (litmus) all failed. These are sequential musician positions in the fan-out. In Movement 2, instances 9 (spark), 11 (lens), 20 (journey), 25 (newcomer), 26 (adversary), 29 (tempo) failed. The pattern suggests a rate limit surge when 32 parallel agents start simultaneously, with agents in the "tail" of the launch sequence hitting the limit.
+- **Impact:** Agents that fail due to rate limits get classified as permanent failures (E999) and burn through all retries, then stay failed even when the rate limit clears.
+- **Fix:** Primary fix is F-098 (correct error classification). Secondary: consider staggering fan-out launches (e.g., 100ms delay between agent starts) to reduce rate limit surge pressure.
+
+### F-100: Per-Sheet Instrument Resolution Built But Not Wired Through Runner
+- **Found by:** Composer investigation (flowspec trace: `adapter.py::BatonAdapter` has 0 backward flows from production code outside baton/)
+- **Severity:** P1 (high — blocks multi-instrument execution)
+- **Status:** open
+- **Description:** The config model supports `per_sheet_instruments`, `per_sheet_instrument_config`, and `instrument_map` (see `job.py:287-358`). The sheet context builder resolves instruments per-sheet (`sheet.py:217-248`). The baton's `BackendPool` (`daemon/baton/backend_pool.py`) creates per-instrument backends. But: (1) The old runner (`execution/runner/sheet.py`) uses a single `self.backend` for all sheets and ignores per-sheet instrument assignments. (2) The baton path is behind `use_baton: false` (default) in conductor config. (3) Flowspec confirms BatonAdapter has 0 backward flows from outside `daemon/baton/` — it's imported by `manager.py::JobManager::start` but the dispatch path is feature-flagged off.
+- **Impact:** Cannot run gemini-cli (or any non-Claude instrument) on specific sheets in the v3 score until either: (a) the old runner gains per-sheet instrument support, or (b) `use_baton: true` is enabled and the baton path is production-ready.
+- **Fix:** Enable `use_baton: true` in conductor config and validate the baton path works for a simple score first. Alternatively, add instrument switching to the old runner (more work, less long-term value).
+
+### F-101: Gemini CLI Error Patterns Need Mapping for Non-Claude Instruments
+- **Found by:** Composer investigation
+- **Severity:** P2 (medium — blocks correct error classification for gemini-cli agents)
+- **Status:** open
+- **Description:** The error classifier (`src/mozart/core/errors/classifier.py`) and parsers (`parsers.py`) are Claude-specific. Rate limit patterns match Claude CLI output ("Overloaded", "rate limit", "capacity"). The gemini-cli instrument profile at `instruments/builtins/gemini-cli.yaml` defines `rate_limit_patterns` and `auth_error_patterns`, but the `PluginCliBackend` at `execution/instruments/cli_backend.py` must use these profile-defined patterns instead of the hardcoded Claude patterns.
+- **Impact:** When a gemini-cli agent hits a rate limit, the error will be classified as E999 (same as F-098 for Claude). The instrument profile defines the correct patterns but they may not be wired through to the classifier.
+- **Fix:** Verify `PluginCliBackend._classify_error()` uses the profile's error patterns. If the old runner is used (without baton), the existing classifier is called instead — it needs an instrument-aware code path.
+
+### F-102: Score Generator Sets 3h Backend Timeout But Only 30m Stale Detection
+- **Found by:** Composer investigation
+- **Severity:** P1 (high — config contradiction caused the fatal failure)
+- **Status:** open
+- **Description:** `generate-v3.py` sets `backend.timeout_seconds: 10800` (3 hours) and `stale_detection.idle_timeout_seconds: 1800` (30 minutes). The stale detection fires 6x earlier than the backend timeout. For agents doing substantive code work (running test suites, reading large codebases, complex multi-file edits), 30 minutes of no stdout is normal. The stale detection effectively overrides the 3-hour timeout.
+- **Impact:** The 3-hour timeout provides false confidence — no agent will ever hit it because stale detection kills them at 30 minutes.
+- **Fix:** In `generate-v3.py`, increase `idle_timeout_seconds` to at least 7200 (2 hours) for work stages, or disable stale detection and rely on the backend timeout alone. Consider per-stage stale detection settings (shorter for setup, longer for code work).
+
+### F-103: Baton Path — 3 Bugs Found During Live Testing
+- **Found by:** Composer investigation (live testing with `use_baton: true`)
+- **Severity:** P0 (critical — baton non-functional without these fixes)
+- **Status:** Fixed in source, baton disabled pending F-104
+- **Description:** Three bugs discovered when enabling `use_baton: true` for the v3 job:
+  1. **`config.backend.max_retries` AttributeError** — `manager.py:1648` accessed `config.backend.max_retries` but `max_retries` lives on `config.retry.max_retries` (RetryConfig, not BackendConfig). Fixed: changed to `config.retry.max_retries`.
+  2. **Baton event loop starves after job registration** — `BatonAdapter.register_job()` registered sheets with the baton but never pushed an event to `baton.inbox`. The event loop (`adapter.run()`) blocks on `inbox.get()` forever — no dispatch happens. Fixed: added `self._baton.inbox.put_nowait(DispatchRetry())` after registration to kick the loop.
+  3. **BackendPool never created or injected** — `manager.py` created the `BatonAdapter` and started its loop but never called `set_backend_pool()`. Dispatch callback logged `adapter.dispatch.no_backend_pool` and returned without executing. Fixed: added registry creation via `load_all_profiles()` and `BackendPool(registry)` injection in manager startup.
+- **Evidence:** Conductor logs showed: `baton.job_registered` → (silence) for bug 2. After fix 2: `adapter.dispatch.no_backend_pool` for bug 3. After fix 3: `plugin_cli_execute_start` with `prompt_length=0` → F-104.
+
+### F-104: Baton Musician Does Not Render Jinja2 Prompts
+- **Found by:** Composer investigation (live testing)
+- **Severity:** P0 (critical — blocks all baton-path execution for scores with template_file or Jinja2)
+- **Status:** open (baton disabled, blocks multi-instrument execution)
+- **Description:** The baton's `sheet_task()` at `daemon/baton/musician.py:171` uses `sheet.prompt_template or ""` directly. For scores that use `template_file` (like v3), `prompt_template` is None — the template is a file path, not inline text. Even for inline templates, no Jinja2 rendering occurs — variables, injections, cross-sheet context, prelude/cadenza are all ignored. The code comment at line 165 acknowledges this: "Full Jinja2 rendering with cross-sheet context will be added when the baton wires into the conductor."
+- **Impact:** The baton path cannot run any score that uses Jinja2 templates (which is most scores). This blocks the entire multi-instrument strategy since `instrument_map` / `per_sheet_instruments` only work through the baton.
+- **Fix:** Wire the prompt rendering pipeline (`PromptBuilder.build_sheet_prompt()` from the old runner) into the musician's `_build_prompt()`. This needs: template loading, Jinja2 rendering, injection resolution, cross-sheet context, and preamble assembly. Until then, `use_baton: false`.
+
+### F-105: Instrument-Level Error/Log Handling Not In YAML Schema
+- **Found by:** Composer directive
+- **Severity:** P1 (high — blocks correct multi-instrument operation)
+- **Status:** open
+- **Description:** Every instrument needs error pattern matching, log parsing, and output format handling defined in its YAML profile. Currently, the `CliProfile.errors` section in instrument YAML defines `rate_limit_patterns` and `auth_error_patterns`, and the `PluginCliBackend._check_rate_limit()` at `execution/instruments/cli_backend.py:359` correctly uses them against both stdout+stderr. However: (1) The hardcoded `ClaudeCliBackend` does NOT use these profile patterns — it has its own error classifier. (2) `claude-cli` should be treated as a regular instrument profile (like `gemini-cli`), not a special-cased native backend. (3) The YAML schema needs additional error/log fields: timeout patterns, crash patterns, capacity patterns, output parsing rules for non-JSON output, and log capture rules.
+- **Impact:** When claude-cli runs through the native `ClaudeCliBackend`, rate limits in stdout are missed (F-098). When it runs through `PluginCliBackend` (baton path), rate limits ARE caught. This inconsistency means the same instrument behaves differently depending on execution path.
+- **Fix:** Long-term: route all instruments (including claude-cli) through `PluginCliBackend`. Short-term: expand the instrument profile YAML schema to cover all error categories, and update the native `ClaudeCliBackend`'s classifier to also check stdout patterns for rate limits.
+
+### F-106: Gemini CLI Instrument Profile — Live Verification Results
+- **Found by:** Composer investigation (live testing against gemini-cli 0.35.1)
+- **Severity:** P1 (high — profile was speculative, now empirically grounded)
+- **Status:** Fixed (profile updated with verified behavior)
+- **Description:** Live testing of gemini-cli on backyard-capitalism-9000 revealed:
+  1. **JSON output is clean on stdout** — preamble (YOLO warnings, keychain errors) goes to stderr only. `json.loads(stdout)` works.
+  2. **Error format confirmed** — `{"error": {"type": "Error", "message": "...", "code": N}}` on stdout. Stack traces on stderr (verbose Node.js, not structured).
+  3. **Exit code 1 on error, 0 on success** — matches default `success_exit_codes: [0]`.
+  4. **Multi-model routing** — gemini uses flash-lite for routing + flash/pro for execution. Token counts span both models under `stats.models.*`. Wildcard path returns first model only via `extract_json_path`, undercounting by ~4x. Need `extract_json_path_all` + sum via `aggregate_tokens: true`.
+  5. **Output format flag** — profile had `--output-format` but gemini uses `-o`. Fixed.
+  6. **gemini-3-flash-preview** exists as a model but wasn't in the profile. Added.
+- **Evidence:** `gemini -p "Say hello" -o json --yolo` returned clean JSON with `response`, `stats.models` (2 models), exit 0. `gemini -p "hello" -o json --yolo -m nonexistent-model` returned JSON error with exit 1 and stack trace on stderr.
+- **Fix applied:** Updated `gemini-cli.yaml` with verified behavior, added `aggregate_tokens: true`, added capacity/timeout patterns, added gemini-3-flash-preview model, fixed output format flag. Updated `claude-code.yaml` to same standard (added stdout rate limit patterns from F-098, added capacity/timeout patterns, added verification header).
+
+### F-107: Instrument Configuration Requires Standardized Live Verification
+- **Found by:** Composer directive
+- **Severity:** P0 (process — affects every instrument we ship)
+- **Status:** open (process not yet standardized)
+- **Description:** Every instrument profile MUST be verified against the actual CLI tool before shipping. Speculative profiles (based on documentation or assumptions) will have errors — F-106 proved this with gemini-cli (wrong flag, missing model, undercounting tokens). The verification process must be standardized into a repeatable skill so that:
+  1. **Any CLI tool can be adapted into an instrument** by running the verification protocol.
+  2. **Verification is automatable** — a Mozart score can mass-produce and mass-test instruments by running the protocol against each CLI tool.
+  3. **Profiles carry verification metadata** — date, CLI version, what was tested, what wasn't (e.g., rate limits are hard to trigger on demand).
+- **The verification protocol must cover:**
+  - Success path: clean prompt → output → extract result, tokens, exit code
+  - Error path: bad model/auth → error output → extract error message, exit code
+  - Rate limit path: (if triggerable) → pattern matching on stdout+stderr
+  - Token counting: single vs multi-model, wildcard aggregation
+  - Preamble separation: what goes to stdout vs stderr
+  - Output format flags: exact flag syntax and variations
+  - Edge cases: empty prompt, very long prompt, binary output
+- **End state:** A skill (`instrument-verification.md`) that takes a CLI tool and produces a verified instrument profile YAML. A Mozart score (`instrument-factory.yaml`) that runs this skill against N CLI tools in parallel and produces N verified profiles. Every instrument we ship — including claude-code — goes through this pipeline. No exceptions.
+- **Impact:** Without this, every new instrument ships with speculative errors. With this, instrument onboarding becomes a production pipeline — mass produce, mass test, mass ship. This is how Mozart scales to every AI CLI tool that exists or will exist.
+
+
+---
+
+## Bedrock Ground Verification (Post-M3)
+
+### F-106: Spark Memory File Missing Through 3 Movements
+- **Movement:** 3 (discovered during post-M3 verification)
+- **Agent:** Bedrock
+- **Category:** pattern
+- **Finding:** Spark is one of 32 rostered musicians but had no memory file in the workspace. All 31 other musicians had memory files. Created empty template at `memory/spark.md`. The original movement 0 setup (by Bedrock) created memory files for agents who didn't have old-workspace equivalents, but Spark was missed.
+- **Action:** Created memory file. Future setup verifications must check ALL 32 roster names, not just files that exist.
+- **Status:** fixed (this movement)
+
+### F-107: Composer's F-103 Fixes Uncommitted — 6th Occurrence of Anti-Pattern
+- **Movement:** 3 (discovered during post-M3 verification)
+- **Agent:** Bedrock
+- **Category:** pattern
+- **Finding:** The composer's own F-103 fixes (3 baton bugs) sit uncommitted in the working tree: `adapter.py` (+6 lines: DispatchRetry kick), `manager.py` (+12/-1 lines: max_retries path fix, BackendPool creation+injection). These are marked `[x] [Composer]` in TASKS.md but NOT on HEAD. Additionally, 3 example scores are deleted in the working tree (F-088 cleanup: `fix-deferred-issues.yaml`, `fix-observability.yaml`, `quality-continuous-daemon.yaml` — 3,279 lines). Total uncommitted: 14 files.
+- **Error class:** Same as F-013, F-019, F-057, F-080, F-089. Sixth occurrence across 3 movements. The pattern is now structural, not disciplinary — even the composer follows it. The score architecture should enforce commit checkpoints.
+- **Impact:** 19 lines of P0 baton fixes exist only in the working tree. A `git clean` or accidental checkout would lose the F-103 fixes, requiring re-diagnosis. The F-088 cleanup (3 scores deleted) would need re-doing.
+- **Action:** Commit the composer's working tree changes. Consider adding a commit checkpoint to the score after every N sheets or at movement boundaries.
+- **Status:** open
+
+### F-108: GitHub Issue #152 May Be Resolved by F-093
+- **Movement:** 3 (discovered during post-M3 verification)
+- **Agent:** Bedrock
+- **Category:** decision
+- **Finding:** GitHub issue #152 ("34 of 37 example scores fail validation — workspace path bug") was filed based on F-093 (35 examples using `./workspaces/` instead of `../workspaces/`). F-093 was resolved in commit 75bebed (Blueprint, M3) — all 35 examples fixed. Verification confirms zero examples use the old `./workspaces/` pattern. Issue #152 should be closable.
+- **Action:** Close #152 with reference to commit 75bebed and F-093 resolution.
+- **Status:** open (needs composer/reviewer to close)
+
+---
+
+## New Findings (Movement 4 — Blueprint)
+
+### F-097: Stale Detection Error Code — PARTIALLY RESOLVED
+- **Found by:** Composer investigation (original), Blueprint (fix, Movement 4)
+- **Severity:** P0 → P1 (E006 error code added; timeout value changes still open)
+- **Status:** Partially resolved (movement 4, Blueprint)
+- **Resolution (E006):** Added `EXECUTION_STALE` (E006) to `ErrorCode` enum in `src/mozart/core/errors/codes.py`. Classifier (`classify()` at line 338 and `classify_execution()` at line 990) now differentiates stale detection from backend timeout by checking for "stale execution" in combined stdout+stderr. Stale → E006 (WARNING, 120s retry delay). Regular timeout → E001 (ERROR, 60s delay). 10 TDD tests in `test_error_taxonomy_extensions.py`.
+- **Remaining:** `idle_timeout_seconds` increase (P0) and error display fix (P1) are still open.
+
+### F-098: Rate Limit Classification — RESOLVED
+- **Found by:** Composer investigation (original), Blueprint (fix, Movement 4)
+- **Severity:** P1 → Resolved
+- **Status:** Resolved (movement 4, Blueprint)
+- **Root cause:** `classify_execution()` Phase 4 (regex fallback) only runs when `not all_errors`. When Phase 1 (JSON parsing) found structured errors, Phase 4 was skipped entirely. Rate limit patterns in stdout — "rate.?limit", "hit.{0,10}limit", "limit.{0,10}resets?" — were already in `_DEFAULT_RATE_LIMIT_PATTERNS` but unreachable when Phase 1 produced any result.
+- **Resolution:** Added "Phase 4.5: Rate Limit Override" to `classify_execution()` at `src/mozart/core/errors/classifier.py`. This phase always runs after Phase 4, regardless of what prior phases found. It scans combined stdout+stderr for rate limit patterns and adds a rate limit error if none exists. Handles quota exhaustion, capacity, and generic rate limit cases. 6 TDD tests including the core F-098 regression case (JSON errors + rate limit text → rate limit detected).
+- **Evidence:** `test_rate_limit_in_stdout_with_json_errors` passes — a response with both JSON error structure AND "API Error: Rate limit reached" in stdout now correctly classifies as rate_limit category.
+
+### F-109: CliErrorConfig Schema Expanded — crash_patterns and stale_patterns Added
+- **Found by:** Blueprint, Movement 4
+- **Severity:** N/A (enhancement)
+- **Status:** Resolved (movement 4, Blueprint)
+- **Description:** `CliErrorConfig` at `src/mozart/core/config/instruments.py` gained two new fields: `crash_patterns: list[str]` (regex patterns for process crash detection) and `stale_patterns: list[str]` (regex patterns for stale execution detection). `timeout_patterns` and `capacity_patterns` already existed. All fields default to empty lists (backward compatible). 6 TDD tests.
+- **Impact:** Instrument profiles can now declare instrument-specific patterns for crash and stale detection. The `PluginCliBackend` can use these patterns in its error classification, supplementing Mozart's default classifier.
+
+### F-104: Baton Musician Prompt Rendering — RESOLVED
+- **Found by:** Composer investigation (original)
+- **Severity:** P0 (critical — blocked all baton-path execution)
+- **Status:** Resolved (movement 1 of current cycle, Forge — commit 3deb436)
+- **Description:** The baton's `musician.py:_build_prompt()` returned raw `sheet.prompt_template or ""` without Jinja2 rendering. For scores using `template_file`, `prompt_template` is None — the template is a file path, not inline text. Even for inline templates, no variable expansion, no preamble, no injection resolution, no validation requirements.
+- **Resolution:** Complete rewrite of `_build_prompt()` with full 5-layer prompt assembly pipeline: (1) preamble via `build_preamble()`, (2) Jinja2 template rendering via `Sheet.template_variables()`, (3) prelude/cadenza injection resolution with Jinja path expansion, (4) validation requirements formatted as success checklist, (5) completion mode suffix. Added helper functions `_render_template()`, `_resolve_injections()`, `_format_injection_section()`, `_format_validation_requirements()`. Updated `sheet_task()` with `total_sheets`/`total_movements` params. Adapter computes job-level totals. 17 TDD tests in `test_musician_prompt_rendering.py`. AttemptContext expanded with `total_sheets`, `total_movements`, `previous_outputs` fields for cross-sheet data path.
+- **Impact:** UNBLOCKS all baton-path execution. `use_baton: true` can now be tested with real scores that use Jinja2 templates.
+
+### F-110: Two Orphaned Broken Test Files Block `pytest tests/ -x`
+- **Found by:** Maverick, Movement 1 (current cycle)
+- **Severity:** P2 (medium — blocks full test suite collection)
+- **Status:** Resolved (movement 1, Maverick — deleted orphaned files)
+- **Description:** Two untracked test files were left by a musician who planned a class-based `PromptRenderer` approach (never implemented): `test_baton_prompt_renderer.py` (552 lines, imports `mozart.daemon.baton.prompt` which doesn't exist) and `test_baton_prompt_rendering.py` (494 lines, imports `_configure_backend` which doesn't exist). Both caused `ImportError` during pytest collection, blocking `pytest tests/ -x` with `-x` flag.
+- **Root cause:** Two musicians independently started TDD for F-104 with different architectures (class-based PromptRenderer vs function-based _build_prompt). The function-based approach won (simpler, no state). The class-based test files were never cleaned up.
+- **Resolution:** Deleted both orphaned files. The working tests are in `test_musician_prompt_rendering.py` (17 tests, committed in 3deb436). Also reverted a broken `__init__.py` change that imported the non-existent `PromptRenderer`.

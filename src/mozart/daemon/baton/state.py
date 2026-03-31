@@ -152,6 +152,16 @@ class AttemptContext:
     learned_patterns: list[str] | None = None
     """Patterns from the learning store, scoped to this instrument."""
 
+    total_sheets: int = 1
+    """Total concrete sheet count in the job (for preamble and template vars)."""
+
+    total_movements: int = 1
+    """Total movement count in the job (for template vars)."""
+
+    previous_outputs: dict[int, str] = field(default_factory=dict)
+    """Stdout outputs from completed sheets. Keys are sheet numbers (1-indexed).
+    Populated by the adapter from CheckpointState for cross-sheet context."""
+
 
 # =============================================================================
 # SheetExecutionState — per-sheet tracking
