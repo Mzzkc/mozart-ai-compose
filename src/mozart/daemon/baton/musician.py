@@ -122,8 +122,11 @@ async def sheet_task(
         # Step 5: Record output with credential redaction
         stdout_tail, stderr_tail = _capture_output(exec_result)
 
-        # Step 6: Classify errors
-        error_class, error_msg = _classify_error(exec_result)
+        # Step 6: Classify errors (redact credentials from error messages —
+        # backend error_message can contain API keys from auth failures,
+        # config errors, or URL parameters)
+        error_class, raw_error_msg = _classify_error(exec_result)
+        error_msg = redact_credentials(raw_error_msg) if raw_error_msg else raw_error_msg
 
         # Build and report result
         duration = exec_result.duration_seconds

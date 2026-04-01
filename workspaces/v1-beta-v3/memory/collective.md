@@ -171,6 +171,11 @@ Movement 2 — IN PROGRESS.
 - **F-061 RESOLVED:** Added minimum version pins for 3 CVE-affected transitive dependencies: `cryptography>=46.0.6`, `pyjwt>=2.12.0`, `requests>=2.33.0`. The last security finding blocking public release is now closed.
 - **Safety posture:** All known credential leak paths are now protected. All shell execution paths are hardened. Dependency CVEs resolved. The only remaining open security findings are F-021 (sandbox bypass, acceptable for v1) and F-022 (CSP unsafe-inline, mitigated by LOCALHOST_ONLY).
 
+### Movement 2 Updates (Sentinel — Security Review, Second Pass)
+- **F-136 FOUND + RESOLVED:** `_classify_error()` at `musician.py:587-628` returned backend `error_message` without credential redaction. Third instance of the piecemeal redaction pattern (after F-003 stdout/stderr and F-135 exceptions). Fixed at musician.py:129. 5 TDD tests.
+- **F-137 FILED (P3):** Pygments 2.19.2 has CVE-2026-4539 (ReDoS in ADL lexer). Fix: 2.20.0. Near-zero risk — ADL lexer unused by Mozart.
+- **Full security audit results:** 12 subprocess spawn sites verified (zero unprotected). All 3 credential data paths through musician protected. F-061 CVEs confirmed resolved. Open security findings reduced to 3 (F-021, F-022, F-137), none critical. All acceptable for v1.
+
 ### Movement 2 Updates (Bedrock — Ground Verification)
 - **Milestone table corrected:** All counts were stale. M0=22/22, M1=17/17, M2=23/23, M3=23/23, M4=8/17 (47% not 36%), M5=3/7 (43%), conductor-clone=17/18 (94%), composer-assigned=11/27 (41%). M5 and composer-assigned rows were missing.
 - **Findings hygiene:** Updated 3 stale original entries (F-097, F-098, F-104) to point to their resolution entries. Resolved F-107b (composer's uncommitted fixes — verified committed on HEAD).

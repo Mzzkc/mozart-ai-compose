@@ -446,3 +446,270 @@ class TestMusicianSheetTaskErrorRedaction:
         assert "AIzaSy" not in result.error_message
         assert "[REDACTED_ANTHROPIC_KEY]" in result.error_message
         assert "[REDACTED_GOOGLE_KEY]" in result.error_message
+
+
+# =========================================================================
+# Test: _classify_error() path redacts error_message from ExecutionResult
+# =========================================================================
+
+
+class TestClassifyErrorPathRedaction:
+    """Verify that error_message from backend ExecutionResult is redacted
+    when it flows through the _classify_error() code path.
+
+    Found by Sentinel M2: _classify_error() at musician.py:587 returns
+    exec_result.error_message directly at lines 608, 622, 627 without
+    calling redact_credentials(). A backend that sets error_message to
+    a string containing an API key would store that key in
+    SheetAttemptResult.error_message → state DB → dashboard → logs.
+
+    This is a DIFFERENT path from the exception handler (tested above).
+    The exception handler catches Python exceptions. This path handles
+    backends that return ExecutionResult(success=False, error_message=...).
+    """
+
+    def _make_sheet(self, tmp_path: Path) -> Any:
+        """Create a minimal Sheet for testing."""
+        from mozart.core.sheet import Sheet
+
+        return Sheet(
+            num=1,
+            movement=1,
+            voice=None,
+            voice_count=1,
+            description="test sheet",
+            workspace=tmp_path,
+            instrument_name="test-instrument",
+            instrument_config={},
+            prompt_template="Hello {{ workspace }}",
+            template_file=None,
+            variables={},
+            prelude=[],
+            cadenza=[],
+            prompt_extensions=[],
+            validations=[],
+            timeout_seconds=30.0,
+        )
+
+    def _make_context(self) -> Any:
+        """Create a minimal AttemptContext."""
+        from mozart.daemon.baton.state import AttemptContext, AttemptMode
+
+        return AttemptContext(
+            attempt_number=1,
+            mode=AttemptMode.NORMAL,
+        )
+
+    async def test_error_message_with_anthropic_key_redacted(
+        self, tmp_path: Path
+    ) -> None:
+        """Backend returning error_message with Anthropic key: key is redacted.
+
+        Exercises the TRANSIENT path at musician.py _classify_error line 608
+        (exit_code=None → process killed by signal).
+        """
+        from mozart.backends.base import ExecutionResult
+        from mozart.daemon.baton.events import SheetAttemptResult
+        from mozart.daemon.baton.musician import sheet_task
+
+        sheet = self._make_sheet(tmp_path)
+        context = self._make_context()
+        inbox: asyncio.Queue[SheetAttemptResult] = asyncio.Queue()
+
+        class ErrorMessageLeakingBackend:
+            def set_preamble(self, text: str) -> None:
+                pass
+
+            async def execute(self, prompt: str, **kw: Any) -> ExecutionResult:
+                return ExecutionResult(
+                    success=False,
+                    stdout="",
+                    stderr="auth error",
+                    duration_seconds=1.0,
+                    exit_code=None,  # Triggers TRANSIENT path
+                    error_message=(
+                        "Auth failed with key "
+                        "sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890"
+                    ),
+                )
+
+        await sheet_task(
+            job_id="test-job",
+            sheet=sheet,
+            backend=ErrorMessageLeakingBackend(),  # type: ignore[arg-type]
+            attempt_context=context,
+            inbox=inbox,
+        )
+
+        result = await inbox.get()
+        assert result.error_message is not None
+        assert "sk-ant-api03" not in result.error_message
+        assert "[REDACTED_ANTHROPIC_KEY]" in result.error_message
+        assert result.error_classification == "TRANSIENT"
+
+    async def test_auth_failure_error_message_with_key_redacted(
+        self, tmp_path: Path
+    ) -> None:
+        """Backend returning AUTH_FAILURE with key in error_message: key is redacted.
+
+        Exercises the AUTH_FAILURE path at musician.py _classify_error line 622.
+        """
+        from mozart.backends.base import ExecutionResult
+        from mozart.daemon.baton.events import SheetAttemptResult
+        from mozart.daemon.baton.musician import sheet_task
+
+        sheet = self._make_sheet(tmp_path)
+        context = self._make_context()
+        inbox: asyncio.Queue[SheetAttemptResult] = asyncio.Queue()
+
+        class AuthFailureLeakingBackend:
+            def set_preamble(self, text: str) -> None:
+                pass
+
+            async def execute(self, prompt: str, **kw: Any) -> ExecutionResult:
+                return ExecutionResult(
+                    success=False,
+                    stdout="",
+                    stderr="401 unauthorized for api key",
+                    duration_seconds=1.0,
+                    exit_code=1,
+                    error_message=(
+                        "Unauthorized: invalid API key "
+                        "sk-ant-api03-secretsecretsecretsecretsecret1234"
+                    ),
+                )
+
+        await sheet_task(
+            job_id="test-job",
+            sheet=sheet,
+            backend=AuthFailureLeakingBackend(),  # type: ignore[arg-type]
+            attempt_context=context,
+            inbox=inbox,
+        )
+
+        result = await inbox.get()
+        assert result.error_message is not None
+        assert "sk-ant-api03" not in result.error_message
+        assert "[REDACTED_ANTHROPIC_KEY]" in result.error_message
+        assert result.error_classification == "AUTH_FAILURE"
+
+    async def test_execution_error_message_with_aws_key_redacted(
+        self, tmp_path: Path
+    ) -> None:
+        """Backend returning EXECUTION_ERROR with AWS key: key is redacted.
+
+        Exercises the default EXECUTION_ERROR path at _classify_error line 627.
+        """
+        from mozart.backends.base import ExecutionResult
+        from mozart.daemon.baton.events import SheetAttemptResult
+        from mozart.daemon.baton.musician import sheet_task
+
+        sheet = self._make_sheet(tmp_path)
+        context = self._make_context()
+        inbox: asyncio.Queue[SheetAttemptResult] = asyncio.Queue()
+
+        class AwsErrorBackend:
+            def set_preamble(self, text: str) -> None:
+                pass
+
+            async def execute(self, prompt: str, **kw: Any) -> ExecutionResult:
+                return ExecutionResult(
+                    success=False,
+                    stdout="",
+                    stderr="access denied",
+                    duration_seconds=2.0,
+                    exit_code=1,
+                    error_message=(
+                        "S3 PutObject failed for AKIAIOSFODNN7EXAMPLE"
+                    ),
+                )
+
+        await sheet_task(
+            job_id="test-job",
+            sheet=sheet,
+            backend=AwsErrorBackend(),  # type: ignore[arg-type]
+            attempt_context=context,
+            inbox=inbox,
+        )
+
+        result = await inbox.get()
+        assert result.error_message is not None
+        assert "AKIAIOSFODNN7EXAMPLE" not in result.error_message
+        assert "[REDACTED_AWS_KEY]" in result.error_message
+        assert result.error_classification == "EXECUTION_ERROR"
+
+    async def test_none_error_message_passes_through(
+        self, tmp_path: Path
+    ) -> None:
+        """Backend returning error_message=None: passes through unchanged."""
+        from mozart.backends.base import ExecutionResult
+        from mozart.daemon.baton.events import SheetAttemptResult
+        from mozart.daemon.baton.musician import sheet_task
+
+        sheet = self._make_sheet(tmp_path)
+        context = self._make_context()
+        inbox: asyncio.Queue[SheetAttemptResult] = asyncio.Queue()
+
+        class NoneMessageBackend:
+            def set_preamble(self, text: str) -> None:
+                pass
+
+            async def execute(self, prompt: str, **kw: Any) -> ExecutionResult:
+                return ExecutionResult(
+                    success=False,
+                    stdout="",
+                    stderr="something failed",
+                    duration_seconds=1.0,
+                    exit_code=1,
+                    error_message=None,
+                )
+
+        await sheet_task(
+            job_id="test-job",
+            sheet=sheet,
+            backend=NoneMessageBackend(),  # type: ignore[arg-type]
+            attempt_context=context,
+            inbox=inbox,
+        )
+
+        result = await inbox.get()
+        # error_message should be the fallback from _classify_error
+        assert result.error_message == "Exit code 1"
+        assert result.error_classification == "EXECUTION_ERROR"
+
+    async def test_clean_error_message_preserved(
+        self, tmp_path: Path
+    ) -> None:
+        """Backend returning error_message without credentials: preserved intact."""
+        from mozart.backends.base import ExecutionResult
+        from mozart.daemon.baton.events import SheetAttemptResult
+        from mozart.daemon.baton.musician import sheet_task
+
+        sheet = self._make_sheet(tmp_path)
+        context = self._make_context()
+        inbox: asyncio.Queue[SheetAttemptResult] = asyncio.Queue()
+
+        class CleanErrorBackend:
+            def set_preamble(self, text: str) -> None:
+                pass
+
+            async def execute(self, prompt: str, **kw: Any) -> ExecutionResult:
+                return ExecutionResult(
+                    success=False,
+                    stdout="",
+                    stderr="connection timed out",
+                    duration_seconds=30.0,
+                    exit_code=None,
+                    error_message="Backend timed out after 30 seconds",
+                )
+
+        await sheet_task(
+            job_id="test-job",
+            sheet=sheet,
+            backend=CleanErrorBackend(),  # type: ignore[arg-type]
+            attempt_context=context,
+            inbox=inbox,
+        )
+
+        result = await inbox.get()
+        assert result.error_message == "Backend timed out after 30 seconds"

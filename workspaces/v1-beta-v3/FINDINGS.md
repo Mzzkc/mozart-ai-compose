@@ -1476,3 +1476,24 @@ Each finding should include:
 - **Status:** Resolved (movement 2, Warden)
 - **Description:** F-061 identified 3 security-critical dependencies with known CVEs: `cryptography` 46.0.5 (CVE-2026-34073), `pyjwt` 2.11.0 (CVE-2026-32597), `requests` 2.32.5 (CVE-2026-25645). These are transitive dependencies used by the dashboard auth system and webhook notifications.
 - **Resolution:** Added minimum version pins to `pyproject.toml` dependencies: `cryptography>=46.0.6`, `pyjwt>=2.12.0`, `requests>=2.33.0`. Verified install succeeds with upgraded versions (cryptography 46.0.6, PyJWT 2.12.1, requests 2.33.1). All quality gates pass. F-061 no longer blocks public release.
+
+---
+
+## New Findings (Movement 2 — Sentinel)
+
+### F-136: _classify_error() Returns Unredacted error_message from Backend
+- **Found by:** Sentinel, Movement 2
+- **Severity:** P1 (high — credential leak path, same class as F-135)
+- **Status:** Resolved (movement 2, Sentinel)
+- **Description:** `_classify_error()` at `src/mozart/daemon/baton/musician.py:587-628` returns `exec_result.error_message` directly at three exit points (lines 608, 622, 627) without calling `redact_credentials()`. A backend that sets `error_message` to a string containing an API key (e.g., auth failure echoing the key, config error with key in URL) stores that key in `SheetAttemptResult.error_message` → state DB → dashboard → diagnostic output → learning store. Meanwhile, `stdout_tail` and `stderr_tail` ARE redacted 5 lines earlier (line 581-582), and the exception path at line 162 IS redacted. Only the `_classify_error` return path was unprotected.
+- **Impact:** Backend error messages containing API keys persist across 6+ storage locations. The credential scanner exists, the import exists, the call was missing at this specific site. Same error class as F-135 (exception handler) and F-003 (stdout/stderr) — safety applied to adjacent data paths but not this one.
+- **Error class:** Piecemeal credential redaction — the pattern that F-020 and F-135 already demonstrated. Three independent data paths (stdout/stderr, exceptions, error_message) all flow through the same musician, each needs redaction independently.
+- **Resolution:** Applied `redact_credentials()` to the `error_msg` returned by `_classify_error()` at `musician.py:129`. The redaction happens at the call site (where the value is consumed) rather than inside `_classify_error` (which is a pure classifier). This matches the exception path pattern at line 162. 5 TDD regression tests in `test_musician_error_redaction.py::TestClassifyErrorPathRedaction` covering TRANSIENT (exit_code=None), AUTH_FAILURE (401/403), EXECUTION_ERROR (generic), None message passthrough, and clean message preservation.
+
+### F-137: Pygments CVE-2026-4539 (ReDoS) — Transitive Dependency
+- **Found by:** Sentinel, Movement 2
+- **Severity:** P3 (low — ReDoS in unused ADL lexer, but fix available)
+- **Status:** Open
+- **Description:** `pygments` 2.19.2 has CVE-2026-4539 (ReDoS in AdlLexer). Pygments is a transitive dependency of Mozart through `rich` (CLI output), `pytest` (test framework), and `mkdocs-material` (documentation). The fix version is 2.20.0. The CVE triggers only when highlighting ADL (Archetype Definition Language) syntax, which Mozart does not do — the risk is near zero.
+- **Impact:** Negligible for Mozart. The only theoretical path is if agent stdout contained ADL syntax and Rich tried to highlight it — which it wouldn't, since Mozart uses plain text output capture. However, the fix is available and trivial to apply.
+- **Action:** Add `"pygments>=2.20.0"` to the security minimum pins in `pyproject.toml` alongside the existing F-061 pins. Low priority but good hygiene.
