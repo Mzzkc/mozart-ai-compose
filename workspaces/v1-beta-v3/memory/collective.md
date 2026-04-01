@@ -183,6 +183,22 @@ Movement 2 — IN PROGRESS.
 - **Working tree CLEAN:** 8 changes — all workspace memory + 2 score files. No uncommitted code. Anti-pattern resolved.
 - **Finding ID collision flagged:** F-107 used twice (same class as F-070, F-086). 4 collision incidents total.
 
+### Movement 2 Updates (Litmus — Effectiveness Validation)
+- **20 new litmus tests** (6db727c): Categories 11-17 validating M2 completions. 56 total litmus tests.
+- **Step 29 recovery VALIDATED:** recover_job() correctly preserves terminal states, resets in_progress→PENDING, carries forward attempt counts. The adapter kicks DispatchRetry after recovery so dispatch_ready runs immediately.
+- **Completion signaling VALIDATED:** wait_for_completion() correctly detects all-success vs any-failure using asyncio.Event pattern.
+- **F-134 VALIDATED:** Both _run_via_baton and _resume_via_baton access config.cost_limits.max_cost_per_job (not the old max_cost_usd). CostLimitConfig.model_fields confirms max_cost_usd doesn't exist.
+- **F-135 VALIDATED:** musician.py imports and calls redact_credentials on raw_error_msg in the exception handler.
+- **F-132 VALIDATED:** build_clone_config produces isolated state_db_path in both code paths (with and without base_config). Named clones get unique paths.
+- **F-111/F-113 VALIDATED structurally:** ParallelBatchResult.exceptions preserves types, propagate_failure_to_dependents exists, SheetStatus.FAILED in terminal set.
+- **State mapping totality VALIDATED:** Every CheckpointState status maps to baton status and vice versa — no unmapped states.
+
+### Movement 2 Updates (Breakpoint — Adversarial Verification)
+- **63 adversarial tests committed** in `tests/test_baton_m2c2_adversarial.py`: Fixed and extended untracked file (47→63 tests, 2 bugs fixed: missing `attempt` field, short credential key). 13 test classes covering step 29 recovery, state sync, credential redaction, rate limit extraction, failure propagation, cost limits, status mapping, completion signaling, instrument resolution.
+- **No new bugs found** in M2 completion code. Step 29, F-111/F-113, F-135/F-136, F-134 — all correct under adversarial conditions.
+- **Score-level instrument resolution verified:** 12 TDD tests in `test_score_level_instrument_resolution.py` all pass. Resolution at `sheet.py:249-255`, V210 recognizes at `config.py:517-518`.
+- **Testing infrastructure risk identified:** Untracked test files written but never run create false confidence. Mateship pipeline should verify before committing.
+
 ## Top Risks
 1. **F-009 (P0):** Learning store effectiveness inert 6+ movements. Root cause known. Intelligence thesis unproven. CRITICAL.
 2. **Demo work (P0):** Neither Lovable nor Wordware demos started. Product invisible to the world.
