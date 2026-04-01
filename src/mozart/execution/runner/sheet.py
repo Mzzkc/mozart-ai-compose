@@ -708,11 +708,6 @@ class SheetExecutionMixin:
 
         execution_duration = time.monotonic() - execution_start_time
 
-        outcome_category, success_without_retry = self._classify_success_outcome(
-            normal_attempts,
-            completion_attempts,
-        )
-
         # Populate SheetState learning fields
         sheet_state = state.sheets.get(sheet_num)
         if sheet_state is None:
@@ -724,6 +719,13 @@ class SheetExecutionMixin:
             )
             await self.state_backend.save(state)
             return "break"
+
+        # Use persisted cumulative attempt_count (F-127) — survives restarts.
+        # Session-local normal_attempts resets to 0 on resume; attempt_count doesn't.
+        outcome_category, success_without_retry = self._classify_success_outcome(
+            sheet_state.attempt_count,
+            sheet_state.completion_attempts,
+        )
         sheet_state.success_without_retry = success_without_retry
         sheet_state.outcome_category = outcome_category
         sheet_state.confidence_score = validation_result.pass_percentage / 100.0
@@ -2463,21 +2465,27 @@ class SheetExecutionMixin:
 
     @staticmethod
     def _classify_success_outcome(
-        normal_attempts: int,
+        cumulative_attempts: int,
         completion_attempts: int,
     ) -> tuple[OutcomeCategory, bool]:
         """Classify the outcome category for a successfully validated sheet.
 
+        Uses the **cumulative** attempt count from persisted SheetState, not
+        the session-local counter. This ensures correct classification after
+        conductor restart + resume: a sheet with 18 cumulative attempts is
+        classified as SUCCESS_RETRY, not SUCCESS_FIRST_TRY. (F-127)
+
         Args:
-            normal_attempts: Number of normal retry attempts used.
+            cumulative_attempts: Total lifetime attempts from SheetState.attempt_count.
+                Includes all attempts across all sessions (restarts).
             completion_attempts: Number of completion-mode attempts used.
 
         Returns:
             Tuple of (outcome_category, success_without_retry).
         """
-        # normal_attempts counts executions (first run = 1), not retries.
-        # A first-attempt success means exactly 1 normal attempt and 0 completion attempts.
-        success_without_retry = normal_attempts <= 1 and completion_attempts == 0
+        # cumulative_attempts counts executions (first run = 1), not retries.
+        # A first-attempt success means exactly 1 cumulative attempt and 0 completions.
+        success_without_retry = cumulative_attempts <= 1 and completion_attempts == 0
         if success_without_retry:
             return OutcomeCategory.SUCCESS_FIRST_TRY, True
         elif completion_attempts > 0:

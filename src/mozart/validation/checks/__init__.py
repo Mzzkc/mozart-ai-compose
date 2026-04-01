@@ -20,6 +20,7 @@ from mozart.validation.checks.best_practices import (
 )
 from mozart.validation.checks.config import (
     EmptyPatternCheck,
+    InstrumentNameCheck,
     RegexPatternCheck,
     TimeoutRangeCheck,
     ValidationTypeCheck,
@@ -55,6 +56,7 @@ __all__ = [
     "TimeoutRangeCheck",
     "EmptyPatternCheck",
     "VersionReferenceCheck",
+    "InstrumentNameCheck",
     # Best-practice checks
     "JinjaInValidationPathCheck",
     "FormatSyntaxInTemplateCheck",

@@ -14,6 +14,7 @@ from mozart.validation.checks import (
     FanOutWithoutParallelCheck,
     FileExistsOnlyCheck,
     FormatSyntaxInTemplateCheck,
+    InstrumentNameCheck,
     JinjaInValidationPathCheck,
     JinjaSyntaxCheck,
     JinjaUndefinedVariableCheck,
@@ -148,6 +149,8 @@ def create_default_checks() -> list[ValidationCheck]:
         TimeoutRangeCheck(),
         EmptyPatternCheck(),
         VersionReferenceCheck(),
+        # Instrument checks
+        InstrumentNameCheck(),
         # Best-practice checks
         JinjaInValidationPathCheck(),
         FormatSyntaxInTemplateCheck(),

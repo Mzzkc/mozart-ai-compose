@@ -190,6 +190,44 @@ class TestDaemonConfigFromClone:
         assert clone_config.max_concurrent_jobs == 5
         assert clone_config.socket.path != prod_config.socket.path
 
+    def test_clone_config_isolates_state_db_no_base(self) -> None:
+        """F-132 complement: build_clone_config(None) isolates state_db_path."""
+        from mozart.daemon.clone import build_clone_config
+
+        config = build_clone_config(None)
+        production = DaemonConfig()
+
+        # state_db_path must differ from production
+        assert config.state_db_path != production.state_db_path
+        assert "clone" in str(config.state_db_path)
+
+    def test_clone_config_isolates_state_db_with_base(self) -> None:
+        """F-132: build_clone_config with base_config isolates state_db_path."""
+        from mozart.daemon.clone import build_clone_config
+
+        prod_config = DaemonConfig(max_concurrent_jobs=5)
+        clone_config = build_clone_config(None, base_config=prod_config)
+
+        assert clone_config.state_db_path != prod_config.state_db_path
+        assert "clone" in str(clone_config.state_db_path)
+
+    def test_clone_config_isolates_log_file(self) -> None:
+        """Clone log_file must be isolated from production."""
+        from mozart.daemon.clone import build_clone_config
+
+        config = build_clone_config("test-log")
+        # log_file should contain the clone name
+        assert config.log_file is not None
+        assert "clone" in str(config.log_file)
+
+    def test_named_clone_state_db_unique(self) -> None:
+        """Named clones get unique state_db_path per name."""
+        from mozart.daemon.clone import build_clone_config
+
+        clone_a = build_clone_config("alpha")
+        clone_b = build_clone_config("beta")
+        assert clone_a.state_db_path != clone_b.state_db_path
+
 
 # =============================================================================
 # try_daemon_route with clone

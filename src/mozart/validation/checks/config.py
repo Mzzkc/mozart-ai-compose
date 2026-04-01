@@ -1,15 +1,20 @@
 """Configuration structure validation checks.
 
 Validates configuration values like regex patterns, timeout ranges,
-and validation rule completeness.
+validation rule completeness, and instrument name resolution.
 """
 
+from __future__ import annotations
+
+import logging
 import re
 from pathlib import Path
 
 from mozart.core.config import JobConfig
 from mozart.validation.base import ValidationIssue, ValidationSeverity
 from mozart.validation.checks._helpers import find_line_in_yaml
+
+_logger = logging.getLogger(__name__)
 
 
 class RegexPatternCheck:
@@ -456,3 +461,124 @@ class EmptyPatternCheck:
                 )
 
         return issues
+
+
+class InstrumentNameCheck:
+    """Check that instrument names resolve to known profiles (V210).
+
+    Warns when an instrument name doesn't match any loaded instrument profile.
+    This catches typos (e.g., 'clause-code' instead of 'claude-code') at
+    validation time rather than runtime.
+
+    Severity is WARNING (not ERROR) because the conductor may have instruments
+    the validator doesn't know about — profiles loaded from other directories,
+    dynamic instruments, etc. The warning is informational, not blocking.
+
+    Checks:
+    - Top-level ``instrument:`` field
+    - ``sheet.per_sheet_instruments`` per-sheet overrides
+    - ``sheet.instrument_map`` batch assignments
+    - ``movements.N.instrument`` per-movement overrides
+    """
+
+    @property
+    def check_id(self) -> str:
+        return "V210"
+
+    @property
+    def severity(self) -> ValidationSeverity:
+        return ValidationSeverity.WARNING
+
+    @property
+    def description(self) -> str:
+        return "Checks instrument names resolve to known profiles"
+
+    def check(
+        self,
+        config: JobConfig,
+        config_path: Path,
+        raw_yaml: str,
+    ) -> list[ValidationIssue]:
+        """Check all instrument references against the loaded profile registry."""
+        # Load known instruments — gracefully degrade on failure
+        try:
+            from mozart.instruments.loader import load_all_profiles
+
+            known = set(load_all_profiles().keys())
+        except Exception:
+            _logger.debug("V210: could not load instrument profiles, skipping check")
+            return []
+
+        if not known:
+            return []
+
+        issues: list[ValidationIssue] = []
+
+        # 1. Top-level instrument: field
+        if config.instrument and config.instrument not in known:
+            issues.append(self._make_issue(
+                config.instrument,
+                "score-level instrument",
+                find_line_in_yaml(raw_yaml, "instrument:"),
+                known,
+            ))
+
+        # 2. Per-sheet instruments
+        if config.sheet.per_sheet_instruments:
+            for sheet_num, instr_name in config.sheet.per_sheet_instruments.items():
+                if instr_name not in known:
+                    issues.append(self._make_issue(
+                        instr_name,
+                        f"sheet {sheet_num} instrument",
+                        find_line_in_yaml(raw_yaml, f"{sheet_num}:"),
+                        known,
+                    ))
+
+        # 3. Instrument map
+        if config.sheet.instrument_map:
+            for instr_name in config.sheet.instrument_map:
+                if instr_name not in known:
+                    issues.append(self._make_issue(
+                        instr_name,
+                        "instrument_map entry",
+                        find_line_in_yaml(raw_yaml, f"{instr_name}:"),
+                        known,
+                    ))
+
+        # 4. Movement-level instruments
+        if config.movements:
+            for mov_num, mov_def in config.movements.items():
+                if mov_def.instrument and mov_def.instrument not in known:
+                    issues.append(self._make_issue(
+                        mov_def.instrument,
+                        f"movement {mov_num} instrument",
+                        find_line_in_yaml(raw_yaml, f"{mov_num}:"),
+                        known,
+                    ))
+
+        return issues
+
+    def _make_issue(
+        self,
+        name: str,
+        location: str,
+        line: int | None,
+        known: set[str],
+    ) -> ValidationIssue:
+        """Create a ValidationIssue for an unknown instrument name."""
+        available = sorted(known)
+        suggestion = (
+            f"Available instruments: {', '.join(available)}. "
+            f"Run 'mozart instruments list' to see all instruments."
+        )
+        return ValidationIssue(
+            check_id=self.check_id,
+            severity=self.severity,
+            message=f"Unknown {location}: '{name}' not found in instrument registry",
+            line=line,
+            suggestion=suggestion,
+            metadata={
+                "instrument_name": name,
+                "location": location,
+            },
+        )
