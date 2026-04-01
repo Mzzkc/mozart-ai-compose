@@ -32,6 +32,7 @@ import pytest
 from mozart.core.checkpoint import SheetState, SheetStatus
 from mozart.execution.dag import DependencyDAG
 from mozart.execution.parallel import (
+    ParallelBatchResult,
     ParallelExecutionConfig,
     ParallelExecutor,
 )
@@ -100,17 +101,20 @@ def cfg_no_fail_fast():
 
 
 class TestF111RateLimitLostInParallel:
-    """Prove that RateLimitExhaustedError is destroyed by the parallel executor.
+    """Verify F-111 fix: RateLimitExhaustedError preserved through parallel executor.
 
-    The bug: when a sheet in a parallel batch raises RateLimitExhaustedError,
-    the ParallelExecutor catches it as a generic Exception, stores the message
-    as a string in error_details, and the lifecycle raises FatalError instead.
-    The lifecycle's except RateLimitExhaustedError handler never fires.
+    F-111 originally documented that the parallel executor destroyed exception
+    types by converting them to strings in error_details. The fix adds an
+    `exceptions` dict to ParallelBatchResult that preserves the original
+    exception objects. The lifecycle now extracts RateLimitExhaustedError
+    from the batch result and re-raises it (instead of wrapping in FatalError).
     """
 
     @pytest.mark.adversarial
-    async def test_rate_limit_error_type_in_batch_result(self, mock_runner, cfg_fail_fast):
-        """Error TYPE is stored as string prefix — isinstance() checks impossible."""
+    async def test_rate_limit_exception_preserved_in_batch_result(
+        self, mock_runner, cfg_fail_fast,
+    ):
+        """F-111 fix: exception objects preserved alongside string details."""
         rate_limit_error = RateLimitExhaustedError(
             "Rate limit reached — resets at 12:00",
             resume_after=datetime(2026, 4, 1, 12, 0, tzinfo=timezone.utc),
@@ -127,17 +131,19 @@ class TestF111RateLimitLostInParallel:
         result = await executor.execute_batch([1, 2], _make_state(2))
 
         assert 2 in result.failed
-        error_text = result.error_details[2]
-        # Type name IS in the string — but that's all it is: a string
-        assert "RateLimitExhaustedError" in error_text
-        assert "Rate limit reached" in error_text
+        # String details still present for backward compat
+        assert "RateLimitExhaustedError" in result.error_details[2]
+        # F-111 fix: original exception preserved in exceptions dict
+        assert 2 in result.exceptions
+        assert isinstance(result.exceptions[2], RateLimitExhaustedError)
 
     @pytest.mark.adversarial
-    async def test_resume_after_timestamp_lost(self, mock_runner, cfg_fail_fast):
-        """resume_after timestamp — critical scheduling data — is destroyed."""
+    async def test_resume_after_timestamp_preserved(self, mock_runner, cfg_fail_fast):
+        """F-111 fix: resume_after timestamp accessible via preserved exception."""
+        expected_resume = datetime(2026, 4, 1, 14, 30, tzinfo=timezone.utc)
         rate_limit_error = RateLimitExhaustedError(
             "Quota exhausted",
-            resume_after=datetime(2026, 4, 1, 14, 30, tzinfo=timezone.utc),
+            resume_after=expected_resume,
             backend_type="claude-cli",
             quota_exhaustion=True,
         )
@@ -148,38 +154,45 @@ class TestF111RateLimitLostInParallel:
         result = await executor.execute_batch([1], _make_state(1))
 
         assert 1 in result.failed
-        # ParallelBatchResult has no structured exception storage
-        assert not hasattr(result, "exceptions")
-        assert not hasattr(result, "error_types")
+        # F-111 fix: exceptions dict preserves the full exception
+        assert hasattr(result, "exceptions")
+        exc = result.exceptions[1]
+        assert isinstance(exc, RateLimitExhaustedError)
+        assert exc.resume_after == expected_resume
+        assert exc.quota_exhaustion is True
 
     @pytest.mark.adversarial
-    async def test_lifecycle_fatal_error_not_rate_limit(self):
-        """lifecycle.py:1169 raises FatalError, not RateLimitExhaustedError.
+    async def test_lifecycle_can_extract_rate_limit_from_batch(self):
+        """F-111 fix: lifecycle._find_rate_limit_in_batch extracts the exception."""
+        from mozart.execution.runner.lifecycle import LifecycleMixin
 
-        The except RateLimitExhaustedError at line 986 is dead code for
-        parallel mode. This test proves the exception hierarchy.
-        """
-        error_msg = "RateLimitExhaustedError: Rate limit reached"
-        raised_error = FatalError(f"Sheet 2 failed: {error_msg}")
+        result = ParallelBatchResult(
+            sheets=[1, 2],
+            failed=[1, 2],
+            error_details={
+                1: "RateLimitExhaustedError: Rate limit",
+                2: "FatalError: Auth failed",
+            },
+            exceptions={
+                1: RateLimitExhaustedError(
+                    "Rate limit",
+                    resume_after=datetime(2026, 4, 1, 12, 0, tzinfo=timezone.utc),
+                    backend_type="claude-cli",
+                ),
+                2: FatalError("Auth failed"),
+            },
+        )
 
-        assert isinstance(raised_error, FatalError)
-        assert not isinstance(raised_error, RateLimitExhaustedError)
-
-        caught_by_rate_limit = False
-        caught_by_fatal = False
-        try:
-            raise raised_error
-        except RateLimitExhaustedError:
-            caught_by_rate_limit = True
-        except FatalError:
-            caught_by_fatal = True
-
-        assert not caught_by_rate_limit
-        assert caught_by_fatal
+        found = LifecycleMixin._find_rate_limit_in_batch(result)
+        assert found is not None
+        assert isinstance(found, RateLimitExhaustedError)
+        assert found.backend_type == "claude-cli"
 
     @pytest.mark.adversarial
-    async def test_all_sheets_rate_limited_batch(self, mock_runner, cfg_fail_fast):
-        """ALL sheets rate-limited: job FAILS instead of PAUSING."""
+    async def test_all_sheets_rate_limited_preserves_exceptions(
+        self, mock_runner, cfg_fail_fast,
+    ):
+        """ALL sheets rate-limited: exceptions preserved, lifecycle can detect."""
         err = RateLimitExhaustedError(
             "Rate limit reached",
             resume_after=datetime(2026, 4, 1, 12, 0, tzinfo=timezone.utc),
@@ -192,12 +205,15 @@ class TestF111RateLimitLostInParallel:
 
         assert len(result.failed) == 3
         assert len(result.completed) == 0
+        # All exceptions preserved
         for sn in [1, 2, 3]:
-            assert "RateLimitExhaustedError" in result.error_details[sn]
+            assert isinstance(result.exceptions[sn], RateLimitExhaustedError)
 
     @pytest.mark.adversarial
-    async def test_mixed_rate_limit_and_auth_failure(self, mock_runner, cfg_fail_fast):
-        """Mixed batch: rate limit + auth failure. Both become generic failures."""
+    async def test_mixed_rate_limit_and_auth_failure_preserved(
+        self, mock_runner, cfg_fail_fast,
+    ):
+        """Mixed batch: both exception types preserved for lifecycle to inspect."""
         async def side_effect(state, sheet_num):
             if sheet_num == 1:
                 raise RateLimitExhaustedError(
@@ -214,8 +230,8 @@ class TestF111RateLimitLostInParallel:
         result = await executor.execute_batch([1, 2], _make_state(2))
 
         assert set(result.failed) == {1, 2}
-        assert "RateLimitExhaustedError" in result.error_details[1]
-        assert "FatalError" in result.error_details[2]
+        assert isinstance(result.exceptions[1], RateLimitExhaustedError)
+        assert isinstance(result.exceptions[2], FatalError)
 
 
 # =============================================================================
@@ -264,8 +280,17 @@ class TestF113FailedDependenciesTreatedAsDone:
         assert 7 in batch, "F-113: synthesis dispatches with 3/5 deps failed"
 
     @pytest.mark.adversarial
-    async def test_permanently_failed_ephemeral_after_restart(self, cfg_no_fail_fast):
-        """_permanently_failed is in-memory — lost on restart. Job gets stuck."""
+    async def test_permanently_failed_not_needed_after_restart(self, cfg_no_fail_fast):
+        """FAILED status in SheetState is sufficient for DAG resolution.
+
+        F-129 reported that _permanently_failed (in-memory) being lost on restart
+        caused deadlock. This is now fixed: get_next_parallel_batch includes
+        SheetStatus.FAILED in the terminal set, so DAG resolution works from
+        persisted state alone without needing _permanently_failed.
+
+        Note: F-113's deeper issue (failed deps should propagate failure, not
+        silently proceed) remains open. But the deadlock (F-129) is resolved.
+        """
         dag = _make_dag(5, {2: [1], 3: [1], 4: [1], 5: [2, 3, 4]})
         runner = _make_runner(dag)
         executor = ParallelExecutor(runner=runner, config=cfg_no_fail_fast)
@@ -279,8 +304,8 @@ class TestF113FailedDependenciesTreatedAsDone:
         assert len(executor._permanently_failed) == 0
 
         batch = executor.get_next_parallel_batch(state)
-        # Sheet 5 blocked forever — different bug from F-113
-        assert 5 not in batch, "After restart, job is stuck — failed dep blocks forever"
+        # Sheet 5 dispatches because FAILED is now in terminal set for DAG resolution
+        assert 5 in batch, "F-129 resolved: FAILED deps don't cause deadlock after restart"
 
     @pytest.mark.adversarial
     async def test_failed_dep_in_chain(self, cfg_no_fail_fast):
@@ -370,46 +395,78 @@ class TestF075ResumeCorruption:
 
 
 class TestF122IpcCloneBypass:
-    """Prove that IPC callsites hardcode production socket paths."""
+    """Regression tests: all IPC callsites use _resolve_socket_path for clone awareness.
+
+    F-122 originally proved these callsites hardcoded production socket paths.
+    The bug was fixed — all 4 callsites now use _resolve_socket_path(None).
+    These tests ensure the fix holds and no regressions occur.
+    """
 
     @pytest.mark.adversarial
-    def test_hooks_hardcodes_production_socket(self):
-        """hooks.py creates DaemonClient with SocketConfig().path."""
+    def test_hooks_uses_resolve_socket_path(self):
+        """hooks.py must use _resolve_socket_path for clone-aware routing."""
         import inspect
         from mozart.execution import hooks
 
         source = inspect.getsource(hooks._try_daemon_submit)
-        assert "SocketConfig()" in source, "Expected SocketConfig() in hooks._try_daemon_submit"
-        assert "_resolve_socket_path" not in source, "F-122: _resolve_socket_path not used"
+        assert "_resolve_socket_path" in source, (
+            "F-122 regression: hooks._try_daemon_submit must use "
+            "_resolve_socket_path for clone-aware socket resolution"
+        )
+        assert "SocketConfig()" not in source, (
+            "F-122 regression: hooks._try_daemon_submit must not "
+            "hardcode SocketConfig() — use _resolve_socket_path instead"
+        )
 
     @pytest.mark.adversarial
-    def test_mcp_tools_hardcodes_production_socket(self):
-        """mcp/tools.py creates DaemonClient with DaemonConfig().socket.path."""
+    def test_mcp_tools_uses_resolve_socket_path(self):
+        """mcp/tools.py must use _resolve_socket_path for clone-aware routing."""
         import inspect
         from mozart.mcp import tools
 
         source = inspect.getsource(tools.JobTools.__init__)
-        assert "DaemonConfig()" in source, "Expected DaemonConfig() in JobTools.__init__"
+        assert "_resolve_socket_path" in source, (
+            "F-122 regression: JobTools.__init__ must use "
+            "_resolve_socket_path for clone-aware socket resolution"
+        )
+        assert "DaemonConfig().socket" not in source, (
+            "F-122 regression: JobTools.__init__ must not "
+            "hardcode DaemonConfig().socket.path — use _resolve_socket_path"
+        )
 
     @pytest.mark.adversarial
-    def test_dashboard_routes_hardcodes_production_socket(self):
-        """dashboard/routes/jobs.py uses DaemonConfig() for DaemonClient."""
+    def test_dashboard_routes_uses_resolve_socket_path(self):
+        """dashboard/routes/jobs.py must use _resolve_socket_path."""
         import inspect
         from mozart.dashboard.routes import jobs
 
         source = inspect.getsource(jobs)
         if "DaemonClient" in source:
-            assert "_resolve_socket_path" not in source, "F-122: dashboard routes bypass clone"
+            assert "_resolve_socket_path" in source, (
+                "F-122 regression: dashboard routes must use "
+                "_resolve_socket_path for clone-aware socket resolution"
+            )
+            assert "DaemonConfig().socket" not in source, (
+                "F-122 regression: dashboard routes must not "
+                "hardcode DaemonConfig().socket.path"
+            )
 
     @pytest.mark.adversarial
-    def test_dashboard_job_control_hardcodes_production_socket(self):
-        """dashboard/services/job_control.py uses DaemonConfig() for DaemonClient."""
+    def test_dashboard_job_control_uses_resolve_socket_path(self):
+        """dashboard/services/job_control.py must use _resolve_socket_path."""
         import inspect
         from mozart.dashboard.services import job_control
 
         source = inspect.getsource(job_control)
         if "DaemonClient" in source:
-            assert "_resolve_socket_path" not in source, "F-122: job_control bypasses clone"
+            assert "_resolve_socket_path" in source, (
+                "F-122 regression: job_control must use "
+                "_resolve_socket_path for clone-aware socket resolution"
+            )
+            assert "DaemonConfig().socket" not in source, (
+                "F-122 regression: job_control must not "
+                "hardcode DaemonConfig().socket.path"
+            )
 
 
 # =============================================================================

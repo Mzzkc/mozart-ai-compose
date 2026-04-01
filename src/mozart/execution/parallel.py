@@ -67,6 +67,9 @@ class ParallelBatchResult:
         failed: Sheet numbers that failed.
         skipped: Sheet numbers that were skipped (cancelled before starting).
         error_details: Map of sheet_num -> error message for failed sheets.
+        exceptions: Map of sheet_num -> original exception for failed sheets.
+            Preserves exception type (e.g., RateLimitExhaustedError) so the
+            lifecycle can make type-specific decisions (pause vs fail).
         duration_seconds: Total time to execute the batch.
         sheet_outputs: Map of sheet_num -> output reference (v18: synthesizer support).
         synthesis_ready: Whether outputs are ready for synthesis (v18: synthesizer support).
@@ -77,6 +80,7 @@ class ParallelBatchResult:
     failed: list[int] = field(default_factory=list)
     skipped: list[int] = field(default_factory=list)
     error_details: dict[int, str] = field(default_factory=dict)
+    exceptions: dict[int, BaseException] = field(default_factory=dict)
     duration_seconds: float = 0.0
     sheet_outputs: dict[int, str] = field(default_factory=dict)
     synthesis_ready: bool = False
@@ -314,6 +318,9 @@ class ParallelExecutor:
                     result.error_details[sheet_num] = (
                         f"{type(task_exc).__name__}: {task_exc}"
                     )
+                    # Preserve original exception for type-specific handling
+                    # (e.g., RateLimitExhaustedError → pause instead of fail)
+                    result.exceptions[sheet_num] = task_exc
                     self._logger.error(
                         "parallel.sheet_failed_in_group",
                         sheet_num=sheet_num,
@@ -427,34 +434,83 @@ class ParallelExecutor:
                     return [sheet_num]
             return []
 
-        # Get completed and skipped sheets by iterating stored state directly.
+        # Get completed, skipped, and permanently failed sheets.
         # Skipped sheets count as "done" for dependency resolution so
         # downstream sheets aren't blocked by skipped ancestors (GH#71).
-        completed: set[int] = {
+        # Permanently failed sheets (and their propagated dependents) are
+        # also "done" — failure has been propagated to all dependents via
+        # propagate_failure_to_dependents(), so they won't be dispatched.
+        terminal: set[int] = {
             num
             for num, s in state.sheets.items()
-            if s.status in (SheetStatus.COMPLETED, SheetStatus.SKIPPED)
+            if s.status in (
+                SheetStatus.COMPLETED,
+                SheetStatus.SKIPPED,
+                SheetStatus.FAILED,
+            )
         }
 
-        # Treat permanently failed sheets as "done" for dependency resolution
-        # so downstream sheets aren't blocked forever waiting for them.
-        done_for_dag: set[int] = completed | self._permanently_failed
+        # Include permanently failed sheets that may not yet be in state
+        done_for_dag: set[int] = terminal | self._permanently_failed
 
-        # Get ready sheets from DAG (uses done_for_dag so downstream
-        # sheets of failed deps can be identified, though they'll be
-        # filtered out below if their dep truly failed)
         ready = self.dag.get_ready_sheets(done_for_dag)
 
-        # Filter out completed and permanently failed sheets
+        # Filter out terminal and permanently failed sheets
         pending_ready = [
             s for s in ready
-            if s not in completed and s not in self._permanently_failed
+            if s not in terminal and s not in self._permanently_failed
         ]
 
         # Limit to max_concurrent
         batch = pending_ready[: self.config.max_concurrent]
 
         return batch
+
+    def propagate_failure_to_dependents(
+        self,
+        state: "CheckpointState",
+        failed_sheet: int,
+    ) -> None:
+        """Propagate failure from a permanently failed sheet to all transitive
+        dependents in the DAG using iterative BFS.
+
+        Only affects non-terminal sheets. Terminal sheets (COMPLETED, SKIPPED,
+        already FAILED) are not overwritten. Affected sheets are added to
+        ``_permanently_failed`` so they are excluded from future batches.
+
+        Args:
+            state: Current job checkpoint state.
+            failed_sheet: The sheet number that permanently failed.
+        """
+        if self.dag is None:
+            return
+
+        _terminal = {SheetStatus.COMPLETED, SheetStatus.FAILED, SheetStatus.SKIPPED}
+        visited: set[int] = set()
+        queue: list[int] = [failed_sheet]
+
+        while queue:
+            current = queue.pop(0)
+            if current in visited:
+                continue
+            visited.add(current)
+
+            for dependent in self.dag.get_dependents(current):
+                if dependent in visited:
+                    continue
+                sheet_state = state.sheets.get(dependent)
+                if sheet_state and sheet_state.status not in _terminal:
+                    sheet_state.status = SheetStatus.FAILED
+                    sheet_state.error_message = (
+                        f"Dependency failed: sheet {failed_sheet} permanently failed"
+                    )
+                    self._permanently_failed.add(dependent)
+                    self._logger.warning(
+                        "parallel.dependency_failure_propagated",
+                        failed_sheet=failed_sheet,
+                        dependent_sheet=dependent,
+                    )
+                queue.append(dependent)
 
     def estimate_parallel_groups(self) -> list[list[int]]:
         """Estimate parallel execution groups for the job.

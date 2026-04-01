@@ -1056,6 +1056,27 @@ class LifecycleMixin:
             # Use DAG-aware sheet selection (v17 evolution)
             next_sheet = self._get_next_sheet_dag_aware(state)
 
+    @staticmethod
+    def _find_rate_limit_in_batch(
+        result: ParallelBatchResult,
+    ) -> RateLimitExhaustedError | None:
+        """Find the first RateLimitExhaustedError in a batch result.
+
+        When a parallel batch contains a rate limit error, the job should
+        be PAUSED (not FAILED) so it can be resumed after the limit resets.
+
+        Args:
+            result: The batch execution result.
+
+        Returns:
+            The first RateLimitExhaustedError found, or None.
+        """
+        for sheet_num in result.failed:
+            exc = result.exceptions.get(sheet_num)
+            if isinstance(exc, RateLimitExhaustedError):
+                return exc
+        return None
+
     async def _execute_parallel_mode(self, state: CheckpointState) -> None:
         """Execute sheets in parallel when dependencies allow (v17 evolution).
 
@@ -1153,6 +1174,24 @@ class LifecycleMixin:
 
             # Handle failures
             if result.failed:
+                # F-111: Check if any failed sheet hit a rate limit.
+                # RateLimitExhaustedError must be re-raised (not wrapped in
+                # FatalError) so the lifecycle's except handler can PAUSE the
+                # job instead of failing it.
+                rate_limit_exc = self._find_rate_limit_in_batch(result)
+
+                if rate_limit_exc is not None:
+                    # Rate limit found — pause the job, don't fail it.
+                    # The lifecycle's except RateLimitExhaustedError handler
+                    # will set resume_at and mark_job_paused.
+                    self._logger.warning(
+                        "parallel.batch_rate_limited",
+                        failed_sheets=result.failed,
+                        completed_sheets=result.completed,
+                        backend_type=rate_limit_exc.backend_type,
+                    )
+                    raise rate_limit_exc
+
                 if self.config.parallel.fail_fast:
                     first_failed = result.failed[0]
                     error_msg = result.error_details.get(first_failed, "Unknown error")
@@ -1174,6 +1213,13 @@ class LifecycleMixin:
                     # permanent (retries exhausted).
                     for sheet_num in result.failed:
                         self._parallel_executor._permanently_failed.add(sheet_num)
+                    # F-113: Propagate failure to transitive dependents so
+                    # downstream sheets are marked FAILED instead of being
+                    # dispatched with missing input.
+                    for sheet_num in result.failed:
+                        self._parallel_executor.propagate_failure_to_dependents(
+                            state, sheet_num
+                        )
                     self._logger.warning(
                         "parallel.sheets_permanently_failed",
                         failed_sheets=result.failed,

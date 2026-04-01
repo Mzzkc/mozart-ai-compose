@@ -626,16 +626,25 @@ class BatonCore:
                     self._handle_retry_due(event)
 
                 case StaleCheck():
-                    pass  # TODO: implement stale detection
+                    _logger.warning(
+                        "baton.event.unimplemented",
+                        extra={"event_type": "StaleCheck"},
+                    )
 
                 case CronTick():
-                    pass  # TODO: implement cron scheduling
+                    _logger.warning(
+                        "baton.event.unimplemented",
+                        extra={"event_type": "CronTick"},
+                    )
 
                 case JobTimeout():
                     self._handle_job_timeout(event)
 
                 case PacingComplete():
-                    pass  # TODO: implement pacing
+                    _logger.warning(
+                        "baton.event.unimplemented",
+                        extra={"event_type": "PacingComplete"},
+                    )
 
                 # === Escalation events ===
                 case EscalationNeeded():
@@ -658,7 +667,10 @@ class BatonCore:
                     self._handle_cancel_job(event)
 
                 case ConfigReloaded():
-                    pass  # TODO: implement config reload
+                    _logger.warning(
+                        "baton.event.unimplemented",
+                        extra={"event_type": "ConfigReloaded"},
+                    )
 
                 case ShutdownRequested():
                     self._handle_shutdown(event)
@@ -668,7 +680,10 @@ class BatonCore:
                     self._handle_process_exited(event)
 
                 case ResourceAnomaly():
-                    pass  # TODO: implement backpressure
+                    _logger.warning(
+                        "baton.event.unimplemented",
+                        extra={"event_type": "ResourceAnomaly"},
+                    )
 
                 # === Internal events ===
                 case DispatchRetry():
