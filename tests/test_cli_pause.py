@@ -621,7 +621,7 @@ class TestModifyCommand:
         """Test modify command shows help."""
         result = runner.invoke(app, ["modify", "--help"])
         assert result.exit_code == 0
-        assert "Modify a score's configuration" in result.output
+        assert "Apply a new configuration to a score" in result.output
         assert "--config" in result.output
         assert "--resume" in result.output
         assert "--wait" in result.output

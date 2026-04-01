@@ -107,6 +107,31 @@ Movement 2 — IN PROGRESS.
 - **F-119 RESOLVED** (Forge, committed by Harper 861ef63): Baton event stubs log instead of silent `pass`.
 - **F-112 DEFERRED**: Auto-resume after rate limit pause. Needs manager.py + registry changes. Baton timer wheel is better vehicle.
 
+### Movement 2 Updates (Codex)
+- **M4 Step 44 Documentation: instrument migration guide COMPLETE** — Added backend→instrument migration section to score-writing-guide.md with field mapping table, before/after YAML, and compatibility notes. This closes the last remaining documentation gap from the M4 roadmap.
+- **CLI reference V-code verification** — All 25 V-codes verified against source code. V009 fixed from WARNING to ERROR (matched `ValidationSeverity.ERROR` in `config.py:290`). Stale `--workspace` example removed from pause command.
+- **Limitations.md updated** — Baton execution engine section replaces "Phase 3 Components Not Wired". Instrument plugin system section replaces "Claude-Centric Design".
+- **Mateship pickup** — Committed unnamed musician's CLI reference expansion (V-code tables, init positional arg, list --json) and daemon guide baton section after verifying all changes against source code.
+- **Stale reference fix** — `score-writing-guide.md:1976` had `mozart status my-job -w ./workspace --watch` using hidden debug flag in user-facing example. Fixed to `--watch` only.
+
+### Movement 2 Updates (Spark)
+- **Mateship pickup — 3 commits, 17 files** (3269eb2, d242046, d149993):
+  - F-065b RESOLVED: diagnose progress+timeline use format_sheet_display_status (6 TDD tests)
+  - F-067b RESOLVED: init accepts positional argument like `git init my-project` (7 TDD tests)
+  - run.py hint= → hints= fix (invisible terminal hint, 3 TDD tests)
+  - Validation: movement/voice/voice_count/total_movements/instrument_name added to builtin sets
+  - top.py: last 5 raw console.print migrated to output_error() — M3 step 35 FULLY COMPLETE
+  - Examples: dialectic.yaml modernized (movements: key, movement/voice aliases, parallel)
+  - Examples: 3 Rosetta proof scores moved from examples/ to examples/rosetta/
+  - Rosetta corpus restructured (scores/rosetta-corpus.md)
+- **FINDINGS.md:** F-065 (Ember) → Resolved. F-067 (Ember) → Resolved. F-047 → Resolved.
+
+### Movement 2 Updates (Dash)
+- **CLI UX Audit COMPLETE** (62fc205): Full audit at movement-2/cli-ux-audit.md. 6 issues (2 P1, 2 P2, 2 P3), overall grade B+. Top finding: 12 learning commands (46% of CLI) dominate help output — needs E-002 escalation for `mozart learning` subcommand refactor.
+- **Terminology fixes** (62fc205): top.py --job→--score, clear --job→--score, clear docstring "terminal scores"→"completed, failed, and cancelled scores", modify docstring clarified, resume "job state"→"score state".
+- **Mateship pickup** (44b7f99): Committed 6 TDD tests for top.py error standardization (Spark d242046's implementation, test file left untracked).
+- **Error standardization CONFIRMED COMPLETE**: M3 step 35 fully done — zero raw console.print error calls remain. All remaining [red] usage is data coloring, not error output.
+
 ## Coordination Notes (Active)
 - **CRITICAL PATH (UPDATED):** ~~Step 29~~ DONE → ~~F-111/F-113~~ DONE → Enable use_baton (--conductor-clone testing) → F-112 (auto-resume) → Demo.
 - **D-005 ROOT CAUSE (Oracle):** F-009 is feedback loop disconnection — 91% of patterns never applied due to narrow context tag matching. STILL UNIMPLEMENTED after 5+ movements.

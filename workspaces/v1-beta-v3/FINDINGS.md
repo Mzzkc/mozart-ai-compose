@@ -421,10 +421,10 @@ Each finding should include:
 ### F-047: `output_error()` Function Exists But 83% of CLI Errors Don't Use It
 - **Found by:** Ember, Movement 1 (renumbered from F-041 by Captain — collision with Axiom's F-041)
 - **Severity:** P2 (medium — systematic error consistency gap)
-- **Status:** Open
+- **Status:** Resolved (movement 2, multiple musicians + Spark mateship — commits e6d6753, d242046)
 - **Description:** `src/mozart/cli/output.py:557` defines `output_error()` — a centralized error formatter with error codes, hints, severity, and JSON support. But 55 raw `console.print("[red]Error:...")` calls exist across 14 CLI files vs only 11 `output_error()` calls in 4 files (output.py, helpers.py, pause.py, instruments.py). The infrastructure for consistent errors exists and isn't adopted.
 - **Impact:** Error messages are inconsistent. Some have hints, most don't. Some support `--json`, most just print colored text. Users get different quality of error guidance depending on which command they use.
-- **Action:** TASKS.md M3 step 35 (error message standardization) covers this. Every `console.print("[red]..."` should migrate to `output_error()`.
+- **Resolution:** M3 step 35 is COMPLETE. 71+ `output_error()` calls across 15+ files. The last holdout (top.py, 5 raw console.print calls) was committed as mateship pickup by Spark (d242046). Only display labels like "Recent Errors" remain as rich console output (correctly so — they are UI labels, not error handling).
 
 ### F-048: Cost Shows $0.00 for All Completed Sheets in Live Concert
 - **Found by:** Ember, Movement 1 (renumbered from F-042 by Captain — collision with Axiom's F-042)
@@ -638,10 +638,10 @@ Each finding should include:
 ### F-065: `diagnose` Command Shows "completed" for Failed Sheets (F-045 Not Propagated)
 - **Found by:** Ember, Movement 2
 - **Severity:** P2 (medium — commands disagree on sheet status)
-- **Status:** Open
+- **Status:** Resolved (movement 2, Spark — mateship pickup, commit 3269eb2)
 - **Description:** `src/mozart/cli/commands/diagnose.py:1046` uses raw `sheet.status.value` in the Execution Timeline table. Forge's F-045 fix added `format_sheet_display_status()` in `output.py:131-156` that maps `COMPLETED + validation_passed=False` to `"failed"`, but this function is only used in `status.py`. The `diagnose` command still shows retry-exhausted sheets as "completed." Verified: `mozart diagnose mozart-orchestra-v3` shows sheets 11-14 as `completed` with 4-5 attempts, while `mozart status` correctly shows them as `failed`.
 - **Impact:** A user running `diagnose` after seeing "8 failed" in `status` sees those sheets as "completed" in the diagnostic. The two commands disagree about sheet status.
-- **Action:** Import and use `format_sheet_display_status()` in `diagnose.py`'s Execution Timeline table rendering.
+- **Resolution:** Both the progress count (line 989) and the execution timeline (line 1059) in `_build_diagnostic_report()` now use `format_sheet_display_status()`. COMPLETED+validation_passed=False shows as "failed" in both places, matching `mozart status` output. 6 TDD tests in `test_diagnose_display_status.py`.
 
 ### F-066: `instruments list` Summary Has Unmatched Parenthesis
 - **Found by:** Ember, Movement 2
@@ -654,10 +654,10 @@ Each finding should include:
 ### F-067: `mozart init <name>` Fails — Positional Argument Convention Broken
 - **Found by:** Ember, Movement 2
 - **Severity:** P2 (medium — breaks universal CLI convention)
-- **Status:** Open
+- **Status:** Resolved (movement 2, Spark — mateship pickup, commit 3269eb2)
 - **Description:** `mozart init test-project` → `Got unexpected extra argument (test-project)`. Every major CLI tool accepts positional args for init: `git init my-project`, `npm init my-project`, `cargo init my-project`. Mozart's `init_cmd.py` only accepts `--path` and `--name` as options. The error message gives no hint that `--name` exists.
 - **Impact:** First command after install fails. First impression: "this tool doesn't work like other tools."
-- **Action:** Accept an optional positional argument that sets both `--name` and `--path` (like `git init`). This is an E-002 escalation trigger (CLI interface change) — may need composer approval.
+- **Resolution:** Added optional positional `score_name` argument to `init()`. Sets `--name` when provided (convenience shorthand). `--name` flag takes precedence when both given. Name validation applies to positional arg. 7 TDD tests in `test_cli_init.py::TestInitPositionalArgument`.
 
 ### F-068: `Completed:` Timestamp Shown for RUNNING Scores
 - **Found by:** Ember, Movement 2
