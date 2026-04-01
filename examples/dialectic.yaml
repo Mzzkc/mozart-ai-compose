@@ -37,6 +37,17 @@ instrument: claude-code
 instrument_config:
   timeout_seconds: 1800
 
+# Movement declarations — names appear in `mozart status` output
+movements:
+  1:
+    name: "Thesis"
+  2:
+    name: "Antitheses"
+  3:
+    name: "Synthesis"
+  4:
+    name: "Final Position"
+
 sheet:
   size: 1
   total_items: 4
@@ -46,6 +57,10 @@ sheet:
     2: [1]
     3: [2]
     4: [3]
+
+parallel:
+  enabled: true
+  max_concurrent: 3
 
 cross_sheet:
   auto_capture_stdout: true
@@ -100,7 +115,7 @@ prompt:
           identify a real distinction?
 
   template: |
-    {% if stage == 1 %}
+    {% if movement == 1 %}
     # THESIS
 
     You are presenting the following proposition for rigorous examination:
@@ -121,8 +136,8 @@ prompt:
 
     Save to {{ workspace }}/01-thesis.md
 
-    {% elif stage == 2 %}
-    {% set t = traditions[instance] %}
+    {% elif movement == 2 %}
+    {% set t = traditions[voice] %}
     # ANTITHESIS: {{ t.school | upper }}
 
     You are a philosopher in the tradition of {{ t.school }}
@@ -155,7 +170,7 @@ prompt:
 
     Save to {{ workspace }}/02-{{ t.name }}.md
 
-    {% elif stage == 3 %}
+    {% elif movement == 3 %}
     # SYNTHESIS
 
     A thesis has been attacked from three philosophical traditions.
@@ -207,7 +222,7 @@ prompt:
 
     Save to {{ workspace }}/03-synthesis.md
 
-    {% elif stage == 4 %}
+    {% elif movement == 4 %}
     # FINAL POSITION
 
     You've seen everything: the thesis, three counter-arguments, and
@@ -243,17 +258,17 @@ prompt:
 validations:
   - type: file_exists
     path: "{workspace}/01-thesis.md"
-    condition: "stage == 1"
+    condition: "movement == 1"
 
   - type: file_exists
     path: "{workspace}/03-synthesis.md"
-    condition: "stage == 3"
+    condition: "movement == 3"
 
   - type: file_exists
     path: "{workspace}/04-position.md"
-    condition: "stage == 4"
+    condition: "movement == 4"
 
   - type: content_contains
     path: "{workspace}/03-synthesis.md"
     pattern: "Refined Thesis"
-    condition: "stage == 3"
+    condition: "movement == 3"
