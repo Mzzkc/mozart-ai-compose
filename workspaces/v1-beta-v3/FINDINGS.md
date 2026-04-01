@@ -1380,7 +1380,8 @@ Each finding should include:
 ### F-128: F-097 E006 Stale Detection Only Reachable via classify(), Not classify_execution()
 - **Found by:** Adversary, Movement 1 (Cycle 3)
 - **Severity:** P2 (medium — E006 partially wired)
-- **Status:** Open
+- **Status:** WRONG — Not a bug (Adversary review, Cycle 7)
+- **Resolution:** The original analysis was incorrect. `classify_execution()` at `classifier.py:997-1005` DOES differentiate stale from timeout: it checks `exit_reason == "timeout"` and scans for "stale execution" in combined output. The runner at `recovery.py:555` passes `exit_reason=result.exit_reason` to `classify_execution()`. The stale detection handler at `sheet.py:374` sets `exit_reason="timeout"`. The full production path is: `sheet.py:374` → `recovery.py:555` → `classifier.py:997` → E006. The original test comment was misleading — it tested `classify()` only and assumed `classify_execution()` lacked the feature.
 - **Description:** The E006 (EXECUTION_STALE) error code added by Blueprint (M4) is only reachable through `classifier.classify()` which requires `exit_reason="timeout"` parameter. The `classify_execution()` path (used by the runner's `_classify_execution` at `sheet.py`) does NOT differentiate stale from timeout because it doesn't receive an `exit_reason` parameter. Both stale and regular timeout produce E009 (generic transient) through `classify_execution()`.
 - **Evidence:** `test_adversary_m1c3.py::TestCrossSystemIntegration::test_f097_stale_vs_timeout_via_classify` passes (E006 works through classify()). But when both stale and timeout text are run through `classify_execution()`, both produce E009. The runner at `sheet.py` calls `_classify_execution()` → `classify_execution()`, not `classify()`.
 - **Impact:** The F-097 fix (E006 for stale detection) only works in the classify() path. The production path through the runner uses classify_execution() and still produces E009 for stale detection. The E006 error code exists but is unreachable in the actual execution flow.
@@ -1422,9 +1423,22 @@ Each finding should include:
 - **Action:** Either change to a boolean flag with separate `--clone-name` parameter, or update help text to require `=` syntax explicitly. Show examples in the help.
 
 ### F-132: `--conductor-clone` State DB Isolation May Be Incomplete
-- **Found by:** Newcomer, Movement 1 (Cycle 7)
-- **Severity:** P2 (medium — blocks safe testing)
+- **Found by:** Newcomer, Movement 1 (Cycle 7). Severity upgraded by Adversary (Cycle 7).
+- **Severity:** P1 (high — P0 conductor-clone directive depends on state isolation that doesn't exist)
 - **Status:** Open
 - **Description:** Clone conductor started via `mozart --conductor-clone= start -f` logged `registry.opened path=/home/emzi/.mozart/daemon-state.db` (the production path) and `manager.registry_restored loaded=5` (5 production jobs restored into the clone). Code at `clone.py:112` defines a separate `state_db=mozart_dir / f"clone{tag}-state.db"` but the running clone opened the production DB. Socket isolation (`/tmp/mozart-clone.sock`) works. PID isolation works. State/registry isolation does not appear to work based on the observed log output.
 - **Impact:** If the clone shares the production registry, test jobs submitted to the clone may appear in `mozart list` against the production conductor. Clone testing is not fully safe for state-mutating operations (job submission, status changes). The P0 composer directive to use `--conductor-clone` for all testing may not provide the isolation it promises.
 - **Action:** Investigate whether `build_clone_config()` correctly overrides the registry DB path. If the override is defined but not applied, trace the config loading path to find where the override is lost.
+- **Root Cause (Adversary, Cycle 7):** Confirmed. `build_clone_config()` at `clone.py:139-144` overrides `socket` (line 142) and `pid_file` (line 143) but NOT `state_db_path`. The `ClonePaths.state_db` field at line 112 is computed correctly but never applied to `DaemonConfig`. Fix: add `config_dict["state_db_path"] = str(paths.state_db)` at clone.py:143. 1 line fix.
+
+---
+
+## Adversary Review Findings (Movement 1, Cycle 7)
+
+### F-133: Mateship Pipeline Verification Gap — Findings Accepted Without Code Re-Verification
+- **Found by:** Adversary, Movement 1 (Cycle 7)
+- **Severity:** P3 (low — process improvement)
+- **Status:** Open
+- **Description:** F-128 was filed by Adversary (Cycle 3), accepted by all 4 reviewers (Prism, Axiom, Ember, Newcomer) in Cycle 7, listed as open P1 in the quality gate — and proved WRONG by tracing the actual production code path. The claim "E006 unreachable via classify_execution()" was accepted from the test comment without verifying against `classifier.py:997-1005` and `recovery.py:555` which clearly pass `exit_reason` through. Four reviewers trusted the finding without re-running the path.
+- **Impact:** A non-existent bug was listed as P1 for 4+ cycles. The verification gap is small (1 finding in 150+) but the lesson is important: claims about unreachability require negative proof by executing the actual code path, not reasoning from test comments or memory.
+- **Action:** When reviewing findings that claim "code path X is unreachable," verify by tracing the actual production call chain, not by accepting the finding's evidence at face value.

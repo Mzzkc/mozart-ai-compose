@@ -313,6 +313,7 @@ class JobManager:
             self._baton_adapter = BatonAdapter(
                 event_bus=self._event_bus,
                 max_concurrent_sheets=self._config.max_concurrent_sheets,
+                state_sync_callback=self._on_baton_state_sync,
             )
             self._baton_adapter.set_backend_pool(BackendPool(registry))
 
@@ -322,6 +323,10 @@ class JobManager:
                 name="baton-loop",
             )
             _logger.info("manager.baton_adapter_started")
+
+            # Step 29: Recover paused orphans through the baton.
+            # Orphans were classified earlier — PAUSED ones are resumable.
+            await self._recover_baton_orphans()
 
         _logger.info(
             "manager.started",
@@ -446,6 +451,94 @@ class JobManager:
                 exc_info=True,
             )
         return DaemonJobStatus.FAILED
+
+    def _on_baton_state_sync(
+        self, job_id: str, sheet_num: int, checkpoint_status: str,
+    ) -> None:
+        """Callback invoked by the baton adapter when a sheet status changes.
+
+        Step 29: Syncs baton state changes to the in-memory live state.
+        The live state serves ``mozart status`` and persists to the registry.
+
+        Args:
+            job_id: The job identifier.
+            sheet_num: The sheet number that changed.
+            checkpoint_status: The new status as a checkpoint status string.
+        """
+        live = self._live_states.get(job_id)
+        if live is None:
+            return
+
+        sheet_state = live.sheets.get(sheet_num)
+        if sheet_state is None:
+            return
+
+        from mozart.core.checkpoint import SheetStatus
+        try:
+            sheet_state.status = SheetStatus(checkpoint_status)
+        except ValueError:
+            _logger.warning(
+                "baton.state_sync.invalid_status",
+                job_id=job_id,
+                sheet_num=sheet_num,
+                status=checkpoint_status,
+            )
+
+    async def _recover_baton_orphans(self) -> None:
+        """Recover paused orphan jobs through the baton after restart.
+
+        Step 29: Called during start() after the baton adapter is initialized.
+        Scans job metadata for PAUSED jobs (classified during orphan recovery)
+        and attempts to resume them through the baton.
+
+        Each recoverable job gets its own asyncio task that loads the checkpoint,
+        rebuilds sheets, and registers with the baton for continued execution.
+        """
+        if self._baton_adapter is None:
+            return
+
+        recovered = 0
+        for job_id, meta in list(self._job_meta.items()):
+            if meta.status != DaemonJobStatus.PAUSED:
+                continue
+
+            # Skip if there's already a running task for this job
+            if job_id in self._jobs:
+                continue
+
+            _logger.info(
+                "baton.recovering_orphan",
+                job_id=job_id,
+                workspace=str(meta.workspace),
+            )
+
+            try:
+                # Create a resume task that will run via the baton
+                task = asyncio.create_task(
+                    self._resume_job_task(job_id, meta.workspace),
+                    name=f"job-recover-{job_id}",
+                )
+                self._jobs[job_id] = task
+
+                def _on_done(
+                    t: asyncio.Task[Any], *, _jid: str = job_id,
+                ) -> None:
+                    self._on_task_done(_jid, t)
+
+                task.add_done_callback(_on_done)
+                recovered += 1
+            except Exception:
+                _logger.error(
+                    "baton.orphan_recovery_failed",
+                    job_id=job_id,
+                    exc_info=True,
+                )
+
+        if recovered:
+            _logger.info(
+                "manager.baton_orphans_recovered",
+                recovered=recovered,
+            )
 
     def _get_job_id(self, base_name: str) -> str:
         """Return the job ID for a config name.
@@ -1706,10 +1799,153 @@ class JobManager:
             adapter.deregister_job(job_id)
             return DaemonJobStatus.FAILED
 
+    async def _resume_via_baton(
+        self,
+        job_id: str,
+        workspace: Path,
+    ) -> DaemonJobStatus:
+        """Resume a job through the baton adapter using checkpoint recovery.
+
+        Step 29: Loads the persisted CheckpointState, rebuilds Sheet entities
+        from the config, and registers the recovered state with the baton.
+        Terminal sheets are preserved; in-progress sheets are reset to PENDING.
+
+        Args:
+            job_id: Conductor job ID.
+            workspace: Job workspace directory.
+
+        Returns:
+            DaemonJobStatus reflecting the job's outcome.
+        """
+        from mozart.core.config import JobConfig
+        from mozart.core.sheet import build_sheets
+        from mozart.daemon.baton.adapter import extract_dependencies
+
+        assert self._baton_adapter is not None
+
+        meta = self._job_meta.get(job_id)
+        if meta is None:
+            return DaemonJobStatus.FAILED
+
+        # Load checkpoint from workspace
+        checkpoint = await self._load_checkpoint(job_id, workspace)
+        if checkpoint is None:
+            _logger.error(
+                "baton.resume.no_checkpoint",
+                job_id=job_id,
+                workspace=str(workspace),
+            )
+            return DaemonJobStatus.FAILED
+
+        # Load config
+        try:
+            config = JobConfig.from_yaml(meta.config_path)
+            if workspace != config.workspace:
+                config = config.model_copy(update={"workspace": workspace})
+        except (ValueError, OSError) as exc:
+            _logger.error(
+                "baton.resume.config_load_failed",
+                job_id=job_id,
+                error=str(exc),
+            )
+            return DaemonJobStatus.FAILED
+
+        # Build sheets and dependencies
+        sheets = build_sheets(config)
+        deps = extract_dependencies(config)
+
+        # Extract retry/cost settings
+        max_retries = config.retry.max_retries
+        max_cost: float | None = None
+        if config.cost_limits.enabled and config.cost_limits.max_cost_per_job:
+            max_cost = config.cost_limits.max_cost_per_job
+
+        # Publish resume event
+        await self._baton_adapter.publish_job_event(
+            job_id, "job.resuming",
+            {"sheet_count": len(sheets)},
+        )
+
+        # Recover job with checkpoint state
+        self._baton_adapter.recover_job(
+            job_id,
+            sheets,
+            deps,
+            checkpoint,
+            max_cost_usd=max_cost,
+            max_retries=max_retries,
+        )
+
+        try:
+            # Wait for the baton to complete all sheets
+            all_success = await self._baton_adapter.wait_for_completion(job_id)
+
+            await self._baton_adapter.publish_job_event(
+                job_id,
+                "job.completed" if all_success else "job.failed",
+                {"all_success": all_success},
+            )
+
+            return (
+                DaemonJobStatus.COMPLETED if all_success
+                else DaemonJobStatus.FAILED
+            )
+
+        except asyncio.CancelledError:
+            self._baton_adapter.deregister_job(job_id)
+            raise
+        except Exception:
+            _logger.error(
+                "baton.resume_failed",
+                job_id=job_id,
+                exc_info=True,
+            )
+            self._baton_adapter.deregister_job(job_id)
+            return DaemonJobStatus.FAILED
+
+    async def _load_checkpoint(
+        self,
+        job_id: str,
+        workspace: Path,
+    ) -> CheckpointState | None:
+        """Load a persisted CheckpointState from a job's workspace.
+
+        Args:
+            job_id: The job identifier (used for filename).
+            workspace: The workspace directory.
+
+        Returns:
+            The loaded CheckpointState, or None if not found.
+        """
+        import json
+
+        safe_id = "".join(
+            c if c.isalnum() or c in "-_" else "_" for c in job_id
+        )
+        state_file = workspace / f"{safe_id}.json"
+        if not state_file.exists():
+            return None
+
+        try:
+            data = json.loads(state_file.read_text(encoding="utf-8"))
+            return CheckpointState.model_validate(data)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            _logger.warning(
+                "baton.checkpoint_load_failed",
+                job_id=job_id,
+                path=str(state_file),
+                error=str(exc),
+            )
+            return None
+
     async def _resume_job_task(self, job_id: str, workspace: Path) -> None:
         """Task coroutine that resumes a paused job."""
 
         async def _execute() -> DaemonJobStatus:
+            # Step 29: Route through baton when enabled
+            if self._baton_adapter is not None:
+                return await self._resume_via_baton(job_id, workspace)
+
             meta = self._job_meta.get(job_id)
             summary = await self._checked_service.resume_job(
                 job_id, workspace,

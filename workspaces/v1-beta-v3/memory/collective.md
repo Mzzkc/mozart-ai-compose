@@ -45,7 +45,43 @@
 - **Pause model debt:** Single boolean serving three masters (user/escalation/cost). Post-v1 → pause_reasons set.
 
 ## Current Status
-Movement 4 — IN PROGRESS.
+Movement 1 Cycle 7 — QUALITY GATE + REVIEWS COMPLETE.
+
+**Prism M1C7 (current cycle — final review + GitHub issue closure):**
+- Full movement review: 42 commits, 26 musicians, 395+ new tests. All quality gates verified independently (mypy clean, ruff clean).
+- CLOSED 4 GitHub issues after verification: #104 (V101 false positive — AST walker), #149 (F-075 resume corruption — terminal guard), #150 (F-076 validation ordering), #151 (F-077 hooks lost on restart — get_hook_config() restoration).
+- F-104 VERIFIED COMPLETE: 5-layer prompt assembly in musician.py, lenient injection, credential redaction, F-018 contract. 43 TDD tests.
+- F-122 VERIFIED STILL OPEN: 4 DaemonClient callsites hardcoded to production socket (hooks.py, mcp/tools.py, dashboard routes, job_control).
+- F-128 VERIFIED: E006 is dead code in production — classify_execution() doesn't differentiate stale from timeout.
+- THREE GAPS UNCHANGED: Step 29 (unclaimed 5+ movements), F-009 (learning inert), demo (zero progress). The orchestra builds infrastructure beautifully. It has not started building product.
+- Meta question raised: is the baton path the right bet, given step 29 has been "~350 lines" for 5 movements with no claimant? Organizational geometry (32 parallel, 1 serial need) fights the work.
+- Report at movement-1/review-prism.md.
+
+**Ember M1C7 (current cycle — experiential review):**
+- Fourth experiential walkthrough. Golden path is solid. Error handling matured. Documentation aligned with reality. Instrument migration complete.
+- Persistent findings: F-127 (diagnose lies: success_first_try for 18-attempt sheets), F-048/F-108 ($0.00 cost for 32h execution), F-067b (init positional arg), F-116 (invalid instruments pass validation). All small fixes, all 2+ movements old.
+- New observation: status display (data only) succeeds where diagnose (smart classification) fails. When the data tells the story, don't add a narrator.
+- Strategic concern: product invisible to the world. hello.yaml doesn't show what makes Mozart different. Lovable demo not started. The orchestra has a magnificent instrument and no concert program.
+- Composer directive "P2/P3 doesn't mean defer" not being followed. Small UX fixes accumulate into paper cuts.
+- Report at movement-1/review-ember.md.
+
+**Axiom M1C7 (current cycle — review):**
+- Full movement review with independent quality gate verification: 10,046 passed / 5 skipped / 0 failed (478s). mypy clean. ruff clean.
+- Verified F-104 (5-layer prompt rendering), F-118 (validation context), all 3 production bugs (#149/#150/#151), conductor-clone (#145), 6 closed GitHub issues. All justified.
+- Verified baton spec compliance: 3 of 4 architecture invariants hold. Invariant 2 (CheckpointState sole authority) partial — per-event sync missing.
+- Verified composer note compliance: 31 directives, mostly compliant. Lovable/Wordware demos (P0) at zero — 5 movements non-compliance.
+- STRATEGIC: Baton-runner divergence is accelerating. Baton: 1,000+ tests, zero production sheets. Runner: every production fix. Integration risk grows each movement. F-065 class (two correct subsystems composing incorrectly) is unproven at the baton-conductor seam.
+- Report at movement-1/review-axiom.md.
+
+**Bedrock M1C7 (current cycle — quality gate):**
+- QUALITY GATE: ALL FOUR PASS. pytest 10,046 passed / 5 skipped / 0 failed (465s). mypy clean. ruff clean. Flowspec 0 critical findings.
+- Codebase: 95,691 source lines, 10,051 test functions, 276 test files. Test-to-code ratio 1.95:1.
+- 42 commits this movement, 26 unique committers (81.3%). 111/169 tasks complete (65.7%).
+- Working tree: 12 changes (Rosetta corpus + gitignored workspace files). No source code at risk.
+- 4 P0 open: F-097 (partial), F-107, F-111, F-113. 7 P1 open: F-009, F-061, F-108, F-120, F-122, F-128, F-129.
+- Critical path unchanged: Step 29 → use_baton → F-111/F-113 fix → Demo → Release.
+- Recommendations: (1) P0 claim step 29, (2) P0 start demo, (3) P0 fix F-111/F-113, (4) P1 fix F-009, (5) P2 close 5 verified issues.
+- Report at movement-1/quality-gate.md (full details).
 
 **North M1C4 (current cycle — strategic assessment):**
 - 111/170 tasks complete (65%). M0, M1, M3 COMPLETE. M2 at 96% (step 29 sole blocker). M4 at 36% (critical path).
@@ -173,6 +209,11 @@ Movement 4 — IN PROGRESS.
 
 **Litmus M1 (current cycle):** 15 new litmus tests (21→36 total) across 4 new categories: baton musician prompt rendering (5 tests proving F-104 effectiveness — assembled prompt >3x raw template), error taxonomy (4 tests proving E006/E001 distinction and F-098 Phase 4.5 override), Sheet entity variables (3 tests proving terminology coexistence), cross-system integration (3 tests proving error→decision mapping, credential redaction, F-018 contract). All tests pass, mypy clean, ruff clean.
 
+**Guide M1C4 (current cycle):**
+- Full documentation audit: getting-started.md hello.yaml output reference fixed (HTML not md), instrument_name added to template variables reference in score-writing-guide.md, 2 Rosetta proof scores + 7 creative examples added to README.md Beyond Coding section (F-126 resolved).
+- examples/ audit: all 36 scores use instrument: (migration COMPLETE), 35/36 validate clean. iterative-dev-loop-config.yaml correctly marked as generator config in README. Both proof scores (echelon, prefabrication) are clean for public use — no hardcoded paths, correct relative workspaces.
+- Commit 2b3de36 on main. mypy clean, ruff clean.
+
 **Safety Hardening (Warden, current movement):**
 - F-025 RESOLVED: Credential env filtering for PluginCliBackend. Added `required_env` field to `CliCommand`. When set, only declared vars + system essentials (PATH, HOME, etc.) pass to subprocess. Updated gemini-cli, claude-code, codex-cli built-in profiles. Multi-provider instruments (aider, goose, cline) intentionally unfiltered. 19 TDD tests. M5 step 47 COMPLETE.
 - Safety audit confirmed: baton musician path properly redacts credentials (F-003), all 4 shell execution paths quoted (F-004/F-020), error classifier Phase 4.5 is safe, conductor-clone system has proper name sanitization.
@@ -279,6 +320,13 @@ Movement 4 — IN PROGRESS.
 
 **F-057 RESOLVED:** Prism committed all uncommitted work (e6d6753).
 **F-089 RESOLVED (partial):** Guide committed 7/37, Prism picked up remainder (d2f8a81 + 730d17c).
+
+**Compass M1C6 (current cycle — product assessment):**
+- Fixed README Quick Start step 6: `cat 03-finale.md` → `open the-sky-library.html`. README and getting-started.md were inconsistent about what hello.yaml produces. Fixed.
+- Committed 3+3 Rosetta proof scores as mateship: echelon-security-audit.yaml, prefabrication.yaml, dead-letter-quarantine.yaml in examples/, plus 3 scores in examples/rosetta/. All validate clean. Total examples: 40+.
+- Product surface assessment: golden path works (init → validate → doctor → run → status). Error messages are professional (98% output_error adoption). All 40+ examples use instrument: syntax. hello.yaml produces HTML, not text. The instrument system is documented. The Rosetta Score generates real proof scores.
+- Three strategic gaps persist: (1) step 29 unclaimed for 5+ movements — sole baton-to-production blocker; (2) F-009 learning store inert for 5+ movements — intelligence thesis unproven; (3) demo work (Lovable/Wordware) at zero — product invisible to the world. These are NOT infrastructure gaps. They are product gaps.
+- Quality gates: mypy clean, ruff clean. 2 commits on main (d7eef68, 2841734).
 
 ### North's Directives — Status
 D-001 through D-007: ALL DONE or mostly done. D-005 root cause found (Oracle). Steps 28+29 remain unclaimed.

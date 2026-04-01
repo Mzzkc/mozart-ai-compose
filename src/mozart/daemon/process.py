@@ -71,6 +71,7 @@ def start_conductor(
         config_dict = config.model_dump()
         config_dict["socket"] = {"path": str(clone_paths.socket)}
         config_dict["pid_file"] = str(clone_paths.pid_file)
+        config_dict["state_db_path"] = str(clone_paths.state_db)
         config = DaemonConfig.model_validate(config_dict)
         config.log_level = cast(Any, log_level)
         config.log_file = clone_paths.log_file

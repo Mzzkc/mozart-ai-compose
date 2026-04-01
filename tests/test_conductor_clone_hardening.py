@@ -143,6 +143,33 @@ class TestCloneConfigInheritance:
         clone = build_clone_config("test", base_config=base)
         assert clone.pid_file != base.pid_file
 
+    def test_clone_state_db_differs_from_base(self) -> None:
+        """Clone state DB path must always differ from base (F-132)."""
+        from mozart.daemon.clone import build_clone_config
+
+        base = DaemonConfig()
+        clone = build_clone_config("test", base_config=base)
+        assert clone.state_db_path != base.state_db_path
+        assert "clone" in str(clone.state_db_path)
+
+    def test_clone_state_db_matches_resolved_paths(self) -> None:
+        """Clone config state_db_path must match ClonePaths.state_db (F-132)."""
+        from mozart.daemon.clone import build_clone_config, resolve_clone_paths
+
+        base = DaemonConfig()
+        clone = build_clone_config("staging", base_config=base)
+        expected = resolve_clone_paths("staging")
+        assert clone.state_db_path == expected.state_db
+
+    def test_named_clones_have_different_state_dbs(self) -> None:
+        """Different clone names must produce different state DB paths (F-132)."""
+        from mozart.daemon.clone import build_clone_config
+
+        base = DaemonConfig()
+        clone_a = build_clone_config("alpha", base_config=base)
+        clone_b = build_clone_config("beta", base_config=base)
+        assert clone_a.state_db_path != clone_b.state_db_path
+
     def test_none_base_config_uses_defaults(self) -> None:
         """Without base config, clone uses DaemonConfig defaults."""
         from mozart.daemon.clone import build_clone_config
@@ -150,6 +177,106 @@ class TestCloneConfigInheritance:
         clone = build_clone_config("test", base_config=None)
         defaults = DaemonConfig()
         assert clone.max_concurrent_jobs == defaults.max_concurrent_jobs
+
+
+class TestStartConductorCloneConfig:
+    """Verify that start_conductor's inline clone path override
+    applies ALL clone paths — including state_db_path (F-132).
+
+    The real bug: process.py:start_conductor() duplicates clone path
+    logic from clone.py but missed state_db_path. The clone conductor
+    opens the production registry DB instead of a clone-specific one.
+    """
+
+    def test_start_conductor_clone_overrides_state_db_path(self) -> None:
+        """F-132: start_conductor clone path override must set state_db_path."""
+        from unittest.mock import patch
+
+        from mozart.daemon.clone import resolve_clone_paths
+
+        clone_paths = resolve_clone_paths("f132-test")
+
+        # Mock _load_config to return a default config
+        mock_config = DaemonConfig()
+
+        captured_config: list[DaemonConfig] = []
+
+        original_init = None
+        try:
+            from mozart.daemon.process import DaemonProcess
+
+            original_init = DaemonProcess.__init__
+
+            def capturing_init(inst: object, config: DaemonConfig) -> None:
+                captured_config.append(config)
+                raise SystemExit(0)  # Stop before asyncio.run
+
+            DaemonProcess.__init__ = capturing_init  # type: ignore[assignment]
+
+            with (
+                patch("mozart.daemon.process._load_config", return_value=mock_config),
+                patch("mozart.daemon.process._read_pid", return_value=None),
+                patch("mozart.core.logging.configure_logging"),
+                patch("mozart.daemon.process._daemonize"),
+            ):
+                from mozart.daemon.process import start_conductor
+
+                with pytest.raises(SystemExit):
+                    start_conductor(clone_name="f132-test")
+
+            assert len(captured_config) == 1
+            config = captured_config[0]
+            assert config.state_db_path == clone_paths.state_db, (
+                f"state_db_path should be {clone_paths.state_db}, "
+                f"got {config.state_db_path}"
+            )
+            assert config.socket.path == clone_paths.socket
+            assert config.pid_file == clone_paths.pid_file
+        finally:
+            if original_init is not None:
+                DaemonProcess.__init__ = original_init  # type: ignore[assignment]
+
+    def test_start_conductor_clone_state_db_differs_from_production(self) -> None:
+        """Clone conductor state_db_path must differ from production default."""
+        from unittest.mock import patch
+
+        prod_default = DaemonConfig().state_db_path
+
+        captured_config: list[DaemonConfig] = []
+
+        original_init = None
+        try:
+            from mozart.daemon.process import DaemonProcess
+
+            original_init = DaemonProcess.__init__
+
+            def capturing_init(inst: object, config: DaemonConfig) -> None:
+                captured_config.append(config)
+                raise SystemExit(0)
+
+            DaemonProcess.__init__ = capturing_init  # type: ignore[assignment]
+
+            with (
+                patch(
+                    "mozart.daemon.process._load_config",
+                    return_value=DaemonConfig(),
+                ),
+                patch("mozart.daemon.process._read_pid", return_value=None),
+                patch("mozart.core.logging.configure_logging"),
+                patch("mozart.daemon.process._daemonize"),
+            ):
+                from mozart.daemon.process import start_conductor
+
+                with pytest.raises(SystemExit):
+                    start_conductor(clone_name="isolation-test")
+
+            assert len(captured_config) == 1
+            assert captured_config[0].state_db_path != prod_default, (
+                "Clone state_db_path must not equal production default"
+            )
+        finally:
+            if original_init is not None:
+                DaemonProcess.__init__ = original_init  # type: ignore[assignment]
 
 
 # =============================================================================

@@ -40,11 +40,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
 
 from mozart.core.sheet import Sheet
 from mozart.daemon.baton.core import BatonCore
 from mozart.daemon.baton.events import (
+    BatonEvent,
     DispatchRetry,
     SheetAttemptResult,
     SheetSkipped,
@@ -58,6 +60,7 @@ from mozart.daemon.baton.state import (
 )
 
 if TYPE_CHECKING:
+    from mozart.core.checkpoint import CheckpointState
     from mozart.core.config.job import PromptConfig
     from mozart.daemon.baton.backend_pool import BackendPool
     from mozart.daemon.baton.prompt import PromptRenderer
@@ -65,6 +68,11 @@ if TYPE_CHECKING:
     from mozart.daemon.types import ObserverEvent
 
 _logger = logging.getLogger(__name__)
+
+# Type alias for the state sync callback.
+# Called after each baton event that changes sheet status:
+#   (job_id, sheet_num, checkpoint_status_string) → None
+StateSyncCallback = Callable[[str, int, str], None]
 
 
 # =============================================================================
@@ -308,16 +316,22 @@ class BatonAdapter:
         *,
         event_bus: EventBus | None = None,
         max_concurrent_sheets: int = 10,
+        state_sync_callback: StateSyncCallback | None = None,
     ) -> None:
         """Initialize the BatonAdapter.
 
         Args:
             event_bus: Optional EventBus for publishing events to subscribers.
             max_concurrent_sheets: Global concurrency ceiling for dispatch.
+            state_sync_callback: Optional callback invoked after each baton
+                event that changes sheet status. Receives
+                (job_id, sheet_num, checkpoint_status_string). Used by the
+                manager to sync baton state changes to CheckpointState.
         """
         self._baton = BatonCore()
         self._event_bus = event_bus
         self._max_concurrent_sheets = max_concurrent_sheets
+        self._state_sync_callback = state_sync_callback
 
         # Job → Sheet mapping for prompt rendering
         self._job_sheets: dict[str, dict[int, Sheet]] = {}
@@ -480,6 +494,141 @@ class BatonAdapter:
         self._completion_results.pop(job_id, None)
 
         _logger.info("adapter.job_deregistered", extra={"job_id": job_id})
+
+    # =========================================================================
+    # Job Recovery — Step 29: Restart Recovery
+    # =========================================================================
+
+    def recover_job(
+        self,
+        job_id: str,
+        sheets: list[Sheet],
+        dependencies: dict[int, list[int]],
+        checkpoint: CheckpointState,
+        *,
+        max_cost_usd: float | None = None,
+        max_retries: int = 3,
+        max_completion: int = 5,
+        escalation_enabled: bool = False,
+        self_healing_enabled: bool = False,
+        prompt_config: PromptConfig | None = None,
+        parallel_enabled: bool = False,
+    ) -> None:
+        """Recover a job from a checkpoint after conductor restart.
+
+        Rebuilds baton state from the persisted CheckpointState. Terminal
+        sheets (completed, failed, skipped) keep their status. In-progress
+        sheets are reset to PENDING because their musicians died when the
+        conductor restarted. Attempt counts are preserved to avoid infinite
+        retries.
+
+        Design invariant: Checkpoint is the source of truth. The baton
+        rebuilds from checkpoint, not the reverse.
+
+        Args:
+            job_id: Unique job identifier.
+            sheets: Sheet entities from build_sheets() — same config
+                that produced the original job.
+            dependencies: Dependency graph {sheet_num: [dep_nums]}.
+            checkpoint: Persisted CheckpointState loaded from workspace.
+            max_cost_usd: Optional per-job cost limit.
+            max_retries: Max normal retry attempts per sheet.
+            max_completion: Max completion mode attempts per sheet.
+            escalation_enabled: Enter fermata on exhaustion.
+            self_healing_enabled: Try self-healing on exhaustion.
+            prompt_config: Optional PromptConfig for prompt rendering.
+            parallel_enabled: Whether parallel execution is enabled.
+        """
+        # Store sheets for prompt rendering
+        self._job_sheets[job_id] = {s.num: s for s in sheets}
+
+        # Create PromptRenderer if config is available
+        if prompt_config is not None:
+            from mozart.daemon.baton.prompt import PromptRenderer
+
+            total_sheets = len(sheets)
+            total_stages = len({s.movement for s in sheets}) or 1
+            self._job_renderers[job_id] = PromptRenderer(
+                prompt_config=prompt_config,
+                total_sheets=total_sheets,
+                total_stages=total_stages,
+                parallel_enabled=parallel_enabled,
+            )
+
+        # Create completion event
+        self._completion_events[job_id] = asyncio.Event()
+
+        # Build SheetExecutionState with recovered statuses and attempt counts
+        states: dict[int, SheetExecutionState] = {}
+        for sheet in sheets:
+            cp_sheet = checkpoint.sheets.get(sheet.num)
+
+            if cp_sheet is not None:
+                # Map checkpoint status to baton status.
+                # Critical: in_progress sheets are reset to PENDING because
+                # their executing musician was killed on restart.
+                cp_status = cp_sheet.status.value
+                if cp_status == "in_progress":
+                    baton_status = BatonSheetStatus.PENDING
+                else:
+                    baton_status = checkpoint_to_baton_status(cp_status)
+
+                # Carry forward attempt counts to avoid infinite retries
+                normal_attempts = cp_sheet.attempt_count
+                completion_attempts = cp_sheet.completion_attempts
+            else:
+                # Sheet not in checkpoint — treat as fresh PENDING
+                baton_status = BatonSheetStatus.PENDING
+                normal_attempts = 0
+                completion_attempts = 0
+
+            state = SheetExecutionState(
+                sheet_num=sheet.num,
+                instrument_name=sheet.instrument_name,
+                max_retries=max_retries,
+                max_completion=max_completion,
+            )
+            state.status = baton_status
+            state.normal_attempts = normal_attempts
+            state.completion_attempts = completion_attempts
+
+            states[sheet.num] = state
+
+        # Register with baton using the recovered states
+        self._baton.register_job(
+            job_id,
+            states,
+            dependencies,
+            escalation_enabled=escalation_enabled,
+            self_healing_enabled=self_healing_enabled,
+        )
+
+        # Set cost limits if configured
+        if max_cost_usd is not None:
+            self._baton.set_job_cost_limit(job_id, max_cost_usd)
+
+        _logger.info(
+            "adapter.job_recovered",
+            extra={
+                "job_id": job_id,
+                "sheet_count": len(sheets),
+                "recovered_terminal": sum(
+                    1 for s in states.values()
+                    if s.status in (
+                        BatonSheetStatus.COMPLETED,
+                        BatonSheetStatus.FAILED,
+                        BatonSheetStatus.SKIPPED,
+                    )
+                ),
+                "recovered_pending": sum(
+                    1 for s in states.values()
+                    if s.status == BatonSheetStatus.PENDING
+                ),
+            },
+        )
+
+        # Kick the event loop so dispatch_ready runs for recovered sheets
+        self._baton.inbox.put_nowait(DispatchRetry())
 
     def get_sheet(self, job_id: str, sheet_num: int) -> Sheet | None:
         """Get a Sheet entity for a registered job.
@@ -839,6 +988,47 @@ class BatonAdapter:
     # Main Loop
     # =========================================================================
 
+    def _sync_sheet_status(
+        self,
+        event: BatonEvent,
+    ) -> None:
+        """Sync baton sheet status changes to the checkpoint callback.
+
+        Called after each event is handled. Determines which sheet was
+        affected by the event and invokes the state_sync_callback with
+        the current baton status mapped to checkpoint status.
+
+        Args:
+            event: The event that was just processed.
+        """
+        if self._state_sync_callback is None:
+            return
+
+        # Extract job_id and sheet_num from events that affect sheet status
+        if isinstance(event, (SheetAttemptResult, SheetSkipped)):
+            job_id = event.job_id
+            sheet_num = event.sheet_num
+        else:
+            return
+
+        # Look up current baton status and map to checkpoint status
+        state = self._baton.get_sheet_state(job_id, sheet_num)
+        if state is None:
+            return
+
+        checkpoint_status = baton_to_checkpoint_status(state.status)
+        try:
+            self._state_sync_callback(job_id, sheet_num, checkpoint_status)
+        except Exception:
+            _logger.warning(
+                "adapter.state_sync_failed",
+                extra={
+                    "job_id": job_id,
+                    "sheet_num": sheet_num,
+                },
+                exc_info=True,
+            )
+
     async def run(self) -> None:
         """Run the baton's event loop with dispatch integration.
 
@@ -856,6 +1046,9 @@ class BatonAdapter:
             while not self._baton._shutting_down:
                 event = await self._baton.inbox.get()
                 await self._baton.handle_event(event)
+
+                # Step 29: Sync state changes to checkpoint
+                self._sync_sheet_status(event)
 
                 # Dispatch ready sheets after every event
                 config = self._baton.build_dispatch_config(
