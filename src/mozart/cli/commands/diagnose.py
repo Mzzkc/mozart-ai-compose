@@ -185,7 +185,10 @@ class LogFollower:
                 with open(self.log_path, encoding="utf-8") as f:
                     all_lines = f.readlines()
         except OSError as e:
-            output_error(f"Cannot read log file: {e}")
+            output_error(
+                f"Cannot read log file: {e}",
+                hints=["Check that the Mozart log file exists at ~/.mozart/mozart.log"],
+            )
             return []
 
         if num_lines and num_lines > 0:
@@ -248,7 +251,10 @@ class LogFollower:
         except KeyboardInterrupt:
             console.print("\n[dim]Stopped following logs.[/dim]")
         except OSError as e:
-            output_error(f"Cannot follow log file: {e}")
+            output_error(
+                f"Cannot follow log file: {e}",
+                hints=["Check that the Mozart log file exists at ~/.mozart/mozart.log"],
+            )
             raise typer.Exit(1) from None
         finally:
             if file_handle:

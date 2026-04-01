@@ -213,7 +213,13 @@ def _reconstruct_config(
             console.print(f"[dim]Using config from: {config_file}[/dim]")
             return config, True
         except Exception as e:
-            output_error(f"Error loading config file: {e}")
+            output_error(
+                f"Error loading config file: {e}",
+                hints=[
+                    f"Check the file with: mozart validate {config_file}",
+                    "Ensure the YAML syntax is valid and all required fields are present.",
+                ],
+            )
             raise typer.Exit(1) from None
 
     # Priority 2: Auto-reload from stored config_path (unless --no-reload)
@@ -227,7 +233,14 @@ def _reconstruct_config(
                 )
                 return config, True
             except Exception as e:
-                output_error(f"Error reloading config: {e}")
+                output_error(
+                    f"Error reloading config: {e}",
+                    hints=[
+                        f"The stored config path is: {config_path}",
+                        "Use --config to provide a corrected config file.",
+                        "Use --no-reload to resume with the cached config snapshot.",
+                    ],
+                )
                 raise typer.Exit(1) from None
         else:
             # File doesn't exist — fall through to snapshot
@@ -525,7 +538,12 @@ async def _resume_job_direct(ctx: ResumeContext) -> None:
 
     except FatalError as e:
         progress.stop()
-        output_error(f"Fatal error: {e}")
+        output_error(
+            f"Fatal error: {e}",
+            hints=[
+                f"Run 'mozart diagnose {ctx.job_id}' for a detailed failure report.",
+            ],
+        )
 
         # Send failure notification (must not mask the original error)
         if notification_manager:
