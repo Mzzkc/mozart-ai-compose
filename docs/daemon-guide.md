@@ -193,15 +193,13 @@ Controls the SemanticAnalyzer — LLM-based analysis of sheet completions that p
 | `max_processes` | `int` | `50` | Max child processes |
 | `max_api_calls_per_minute` | `int` | `60` | **Not yet enforced** — reserved for future rate limiting |
 
-### Reserved Fields (No Effect Currently)
+### Additional Fields
 
-These fields are accepted but produce warnings if set to non-default values:
-
-| Field | Default | Status |
-|-------|---------|--------|
-| `max_concurrent_sheets` | `10` | Reserved for Phase 3 scheduler |
-| `state_backend_type` | `"sqlite"` | Reserved for persistent conductor state |
-| `state_db_path` | `~/.mozart/daemon-state.db` | Reserved for persistent conductor state |
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `state_db_path` | `Path` | `~/.mozart/daemon-state.db` | Job registry database path. Overridden by `--conductor-clone` for clone isolation. |
+| `max_concurrent_sheets` | `int` | `10` | Max concurrent sheets across all jobs (used by the baton when `use_baton: true`) |
+| `use_baton` | `bool` | `false` | Enable the baton execution engine. Test with `--conductor-clone` first. |
 
 ### Example Config File
 
@@ -372,31 +370,32 @@ See the [CLI Reference](cli-reference.md#conductor-clones) for full details.
 
 ---
 
-## What's Built But NOT Yet Wired (Phase 3)
+## The Baton (Event-Driven Execution Engine)
 
-Two significant components are **fully built and tested** but **not yet integrated** into the execution path:
+The baton (`daemon/baton/`) is Mozart's next-generation execution engine, replacing
+the monolithic sequential runner with event-driven per-sheet dispatch. It is fully
+built and tested (1,000+ tests) but not yet activated in production.
 
-### GlobalSheetScheduler
+Key capabilities:
+- **Event-driven dispatch** — sheets dispatch when their dependencies are met and their
+  instrument has capacity, rather than running sequentially in one task
+- **Per-instrument concurrency** — each instrument has independent slots, so rate limits
+  on one instrument don't block others
+- **Timer-based retry** — backoff delays use a timer wheel instead of `asyncio.sleep()`
+- **Restart recovery** — baton state persists and reconciles with CheckpointState on restart
+- **Cost enforcement** — per-sheet and per-job cost limits enforced after every attempt
 
-Located in `daemon/scheduler.py`. Provides cross-job sheet scheduling with:
+**Activation:** Set `use_baton: true` in `~/.mozart/conductor.yaml`. Use `--conductor-clone`
+for testing — do not activate against a production conductor without validating first.
 
-- Priority min-heap across all active jobs
-- Per-job fair-share scheduling
-- DAG dependency awareness (sheet ordering within a job)
-- Rate-limit-aware dispatch (skips backends with active rate limits)
-- Backpressure integration (delays dispatch under load)
+### Legacy Components
 
-**Current state:** Jobs run monolithically via `JobService.start_job()` — all sheets execute sequentially within a single asyncio task. When the scheduler is wired in, the manager will decompose jobs into individual sheets and use `next_sheet()` / `mark_complete()` for per-sheet dispatch.
+These components are still in use through the current execution path:
 
-### RateLimitCoordinator
-
-Located in `daemon/rate_coordinator.py`. Shares rate limit state across all concurrent jobs:
-
-- When any job hits a rate limit, all jobs using that backend back off
-- In-memory coordination (no cross-process locking)
-- Clamps maximum wait to 1 hour to prevent misparsed responses from blocking indefinitely
-
-**Current state:** The write path is active — `JobManager._on_rate_limit` feeds rate limit events from job runners into the coordinator via `RunnerContext.rate_limit_callback`. The read path (`is_rate_limited()`) is consumed by the GlobalSheetScheduler, which is not yet driving execution.
+- **GlobalSheetScheduler** (`daemon/scheduler.py`) — Priority-based cross-job scheduling.
+  Built but not yet wired into the execution path.
+- **RateLimitCoordinator** (`daemon/rate_coordinator.py`) — Cross-job rate limit state
+  sharing. The write path is active; the read path feeds the scheduler.
 
 ## Migration from Pre-Conductor Usage
 

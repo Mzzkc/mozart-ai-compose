@@ -1194,7 +1194,8 @@ Each finding should include:
 ### F-111: Parallel Executor Loses RateLimitExhaustedError Type — Jobs FAIL Instead of PAUSE
 - **Found by:** Composer investigation (flowspec trace of `_execute_parallel_mode` → `FatalError`)
 - **Severity:** P0 (critical — rate limit recovery is completely broken for parallel scores)
-- **Status:** open
+- **Status:** Resolved (movement 2, unnamed musician + Circuit mateship verification)
+- **Resolution:** Three-part fix: (1) Added `exceptions: dict[int, BaseException]` to `ParallelBatchResult` to preserve original exception objects alongside string details. (2) Added `_find_rate_limit_in_batch()` to `LifecycleMixin` that scans `result.exceptions` for `RateLimitExhaustedError` instances. (3) Before the `fail_fast` check, the parallel batch handler now extracts any rate limit exception and re-raises it directly, allowing the lifecycle's `except RateLimitExhaustedError` handler at line 986 to fire. The `resume_after` timestamp, `backend_type`, and `quota_exhaustion` flag are all preserved. Adversarial tests updated to verify the fix (5 tests).
 - **Description:** The conductor was designed to handle rate limit exhaustion gracefully: `RateLimitExhaustedError` carries a `resume_after` timestamp, the lifecycle catches it and calls `mark_job_paused()`, the JobService catches it and returns `JobStatus.PAUSED`. But in parallel mode, this chain is broken:
   1. Sheet-level recovery raises `RateLimitExhaustedError` (recovery.py:352)
   2. The parallel executor (`ParallelBatchExecutor`) catches it as a generic exception, stores the message string in `result.error_details`
@@ -1217,7 +1218,8 @@ Each finding should include:
 ### F-113: Permanently Failed Sheets Treated as "Done" for Dependencies — Downstream Runs on Incomplete Input
 - **Found by:** Composer observation (rosetta sheet 2 failed, but sheets 5-6 ran anyway)
 - **Severity:** P0 (critical — dependency graph semantics violated, downstream produces garbage)
-- **Status:** open
+- **Status:** Resolved (movement 2, unnamed musician + Circuit mateship verification)
+- **Resolution:** Two-part fix: (1) Added `propagate_failure_to_dependents()` to `ParallelExecutor` — iterative BFS that marks all non-terminal transitive dependents as FAILED with "Dependency failed" error message, adds them to `_permanently_failed`. (2) In `_execute_parallel_mode`, after adding failed sheets to `_permanently_failed`, calls `propagate_failure_to_dependents()` for each failed sheet. Also included `SheetStatus.FAILED` in the terminal set for DAG resolution, fixing F-129 (deadlock after restart when `_permanently_failed` is empty). The dependency policy config (`block`/`skip`/`proceed`) suggested in the original finding is not yet implemented — the current behavior is always `block` (propagate failure). Adversarial tests updated.
 - **Description:** `ParallelExecutor.get_next_parallel_batch()` at `execution/parallel.py:441` adds permanently failed sheets to the "done" set for DAG resolution: `done_for_dag = completed | self._permanently_failed`. This means when a fan-out instance fails (e.g., rosetta sheet 2 = expedition-1), the synthesis stage sees ALL dependencies as "done" and dispatches — even though one input is missing. The synthesis runs on 5 of 6 expedition outputs and produces an incomplete corpus.
 - **Evidence:** Rosetta status shows sheet 2 failed (49 attempts, quota exhaustion), but sheets 3-5 completed and sheet 6 (synthesis, depends on stage 2) is in_progress. The dependency `3: [2]` means stage 3 depends on ALL of stage 2's fan-out instances. Sheet 2 failed, so sheet 8 (stage 3 after expansion) should have been blocked or failed.
 - **Root cause:** The comment at line 439 explains the intent: "so downstream sheets aren't blocked forever waiting for them." This prevents deadlock when `fail_fast=False`, but it violates the dependency contract. A failed dependency is not a completed dependency.
@@ -1267,7 +1269,8 @@ Each finding should include:
 ### F-116: `mozart validate` Does Not Check Instrument Name Against Registry
 - **Found by:** Journey, Movement 1 (Cycle 3)
 - **Severity:** P2 (medium — user discovers typo only at runtime, not at validation)
-- **Status:** Open
+- **Status:** Resolved (movement 2, Blueprint — commit 327e536)
+- **Resolution:** Added V210 InstrumentNameCheck to validation system. Loads instrument profiles via `load_all_profiles()` and warns on unknown instrument names. Checks score-level, per-sheet, instrument_map, and movement instruments. WARNING severity (conductor may have instruments validator doesn't know about). Graceful degradation on profile load failure. 15 TDD tests.
 - **Description:** A score with `instrument: nonexistent-instrument-12345` passes both schema validation (Pydantic accepts any string) and extended validation (no V-check for instrument name). The user discovers the error only at runtime when the conductor tries to resolve the instrument. Verified: `mozart validate /tmp/bad-instrument.yaml` shows "Schema validation passed" with zero instrument-related warnings.
 - **Impact:** A typo in the instrument name (`instrument: clause-code` instead of `claude-code`) silently passes validation. The user submits the job, waits for the conductor, and gets a runtime error. This is exactly the class of mistake that validation should catch early. The gap exists because `mozart validate` is stateless — it doesn't query the instrument registry.
 - **Action:** Add a V-check (e.g., V210) that loads available instrument profiles (built-in + user + project) and warns when the instrument name doesn't match any known profile. This should be a WARNING, not an error — the conductor may have instruments the validator doesn't know about. The check can use `load_all_profiles()` from `instruments.py` which already scans all profile directories.
@@ -1315,7 +1318,7 @@ Each finding should include:
 ### F-122: 4 IPC Callsites Bypass --conductor-clone (Hardcoded Production Socket)
 - **Found by:** Prism, Movement 1 (Cycle 2)
 - **Severity:** P1 (high — breaks clone test isolation for hooks, MCP, and dashboard)
-- **Status:** Open
+- **Status:** Resolved (movement 2, Harper)
 - **Description:** Four IPC callsites create `DaemonClient` with hardcoded production socket paths, bypassing the `_resolve_socket_path()` clone-aware resolution that all CLI commands use:
   1. `src/mozart/execution/hooks.py:129` — `DaemonClient(SocketConfig().path)`. On_success hook chaining submits to production conductor even when `--conductor-clone` is active.
   2. `src/mozart/mcp/tools.py:52` — `DaemonClient(DaemonConfig().socket.path)`. MCP tools query/control production during clone testing.
@@ -1323,7 +1326,7 @@ Each finding should include:
   4. `src/mozart/dashboard/services/job_control.py:76` — `DaemonClient(DaemonConfig().socket.path)`. Dashboard job control targets production.
 - **Impact:** Clone test isolation is incomplete. The hooks.py bypass is most critical — self-chaining scores tested with `--conductor-clone` will silently submit chained jobs to the production conductor. Same error class as F-090 (config_cmd.py bypass, fixed by Ghost in 42d3d1a).
 - **Error class:** No centralized DaemonClient factory. Developers use the obvious `DaemonClient(DaemonConfig().socket.path)` pattern. The correct pattern (`_resolve_socket_path()` from detect.py) requires knowing it exists.
-- **Action:** Replace all 4 callsites with `_resolve_socket_path()`. For hooks.py (runner-side), the clone name may not be available in the execution context — consider passing the resolved socket path through RunnerContext or JobMeta.
+- **Resolution:** Replaced all 5 callsites (4 original + dashboard/app.py factory) with `_resolve_socket_path(None)`. For hooks.py, the clone_name persists via os.fork() from the CLI process into the conductor process — no RunnerContext change needed. 14 TDD tests in test_f122_clone_socket_bypass.py. Zero `DaemonConfig().socket.path` or `SocketConfig().path` bypasses remain in the codebase (verified by grep).
 
 ### F-123: README.md References 3 Deleted Example Files — Broken Links
 - **Found by:** Newcomer, Movement 1 (Cycle 3)
@@ -1361,7 +1364,8 @@ Each finding should include:
 ### F-127: Diagnose Shows "success_first_try" for Sheets With 18 Attempts
 - **Found by:** Ember, Movement 1 (Cycle 3)
 - **Severity:** P2 (medium — diagnostic tool misleads)
-- **Status:** Open
+- **Status:** Resolved (movement 2, Blueprint — commit 327e536)
+- **Resolution:** Changed `_classify_success_outcome()` to use persisted `sheet_state.attempt_count` (cumulative) instead of session-local `normal_attempts`. Also uses persisted `sheet_state.completion_attempts`. After restart+resume, a sheet with 18 cumulative attempts is correctly classified as SUCCESS_RETRY. 7 TDD tests including the F-127 regression case (18 attempts → SUCCESS_RETRY, not SUCCESS_FIRST_TRY).
 - **Description:** `mozart diagnose mozart-orchestra-v3` shows `success_first_try` in the Outcome column for sheets that required 18, 17, 10, 6, and 4 attempts respectively. The cause: `_classify_success_outcome()` at `src/mozart/execution/runner/sheet.py:2480` checks `normal_attempts <= 1` where `normal_attempts` is a session-local counter that resets when the conductor restarts and the job is resumed. Meanwhile, the Attempts column shows `attempt_count` from SheetState, which is the cumulative lifetime count. After a restart+resume, `normal_attempts` is 1 (current session) but `attempt_count` is 18 (cumulative) — the same table row contains contradictory information.
 - **Evidence:** `mozart diagnose mozart-orchestra-v3` output:
   ```
@@ -1390,7 +1394,8 @@ Each finding should include:
 ### F-129: F-113 Behavior Changes After Restart — Job Gets Stuck Forever
 - **Found by:** Adversary, Movement 1 (Cycle 3)
 - **Severity:** P1 (high — the behavior of F-113 is inconsistent across restarts)
-- **Status:** Open (extends F-113)
+- **Status:** Resolved (movement 2, unnamed musician — fixed as part of F-113 resolution)
+- **Resolution:** The F-113 fix includes `SheetStatus.FAILED` in the terminal set for DAG resolution in `get_next_parallel_batch()`. This means FAILED sheets are treated as "done" from persisted state alone — the ephemeral `_permanently_failed` set is no longer required for correct behavior after restart. The deadlock is structurally eliminated. Adversarial test updated to verify the fix.
 - **Description:** F-113 documents that `_permanently_failed` in `parallel.py:441` treats failed deps as "done" for DAG resolution. But `_permanently_failed` is an in-memory set. After a conductor restart + resume, the set is empty. Without it, the DAG's `get_ready_sheets()` only considers COMPLETED and SKIPPED sheets — FAILED sheets are NOT "done". Result: the downstream sheet is blocked forever.
 - **Evidence:** `test_adversary_m1c3.py::TestF113FailedDependenciesTreatedAsDone::test_permanently_failed_ephemeral_after_restart` proves this: after restart (empty `_permanently_failed`), sheet 5 is NOT dispatched. The same job behaves differently before restart (dispatches with incomplete data) and after restart (stuck forever).
 - **Impact:** Two bugs for the price of one. Before restart: F-113 (wrong behavior — runs with missing input). After restart: deadlock (wrong behavior — blocks forever). Neither is correct. The correct behavior would be to propagate failure through the dependency chain (like the baton's `_propagate_failure_to_dependents`).
@@ -1417,10 +1422,10 @@ Each finding should include:
 ### F-131: `--conductor-clone` Help Text Misleading About "No Value" Usage
 - **Found by:** Newcomer, Movement 1 (Cycle 7)
 - **Severity:** P3 (low — UX documentation)
-- **Status:** Open
+- **Status:** Resolved (movement 2, Harper)
 - **Description:** `--conductor-clone` help says "Pass without value for default clone" but the option is a TEXT type in Typer/Click that consumes the next positional argument. `mozart --conductor-clone start` parses `start` as the clone name (not the subcommand), producing confusing errors. Users must use `=` syntax: `mozart --conductor-clone= start` or `mozart --conductor-clone=name start`.
 - **Impact:** Users following the help text literally get behavior where the command disappears. The workaround (= syntax) is not documented.
-- **Action:** Either change to a boolean flag with separate `--clone-name` parameter, or update help text to require `=` syntax explicitly. Show examples in the help.
+- **Resolution:** Updated help text and docstring to explicitly require `=` syntax: "Use --conductor-clone= (with equals sign) for default clone, or --conductor-clone=NAME for a named clone."
 
 ### F-132: `--conductor-clone` State DB Isolation May Be Incomplete
 - **Found by:** Newcomer, Movement 1 (Cycle 7). Severity upgraded by Adversary (Cycle 7).

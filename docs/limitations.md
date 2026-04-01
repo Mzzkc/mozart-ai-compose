@@ -68,22 +68,17 @@ Execution is batch-oriented. stdout and stderr are captured after each sheet com
 
 ## Daemon Internals
 
-### Phase 3 Components Not Wired
+### Baton Execution Engine Not Yet Default
 
-Two major daemon subsystems are fully built, tested, and present in the codebase but not connected to the execution path:
+The baton (`src/mozart/daemon/baton/`) is an event-driven execution engine that replaces the monolithic sequential runner with per-sheet dispatch, per-instrument concurrency, timer-based retry, and restart recovery. It is fully built and tested (1,000+ tests) but not yet the default execution path.
 
-| Component | File | What It Does |
-|-----------|------|-------------|
-| `GlobalSheetScheduler` | `src/mozart/daemon/scheduler.py` | Cross-job sheet scheduling with priority, fair-share, and DAG awareness |
-| `RateLimitCoordinator` | `src/mozart/daemon/rate_coordinator.py` | Shares rate-limit state across concurrent jobs |
+**What this means:** Jobs currently run via `JobService.start_job()` using the legacy sequential runner. The baton can be activated with `use_baton: true` in `~/.mozart/conductor.yaml` but should only be tested with `--conductor-clone` first.
 
-**What this means:** Jobs currently run monolithically via `JobService.start_job()`. The scheduler is instantiated lazily but doesn't drive execution. The rate coordinator's write path IS active (rate limit events flow from runners through `RunnerContext.rate_limit_callback` to the coordinator via `JobManager._on_rate_limit`), but its read path is not wired — the scheduler doesn't consume the collected data yet.
+**Why:** The baton represents a fundamental architecture change. It needs production validation before becoming the default. The legacy runner continues to receive bug fixes in the meantime.
 
-**Why:** These were built as Phase 3 infrastructure. Integration requires replacing the monolithic job execution path with per-sheet dispatch through the scheduler — a significant change that hasn't been prioritized.
+**Impact:** Without the baton, per-sheet instrument assignment doesn't take effect at runtime (the config models accept it, but the legacy runner uses a single backend). Rate limit handling in parallel mode has known issues (F-111, now fixed) that the baton avoids structurally.
 
-**Impact:** Without the scheduler, concurrent daemon jobs don't share rate-limit intelligence or do cross-job fair-share scheduling. Each job manages its own retries independently.
-
-**Status:** Planned for future integration. Infrastructure is ready.
+**Status:** Built, tested, feature-flagged. Activation planned after production validation.
 
 ---
 
@@ -105,32 +100,31 @@ Mozart runs on a single machine. There is no distributed execution, remote worke
 
 ---
 
-## Backend Support
+## Instrument Support
 
-### Claude-Centric Design
+### Instrument Plugin System
 
-Mozart was designed around the Claude CLI and Anthropic API. While the backend is pluggable (abstract `Backend` class), the error classification and rate-limit detection are tuned for Claude's output patterns.
+Mozart supports multiple AI instruments through a config-driven plugin system. Six instruments ship as built-in profiles, and users can add custom instruments via YAML files.
 
-**Available backends:**
+**Built-in instruments:** `claude-code`, `gemini-cli`, `codex-cli`, `cline-cli`, `aider`, `goose`
 
-| Backend | File | Maturity |
-|---------|------|----------|
-| `ClaudeCliBackend` | `backends/claude_cli.py` | Primary, battle-tested |
-| `AnthropicApiBackend` | `backends/anthropic_api.py` | Functional, less tested |
-| `OllamaBackend` | `backends/ollama.py` | Community-contributed |
-| `RecursiveLightBackend` | `backends/recursive_light.py` | Experimental |
+**Native backends:** `claude_cli` (ClaudeCliBackend), `anthropic_api`, `ollama`, `recursive_light`
+
+Run `mozart instruments list` to see all available instruments and their status.
+
+### Error Classification Is Claude-Tuned
+
+The error classifier (`src/mozart/core/errors/classifier.py`) was originally designed around Claude CLI output patterns. While it handles common rate-limit patterns across providers, edge cases in non-Claude instruments may produce suboptimal error recovery.
 
 **What this means:**
 
 - Default rate-limit patterns (e.g., `hit.*limit`, `limit.*resets?`, `daily.*limit`) were derived from Claude CLI output
-- The error classifier's exit-code handling has Claude-specific logic (exit code 1 = "task complete but with issues" in Claude CLI text mode)
-- Non-Claude backends work but may not get optimal error recovery
+- The `PluginCliBackend` uses per-instrument error patterns from YAML profiles (e.g., `gemini-cli.yaml` defines its own `rate_limit_patterns` and `auth_error_patterns`)
+- Instrument profiles can declare `crash_patterns`, `stale_patterns`, `timeout_patterns`, and `capacity_patterns` for fine-grained classification
 
-**Why:** Mozart originated as an orchestrator for Claude CLI jobs. The patterns are generic enough to catch common HTTP 429/rate-limit messages from any backend, but edge cases in non-Claude backends may be missed.
+**Workaround:** Define instrument-specific error patterns in the instrument profile YAML. The `PluginCliBackend` uses these patterns instead of the global defaults.
 
-**Workaround:** You can supply custom `rate_limit_patterns` via the job config's `error_handling` section. The error classifier accepts user-defined regex patterns that override or extend the defaults.
-
-**Status:** Permanent primary focus. Other backends are supported but secondary.
+**Status:** Improving. Each instrument profile is verified against the actual CLI tool's output.
 
 ---
 
@@ -163,7 +157,7 @@ JobRunner(
 
 **Workaround:** When debugging, start from `base.py` (initialization) and `lifecycle.py` (`run()` entry point), then trace into specific mixins.
 
-**Status:** Working but complex. No refactor planned.
+**Status:** Working but complex. The baton execution engine (`src/mozart/daemon/baton/`) replaces this architecture with a cleaner event-driven model where musicians execute once and the conductor handles all retry/recovery decisions. The baton is built and tested but not yet the default path.
 
 ---
 

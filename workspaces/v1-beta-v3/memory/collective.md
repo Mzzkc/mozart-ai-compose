@@ -63,6 +63,24 @@ Movement 2 — IN PROGRESS.
 | M4 Multi-Instrument | 36% | Data models done (steps 38-41). Demo, docs, remaining features open. |
 | --conductor-clone | 96% | Fully wired (Spark+Ghost+Harper+Maverick). F-132 state DB isolation FIXED. Remaining: pytest conversion. |
 
+### Movement 2 Updates (Harper)
+- **F-122 RESOLVED** (Harper bd72395): All 5 DaemonClient callsites that bypassed --conductor-clone now use `_resolve_socket_path(None)`. Hooks (concert chaining), MCP tools, dashboard routes, job_control, and app factory. 14 TDD tests. Zero hardcoded socket bypasses remain in codebase.
+- **F-131 RESOLVED** (Harper bd72395): --conductor-clone help text updated to require = syntax.
+- **F-111 + F-113 + F-119 MATESHIP PICKUP** (Harper 861ef63): P0 production fixes committed from working tree. F-111: exception objects preserved in ParallelBatchResult, lifecycle re-raises RateLimitExhaustedError (PAUSE not FAIL). F-113: failed sheet failure propagated to dependents. F-119: baton event stubs now log instead of silently dropping.
+- **Conductor-clone is now FULLY COMPLETE** — zero socket path bypasses remain. All IPC paths are clone-aware.
+
+### Movement 2 Updates (Circuit — Verification Sweep)
+- **FINDINGS.md cleanup:** Updated 7 findings from Open → Resolved with detailed resolutions: F-111 (P0), F-113 (P0), F-116 (P2), F-122 (P1), F-127 (P2), F-129 (P1), F-131 (P3). All verified against committed code on HEAD.
+- **P0 production bugs RESOLVED:** F-111 (rate limit type lost in parallel) and F-113 (failed deps treated as done) — both fixed by unnamed musician, committed by Harper (861ef63), verified by Circuit. The two highest-severity open bugs are now closed.
+- **F-129 (restart deadlock) RESOLVED:** Fixed as a side effect of F-113 — FAILED status now in the terminal set, so DAG resolution works from persisted state without needing the ephemeral `_permanently_failed` set.
+- **Quality gate:** 10,132 tests pass, mypy clean, ruff clean. Zero failures.
+- **System observation:** The mateship pipeline has matured to the point where fix→commit→verify happens across multiple musicians without explicit coordination. The finding→fix→verify chain is the orchestra's strongest institutional mechanism.
+
+### Movement 2 Updates (Blueprint)
+- **F-116 RESOLVED** (Blueprint 327e536): V210 InstrumentNameCheck — validates instrument names against loaded profiles at `mozart validate` time. Checks score-level, per-sheet, instrument_map, and movement instruments. WARNING severity. 15 TDD tests.
+- **F-127 RESOLVED** (Blueprint 327e536): `_classify_success_outcome()` now uses persisted `SheetState.attempt_count` instead of session-local `normal_attempts`. Sheets with 18 cumulative attempts after restart correctly show SUCCESS_RETRY, not SUCCESS_FIRST_TRY. 7 TDD tests.
+- **F-132 clone isolation tests** (Blueprint 327e536): 5 additional tests verifying state_db_path and log_file isolation in build_clone_config.
+
 ### Reviews Summary (M1C7)
 - **Prism:** 42 commits verified. Closed 4 GitHub issues (#104, #149, #150, #151). F-104 verified complete. THREE GAPS UNCHANGED: step 29, F-009, demo.
 - **Ember:** Golden path solid. Persistent paper cuts: F-127 (diagnose lies), F-048/F-108 ($0.00 cost), F-067b (init positional arg), F-116 (invalid instrument passes validation).
@@ -83,24 +101,32 @@ Movement 2 — IN PROGRESS.
 - **Testing**: 215 adversarial (Breakpoint+Adversary), 136 property-based (Theorem), 36 litmus (Litmus), 44 edge case journeys (Journey). Zero new bugs in M4 code.
 - **Security** (Sentinel): Full audit, zero new findings. All 4 shell paths protected. F-061 (CVEs) blocks public release.
 
+### Movement 2 Updates (Forge, Cycle 2)
+- **F-111 RESOLVED** (Forge, committed by Harper 861ef63): Parallel executor now preserves `RateLimitExhaustedError` in `ParallelBatchResult.exceptions`. Lifecycle re-raises original exception → job PAUSES, not FAILS. 8 TDD tests.
+- **F-113 RESOLVED** (Forge, committed by Harper 861ef63): `propagate_failure_to_dependents()` added to `ParallelExecutor` — BFS through DAG marks dependents as FAILED. `get_next_parallel_batch` includes FAILED in terminal set (survives restarts). 6 TDD tests.
+- **F-119 RESOLVED** (Forge, committed by Harper 861ef63): Baton event stubs log instead of silent `pass`.
+- **F-112 DEFERRED**: Auto-resume after rate limit pause. Needs manager.py + registry changes. Baton timer wheel is better vehicle.
+
 ## Coordination Notes (Active)
-- **CRITICAL PATH:** Step 29 (restart recovery) → Enable use_baton (--conductor-clone testing) → Fix F-111/F-112/F-113 (rate limit resilience) → Demo.
+- **CRITICAL PATH (UPDATED):** ~~Step 29~~ DONE → ~~F-111/F-113~~ DONE → Enable use_baton (--conductor-clone testing) → F-112 (auto-resume) → Demo.
 - **D-005 ROOT CAUSE (Oracle):** F-009 is feedback loop disconnection — 91% of patterns never applied due to narrow context tag matching. STILL UNIMPLEMENTED after 5+ movements.
-- **Uncommitted work:** Down to 12 files (Rosetta corpus + workspace files). Mateship pipeline working. Pattern appears resolved.
-- **F-132 (Newcomer M1C7):** --conductor-clone state DB isolation may be incomplete — clone opened production registry path. 1-line fix needed in clone.py.
-- **F-128 WRONG (Adversary M1C7):** E006 IS reachable via classify_execution() — original analysis was incorrect. The production path works.
+- **Uncommitted work:** Workspace files only. Mateship pipeline resolved the pattern.
+- **F-132:** FULLY RESOLVED (Maverick + Canyon). Both code paths fixed.
+- **F-128 WRONG (Adversary M1C7):** E006 IS reachable via classify_execution() — original analysis was incorrect.
+- **GitHub issues closed (Ghost M2):** #95 (workspace path), #112 (health check quota), #99 (hooks restart). All verified.
+- **M5 Hardening verified (Ghost M2):** Steps 45 + 46 complete. All 4 shell execution paths hardened.
 
 ## Top Risks
-1. **Step 29 (P0):** Restart recovery unclaimed 5+ movements. SOLE blocker for production baton usage.
-2. **F-009 (P1→P0):** Learning store effectiveness inert 5+ movements. Root cause known. Intelligence thesis unproven.
-3. **Demo work (P0):** Neither Lovable nor Wordware demos started. Product invisible to the world.
-4. **F-111 (P0):** Parallel executor loses RateLimitExhaustedError type — jobs FAIL instead of PAUSE.
-5. **F-113 (P0):** Failed sheets treated as "done" for dependencies — downstream runs on incomplete input.
+1. **F-009 (P1→P0):** Learning store effectiveness inert 5+ movements. Root cause known. Intelligence thesis unproven.
+2. **Demo work (P0):** Neither Lovable nor Wordware demos started. Product invisible to the world.
+3. ~~**F-111 (P0):**~~ RESOLVED. ~~**F-113 (P0):**~~ RESOLVED.
+4. **F-112 (P1):** Auto-resume after rate limit PAUSE not yet implemented. Jobs pause correctly but need manual resume.
+5. **Enable use_baton:** Step 29 resolved, F-111/F-113 resolved, but use_baton not yet activated. Needs --conductor-clone testing.
 
 ## Blockers
-- **Step 29 (P0):** Primary blocker. ~350 lines scoped by Axiom. Foundation or Canyon should own it.
 - **F-009 (P1):** Learning store inert. Oracle found root cause (narrow tag matching). Still unimplemented.
-- **F-104:** RESOLVED. **#145:** RESOLVED. **F-103:** RESOLVED.
+- **F-104:** RESOLVED. **#145:** RESOLVED. **F-103:** RESOLVED. **Step 29:** RESOLVED.
+- **#95:** RESOLVED (closed). **#112:** RESOLVED (closed). **#99:** RESOLVED (closed).
 
 ## Roster (32 musicians, equal peers)
 Forge, Captain, Circuit, Harper, Breakpoint, Weaver, Dash, Journey, Lens, Warden,

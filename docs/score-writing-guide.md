@@ -31,6 +31,7 @@ examples to complex parallel fan-out workflows.
 - [Concert Chaining and Hooks](#concert-chaining-and-hooks)
 - [Testing Your Score](#testing-your-score)
 - [Best Practices](#best-practices)
+- [Migrating from backend: to instrument:](#migrating-from-backend-to-instrument)
 
 ---
 
@@ -1973,7 +1974,7 @@ For long-running scores, use `setsid` to create an independent session:
 setsid mozart run my-score.yaml > workspace/mozart.log 2>&1 &
 
 # Monitor progress
-mozart status my-job -w ./workspace --watch
+mozart status my-job --watch
 tail -f workspace/mozart.log
 ```
 
@@ -2100,3 +2101,85 @@ done
       archive_on_fresh: true
       max_archives: 10
     ```
+
+---
+
+## Migrating from `backend:` to `instrument:`
+
+Mozart's original `backend:` syntax still works, but `instrument:` is the
+recommended syntax for new scores. The migration is straightforward.
+
+### Quick Reference
+
+| Before (`backend:`) | After (`instrument:`) |
+|----------------------|-----------------------|
+| `backend: { type: claude_cli }` | `instrument: claude-code` |
+| `backend: { type: anthropic_api }` | `instrument: anthropic_api` |
+| `backend: { type: ollama }` | `instrument: ollama` |
+| `backend: { type: recursive_light }` | `instrument: recursive_light` |
+
+### Full Example
+
+**Before:**
+
+```yaml
+name: my-job
+workspace: ../workspaces/my-job
+
+backend:
+  type: claude_cli
+  timeout_seconds: 1800
+  skip_permissions: true
+  allowed_tools: [Read, Write, Bash]
+  timeout_overrides:
+    3: 3600
+```
+
+**After:**
+
+```yaml
+name: my-job
+workspace: ../workspaces/my-job
+
+instrument: claude-code
+instrument_config:
+  timeout_seconds: 1800
+  skip_permissions: true
+  allowed_tools: [Read, Write, Bash]
+  timeout_overrides:
+    3: 3600
+```
+
+### Field Mapping
+
+| `backend:` field | `instrument_config:` equivalent | Notes |
+|------------------|---------------------------------|-------|
+| `type` | `instrument:` (top-level) | Name changes: `claude_cli` → `claude-code` |
+| `timeout_seconds` | `timeout_seconds` | Same field name |
+| `skip_permissions` | `skip_permissions` | Same field name |
+| `disable_mcp` | `disable_mcp` | Same field name |
+| `output_format` | `output_format` | Same field name |
+| `cli_model` | `model` | Renamed |
+| `allowed_tools` | `allowed_tools` | Same field name |
+| `system_prompt_file` | `system_prompt_file` | Same field name |
+| `working_directory` | `working_directory` | Same field name |
+| `timeout_overrides` | `timeout_overrides` | Same field name |
+| `sheet_overrides` | `per_sheet_instrument_config` | Moved to `sheet:` section |
+| `max_output_capture_bytes` | `max_output_capture_bytes` | Same field name |
+
+### What You Gain
+
+- **Multi-instrument scores.** `instrument:` supports per-sheet and per-movement
+  assignment. `backend:` does not.
+- **Plugin instruments.** Custom CLI tools can be added as YAML profiles in
+  `~/.mozart/instruments/` or `.mozart/instruments/`.
+- **Validation.** `mozart validate` warns when an instrument name is not recognized
+  (V210). No equivalent exists for `backend.type` — typos fail silently at runtime.
+- **Named aliases.** The `instruments:` key lets you declare reusable instrument
+  configurations referenced by name across your score.
+
+### Compatibility
+
+Both `backend:` and `instrument:` cannot be used in the same score — `mozart validate`
+rejects this as an error. The `backend:` syntax continues to work unchanged for
+all existing scores. No deprecation warnings are emitted.

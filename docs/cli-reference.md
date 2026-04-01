@@ -208,9 +208,6 @@ mozart pause my-job
 
 # Pause and wait for acknowledgment
 mozart pause my-job --wait --timeout 30
-
-# Pause with specific workspace
-mozart pause my-job --workspace ./workspace
 ```
 
 ---
@@ -376,6 +373,7 @@ By default shows only active jobs (queued, running, paused). Use `--all` to incl
 | `--all` | `-a` | false | Show all jobs including completed, failed, and cancelled |
 | `--status` | `-s` | | Filter by job status: `queued`, `running`, `completed`, `failed`, `paused` |
 | `--limit` | `-l` | 20 | Maximum number of jobs to display |
+| `--json` | | false | Output as JSON array for machine parsing |
 
 #### Examples
 
@@ -388,6 +386,9 @@ mozart list --all
 
 # Filter by status
 mozart list --status failed
+
+# JSON output for scripting
+mozart list --json
 
 # Limit results
 mozart list --limit 10
@@ -428,14 +429,45 @@ Performs comprehensive validation including YAML syntax, Pydantic schema validat
 
 #### Validation Checks
 
-| Code | Description | Severity |
-|------|-------------|----------|
-| V001 | Jinja syntax errors | ERROR |
-| V002 | Workspace parent missing | ERROR (auto-fixable) |
-| V003 | Template file missing | ERROR |
-| V007 | Invalid regex patterns | ERROR |
-| V101 | Undefined template variables | WARNING |
-| V103 | Very short timeout | WARNING |
+**Errors** (block execution):
+
+| Code | Description |
+|------|-------------|
+| V001 | Jinja syntax errors in templates |
+| V002 | Workspace parent directory missing |
+| V003 | Template file missing |
+| V004 | System prompt file missing |
+| V005 | Working directory invalid |
+| V007 | Invalid regex patterns in validations |
+| V008 | Validation rules missing required fields |
+| V009 | Evolved score references previous version paths |
+
+**Warnings** (flag potential issues):
+
+| Code | Description |
+|------|-------------|
+| V101 | Undefined template variables |
+| V103 | Very short timeout (< 60s) |
+| V106 | Empty pattern in validation rule |
+| V107 | Referenced skill files missing |
+| V108 | Prelude/cadenza file paths missing |
+| V201 | Jinja `{{ }}` syntax in validation paths (should use `{ }`) |
+| V202 | Format-string `{var}` syntax in Jinja templates (should use `{{ var }}`) |
+| V206 | Fan-out without dependencies defined |
+| V208 | User variable shadows a built-in template variable |
+| V210 | Instrument name not found in known profiles |
+| V212 | `skip_when`/`skip_when_command` keys reference out-of-range sheets |
+
+**Info** (suggestions):
+
+| Code | Description |
+|------|-------------|
+| V104 | Very long timeout (> 4h) |
+| V203 | No validation rules defined |
+| V204 | `skip_permissions` not enabled for Claude CLI |
+| V205 | Only `file_exists` validations (weak acceptance criteria) |
+| V207 | Fan-out without parallel execution enabled |
+| V209 | `disable_mcp` not enabled for Claude CLI |
 
 #### Examples
 
@@ -457,29 +489,38 @@ mozart validate job.yaml --json
 Scaffold a new Mozart project with a starter score.
 
 ```
-Usage: mozart init [OPTIONS]
+Usage: mozart init [OPTIONS] [SCORE_NAME]
 ```
 
 Creates a starter score YAML and `.mozart/` project directory. The generated
 score includes comments explaining every field — edit it with your task, then
 run it.
 
+#### Arguments
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `SCORE_NAME` | No | Score name (same as `--name`). Default: `my-score` |
+
 #### Options
 
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
 | `--path` | `-p` | `.` | Directory to initialize |
-| `--name` | `-n` | `my-score` | Name for the starter score |
+| `--name` | `-n` | `my-score` | Name for the starter score (overrides positional) |
 | `--force` | `-f` | false | Overwrite existing files |
 | `--json` | `-j` | false | Output result as JSON |
 
 #### Examples
 
 ```bash
-# Initialize current directory
+# Initialize current directory with default name
 mozart init
 
-# Initialize with a custom name
+# Initialize with a custom name (positional — like git init)
+mozart init data-pipeline
+
+# Initialize with a custom name (flag)
 mozart init --name data-pipeline
 
 # Initialize in a specific directory
@@ -1579,8 +1620,8 @@ Job configurations are defined in YAML files. Here are the key sections:
 ```yaml
 name: "my-job"
 workspace: "./workspace"
-backend:
-  type: claude_cli
+instrument: claude-code
+instrument_config:
   timeout_seconds: 1800
 sheet:
   size: 1
@@ -1600,11 +1641,11 @@ name: "full-example"
 description: "Comprehensive job example"
 workspace: "./my-workspace"
 
-backend:
-  type: claude_cli          # claude_cli | anthropic_api | ollama | recursive_light
-  skip_permissions: true
-  working_directory: ./my-workspace
+# Use instrument: for new scores. Run `mozart instruments list` for options.
+instrument: claude-code
+instrument_config:
   timeout_seconds: 1800
+  skip_permissions: true
 
 sheet:
   size: 1
@@ -1641,6 +1682,10 @@ notifications:
   - type: desktop
     on_events: [job_complete, job_failed]
 ```
+
+> **Legacy syntax:** The `backend:` block (`backend: { type: claude_cli, ... }`) is still
+> supported for backward compatibility. New scores should use `instrument:` +
+> `instrument_config:`. See the [Score Writing Guide](score-writing-guide.md) for details.
 
 ### Template Variables
 
