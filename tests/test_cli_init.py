@@ -468,3 +468,70 @@ class TestInitInstrumentTerminology:
         runner.invoke(app, ["init", "--path", str(tmp_path)])
         content = (tmp_path / "my-score.yaml").read_text()
         assert "instrument:" in content.lower()
+
+
+# ---------------------------------------------------------------------------
+# Lens M2: Positional argument support (F-067b)
+# ---------------------------------------------------------------------------
+
+
+class TestInitPositionalArgument:
+    """mozart init accepts an optional positional argument (like git init).
+
+    F-067b: `mozart init test-project` should work the same as
+    `mozart init --name test-project`. Every major CLI tool supports
+    this: git init, npm init, cargo init. The positional arg sets
+    the score name.
+    """
+
+    def test_positional_sets_name(self, tmp_path: Path) -> None:
+        """Positional argument creates a score with the given name."""
+        result = runner.invoke(
+            app, ["init", "data-pipeline", "--path", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        assert (tmp_path / "data-pipeline.yaml").exists()
+
+    def test_positional_name_in_config(self, tmp_path: Path) -> None:
+        """Positional name appears in the generated score config."""
+        import yaml
+
+        runner.invoke(
+            app, ["init", "my-project", "--path", str(tmp_path)]
+        )
+        with open(tmp_path / "my-project.yaml") as f:
+            config = yaml.safe_load(f)
+        assert config["name"] == "my-project"
+
+    def test_positional_only_no_flags(self, tmp_path: Path) -> None:
+        """Works with just the positional and --path."""
+        result = runner.invoke(
+            app, ["init", "simple", "--path", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        assert (tmp_path / "simple.yaml").exists()
+
+    def test_default_name_without_positional(self, tmp_path: Path) -> None:
+        """Without positional arg, default name 'my-score' is used."""
+        result = runner.invoke(
+            app, ["init", "--path", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        assert (tmp_path / "my-score.yaml").exists()
+
+    def test_positional_validates_name(self, tmp_path: Path) -> None:
+        """Positional argument goes through the same name validation."""
+        result = runner.invoke(
+            app, ["init", "../escape", "--path", str(tmp_path)]
+        )
+        assert result.exit_code != 0
+
+    def test_flag_name_overrides_positional(self, tmp_path: Path) -> None:
+        """When both positional and --name are given, --name wins."""
+        result = runner.invoke(
+            app, ["init", "positional-name", "--name", "flag-name",
+                  "--path", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        # --name flag should take precedence
+        assert (tmp_path / "flag-name.yaml").exists()

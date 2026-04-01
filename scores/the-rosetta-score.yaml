@@ -1,71 +1,52 @@
-# the-rosetta-score.yaml
+# the-rosetta-score.yaml (rosetta-discover)
 #
-# A self-perpetuating pattern discovery engine.
+# Pattern discovery engine — half of the Rosetta concert.
 #
-# Is there a universal language of orchestration? This score doesn't
-# just ask — it keeps asking. Each run discovers patterns, tests them,
-# proves one by composing a new score, and chains to itself to discover
-# more. The corpus accumulates. The collection grows. The vocabulary
-# compounds.
+# Discovers orchestration patterns across six domains, reviews them
+# adversarially, and builds the permanent corpus. On completion,
+# decomposes the corpus into indexed files and chains to
+# rosetta-prove.yaml which proves patterns with production-grade
+# demonstration scores.
 #
-# Run 1: broad sweep across six domains. Run 2: deep dive into gaps
-# run 1 found. Run 3: esoteric territory. Each iteration reads what
-# previous iterations discovered and goes where they didn't. The
-# permanent corpus lives outside the workspace and survives archival.
-# Each iteration's proof score is added to the collection — a new
-# composition demonstrating a pattern that didn't exist before.
+# The corpus is the vocabulary. The proof scores are the grammar.
+# Together they prove that orchestration has a universal language.
 #
-# The score uses the patterns it discovers:
-#   - Pipeline (7 sequential stages)
-#   - Dual-phase (framing enriches investigation)
+# Each iteration reads the corpus, finds gaps, sends six expeditions
+# into unexplored territory, collides their findings, drafts new
+# patterns, attacks them with three adversarial reviewers, and
+# writes the surviving patterns to the permanent corpus.
+#
+# Patterns it uses:
+#   - Pipeline (6 sequential stages)
 #   - Double fan-out (6 exploration + 3 adversarial review)
 #   - Data-driven lenses (voices dict drives per-instance prompts)
-#   - Macros (DRY templating for repeated blocks)
 #   - Adversarial quality gates (draft → attack → revise)
-#   - Staged fail-fast validations (existence before content)
-#   - Self-chaining evolution (chains to self, corpus accumulates)
+#   - Staged fail-fast validations
 #   - Workspace archival (history preserved across iterations)
 #   - Learning inheritance (patterns flow across iterations)
 #
-# The medium is the message. The score is evidence that these patterns
-# compose. If you can build a 14-sheet double-fan-out self-chaining
-# investigation from these primitives, you can build anything.
-#
 #   Stage 1: The Question (1 sheet)
-#        Read existing corpus. Identify gaps. Direct expeditions.
+#        Read corpus + proof scores. Identify gaps. Direct expeditions.
 #                          |
 #       +-----+-----+-----+-----+-----+
 #       v     v     v     v     v     v
 #   Stage 2: Six Expeditions x6 (6 sheets, parallel)
-#     Builder / Gardener / Dancer / Reasoner / Commander / Storyteller
-#     Each mines their domain. WebSearch available. Reads existing scores.
 #       |     |     |     |     |     |
 #       +-----+-----+-----+-----+-----+
 #                    v
 #   Stage 3: The Collision (1 sheet)
-#        Convergences, divergences, the universality answer
 #                    v
 #   Stage 4: Draft Corpus (1 sheet)
-#        First pass — merged with existing corpus
 #                    |
 #           +--------+--------+
 #           v        v        v
 #   Stage 5: Adversarial Review x3 (3 sheets, parallel)
-#     Practitioner — can I build this?
-#     Skeptic — is this real or metaphor?
-#     Newcomer — would I understand this?
 #           |        |        |
 #           +--------+--------+
 #                    v
 #   Stage 6: Final Corpus (1 sheet)
-#        Writes to permanent location. Corpus accumulates across runs.
-#                    v
-#   Stage 7: The Proof (1 sheet)
-#        Composes a NEW score demonstrating a discovered pattern.
-#        Written to the collection. Runnable. Real.
 #                    |
-#                    v
-#              [on_success: chain to self, fresh, discover more]
+#              [on_success: split corpus → chain to rosetta-prove]
 #
 # Usage:
 #   mozart run scores/the-rosetta-score.yaml              # First run
@@ -104,7 +85,7 @@ workspace_lifecycle:
 
 sheet:
   size: 1
-  total_items: 7
+  total_items: 6
   fan_out:
     2: 6
     5: 3
@@ -114,7 +95,6 @@ sheet:
     4: [3]
     5: [4]
     6: [5]
-    7: [6]
 
 parallel:
   enabled: true
@@ -149,8 +129,17 @@ prompt:
       - "/home/emzi/Projects/mozart-ai-compose/examples"
       - "/home/emzi/Projects/claude-compositions/scores"
 
-    # Where proof scores land — directly in the public examples.
-    proof_output_dir: "/home/emzi/Projects/mozart-ai-compose/examples"
+    # Where proof scores land — in the rosetta subdirectory of examples.
+    proof_output_dir: "/home/emzi/Projects/mozart-ai-compose/examples/rosetta"
+
+    # Previously produced proof scores — the score reads these to avoid
+    # re-proving patterns and to maintain a quality bar.
+    proof_scores_dir: "/home/emzi/Projects/mozart-ai-compose/examples/rosetta"
+
+    # Decomposed corpus index — individual pattern files for targeted reading.
+    # Produced by scripts/split-rosetta-corpus.py from the monolith.
+    corpus_index: "/home/emzi/Projects/mozart-ai-compose/scores/rosetta-corpus/INDEX.md"
+    corpus_patterns_dir: "/home/emzi/Projects/mozart-ai-compose/scores/rosetta-corpus/patterns"
 
     # ─── THE QUESTION ───
     question: |
@@ -460,6 +449,22 @@ prompt:
     {% endfor %}
     The expeditions should find patterns NONE of these scores use yet.
 
+    ## Read Previous Proof Scores
+
+    Scan `{{ proof_scores_dir }}/` for all .yaml files. These are scores
+    YOU produced in previous iterations. Read each one carefully:
+    - What pattern does it prove?
+    - What problem category does it target?
+    - Is it generic and reusable across different projects/domains?
+    - What instruments does it use?
+
+    **Do not re-prove these patterns.** Direct expeditions elsewhere.
+    **Note quality issues.** If a previous proof score is too narrow
+    (solves one specific problem instead of a class of problems), too
+    CLI-focused (when a full-stack approach was warranted), or doesn't
+    fully decompose the problem, flag it in your brief so the proof
+    stage can aim higher.
+
     ## Cross-Domain Seed
 
     {{ cross_domain_seed }}
@@ -614,6 +619,14 @@ prompt:
 
     {{ reviewer.attack }}
 
+    ## Read Previous Proof Scores
+
+    Scan `{{ proof_scores_dir }}/` for .yaml files. These are scores this
+    process produced in previous iterations. Evaluate: are patterns being
+    re-proven? Are proof scores too similar to each other? Are they
+    narrow (one specific use case) when they should be generic (a class
+    of problems)? Flag duplicates and similarity clusters.
+
     ## Produce
 
     - **Problems Found** — pattern by pattern
@@ -621,6 +634,9 @@ prompt:
     - **Patterns to Strengthen** — promising but underspecified?
     - **Missing Elements** — what should be here?
     - **Strongest Patterns** — genuinely good (honest, not generous)
+    - **Proof Score Overlap** — which previously produced proof scores
+      prove similar or duplicate patterns? Which problem categories are
+      overrepresented? Which are untouched?
     - **Verdict** — ready / needs revision / flawed
 
     {{ output_spec("05-review-" ~ instance ~ ".md", 800) }}
@@ -662,72 +678,7 @@ prompt:
     {{ output_spec("06-the-corpus.md", 4000) }}
     {{ quality_bar("high") }}
 
-    {% elif stage == 7 %}
-    # The Proof
-
-    Read `{{ workspace }}/06-the-corpus.md`.
-
-    {% if previous_outputs %}
-    ## The Corpus (excerpt)
-    {{ previous_outputs.values() | list | last | truncate(5000) }}
-    {% endif %}
-
-    ## Choose a Pattern. Solve a Real Problem.
-
-    Pick one pattern from the corpus that:
-    1. Does NOT exist in any score at:
-    {% for dir in score_dirs %}
-       - `{{ dir }}/`
-    {% endfor %}
-    2. Operates beyond within-stage fan-out
-    3. Solves a REAL problem — not a demonstration, not an exercise
-
-    The proof score must solve a problem that real people face.
-    Categories (pick one that this pattern serves best):
-
-    - **Product engineering** — clone a product, build a feature, ship code
-    - **Research** — replicate a study, survey a field, synthesize literature
-    - **Creative production** — write a publishable work, design a campaign
-    - **Business intelligence** — competitive analysis, market sizing, strategy
-    - **Security** — audit a codebase, assess a system, find vulnerabilities
-    - **Education** — build a curriculum, create a course, design assessments
-    - **Legal/compliance** — review contracts, assess risk, check regulations
-    - **Infrastructure** — deploy a system, automate operations, provision services
-
-    The proof score must produce ARTIFACTS, not analysis. Code that runs.
-    Documents that publish. Configurations that deploy. Things someone
-    would USE, not just read.
-
-    Consider INSTRUMENTS. Should the proof score use:
-    - Mixed instruments (Gemini for research, Claude for implementation)?
-    - Custom instruments (curl for APIs, pytest for verification)?
-    - Shell stages for non-AI work (setup, deployment, data processing)?
-
-    Requirements:
-    - Self-contained, runnable with `mozart run`
-    - Substantive validations with staged fail-fast
-    - `{{ '{{' }}` Jinja2 `{{ '}}' }}` in templates, `{python}` in validations
-    - Header comment explaining the pattern, the problem, and why this
-      pattern is the RIGHT structure for this problem
-    - Macros for repeated blocks
-    - The output should route somewhere real — a directory someone opens
-      and finds a working thing, not just reports
-
-    Write the score to BOTH:
-    1. `{{ workspace }}/07-proof-score.yaml` (workspace copy)
-    2. `{{ proof_output_dir }}/[pattern-name-slug].yaml`
-       (in the collection — name it after the pattern, not the sheet number)
-
-    Then explain (500-800 words):
-    1. Which pattern, which problem category, why this pairing
-    2. How the score structure embodies the pattern
-    3. What artifacts the score produces when run
-    4. Which instruments it uses and why
-    5. How this differs from every existing score in the collection
-
-    {{ output_spec("07-the-proof.md", 500) }}
-    {{ quality_bar("high") }}
-
+    {# Stage 7 (proof composition) moved to rosetta-prove.yaml #}
     {% endif %}
 
 validations:
@@ -851,43 +802,19 @@ validations:
     stage: 2
     description: "Documents what changed from review"
 
-  # ── Stage 7: The Proof ──
-  - type: file_exists
-    path: "{workspace}/07-the-proof.md"
-    condition: "stage == 7"
-    stage: 1
-    description: "Proof explanation created"
-  - type: file_exists
-    path: "{workspace}/07-proof-score.yaml"
-    condition: "stage == 7"
-    stage: 1
-    description: "Proof score composed"
-  - type: content_regex
-    path: "{workspace}/07-proof-score.yaml"
-    pattern: "(?i)(name:|workspace:|sheet:|prompt:)"
-    condition: "stage == 7"
-    stage: 2
-    description: "Proof score has valid Mozart structure"
-  - type: command_succeeds
-    command: 'test $(wc -w < "{workspace}/07-the-proof.md") -ge 400'
-    condition: "stage == 7"
-    stage: 2
-    description: "Proof explanation is substantive"
-  - type: command_succeeds
-    command: 'mozart validate "{workspace}/07-proof-score.yaml" 2>&1; test $? -le 1'
-    condition: "stage == 7"
-    stage: 3
-    timeout_seconds: 60
-    description: "Proof score passes Mozart syntax validation"
+  # Stage 7 (proof composition) moved to rosetta-prove.yaml
 
-# Chain to self: discover more patterns
+# Post-completion: decompose corpus, then prove patterns
 on_success:
+  - type: run_command
+    command: "python3 /home/emzi/Projects/mozart-ai-compose/scripts/split-rosetta-corpus.py"
+    description: "Decompose corpus monolith into indexed pattern files"
   - type: run_job
-    job_path: "/home/emzi/Projects/mozart-ai-compose/scores/the-rosetta-score.yaml"
+    job_path: "/home/emzi/Projects/mozart-ai-compose/scores/rosetta-prove.yaml"
     detached: true
     fresh: true
     inherit_learning: true
-    description: "Next iteration — read corpus, find gaps, go deeper"
+    description: "Prove patterns from the updated corpus"
 
 notifications:
   - type: desktop

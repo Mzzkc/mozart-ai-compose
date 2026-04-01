@@ -1,25 +1,28 @@
 # Example: Fan-Out Parallel Research
-# Demonstrates Mozart's fan-out feature for parameterized stage instantiation.
+# Demonstrates Mozart's fan-out feature for parameterized parallel execution.
 #
 # Compare with parallel-research.yaml which manually defines 3 parallel sheets.
 # This example achieves the same result with fan_out, eliminating duplication.
 #
-# Execution Flow (3 stages, 5 concrete sheets):
+# Execution Flow (3 movements, 5 concrete sheets):
 #
-#   Stage 1: Setup (sheet 1)
+#   Movement 1: Setup (sheet 1)
 #        |
 #        +--------+--------+
 #        v        v        v
-#   Stage 2: Search x3 (sheets 2, 3, 4)   <-- fan_out: 3
+#   Movement 2: Search x3 voices (sheets 2, 3, 4)   <-- fan_out: 3
 #        |        |        |
 #        +--------+--------+
 #                 v
-#   Stage 3: Synthesis (sheet 5)           <-- fan-in: waits for ALL
+#   Movement 3: Synthesis (sheet 5)                  <-- fan-in: waits for ALL
 #
-# Each instance of stage 2 receives unique variables:
-#   - {{ instance }} = 1, 2, or 3
-#   - {{ fan_count }} = 3
-#   - {{ stage }} = 2 (same logical stage)
+# Each voice in movement 2 receives unique variables:
+#   - {{ voice }} (or {{ instance }}) = 1, 2, or 3
+#   - {{ voice_count }} (or {{ fan_count }}) = 3
+#   - {{ movement }} (or {{ stage }}) = 2
+#
+# The movements: key gives human-readable names to each movement,
+# which appear in `mozart status` output.
 #
 # Usage:
 #   mozart validate examples/parallel-research-fanout.yaml
@@ -35,17 +38,26 @@ instrument: claude-code
 instrument_config:
   timeout_seconds: 1800
 
+# Movement declarations — names appear in `mozart status` output
+movements:
+  1:
+    name: "Research Setup"
+  2:
+    name: "Parallel Search"
+  3:
+    name: "Cross-Source Synthesis"
+
 sheet:
   size: 1
-  total_items: 3       # 3 logical stages (expands to 5 concrete sheets)
+  total_items: 3       # 3 movements (expands to 5 concrete sheets via fan-out)
 
-  # Fan-out: stage 2 runs 3 parallel instances
+  # Fan-out: movement 2 runs 3 parallel voices
   fan_out:
     2: 3
 
-  # Stage-level dependencies (expanded automatically)
-  #   Stage 2 depends on 1  =>  sheets 2,3,4 each depend on sheet 1
-  #   Stage 3 depends on 2  =>  sheet 5 depends on sheets 2,3,4 (fan-in)
+  # Movement-level dependencies (expanded automatically)
+  #   Movement 2 depends on 1  =>  sheets 2,3,4 each depend on sheet 1
+  #   Movement 3 depends on 2  =>  sheet 5 depends on sheets 2,3,4 (fan-in)
   dependencies:
     2: [1]
     3: [2]
@@ -68,12 +80,12 @@ prompt:
 
   template: |
     You are conducting multi-source research on: {{ research_topic }}
-    Stage {{ stage }} of {{ total_stages }} (sheet {{ sheet_num }} of {{ total_sheets }}).
+    Movement {{ movement }} of {{ total_movements }} (sheet {{ sheet_num }} of {{ total_sheets }}).
     Workspace: {{ workspace }}
 
-    {% if stage == 1 %}
+    {% if movement == 1 %}
     =========================================================================
-    STAGE 1: Research Setup (Foundation)
+    MOVEMENT 1: Research Setup
     =========================================================================
 
     Establish the research framework and search strategy.
@@ -89,23 +101,23 @@ prompt:
     OUTPUT: Write to {{ workspace }}/01-research-setup.md
     End with: RESEARCH_SETUP_COMPLETE
 
-    {% elif stage == 2 %}
+    {% elif movement == 2 %}
     =========================================================================
-    STAGE 2: Search Domain {{ instance }} of {{ fan_count }}
-    Domain: {{ search_domains[instance] }}
+    MOVEMENT 2: Search — Voice {{ voice }} of {{ voice_count }}
+    Domain: {{ search_domains[voice] }}
     =========================================================================
 
-    NOTE: This runs in PARALLEL with {{ fan_count - 1 }} other search instances.
+    NOTE: This runs in PARALLEL with {{ voice_count - 1 }} other search voices.
 
     Read: {{ workspace }}/01-research-setup.md (for search terms)
 
     TASKS:
-    1. Search the {{ search_domains[instance] }} domain
+    1. Search the {{ search_domains[voice] }} domain
     2. Extract key findings from top 10 relevant sources
     3. Note methodologies and metrics used
     4. Identify gaps specific to this domain
 
-    OUTPUT: Write to {{ workspace }}/02-search-{{ instance }}.md
+    OUTPUT: Write to {{ workspace }}/02-search-{{ voice }}.md
 
     Format each finding as:
     ```
@@ -115,14 +127,14 @@ prompt:
     RELEVANCE: [high/medium/low]
     ```
 
-    End with: SEARCH_{{ instance }}_COMPLETE
+    End with: SEARCH_{{ voice }}_COMPLETE
 
-    {% elif stage == 3 %}
+    {% elif movement == 3 %}
     =========================================================================
-    STAGE 3: Cross-Source Synthesis
+    MOVEMENT 3: Cross-Source Synthesis
     =========================================================================
 
-    Synthesize findings from ALL {{ fan_count }} parallel searches.
+    Synthesize findings from ALL {{ voice_count }} parallel searches.
 
     Read ALL search outputs:
     {% for i in range(1, 4) %}
@@ -145,39 +157,40 @@ prompt:
 
     {% endif %}
 
-# Validations use stage-aware conditions
+# Validations use movement-aware conditions
+# (both "movement" and "stage" work — they are aliases)
 validations:
-  # Stage 1: Setup
+  # Movement 1: Setup
   - type: file_exists
     path: "{workspace}/01-research-setup.md"
-    condition: "stage == 1"
+    condition: "movement == 1"
     description: "Research setup document created"
   - type: content_contains
     path: "{workspace}/01-research-setup.md"
     pattern: "RESEARCH_SETUP_COMPLETE"
-    condition: "stage == 1"
+    condition: "movement == 1"
     description: "Setup marked complete"
 
-  # Stage 2: Each search instance (condition matches all 3 instances)
+  # Movement 2: Each search voice (condition matches all 3 voices)
   - type: file_exists
-    path: "{workspace}/02-search-{instance}.md"
-    condition: "stage == 2"
-    description: "Search output created for this instance"
+    path: "{workspace}/02-search-{voice}.md"
+    condition: "movement == 2"
+    description: "Search output created for this voice"
   - type: content_regex
-    path: "{workspace}/02-search-{instance}.md"
+    path: "{workspace}/02-search-{voice}.md"
     pattern: "SEARCH_\\d+_COMPLETE"
-    condition: "stage == 2"
+    condition: "movement == 2"
     description: "Search marked complete"
 
-  # Stage 3: Synthesis
+  # Movement 3: Synthesis
   - type: file_exists
     path: "{workspace}/03-synthesis.md"
-    condition: "stage == 3"
+    condition: "movement == 3"
     description: "Synthesis document created"
   - type: content_contains
     path: "{workspace}/03-synthesis.md"
     pattern: "SYNTHESIS_COMPLETE"
-    condition: "stage == 3"
+    condition: "movement == 3"
     description: "Synthesis complete"
 
 notifications:

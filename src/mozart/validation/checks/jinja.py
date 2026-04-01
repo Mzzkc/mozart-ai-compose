@@ -168,11 +168,17 @@ class JinjaUndefinedVariableCheck:
         "workspace",
         "stakes",
         "thinking_method",
-        # Fan-out variables (populated when fan_out is configured)
+        "instrument_name",
+        # Fan-out variables — old terminology (kept forever)
         "stage",
         "instance",
         "fan_count",
         "total_stages",
+        # Fan-out variables — new terminology (aliases)
+        "movement",
+        "voice",
+        "voice_count",
+        "total_movements",
         # Cross-sheet context variables
         "previous_outputs",
         "previous_files",

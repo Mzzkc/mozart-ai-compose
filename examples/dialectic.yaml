@@ -13,20 +13,20 @@
 # is forced to engage with resistance. Ideas that survive three
 # hostile readings are worth taking seriously.
 #
-# Execution Flow (4 stages, 7 sheets):
+# Execution Flow (4 movements, 7 sheets):
 #
-#   Stage 1: Thesis (1 sheet)
+#   Movement 1: Thesis (1 sheet)
 #        |
 #        +-----+-----+
 #        v     v     v
-#   Stage 2 x3: Antitheses (3 sheets, parallel)
+#   Movement 2 x3: Antitheses (3 voices, parallel)
 #        |     |     |
 #        +-----+-----+
 #              v
-#   Stage 3: Synthesis (1 sheet)
+#   Movement 3: Synthesis (1 sheet)
 #              |
 #              v
-#   Stage 4: Final Position (1 sheet)
+#   Movement 4: Final Position (1 sheet)
 
 name: "dialectic"
 description: "Thesis-antithesis-synthesis argumentation"

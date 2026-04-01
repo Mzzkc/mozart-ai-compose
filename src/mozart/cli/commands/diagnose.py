@@ -979,14 +979,20 @@ def _build_diagnostic_report(
         "generated_at": datetime.now(UTC).isoformat(),
     }
 
-    # Count actual COMPLETED sheets (accurate for both sequential and parallel
-    # modes, unlike last_completed_sheet which is sequential-only).
-    completed_count = sum(
-        1 for sheet in job.sheets.values() if sheet.status == SheetStatus.COMPLETED
-    )
-    failed_count = sum(
-        1 for sheet in job.sheets.values() if sheet.status == SheetStatus.FAILED
-    )
+    # Count sheets using display status (format_sheet_display_status) so that
+    # COMPLETED+validation_passed=False counts as "failed", matching the
+    # timeline display. Without this, the progress summary says "Completed: 20"
+    # while the timeline shows some of those 20 as "failed" (F-065b).
+    completed_count = 0
+    failed_count = 0
+    for sheet in job.sheets.values():
+        display_label, _ = format_sheet_display_status(
+            sheet.status, sheet.validation_passed
+        )
+        if display_label == "completed":
+            completed_count += 1
+        elif display_label == "failed" or sheet.status == SheetStatus.FAILED:
+            failed_count += 1
     report["progress"] = {
         "total_sheets": job.total_sheets,
         "completed": completed_count,

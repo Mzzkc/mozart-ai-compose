@@ -191,7 +191,7 @@ def run(
     else:
         output_error(
             "Mozart conductor is not running.",
-            hint="Start it with: mozart start",
+            hints=["Start it with: mozart start"],
         )
     raise typer.Exit(1)
 

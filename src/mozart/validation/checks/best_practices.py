@@ -18,10 +18,17 @@ _BUILTIN_NAMES: frozenset[str] = frozenset({
     "total_sheets",
     "start_item",
     "end_item",
+    "instrument_name",
+    # Old terminology (kept forever)
     "stage",
     "instance",
     "fan_count",
     "total_stages",
+    # New terminology (aliases)
+    "movement",
+    "voice",
+    "voice_count",
+    "total_movements",
 })
 
 

@@ -114,6 +114,10 @@ def _generate_starter_score(name: str) -> str:
 
 
 def init(
+    score_name: str | None = typer.Argument(
+        None,
+        help="Score name (e.g. 'my-project'). Same as --name.",
+    ),
     path: Path = typer.Option(
         ".",
         "--path",
@@ -146,11 +150,17 @@ def init(
 
     Examples:
         mozart init
+        mozart init my-project
         mozart init --path ./my-project
         mozart init --name data-pipeline
         mozart init --force
         mozart init --json
     """
+    # Resolve name: positional arg is convenience shorthand for --name.
+    # --name flag takes precedence when both are provided (flag is explicit).
+    if score_name is not None and name == "my-score":
+        name = score_name
+
     # Validate name before touching the filesystem
     name_error = _validate_name(name)
     if name_error:

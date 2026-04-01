@@ -191,3 +191,84 @@ class TestF110BackpressureUX:
 
         assert result.exit_code != 0
         assert "not running" in result.output.lower()
+
+
+# =============================================================================
+# hint= vs hints= API mismatch — Lens M2
+# =============================================================================
+
+
+class TestHintVsHintsAPIMismatch:
+    """output_error() accepts `hints: list[str]`, not `hint: str`.
+
+    Using `hint=` silently routes the value to **json_extras — the hint
+    appears in JSON output but is INVISIBLE in terminal mode. This is
+    the same class of bug as F-110 (Lens M1). Verify that the "not
+    running" fallback shows the start hint in terminal output.
+    """
+
+    @staticmethod
+    def _make_config(tmp_path: Path) -> Path:
+        import yaml
+
+        config = {
+            "name": "test-hint",
+            "backend": {"type": "claude_cli"},
+            "sheet": {"size": 10, "total_items": 10},
+            "prompt": {"template": "test"},
+        }
+        config_path = tmp_path / "test.yaml"
+        with open(config_path, "w") as f:
+            yaml.dump(config, f)
+        return config_path
+
+    def test_not_running_hint_visible_in_terminal(
+        self, tmp_path: Path
+    ) -> None:
+        """The 'mozart start' hint must appear in terminal output."""
+        config_path = self._make_config(tmp_path)
+
+        with patch(
+            "mozart.daemon.detect.is_daemon_available",
+            new_callable=AsyncMock,
+            return_value=False,
+        ):
+            result = runner.invoke(app, ["run", str(config_path)])
+
+        assert result.exit_code != 0
+        # The hint "Start it with: mozart start" must be visible
+        assert "mozart start" in result.output
+
+    def test_not_running_hint_uses_hints_parameter(
+        self, tmp_path: Path
+    ) -> None:
+        """Verify hints= (list) is used, not hint= (goes to json_extras)."""
+        config_path = self._make_config(tmp_path)
+
+        with (
+            patch(
+                "mozart.daemon.detect.is_daemon_available",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
+                "mozart.cli.commands.run.output_error",
+                wraps=__import__(
+                    "mozart.cli.commands.run", fromlist=["output_error"]
+                ).output_error,
+            ) as mock_error,
+        ):
+            result = runner.invoke(app, ["run", str(config_path)])
+
+        assert result.exit_code != 0
+        # output_error must be called with hints= (list), not hint= (str)
+        mock_error.assert_called()
+        _, kwargs = mock_error.call_args
+        # Must use 'hints' key with a list, not 'hint' key
+        assert "hints" in kwargs, (
+            f"output_error called with {kwargs.keys()} — expected 'hints' parameter"
+        )
+        assert isinstance(kwargs["hints"], list)
+        assert "hint" not in kwargs, (
+            "'hint=' goes to **json_extras — invisible in terminal mode"
+        )
