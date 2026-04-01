@@ -153,7 +153,13 @@ async def sheet_task(
     except Exception as exc:
         # Step 6 (exception path): Never crash the baton
         duration = time.monotonic() - start_time
-        error_msg = f"{type(exc).__name__}: {exc}"
+        raw_error_msg = f"{type(exc).__name__}: {exc}"
+        # Redact credentials from exception messages before logging/storing.
+        # Exception text can contain API keys (e.g., auth failures that echo
+        # the key, config loading errors with key values in paths). Without
+        # redaction, credentials propagate to logs, state DB, dashboard,
+        # learning store, and diagnostic output — 6+ storage locations.
+        error_msg = redact_credentials(raw_error_msg) or raw_error_msg
         _logger.error(
             "musician.sheet_task.exception",
             extra={
@@ -544,15 +550,17 @@ async def _validate(
         return passed, total, rate, details
 
     except Exception as exc:
+        # Redact credentials from validation error messages before storing
+        error_text = redact_credentials(str(exc)) or str(exc)
         _logger.warning(
             "musician.validation.error",
             extra={
                 "sheet_num": sheet.num,
-                "error": str(exc),
+                "error": error_text,
             },
         )
         # Validation engine failure — report as 0% to trigger retry
-        return 0, 0, 0.0, {"error": str(exc)}
+        return 0, 0, 0.0, {"error": error_text}
 
 
 def _capture_output(exec_result: ExecutionResult) -> tuple[str, str]:

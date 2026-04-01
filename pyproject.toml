@@ -42,6 +42,11 @@ dependencies = [
 
     # Structured logging
     "structlog>=24.1.0",
+
+    # Security minimum versions — transitive deps with known CVEs (F-061)
+    "cryptography>=46.0.6",   # CVE-2026-34073
+    "pyjwt>=2.12.0",          # CVE-2026-32597
+    "requests>=2.33.0",       # CVE-2026-25645
 ]
 
 [project.optional-dependencies]
