@@ -78,7 +78,7 @@ def top(
         None, "--trace", help="Attach full strace to PID and stream output"
     ),
     filter_job: str | None = typer.Option(
-        None, "--job", "-j", help="Filter by job ID"
+        None, "--score", "-s", help="Filter by score ID"
     ),
     interval: float = typer.Option(
         2.0, "--interval", "-i", help="Refresh interval in seconds"

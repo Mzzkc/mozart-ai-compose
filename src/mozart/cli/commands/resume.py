@@ -254,7 +254,7 @@ def _reconstruct_config(
     output_error(
         "Cannot resume: No config available.",
         hints=[
-            "The job state doesn't contain a config snapshot.",
+            "The score state doesn't contain a config snapshot.",
             "Provide a config file with --config flag.",
         ],
     )

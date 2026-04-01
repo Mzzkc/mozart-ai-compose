@@ -1662,7 +1662,7 @@ def _infer_circuit_breaker_state(job: CheckpointState) -> CircuitBreakerInferenc
 def clear(
     job: list[str] | None = typer.Option(
         None,
-        "--job",
+        "--score",
         "-j",
         help="Specific score ID(s) to clear. Can be repeated.",
     ),
@@ -1685,7 +1685,7 @@ def clear(
         help="Skip confirmation prompt.",
     ),
 ) -> None:
-    """Clear terminal scores from the conductor registry.
+    """Clear completed, failed, and cancelled scores from the conductor registry.
 
     Removes completed, failed, and/or cancelled scores from the conductor's
     tracking. Running and queued scores are never cleared.

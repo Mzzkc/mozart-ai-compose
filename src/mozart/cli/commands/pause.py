@@ -452,9 +452,9 @@ def modify(
         help="Output result as JSON",
     ),
 ) -> None:
-    """Modify a score's configuration and optionally resume execution.
+    """Apply a new configuration to a score and optionally resume execution.
 
-    This is a convenience command that combines pause + config validation.
+    This is a convenience command that combines pause + config update.
     If the score is running, it will be paused first.
     Use --resume to immediately resume with the new configuration.
 
