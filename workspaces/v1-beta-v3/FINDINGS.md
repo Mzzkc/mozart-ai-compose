@@ -1408,3 +1408,23 @@ Each finding should include:
   - **Baton state** (4 tests): cost limit zero, FERMATA deregister, unknown job, unknown sheet.
   - **Parallel edges** (3 tests): all-fail, concurrent success+failure, permanently failed exclusion.
 - **Total adversarial test count:** 215 (27 M1C3 + 64 M4 + 59 M2 + 65 M1). Four complete adversarial passes, two new bugs found (F-128, F-129).
+
+---
+
+## New Findings (Movement 1, Cycle 7 — Newcomer Review)
+
+### F-131: `--conductor-clone` Help Text Misleading About "No Value" Usage
+- **Found by:** Newcomer, Movement 1 (Cycle 7)
+- **Severity:** P3 (low — UX documentation)
+- **Status:** Open
+- **Description:** `--conductor-clone` help says "Pass without value for default clone" but the option is a TEXT type in Typer/Click that consumes the next positional argument. `mozart --conductor-clone start` parses `start` as the clone name (not the subcommand), producing confusing errors. Users must use `=` syntax: `mozart --conductor-clone= start` or `mozart --conductor-clone=name start`.
+- **Impact:** Users following the help text literally get behavior where the command disappears. The workaround (= syntax) is not documented.
+- **Action:** Either change to a boolean flag with separate `--clone-name` parameter, or update help text to require `=` syntax explicitly. Show examples in the help.
+
+### F-132: `--conductor-clone` State DB Isolation May Be Incomplete
+- **Found by:** Newcomer, Movement 1 (Cycle 7)
+- **Severity:** P2 (medium — blocks safe testing)
+- **Status:** Open
+- **Description:** Clone conductor started via `mozart --conductor-clone= start -f` logged `registry.opened path=/home/emzi/.mozart/daemon-state.db` (the production path) and `manager.registry_restored loaded=5` (5 production jobs restored into the clone). Code at `clone.py:112` defines a separate `state_db=mozart_dir / f"clone{tag}-state.db"` but the running clone opened the production DB. Socket isolation (`/tmp/mozart-clone.sock`) works. PID isolation works. State/registry isolation does not appear to work based on the observed log output.
+- **Impact:** If the clone shares the production registry, test jobs submitted to the clone may appear in `mozart list` against the production conductor. Clone testing is not fully safe for state-mutating operations (job submission, status changes). The P0 composer directive to use `--conductor-clone` for all testing may not provide the isolation it promises.
+- **Action:** Investigate whether `build_clone_config()` correctly overrides the registry DB path. If the override is defined but not applied, trace the config loading path to find where the override is lost.
