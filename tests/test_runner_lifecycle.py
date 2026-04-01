@@ -136,6 +136,7 @@ class TestFinalizeSummary:
         runner._summary = None
         state = _make_state()
         runner._finalize_summary(state)  # Should not raise
+        assert runner._summary is None  # Remains None — no-op confirmed
 
     def test_counts_completed(self):
         runner = MockRunner()

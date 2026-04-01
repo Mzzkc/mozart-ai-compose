@@ -245,6 +245,15 @@ def build_sheets(config: JobConfig) -> list[Sheet]:
                 else:
                     resolved_instrument = config.backend.type
 
+        # Resolve score-level instrument aliases to profile names.
+        # If the resolved name matches a key in config.instruments, replace
+        # it with the profile name and merge the InstrumentDef config.
+        if resolved_instrument in config.instruments:
+            instrument_def = config.instruments[resolved_instrument]
+            resolved_instrument = instrument_def.profile
+            if instrument_def.config:
+                instrument_config = {**instrument_config, **instrument_def.config}
+
         instrument_name: str = resolved_instrument
 
         # Per-sheet instrument config overrides everything

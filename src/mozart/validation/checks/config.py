@@ -512,6 +512,11 @@ class InstrumentNameCheck:
         if not known:
             return []
 
+        # Score-level instrument aliases are valid references — they resolve
+        # to profile names at build time via config.instruments[name].profile.
+        score_instruments = set(config.instruments.keys())
+        all_valid = known | score_instruments
+
         issues: list[ValidationIssue] = []
 
         # 1. Top-level instrument: field
@@ -526,7 +531,7 @@ class InstrumentNameCheck:
         # 2. Per-sheet instruments
         if config.sheet.per_sheet_instruments:
             for sheet_num, instr_name in config.sheet.per_sheet_instruments.items():
-                if instr_name not in known:
+                if instr_name not in all_valid:
                     issues.append(self._make_issue(
                         instr_name,
                         f"sheet {sheet_num} instrument",
@@ -537,7 +542,7 @@ class InstrumentNameCheck:
         # 3. Instrument map
         if config.sheet.instrument_map:
             for instr_name in config.sheet.instrument_map:
-                if instr_name not in known:
+                if instr_name not in all_valid:
                     issues.append(self._make_issue(
                         instr_name,
                         "instrument_map entry",
@@ -548,7 +553,7 @@ class InstrumentNameCheck:
         # 4. Movement-level instruments
         if config.movements:
             for mov_num, mov_def in config.movements.items():
-                if mov_def.instrument and mov_def.instrument not in known:
+                if mov_def.instrument and mov_def.instrument not in all_valid:
                     issues.append(self._make_issue(
                         mov_def.instrument,
                         f"movement {mov_num} instrument",
