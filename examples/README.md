@@ -176,13 +176,13 @@ mozart resume [job-name]
 
 ### Running Long Jobs
 
-For jobs that take hours (literature reviews, book authoring), run detached:
+Jobs that take hours (literature reviews, book authoring) run in the conductor — they continue even if you close your terminal:
 
 ```bash
-# Detached execution (survives session changes)
-setsid mozart run examples/nonfiction-book.yaml > book-workspace/mozart.log 2>&1 &
+# Submit the job (returns immediately — the conductor handles execution)
+mozart run examples/nonfiction-book.yaml
 
-# Monitor progress
+# Monitor progress with live updates
 mozart status nonfiction-book --watch
 ```
 
@@ -248,19 +248,21 @@ Quality criteria for your use case:
 
 ```yaml
 validations:
-  # File must exist
+  # File must exist (validation paths use {single_braces}, not {{ double }})
   - type: file_exists
-    path: "{{ workspace }}/output.md"
+    path: "{workspace}/output.md"
 
   # File must contain specific content
   - type: content_contains
-    path: "{{ workspace }}/output.md"
+    path: "{workspace}/output.md"
     pattern: "conclusion"
 
   # Command must succeed
   - type: command_succeeds
-    command: "wc -w {{ workspace }}/output.md | awk '$1 >= 5000'"
+    command: "wc -w {workspace}/output.md | awk '$1 >= 5000'"
 ```
+
+> **Syntax note:** Validation paths use Python format strings (`{workspace}`) — single braces. Prompt templates use Jinja2 (`{{ workspace }}`) — double braces with spaces. See the [Getting Started guide](../docs/getting-started.md#syntax-difference-prompts-vs-validation-paths) for details.
 
 ---
 
@@ -268,8 +270,10 @@ validations:
 
 For detailed Mozart usage, debugging, and configuration:
 
-- **[../skills/mozart-usage.md](../skills/mozart-usage.md)** - Comprehensive Mozart guide
-- **[../CLAUDE.md](../CLAUDE.md)** - Project-specific instructions and debugging protocols
+- **[Score Writing Guide](../docs/score-writing-guide.md)** — Archetypes, fan-out patterns, Jinja2 templates, concert chaining
+- **[CLI Reference](../docs/cli-reference.md)** — All commands and options
+- **[Configuration Reference](../docs/configuration-reference.md)** — Every config field documented
+- **[Daemon Guide](../docs/daemon-guide.md)** — Conductor architecture and troubleshooting
 
 ---
 

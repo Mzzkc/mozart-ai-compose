@@ -382,6 +382,7 @@ Available in prompts and validation paths (see syntax note below):
 | `instance` | `voice` | `1` | Instance within fan-out group |
 | `fan_count` | `voice_count` | `3` | Total instances in stage |
 | `total_stages` | `total_movements` | `7` | Original stage count |
+| `instrument_name` | | `claude-code` | Resolved instrument for this sheet |
 
 > **New terminology:** `movement`, `voice`, `voice_count`, and `total_movements` are aliases for `stage`, `instance`, `fan_count`, and `total_stages`. Both forms work — use whichever reads better in your score.
 
@@ -429,7 +430,7 @@ mozart dashboard --port 3000
 - [Configuration Reference](configuration-reference.md) — Every config field documented
 
 **Explore examples:**
-- [Examples](../examples/) — 30+ working configurations across software, research, writing, and planning
+- [Examples](../examples/) — 35+ working configurations across software, research, writing, and planning
 - [Mozart Score Playspace](https://github.com/Mzzkc/mozart-score-playspace) — Creative showcase with real output: philosophy, worldbuilding, education, and more
 
 **Go deeper:**
