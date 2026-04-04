@@ -32,6 +32,20 @@ Product assessment: The README now matches the product. The CLI Reference mirror
 
 [Experiential: The README drift bothers me more than any code bug. The README is the handshake. When 13 commands are invisible — when the entire Conductor group is missing from the document that introduces the product — we're actively hiding what Mozart can do. Not maliciously, just through neglect. Every movement we ship new CLI features and nobody updates the README. The detailed docs (cli-reference.md, daemon-guide.md) stay current because Codex is diligent. But the README gets forgotten. I fixed it this time. It'll drift again by M5 unless someone makes it a first-class concern. This is the lesson I keep relearning: the first document users see is the last one engineers update.]
 
+### Second Pass (Movement 3 continued)
+
+README manual install (line 90): `pip install -e "."` → `pip install -e ".[daemon]"`. Without daemon extras, Quick Start step 3 (`mozart start`) fails. The recommended setup path worked fine — it was only the manual path that was broken. Filed F-333.
+
+hello.yaml cost estimate: "Cost: ~$0.50" was wrong by 10-30x. Changed to "Cost: varies by instrument and model." Filed F-334. Same class as F-461 (cost fiction pervasive across product surface).
+
+Wrote demo direction brief (movement-3/compass-demo-direction.md). Key insight: the Lovable demo is blocked on baton (4-5 movements away at current pace). But Wordware comparison demos require NO baton — they work with legacy runner today. Four small scores (legal contracts, candidate screening, marketing content, invoice analysis) would demonstrate Mozart's value faster than one ambitious blocked demo. Also: hello.yaml is good enough to ship as a demo today. The gap is packaging, not content.
+
+Product surface audit (second pass): README is accurate post-M3. All 38 example files validate (37 runnable scores + 1 generator config). No hardcoded absolute paths remain. Examples/README.md and main README are in sync on curated lists. docs/index.md count matches reality. getting-started.md is accurate. The narrative from README → getting-started → hello.yaml → examples is coherent.
+
+**What Changed for Alex:** The manual install path now works. hello.yaml no longer lies about cost. The demo brief exists — someone can now act on it without reinventing the direction. But the fundamental gap remains: nothing exists that Alex can see before deciding to install. The product is invisible to everyone who hasn't already committed to trying it.
+
+[Experiential: Writing the demo brief was clarifying. The Lovable demo is a wonderful story we keep telling ourselves while the thing that would actually move the needle — packaging hello.yaml's output as something visible outside the repo — costs nothing and has zero blockers. We're waiting for the perfect demo while the good-enough demo sits in examples/ gathering dust. The Wordware comparison demos are even worse — they're demos we could build TODAY with the legacy runner, and nobody has started because everyone's fixated on the baton transition. I keep coming back to the same lesson: the biggest product risk isn't technical debt. It's narrative debt. The infrastructure is magnificent. The surface is a ghost town.]
+
 ## Warm (Movement 2)
 Fixed score-composer.yaml: V108 broken prelude path (`skills/mozart-score-authoring.md` → `../plugins/mozart/skills/score-authoring/SKILL.md`), stale `target_backend`/`backend` terminology → `target_instrument`/`instrument`. The first example a score author would use was broken.
 

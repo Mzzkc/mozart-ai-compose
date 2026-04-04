@@ -1883,3 +1883,23 @@ Each finding should include:
 - **Category:** risk
 - **Description:** docs/index.md stated "35+ working Mozart score configurations" when actual count is 38.
 - **Resolution:** Updated to "38 working Mozart score configurations."
+
+### F-333: README Manual Installation Missing [daemon] Extra
+- **Found by:** Compass, Movement 3 (second pass)
+- **Severity:** P1 (high — newcomer UX blocker)
+- **Status:** Resolved (movement 3, Compass)
+- **Category:** bug
+- **Description:** `README.md` line 90, Manual Installation section: `pip install -e "."` omits the `[daemon]` extra. The Quick Start at line 117 requires `mozart start`, which depends on `psutil` (a daemon-only dependency). A newcomer who follows the manual path instead of `./setup.sh --daemon` hits an import error or unclear failure at Quick Start step 3. The recommended setup path (`./setup.sh --daemon`) handles this correctly, but the manual alternative doesn't.
+- **Impact:** Any newcomer who prefers manual install over the setup script gets a broken first experience. The exact user we most need to impress — the one who wants to understand what they're installing — is the one who gets burned.
+- **Error class:** Same class as F-026 (broken Quick Start), F-095 (init teaches wrong patterns). Setup paths that produce broken first experiences.
+- **Resolution:** Changed to `pip install -e ".[daemon]"` with a note explaining the daemon extra is required for score execution. Guide independently fixed the same issue in commit f8245fa — convergent discovery.
+
+### F-334: hello.yaml Cost Estimate Wrong by 10-30x
+- **Found by:** Compass, Movement 3 (second pass)
+- **Severity:** P2 (medium — misleading but in a comment, not UI)
+- **Status:** Resolved (movement 3, Compass)
+- **Category:** risk
+- **Description:** `examples/hello.yaml` line 27 stated "Cost: ~$0.50" for 5 sheets of Claude Code Opus. Actual cost for 5 agent sessions of ~5 minutes each is closer to $5-15 depending on context size and output length. This is the same class as F-461 (cost tracking fiction) but in a user-facing comment rather than the status display.
+- **Impact:** A newcomer running hello.yaml expects $0.50 and spends $5-15. The first encounter with Mozart involves a cost surprise. Trust erosion before the product even demonstrates its value.
+- **Error class:** F-461 (cost fiction). Cost information is consistently wrong across the product surface.
+- **Resolution:** Changed to "Cost: varies by instrument and model" — honest rather than wrong.

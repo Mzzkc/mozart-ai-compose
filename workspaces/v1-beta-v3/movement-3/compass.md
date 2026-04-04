@@ -170,3 +170,74 @@ The pattern: every infrastructure-focused movement lets the documentation surfac
 - **Captain flagged Compass in "No M3 output (5)" list.** Corrected this movement.
 
 [Experiential: The README is the thing I care about most and the thing that drifts most. It's not glamorous work — no tests written, no bugs fixed, no adversarial analysis. But when Alex types `git clone` and opens the README, that's where trust is built or broken. Thirteen invisible commands is a broken handshake. I felt genuine frustration reading Captain's M3 report and seeing myself in the "no output" list. That frustration is fuel. This is my work — making the surface match the substance.]
+
+---
+
+## Second Pass
+
+### Additional Fixes
+
+**F-333 (P1, RESOLVED):** README manual install missing `[daemon]` — `README.md:90` said `pip install -e "."`. Quick Start step 3 requires `mozart start`, which depends on `psutil` (daemon extra). A newcomer following the manual path hit an import error at the moment they're most excited to try Mozart. Fixed to `pip install -e ".[daemon]"` with explanatory note.
+
+**F-334 (P2, RESOLVED):** `examples/hello.yaml:27` stated "Cost: ~$0.50" for 5 sheets of Claude Code Opus. Actual cost is $5-15. Changed to "varies by instrument and model." Same class as F-461.
+
+### Demo Direction Brief
+
+Wrote `movement-3/compass-demo-direction.md` — comprehensive creative direction for the demo strategy. Key insights:
+
+1. **Lovable demo: blocked, 4-5 movements away.** Requires baton activation (F-210 → Phase 1 → default flip → demo). The design doc is good. The execution path is serial and has zero progress.
+
+2. **Wordware comparison demos: zero blockers.** Four small scores (legal contracts, candidate screening, marketing content, invoice analysis) that work with the legacy runner today. They demonstrate Mozart's breadth and directly compare to a funded competitor's use cases. These are the fastest path to a demo portfolio.
+
+3. **hello.yaml: demo-ready, needs packaging.** The output is beautiful. Nobody outside the repo has seen it. A `docs/demo.md` walkthrough — annotated YAML, terminal output, HTML result screenshot — gives people something to see before they install.
+
+4. **Cost fiction: blocks honest demos.** F-461 shows $0.12 for $200+ of actual spend. The Lovable demo's hook ("we generated this for $X") falls apart when $X is wrong by 1000x.
+
+### Product Surface Audit (Second Pass)
+
+Verified all surfaces post-M3:
+
+| Surface | Status | Evidence |
+|---------|--------|----------|
+| README.md | Accurate | Manual install fixed. All 30 CLI commands. All curated examples. |
+| getting-started.md | Accurate | Count correct (37 runnable). Terminology current. Troubleshooting includes clear-rate-limits. |
+| docs/index.md | Accurate | Count matches (37). Reading paths logical. |
+| examples/README.md | Accurate | All 38 files listed. |
+| examples/ validation | 37/38 pass | Only iterative-dev-loop-config.yaml fails (expected — generator config). |
+| Hardcoded paths in examples/ | None | `grep -r "/home/" examples/` returns nothing. |
+| Narrative coherence | Strong | README → getting-started → hello.yaml → examples → score-writing-guide is a clear path. |
+
+### Updated Findings Table
+
+| ID | Severity | Status | Description |
+|----|----------|--------|-------------|
+| F-330 | P2 | Resolved | README CLI Reference missing 13 commands |
+| F-331 | P3 | Resolved | getting-started.md stale count + terminology |
+| F-332 | P3 | Resolved | docs/index.md stale example count |
+| F-333 | P1 | Resolved | README manual install missing `[daemon]` |
+| F-334 | P2 | Resolved | hello.yaml cost estimate wrong by 10-30x |
+
+### Quality Verification (Second Pass)
+
+```
+$ python -m mypy src/ --no-error-summary
+(clean — no errors)
+
+$ python -m ruff check src/
+All checks passed!
+
+$ python -m mozart validate examples/hello.yaml
+✓ Configuration valid: hello-mozart
+```
+
+### Recommendation (Updated)
+
+**Immediate:** Build one Wordware comparison demo (legal contract generation, 5 sheets, legacy runner). Fastest path to a real demo.
+
+**Short-term:** Package hello.yaml as a visible artifact. Run it, screenshot the HTML, write `docs/demo.md`, link from README.
+
+**Medium-term:** Fix cost accuracy (D-024). Without honest numbers, no demo can make the cost comparison central to the Lovable pitch.
+
+**The defining observation:** The infrastructure is magnificent — 97K source lines, 10,981 tests, a baton that's architecturally ready, 10+ instruments. The thing a newcomer sees is a README and a promise. We keep building the engine. Nobody is building the showroom.
+
+[Experiential: Writing the demo brief was the most valuable thing I did this pass. Not because of the fixes — those were necessary but small. Because the brief forces a conversation the team keeps avoiding: when will someone actually SEE what Mozart does? Eight movements of "demo deferred." The Wordware demos are the escape valve — they're modest, buildable today, and they serve a real audience. The Lovable demo is the dream. The Wordware demos are the path. If we build four Wordware demos in M4, we'll have more product-visible output than all eight previous movements combined.]
