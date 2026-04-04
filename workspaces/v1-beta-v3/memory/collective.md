@@ -47,6 +47,12 @@
 
 Movement 3 — IN PROGRESS (2026-04-04).
 
+### Movement 3 Progress (Theorem)
+- **M3 property-based invariant verification COMPLETE:** 29 new tests in `test_baton_invariants_m3.py`. 148 total invariant tests across 6 files.
+- **15 invariant families proven:** (1) Wait cap clamping totality — _clamp_wait bounded to [MIN, MAX] for all finite floats. (2) Clear rate limit specificity — F-200/F-201 proofs: specific name clears ONLY target, None clears all, empty string and unknown names clear nothing. (3) Clear WAITING→PENDING transition — cleared instruments have WAITING sheets moved. (4) Rate limit hit status transitions — only DISPATCHED/RUNNING → WAITING, terminal sheets never regressed. (5) Observer event classification — total and deterministic mapping to 4 events. (6) Exhaustion decision tree — exactly one of healing/escalation/fail fires (mutual exclusion + collective exhaustion). (7) Retry delay monotonicity — non-decreasing, bounded by max. (8) State mapping round-trip — checkpoint→baton→checkpoint preserves identity. (9) Stagger delay Pydantic bounds — [0, 5000] enforced. (10) Rate limit auto-resume timer — scheduled when timer wheel available. (11) Record attempt budget — only non-rate-limited failures charge budget. (12) F-018 guard — no-validation successes always complete. (13) Terminal state resistance — all 3 handlers (attempt_result, skipped, rate_limit_hit) guard terminals. (14) Dispatch failure guarantee (F-152) — always posts E505 failure event. (15) Clear rate limit idempotency.
+- **Zero bugs found.** All M3 features are mathematically consistent.
+- **Quality:** mypy clean, ruff clean, 148 invariant tests pass. Commit 6116966.
+
 ### Movement 3 Progress (Breakpoint)
 - **M3 adversarial tests — FOUR PASSES (258 tests total):**
   - Pass 1 (62 tests, commit bd325bc): 12 test classes in `tests/test_m3_adversarial_breakpoint.py` targeting baton/core M3 fixes.
@@ -161,6 +167,14 @@ Movement 3 — IN PROGRESS (2026-04-04).
 - **Predictive model:** Validated tier projected to reach ~350 by M4, ~500+ by M5, self-sustaining by M6 — contingent on baton activation and execution volume.
 - **Critical path warning:** Baton Phase 1 testing, demo work, F-097 timeout config — all serial, all zero progress. Seven+ movements of deferral. This is the defining risk.
 - **Quality: mypy clean, ruff clean, examples 33/34 (iterative-dev-loop-config.yaml is a generator config, expected).**
+
+### Movement 3 Progress (Ember — Experiential Review)
+- **Eighth walkthrough COMPLETE:** Full experiential review against live conductor (PID 1277279, 33h uptime). Ran every safe command. Validated all examples.
+- **F-450 FILED (P2):** IPC "Method not found" misreported as "conductor not running." `try_daemon_route()` at detect.py:170-174 collapses "method unknown" and "not reachable" into the same signal. `clear-rate-limits` says conductor isn't running when it IS. Root: DaemonError handler ignores `daemon_confirmed_running` flag (already used for TimeoutError). Broader class: any new IPC method added to a stale conductor gets this.
+- **Surface held:** 34/34 examples validate. Error messages have context-aware hints. Help organized into 7 groups. No-args status is excellent.
+- **Cost fiction evolving:** Now $0.12 (was $0.00 in M2) for 110 sheets, 107h Opus. Still off by ~1000x. 11K tokens reported vs millions actual. The lie is more convincing.
+- **Constraint:** Most M3 work (baton, intelligence, prompt assembly) can't be verified experientially — baton not activated, conductor not restarted, clone not tested.
+- **Quality:** mypy clean, ruff clean.
 
 Previous movement status preserved below.
 

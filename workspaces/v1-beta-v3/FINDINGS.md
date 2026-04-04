@@ -1778,3 +1778,15 @@ Each finding should include:
 - **Impact:** Minor — empty string instrument names are unlikely in practice, but the pattern is dangerous: any falsy input silently escalates to "clear all" behavior.
 - **Resolution:** Changed `if instrument:` to `if instrument is not None:` at `core.py:271`. Empty string now routes to the specific-instrument lookup, finds nothing, returns 0. Regression test in `test_m3_pass4_adversarial_breakpoint.py::TestF200Regression::test_empty_string_instrument_returns_zero`.
 - **Error class:** Truthiness-vs-identity guard. Same root cause as F-200 — using `if X:` when `if X is not None:` is needed to distinguish "no argument" from "bad argument."
+
+
+### F-450: IPC "Method Not Found" Misreported as "Conductor Not Running"
+- **Found by:** Ember, Movement 3
+- **Severity:** P2 (medium — misleading error for every new IPC method added to a stale conductor)
+- **Status:** Open
+- **Category:** bug
+- **Description:** `try_daemon_route()` at `src/mozart/daemon/detect.py:170-174` catches `DaemonError` (which includes "Method not found: daemon.clear_rate_limits") and returns `(False, None)` — the same signal as "daemon not reachable." The function already tracks `daemon_confirmed_running` at line 110 and uses it to differentiate TimeoutError (lines 113-122). But the DaemonError handler at line 170 ignores this flag, treating "method not found on a running daemon" identically to "daemon not reachable."
+- **Reproducer:** Start conductor from M2 code. Upgrade CLI to M3 code (with clear-rate-limits). Run `mozart clear-rate-limits`. Get: "Error: Mozart conductor is not running" while `mozart conductor-status` confirms it IS running.
+- **Impact:** Trust-destroying inconsistency. User is told to start the conductor when it is already running. Broader: any CLI command added after a long-running conductor (or after a CLI upgrade without daemon restart) will give the same misleading error. Users upgrading Mozart without restarting their conductor will hit this for every new IPC method.
+- **Action:** In the DaemonError catch at detect.py:170-174, check `daemon_confirmed_running`. If True, raise a descriptive DaemonError ("Conductor is running but does not support method X — restart the conductor to load new features") instead of returning `(False, None)`.
+- **Error class:** Signal collapse — two distinct error states (not reachable vs. unsupported method) mapped to the same return value. Same pattern as the TimeoutError handler, which was already fixed.
