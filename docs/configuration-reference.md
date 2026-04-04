@@ -63,7 +63,7 @@ and constraints are extracted directly from the Pydantic v2 config models in
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `name` | `str` | **required** | Unique job name |
+| `name` | `str` | **required** | Unique score name |
 | `description` | `str \| None` | `None` | Human-readable description |
 | `workspace` | `Path` | `./workspace` | Output directory. Resolved to absolute path at construction time. |
 | `instrument` | `str \| None` | `None` | Named instrument to use (e.g., `claude-code`, `gemini-cli`). Alternative to `backend.type`. Run `mozart instruments list` to see available instruments. Cannot be used together with `backend`. |
@@ -173,7 +173,7 @@ movements:
 
 *Source: `src/mozart/core/config/workspace.py` — `WorkspaceLifecycleConfig`*
 
-Controls how workspace files are handled across job iterations, particularly for self-chaining jobs that reuse the same workspace.
+Controls how workspace files are handled across score iterations, particularly for self-chaining scores that reuse the same workspace.
 
 | Field | Type | Default | Constraints | Description |
 |-------|------|---------|-------------|-------------|
@@ -618,7 +618,7 @@ Prevents runaway costs by tracking token usage. When enabled, at least one of `m
 |-------|------|---------|-------------|-------------|
 | `enabled` | `bool` | `false` | | Enable cost tracking and limit enforcement |
 | `max_cost_per_sheet` | `float \| None` | `None` | `> 0` | Maximum cost per sheet in USD |
-| `max_cost_per_job` | `float \| None` | `None` | `> 0` | Maximum cost for entire job in USD |
+| `max_cost_per_job` | `float \| None` | `None` | `> 0` | Maximum cost for entire score in USD |
 | `cost_per_1k_input_tokens` | `float` | `0.003` | `> 0` | Cost per 1000 input tokens (Claude Sonnet default: $0.003) |
 | `cost_per_1k_output_tokens` | `float` | `0.015` | `> 0` | Cost per 1000 output tokens (Claude Sonnet default: $0.015) |
 | `warn_at_percent` | `float` | `80.0` | `> 0`, `<= 100` | Emit warning at this percentage of limit |
@@ -779,7 +779,7 @@ validations:
 
 *Source: `src/mozart/core/config/workspace.py` — `IsolationConfig`*
 
-Git worktree isolation for parallel-safe job execution. Each job runs in an isolated git working directory.
+Git worktree isolation for parallel-safe score execution. Each score runs in an isolated git working directory.
 
 | Field | Type | Default | Constraints | Description |
 |-------|------|---------|-------------|-------------|
@@ -788,8 +788,8 @@ Git worktree isolation for parallel-safe job execution. Each job runs in an isol
 | `worktree_base` | `Path \| None` | `None` | | Directory for worktrees. `None` resolves to `<repo>/.worktrees` at runtime. |
 | `branch_prefix` | `str` | `"mozart"` | Pattern: `^[a-zA-Z][a-zA-Z0-9_-]*$` | Prefix for worktree branch names. Format: `{prefix}/{job-id}` |
 | `source_branch` | `str \| None` | `None` | | Branch to base worktree on. Default: current branch (HEAD). |
-| `cleanup_on_success` | `bool` | `true` | | Remove worktree after successful job completion |
-| `cleanup_on_failure` | `bool` | `false` | | Remove worktree when job fails. Default `false` for debugging. |
+| `cleanup_on_success` | `bool` | `true` | | Remove worktree after successful score completion |
+| `cleanup_on_failure` | `bool` | `false` | | Remove worktree when score fails. Default `false` for debugging. |
 | `lock_during_execution` | `bool` | `true` | | Lock worktree during execution with `git worktree lock` |
 | `fallback_on_error` | `bool` | `true` | | Continue without isolation if worktree creation fails |
 

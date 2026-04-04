@@ -267,7 +267,7 @@ marked with **(required)**.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `name` | str | **(required)** | Unique job identifier. Used in status commands and state files. |
+| `name` | str | **(required)** | Unique score identifier. Used in status commands and state files. |
 | `description` | str | `null` | Human-readable description of what this score does. |
 | `workspace` | Path | `./workspace` | Output directory. Resolved to absolute path at parse time. |
 | `state_backend` | `"json"` \| `"sqlite"` | `"sqlite"` | Storage backend for checkpoint state. |
@@ -1107,7 +1107,7 @@ finds unexpected coherence.
 
 ## Movements and Multi-Instrument Scores
 
-Mozart scores can use multiple instruments in a single job. Different movements or
+Mozart scores can use multiple instruments in a single score. Different movements or
 individual sheets can each use the instrument best suited to their task — a planning
 phase on a deep-reasoning model, parallel implementation on a fast code model, review
 on a different provider entirely.
@@ -1760,7 +1760,7 @@ spec:
 ```
 
 When `spec_dir` is set, Mozart loads all YAML and Markdown files from that
-directory at job start and injects their content into agent prompts as an
+directory at score start and injects their content into agent prompts as an
 "Injected Context" section.
 
 ### Per-Sheet Tag Filtering
@@ -1796,7 +1796,7 @@ tag list `[]` also returns all fragments.
 | Files that change between runs | Prelude with Jinja paths |
 
 The spec corpus is for **stable project knowledge** that applies across many
-scores. Preludes are for **score-specific context** that varies per job.
+scores. Preludes are for **score-specific context** that varies per score.
 
 ---
 
@@ -1847,7 +1847,7 @@ all grounding hook types and options.
 ## Concert Chaining and Hooks
 
 Concerts enable scores to chain together — each score spawning the next
-on success, creating multi-job workflows.
+on success, creating multi-score workflows.
 
 ### Post-Success Hooks
 
@@ -1887,13 +1887,13 @@ on_success:
 |-------|------|---------|-------------|
 | `detached` | bool | `false` | For `run_job`: spawn and don't wait. Routes through daemon IPC when available, falls back to subprocess. |
 | `fresh` | bool | `false` | For `run_job`: pass `--fresh` to clear previous state. Required for self-chaining. |
-| `inherit_learning` | bool | `true` | Share outcome store with parent job. |
+| `inherit_learning` | bool | `true` | Share outcome store with parent score. |
 | `on_failure` | `"continue"` \| `"abort"` | `"continue"` | What to do if hook fails. |
 | `timeout_seconds` | float | `300.0` | Maximum hook execution time. |
 
 ### Concert Configuration
 
-Enable concert mode for multi-job chaining:
+Enable concert mode for multi-score chaining:
 
 ```yaml
 concert:
@@ -1921,7 +1921,7 @@ concert:
 
 ### Conductor Configuration
 
-Identify who is conducting the job:
+Identify who is conducting the score:
 
 ```yaml
 conductor:
@@ -1978,7 +1978,7 @@ For long-running scores, use `setsid` to create an independent session:
 setsid mozart run my-score.yaml > workspace/mozart.log 2>&1 &
 
 # Monitor progress
-mozart status my-job --watch
+mozart status my-score --watch
 tail -f workspace/mozart.log
 ```
 
@@ -2127,8 +2127,8 @@ recommended syntax for new scores. The migration is straightforward.
 **Before:**
 
 ```yaml
-name: my-job
-workspace: ../workspaces/my-job
+name: my-score
+workspace: ../workspaces/my-score
 
 backend:
   type: claude_cli
@@ -2142,8 +2142,8 @@ backend:
 **After:**
 
 ```yaml
-name: my-job
-workspace: ../workspaces/my-job
+name: my-score
+workspace: ../workspaces/my-score
 
 instrument: claude-code
 instrument_config:
