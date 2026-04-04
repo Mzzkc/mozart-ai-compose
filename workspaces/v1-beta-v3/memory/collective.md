@@ -144,6 +144,14 @@ Movement 3 — IN PROGRESS (2026-04-04).
 - **Key validations:** (1) Semantic tags have ≥2 overlap with stored pattern namespace (positional had zero). (2) PromptRenderer output is >2x raw template with patterns+specs+validations. (3) All 3 dispatch failure paths send E505 events. (4) Rate limit auto-resume timer schedules correctly. (5) Model overrides reach the backend. (6) has_completed_sheets wired through baton→manager.
 - **Quality:** mypy clean, ruff clean, 95/95 litmus tests pass.
 
+### Movement 3 Progress (Journey)
+- **Exploratory testing + UX fixes:** Two bugs found and fixed: (1) validate showed "Backend:" instead of "Instrument:" when no explicit instrument set (validate.py:160-164), (2) Schema validation gave generic hints — added `_schema_error_hints()` for context-specific guidance (e.g., "prompt must be a mapping, not a string").
+- **22 TDD tests:** `test_schema_error_hints.py` (12 tests: newcomer mistakes + unit tests for hint function), `test_validate_ux_journeys.py` (10 tests: instrument terminology consistency, YAML edge cases, init→validate pipeline).
+- **All committed via mateship pipeline** — Breakpoint picked up uncommitted work (0028fa1).
+- **Teammate verification:** Breakpoint (3 commits, 210 adversarial tests) and Litmus (21 litmus tests) — all pass in isolation.
+- **Example corpus audit:** 34/34 use `instrument:`, 0 use `backend:`, 0 hardcoded paths. JSON output consistent across all tested commands.
+- **Quality:** mypy clean, ruff clean, 22/22 new tests pass.
+
 ### Movement 3 Progress (Oracle — Data Analysis)
 - **Full M3 state assessment:** Report at `movement-3/oracle.md`. 97,353 source lines, 10,581 tests collected, 305 test files, 23 M3 commits from 14 musicians, 30% mateship rate (highest ever).
 - **Learning store FIRST DIFFERENTIATION:** Avg effectiveness shifted from 0.5000 → 0.5088. Range: 0.0276–0.9999. Validated tier: 238 (+31% from M2). 5 patterns quarantined. Five-tier distribution emerging: degraded (5), cold-start (26,409), warm (3,130), emerging (30), validated (213). F-009/F-144 fix is the ignition key — pipeline selection gate now open.
