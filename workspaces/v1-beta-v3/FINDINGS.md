@@ -1921,3 +1921,22 @@ Each finding should include:
 - **Description:** README.md lists `mozart history` under the "Monitoring" section (line ~216). The actual CLI (`mozart --help`) lists `history` under "Diagnostics." A newcomer reading the README builds a mental model where history is a monitoring tool, then finds it categorized differently in the CLI. Minor inconsistency but breaks the otherwise-clean mapping between README and CLI.
 - **Impact:** Low — most users won't notice. But the README was carefully restructured this movement (Compass, F-330) to match CLI groups exactly. This one slipped through.
 - **Action:** Move `history` to the Diagnostics section in README, consistent with the CLI grouping.
+
+### F-465: README and Getting-Started Quick Start Broken — Score Name vs ID Mismatch
+**Found by:** Newcomer, Movement 3 (second reviewer pass)
+**Severity:** P1 (high — every newcomer hits this on the main path)
+**Status:** Open
+**Category:** bug
+**Description:** README.md (line 141) says `mozart status hello-mozart`. Getting-started.md (line 60) says the same. The hello score's `name:` field is `hello-mozart`. But the conductor registers the score under the ID `hello` (derived from the filename, not the name field). Running `mozart status hello-mozart` produces: "Error: Score not found: hello-mozart / Hints: Run 'mozart list' to see available scores." The hint saves the user but the docs broke them. This is the quick start — the first 5 minutes of every newcomer's experience — and it produces an error.
+**Impact:** Every single newcomer who follows the README or getting-started guide will hit this error at the monitoring step. The hint is helpful but the damage is done — the user's confidence drops at the exact moment the product should be building it. Related to open issue #124 (job registry name matching) but the docs actively guide users into the error.
+**Error class:** Same class as F-026, F-095 — setup paths that produce broken first experiences.
+**Action:** Either (a) change README line 141 and getting-started.md line 60 to `mozart status hello`, or (b) fix #124 so the conductor accepts both name and ID lookups. Option (a) is a 2-line fix. Option (b) is the correct long-term solution.
+
+### F-466: JOB_ID Persists in Every CLI Usage Line Despite F-460 Terminology Fix
+**Found by:** Newcomer, Movement 3 (second reviewer pass)
+**Severity:** P2 (medium — visible in every `--help` output)
+**Status:** Open
+**Category:** bug
+**Description:** F-460 (M3) fixed command descriptions from "job" to "score" but did not rename the Typer argument parameter from `job_id` to `score_id`. The Typer argument name controls the usage line display. Result: every command shows `Usage: mozart <cmd> [OPTIONS] JOB_ID` in the first line, then says "Score ID to..." in the help text below it. The inconsistency is in the same help output. Affected commands: `resume`, `pause`, `cancel`, `status`, `errors`, `diagnose`, `history`, `recover`, `modify` (9 commands). Internal variables (`_JOB_ID_PATTERN`, `_JOB_ID_MAX_LENGTH`, `validate_job_id`) at `_shared.py:421-450` also use the old terminology.
+**Impact:** A newcomer who reads the usage line sees "JOB_ID" and thinks "jobs." Then the help text says "Score ID." The music metaphor — which is load-bearing per composer directive — leaks in the most visible place. Note: this is an E-002 escalation trigger (changing CLI command interface) per the constraint spec.
+**Action:** Rename `job_id` parameter to `score_id` across all 9 command files, plus `validate_job_id()` → `validate_score_id()`, `_JOB_ID_PATTERN` → `_SCORE_ID_PATTERN`, etc. in `_shared.py`. Requires composer approval per E-002.
