@@ -10,22 +10,22 @@
 # The key bet: if you give 5 creators the same seed but different domains,
 # the constraints they independently invent will *rhyme* — because good
 # worldbuilding is internally consistent even when no one is coordinating.
-# The synthesis stage's job is to find those rhymes and make them sing.
+# The synthesis movement's job is to find those rhymes and make them sing.
 #
-# Execution Flow (4 stages, 9 sheets):
+# Execution Flow (4 movements, 9 sheets):
 #
-#   Stage 1: The Seed (1 sheet)
+#   Movement 1: The Seed (1 sheet)
 #        |
 #        +----+----+----+----+
 #        v    v    v    v    v
-#   Stage 2 x5: Five Lenses (5 sheets, parallel)
+#   Movement 2 x5: Five Lenses (5 voices, parallel)
 #        |    |    |    |    |
 #        +----+----+----+----+
 #                  v
-#   Stage 3: Synthesis — The Living World (1 sheet)
+#   Movement 3: Synthesis — The Living World (1 sheet)
 #                  |
 #                  v
-#   Stage 4: The World Bible (1 sheet)
+#   Movement 4: The World Bible (1 sheet)
 #
 
 name: "worldbuilder"
@@ -37,6 +37,17 @@ instrument: claude-code
 instrument_config:
   timeout_seconds: 1800
 
+# Movement declarations — names appear in `mozart status` output
+movements:
+  1:
+    name: "The Seed"
+  2:
+    name: "Five Lenses"
+  3:
+    name: "Synthesis"
+  4:
+    name: "World Bible"
+
 sheet:
   size: 1
   total_items: 4
@@ -46,6 +57,10 @@ sheet:
     2: [1]
     3: [2]
     4: [3]
+
+parallel:
+  enabled: true
+  max_concurrent: 5
 
 cross_sheet:
   auto_capture_stdout: true
@@ -150,10 +165,10 @@ prompt:
     {% endmacro %}
 
     {% if stage == 1 %}
-    {{ world_header("The Seed", "Stage 1 — Establishing the Foundation") }}
+    {{ world_header("The Seed", "Movement 1 — Establishing the Foundation") }}
 
     You are the architect of a fictional world. Your job in this first
-    stage is to take the seed concept and expand it into a foundational
+    movement is to take the seed concept and expand it into a foundational
     document that will guide five parallel worldbuilders.
 
     {{ seed_summary() }}
@@ -187,7 +202,7 @@ prompt:
 
     {% elif stage == 2 %}
     {% set lens = lenses[instance] %}
-    {{ world_header(lens.title, "Stage 2 — " ~ lens.name | capitalize ~ " Lens") }}
+    {{ world_header(lens.title, "Movement 2, Voice " ~ instance ~ " — " ~ lens.name | capitalize ~ " Lens") }}
 
     You are one of five parallel worldbuilders, each developing a
     different dimension of the same world. You work from the seed —
@@ -196,7 +211,7 @@ prompt:
     weave together.
 
     {% if previous_outputs[1] is defined %}
-    ## Foundation (from Stage 1)
+    ## Foundation (from Movement 1)
     {{ previous_outputs[1] | truncate(2000) }}
     {% endif %}
 
@@ -226,7 +241,7 @@ prompt:
     This is creative worldbuilding, not technical specification.
 
     {% elif stage == 3 %}
-    {{ world_header("The Living World", "Stage 3 — Synthesis") }}
+    {{ world_header("The Living World", "Movement 3 — Synthesis") }}
 
     Five parallel worldbuilders have independently developed different
     dimensions of {{ world_seed.name }}. Your job is the hardest and
@@ -275,7 +290,7 @@ prompt:
     whole manuscript for the first time. Let your excitement show.
 
     {% elif stage == 4 %}
-    {{ world_header("World Bible", "Stage 4 — The Complete Reference") }}
+    {{ world_header("World Bible", "Movement 4 — The Complete Reference") }}
 
     Everything has been created. Now compile it into a single,
     authoritative reference document that a writer, game designer,

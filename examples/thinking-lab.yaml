@@ -14,17 +14,17 @@
 #   EXP  — Experiential: felt, embodied, phenomenological
 #   META — Meta-cognitive: recursive, self-aware, assumption-examining
 #
-# Execution Flow (3 stages, 8 concrete sheets):
+# Execution Flow (3 movements, 8 concrete sheets):
 #
-#   Stage 1: Framing (sheet 1)
+#   Movement 1: Framing (sheet 1)
 #        |
 #        +----+----+----+----+
 #        v    v    v    v    v
-#   Stage 2 x5: Perspectives (sheets 2-6)
+#   Movement 2 x5: Perspectives (5 voices, parallel)
 #        |    |    |    |    |
 #        +----+----+----+----+
 #                 v
-#   Stage 3: Dialectic Synthesis (sheet 7)
+#   Movement 3: Dialectic Synthesis (sheet 7)
 #
 # The synthesis stage doesn't summarize. It finds where the lenses
 # DISAGREE — because that's where the interesting thinking lives.
@@ -43,6 +43,15 @@ workspace: "../workspaces/thinking-lab-workspace"
 instrument: claude-code
 instrument_config:
   timeout_seconds: 1800
+
+# Movement declarations — names appear in `mozart status` output
+movements:
+  1:
+    name: "Framing"
+  2:
+    name: "Perspectives"
+  3:
+    name: "Dialectic Synthesis"
 
 sheet:
   size: 1
@@ -176,7 +185,7 @@ prompt:
 
     ## Framing Context
     Read the framing document at {{ workspace }}/01-framing.md for the
-    decomposition, assumptions, and boundaries established in stage 1.
+    decomposition, assumptions, and boundaries established in movement 1.
 
     ## Your Angle
     {{ lens.seed }}

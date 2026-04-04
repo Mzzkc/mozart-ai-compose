@@ -10,15 +10,15 @@
 # This replaces the write-plan → execute-plan → verify workflow.
 # Mozart orchestrates its own implementation.
 #
-# Execution Flow (4 stages, 5 sheets):
+# Execution Flow (4 movements, 4 sheets):
 #
-#   Stage 1: Design Analysis (1 sheet)
+#   Movement 1: Design Analysis (1 sheet)
 #        |
-#   Stage 2: Task Decomposition (1 sheet)
+#   Movement 2: Task Decomposition (1 sheet)
 #        |
-#   Stage 3: Score Composition (1 sheet)
+#   Movement 3: Score Composition (1 sheet)
 #        |
-#   Stage 4: Score Validation & Refinement (1 sheet)
+#   Movement 4: Score Validation & Refinement (1 sheet)
 #
 # Usage:
 #   1. Set `doc` to the path of the design document
@@ -35,6 +35,17 @@ workspace: "../workspaces/score-composer-workspace"
 instrument: claude-code
 instrument_config:
   timeout_seconds: 1200
+
+# Movement declarations — names appear in `mozart status` output
+movements:
+  1:
+    name: "Design Analysis"
+  2:
+    name: "Task Decomposition"
+  3:
+    name: "Score Composition"
+  4:
+    name: "Validation & Refinement"
 
 sheet:
   size: 1

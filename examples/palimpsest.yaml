@@ -7,12 +7,12 @@
 # different representational modes: painting, music, mathematics,
 # personal correspondence, and deliberate genre inversion. The five
 # translators share a close reading but not each other's work.
-# A synthesis stage reads all five and asks: what did they all
+# A synthesis movement reads all five and asks: what did they all
 # preserve? That invariant — if it exists — is the text's meaning
 # in the deepest sense: meaning as the thing that survives the
 # destruction of every particular form.
 #
-# The final stage writes a response. Not to the original text —
+# The final movement writes a response. Not to the original text —
 # to the invariant. A new work that demonstrates understanding
 # by answering what the source text was really asking.
 #
@@ -27,20 +27,20 @@
 # true?" but "is this text's meaning real?" Not "what survives
 # hostile readings?" but "what survives radical transformation?"
 #
-# Execution Flow (4 stages, 8 sheets):
+# Execution Flow (4 movements, 8 sheets):
 #
-#   Stage 1: The Reading (1 sheet)
+#   Movement 1: The Reading (1 sheet)
 #        |
 #        +----+----+----+----+----+
 #        v    v    v    v    v
-#   Stage 2 x5: Five Translations (5 sheets, parallel)
+#   Movement 2 x5: Five Translations (5 voices, parallel)
 #        |    |    |    |    |
 #        +----+----+----+----+----+
 #                  v
-#   Stage 3: The Invariant (1 sheet)
+#   Movement 3: The Invariant (1 sheet)
 #                  |
 #                  v
-#   Stage 4: The Response (1 sheet)
+#   Movement 4: The Response (1 sheet)
 
 name: "palimpsest"
 description: "Five translations of a single text, seeking the meaning that survives"
@@ -51,6 +51,17 @@ instrument: claude-code
 instrument_config:
   timeout_seconds: 1800
 
+# Movement declarations — names appear in `mozart status` output
+movements:
+  1:
+    name: "The Reading"
+  2:
+    name: "Five Translations"
+  3:
+    name: "The Invariant"
+  4:
+    name: "The Response"
+
 sheet:
   size: 1
   total_items: 4
@@ -60,6 +71,10 @@ sheet:
     2: [1]
     3: [2]
     4: [3]
+
+parallel:
+  enabled: true
+  max_concurrent: 5
 
 cross_sheet:
   auto_capture_stdout: true
@@ -228,7 +243,7 @@ prompt:
     {% endmacro %}
 
     {% if stage == 1 %}
-    {{ text_header("The Reading", "Stage 1 — Close Reading") }}
+    {{ text_header("The Reading", "Movement 1 — Close Reading") }}
 
     You are a reader. Not a critic, not a scholar — a reader. Someone
     who sits with a text until it opens.
@@ -270,7 +285,7 @@ prompt:
 
     {% elif stage == 2 %}
     {% set mode = modes[instance] %}
-    {{ text_header(mode.title, "Stage 2 — Translation into " ~ mode.name | capitalize) }}
+    {{ text_header(mode.title, "Movement 2, Voice " ~ instance ~ " — Translation into " ~ mode.name | capitalize) }}
 
     You are {{ mode.title | lower }}. You have been given a text and a
     close reading. Your job is to translate the text — not its words,
@@ -279,7 +294,7 @@ prompt:
     {{ show_source() }}
 
     {% if previous_outputs[1] is defined %}
-    ## The Reading (from Stage 1)
+    ## The Reading (from Movement 1)
     {{ previous_outputs[1] | truncate(2500) }}
     {% endif %}
 
@@ -333,7 +348,7 @@ prompt:
     Save to {{ workspace }}/02-{{ mode.name }}.md
 
     {% elif stage == 3 %}
-    {{ text_header("The Invariant", "Stage 3 — What Survives") }}
+    {{ text_header("The Invariant", "Movement 3 — What Survives") }}
 
     Five translators have independently transformed the same text into
     five radically different modes: painting, music, mathematics,
@@ -413,7 +428,7 @@ prompt:
     and is genuinely trying to learn from it.
 
     {% elif stage == 4 %}
-    {{ text_header("The Response", "Stage 4 — Answering") }}
+    {{ text_header("The Response", "Movement 4 — Answering") }}
 
     You have seen everything: the source text, the close reading,
     five translations, and the invariant analysis. You know what
@@ -427,7 +442,7 @@ prompt:
     {{ show_source() }}
 
     {% if previous_outputs %}
-    ## The Invariant (from Stage 3)
+    ## The Invariant (from Movement 3)
     {{ previous_outputs.values() | list | last | truncate(3000) }}
     {% endif %}
 

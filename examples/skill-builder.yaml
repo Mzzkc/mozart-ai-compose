@@ -7,25 +7,25 @@
 # context means each lesson knows what was taught before and can
 # reference it, reinforce it, or deliberately challenge it.
 #
-# The fan-out stage creates parallel practice exercises at different
+# The fan-out movement creates parallel practice exercises at different
 # difficulty levels, so the learner gets breadth and depth simultaneously.
 #
-# Execution Flow (5 stages, 9 sheets):
+# Execution Flow (5 movements, 9 sheets):
 #
-#   Stage 1: Assessment & Foundations (1 sheet)
+#   Movement 1: Assessment & Foundations (1 sheet)
 #        |
-#   Stage 2: Core Concepts (1 sheet)
+#   Movement 2: Core Concepts (1 sheet)
 #        |
 #        +-----+-----+
 #        v     v     v
-#   Stage 3 x3: Practice (3 sheets, parallel)
+#   Movement 3 x3: Practice (3 voices, parallel)
 #        |     |     |
 #        +-----+-----+
 #              v
-#   Stage 4: Integration (1 sheet)
+#   Movement 4: Integration (1 sheet)
 #              |
 #              v
-#   Stage 5: Mastery Check & Next Steps (1 sheet)
+#   Movement 5: Mastery Check & Next Steps (1 sheet)
 #
 # To teach a different skill, change the `skill` variables below.
 # The template logic is skill-agnostic — it works for anything
@@ -39,6 +39,19 @@ workspace: "../workspaces/skill-builder-workspace"
 instrument: claude-code
 instrument_config:
   timeout_seconds: 1200
+
+# Movement declarations — names appear in `mozart status` output
+movements:
+  1:
+    name: "Assessment & Foundations"
+  2:
+    name: "Core Concepts"
+  3:
+    name: "Practice"
+  4:
+    name: "Integration"
+  5:
+    name: "Mastery Check"
 
 sheet:
   size: 1
@@ -108,9 +121,9 @@ prompt:
         exercise: "Diagnose and fix common fermentation problems"
 
   template: |
-    {% macro lesson_header(title, stage_desc) %}
+    {% macro lesson_header(title, movement_desc) %}
     # {{ skill.name }}: {{ title }}
-    *Stage {{ stage }} of {{ total_stages }} — {{ stage_desc }}*
+    *Movement {{ movement }} of {{ total_movements }} — {{ movement_desc }}*
     *For: {{ skill.target_learner | truncate(80) }}*
     {% endmacro %}
 
@@ -142,8 +155,8 @@ prompt:
        picture of {{ skill.domain }}? Brief history — not a textbook chapter,
        just enough to feel grounded.
 
-    3. **Maps the journey**: Preview what they'll learn across all {{ total_stages }}
-       stages. Make stage 3's parallel practice sound exciting, not intimidating.
+    3. **Maps the journey**: Preview what they'll learn across all {{ total_movements }}
+       movements. Make the parallel practice voices sound exciting, not intimidating.
 
     4. **Gives them ONE thing to do today**: A tiny, zero-risk action they can
        take right now that makes them feel like they've started. Not homework.
@@ -181,7 +194,7 @@ prompt:
     {{ lesson_header(level.label, "Practice") }}
 
     {% if previous_outputs[2] is defined %}
-    ## Core Concepts (from Stage 2)
+    ## Core Concepts (from Movement 2)
     {{ previous_outputs[2] | truncate(1000) }}
     {% endif %}
 
@@ -216,7 +229,7 @@ prompt:
     ## What's Been Covered
     {% for key, output in previous_outputs.items() %}
     {% if output | length > 200 %}
-    ### From Stage/Sheet {{ key }}
+    ### From Sheet {{ key }}
     {{ output | truncate(600) }}
     {% endif %}
     {% endfor %}

@@ -11,19 +11,19 @@
 # well requires thinking about food, people, space, and time simultaneously.
 # Fan-out handles the simultaneous part.
 #
-# Execution Flow (3 stages, 7 concrete sheets):
+# Execution Flow (3 movements, 7 concrete sheets):
 #
-#   Stage 1: Guest Brief (sheet 1)
+#   Movement 1: Guest Brief (sheet 1)
 #        |
 #        +------+------+------+
 #        v      v      v      v
-#   Stage 2 x4: Planning Tracks (sheets 2-5)
+#   Movement 2 x4: Planning Tracks (4 voices, parallel)
 #        |      |      |      |
 #        +------+------+------+
 #                  v
-#   Stage 3: The Plan (sheet 6)
+#   Movement 3: The Plan (sheet 6)
 #
-# Stage 2 tracks:
+# Movement 2 voices:
 #   1. Menu Design (courses, recipes, dietary accommodations)
 #   2. Drinks Program (pairings, non-alcoholic options, timing)
 #   3. Ambiance & Flow (table, music, lighting, conversation starters)
@@ -37,6 +37,15 @@ workspace: "../workspaces/dinner-party-workspace"
 instrument: claude-code
 instrument_config:
   timeout_seconds: 1200
+
+# Movement declarations — names appear in `mozart status` output
+movements:
+  1:
+    name: "Guest Brief"
+  2:
+    name: "Planning Tracks"
+  3:
+    name: "The Plan"
 
 sheet:
   size: 1
