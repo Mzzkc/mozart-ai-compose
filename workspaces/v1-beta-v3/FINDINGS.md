@@ -1768,3 +1768,13 @@ Each finding should include:
 - **Impact:** Operational: a typo in the instrument name silently clears all rate limits instead of reporting "not found." Could cause rate limit storms if limits were legitimately in place.
 - **Resolution:** Replaced ternary with explicit if/else using `self._instruments.get(instrument)`. Non-existent instrument now returns empty target list → 0 cleared. Regression test in `test_m3_adversarial_breakpoint.py::TestClearRateLimits::test_clear_nonexistent_instrument_returns_zero`.
 - **Error class:** Fallthrough-to-default on failed lookup. Same pattern as "if X and X in dict" where the "else" branch has unintended side effects.
+
+### F-201: clear_instrument_rate_limit Clears ALL Instruments on Empty String
+- **Found by:** Breakpoint, Movement 3 (Pass 4)
+- **Severity:** P3 (low — edge case of F-200)
+- **Status:** Resolved (movement 3, Breakpoint)
+- **Category:** bug
+- **Description:** `BatonCore.clear_instrument_rate_limit()` at `core.py:271` used `if instrument:` (truthiness check). Empty string `""` is falsy in Python, so `clear_instrument_rate_limit("")` fell through to the else branch at line 277-279, clearing ALL instruments. Same bug class as F-200 — the F-200 fix addressed truthy-but-absent strings but left the falsy-string path open.
+- **Impact:** Minor — empty string instrument names are unlikely in practice, but the pattern is dangerous: any falsy input silently escalates to "clear all" behavior.
+- **Resolution:** Changed `if instrument:` to `if instrument is not None:` at `core.py:271`. Empty string now routes to the specific-instrument lookup, finds nothing, returns 0. Regression test in `test_m3_pass4_adversarial_breakpoint.py::TestF200Regression::test_empty_string_instrument_returns_zero`.
+- **Error class:** Truthiness-vs-identity guard. Same root cause as F-200 — using `if X:` when `if X is not None:` is needed to distinguish "no argument" from "bad argument."

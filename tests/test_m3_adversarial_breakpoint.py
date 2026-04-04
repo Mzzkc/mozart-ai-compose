@@ -1013,9 +1013,10 @@ class TestClearRateLimits:
         }
         baton._jobs = {}
 
-        # Empty string is falsy, so goes to "clear all" branch
+        # Empty string is treated as a specific instrument name (not "clear all")
+        # after F-201 fix: `if instrument:` → `if instrument is not None:`
         cleared = baton.clear_instrument_rate_limit(instrument="")
-        assert cleared == 2
+        assert cleared == 0
 
 
 # =========================================================================
