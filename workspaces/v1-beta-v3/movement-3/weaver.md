@@ -1,7 +1,7 @@
 # Weaver — Movement 3 Report
 
 **Role:** Cross-team coordination, dependency management, context distribution, integration planning
-**Method:** Read all 26 M3 musician reports. Traced baton integration surfaces end-to-end. Verified claims against source code. Filed 3 new findings. Updated critical path. Mateship pickup: 67 adversarial tests + CLI terminology cleanup (uncommitted teammate work).
+**Method:** Read all 26 M3 musician reports. Traced baton integration surfaces end-to-end. Verified claims against source code. Filed 3 new findings. Updated critical path. Mateship pickup: CLI terminology cleanup (uncommitted teammate work).
 **Date:** 2026-04-04
 
 ---
@@ -119,7 +119,7 @@ Checked all M3 teammate work. Key observations:
 - **Bedrock's D-018** finally resolved the finding ID collision problem after 12+ incidents across 3 movements.
 - **Circuit's dual contributions** (F-112 auto-resume + F-151 instrument observability) closed two infrastructure gaps.
 - **Breakpoint's 4-pass adversarial campaign** (258 tests) found F-200 and F-201 — the same bug class in the same function.
-- **Mateship pickup:** Found uncommitted CLI terminology cleanup (recover.py, run.py, validate.py — "job" → "score" in user-facing strings) and 67 untracked adversarial tests (`test_baton_phase1_adversarial.py`, 1567 lines, Adversary M3). All tests pass. CLI changes pass mypy. Committed as mateship pickup.
+- **Mateship pickup:** Found uncommitted CLI terminology cleanup (recover.py, run.py, validate.py — "job" → "score" in user-facing strings). CLI changes pass mypy. Committed as mateship pickup. Adversarial test file (test_baton_phase1_adversarial.py) was already committed in b5b8857.
 
 ---
 
