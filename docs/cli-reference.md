@@ -60,7 +60,7 @@ mozart --conductor-clone stop
 
 ### `mozart run`
 
-Run a job from a YAML configuration file.
+Run a score from a YAML configuration file.
 
 ```
 Usage: mozart run [OPTIONS] CONFIG_FILE
@@ -70,7 +70,7 @@ Usage: mozart run [OPTIONS] CONFIG_FILE
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `CONFIG_FILE` | Yes | Path to YAML job configuration file |
+| `CONFIG_FILE` | Yes | Path to YAML score configuration file |
 
 #### Options
 
@@ -83,7 +83,7 @@ Usage: mozart run [OPTIONS] CONFIG_FILE
 | `--escalation` | `-e` | false | Enable human-in-the-loop escalation — **not currently supported** (blocked in conductor mode) |
 | `--self-healing` | `-H` | false | Enable automatic diagnosis and remediation when retries are exhausted |
 | `--yes` | `-y` | false | Auto-confirm suggested fixes when using `--self-healing` |
-| `--fresh` | | false | Delete existing state before running, ensuring a fresh start. Use for self-chaining jobs or re-running completed jobs from scratch |
+| `--fresh` | | false | Delete existing state before running, ensuring a fresh start. Use for self-chaining scores or re-running completed scores from scratch |
 
 #### Examples
 
@@ -112,25 +112,25 @@ mozart run job.yaml --fresh
 | Code | Meaning |
 |------|---------|
 | 0 | Success or graceful shutdown |
-| 1 | Configuration error or job failure |
+| 1 | Configuration error or score failure |
 
 ---
 
 ### `mozart resume`
 
-Resume a paused or failed job.
+Resume a paused or failed score.
 
 ```
 Usage: mozart resume [OPTIONS] JOB_ID
 ```
 
-Loads the job state and continues execution from where it left off. By default, Mozart auto-reloads the config from the original YAML file if it still exists on disk. Falls back to the cached `config_snapshot` when the file is gone. Use `--no-reload` to force using the cached snapshot.
+Loads the score state and continues execution from where it left off. By default, Mozart auto-reloads the config from the original YAML file if it still exists on disk. Falls back to the cached `config_snapshot` when the file is gone. Use `--no-reload` to force using the cached snapshot.
 
 #### Arguments
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `JOB_ID` | Yes | Job ID to resume |
+| `JOB_ID` | Yes | Score ID to resume |
 
 #### Options
 
@@ -138,7 +138,7 @@ Loads the job state and continues execution from where it left off. By default, 
 |--------|-------|---------|-------------|
 | `--config` | `-c` | | Path to config file (optional if `config_snapshot` exists in state) |
 | `--workspace` | `-w` | | *(hidden)* Debug override: bypass conductor for resume |
-| `--force` | `-f` | false | Force resume even if job appears completed |
+| `--force` | `-f` | false | Force resume even if score appears completed |
 | `--escalation` | `-e` | false | Enable human-in-the-loop escalation — **not currently supported** (blocked in conductor mode) |
 | `--no-reload` | | false | Use cached config snapshot instead of auto-reloading from YAML file |
 | `--self-healing` | `-H` | false | Enable automatic diagnosis and remediation when retries are exhausted |
@@ -147,7 +147,7 @@ Loads the job state and continues execution from where it left off. By default, 
 #### Examples
 
 ```bash
-# Resume paused job
+# Resume paused score
 mozart resume my-job
 
 # Resume with explicit config
@@ -159,7 +159,7 @@ mozart resume my-job --config updated.yaml
 # Resume using cached snapshot (skip auto-reload)
 mozart resume my-job --no-reload
 
-# Force restart completed job
+# Force restart completed score
 mozart resume my-job --force
 ```
 
@@ -177,7 +177,7 @@ mozart resume my-job --force
 
 ### `mozart pause`
 
-Pause a running Mozart job gracefully.
+Pause a running Mozart score gracefully.
 
 ```
 Usage: mozart pause [OPTIONS] JOB_ID
@@ -357,7 +357,7 @@ JSON output structure:
 
 ### `mozart list`
 
-List jobs from the conductor.
+List scores from the conductor.
 
 ```
 Usage: mozart list [OPTIONS]
@@ -399,7 +399,7 @@ mozart list --limit 10
 
 ### `mozart validate`
 
-Validate a job configuration file.
+Validate a score configuration file.
 
 ```
 Usage: mozart validate [OPTIONS] CONFIG_FILE
@@ -411,7 +411,7 @@ Performs comprehensive validation including YAML syntax, Pydantic schema validat
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `CONFIG_FILE` | Yes | Path to YAML job configuration file |
+| `CONFIG_FILE` | Yes | Path to YAML score configuration file |
 
 #### Options
 

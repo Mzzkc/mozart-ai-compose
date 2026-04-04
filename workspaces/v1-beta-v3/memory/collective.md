@@ -206,6 +206,13 @@ Movement 3 — IN PROGRESS (2026-04-04).
 - **GitHub issues verified:** #151, #150, #149, #112 — all closures backed by commit refs and verification reports.
 - **Quality: mypy clean, ruff clean, baton tests pass, recovery tests pass.**
 
+### Movement 3 Progress (Newcomer)
+- **F-153/F-460 FIXED (P2):** "job" → "score" terminology across CLI + docs. ~35 fixes in 6 files: run.py, validate.py, recover.py docstrings/help; README.md (12); getting-started.md (10); cli-reference.md (11). Music metaphor now consistent across all newcomer touchpoints.
+- **Fresh-eyes audit M3:** 37/38 examples validate. Error handling excellent (no regressions). Init → validate pipeline clean. hello.yaml shows claude-code (F-154 resolved). Doctor/conductor-status/status agree.
+- **F-450 independently confirmed:** `clear-rate-limits` says conductor not running when it IS. Filed F-462.
+- **F-461 filed (P1):** Cost tracking now $0.12 for 114 sheets — more believable but still wrong by ~1000x. More dangerous than $0.00.
+- **Quality:** mypy clean, ruff clean, targeted tests pass.
+
 Previous movement status preserved below.
 
 Movement 2 — COMPLETE (verified 2026-04-04).

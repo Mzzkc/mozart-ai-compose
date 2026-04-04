@@ -37,9 +37,9 @@ Mozart is ideal for:
 
 - **Multi-phase workflows**: Code review across many files, batch documentation generation
 - **Tasks requiring validation**: Work that must meet quantitative quality gates
-- **Long-running operations**: Jobs that may be interrupted and need reliable resume
+- **Long-running operations**: Scores that may be interrupted and need reliable resume
 - **Parallel execution**: Independent work streams that can run concurrently
-- **Cross-project learning**: Accumulating patterns across multiple job executions
+- **Cross-project learning**: Accumulating patterns across multiple score executions
 
 Mozart is NOT for:
 
@@ -64,7 +64,7 @@ cd mozart-ai-compose
 ./setup.sh --daemon
 ```
 
-The `--daemon` flag installs daemon dependencies required for job execution. After setup completes, activate the virtual environment:
+The `--daemon` flag installs conductor dependencies required for score execution. After setup completes, activate the virtual environment:
 
 ```bash
 source .venv/bin/activate
@@ -116,7 +116,7 @@ mozart validate examples/hello.yaml
 
 ### 3. Start the Conductor
 
-The Mozart conductor is required for job execution:
+The Mozart conductor is required for score execution:
 
 ```bash
 mozart start
@@ -150,7 +150,7 @@ The workspace contains a beautifully designed HTML page that presents the comple
 
 ### 7. Resume if Interrupted
 
-If the job is interrupted (Ctrl+C, rate limit, error), resume from where it left off:
+If the score is interrupted (Ctrl+C, rate limit, error), resume from where it left off:
 
 ```bash
 mozart resume hello-mozart
@@ -177,9 +177,9 @@ mozart resume hello-mozart
 | Learning system | Outcome recording, pattern detection, cross-workspace learning |
 | Parallel execution | DAG-based sheet dependencies for concurrent execution |
 | Web dashboard | Real-time monitoring with job control and log streaming |
-| Job chaining | Chain jobs via on_success hooks (hooks fire; concert depth tracking is a known TODO) |
+| Score chaining | Chain scores via on_success hooks (hooks fire; concert depth tracking is a known TODO) |
 | Worktree isolation | Git worktree isolation for parallel-safe execution |
-| Cost tracking | Per-sheet and per-job cost limits |
+| Cost tracking | Per-sheet and per-score cost limits |
 | Circuit breaker | Cross-workspace coordination, rate limit sharing |
 | Human-in-the-loop | Escalation for low-confidence decisions (`--escalation`) — not currently supported in daemon mode |
 
@@ -189,14 +189,14 @@ mozart resume hello-mozart
 
 | Command | Purpose |
 |---------|---------|
-| `mozart run <config>` | Execute a job from YAML configuration |
-| `mozart resume <job-id>` | Resume a paused or failed job |
-| `mozart pause <job-id>` | Pause a running job gracefully |
-| `mozart modify <job-id>` | Modify config and optionally resume a paused job |
-| `mozart status [job-id]` | Show job status and progress |
+| `mozart run <config>` | Execute a score from YAML configuration |
+| `mozart resume <score-id>` | Resume a paused or failed score |
+| `mozart pause <score-id>` | Pause a running score gracefully |
+| `mozart modify <score-id>` | Modify config and optionally resume a paused score |
+| `mozart status [score-id]` | Show score status and progress |
 | `mozart validate <config>` | Validate configuration file |
-| `mozart list` | List active jobs (requires daemon; use `--all` for all jobs) |
-| `mozart history <job-id>` | Show execution history from SQLite |
+| `mozart list` | List active scores (requires conductor; use `--all` for all scores) |
+| `mozart history <score-id>` | Show execution history from SQLite |
 | `mozart config <subcommand>` | Manage Mozart configuration (`show`, `set`, `path`, `init`, `check`) |
 
 ### Diagnostic Commands
@@ -204,10 +204,10 @@ mozart resume hello-mozart
 | Command | Purpose |
 |---------|---------|
 | `mozart doctor` | Check environment health (Python, conductor, instruments) |
-| `mozart logs <job-id>` | View or tail log files |
-| `mozart errors <job-id>` | List job errors with color-coded output |
-| `mozart diagnose <job-id>` | Comprehensive diagnostic report |
-| `mozart recover <job-id>` | Re-validate without re-execution |
+| `mozart logs <score-id>` | View or tail log files |
+| `mozart errors <score-id>` | List score errors with color-coded output |
+| `mozart diagnose <score-id>` | Comprehensive diagnostic report |
+| `mozart recover <score-id>` | Re-validate without re-execution |
 
 ### Instruments
 
@@ -262,7 +262,7 @@ Starts the web dashboard for visual monitoring and control.
 
 ### Conductor Mode
 
-The Mozart conductor is **required** for job execution. It manages concurrent jobs, coordinates rate limits, and provides resource monitoring.
+The Mozart conductor is **required** for score execution. It manages concurrent scores, coordinates rate limits, and provides resource monitoring.
 
 ```bash
 # Start the conductor (required before mozart run)
@@ -276,13 +276,13 @@ mozart conductor-status
 mozart stop
 ```
 
-`mozart run` requires a running conductor and will exit with an error if one is not found. Only `mozart validate` and `mozart run --dry-run` work without a running conductor.
+`mozart run` requires a running conductor and will exit with an error if one is not found. Only `mozart validate` and `--dry-run` work without a running conductor.
 
 See the [Daemon Guide](docs/daemon-guide.md) for configuration, systemd integration, and troubleshooting.
 
 ## Configuration
 
-Mozart jobs are configured with YAML files. Here is a complete example demonstrating key options:
+Mozart scores are configured with YAML files. Here is a complete example demonstrating key options:
 
 ```yaml
 name: code-review-batch

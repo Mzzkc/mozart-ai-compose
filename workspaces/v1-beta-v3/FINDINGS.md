@@ -1831,3 +1831,30 @@ Each finding should include:
 - **Description:** The legacy runner applies `_apply_spec_budget_gating()` at `src/mozart/execution/runner/sheet.py` to limit spec fragment injection based on context window budget. The baton's PromptRenderer at `src/mozart/daemon/baton/prompt.py` passes spec fragments directly to PromptBuilder without budget gating. For scores with large spec corpora, this could produce prompts that exceed the instrument's context window.
 - **Action:** Add spec budget gating to PromptRenderer. Low priority because spec corpus is lightly used and current instruments have large context windows (1M+ for Opus).
 - **Error class:** Feature gap — same class as F-210.
+
+### F-460: "job" vs "score" Terminology Persists Across User-Facing Docs and CLI
+- **Found by:** Newcomer, Movement 3
+- **Severity:** P2 (medium — erodes the load-bearing music metaphor across all newcomer touchpoints)
+- **Status:** Resolved (movement 3, Newcomer)
+- **Category:** pattern
+- **Description:** F-153 (M2) identified terminology inconsistency in CLI help text. This movement revealed the same pattern extends throughout all user-facing documentation. Found and fixed "job" → "score" in: `run.py` docstring, `validate.py` docstring, `run.py` --fresh help text, `recover.py` help text, `README.md` (12 instances: Quick Start, CLI Reference table, Features table, Configuration section, Conductor section), `getting-started.md` (10 instances: installation, Step 4-6 headings/text, resume section, dashboard, troubleshooting), `cli-reference.md` (11 instances: run/resume/pause/validate/list command descriptions, exit codes, CONFIG_FILE descriptions). Total: ~35 user-facing "job" → "score" fixes across 6 files.
+- **Remaining:** ~70 "job" references remain in cli-reference.md, mostly in example commands (`my-job`), API paths (`/api/jobs`), and internal descriptions. These map to actual code identifiers (JobConfig, JOB_ID Typer parameter) — changing those requires code changes beyond documentation.
+- **Error class:** Terminology drift — docs lag behind the metaphor. Same class as F-153.
+
+### F-461: Cost Tracking Fiction Now More Convincing But Still Wrong
+- **Found by:** Newcomer, Movement 3
+- **Severity:** P1 (high — misleads users about actual spend)
+- **Status:** Open
+- **Category:** risk
+- **Description:** Cost tracking now shows $0.12 for 114 completed sheets (up from $0.00 in M2 for 79 sheets). Token counts: 11,874 input / 5,937 output. For 114 sheets each running Opus with ~100K+ token prompts, actual spend is likely $200-$500. The cost display is more believable now (non-zero) which makes it more dangerous — a newcomer might trust $0.12 and set a budget accordingly. The tip "Set cost_limits.enabled: true in your score to prevent unexpected charges" teaches newcomers to rely on a system that under-counts by ~1000x.
+- **Files:** Cost tracking flows through `ClaudeCliBackend` which doesn't parse actual token counts from Claude CLI output. F-048 (M0) tracked this. Still unresolved after 4 movements.
+- **Impact:** Users who trust the displayed costs will set limits too low (blocking scores) or believe execution is essentially free when it isn't.
+- **Action:** Either fix token parsing from ClaudeCliBackend output, or clearly label cost figures as "estimated" with a disclaimer about accuracy.
+
+### F-462: F-450 Confirmed — clear-rate-limits Reports Conductor Not Running When It Is
+- **Found by:** Newcomer, Movement 3 (confirming Ember M3 F-450)
+- **Severity:** P2 (medium — new IPC methods fail misleadingly on stale conductors)
+- **Status:** Open (F-450 already filed by Ember)
+- **Category:** bug
+- **Description:** Ran `mozart clear-rate-limits` while conductor is confirmed running (PID 1277279, `conductor-status` shows RUNNING, `status` shows active scores). Got: "Error: Mozart conductor is not running." Root cause at `detect.py:170-174`: `try_daemon_route()` conflates "IPC method not found" with "conductor not reachable." The production conductor predates the `clear-rate-limits` IPC method — it runs older code. Any new IPC method added by M3 musicians will hit this pattern on stale conductors.
+- **Action:** Already tracked as F-450. Cross-referencing for independent confirmation.

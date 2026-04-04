@@ -13,7 +13,7 @@ Mozart AI Compose orchestrates multi-phase AI workflows with checkpointing, vali
 git clone https://github.com/Mzzkc/mozart-ai-compose.git
 cd mozart-ai-compose
 
-# Install with daemon support (required for job execution)
+# Install with conductor support (required for score execution)
 ./setup.sh --daemon
 
 # Or manually:
@@ -147,13 +147,13 @@ mozart run my-first-job.yaml --dry-run
 ```
 
 This shows:
-- Job configuration summary
+- Score configuration summary
 - Sheet plan with item ranges
 - Prompt that will be sent to the instrument
 
-### Step 4: Start the Daemon
+### Step 4: Start the Conductor
 
-The Mozart daemon is required for job execution:
+The Mozart conductor is required for score execution:
 
 ```bash
 mozart start
@@ -167,9 +167,9 @@ mozart conductor-status   # Verify it's running
 > Only `mozart validate` and `mozart run --dry-run` work without a conductor.
 > See the [Daemon Guide](daemon-guide.md) for why this is required.
 
-### Step 5: Run the Job
+### Step 5: Run the Score
 
-Execute the job:
+Execute the score:
 
 ```bash
 mozart run my-first-job.yaml
@@ -182,13 +182,13 @@ You'll see:
 
 ### Step 6: Check Status
 
-While running (or after), check job status:
+While running (or after), check score status:
 
 ```bash
-# Show specific job details
+# Show specific score details
 mozart status my-first-job
 
-# List all active daemon jobs
+# List all active scores
 mozart list
 ```
 
@@ -201,14 +201,14 @@ Press `Ctrl+C` during execution for a graceful shutdown:
 ```
 Ctrl+C received. Finishing current sheet and saving state...
 
-State saved. Job paused at sheet 2/3.
+State saved. Score paused at sheet 2/3.
 
 To resume: mozart resume my-first-job
 ```
 
-### Resuming Jobs
+### Resuming Scores
 
-Resume a paused or failed job:
+Resume a paused or failed score:
 
 ```bash
 mozart resume my-first-job
@@ -412,7 +412,7 @@ mozart dashboard
 ```
 
 Access at `http://localhost:8000`:
-- View all jobs
+- View all scores
 - Check progress
 - See sheet details
 - API docs at `/docs`
@@ -465,6 +465,6 @@ rate_limit:
 
 ### Resume Not Working
 
-1. Check job state: `mozart status <job-id>`
+1. Check score state: `mozart status <score-id>`
 2. Ensure config is available (stored in state or via `--config`)
-3. Use `--force` to restart completed jobs
+3. Use `--force` to restart completed scores

@@ -52,7 +52,7 @@ def mock_backend():
 
 
 @pytest.fixture
-async def test_state(mock_config, temp_workspace):
+async def pause_test_state(mock_config, temp_workspace):
     """Create test checkpoint state."""
     state_backend = JsonStateBackend(state_dir=temp_workspace)
     state = CheckpointState(
@@ -67,9 +67,9 @@ async def test_state(mock_config, temp_workspace):
 
 
 @pytest.fixture
-def runner_with_mocks(mock_config, mock_backend, test_state):
+def runner_with_mocks(mock_config, mock_backend, pause_test_state):
     """Create runner instance with mocked dependencies."""
-    state, state_backend = test_state
+    state, state_backend = pause_test_state
     runner = JobRunner(
         config=mock_config,
         backend=mock_backend,
@@ -276,10 +276,10 @@ class TestJobControlServicePauseSignaling:
         self,
         job_control_service,
         temp_workspace,
-        test_state
+        pause_test_state
     ):
         """Test that pause_job creates the correct signal file."""
-        state, state_backend = test_state
+        state, state_backend = pause_test_state
         job_control_service._state_backend = state_backend
 
         # Pause the job
@@ -305,10 +305,10 @@ class TestJobControlServicePauseSignaling:
     async def test_pause_job_non_running_job(
         self,
         job_control_service,
-        test_state
+        pause_test_state
     ):
         """Test pausing job that's not running."""
-        state, state_backend = test_state
+        state, state_backend = pause_test_state
         job_control_service._state_backend = state_backend
 
         # Mark job as completed
@@ -326,10 +326,10 @@ class TestJobControlServicePauseSignaling:
         self,
         job_control_service,
         temp_workspace,
-        test_state
+        pause_test_state
     ):
         """Test that resume_job cleans up pause signal files."""
-        state, state_backend = test_state
+        state, state_backend = pause_test_state
         job_control_service._state_backend = state_backend
 
         # Mark job as paused and create signal file

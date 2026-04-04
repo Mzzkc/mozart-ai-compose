@@ -161,6 +161,7 @@ This is the highest priority task. You are running inside a live conductor. You 
 - [x] [Dash] Fix F-029 (partial): user-facing error messages say "Score ID" instead of "Job ID" in validate_job_id(). 19 test assertions updated. (priority: P2) [source: F-029]
 - [x] [Journey] Fix F-115: cancel not-found uses output_error() + hints + exit 1. 5 TDD tests. (priority: P2) [source: F-115, exploratory testing]
 - [x] [Lens] instruments.py JSON error path: console.print(json.dumps) → output_json() for Rich markup safety. 7 TDD regression tests for rejection hint behavior (test_rejection_hints_ux.py). Commit 4b83dae. (priority: P2) [source: error standardization]
+- [x] [Newcomer] Fix F-153/F-460: "job" → "score" terminology across CLI + docs — run.py, validate.py, recover.py docstrings/help text; README.md (12 fixes); getting-started.md (10 fixes); cli-reference.md (11 fixes). ~35 total fixes across 6 files. (priority: P2) [source: F-153, F-460, fresh-eyes audit]
 
 ---
 
