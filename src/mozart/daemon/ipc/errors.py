@@ -13,6 +13,7 @@ from mozart.daemon.exceptions import (
     DaemonAlreadyRunningError,
     DaemonError,
     JobSubmissionError,
+    MethodNotFoundError,
     ResourceExhaustedError,
 )
 from mozart.daemon.ipc.protocol import ErrorDetail, JsonRpcError
@@ -135,6 +136,7 @@ _CODE_EXCEPTION_MAP: dict[int, type[DaemonError]] = {
     DAEMON_SHUTTING_DOWN: DaemonError,
     JOB_NOT_RESUMABLE: JobSubmissionError,
     WORKSPACE_NOT_FOUND: JobSubmissionError,
+    METHOD_NOT_FOUND: MethodNotFoundError,
 }
 
 

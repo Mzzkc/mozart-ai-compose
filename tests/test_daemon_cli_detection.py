@@ -130,20 +130,24 @@ class TestTryDaemonRoute:
             await server.stop()
 
     @pytest.mark.asyncio
-    async def test_returns_false_on_unknown_method(self, tmp_path: Path):
-        """Returns (False, None) when daemon returns an error for the method."""
+    async def test_raises_on_unknown_method(self, tmp_path: Path):
+        """Raises MethodNotFoundError when daemon doesn't know the method (F-450).
+
+        Previously returned (False, None) which caused misleading "conductor
+        not running" messages. Now re-raises with restart guidance.
+        """
+        from mozart.daemon.exceptions import MethodNotFoundError
+
         sock = tmp_path / "test.sock"
         server = DaemonServer(sock, _make_detect_handler())
         await server.start()
         try:
-            # Unknown method causes DaemonError, which is caught
-            routed, result = await try_daemon_route(
-                "nonexistent.method",
-                {},
-                socket_path=sock,
-            )
-            assert routed is False
-            assert result is None
+            with pytest.raises(MethodNotFoundError, match="does not support"):
+                await try_daemon_route(
+                    "nonexistent.method",
+                    {},
+                    socket_path=sock,
+                )
         finally:
             await server.stop()
 

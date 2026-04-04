@@ -281,6 +281,13 @@ See FINDINGS.md F-097 through F-102 for full context.
 ### Rate Limit Wait Cap (F-350)
 - [x] [Bedrock] Mateship pickup: commit uncommitted rate limit wait cap safety fix (priority: P2) [source: F-350, uncommitted work] — `RESET_TIME_MAXIMUM_WAIT_SECONDS = 86400.0` in constants.py, `_clamp_wait()` in classifier.py, quality gate baseline 1230→1234, 10 TDD tests in test_rate_limit_wait_cap.py. Prevents adversarial API responses from blocking instruments forever.
 
+### Cost Accuracy Investigation (D-024)
+- [x] [Circuit] D-024 cost accuracy investigation — trace full pipeline, identify 5 root causes (priority: P1) [source: D-024, North directive] — F-180 filed. Root causes: ClaudeCliBackend zero tokens, baton hardcoded pricing, instrument profile pricing unused, confidence not displayed, text output format default. Commit 4055f0b.
+- [x] [Circuit] Fix ClaudeCliBackend token extraction from JSON output (priority: P1) [source: F-180] — `_extract_tokens_from_json()` parses `usage.input_tokens`/`output_tokens` from Claude Code JSON response. 10 TDD tests. Commit 4055f0b.
+- [x] [Circuit] Add cost confidence display to `mozart status` (priority: P1) [source: F-180] — `_render_cost_summary()` shows `~$X.XX (est.)` with warning for low-confidence costs. JSON output includes `cost_confidence` field. 2 TDD tests. Commit 4055f0b.
+- [ ] Wire instrument profile model pricing into both cost paths (priority: P2) [source: F-180 root cause 3]
+- [ ] Fix baton `_estimate_cost()` to use instrument profile pricing (priority: P2) [source: F-180 root cause 2]
+
 ### Skill Rename: mozart:usage → mozart:operations (or similar)
 - [ ] Rename `mozart:usage` skill to `mozart:command` — collides with built-in `/usage` (Claude token usage). Every user who types `/usage` gets Mozart debugging help instead of their token count. (priority: P1) [source: composer directive]
 - [ ] Update all references across project: CLAUDE.md, skill files, memory-bank, docs, score comments, session protocols (priority: P1)

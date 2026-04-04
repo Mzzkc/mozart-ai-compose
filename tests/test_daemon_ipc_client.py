@@ -248,17 +248,16 @@ class TestDaemonClientWithServer:
 
     @pytest.mark.asyncio
     async def test_call_unknown_method_raises(self, tmp_path: Path):
-        """Calling an unknown method raises DaemonError from the error code."""
+        """Calling an unknown method raises MethodNotFoundError (F-450)."""
         sock = tmp_path / "test.sock"
         server = DaemonServer(sock, _make_test_handler())
         await server.start()
         try:
             client = DaemonClient(sock)
-            # method_not_found maps to -32601 which is not in _CODE_EXCEPTION_MAP,
-            # so it falls back to DaemonError
-            from mozart.daemon.exceptions import DaemonError
+            # method_not_found maps to -32601 → MethodNotFoundError (F-450 fix)
+            from mozart.daemon.exceptions import MethodNotFoundError
 
-            with pytest.raises(DaemonError, match="Method not found"):
+            with pytest.raises(MethodNotFoundError, match="Method not found"):
                 await client.call("nonexistent.rpc.method")
         finally:
             await server.stop()

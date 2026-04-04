@@ -1958,3 +1958,41 @@ Each finding should include:
 - **Impact:** The quality gate meta-test blocks the full `pytest tests/ -x` pass. No product impact.
 - **Action:** Either (a) bump the baseline to 122 (quick fix), or (b) add assertions to the 6 offending tests (correct fix). Option (b) is preferred — the tests should verify something.
 - **Error class:** Baseline drift — quality gate baseline not updated when new tests were added.
+
+### F-180: Cost Tracking 10-100x Underestimate (D-024 Root Cause Analysis)
+- **Found by:** Circuit, Movement 4
+- **Severity:** P1 (high — cost fiction dangerous to users)
+- **Status:** Partially resolved (4055f0b, Circuit M4)
+- **Category:** bug
+- **Description:** Five root causes make cost tracking fictional:
+  1. **ClaudeCliBackend returns zero token data** (`claude_cli.py:467-477`). `_build_completed_result()` creates `ExecutionResult` without `input_tokens`/`output_tokens`. CostMixin falls to character-based estimation: `len(stdout)/4` — the CLI output, not LLM tokens. A 200K-token Opus call producing 5KB stdout gets estimated as ~1.25K output tokens (160x underestimate).
+  2. **Baton musician uses hardcoded Sonnet pricing** (`musician.py:634-646`). `_estimate_cost()` hardcodes $3/1M input, $15/1M output regardless of instrument/model. When tokens are 0 (from CLI backends), cost is $0.00.
+  3. **Instrument profile pricing never used** (`instruments.py:94-101`). `ModelCapacity.cost_per_1k_input/output` exists on every profile but is never plumbed into cost calculation.
+  4. **Cost confidence tracked but never displayed** (`status.py:1294-1337`). `cost_confidence` field is set by CostMixin but `_render_cost_summary()` shows `$0.17` with no estimation indicator.
+  5. **Legacy runner uses text output format** (`backend.py:295-296`). `output_format` defaults to `"text"` — no JSON to parse for tokens.
+- **Impact:** Users see `$0.17` for work costing `$100+`. Cost limits (`max_cost_per_job: 50`) overshoot by 100x before triggering. The lie got more convincing each movement ($0.00 → $0.12 → $0.17).
+- **Resolution (partial):**
+  - Fix 1 (4055f0b): `_extract_tokens_from_json()` extracts tokens when `output_format="json"`. Accurate for scores using JSON output.
+  - Fix 4 (4055f0b): `_render_cost_summary()` shows `~$X.XX (est.)` + warning when confidence < 0.9. JSON output includes `cost_confidence`.
+- **Remaining:**
+  - Root cause 2: Baton `_estimate_cost()` should use instrument profile pricing.
+  - Root cause 3: Wire `ModelCapacity` pricing into both cost paths.
+  - Root cause 5: Consider defaulting `output_format` to `"json"` for accuracy.
+
+### F-181: Uncommitted F-450 Fix in Working Tree
+- **Found by:** Circuit, Movement 4
+- **Severity:** P2 (medium — mateship pickup needed)
+- **Status:** Open
+- **Category:** pattern
+- **Description:** F-450 fix (IPC `MethodNotFoundError` differentiation) is fully implemented but uncommitted. Changes across `detect.py`, `exceptions.py`, `ipc/errors.py`, plus `tests/test_f450_method_not_found.py` (14 tests). Tests pass individually. The pre-existing test `test_returns_false_on_unknown_method` was renamed to `test_raises_on_unknown_method` in the working tree.
+- **Impact:** The fix works in the working tree but will be lost if anyone runs `git checkout .`.
+- **Action:** Another musician should commit this with attribution to the original author.
+
+### F-182: Uncommitted Resume Improvements (#93, #103, #122) in Working Tree
+- **Found by:** Circuit, Movement 4
+- **Severity:** P2 (medium — mateship pickup needed)
+- **Status:** Open
+- **Category:** pattern
+- **Description:** Three resume improvements are implemented but uncommitted: (1) `_should_auto_fresh()` in `manager.py` auto-detects changed score files for #103, (2) resume output clarity in `resume.py` showing previous status/error for #122, (3) `await_early_failure` removal from resume path for #122. Also includes `run.py` changes (auto-fresh info display). Plus `test_pause_during_retry.py`, `test_resume_output_clarity.py`, `test_stale_completed_detection.py` (new test files).
+- **Impact:** Resume UX improvements lost if working tree reset.
+- **Action:** Another musician should review and commit with proper attribution.

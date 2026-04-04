@@ -73,6 +73,11 @@ Movement 3 — COMPLETE (2026-04-04). Movement 4 — IN PROGRESS.
 - **#128 verified:** Skip_when fan-out expansion already fixed in `919125e`. Issue ready for closure.
 - **Quality gate baseline:** BARE_MAGICMOCK 1375→1391, ASSERTION_LESS_TEST 116→122. Pre-existing drift.
 
+### M4 Progress (Circuit)
+- **D-024 COMPLETE (cost accuracy investigation):** Traced full cost pipeline, identified 5 root causes (F-180). ClaudeCliBackend returned zero tokens — CostMixin estimated from stdout chars (10-100x underestimate). Fixed: JSON token extraction (`_extract_tokens_from_json()`) + confidence display (`~$X.XX (est.)` + warning). 17 TDD tests. Commit 4055f0b. Remaining: instrument profile pricing, baton hardcoded pricing, text-mode default.
+- **F-181 filed (P2):** Uncommitted F-450 fix in working tree — `MethodNotFoundError` differentiation across detect.py, exceptions.py, ipc/errors.py + 14 tests. Needs mateship pickup.
+- **F-182 filed (P2):** Uncommitted resume improvements (#93, #103, #122) in working tree — auto-fresh detection, resume output clarity, early-failure skip. Needs mateship pickup.
+
 ### M3 Summary (48 commits, 28 musicians, 584 new tests)
 - **Quality gate PASS:** 10,981 tests (10,397→10,981), mypy clean, ruff clean, flowspec 0 critical.
 - **Codebase:** 97,424 source lines, 315 test files, 150/197 tasks (76%). M0-M3 ALL COMPLETE.

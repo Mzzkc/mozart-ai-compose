@@ -292,6 +292,19 @@ async def _try_daemon_submit(
     except (OSError, ConnectionError, TimeoutError) as exc:
         _logger.warning("daemon_submit_failed", error=str(exc), exc_info=True)
         return False
+    except Exception as exc:
+        # F-450: MethodNotFoundError and other DaemonError subclasses
+        # re-raised by try_daemon_route should not silently return False.
+        from mozart.daemon.exceptions import DaemonError
+
+        if isinstance(exc, DaemonError):
+            output_error(
+                str(exc),
+                hints=["Restart the conductor: mozart restart"],
+                json_output=json_output,
+            )
+            raise typer.Exit(1) from None
+        raise
 
 
 def _rejection_hints(msg: str, *, fresh: bool = False) -> list[str]:

@@ -34,6 +34,15 @@ class JobSubmissionError(DaemonError):
     """
 
 
+class MethodNotFoundError(DaemonError):
+    """Raised when the conductor doesn't recognize an IPC method.
+
+    This typically means the CLI is newer than the running conductor.
+    The user should restart the conductor to pick up code changes:
+    ``pip install -e ".[dev]" && mozart restart``
+    """
+
+
 class ResourceExhaustedError(DaemonError):
     """Raised when daemon resource limits are exceeded.
 

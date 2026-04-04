@@ -165,6 +165,18 @@ async def try_daemon_route(
             # the request" (e.g., "job not found" vs "conductor not running").
             raise
 
+        from mozart.daemon.exceptions import MethodNotFoundError
+
+        if isinstance(e, MethodNotFoundError):
+            # F-450: The conductor IS running but doesn't recognize this
+            # method. Re-raise with restart guidance instead of the
+            # misleading "conductor not running."
+            raise MethodNotFoundError(
+                f"Conductor does not support '{method}'. "
+                f"Restart the conductor to pick up code changes: "
+                f"mozart restart"
+            ) from e
+
         from mozart.daemon.exceptions import DaemonError
 
         if isinstance(e, DaemonError):
