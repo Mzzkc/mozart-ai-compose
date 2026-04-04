@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 from mozart.core.checkpoint import SheetStatus
 from mozart.core.config.job import InjectionCategory, InjectionItem
 from mozart.prompts.templating import SheetContext
+from mozart.utils.credential_scanner import redact_credentials
 
 
 class ContextBuildingMixin:
@@ -289,6 +290,10 @@ class ContextBuildingMixin:
                                 continue
                         try:
                             content = path.read_text(encoding="utf-8")
+                            # F-250: Redact credentials BEFORE truncation.
+                            # Workspace files may contain API keys written
+                            # by agents — redact before injecting into prompts.
+                            content = redact_credentials(content) or content
                             max_chars = cross_sheet.max_output_chars
                             if len(content) > max_chars:
                                 content = content[:max_chars] + "\n... [truncated]"

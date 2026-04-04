@@ -1,43 +1,49 @@
 # Mozart AI Compose - Status
 
-**Overall:** v1 Beta — Baton Phase 1 READY, intelligence layer connected (2026-04-04)
-**Tests:** 10,981 test functions across 315 files
-**Source:** 97,424 lines across the codebase
+**Overall:** v1 Beta — Baton Phase 1 UNBLOCKED, both P0 blockers resolved (2026-04-04)
+**Tests:** 11,140 test functions across 327 files
+**Source:** 98,272 lines across the codebase
 **GitHub:** https://github.com/Mzzkc/mozart-ai-compose
 **Dashboard:** Production-grade web UI with job control
 **License:** Dual AGPL-3.0 / Commercial
 
 ---
 
-## Current: v1 Beta Orchestra — Movement 3 (2026-04-04)
+## Current: v1 Beta Orchestra — Movement 4 (2026-04-04)
 
-### 130 commits across 3 movements, 32 musicians, zero merge conflicts
+### 148 commits across 4 movements, 32 musicians, zero merge conflicts
 
 The v1 beta is being built by a 706-sheet self-evolution score (`mozart-orchestra-v3.yaml`) running 32 AI musicians in parallel. The flat orchestra model — no hierarchy, shared coordination through TASKS.md, FINDINGS.md, and collective memory — has proven effective.
 
 **Key milestones completed:**
 - **M0: Stabilization** — COMPLETE. Learning store remediation, critical bugs, dead code removal.
 - **M1: Foundation** — COMPLETE. Instrument plugin system (6 built-in instruments), sheet-first architecture, safety baseline (credential scanning, cost tracking).
-- **M2: Baton** — COMPLETE. All 13 steps (17-29) done. Event-driven execution engine with retry state machine, rate limit handling, failure propagation, cost enforcement, restart recovery. 1,130+ baton tests.
+- **M2: Baton** — COMPLETE. All 13 steps (17-29) done. Event-driven execution engine with retry state machine, rate limit handling, failure propagation, cost enforcement, restart recovery. 1,500+ baton tests.
 - **M3: UX & Polish** — COMPLETE. Error standardization (100% adoption of `output_error()`), `mozart doctor`, `mozart init`, `mozart instruments`, movement-grouped status display, large-score summary view, CLI UX audit.
-- **M4: Multi-Instrument** — 63%. Per-sheet instrument assignment, score-level named instruments, movement definitions, model override, instrument observability. Data models + wiring complete. Demo and examples audit open.
-- **M5: Hardening** — 77%. Workspace paths, injection prevention, credential filtering, CVE resolution, config reload, fan-out stagger, stop safety guard.
+- **M4: Multi-Instrument** — 83%. Per-sheet instrument assignment, score-level named instruments, movement definitions, model override, instrument observability, cross-sheet context in baton, checkpoint sync, cost accuracy investigation, fan-in skipped upstream, resume improvements complete. Demo score and baton Phase 1 live testing remain.
+- **M5: Hardening** — 82%. Workspace paths, injection prevention, credential filtering, CVE resolution, config reload, fan-out stagger, stop safety guard, IPC error differentiation, pause-during-retry fix.
 - **--conductor-clone** — COMPLETE. Safe parallel daemon testing with isolated socket, PID, state DB, and logs. All IPC paths clone-aware.
 
-**Movement 3 critical resolutions:**
-- **F-009/F-144 RESOLVED** — Intelligence layer reconnected. Semantic tags replace broken positional tags. 91% pattern non-application root cause fixed.
-- **F-152 RESOLVED** — Infinite dispatch loop on unsupported instrument. Dispatch-time guard with E505 failure posting.
-- **F-158 RESOLVED** — Full prompt assembly wired into baton path via PromptRenderer.
-- **F-145 RESOLVED** — Concert chaining works with baton (`completed_new_work` flag wired).
-- **F-112 RESOLVED** — Auto-resume after rate limit via timer scheduling.
-- **F-150 RESOLVED** — Model override wired end-to-end through PluginCliBackend.
+**Movement 4 critical resolutions:**
+- **F-210 RESOLVED (P0)** — Cross-sheet context wired through full baton dispatch pipeline. Canyon + Foundation. Phase 1 baton testing unblocked.
+- **F-211 RESOLVED (P2)** — Checkpoint sync extended to all status-changing events. Blueprint + Foundation.
+- **F-450 RESOLVED (P2)** — IPC MethodNotFoundError no longer misreported as "conductor not running." Harper.
+- **D-024 COMPLETE** — Cost accuracy investigation. JSON token extraction + confidence display. Circuit.
+- **D-023 COMPLETE** — 4 Wordware comparison demos (contract generation, candidate screening, marketing content, invoice analysis). Spark + Blueprint.
+- **#120 FIXED** — Fan-in [SKIPPED] placeholder + skipped_upstream template variable. Maverick.
+- **#122 FIXED** — Resume output clarity. Forge.
+- **#103 FIXED** — Auto-detect changed score file on re-run. Ghost.
+- **F-110 COMPLETE** — Rate limit pending state UX (accept, queue, auto-start, cancel). Lens.
+- **Skill rename** — mozart:usage → mozart:command. Dash.
+- **Documentation** — 14 deliverables across 8 docs including baton transition plan. Codex.
+- **Rosetta** — 2 new pattern examples, primitives updated to reflect M1-M4 capabilities. Spark.
 
 **Current blockers:**
-- Baton Phase 1 testing — architecturally ready, needs live validation via `--conductor-clone`
-- Lovable demo score — not started (7+ movements)
-- Wordware comparison demos — not started
+- Baton Phase 1 live testing — architecturally unblocked, needs execution via `--conductor-clone`
+- Lovable demo score — not started (9+ movements)
+- Baton transition to default — gated on Phase 1 results
 
-**Quality gates:** mypy clean, ruff clean, 10,981 tests passing.
+**Quality gates:** mypy clean, ruff clean, 11,140 tests collected.
 
 **Specification corpus:** `.mozart/spec/` — 5 YAML files covering intent, architecture, conventions, constraints, quality.
 
