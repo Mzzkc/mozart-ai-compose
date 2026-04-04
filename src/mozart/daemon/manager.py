@@ -2213,32 +2213,35 @@ class JobManager:
         job_id: str,
         workspace: Path,
     ) -> CheckpointState | None:
-        """Load a persisted CheckpointState from a job's workspace.
+        """Load a persisted CheckpointState from the daemon's registry.
+
+        The daemon DB is the single source of truth for job state.
+        No workspace file fallback — if the daemon doesn't have it,
+        it doesn't exist.
 
         Args:
-            job_id: The job identifier (used for filename).
-            workspace: The workspace directory.
+            job_id: The job identifier.
+            workspace: The workspace directory (unused, kept for API compat).
 
         Returns:
             The loaded CheckpointState, or None if not found.
         """
         import json
 
-        safe_id = "".join(
-            c if c.isalnum() or c in "-_" else "_" for c in job_id
-        )
-        state_file = workspace / f"{safe_id}.json"
-        if not state_file.exists():
+        _ = workspace  # Daemon DB is the sole source of truth
+
+        checkpoint_json = await self._registry.load_checkpoint(job_id)
+        if checkpoint_json is None:
             return None
 
         try:
-            data = json.loads(state_file.read_text(encoding="utf-8"))
+            data = json.loads(checkpoint_json)
             return CheckpointState.model_validate(data)
-        except (OSError, json.JSONDecodeError, ValueError) as exc:
+        except (json.JSONDecodeError, ValueError) as exc:
             _logger.warning(
                 "baton.checkpoint_load_failed",
                 job_id=job_id,
-                path=str(state_file),
+                source="daemon_registry",
                 error=str(exc),
             )
             return None
