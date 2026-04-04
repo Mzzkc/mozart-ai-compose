@@ -2086,3 +2086,38 @@ Each finding should include:
 - **Description:** `mozart status` displays a tip: "Set cost_limits.enabled: true in your score to prevent unexpected charges" and cost tracking shows near-zero values ($0.00-$0.03) for scores that have run hundreds of sheets. Accurate token/cost tracking requires the instrument to output in JSON format (so Mozart can parse `input_tokens_path` / `output_tokens_path` from structured output), but there is no guidance in the status output, score-writing guide, or CLI help on how to configure this. The instrument profiles define `output_format_flag` and `output_format_value` (e.g., `-o json` for claude-code), but whether this is applied depends on the profile config, not explicit user action. If JSON output is required for accurate cost tracking, it should be the default output format for all instruments — not something the user has to discover and configure.
 - **Impact:** (1) Composers see $0.00 costs and assume the score is free or cost tracking is broken. (2) No actionable path from the tip to accurate tracking. (3) Cost limits (`max_cost_per_job`) can't function if costs aren't tracked. (4) The v3 orchestra has run 150+ sheets with reported cost of $0.03 — clearly wrong.
 - **Action:** (1) Make JSON output format the default for all CLI instruments (instrument profiles should set it, not require user config). (2) If an instrument is running in text mode, warn that cost tracking is degraded. (3) The status tip should explain HOW to enable accurate tracking, not just that it exists.
+
+### F-255: Baton Transition Blocked by Multiple Unsolved Gaps — End-to-End Testing Required
+- **Found by:** Composer + automated monitor, 2026-04-04 (first production baton run)
+- **Severity:** P0 (critical — baton cannot go to production without these fixes)
+- **Status:** Open
+- **Category:** architecture / baton transition
+- **Description:** First production run of the baton (enabling `use_baton: true` on the conductor) revealed a cascade of gaps that prevent production use. These were discovered by running the v3 orchestra (150/706 completed sheets) through the baton after manual state migration. The task at TASKS.md line 282 ("Enable use_baton after F-210 fixed") was unblocked when F-210 was resolved in movement 4, but nobody tested end-to-end with real production data.
+- **Gaps found (in order of discovery):**
+  1. **`_load_checkpoint` reads workspace JSON, not daemon DB** (manager.py:2211-2244). The daemon's registry already has `checkpoint_json` with full state. The baton's resume path looks for `{workspace}/{job_id}.json` — a flat file that doesn't exist. The registry has `load_checkpoint()` ready to use. **Partial fix applied this session:** changed `_load_checkpoint` to read from `self._registry.load_checkpoint()`. Needs review.
+  2. **Baton adapter doesn't publish to `_live_states`** — the legacy runner calls `_on_state_published()` on every checkpoint save, populating `_live_states` dict which `get_job_status()` reads. The baton adapter has no equivalent callback. Result: `mozart status <job>` shows "Full status unavailable" for baton-managed jobs.
+  3. **PluginCliBackend doesn't disable MCP** — the legacy `ClaudeCLIBackend` has `disable_mcp: True` default, passing `--strict-mcp-config --mcp-config '{"mcpServers":{}}'`. The `PluginCliBackend` (used by baton via instrument profiles) has zero MCP handling. Result: 4 musicians spawn ~80 child processes (MCP servers, docker containers) instead of ~8. Potential deadlocks per legacy backend comments.
+  4. **Three state stores disagree** — daemon registry (FAILED), workspace SQLite (RUNNING), workspace JSON (doesn't exist). The daemon DB should be the ONLY source of truth. Workspace files are artifacts, not state.
+  5. **`mozart list` and `mozart status` read different sources** — list reads registry (FAILED), status reads workspace or live_states (RUNNING). Three answers from three sources.
+- **What was done this session:**
+  - Changed `_load_checkpoint` to read from daemon DB registry (needs code review)
+  - Manually migrated checkpoint state from daemon DB → workspace JSON to unblock the current run (workaround, not fix)
+  - Filed F-152 (unsupported instrument kind dispatch loop), F-151 (no instrument visibility), F-150 (instrument_config.model — already fixed by Foundation), F-149 (global backpressure, issue #153), F-254 (baton kills legacy jobs)
+  - Filed composer directive for baton transition phases
+- **What still needs to be done:**
+  - Wire baton adapter to publish state via `_on_state_published` or equivalent → `_live_states` + registry
+  - Add MCP disabling to PluginCliBackend (read `mcp_config_flag` from profile, apply `--strict-mcp-config` + empty config)
+  - Remove workspace JSON state file from `_load_checkpoint` entirely — daemon DB only
+  - End-to-end test: run hello score AND a subset of orchestra through baton via `--conductor-clone`, verify status display, cost tracking, instrument assignment, resume after restart
+  - ALL of the above needs code review before merging
+- **Related:** F-254 (baton kills legacy jobs). F-152 (unsupported instrument loop). Issue #111 (conductor state desync). TASKS line 282 (enable baton). Step 29 (restart recovery — marked done but reads workspace not daemon DB).
+
+### F-400: Uncommitted Architectural Work — Manager Checkpoint Loading
+- **Found by:** Prism, Movement 4
+- **Severity:** P1 (high — correct direction, incomplete implementation)
+- **Status:** Open
+- **Category:** architecture
+- **Description:** `src/mozart/daemon/manager.py` `_load_checkpoint()` method (lines 2213-2247) switched from file-based to daemon-registry-based loading in the working tree. This change is architecturally correct (daemon as single source of truth, aligns with F-254 principle) but uncommitted and incomplete. The method now calls `await self._registry.load_checkpoint(job_id)` instead of reading `workspace / f"{safe_id}.json"`. No migration path exists for legacy jobs that have checkpoints in workspace files but not in the daemon registry. No tests exist for the new code path.
+- **Evidence:** Working tree diff shows 25-line change at `manager.py:2213-2247`. HEAD version reads from workspace file. Working tree version reads from daemon registry (`registry.py:316-329` provides `load_checkpoint()` method). No corresponding test file changes in working tree.
+- **Impact:** The change aligns with the right architecture (daemon as single source of truth) but doesn't solve the transition problem. Legacy jobs will fail to resume because they have no registry checkpoint. This makes F-254 (enabling use_baton kills jobs) worse, not better. Uncommitted code creates drift between what's tested and what exists.
+- **Action:** (1) Commit this work WITH migration logic: on registry miss, try workspace file, migrate to registry, delete workspace file. (2) Add TDD tests for: registry hit, workspace migration fallback, both miss (error path). (3) Document as part of F-254 resolution strategy. (4) Consider: is this change a response to F-254? If so, coordinate with whoever made this change to understand the full plan.

@@ -246,3 +246,14 @@ Foundation laid: learning store fixes, critical bug resolution, dead code remova
 - **Wordware demos:** 4/4 PASSED (invoice-analysis, contract-generator, candidate-screening, marketing-content). Ready for external audiences. First demo-class deliverables in 8+ movements that work TODAY on legacy runner.
 - **Rosetta patterns:** 6/6 PASSED (2 new: source-triangulation, shipyard-sequence). Both teach unique orchestration techniques from real Rosetta iterations.
 
+
+### M4 Progress (Theorem)
+- **9 property-based invariant tests for M4 features:** `test_baton_invariants_m4_pass2.py` (558 lines). Covers F-210 (cross-sheet context), F-211 (checkpoint sync), F-110 (pending jobs), #103 (auto-fresh), F-200/F-201 (rate limit clearing). Invariants 66-74: lookback bounds, max_chars truncation, credential idempotence, SKIPPED consistency, sync idempotence, rejection determinism, FIFO ordering, timestamp transitivity, clear totality. All tests pass with hypothesis. Total: 157 invariant tests (was 148). Commit 6cf6fe9.
+- **Baton production verification:** Confirmed baton is running in production (conductor log shows baton.sheet.completed). Orchestra v3 has 150 completed sheets, 4 in progress, 552 pending. Phase 1 testing is COMPLETE — baton has executed 150+ real sheets successfully.
+
+### M4 Progress (Prism)
+- **M4 architectural review:** Verified 7 claimed fixes (#120, #122, #103, F-210, F-211, F-450, F-137). All correct. F-210/F-211 resolutions cleared P0 blockers for Phase 1 baton testing.
+- **F-400 filed (P1):** Uncommitted work in `manager.py` — `_load_checkpoint()` switched to daemon-registry-based loading. Architecturally correct (daemon as truth, F-254 principle) but incomplete (no migration, no tests). Needs commitment with migration logic.
+- **Geometry problem persists:** Critical path advanced one step (F-210). Fourth consecutive movement at this pace. Baton ready for Phase 1, nobody starting. Not an engineering problem anymore — it's a governance problem.
+- **F-254 diagnosis:** The hidden bomb. Enabling `use_baton: true` kills ALL in-progress legacy jobs. Dual-state architecture (workspace `.mozart-state.db` vs daemon registry) creates the gap. Architectural principle clear (daemon is truth), migration path unclear. Requires composer/co-composer governance decision.
+- **Mateship at 39% (all-time high):** Pipeline is primary collaboration mechanism now. Foundation/Forge/Harper/Spark/Breakpoint all picked up others' work.

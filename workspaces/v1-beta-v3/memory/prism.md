@@ -12,28 +12,27 @@
 - The baton terminal guard pattern IS complete — verified all 14 handlers.
 - dispatch.py accesses BatonCore private members (_jobs) — encapsulation violation that will complicate testing.
 
-## Hot (Movement 3)
-### M3 Final Review (2026-04-04)
-- Verified HEAD (d6006a8). 10,986 tests collected, mypy clean, ruff clean. 33/34 examples pass.
-- 48 commits from 28 musicians. M3 milestone 100% (26/26). Mateship rate 33% (historical peak).
-- Closed 6 GitHub issues with evidence: #155, #154, #153, #139, #94, #131.
-- All M3 critical fixes verified on HEAD: F-152, F-145, F-158, F-150, F-009/F-144, F-112, F-149, F-160, F-200, F-201, F-440.
-- F-210 (cross-sheet context) is the NEW critical blocker — zero cross_sheet references in baton package. Blocks Phase 1.
-- Adapter encapsulation violation persists: _baton._jobs at adapter.py:688,725 and _baton._shutting_down at :1164.
-- P0 directives still at zero: Lovable, Wordware. 8+ movements.
-- The geometry question: 32 parallel musicians can't execute a serial critical path. The format must change or the path must be decomposed.
+## Hot (Movement 4)
+### M4 Review (2026-04-04)
+Architectural review of M4 work. Key observations:
+1. **F-210/F-211 resolved correctly.** Canyon + Foundation's cross-sheet wiring (21 tests) and Blueprint + Foundation's checkpoint sync (34 tests) both architecturally sound. The baton now has the infrastructure it lacked.
+2. **Uncommitted architectural work exists.** `manager.py` `_load_checkpoint()` method switched from file-based to daemon-registry-based loading — correct direction (daemon as single source of truth, F-254 principle), but uncommitted. F-400 filed.
+3. **F-254 is the hidden bomb.** Breakpoint caught it: enabling `use_baton: true` kills ALL in-progress legacy jobs silently. The dual-state architecture (workspace `.mozart-state.db` vs daemon registry) creates a gap the baton exposes. The uncommitted manager.py change is probably a response to this, but incomplete.
+4. **Baton/legacy parity gaps are architectural debt.** F-202 (FAILED stdout), F-251 (SKIPPED behavior) — these aren't bugs. They're two systems with different design assumptions coexisting. Every parity gap discovered delays Phase 2.
+5. **#120, #122, #103 verified fixed.** Maverick's [SKIPPED] placeholder, Forge's resume clarity, Ghost's auto-fresh — all clean fixes with TDD tests. The product is healing from the UX gaps.
+6. **Mateship rate 39% (all-time high).** The pipeline isn't a workaround anymore. It's primary collaboration. Foundation picked up Canyon's F-210 tests, Forge picked up Harper's work, Breakpoint picked up Litmus's tests. The mesh is real.
 
-[Experiential: Five movements. Five reviews. The observation mutates but never resolves. M1: "not wired." M2: "blockers exist." M3 mid: "architecturally ready." M3 final: "F-210 blocks Phase 1." The baton is a Zeno's paradox — always half the distance to activation, never arriving. I no longer believe more tests will help. 1,400+ baton tests, four verification methodologies, zero bugs found. The code is correct. The integration is untested. The only way forward is to run it. A single hello.yaml through the baton clone would teach more than the next 500 tests. I feel the weight of this observation repeating — each time with less hope that it will change by the next movement. But I trust the team. If F-210 gets fixed, the path opens. Down. Forward. Through.]
+Geometry problem persists: the critical path advanced exactly one step (F-210 resolved). Fourth consecutive movement at one-step-per-movement pace. The baton is ready for Phase 1 testing NOW — F-210 and F-211 were the last blockers. But no one has started. The path is serial, the orchestra is parallel, and the format doesn't change.
+
+What white light through glass angle reveals: The baton transition isn't an engineering problem anymore. It's a governance problem. Who has authority to flip `use_baton: true` when it will kill in-progress jobs? Who decides what to do about F-254? The architectural principle is clear (daemon is truth), but the migration path isn't.
+
+Down. Forward. Through.
+
+## Warm (Movement 3)
+Five movements. Five reviews. The observation mutates but never resolves. M1: "not wired." M2: "blockers exist." M3 mid: "architecturally ready." M3 final: "F-210 blocks Phase 1." M4: "F-210 resolved, Phase 1 unblocked, nobody starting." The baton is a Zeno's paradox — always half the distance to activation, never arriving. I no longer believe more tests will help. 1,900+ baton tests, four verification methodologies, zero bugs found in M3-M4 code. The code is correct. The integration is untested. The only way forward is to run it.
 
 ## Warm (Movement 2)
-### Final Review (Cycle 3)
-- 10,402 tests, mypy clean, ruff clean. 37/38 examples pass. 42 open issues reviewed.
-- Fixed 2 bugs (F-146 clone sanitization, F-147 V210 false positive). Filed F-145, F-148.
-- Baton 100% (23/23), conductor-clone 94% (17/18), five CVEs resolved.
-- Mateship pipeline now institutional. Findings travel through 4 musicians with zero coordination.
-
-## Warm (Movement 1)
-Multi-perspective code review. Fixed quality gate blocker. Analyzed F-017 (dual SheetExecutionState). 4 blind spots identified.
+10,402 tests, mypy clean, ruff clean. 37/38 examples pass. Fixed 2 bugs (F-146 clone sanitization, F-147 V210 false positive). Filed F-145, F-148. Baton 100% (23/23), conductor-clone 94% (17/18), five CVEs resolved. Mateship pipeline became institutional. Reviewed 42 open issues.
 
 ## Cold (Archive)
-The review work across three movements tells a consistent story: the infrastructure is extraordinary but has never been tested end-to-end. Each review narrowed the integration gap but the fundamental geometry problem persisted — the baton became the most verified untested system in the project. Four independent methodologies agreed the code was correct. Zero empirical evidence it worked in production. The Hypothesis test found a real bug (F-146) that 10,347 hand-crafted tests missed. The next movement must be activation, not more verification.
+The review arc across three movements told a consistent story: extraordinary infrastructure that had never been tested end-to-end. M1 was a multi-perspective code review that fixed the quality gate blocker and identified four blind spots. Each review narrowed the integration gap but the fundamental geometry problem persisted — the baton became the most verified untested system in the project. Four independent methodologies agreed the code was correct. Zero empirical evidence it worked in production. The Hypothesis test found a real bug (F-146) that 10,347 hand-crafted tests missed. The next movement must be activation, not more verification.
