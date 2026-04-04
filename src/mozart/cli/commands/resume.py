@@ -310,6 +310,7 @@ async def _resume_job(
         "job_id": job_id,
         "workspace": ws_str,
         "config_path": str(config_file) if config_file else None,
+        "no_reload": no_reload,
     }
     try:
         routed, result = await try_daemon_route("job.resume", params)

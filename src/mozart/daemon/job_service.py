@@ -263,6 +263,7 @@ class JobService:
         conductor_job_id: str | None = None,
         config: JobConfig | None = None,
         config_path: Path | None = None,
+        no_reload: bool = False,
         self_healing: bool = False,
         self_healing_auto_confirm: bool = False,
         pause_event: asyncio.Event | None = None,
@@ -281,6 +282,7 @@ class JobService:
             workspace: Workspace directory containing job state.
             config: Optional explicit JobConfig (overrides snapshot).
             config_path: Path to config file for reload.
+            no_reload: If True, skip auto-reload and use cached snapshot.
             self_healing: Enable automatic diagnosis and remediation.
             self_healing_auto_confirm: Auto-confirm suggested fixes.
 
@@ -316,6 +318,7 @@ class JobService:
         # Phase 2: Reconstruct config (auto-reload from file by default)
         resolved_config, was_reloaded = self._reconstruct_config(
             found_state, config=config, config_path=config_path,
+            no_reload=no_reload,
         )
 
         # Reconcile stale state only when config was actually reloaded

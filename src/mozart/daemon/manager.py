@@ -832,6 +832,7 @@ class JobManager:
         job_id: str,
         workspace: Path | None = None,
         config_path: Path | None = None,
+        no_reload: bool = False,
     ) -> JobResponse:
         """Resume a paused or failed job by creating a new task.
 
@@ -844,6 +845,8 @@ class JobManager:
             workspace: Optional workspace override.
             config_path: Optional new config file path. When provided, updates
                 meta.config_path so the resume task loads the new config.
+            no_reload: If True, skip auto-reload from disk and use cached
+                config snapshot. Threaded from CLI ``--no-reload`` flag.
         """
         meta = self._job_meta.get(job_id)
         if meta is None:
@@ -869,7 +872,7 @@ class JobManager:
         meta.status = DaemonJobStatus.QUEUED
 
         task = asyncio.create_task(
-            self._resume_job_task(job_id, ws),
+            self._resume_job_task(job_id, ws, no_reload=no_reload),
             name=f"job-resume-{job_id}",
         )
         self._jobs[job_id] = task
@@ -1958,7 +1961,9 @@ class JobManager:
             )
             return None
 
-    async def _resume_job_task(self, job_id: str, workspace: Path) -> None:
+    async def _resume_job_task(
+        self, job_id: str, workspace: Path, no_reload: bool = False,
+    ) -> None:
         """Task coroutine that resumes a paused job."""
 
         async def _execute() -> DaemonJobStatus:
@@ -1971,6 +1976,7 @@ class JobManager:
                 job_id, workspace,
                 conductor_job_id=job_id,
                 config_path=meta.config_path if meta else None,
+                no_reload=no_reload,
                 pause_event=self._pause_events.get(job_id),
             )
 

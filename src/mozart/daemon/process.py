@@ -470,10 +470,12 @@ class DaemonProcess:
             try:
                 config_path_str = params.get("config_path")
                 config_path = Path(config_path_str) if config_path_str else None
+                no_reload = bool(params.get("no_reload", False))
                 response = await manager.resume_job(
                     params["job_id"],
                     _workspace_path(params.get("workspace")),
                     config_path=config_path,
+                    no_reload=no_reload,
                 )
                 return response.model_dump()
             except JobSubmissionError as e:
