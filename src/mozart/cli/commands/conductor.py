@@ -42,17 +42,23 @@ def stop(
     pid_file: Path | None = typer.Option(None, "--pid-file", help="PID file path"),
     force: bool = typer.Option(False, "--force", help="Send SIGKILL instead of SIGTERM"),
 ) -> None:
-    """Stop the Mozart conductor."""
+    """Stop the Mozart conductor.
+
+    When jobs are actively running, warns and asks for confirmation.
+    Use --force to skip the safety check and send SIGKILL.
+    """
     from mozart.daemon.clone import is_clone_active
     from mozart.daemon.process import stop_conductor
 
+    socket_path: Path | None = None
     if is_clone_active() and pid_file is None:
         from mozart.daemon.clone import get_clone_name, resolve_clone_paths
 
         clone = resolve_clone_paths(get_clone_name())
         pid_file = clone.pid_file
+        socket_path = clone.socket
 
-    stop_conductor(pid_file=pid_file, force=force)
+    stop_conductor(pid_file=pid_file, force=force, socket_path=socket_path)
 
 
 def restart(

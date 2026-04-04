@@ -124,6 +124,7 @@ class TestStopCommand:
         with (
             patch("mozart.daemon.process._pid_alive", return_value=True),
             patch("mozart.daemon.process.os.kill") as mock_kill,
+            patch("mozart.daemon.process._check_running_jobs", return_value={"running_jobs": 0, "job_ids": []}),
         ):
             result = runner.invoke(app, ["stop", "--pid-file", str(pid_file)])
 
