@@ -1802,3 +1802,32 @@ Each finding should include:
 - **Impact:** Trust-destroying inconsistency. User is told to start the conductor when it is already running. Broader: any CLI command added after a long-running conductor (or after a CLI upgrade without daemon restart) will give the same misleading error. Users upgrading Mozart without restarting their conductor will hit this for every new IPC method.
 - **Action:** In the DaemonError catch at detect.py:170-174, check `daemon_confirmed_running`. If True, raise a descriptive DaemonError ("Conductor is running but does not support method X — restart the conductor to load new features") instead of returning `(False, None)`.
 - **Error class:** Signal collapse — two distinct error states (not reachable vs. unsupported method) mapped to the same return value. Same pattern as the TimeoutError handler, which was already fixed.
+
+### F-210: Baton Path Missing Cross-Sheet Context (previous_outputs/previous_files)
+- **Found by:** Weaver, Movement 3
+- **Severity:** P1 (high — blocks baton activation for any score with sequential dependencies)
+- **Status:** Open
+- **Category:** architecture
+- **Description:** The legacy runner populates `SheetContext.previous_outputs` and `SheetContext.previous_files` via `_populate_cross_sheet_context()` in `src/mozart/execution/runner/context.py:171-221`. This gives each sheet access to previous sheets' stdout output and captured files. The baton's PromptRenderer (`src/mozart/daemon/baton/prompt.py`) and musician `_build_prompt()` (`src/mozart/daemon/baton/musician.py:208-288`) have zero awareness of cross-sheet context. The `SheetExecutionState` at `src/mozart/daemon/baton/state.py:161-163` declares `previous_outputs: dict[int, str]` but it is never populated by the adapter or any dispatch code.
+- **Impact:** 24 of 34 example scores use `cross_sheet: auto_capture_stdout: true`. Any score where sheet N references `{{ previous_outputs }}` or depends on seeing what sheet N-1 produced will render templates with empty cross-sheet context under the baton. This produces functionally different (worse) prompts compared to the legacy runner. **This is the most significant functional gap between baton and legacy paths.**
+- **Action:** Before baton Phase 1 testing, wire cross-sheet context population into the adapter's dispatch path. After each sheet completes, capture its stdout_tail and make it available to subsequent sheets' template rendering. The baton should either: (1) populate `SheetExecutionState.previous_outputs` from CheckpointState after each sheet completion, or (2) pass cross-sheet context to PromptRenderer at render time.
+- **Error class:** Feature gap — baton path was built to replace the runner but does not replicate its cross-sheet context pipeline. Not a bug in existing code — a missing integration surface.
+
+### F-211: Baton Checkpoint Sync Missing for 4 Event Types
+- **Found by:** Weaver, Movement 3
+- **Severity:** P2 (medium — escalation and cancel scenarios, not core execution path)
+- **Status:** Open
+- **Category:** architecture
+- **Description:** `_sync_sheet_status()` in `src/mozart/daemon/baton/adapter.py:1109-1148` only syncs checkpoint for `SheetAttemptResult` and `SheetSkipped` events. Axiom identified (F-440 notes) and Weaver confirmed: EscalationResolved (core.py:1081-1090, 4 terminal paths), EscalationTimeout (core.py:1104-1132, FAILED + propagation), CancelJob (core.py:1159-1170, all sheets → CANCELLED), and ShutdownRequested (core.py:1172-1184, all → CANCELLED) are NOT synced. On restart after any of these events, checkpoint shows stale state and sheets are resurrected.
+- **Impact:** Escalation decisions lost on restart (sheet re-escalates). Cancel commands reversed on restart (sheets resume). Shutdown cancellations reversed (work re-executed). F-440's register_job re-propagation covers the failure cascade gap but not these 4 event types.
+- **Action:** Either expand `_sync_sheet_status()` to handle all terminal-transition events, or redesign to sync after every event that modifies sheet status. The simplest fix: add `isinstance(event, (EscalationResolved, EscalationTimeout, CancelJob, ShutdownRequested))` to the sync callback and iterate affected sheets.
+- **Error class:** Incomplete bridge — same architectural pattern as F-440. The sync bridge only covers the common execution path, not the exception paths.
+
+### F-212: Baton PromptRenderer Missing Spec Budget Gating
+- **Found by:** Weaver, Movement 3
+- **Severity:** P3 (low — spec corpus is lightly used in current scores)
+- **Status:** Open
+- **Category:** architecture
+- **Description:** The legacy runner applies `_apply_spec_budget_gating()` at `src/mozart/execution/runner/sheet.py` to limit spec fragment injection based on context window budget. The baton's PromptRenderer at `src/mozart/daemon/baton/prompt.py` passes spec fragments directly to PromptBuilder without budget gating. For scores with large spec corpora, this could produce prompts that exceed the instrument's context window.
+- **Action:** Add spec budget gating to PromptRenderer. Low priority because spec corpus is lightly used and current instruments have large context windows (1M+ for Opus).
+- **Error class:** Feature gap — same class as F-210.

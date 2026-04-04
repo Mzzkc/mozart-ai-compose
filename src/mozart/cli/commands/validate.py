@@ -1,7 +1,7 @@
 """Validate command for Mozart CLI.
 
 This module implements the `mozart validate` command for comprehensive
-configuration validation before job execution.
+configuration validation before score execution.
 
 ★ Insight ─────────────────────────────────────
 1. **Multi-layer validation**: The validate command performs 3 distinct validation
@@ -56,7 +56,7 @@ def validate(
         help="Show detailed validation output",
     ),
 ) -> None:
-    """Validate a job configuration file.
+    """Validate a score configuration file.
 
     Performs comprehensive validation including:
     - YAML syntax and Pydantic schema validation

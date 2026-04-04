@@ -1,11 +1,11 @@
 """Run command for Mozart CLI.
 
-This module implements the ``mozart run`` command which routes jobs
+This module implements the ``mozart run`` command which routes scores
 through a running conductor (``mozart start``).  Direct execution is not
 supported — a running conductor is required (like docker requires dockerd).
 
 The only exception is ``--dry-run``, which validates and displays the
-job plan without executing anything (no conductor needed).
+execution plan without executing anything (no conductor needed).
 """
 
 from __future__ import annotations
@@ -85,11 +85,11 @@ def run(
         False,
         "--fresh",
         help="Delete existing state before running, ensuring a fresh start. "
-        "Use this for self-chaining jobs or when you want to re-run a completed job "
+        "Use this for self-chaining scores or when you want to re-run a completed score "
         "from scratch without resuming from previous state.",
     ),
 ) -> None:
-    """Run a job from a YAML configuration file."""
+    """Run a score from a YAML configuration file."""
     from mozart.core.config import JobConfig
 
     try:

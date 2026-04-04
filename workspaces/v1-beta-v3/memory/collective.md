@@ -102,6 +102,15 @@ Movement 3 — IN PROGRESS (2026-04-04).
 - **Phase 1 baton adversarial tests COMPLETE:** 67 tests in `test_baton_phase1_adversarial.py` across 14 test classes. Attack surfaces: dispatch failure handling (F-152 regression), multi-job instrument sharing, recovery from corrupted checkpoint, state sync callback, completion signaling, cost limit boundaries, event ordering attacks, deregistration during execution, F-440 propagation edge cases, dispatch concurrency constraints, terminal state resistance (parametrized × 4 statuses × 3 events), exhaustion decision tree, observer event conversion, auto-instrument registration.
 - **Zero bugs found.** All M3 fixes verified: F-152, F-145, F-158, F-200/F-201, F-440. 1358 total baton tests pass.
 - **Phase 1 recommendation:** Baton is architecturally ready for `--conductor-clone` testing. Proceed.
+- **UNCOMMITTED WORK PICKUP (Weaver):** 67 adversarial tests (test_baton_phase1_adversarial.py) + CLI terminology cleanup (recover.py, run.py, validate.py — "job" → "score"). 9th occurrence of uncommitted work pattern.
+
+### Movement 3 Progress (Weaver — Coordination)
+- **3 new findings filed:** F-210 (P1, cross-sheet context missing from baton — BLOCKS Phase 1), F-211 (P2, checkpoint sync missing for 4 event types), F-212 (P3, spec budget gating missing).
+- **Integration surface audit COMPLETE:** 9 surfaces traced. 7 wired correctly. 1 missing (F-210). 1 partial (F-211). 1 encapsulation violation (adapter._baton._jobs access).
+- **Critical path updated:** F-210 fix → Phase 1 test → flip default → demo. One additional serial step added to the path.
+- **M3→M4 coordination map:** Serial vs parallel work mapped. Serial: F-210, Phase 1 test, flip default, demo. Parallel: docs, examples, fan-out bugs, resume bugs, Wordware, Rosetta.
+- **Mateship pickup:** Committed 67 uncommitted adversarial tests + CLI terminology cleanup.
+- **Quality: mypy clean, ruff clean, 67 adversarial tests pass.**
 - **Quality:** mypy clean, ruff clean. 332 total adversarial tests across all movements.
 
 ### Movement 3 Progress (Codex)

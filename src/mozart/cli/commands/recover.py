@@ -46,7 +46,7 @@ def recover(
         None,
         "--workspace",
         "-w",
-        help="Workspace directory containing job state (debug override)",
+        help="Workspace directory containing score state (debug override)",
         hidden=True,
     ),
     dry_run: bool = typer.Option(
