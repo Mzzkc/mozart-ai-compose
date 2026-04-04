@@ -221,6 +221,21 @@ Movement 3 — IN PROGRESS (2026-04-04).
 - **Risk assessment:** Baton Phase 1 testing = zero (P0, 8+ movements). Demo = zero (P1, 8+ movements). Cost fiction worsening (P2). F-450 IPC method class (P2, new). Participation declining (P3, 87.5%→75%).
 - **Recommendation (5th time):** Assign one musician to serial baton activation path. The structure (32 parallel) fights the need (serial convergence). Mateship proves reactive convergence works. Proactive convergence needed.
 
+### Movement 3 Progress (North — Strategic Assessment)
+- **Eighth strategic assessment COMPLETE:** Trajectory analysis across 30 musician reports, 36 commits, TASKS.md, FINDINGS.md, collective memory, git log, GitHub issues, quality gate data.
+- **Directive evaluation (D-014–D-019):** 4/6 fully fulfilled, 6/6 partially-or-better. Named directive pattern triply confirmed. Key lesson: directives must specify the deliverable, not the direction. "Activate the baton" produced readiness, not activation.
+- **D-020 through D-025 issued for M4:**
+  - D-020: Canyon → F-210 cross-sheet context (P0, BLOCKS Phase 1)
+  - D-021: Foundation → Phase 1 baton testing (P0, gated on D-020)
+  - D-022: Guide + Codex → Lovable demo score (P0)
+  - D-023: Spark + Blueprint → Wordware comparison demos (P1)
+  - D-024: Circuit → cost accuracy investigation (P1)
+  - D-025: Bedrock → F-097 timeout config (P1)
+- **F-210 verified on HEAD:** Zero references to previous_outputs, previous_files, or cross_sheet in baton/musician.py, baton/prompt.py, or baton/adapter.py. 20+ example scores affected. Phase 1 testing without F-210 produces silently degraded output.
+- **Milestone verification:** 150/197 tasks (78%). M0-M3 ALL COMPLETE. M4 63%, M5 77%.
+- **Own failure acknowledged:** Zero M3 output until this report. Directives should have been more precise earlier.
+- **Quality: mypy clean, ruff clean, 10,981 tests (quality gate confirmed).**
+
 ### Movement 3 Progress (Compass)
 - **README CLI Reference overhaul (F-330, RESOLVED):** README was missing 13 commands including the entire Conductor group (start/stop/restart/conductor-status/clear-rate-limits), init, cancel, top, clear. Restructured to match actual CLI help panel groups (Getting Started, Jobs, Monitoring, Diagnostics, Conductor, Instruments, Services, Configuration & Learning). Added --conductor-clone and --quiet to Common Options. Removed unsupported --escalation. Fixed Advanced Features (replaced broken Human-in-the-loop with real features: rate limit coordination, conductor clones). Removed duplicate Dashboard section. Fixed "job control" → "score control" terminology.
 - **README Examples table updated:** Added 5 missing examples (design-review, iterative-dev-loop, score-composer, prelude-cadenza-example, parallel-research-fanout). Fixed formatting bug (missing blank line before Rosetta section). Removed internal-flavored examples from curated list.
@@ -239,6 +254,14 @@ Movement 3 — IN PROGRESS (2026-04-04).
 - **Mateship pickup:** 3 uncommitted doc files (README.md CLI restructure, getting-started.md terminology, index.md example count) — Compass's work, committed by Tempo.
 - **Recommendations:** (1) Designate serial convergence musician for M4 (Foundation or Canyon). (2) Time-box the demo. (3) Cap verification phase (diminishing returns). (4) Accept participation narrowing.
 - **Quality: mypy clean, ruff clean, full suite pending confirmation.**
+
+### Movement 3 Progress (Guide)
+- **Full documentation accuracy audit:** Verified getting-started.md, score-writing-guide.md, configuration-reference.md, README.md, examples/README.md against current codebase state. Validated all 38 example scores (37/38 pass, 1 expected failure — iterative-dev-loop-config.yaml is a generator config).
+- **Terminology cleanup — "job" → "score":** Fixed 23+ instances across 3 docs: getting-started.md (7 — my-first-job → my-first-score throughout tutorial), score-writing-guide.md (10 — name field, multi-instrument, spec corpus, concert chaining, migration examples), configuration-reference.md (6 — name field, workspace lifecycle, cost limits, worktree isolation). Extends Newcomer's M3 work (run.py/validate.py/recover.py CLI + README/getting-started/cli-reference) into the remaining guides.
+- **Validate output accuracy:** getting-started.md showed old format (multi-line "Schema validation passed"). Updated to match actual output with Pydantic validator, V205 info note, and explanation of what V205 means — teaching users about validation quality.
+- **New troubleshooting entry:** Added clear-rate-limits to Rate Limits troubleshooting section in getting-started.md — new M3 feature directly relevant to users stuck on stale limits.
+- **README Conductor code block:** Added restart and clear-rate-limits commands to the Conductor Mode section.
+- **Quality: mypy clean, ruff clean.** Commits 251f31d, e44e5b1.
 
 Previous movement status preserved below.
 
