@@ -54,6 +54,43 @@ cross_sheet:
     - "{{ workspace }}/*.md"
     - "{{ workspace }}/*.sh"
 
+# Movement declarations — names appear in `mozart status` output
+movements:
+  1:
+    name: "Issue Selection"
+  2:
+    name: "Investigation"
+  3:
+    name: "Planning"
+  4:
+    name: "Phase 1 Fix"
+  5:
+    name: "Phase 1 Completion"
+  6:
+    name: "Phase 2 Fix"
+  7:
+    name: "Phase 2 Completion"
+  8:
+    name: "Phase 3 Fix"
+  9:
+    name: "Phase 3 Completion"
+  10:
+    name: "Phase 4 Fix"
+  11:
+    name: "Phase 4 Completion"
+  12:
+    name: "Quality Review"
+  13:
+    name: "Review Synthesis"
+  14:
+    name: "Documentation"
+  15:
+    name: "Final Verification"
+  16:
+    name: "Commit & Push"
+  17:
+    name: "Close & Chain"
+
 sheet:
   size: 1
   total_items: 17  # 17 stages → 19 concrete sheets after fan-out

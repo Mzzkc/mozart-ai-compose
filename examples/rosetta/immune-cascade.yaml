@@ -87,6 +87,21 @@ instrument_config:
     - Grep
     - Bash
 
+# Movement declarations — names appear in `mozart status` output
+movements:
+  1:
+    name: "Reconnaissance"
+  2:
+    name: "Innate Response"
+  3:
+    name: "Dendritic Handoff"
+  4:
+    name: "Adaptive Response"
+  5:
+    name: "Remediation Synthesis"
+  6:
+    name: "Immunological Memory"
+
 sheet:
   size: 1
   total_items: 6

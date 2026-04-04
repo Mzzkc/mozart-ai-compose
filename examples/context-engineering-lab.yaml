@@ -78,6 +78,29 @@ instrument: claude-code
 instrument_config:
   timeout_seconds: 2400
 
+# Movement declarations — names appear in `mozart status` output
+movements:
+  1:
+    name: "Framing"
+  2:
+    name: "Preprocessing"
+  3:
+    name: "Investigation"
+  4:
+    name: "Synthesis Prep"
+  5:
+    name: "Dialectic Synthesis"
+  6:
+    name: "Spec Prep"
+  7:
+    name: "Specification Draft"
+  8:
+    name: "Review Prep"
+  9:
+    name: "TDF Review"
+  10:
+    name: "Final Specification"
+
 sheet:
   size: 1
   total_items: 10

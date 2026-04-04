@@ -35,6 +35,15 @@ instrument: claude-code
 instrument_config:
   timeout_seconds: 600
 
+# Movement declarations — names appear in `mozart status` output
+movements:
+  1:
+    name: "The World"
+  2:
+    name: "Three Vignettes"
+  3:
+    name: "The Finale"
+
 sheet:
   size: 1
   total_items: 3

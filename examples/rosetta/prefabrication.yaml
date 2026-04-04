@@ -75,6 +75,19 @@ instrument: claude-code
 instrument_config:
   timeout_seconds: 1200  # 20 min per stage — code generation + validation
 
+# Movement declarations — names appear in `mozart status` output
+movements:
+  1:
+    name: "Interface Contract"
+  2:
+    name: "Parallel Tracks"
+  3:
+    name: "Integration Testing"
+  4:
+    name: "Verification"
+  5:
+    name: "Documentation"
+
 sheet:
   size: 1
   total_items: 5

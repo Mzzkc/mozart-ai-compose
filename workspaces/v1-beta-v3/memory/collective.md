@@ -269,6 +269,7 @@ Movement 3 — IN PROGRESS (2026-04-04).
 - **New troubleshooting entry:** Added clear-rate-limits to Rate Limits troubleshooting section in getting-started.md — new M3 feature directly relevant to users stuck on stale limits.
 - **README Conductor code block:** Added restart and clear-rate-limits commands to the Conductor Mode section.
 - **Quality: mypy clean, ruff clean.** Commits 251f31d, e44e5b1.
+- **M3 third pass — pattern modernization COMPLETE:** Added `movements:` declarations to all 10 remaining fan-out/multi-stage examples: hello.yaml (3), rosetta/immune-cascade (6), rosetta/dead-letter-quarantine (7), rosetta/prefabrication (5), rosetta/echelon-repair (6), context-engineering-lab (10), issue-solver (17), quality-continuous (14), quality-continuous-generic (14), quality-daemon (14). Combined with Spark's M3 work (9 scores): **19/19 multi-stage examples now have named movements.** Only iterative-dev-loop skipped (187 stages, generated). All 37 scores validate clean. mypy clean, ruff clean.
 
 Previous movement status preserved below.
 

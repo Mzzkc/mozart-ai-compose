@@ -52,6 +52,37 @@ instrument: claude-code
 instrument_config:
   timeout_seconds: 2400  # 40 min per sheet for thorough analysis
 
+# Movement declarations — names appear in `mozart status` output
+movements:
+  1:
+    name: "Setup"
+  2:
+    name: "Expert Reviews"
+  3:
+    name: "Category Discovery"
+  4:
+    name: "Synthesis"
+  5:
+    name: "Batch 1 — Quick Wins"
+  6:
+    name: "Batch 1 Completion"
+  7:
+    name: "Batch 2 — Medium Effort"
+  8:
+    name: "Batch 2 Completion"
+  9:
+    name: "Batch 3 — Significant"
+  10:
+    name: "Batch 3 Completion"
+  11:
+    name: "Verification"
+  12:
+    name: "Commit & Push"
+  13:
+    name: "Merge Resolution"
+  14:
+    name: "File Issues"
+
 cross_sheet:
   auto_capture_stdout: true
   max_output_chars: 3000

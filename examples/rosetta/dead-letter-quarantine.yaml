@@ -83,6 +83,23 @@ instrument: claude-code
 instrument_config:
   timeout_seconds: 900  # 15 min per stage
 
+# Movement declarations — names appear in `mozart status` output
+movements:
+  1:
+    name: "Specifications"
+  2:
+    name: "Generation"
+  3:
+    name: "Validation"
+  4:
+    name: "Quarantine"
+  5:
+    name: "Failure Analysis"
+  6:
+    name: "Reprocessing"
+  7:
+    name: "Final Verification"
+
 sheet:
   size: 1
   total_items: 7
