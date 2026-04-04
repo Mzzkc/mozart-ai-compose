@@ -307,7 +307,13 @@ async def _status_job_watch(
                 error_detail = f"{type(exc).__name__}: {exc}"
                 _logger.warning("watch_daemon_error", error=error_detail)
                 console.clear()
-                output_error(f"Conductor error: {error_detail}")
+                output_error(
+                    f"Conductor error: {error_detail}",
+                    hints=[
+                        "Check conductor health: mozart conductor-status",
+                        "Restart if needed: mozart restart",
+                    ],
+                )
                 await asyncio.sleep(interval)
                 continue
 
@@ -1816,9 +1822,12 @@ async def _clear_jobs(
     valid = {"completed", "failed", "cancelled", "paused"}
     invalid = set(statuses) - valid
     if invalid:
-        console.print(
-            f"[red]Error:[/red] Invalid status(es): {', '.join(invalid)}. "
-            f"Valid values: {', '.join(sorted(valid))}"
+        output_error(
+            f"Invalid status(es): {', '.join(invalid)}.",
+            hints=[
+                f"Valid values: {', '.join(sorted(valid))}",
+                "Example: mozart clear --status failed --status cancelled",
+            ],
         )
         raise typer.Exit(1)
 
@@ -1842,7 +1851,13 @@ async def _clear_jobs(
     try:
         routed, result = await try_daemon_route("job.clear", params)
     except Exception as exc:
-        output_error(str(exc))
+        output_error(
+            str(exc),
+            hints=[
+                "Check conductor status: mozart conductor-status",
+                "The conductor must be running to clear scores.",
+            ],
+        )
         raise typer.Exit(1) from None
 
     if not routed:

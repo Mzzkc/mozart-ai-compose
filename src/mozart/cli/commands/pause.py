@@ -321,6 +321,10 @@ async def _pause_via_conductor(
             output_error(
                 str(exc),
                 error_code="E503",
+                hints=[
+                    "Check conductor status: mozart conductor-status",
+                    "Restart if needed: mozart restart",
+                ],
                 json_output=json_output,
                 job_id=job_id,
             )
@@ -348,6 +352,10 @@ async def _pause_via_conductor(
         output_error(
             msg,
             error_code="E503",
+            hints=[
+                f"Check score status: mozart status {job_id}",
+                "Only running scores can be paused.",
+            ],
             json_output=json_output,
             job_id=job_id,
         )
@@ -525,6 +533,10 @@ async def _modify_job(
         output_error(
             str(exc),
             error_code="E501",
+            hints=[
+                "Run 'mozart list' to see available scores.",
+                "Check conductor status: mozart conductor-status",
+            ],
             json_output=json_output,
             job_id=job_id,
         )
@@ -616,6 +628,10 @@ async def _modify_job(
                 output_error(
                     str(exc),
                     error_code="E506",
+                    hints=[
+                        "Check conductor status: mozart conductor-status",
+                        "The conductor must be running to modify a score.",
+                    ],
                     json_output=json_output,
                     job_id=job_id,
                 )
@@ -627,6 +643,11 @@ async def _modify_job(
                     msg = modify_result.get("message", "Modify rejected")
                     output_error(
                         msg,
+                        hints=[
+                            "The score must be paused before modifying its config.",
+                            f"Try: mozart pause {job_id} && "
+                            f"mozart modify {job_id} --config <path> --resume",
+                        ],
                         json_output=json_output,
                         job_id=job_id,
                     )

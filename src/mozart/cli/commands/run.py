@@ -157,7 +157,14 @@ def run(
         if json_output:
             output_json({"error": _msg})
         else:
-            output_error(_msg)
+            output_error(
+                _msg,
+                hints=[
+                    "Remove the --escalation flag to run without interactive escalation.",
+                    "Escalation requires a human-in-the-loop and is not yet "
+                    "supported in daemon mode.",
+                ],
+            )
         raise typer.Exit(1)
 
     if dry_run:
@@ -236,6 +243,10 @@ async def _try_daemon_submit(
         status = result.get("status", "unknown") if isinstance(result, dict) else "unknown"
         job_id = result.get("job_id", "?") if isinstance(result, dict) else "?"
         msg = result.get("message", "") if isinstance(result, dict) else ""
+
+        if status == "pending":
+            _handle_pending_response(job_id=job_id, message=msg, json_output=json_output)
+            return True
 
         if status != "accepted":
             if json_output:
@@ -369,6 +380,36 @@ def _rejection_hints(msg: str, *, fresh: bool = False) -> list[str]:
         "The conductor is running but declined this submission.",
         "Check with: mozart conductor-status",
     ]
+
+
+def _handle_pending_response(
+    *,
+    job_id: str,
+    message: str,
+    json_output: bool,
+) -> None:
+    """Handle a 'pending' response from the conductor.
+
+    When the conductor queues a job as pending (due to rate limits),
+    show an informative message instead of an error. The job will
+    start automatically when rate limits clear.
+    """
+    if json_output:
+        output_json({
+            "job_id": job_id,
+            "status": "pending",
+            "message": message,
+        })
+    else:
+        display_msg = message or "Score queued as pending — starts when rate limits clear."
+        console.print(f"[yellow]Score queued as pending:[/yellow] {job_id}")
+        console.print(f"  {display_msg}")
+        console.print(
+            f"\n[dim]Monitor with:[/dim] mozart status {job_id} --watch"
+        )
+        console.print(
+            "[dim]Cancel with:[/dim]  mozart cancel " + job_id
+        )
 
 
 async def _show_rate_limits_on_rejection(msg: str) -> None:

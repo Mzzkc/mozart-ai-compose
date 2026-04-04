@@ -156,7 +156,13 @@ def configure_global_logging(console: Console) -> None:
         # Handle configuration errors (e.g., format="both" without file_path)
         from .output import output_error
 
-        output_error(f"Logging configuration error: {e}")
+        output_error(
+            f"Logging configuration error: {e}",
+            hints=[
+                "Check --log-format and --log-file options.",
+                "format='both' requires --log-file to be set.",
+            ],
+        )
         raise typer.Exit(1) from None
 
 
