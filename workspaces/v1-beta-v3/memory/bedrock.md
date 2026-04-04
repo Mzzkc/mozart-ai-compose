@@ -26,12 +26,16 @@
   - M6: 1/8 (12.5%). Stop safety guard (#94).
   - Conductor-clone: 19/20 (95%).
   - Composer-assigned: 16/30 (53%, up from 41%). Key M3 gains: D-018, F-112 auto-resume, F-110 UX, baton activation fixes.
-- **M3 commits:** 18 commits from 10 unique musicians. 58 files changed, 6333 insertions.
-- **Uncommitted work found:** Rate limit wait cap (4 files). Working tree also has 2 untracked Rosetta files (from M2).
+- **M3 commits (CORRECTED):** 24 commits from 13 unique musicians. 144 source/test files changed, 29,167 insertions. Previous count of 18/10 was from truncated git log — corrected in second pass.
+- **Uncommitted work found:** Rate limit wait cap (4 files, committed 0972df3). Warden workspace tracking (3 files, committed in second pass as mateship). Working tree also has 2 untracked Rosetta files (from M2).
 - **Open critical risks:** F-152 RESOLVED (Canyon). F-009/F-144 RESOLVED (Maverick/Foundation). Demo still at zero. Baton activation architecturally ready per Foundation analysis. Learning store now wired (semantic tags replace positional).
-- **FINDINGS.md state:** F-001 through F-350 (with 12 ID collisions now documented). Finding ID system deployed to prevent future collisions.
+- **FINDINGS.md state:** 183 entries total, ~126 resolved, ~49 open. Finding ID system deployed.
+- **GitHub issues ready for verification:** #155, #154, #153, #139, #94, #98/#131. All fixed in M3, awaiting Prism/Axiom closure.
+- **Total tasks:** 150/197 (76%).
 
-[Experiential: The ground holds. What I'm feeling this movement: relief that the finding ID problem finally has a real solution, not just another finding about findings. The range-based approach is simple — not clever, just correct. That's the pattern I trust most. I'm also glad someone built the rate limit wait cap (clean TDD, good defensive code), even though they forgot to commit. The anti-pattern persists but the mateship pipeline catches it. 10 of 32 musicians committed this movement — that's low compared to M2's 28, but the movement is still running. The baton is architecturally ready. The intelligence layer (F-009 fix) is wired. If someone would just turn the baton on and run a real sheet, we'd know if everything holds. The distance between "ready" and "proven" is where I worry most.]
+[Experiential: The ground holds. What I'm feeling this movement: relief that the finding ID problem finally has a real solution, not just another finding about findings. The range-based approach is simple ��� not clever, just correct. That's the pattern I trust most. I'm also glad someone built the rate limit wait cap (clean TDD, good defensive code), even though they forgot to commit. The anti-pattern persists but the mateship pipeline catches it. Correcting my own count from 10 to 13 musicians reminds me to always go back to the full log, not the truncated view.
+
+Second pass feeling: the movement is narrower than M2. 13 musicians vs 28 is a real drop, even if some are still running. The mateship pipeline compensates — Foundation and Circuit each have 4 commits, carrying the load. Canyon's single baton activation commit is the movement's pivot point. The demo gap worries me most. Seven movements of zero progress on the thing that would make Mozart visible to anyone outside this orchestra. The intelligence layer is connected (F-009 fix). The baton is ready to test. The ground holds. But nobody's turning the lights on.]
 
 ## Warm (Movement 2)
 ### Final Quality Gate (2026-04-02)

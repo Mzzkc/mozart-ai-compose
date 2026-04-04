@@ -1,8 +1,8 @@
-# Bedrock — Movement 3 Report
+# Bedrock — Movement 3 Report (Final)
 
 ## Summary
 
-Ground maintenance, D-018 completion, mateship pickup, and comprehensive M3 progress verification. The movement is productive but narrow — 10 of 32 musicians have committed, fixing critical bugs and advancing milestones. The finding ID collision problem is solved. The baton is architecturally ready for Phase 1 testing.
+Ground maintenance across two passes. First pass: D-018 finding ID system, mateship pickup of rate limit wait cap (F-350), milestone verification, quality gate checks. Second pass: corrected M3 statistics (24 commits from 13 musicians, not 18/10), verified quality gates, updated milestone table, identified 7 GitHub issues ready for reviewer verification, tracked Warden's uncommitted workspace entries as 8th occurrence of anti-pattern.
 
 ## Work Completed
 
@@ -13,7 +13,7 @@ Ground maintenance, D-018 completion, mateship pickup, and comprehensive M3 prog
 **Solution:** Range-based allocation system.
 
 1. **`FINDING_RANGES.md`** — Pre-allocates 10 IDs per musician per movement. M4 ranges: F-160 through F-479. Each musician reads their range at session start and uses IDs sequentially. Zero coordination required.
-2. **`scripts/next-finding-id.sh`** — Fallback script that reads the current max ID from FINDINGS.md and prints the next one. For musicians who can't check the range table.
+2. **`scripts/next-finding-id.sh`** — Fallback script that reads the current max ID from FINDINGS.md and prints the next one.
 3. **FINDINGS.md header updated** — New "ID Allocation" section referencing the protocol. Status updates on existing findings no longer create new entries.
 4. **Historical collision table** — Documents all 12 ambiguous IDs with both uses for disambiguation.
 5. **F-148 RESOLVED** — Status updated with resolution details.
@@ -33,114 +33,138 @@ Files: `FINDING_RANGES.md`, `scripts/next-finding-id.sh`, `FINDINGS.md` (header 
 - `tests/test_quality_gate.py:27` — BARE_MAGICMOCK baseline 1230→1234
 - `tests/test_rate_limit_wait_cap.py` (untracked) — 10 TDD tests
 
-**Verification:**
-```
-$ python -m pytest tests/test_rate_limit_wait_cap.py -v
-10 passed in 1.03s
+Committed in `0972df3`. F-350 RESOLVED (7th occurrence of uncommitted work anti-pattern).
 
-$ python -m mypy src/mozart/core/constants.py src/mozart/core/errors/classifier.py
-(clean)
+### Mateship Pickup: Warden Workspace Tracking (Second Pass)
 
-$ python -m ruff check src/mozart/core/constants.py src/mozart/core/errors/classifier.py
-All checks passed!
-```
+**Found:** 3 unstaged workspace file changes — Warden's tracking entries for F-160, F-350, and M3 safety audit:
+- `workspaces/v1-beta-v3/FINDINGS.md` — F-160 finding entry + F-350 status updated to Resolved
+- `workspaces/v1-beta-v3/TASKS.md` — 3 Warden task completions added (F-160, baseline fix, safety audit)
+- `workspaces/v1-beta-v3/memory/collective.md` — Warden M3 progress section
 
-The code prevents adversarial API responses like "resets in 999999 hours" from scheduling timers for years. Good defensive work — TDD was followed, implementation is clean. Filed as F-350 (using my own range, demonstrating the new system).
+These are workspace tracking entries, not source code. The underlying code was already committed by me (0972df3). Warden's additions are correct and complete. Committing as mateship pickup. This is the 8th occurrence of musicians doing substantive work without committing.
 
-### Quality Gate Verification
+### Quality Gate Verification (Second Pass)
 
 | Check | Result | Notes |
 |-------|--------|-------|
-| mypy | CLEAN | Zero errors |
-| ruff | CLEAN | All checks passed |
-| pytest (isolation) | PASS | Quality gate test passes when run alone |
-| pytest (full suite) | PENDING | Ordering-dependent failure pre-exists (Circuit documented) |
+| mypy | **CLEAN** | Zero errors. `mypy src/` output empty. |
+| ruff | **CLEAN** | "All checks passed!" |
+| pytest | **PENDING** | Suite running (~10min). Previous run: 10,397 passed, 5 skipped. |
 
-### TASKS.md Maintenance
+### Statistics Correction
 
-- Added D-018 completion entry to Composer-Assigned section
-- Added mateship pickup entry (F-350) to Composer-Assigned section
-- Verified all milestone counts against actual [x]/[ ] markers
+My first-pass report counted 18 commits from 10 musicians. The actual M3 numbers are larger — I was reading a truncated log view.
 
-### Milestone Table (Verified M3)
-
-| Milestone | M2 End | M3 Now | Delta | Status |
-|-----------|--------|--------|-------|--------|
-| M0 Stabilization | 22/22 | 23/23 | +1 | COMPLETE |
-| M1 Foundation | 17/17 | 17/17 | — | COMPLETE |
-| M2 Baton | 23/23 | 27/27 | +4 | COMPLETE |
-| M3 UX & Polish | 23/23 | 24/24 | +1 | COMPLETE |
-| M4 Multi-Instrument | 8/17 (47%) | 12/19 (63%) | +4/+2 | IN PROGRESS |
-| M5 Hardening | 3/7 (43%) | 7/10 (70%) | +4/+3 | IN PROGRESS |
-| M6 Infrastructure | 0/8 (0%) | 1/8 (12.5%) | +1 | MINIMAL |
-| Conductor-clone | 17/18 (94%) | 19/20 (95%) | +2 | NEAR COMPLETE |
-| Composer-Assigned | 11/27 (41%) | 16/30 (53%) | +5/+3 | IN PROGRESS |
-
-**Total across all milestones:** 145/170 tasks complete (85%).
-
-### M3 Commit Audit
-
-**18 commits** from **10 unique musicians** (31% of roster):
-- Foundation: 4 (mateship pickups — F-009/F-144 semantic tags, F-152/F-145 regression tests, F-150 model override, quality gate baseline)
-- Circuit: 3 (F-112 auto-resume, F-151 observability, stop safety guard)
-- Dash: 2 (rate limit UX, stale state feedback)
+**Corrected M3 commits: 24** from **13 unique musicians**:
+- Foundation: 4 (mateship pickups — F-009/F-144, F-152/F-145 regression tests, F-150 model override, quality gate baseline)
+- Circuit: 4 (F-068/F-069/F-048 observability fixes, F-112 auto-resume, F-151 observability, stop safety guard)
+- Canyon: 2 (step 28 manager wiring + completion signaling, F-152/F-145/F-158 baton activation fixes)
+- Dash: 2 (rate limit UX + stale state feedback, stale state #139 completion)
 - Harper: 2 (clear-rate-limits CLI, no_reload IPC threading)
-- Lens: 2 (rejection hints, report)
-- Canyon: 1 (F-152/F-145/F-158 baton activation fixes — the critical path commit)
+- Lens: 2 (rejection hints + instruments.py fix, report + task updates)
+- Bedrock: 1 (D-018 finding ID system + mateship pickup)
+- Blueprint: 1 (M4 multi-instrument data models steps 38-41)
 - Codex: 1 (M3 feature documentation across 5 docs)
 - Forge: 1 (no_reload IPC + stagger + quality gate)
 - Ghost: 1 (quality gate fix + stop safety guard hardening)
-- Spark: 1 (D-019 examples polish)
+- Maverick: 1 (F-075/F-076/F-077 fixes + error standardization)
+- Spark: 1 (D-019 examples polish — 7 fan-out scores)
 
-**22 musicians with no M3 commits yet:** Adversary, Atlas, Axiom, Bedrock, Blueprint, Breakpoint, Captain, Compass, Ember, Guide, Journey, Litmus, Maverick, Newcomer, North, Oracle, Prism, Sentinel, Tempo, Theorem, Warden, Weaver.
+**14 musicians with M3 reports:** Bedrock, Blueprint, Canyon, Circuit (3 reports), Codex, Dash, Forge, Foundation, Ghost, Harper, Lens, Maverick, Spark, Warden.
 
-Note: Blueprint and Maverick have M3 reports — their work was committed by Foundation as mateship pickups (08c5ca4, e9a9feb). The movement is still running.
+**19 musicians with no M3 activity:** Adversary, Atlas, Axiom, Breakpoint, Captain, Compass, Ember, Guide, Journey, Litmus, Newcomer, North, Oracle, Prism, Sentinel, Tempo, Theorem, Warden, Weaver. (Warden has workspace entries but no commit.)
 
-**Change volume:** 58 files changed, 6,333 insertions, 120 deletions.
+**Change volume:** 144 source/test files changed across M3. 29,167 insertions, 366 deletions.
+
+### Milestone Table (Final M3 Verification)
+
+| Milestone | M2 End | M3 End | Delta | Status |
+|-----------|--------|--------|-------|--------|
+| M0 Stabilization | 22/22 (100%) | 23/23 (100%) | +1 | COMPLETE |
+| M1 Foundation | 17/17 (100%) | 17/17 (100%) | — | COMPLETE |
+| M2 Baton | 23/23 (100%) | 27/27 (100%) | +4 | COMPLETE |
+| M3 UX & Polish | 23/23 (100%) | 24/24 (100%) | +1 | COMPLETE |
+| M4 Multi-Instrument | 8/17 (47%) | 12/19 (63%) | +4/+2 | IN PROGRESS |
+| M5 Hardening | 3/7 (43%) | 10/13 (77%) | +7/+6 | IN PROGRESS |
+| M6 Infrastructure | 0/8 (0%) | 1/8 (12%) | +1 | MINIMAL |
+| M7 Experience | — | 1/11 (9%) | +1 | NEW, MINIMAL |
+| Conductor-clone | 17/18 (94%) | 19/20 (95%) | +2 | NEAR COMPLETE |
+| Composer-Assigned | 11/27 (41%) | 16/30 (53%) | +5/+3 | IN PROGRESS |
+
+**Total: 150/197 tasks complete (76%).**
+
+Note: M5 counts include Warden's 3 uncommitted task additions (now committed via mateship). The "M2 End" column for M5 was 3/7; M3 added both new tasks and completions.
 
 ### Codebase State
 
-- Source: 97,377 lines across `src/mozart/` (+902 from M2's 96,475)
-- Test files: 306 (up from 291 in M2)
-- Working tree: 3 modified files (constants.py, classifier.py, test_quality_gate.py — the mateship pickup), 3 untracked files (rosetta-corpus/, rosetta-prove.yaml, test_rate_limit_wait_cap.py)
+| Metric | Value | Change from M2 |
+|--------|-------|----------------|
+| Source lines (`src/mozart/`) | 97,368 | +893 |
+| Test files | 306 | +15 |
+| Total findings (FINDINGS.md) | 183 | +12 |
+| Resolved findings | ~126 | +14 |
+| Open findings | ~49 | — |
+| Open GitHub issues | 50 | — |
 
 ### Critical Findings Resolved This Movement
 
 | Finding | Severity | Who | What |
 |---------|----------|-----|------|
 | F-152 | P0 | Canyon | Dispatch-time guard prevents infinite loop on unsupported instrument |
-| F-009/F-144 | P0 | Maverick/Foundation | Semantic context tags replace broken positional tags — learning store intelligence connected |
+| F-009/F-144 | P0 | Maverick/Foundation | Semantic context tags replace broken positional tags — intelligence connected |
 | F-145 | P2 | Canyon | `completed_new_work` flag wired for baton — concert chaining works |
-| F-158 | P1 | Canyon | PromptRenderer wired into register_job/recover_job — full prompt assembly active |
-| F-112 | P1 | Circuit | Auto-resume after rate limit — timer scheduling in `_handle_rate_limit_hit()` |
+| F-158 | P1 | Canyon | PromptRenderer wired into register_job/recover_job — full prompt assembly |
+| F-112 | P1 | Circuit | Auto-resume after rate limit — timer scheduling |
 | F-150 | P1 | Foundation/Blueprint | Model override wired end-to-end |
 | F-151 | P1 | Circuit | Instrument name observability in status display |
+| F-160 | P2 | Warden | Rate limit wait time cap — unbounded parse_reset_time() capped at 24h |
 | F-148 | P3 | Bedrock | Finding ID collision prevention system deployed |
+| F-350 | P2 | Bedrock | Uncommitted rate limit wait cap committed |
+
+### GitHub Issues Ready for Reviewer Verification
+
+These issues had M3 fixes committed but remain open per composer directive (Prism/Axiom verify and close):
+
+| Issue | Fix | Commit | Musician |
+|-------|-----|--------|----------|
+| #155 | F-152 dispatch guard | d3ffebe | Canyon |
+| #154 | F-150 model override | 08c5ca4 | Foundation |
+| #153 | clear-rate-limits CLI | ae31ca8 | Harper |
+| #139 | Stale state feedback (3 root causes) | cdd921a | Dash |
+| #94 | Stop safety guard | 04ab102 | Circuit |
+| #98/#131 | Config reload IPC threading | 07b43be + 8590fd3 | Forge + Harper |
 
 ### Open Risks
 
-1. **Demo at zero (P0).** Neither Lovable nor Wordware demos started. 7+ movements stalled. This is the project's visibility gap.
-2. **Baton never tested live.** Foundation's analysis confirms all 3 blockers resolved (F-145, F-152, F-158). PromptRenderer wired. State sync wired. Architecturally ready for Phase 1 testing with `--conductor-clone`. But nobody has turned it on.
-3. **22 of 32 musicians haven't committed in M3.** This may be timing (movement still running), but previous movements had 28-32 committers by quality gate.
-4. **Cost fiction persists (P2).** F-048/F-108/F-140 — $0.00/$0.01 for 79+ Opus sheets. 6+ movements open. Nobody is working on it.
-5. **Full test suite ordering dependency.** `test_no_bare_magicmock` fails when preceded by certain test modules due to cross-test state leakage. Not new but not fixed either.
+1. **Demo at zero (P0).** D-016 (Lovable) and D-017 (Wordware) assigned to Guide/Codex for 7+ movements. Neither has started. Product invisible. This is the single largest strategic risk.
+
+2. **Baton never tested live.** Foundation's analysis confirms all 3 blockers resolved (F-145, F-152, F-158). PromptRenderer wired. State sync wired. 1,130+ tests. Architecturally ready for Phase 1 testing with `--conductor-clone`. The distance between "ready" and "proven" is where we worry most.
+
+3. **Participation narrowing.** M2: 28/32 musicians (87.5%). M3: 13/32 committed (40.6%). Even with 14 filing reports, that's 18 musicians with no activity. Could be timing (movement may still be running), but the trend matters.
+
+4. **Cost fiction persists (P2).** F-048/F-108/F-140 — $0.00/$0.01 for 79+ Opus sheets. 6+ movements open. Not assigned.
+
+5. **Uncommitted work pattern continues.** 8th occurrence (Warden's workspace entries). The pattern has shifted from source code (mateship pipeline catches those) to workspace tracking (less visible).
+
+6. **Full test suite ordering dependency.** Pre-existing cross-test state leakage. Passes in isolation, fails in certain orderings. Not new but not fixed either.
 
 ### Observations
 
-**The mateship pipeline is the orchestra's strongest mechanism.** Foundation picked up Blueprint's F-150 work and Maverick's F-009 fix and committed both. Circuit picked up Ghost's stop safety guard. Harper's no_reload threading was completed by Forge. This movement, more work was committed by mates than by original authors.
+**The mateship pipeline is the orchestra's core mechanism.** This movement, more work was committed by mates than by original authors. Foundation picked up Blueprint's F-150 and Maverick's F-009 fix. Circuit picked up Ghost's stop safety guard. I picked up Warden's rate limit wait cap and workspace tracking. The pipeline works — but it works because a few musicians (Foundation: 4 commits, Circuit: 4 commits) carry the load.
 
-**The finding ID system works.** I filed F-350 using my allocated range — no collision risk, no coordination needed. The FINDING_RANGES.md file is self-documenting and requires zero tooling beyond reading a table.
+**Canyon's single baton activation commit (d3ffebe) is the most important commit of M3.** Three critical findings resolved in one shot — F-152, F-145, F-158 — unblocking the path to turning the baton on. The co-composer delivered the serial work nobody else would touch.
 
-**The baton is the elephant in the room.** 1,120+ tests. All blockers resolved. Full prompt assembly. State sync. Recovery. Concert support. It has never run a real sheet. The gap between "the tests say it works" and "it works" is where this project's hardest lessons have always lived. Someone needs to just do it.
+**The finding ID system works.** Zero collisions since D-018. The range-based approach is simple — not clever, just correct.
 
-## Files Modified
+**M3's character is fix-and-wire, not build-new.** Unlike M2's infrastructure push, M3 focused on closing gaps: dispatching guards, wiring prompt assembly, connecting the intelligence layer, adding observability, fixing UX pain points. This is healthy — the codebase is consolidating.
+
+## Files Modified (This Session)
 
 | File | Action |
 |------|--------|
-| `FINDING_RANGES.md` | Created — finding ID allocation table |
-| `scripts/next-finding-id.sh` | Created — helper script |
-| `FINDINGS.md` | Updated header + F-148 resolved + F-350 filed |
-| `TASKS.md` | Added D-018 + F-350 entries |
-| `memory/bedrock.md` | Updated with M3 hot context |
-| `memory/collective.md` | Updated with Bedrock M3 progress |
-| `movement-3/bedrock.md` | This report |
+| `movement-3/bedrock.md` | Updated — final report with corrected stats |
+| `memory/bedrock.md` | Appended — second pass context |
+| `memory/collective.md` | Updated — Bedrock final progress |
+| `FINDINGS.md` | Warden's entries committed (mateship) |
+| `TASKS.md` | Warden's entries committed (mateship) |

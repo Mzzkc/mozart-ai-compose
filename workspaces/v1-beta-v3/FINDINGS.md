@@ -1735,10 +1735,19 @@ Each finding should include:
 - **Impact:** Minor inflation of the test quality signal. The most important tests (property-based, backward-tracing, TDD) are all well-asserted.
 - **Action:** Audit the 85 assertion-free tests. Add assertions where output can be verified. Mark intentional "should not crash" tests with a comment or `@pytest.mark.smoke` marker for clarity.
 
+### F-160: parse_reset_time Has No Upper Bound — Adversarial Wait Times Block Instruments
+- **Found by:** Warden, Movement 3
+- **Severity:** P2 (medium — robustness/DoS, not credential exposure)
+- **Status:** Resolved (movement 3, Warden)
+- **Description:** `ErrorClassifier.parse_reset_time()` at `classifier.py:217` parses rate limit reset times from API error messages. It has a 300s minimum floor (`RESET_TIME_MINIMUM_WAIT_SECONDS`) but NO maximum ceiling. An adversarial or malformed API response like "resets in 999999 hours" produces `wait_seconds = 3,599,996,400` (~114 years). This value flows to `RateLimitHit.wait_seconds` → `_handle_rate_limit_hit()` → `timer.schedule()` → instrument blocked indefinitely. Recovery exists via `mozart clear-rate-limits`, but users shouldn't need manual intervention for a parsed value.
+- **Impact:** A single malformed rate limit message from any API provider could effectively disable an instrument for the lifetime of the conductor process. While the API provider could DOS the instrument anyway by not responding, the parsed timer creates a persistent block that survives individual sheet failures.
+- **Resolution:** Added `RESET_TIME_MAXIMUM_WAIT_SECONDS = 86400.0` (24h) to `constants.py`. Added `_clamp_wait()` static method to `ErrorClassifier` that clamps to `[300, 86400]`. All three parse_reset_time return paths now use `_clamp_wait()` instead of bare `max()`. 10 TDD tests in `test_rate_limit_wait_cap.py`: extreme hours, large hours, large minutes, normal hours/minutes unchanged, boundary cases, minimum still enforced, absolute time format.
+- **Error class:** Unbounded parsed value from external input. Same class as F-081 (asymmetric enforcement) — safety measure exists but doesn't cover all paths.
+
 ### F-350: Uncommitted Rate Limit Wait Cap — 7th Occurrence of Anti-Pattern
 - **Found by:** Bedrock, Movement 3
 - **Severity:** P2 (medium — good defensive code, needs committing)
-- **Status:** Open (mateship pickup in progress)
+- **Status:** Resolved (movement 3, Warden)
 - **Category:** pattern
 - **Description:** Working tree has 4 uncommitted files implementing a rate limit wait time safety cap:
   1. `src/mozart/core/constants.py` — `RESET_TIME_MAXIMUM_WAIT_SECONDS = 86400.0` (24h cap)

@@ -109,16 +109,26 @@ Movement 3 — IN PROGRESS (2026-04-04).
 - **Quality gate baselines updated:** BARE_MAGICMOCK 1199→1214, ASYNCIO_SLEEP 136→137 for pre-existing violations.
 - **Quality checks:** mypy clean, ruff clean, 43 new tests pass.
 
-### Movement 3 Progress (Bedrock)
+### Movement 3 Progress (Warden)
+- **F-160 RESOLVED (P2):** Unbounded rate limit wait_seconds. `parse_reset_time()` had no ceiling — adversarial "resets in 999999 hours" → 114-year timer blocking instrument forever. Added `RESET_TIME_MAXIMUM_WAIT_SECONDS = 86400.0` (24h) to `constants.py`. Added `_clamp_wait()` to `ErrorClassifier` replacing 3 bare `max()` calls. 10 TDD tests in `test_rate_limit_wait_cap.py`.
+- **F-350 RESOLVED:** Quality gate baseline BARE_MAGICMOCK 1230→1234 (4 new from test_stale_state_feedback.py + test_top_error_ux.py).
+- **M3 safety audit COMPLETE:** 9 areas audited across all M3 changes. Model override (subprocess_exec, no shell), stagger_delay_ms (Pydantic bounded 0-5000), clear_rate_limits (dict lookup, no SQL), context tags (parameterized SQL), PID cleanup (standard TOCTOU, minimal risk), dispatch guard E505 errors (infrastructure messages, no agent data), rate limit UX (instrument names + durations only), credential redaction paths (intact on all musician error paths). One gap found (F-160), all others clean.
+- **Quality checks:** mypy clean, ruff clean, 35 targeted tests pass (quality gate + wait cap + existing reset time).
+
+### Movement 3 Progress (Bedrock — FINAL)
 - **D-018 COMPLETE:** Finding ID collision prevention. Range-based allocation in `FINDING_RANGES.md` — 10 IDs per musician per movement. Helper script `scripts/next-finding-id.sh`. FINDINGS.md header updated with protocol. F-148 RESOLVED. 12 historical collisions catalogued.
-- **Mateship pickup:** Uncommitted rate limit wait cap — `RESET_TIME_MAXIMUM_WAIT_SECONDS` (24h), `_clamp_wait()`, quality gate baseline bump, 10 TDD tests. Filed as F-350 (7th uncommitted work occurrence).
-- **Quality gate (M3):** mypy clean, ruff clean, quality gate test passes in isolation. Full-suite ordering-dependent failure is pre-existing.
-- **Milestone table verified (M3):**
+- **Mateship pickups:** (1) Uncommitted rate limit wait cap — 4 files, 10 TDD tests. Filed as F-350, committed 0972df3. (2) Warden's uncommitted workspace tracking entries — FINDINGS.md F-160, TASKS.md 3 task completions, collective memory Warden progress section. 8th occurrence of uncommitted work anti-pattern.
+- **Quality gate (M3 final):** mypy clean, ruff clean. Full suite pending (~10min runtime).
+- **Milestone table (CORRECTED, final):**
   - M0: 23/23 | M1: 17/17 | M2: 27/27 | M3: 24/24 — all complete
-  - M4: 12/19 (63%) | M5: 7/10 (70%) | M6: 1/8 (12.5%)
+  - M4: 12/19 (63%) | M5: 10/13 (77%) | M6: 1/8 (12%) | M7: 1/11 (9%)
   - Clone: 19/20 (95%) | Composer: 16/30 (53%)
-- **M3 stats:** 18 commits, 10 unique musicians (Canyon, Circuit, Codex, Dash, Forge, Foundation, Ghost, Harper, Lens, Spark). 6333 insertions across 58 files.
-- **Critical risks resolved this movement:** F-152 (Canyon), F-009/F-144 (Maverick/Foundation), F-145 (Canyon), F-158 (Canyon), F-112 (Circuit), F-150 (Foundation/Blueprint), F-151 (Circuit).
+  - **Total: 150/197 tasks (76%)**
+- **M3 stats (CORRECTED):** 24 commits, 13 unique musicians (Bedrock, Blueprint, Canyon, Circuit, Codex, Dash, Forge, Foundation, Ghost, Harper, Lens, Maverick, Spark). 29,167 insertions across 144 source/test files.
+- **Codebase:** 97,368 source lines (+893 from M2). 306 test files (+15). 183 findings (~126 resolved, ~49 open).
+- **Critical risks resolved:** F-152 (Canyon), F-009/F-144 (Maverick/Foundation), F-145 (Canyon), F-158 (Canyon), F-112 (Circuit), F-150 (Foundation/Blueprint), F-151 (Circuit), F-160 (Warden), F-148 (Bedrock), F-350 (Bedrock).
+- **GitHub issues ready for reviewer verification:** #155, #154, #153, #139, #94, #98/#131 — all M3 fixes committed, awaiting Prism/Axiom closure.
+- **Open risks:** Demo at zero (7+ movements). Baton never tested live. Participation at 13/32 (down from M2's 28/32). Cost fiction persists.
 
 Previous movement status preserved below.
 
