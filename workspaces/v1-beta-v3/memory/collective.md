@@ -98,6 +98,12 @@ Movement 3 — IN PROGRESS (2026-04-04).
 - **Mateship review:** Verified Harper's 2 commits (ae31ca8, 8590fd3). Both clean. 28 tests pass.
 - **Test ordering analysis:** Full-suite ordering-dependent failures are pre-existing. Cross-test module state leakage. All pass in isolation.
 
+### Movement 3 Progress (Adversary)
+- **Phase 1 baton adversarial tests COMPLETE:** 67 tests in `test_baton_phase1_adversarial.py` across 14 test classes. Attack surfaces: dispatch failure handling (F-152 regression), multi-job instrument sharing, recovery from corrupted checkpoint, state sync callback, completion signaling, cost limit boundaries, event ordering attacks, deregistration during execution, F-440 propagation edge cases, dispatch concurrency constraints, terminal state resistance (parametrized × 4 statuses × 3 events), exhaustion decision tree, observer event conversion, auto-instrument registration.
+- **Zero bugs found.** All M3 fixes verified: F-152, F-145, F-158, F-200/F-201, F-440. 1358 total baton tests pass.
+- **Phase 1 recommendation:** Baton is architecturally ready for `--conductor-clone` testing. Proceed.
+- **Quality:** mypy clean, ruff clean. 332 total adversarial tests across all movements.
+
 ### Movement 3 Progress (Codex)
 - **M3 feature documentation sweep:** 9 deliverables across 5 docs. Documented: clear-rate-limits CLI command (options, examples, when-to-use), stop safety guard (IPC probe, confirmation, --force=SIGKILL), stagger_delay_ms (score-writing guide + configuration-reference), rate limit auto-resume + full prompt assembly (daemon guide), instrument column in status (CLI reference), restart missing --profile/--pid-file options. Updated baton test count (1,130+) in daemon guide + limitations. Quality gate baseline fix (BARE_MAGICMOCK 1227→1230). Commit 8022795.
 - **All claims verified against source code** — options checked via inspect.signature(), bounds tested at runtime, line numbers cited.
@@ -248,29 +254,49 @@ Movement 2 — COMPLETE (verified 2026-04-04).
 - **Recommendation:** Run baton with --conductor-clone (Phase 1). Assign demo with deadline. Accept narrowing as geometry following work.
 
 ## Coordination Notes (Active)
-- **CRITICAL PATH (UPDATED M3):** Test baton [--conductor-clone] → flip default → demo → release. All 3 baton blockers resolved (F-145, F-152, F-158). Foundation/Canyon assigned (D-015). Phase 1 ready.
-- **F-009/F-144 (P0):** RESOLVED (movement 3, Maverick/Foundation). Semantic tag generation replaces positional tags. instrument_name wired into queries. D-014 complete. Effectiveness scores need real executions to diverge from 0.5000.
-- **F-152 (P0, #155):** RESOLVED (movement 3, Canyon). Dispatch-time guard with E505 failure posting. 5 TDD tests.
-- **F-158 (P1):** RESOLVED (movement 3, Canyon). PromptRenderer wired into register_job/recover_job. Full 9-layer prompt assembly.
-- **DEMO (P0 — EXISTENTIAL):** Lovable + Wordware at zero for 7+ movements. D-016/D-017 assign Guide/Codex. No progress. Needs deadline or direct composer action.
-- **Finding ID collisions:** RESOLVED (D-018, Bedrock). Range-based allocation system deployed. FINDING_RANGES.md allocated per-musician.
-- **Structural tension (RESOLVED):** Participation narrowed naturally (28/32 → 13/32). Geometry following work from parallel infrastructure to serial activation. This is correct.
-- **GitHub issues awaiting verification:** #155, #154, #153, #139, #94, #98/#131 — all have M3 fix commits. Need Prism/Axiom review.
+- **CRITICAL PATH (UPDATED M3 — Weaver):** F-210 blocks baton Phase 1. Cross-sheet context (previous_outputs/previous_files) is NOT wired in the baton path. 24/34 examples use it. Fix F-210 → test baton [--conductor-clone] → flip default → demo → release. The path is now: F-210 fix → Phase 1 test → flip → demo.
+- **F-210 (P1, NEW — Weaver M3):** Baton path missing cross-sheet context. PromptRenderer and musician._build_prompt() have zero cross-sheet awareness. Legacy runner populates via context.py:171-221. 24/34 examples affected. **This is the most significant functional gap between baton and legacy paths.** TASKS.md updated with BLOCKER annotation.
+- **F-211 (P2, NEW — Weaver M3):** Baton checkpoint sync missing for 4 event types (EscalationResolved, EscalationTimeout, CancelJob, ShutdownRequested). On restart after any of these, checkpoint shows stale state. Lower priority than F-210 because these paths are rare during normal execution.
+- **F-212 (P3, NEW — Weaver M3):** Baton PromptRenderer missing spec budget gating. Spec fragments passed directly without context-window-aware filtering. Low priority — large context windows and light spec usage.
+- **Encapsulation violation (Prism M3):** adapter.py accesses _baton._jobs at lines 688, 725 and _baton._shutting_down at line 1164. Needs public API on BatonCore (get_job_sheets, is_shutting_down). P3 — functional correctness unaffected.
+- **F-009/F-144 (P0):** RESOLVED (movement 3, Maverick/Foundation). Semantic tag generation replaces positional tags. D-014 complete.
+- **F-152 (P0, #155):** RESOLVED (movement 3, Canyon). Dispatch guard with E505 failure posting.
+- **F-158 (P1):** RESOLVED (movement 3, Canyon). PromptRenderer wired. Full 9-layer assembly.
+- **DEMO (P0 — EXISTENTIAL):** Lovable + Wordware at zero for 8+ movements. Needs deadline or direct composer action.
+- **GitHub issues closed M3:** #155, #154, #153, #139, #94 (Prism). Remaining: #131 (broader scope), #128, #132, #124, #120, #111, #100.
+
+### M3→M4 Coordination Map (Weaver)
+
+**SERIAL (must be done in order, one at a time):**
+1. Fix F-210 (cross-sheet context in baton) — ~100-200 lines, Foundation or Canyon
+2. Baton Phase 1 testing with --conductor-clone — requires running outside the orchestra
+3. Fix issues found during Phase 1
+4. Flip use_baton default to True
+5. Demo score using working baton
+
+**PARALLEL (independent, can be done alongside serial work):**
+- Documentation updates (all remaining M4 docs tasks)
+- Examples modernization (remaining 9/18 fan-out scores)
+- Fan-out edge cases (#120, #119, #128)
+- Resume improvements (#93, #103, #122)
+- Wordware comparison demos (can design without baton)
+- Rosetta Score update (primitives list + proof criteria)
+- Skill rename (mozart:usage → mozart:command)
+- Gemini CLI agent assignment in generate-v3.py
+
+**KEY INSIGHT:** The orchestra optimizes for parallel work. The critical path is serial. Every movement since M2 has confirmed this. F-210 adds one more serial step before Phase 1 testing can begin. Without F-210, Phase 1 testing would produce misleading results — scores would appear to work but with degraded prompts.
 
 ## Top Risks
-1. **Demo at zero (CRITICAL — EXISTENTIAL).** 7+ movements, no progress. Product invisible. No amount of engineering closes a visibility gap. D-016/D-017 assigned but ineffective.
-2. **Baton untested live (CRITICAL — READY).** All blockers resolved. 1,130+ tests. Phase 1 ready for --conductor-clone testing. Distance: "ready" → "proven."
-3. **F-107 (P0):** No standardized instrument profile verification against live APIs.
-4. **Demo work (P0):** Neither Lovable nor Wordware demos started. Product invisible. 6+ movements stalled.
-5. **Baton activation (HIGH):** All code complete. 1,120+ tests. Never run a real sheet. F-145 + timeout needed.
-6. **F-149/F-150 (P1):** Multi-instrument gaps — backpressure still rejects ALL jobs. Model override wired (Foundation M3).
-7. **F-112 (RESOLVED):** Auto-resume after rate limit — timer scheduling in `_handle_rate_limit_hit()`. Circuit M3.
-8. **F-151 (RESOLVED):** Instrument observability — end-to-end from data model to status display. Circuit M3.
-8. **Cost fiction (P2):** F-048/F-108/F-140 — $0.00/$0.01 for 79+ Opus sheets. 5+ movements open.
+1. **Demo at zero (CRITICAL — EXISTENTIAL).** 8+ movements, no progress. Product invisible.
+2. **F-210 blocks baton Phase 1 (CRITICAL — NEW).** Cross-sheet context missing from baton path. 24/34 examples affected. Must be fixed before testing or results are misleading.
+3. **Baton untested live (CRITICAL — BLOCKED by F-210).** Was READY, now needs F-210 fix first. 1,130+ tests. Never run a real sheet.
+4. **F-107 (P0):** No standardized instrument profile verification against live APIs.
+5. **Cost fiction (P2):** F-048/F-108/F-140 — $0.00/$0.01 for 79+ Opus sheets. 5+ movements open.
 
 ## Blockers (Active Only)
-- **F-009/F-144:** Learning store inert. Root cause known. Unimplemented.
-- **F-152 (#155):** Infinite dispatch loop. Blocks multi-instrument activation.
+- **F-210:** Cross-sheet context missing from baton. Blocks Phase 1 testing.
+- **F-009/F-144:** RESOLVED (M3). Learning store reconnected. Needs real execution to prove.
+- **F-152 (#155):** RESOLVED (M3). Dispatch guard in place.
 
 ## Directives (Active, issued by North for M3)
 - D-014: F-009 fix -> Maverick
