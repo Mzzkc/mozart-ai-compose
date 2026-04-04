@@ -53,7 +53,7 @@ Orchestration infrastructure for collaborative intelligence — define multi-sta
 
 ### Examples
 
-- [**Examples Directory**](../examples/) — 35+ working Mozart score configurations
+- [**Examples Directory**](../examples/) — 38 working Mozart score configurations
 - [**Mozart Score Playspace**](https://github.com/Mzzkc/mozart-score-playspace) — Creative showcase: philosophy, worldbuilding, education, and more
 
 ## Repository

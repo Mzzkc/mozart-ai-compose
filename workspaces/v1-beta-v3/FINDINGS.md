@@ -1858,3 +1858,28 @@ Each finding should include:
 - **Category:** bug
 - **Description:** Ran `mozart clear-rate-limits` while conductor is confirmed running (PID 1277279, `conductor-status` shows RUNNING, `status` shows active scores). Got: "Error: Mozart conductor is not running." Root cause at `detect.py:170-174`: `try_daemon_route()` conflates "IPC method not found" with "conductor not reachable." The production conductor predates the `clear-rate-limits` IPC method — it runs older code. Any new IPC method added by M3 musicians will hit this pattern on stale conductors.
 - **Action:** Already tracked as F-450. Cross-referencing for independent confirmation.
+
+### F-330: README CLI Reference Significantly Stale — 13 Commands Missing
+- **Found by:** Compass, Movement 3
+- **Severity:** P2 (medium — README is the first thing users see)
+- **Status:** Resolved (movement 3, Compass)
+- **Category:** risk
+- **Description:** README.md CLI Reference was missing 13 commands that exist in the product: `init`, `cancel`, `clear`, `top`, `clear-rate-limits`, `start`, `stop`, `restart`, `conductor-status`, and the entire Conductor command group. The `--conductor-clone` global option was missing from Common Options. The `--escalation` option was listed as "not currently supported." Examples table was missing 5 examples (design-review, iterative-dev-loop, score-composer, prelude-cadenza-example, parallel-research-fanout). There was a formatting bug (missing blank line before Rosetta section). "35+" example count was stale (actual: 38). "Human-in-the-loop" was listed in Advanced Features despite being unsupported. A redundant Dashboard section duplicated the Services table entry. The "job control" terminology hadn't been migrated to "score control."
+- **Impact:** Users reading only the README would not know about init, cancel, top, clear-rate-limits, conductor-clone, or the Conductor command group. The CLI Reference now matches the actual product groupings (Getting Started, Jobs, Monitoring, Diagnostics, Conductor, Instruments, Services, Configuration & Learning).
+- **Resolution:** Restructured CLI Reference to match actual CLI help panel groups. Added all missing commands. Added --conductor-clone and --quiet to Common Options. Removed unsupported --escalation. Fixed formatting bug. Updated example count. Removed duplicate Dashboard section. Fixed terminology.
+
+### F-331: getting-started.md Stale Terminology and Count
+- **Found by:** Compass, Movement 3
+- **Severity:** P3 (low — secondary doc)
+- **Status:** Resolved (movement 3, Compass)
+- **Category:** risk
+- **Description:** getting-started.md had "35+" example count (actual: 38), "Job Won't Start" heading (should be "Score Won't Start" per F-460 terminology migration), and "tells Claude to save files" (should be instrument-agnostic).
+- **Resolution:** Fixed count, heading, and instrument-agnostic wording.
+
+### F-332: docs/index.md Stale Example Count
+- **Found by:** Compass, Movement 3
+- **Severity:** P3 (low)
+- **Status:** Resolved (movement 3, Compass)
+- **Category:** risk
+- **Description:** docs/index.md stated "35+ working Mozart score configurations" when actual count is 38.
+- **Resolution:** Updated to "38 working Mozart score configurations."

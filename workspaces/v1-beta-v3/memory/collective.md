@@ -221,6 +221,25 @@ Movement 3 — IN PROGRESS (2026-04-04).
 - **Risk assessment:** Baton Phase 1 testing = zero (P0, 8+ movements). Demo = zero (P1, 8+ movements). Cost fiction worsening (P2). F-450 IPC method class (P2, new). Participation declining (P3, 87.5%→75%).
 - **Recommendation (5th time):** Assign one musician to serial baton activation path. The structure (32 parallel) fights the need (serial convergence). Mateship proves reactive convergence works. Proactive convergence needed.
 
+### Movement 3 Progress (Compass)
+- **README CLI Reference overhaul (F-330, RESOLVED):** README was missing 13 commands including the entire Conductor group (start/stop/restart/conductor-status/clear-rate-limits), init, cancel, top, clear. Restructured to match actual CLI help panel groups (Getting Started, Jobs, Monitoring, Diagnostics, Conductor, Instruments, Services, Configuration & Learning). Added --conductor-clone and --quiet to Common Options. Removed unsupported --escalation. Fixed Advanced Features (replaced broken Human-in-the-loop with real features: rate limit coordination, conductor clones). Removed duplicate Dashboard section. Fixed "job control" → "score control" terminology.
+- **README Examples table updated:** Added 5 missing examples (design-review, iterative-dev-loop, score-composer, prelude-cadenza-example, parallel-research-fanout). Fixed formatting bug (missing blank line before Rosetta section). Removed internal-flavored examples from curated list.
+- **getting-started.md fixes (F-331, RESOLVED):** "35+" → "38" example count, "Job Won't Start" → "Score Won't Start", "tells Claude" → "tells the instrument" (instrument-agnostic).
+- **docs/index.md fix (F-332, RESOLVED):** "35+" → "38" example count.
+- **hello.yaml assessment:** HTML-producing version addresses the composer's visual directive. No changes needed.
+- **Product assessment:** README now matches the actual CLI. Narrative from README → getting-started → hello.yaml → examples is coherent. All 38 examples validate clean. mypy clean, ruff clean.
+- **F-330/F-331/F-332 filed and resolved.**
+
+### Movement 3 Progress (Tempo — Cadence Analysis)
+- **Eighth cadence analysis COMPLETE:** Full retrospective across 36 commits, 23 committers, 30 reports, 9.5-hour wave (04:58–14:15).
+- **Three-phase pattern confirmed intrinsic (3rd consecutive):** Build (50%, 18 commits, 04:58–08:53) → Verify (36%, 13 commits, 09:15–12:47) → Review (14%, 5 commits, 12:54–14:15). Same proportions as M2. Self-organizing, uninstructed.
+- **Mateship rate all-time high: 33% (12/36 commits).** Foundation (4), Bedrock (2), Breakpoint, Circuit, Harper, Newcomer, Captain, Weaver. Pipeline is now the dominant collaboration mechanism — evolved from anti-pattern fix to institutional behavior.
+- **Participation narrowing: 72% committers (23/32).** Functional, not dysfunctional — 3 analysis roles (Oracle, Sentinel, Warden), 2 work picked up (Blueprint, Maverick), 3 no visible output (Compass, Guide, North). Compass wrote uncommitted doc improvements.
+- **Serial path stalled (4th consecutive movement).** F-210 (cross-sheet context) adds one more step before Phase 1 testing. Baton never tested live. Demo at zero for 8+ movements.
+- **Mateship pickup:** 3 uncommitted doc files (README.md CLI restructure, getting-started.md terminology, index.md example count) — Compass's work, committed by Tempo.
+- **Recommendations:** (1) Designate serial convergence musician for M4 (Foundation or Canyon). (2) Time-box the demo. (3) Cap verification phase (diminishing returns). (4) Accept participation narrowing.
+- **Quality: mypy clean, ruff clean, full suite pending confirmation.**
+
 Previous movement status preserved below.
 
 Movement 2 — COMPLETE (verified 2026-04-04).
