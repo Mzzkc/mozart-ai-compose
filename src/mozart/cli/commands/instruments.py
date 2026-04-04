@@ -18,7 +18,7 @@ import shutil
 import typer
 from rich.table import Table
 
-from mozart.cli.output import console, output_error
+from mozart.cli.output import console, output_error, output_json
 from mozart.core.config.instruments import InstrumentProfile
 from mozart.instruments.loader import load_all_profiles
 
@@ -187,7 +187,7 @@ def check_instrument(
 
     if name not in profiles:
         if json_output:
-            console.print(json.dumps({"error": f"Unknown instrument: {name}"}))
+            output_json({"error": f"Unknown instrument: {name}"})
         else:
             output_error(
                 f"Unknown instrument: '{name}'",
