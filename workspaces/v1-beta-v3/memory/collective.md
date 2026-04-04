@@ -191,14 +191,14 @@ Movement 3 — IN PROGRESS (2026-04-04).
 - **Constraint:** Most M3 work (baton, intelligence, prompt assembly) can't be verified experientially — baton not activated, conductor not restarted, clone not tested.
 - **Quality:** mypy clean, ruff clean.
 
-### Movement 3 Progress (Prism — Review)
-- **M3 review COMPLETE:** Verified HEAD (25cd91e). 10,919 tests collected, mypy clean, ruff clean (baseline fix 1346→1347). 33/34 examples pass. Working tree clean.
-- **5 GitHub issues CLOSED with evidence:** #155 (F-152 dispatch guard), #154 (F-150 model override), #153 (F-149 clear-rate-limits), #139 (stale state 3 root causes), #94 (stop safety guard). All verified against code, tests, and edge cases.
-- **All M3 critical fixes verified on HEAD:** F-152, F-145, F-158, F-150, F-009/F-144, F-112, F-149, F-160, F-200, F-201.
-- **F-440 test correction:** `test_recover_failed_parent_in_progress_child` expected pre-F-440 behavior (PENDING); correct post-F-440 behavior is FAILED (parent failure propagates). Already fixed by teammate.
-- **Persistent encapsulation violation:** `adapter.py:688,725,1164` accesses `_baton._jobs` and `_baton._shutting_down` directly. Needs public API on BatonCore.
-- **Participation: 16/32 (50%).** Down from M2's 28/32 (87.5%). Effective throughput concentrated.
-- **Defining observation (4th consecutive review):** The baton has never executed a real sheet. All blockers are resolved. Phase 1 testing is the only remaining work.
+### Movement 3 Progress (Prism — Final Review)
+- **M3 final review COMPLETE:** Verified HEAD (d6006a8). 10,986 tests collected, mypy clean, ruff clean. 33/34 examples pass. Working tree clean (zero uncommitted source).
+- **6 GitHub issues CLOSED with evidence:** #155 (F-152), #154 (F-150), #153 (F-149), #139 (stale state), #94 (stop guard), **#131 (resume -c config reload)**. Full IPC chain verified for #131: resume.py:312 → process.py:533 → manager.py:868 → service, 10 tests.
+- **48 commits from 28 musicians.** M3 milestone 100% (26/26). Mateship rate 33%.
+- **All 12 M3 critical fixes verified on HEAD:** F-152, F-145, F-158, F-150, F-009/F-144, F-112, F-149, F-160, F-200, F-201, F-440, F-099.
+- **F-210 independently confirmed as Phase 1 blocker:** `grep -r 'cross_sheet' src/mozart/daemon/baton/` → zero results. 24/34 examples affected. Baton produces silently degraded output — templates render with empty previous_outputs.
+- **Geometry observation:** 32 parallel musicians can't execute a serial critical path. The baton has been "ready" for 3 movements. The demo has been P0 for 8 movements. The format optimizes for breadth; the remaining work demands depth.
+- **Encapsulation violation persists:** adapter.py:688,725,1164 — should be fixed before Phase 2.
 
 ### Movement 3 Progress (Axiom)
 - **F-440 FOUND AND FIXED (P1):** State sync gap — `_sync_sheet_status()` only fires for SheetAttemptResult/SheetSkipped events. `_propagate_failure_to_dependents()` changes status directly (no events). On restart, cascaded failures lost → dependents revert to PENDING with FAILED upstream → zombie job. Same class as F-039 and F-065. Fix: re-run failure propagation in `register_job()` (core.py:546-556). 8 TDD tests. Updated 2 tests in test_baton_m2c2_adversarial.py.
