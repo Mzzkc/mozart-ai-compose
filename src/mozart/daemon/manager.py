@@ -1816,6 +1816,16 @@ class JobManager:
             parallel_enabled=config.parallel.enabled,
         )
 
+        # F-151: Populate instrument_name on live SheetStates for observability.
+        # Sheet entities from build_sheets() carry resolved instrument names;
+        # the checkpoint SheetStates start with instrument_name=None.
+        live = self._live_states.get(job_id)
+        if live:
+            for sheet in sheets:
+                sheet_state = live.sheets.get(sheet.num)
+                if sheet_state is not None and sheet_state.instrument_name is None:
+                    sheet_state.instrument_name = sheet.instrument_name
+
         try:
             # Wait for the baton to complete all sheets
             all_success = await adapter.wait_for_completion(job_id)

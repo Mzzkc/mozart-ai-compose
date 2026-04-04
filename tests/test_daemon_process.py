@@ -191,6 +191,7 @@ class TestStopConductor:
         with (
             patch("mozart.daemon.process._pid_alive", return_value=True),
             patch("mozart.daemon.process.os.kill") as mock_kill,
+            patch("mozart.daemon.process._check_running_jobs", return_value={"running_jobs": 0, "job_ids": []}),
         ):
             stop_conductor(pid_file=pid_file)
 
@@ -360,7 +361,8 @@ class TestDaemonProcess:
             "daemon.health", "daemon.ready",
             "daemon.top", "daemon.top.stream", "daemon.events",
             "daemon.observer_events", "daemon.monitor.stream",
-            "daemon.rate_limits", "daemon.learning.patterns",
+            "daemon.rate_limits", "daemon.clear_rate_limits",
+            "daemon.learning.patterns",
         }
         assert registered_methods == expected
 

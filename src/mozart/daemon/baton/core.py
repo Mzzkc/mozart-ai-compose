@@ -953,6 +953,20 @@ class BatonCore:
             inst.rate_limited = True
             inst.rate_limit_expires_at = time.monotonic() + event.wait_seconds
 
+        # Schedule a timer to auto-clear the rate limit when it expires.
+        # Without this, WAITING sheets stay blocked forever unless manually
+        # cleared via `mozart clear-rate-limits`. (F-112)
+        if self._timer is not None:
+            expiry_event = RateLimitExpired(instrument=event.instrument)
+            self._timer.schedule(event.wait_seconds, expiry_event)
+            _logger.info(
+                "baton.rate_limit.timer_scheduled",
+                extra={
+                    "instrument": event.instrument,
+                    "wait_seconds": event.wait_seconds,
+                },
+            )
+
         # Update sheet-level state — ALL dispatched/running sheets on this
         # instrument across ALL jobs move to waiting, not just the one that
         # triggered the rate limit. Rate limits are per-instrument, not per-sheet.

@@ -1562,6 +1562,11 @@ class SheetExecutionMixin:
             state.mark_sheet_started(sheet_num)
             sheet_state = state.sheets[sheet_num]
             sheet_state.execution_mode = current_mode.value  # type: ignore[assignment]  # SheetExecutionMode values match Literal
+
+            # Populate instrument identity for observability (F-151).
+            # Only set on first attempt — don't overwrite on retry.
+            if sheet_state.instrument_name is None and self.config.instrument:
+                sheet_state.instrument_name = self.config.instrument
             await self.state_backend.save(state)
 
             # Initialize grounding context
