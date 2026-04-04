@@ -197,17 +197,27 @@ class ContextBuildingMixin:
 
             for prev_num in range(start_sheet, sheet_num):
                 prev_state = state.sheets.get(prev_num)
-                if prev_state and prev_state.stdout_tail:
+                if prev_state is None:
+                    continue
+
+                # #120: Inject [SKIPPED] placeholder for skipped upstream sheets
+                # so fan-in prompts see explicit gaps instead of silent omissions.
+                if prev_state.status == SheetStatus.SKIPPED:
+                    context.previous_outputs[prev_num] = "[SKIPPED]"
+                    continue
+
+                if prev_state.stdout_tail:
                     output = prev_state.stdout_tail
                     if len(output) > max_chars:
                         output = output[:max_chars] + "\n... [truncated]"
                     context.previous_outputs[prev_num] = output
 
-            # Warn when upstream sheets were skipped — fan-in gets silent data gaps
+            # #120: Populate skipped_upstream list for template access
             skipped_nums = [
                 n for n in range(start_sheet, sheet_num)
                 if (s := state.sheets.get(n)) and s.status == SheetStatus.SKIPPED
             ]
+            context.skipped_upstream = skipped_nums
             if skipped_nums:
                 self._logger.warning(
                     "fan_in_upstream_skipped",

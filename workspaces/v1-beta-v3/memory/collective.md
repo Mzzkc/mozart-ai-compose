@@ -67,6 +67,12 @@ Movement 3 — COMPLETE (2026-04-04). Movement 4 — IN PROGRESS.
 - **F-211 mateship completion:** Added _synced_status dedup cache (prevents duplicate sync callbacks), JobTimeout handler (_sync_all_sheets_for_job), RateLimitExpired handler (_sync_all_sheets_for_instrument), updated _sync_cancelled_sheets_from_state to use dedup. Fixed pre-existing test failure in test_baton_restart_recovery.py. 16/16 + 18/18 TDD tests pass.
 - **Critical path unblocked:** Both P0 blockers (F-210, F-211) resolved. Phase 1 baton testing is now possible.
 
+### M4 Progress (Maverick)
+- **#120 RESOLVED:** Fan-in [SKIPPED] placeholder + `skipped_upstream` template variable. Skipped upstream sheets now inject `[SKIPPED]` in `previous_outputs` instead of silent omission. 7 TDD tests, 3 existing tests updated. `context.py`, `templating.py`.
+- **F-211 contribution:** Added `_synced_status` cache field (state-diff dedup) to BatonAdapter.__init__. Canyon/Foundation's sync handlers depend on this field for idempotent syncing. 16 TDD tests.
+- **#128 verified:** Skip_when fan-out expansion already fixed in `919125e`. Issue ready for closure.
+- **Quality gate baseline:** BARE_MAGICMOCK 1375→1391, ASSERTION_LESS_TEST 116→122. Pre-existing drift.
+
 ### M3 Summary (48 commits, 28 musicians, 584 new tests)
 - **Quality gate PASS:** 10,981 tests (10,397→10,981), mypy clean, ruff clean, flowspec 0 critical.
 - **Codebase:** 97,424 source lines, 315 test files, 150/197 tasks (76%). M0-M3 ALL COMPLETE.

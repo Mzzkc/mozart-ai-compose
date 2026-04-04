@@ -89,6 +89,9 @@ class SheetContext:
     """Stdout outputs from previous sheets. Keys are sheet numbers (1-indexed)."""
     previous_files: dict[str, str] = field(default_factory=dict)
     """File contents captured between sheets. Keys are file paths."""
+    skipped_upstream: list[int] = field(default_factory=list)
+    """Sheet numbers of upstream sheets that were skipped (#120).
+    Allows prompts to handle incomplete fan-in data explicitly."""
     # Prelude & Cadenza injection fields (GH#53)
     injected_context: list[str] = field(default_factory=list)
     """Resolved content from 'context' category injections."""
@@ -125,6 +128,7 @@ class SheetContext:
             # Cross-sheet context
             "previous_outputs": self.previous_outputs,
             "previous_files": self.previous_files,
+            "skipped_upstream": self.skipped_upstream,
             "injected_context": self.injected_context,
             "injected_skills": self.injected_skills,
             "injected_tools": self.injected_tools,

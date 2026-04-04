@@ -2595,10 +2595,11 @@ class TestFanInSkippedUpstream120:
         cs.capture_files = []
         return cs
 
-    def test_skipped_upstream_excluded_from_previous_outputs(self) -> None:
-        """Skipped upstream excluded; completed upstream included (TEST-120-A).
+    def test_skipped_upstream_gets_placeholder(self) -> None:
+        """Skipped upstream gets [SKIPPED] placeholder; completed upstream included (TEST-120-A).
 
-        FILTER was already correct — this is a regression gate.
+        #120 fix: skipped sheets inject [SKIPPED] so fan-in prompts see
+        explicit gaps instead of silent omissions.
         """
         mixin = self._make_mixin()
         state = _make_state(total_sheets=3)
@@ -2614,7 +2615,7 @@ class TestFanInSkippedUpstream120:
             context_mock, state, 3, self._make_cross_sheet()
         )
 
-        assert 1 not in context_mock.previous_outputs
+        assert context_mock.previous_outputs[1] == "[SKIPPED]"
         assert 2 in context_mock.previous_outputs
         assert context_mock.previous_outputs[2] == "output from sheet 2"
 
@@ -2642,7 +2643,7 @@ class TestFanInSkippedUpstream120:
         assert call_args[0][0] == "fan_in_upstream_skipped"
         assert call_args[1]["fan_in_sheet"] == 3
         assert call_args[1]["skipped_sheets"] == [1]
-        assert call_args[1]["received_inputs"] == 1
+        assert call_args[1]["received_inputs"] == 2  # includes [SKIPPED] placeholder
 
     def test_no_warning_when_all_upstreams_completed(self) -> None:
         """No warning fires when all upstreams completed normally (TEST-120-C)."""
@@ -2663,8 +2664,11 @@ class TestFanInSkippedUpstream120:
 
         mixin._logger.warning.assert_not_called()
 
-    def test_all_upstreams_skipped_empty_outputs_with_warning(self) -> None:
-        """All skipped: previous_outputs empty + warning lists all skipped (TEST-120-D)."""
+    def test_all_upstreams_skipped_placeholders_with_warning(self) -> None:
+        """All skipped: previous_outputs has [SKIPPED] placeholders + warning (TEST-120-D).
+
+        #120 fix: all skipped sheets get [SKIPPED] placeholders.
+        """
         mixin = self._make_mixin()
         state = _make_state(total_sheets=4)
         for i in range(1, 4):
@@ -2678,13 +2682,13 @@ class TestFanInSkippedUpstream120:
             context_mock, state, 4, self._make_cross_sheet()
         )
 
-        assert context_mock.previous_outputs == {}
+        assert context_mock.previous_outputs == {1: "[SKIPPED]", 2: "[SKIPPED]", 3: "[SKIPPED]"}
 
         mixin._logger.warning.assert_called_once()
         call_args = mixin._logger.warning.call_args
         assert call_args[0][0] == "fan_in_upstream_skipped"
         assert call_args[1]["skipped_sheets"] == [1, 2, 3]
-        assert call_args[1]["received_inputs"] == 0
+        assert call_args[1]["received_inputs"] == 3  # includes [SKIPPED] placeholders
 
     def test_no_false_warning_for_completed_sheets_with_empty_stdout(self) -> None:
         """Completed sheets with empty stdout do NOT trigger warning (TEST-120-E).

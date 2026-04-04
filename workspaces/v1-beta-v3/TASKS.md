@@ -201,7 +201,7 @@ This is the highest priority task. You are running inside a live conductor. You 
 - [x] [Warden] Fix F-160: Rate limit wait_seconds upper bound (priority: P2) [source: safety audit, M3] — parse_reset_time() had no max cap; adversarial "resets in 999999 hours" → 114-year timer. Added RESET_TIME_MAXIMUM_WAIT_SECONDS=86400 (24h) to constants.py, _clamp_wait() to classifier.py (3 return paths). 10 TDD tests in test_rate_limit_wait_cap.py.
 - [x] [Warden] Quality gate baseline fix: BARE_MAGICMOCK 1230→1234 (priority: P2) [source: mateship pickup, F-350] — 4 new bare MagicMock from test_stale_state_feedback.py and test_top_error_ux.py.
 - [x] [Warden] M3 safety audit: model override, clear-rate-limits, auto-resume timer, PID cleanup, stagger validation, semantic tags, credential redaction (priority: P2) [source: movement 3 safety review] — 9 areas audited, 1 gap found (F-160), rest clean. Detailed findings in movement-3/warden.md.
-- [ ] Fan-out edge cases (#120, #119, #128) (priority: P1) [source: roadmap step 49]
+- [x] [Maverick] Fix #120: Fan-in [SKIPPED] placeholder + skipped_upstream template var. #128 already fixed in 919125e. #119 still open. (priority: P1) [source: roadmap step 49]
 - [ ] Resume improvements (#93, #103, #122) (priority: P1) [source: roadmap step 50]
 - [ ] Remaining critical bug fixes (priority: P1) [source: roadmap step 51]
 
