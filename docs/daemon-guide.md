@@ -374,7 +374,7 @@ See the [CLI Reference](cli-reference.md#conductor-clones) for full details.
 
 The baton (`daemon/baton/`) is Mozart's next-generation execution engine, replacing
 the monolithic sequential runner with event-driven per-sheet dispatch. It is fully
-built and tested (1,000+ tests) but not yet activated in production.
+built and tested (1,130+ tests) but not yet activated as the default execution path.
 
 Key capabilities:
 - **Event-driven dispatch** — sheets dispatch when their dependencies are met and their
@@ -382,8 +382,13 @@ Key capabilities:
 - **Per-instrument concurrency** — each instrument has independent slots, so rate limits
   on one instrument don't block others
 - **Timer-based retry** — backoff delays use a timer wheel instead of `asyncio.sleep()`
+- **Rate limit auto-resume** — when a rate limit is hit, the baton schedules a timer to
+  automatically clear the limit when it expires and resume WAITING sheets. Without this,
+  rate-limited sheets stay blocked until manually cleared via `mozart clear-rate-limits`.
 - **Restart recovery** — baton state persists and reconciles with CheckpointState on restart
 - **Cost enforcement** — per-sheet and per-job cost limits enforced after every attempt
+- **Full prompt assembly** — the baton renders prompts through the complete pipeline
+  (preamble, template variables, prelude/cadenza injection, validation requirements)
 
 **Activation:** Set `use_baton: true` in `~/.mozart/conductor.yaml`. Use `--conductor-clone`
 for testing — do not activate against a production conductor without validating first.
@@ -395,7 +400,8 @@ These components are still in use through the current execution path:
 - **GlobalSheetScheduler** (`daemon/scheduler.py`) — Priority-based cross-job scheduling.
   Built but not yet wired into the execution path.
 - **RateLimitCoordinator** (`daemon/rate_coordinator.py`) — Cross-job rate limit state
-  sharing. The write path is active; the read path feeds the scheduler.
+  sharing. The write path is active; the read path feeds the scheduler. Stale limits
+  can be cleared manually with `mozart clear-rate-limits`.
 
 ## Migration from Pre-Conductor Usage
 

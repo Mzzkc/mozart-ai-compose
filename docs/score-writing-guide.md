@@ -399,6 +399,7 @@ Enables concurrent sheet execution when the dependency DAG permits.
 | `enabled` | bool | `false` | Enable parallel sheet execution. |
 | `max_concurrent` | int | `3` | Maximum sheets to run concurrently (1-10). |
 | `fail_fast` | bool | `true` | Stop starting new sheets when one fails. |
+| `stagger_delay_ms` | int | `0` | Delay in milliseconds between launching parallel sheets (0-5000). Reduces rate limit surge when many sheets hit the same API simultaneously. |
 
 ### `retry`
 
@@ -1507,10 +1508,13 @@ parallel:
   enabled: true
   max_concurrent: 3     # Up to 3 sheets at once
   fail_fast: true       # Stop on first failure
+  stagger_delay_ms: 150 # 150ms between launches to reduce rate limit surge
 ```
 
 Without `parallel.enabled: true`, sheets run sequentially even if the
 dependency DAG would allow parallelism.
+
+The `stagger_delay_ms` option adds a small delay between launching parallel sheets. This prevents all sheets from hitting the same API simultaneously, which can trigger rate limits on providers with per-minute quotas. Values between 100-500ms are typical.
 
 ### Conditional Sheet Skipping
 

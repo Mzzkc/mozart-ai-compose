@@ -516,6 +516,7 @@ Enables running multiple sheets concurrently when the dependency DAG permits.
 | `enabled` | `bool` | `false` | | Enable parallel sheet execution |
 | `max_concurrent` | `int` | `3` | `1–10` | Maximum sheets to execute concurrently |
 | `fail_fast` | `bool` | `true` | | Stop starting new sheets when one fails |
+| `stagger_delay_ms` | `int` | `0` | `0–5000` | Delay in milliseconds between launching parallel sheets. Reduces rate limit surge when many sheets hit the same API. |
 | `budget_partition` | `bool` | `true` | **Not yet implemented** | Partition cost budget across parallel branches. Accepted but not enforced; cost checks use global total. |
 
 ```yaml
@@ -523,6 +524,7 @@ parallel:
   enabled: true
   max_concurrent: 3
   fail_fast: true
+  stagger_delay_ms: 150   # 150ms between launches
 ```
 
 ---

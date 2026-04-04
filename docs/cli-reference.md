@@ -332,6 +332,7 @@ Standard per-score output includes:
 - Timing information
 - Error messages (if any)
 - Sheet details table (or compact summary for 50+ sheets)
+- **Instrument column** — when any sheet has an assigned instrument name, the table includes an Instrument column showing which instrument each sheet uses. For large scores (50+ sheets), the summary view shows an instrument breakdown with counts.
 - Suggestion to run `mozart diagnose` on failure
 
 JSON output structure:
@@ -1553,7 +1554,7 @@ mozart start --log-level debug
 
 ### `mozart stop`
 
-Stop the running conductor.
+Stop the running conductor. If jobs are actively running, warns and asks for confirmation before proceeding — stopping the conductor while jobs run orphans active agents and may corrupt job state.
 
 ```
 Usage: mozart stop [OPTIONS]
@@ -1562,10 +1563,15 @@ Usage: mozart stop [OPTIONS]
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
 | `--pid-file` | | `/tmp/mozart.pid` | Path to PID file |
-| `--force` | | false | Force stop |
+| `--force` | | false | Skip safety check, send SIGKILL instead of SIGTERM |
+
+**Safety guard:** When jobs are running, `mozart stop` probes the conductor via IPC to check for active jobs. If any are found, it warns with the job count and asks for confirmation. The `--force` flag bypasses this check entirely and sends SIGKILL.
 
 ```bash
+# Normal stop (warns if jobs running)
 mozart stop
+
+# Force stop (SIGKILL, no safety check)
 mozart stop --force
 ```
 
@@ -1584,6 +1590,8 @@ Usage: mozart restart [OPTIONS]
 | `--config` | `-c` | | Path to conductor config file |
 | `--foreground` | `-f` | false | Run in foreground (for development) |
 | `--log-level` | `-l` | `info` | Logging level |
+| `--pid-file` | | `/tmp/mozart.pid` | Path to PID file |
+| `--profile` | `-p` | | Daemon operational profile: `dev`, `intensive`, `minimal`. Overrides config file defaults. |
 
 ```bash
 mozart restart
@@ -1608,6 +1616,39 @@ Usage: mozart conductor-status [OPTIONS]
 ```bash
 mozart conductor-status
 ```
+
+---
+
+### `mozart clear-rate-limits`
+
+Clear stale rate limits on instruments. When a backend rate limit expires but the conductor still has it cached, sheets may stay blocked unnecessarily. This command clears the cached limit so dispatch resumes immediately.
+
+Clears both the rate limit coordinator (used by the scheduler) and the baton's per-instrument state (used by the dispatch loop).
+
+```
+Usage: mozart clear-rate-limits [OPTIONS]
+```
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--instrument` | `-i` | | Clear rate limit for a specific instrument only |
+| `--json` | `-j` | false | Output result as JSON |
+
+```bash
+# Clear all rate limits
+mozart clear-rate-limits
+
+# Clear rate limit for a specific instrument
+mozart clear-rate-limits -i claude-cli
+
+# JSON output for scripting
+mozart clear-rate-limits --json
+```
+
+**When to use:**
+- A rate limit has expired but sheets are still WAITING
+- You want to force a retry after a rate limit event
+- Troubleshooting rate limit behavior during development
 
 ---
 
