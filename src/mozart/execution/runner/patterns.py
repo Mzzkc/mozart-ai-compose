@@ -79,6 +79,45 @@ def _deduplicate_patterns(patterns: list[Any]) -> list[Any]:
     return list(groups.values())
 
 
+def build_semantic_context_tags(config: JobConfig) -> list[str]:
+    """Build semantic context tags from the execution context.
+
+    Generates tags that match the namespace used when patterns are stored
+    (validation:TYPE, retry:effective, success:first_attempt, etc.) instead
+    of the positional tags (sheet:N, job:X) that previously caused the
+    F-009/F-144 tag namespace mismatch — where 91% of 28K+ patterns were
+    never applied because query tags had zero overlap with stored tags.
+
+    Args:
+        config: The job configuration containing validation rules,
+                instrument info, and other execution context.
+
+    Returns:
+        List of semantic tags matching the stored tag format.
+    """
+    tags: list[str] = []
+
+    # Extract validation types from configured rules
+    # These match the "validation:TYPE" tags stored by pattern discovery
+    # (see learning/patterns.py:411 — context_tags=[f"validation:{vtype}"])
+    seen_vtypes: set[str] = set()
+    for rule in config.validations:
+        if rule.type not in seen_vtypes:
+            tags.append(f"validation:{rule.type}")
+            seen_vtypes.add(rule.type)
+
+    # Broad category tags that match common stored patterns.
+    # These are always relevant regardless of specific sheet context:
+    #   - success:first_attempt (patterns.py:514)
+    #   - retry:effective (patterns.py:445)
+    #   - completion:used (patterns.py:483)
+    tags.append("success:first_attempt")
+    tags.append("retry:effective")
+    tags.append("completion:used")
+
+    return tags
+
+
 def _unknown_risk(factors: list[str]) -> dict[str, Any]:
     """Build an 'unknown' risk assessment result."""
     return {
@@ -181,12 +220,18 @@ class PatternsMixin:
 
         try:
             # Build context tags for filtering (auto-generate if not provided)
+            # F-009/F-144 fix: use SEMANTIC tags that match the stored tag
+            # namespace (validation:TYPE, retry:effective, etc.) instead of
+            # positional tags (sheet:N, job:X) that had zero overlap.
             if context_tags:
                 query_context_tags = context_tags
             else:
-                query_context_tags = [f"sheet:{sheet_num}"]
-                if job_id:
-                    query_context_tags.append(f"job:{job_id}")
+                query_context_tags = build_semantic_context_tags(self.config)
+
+            # F-009 fix: pass instrument_name for instrument-scoped filtering.
+            # get_patterns() already supports this parameter but it was never
+            # passed — patterns accumulated globally with no instrument scope.
+            query_instrument_name = self.config.instrument
 
             # Determine exploration vs exploitation mode
             exploration_rate = self.config.learning.exploration_rate
@@ -236,11 +281,12 @@ class PatternsMixin:
                         trust_threshold=auto_apply_config.trust_threshold,
                     )
 
-            # Query patterns from global store with context filtering
+            # Query patterns from global store with semantic context filtering
             patterns = self._global_learning_store.get_patterns(
                 min_priority=min_priority,
                 limit=5,
                 context_tags=query_context_tags,
+                instrument_name=query_instrument_name,
             )
 
             # Merge auto-apply patterns with regular patterns, avoiding duplicates
@@ -264,6 +310,7 @@ class PatternsMixin:
                 patterns = self._global_learning_store.get_patterns(
                     min_priority=min_priority,
                     limit=5,
+                    instrument_name=query_instrument_name,
                 )
 
             if not patterns:

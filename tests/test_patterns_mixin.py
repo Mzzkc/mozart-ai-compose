@@ -212,23 +212,33 @@ class TestQueryRelevantPatterns:
         assert "error:rate_limit" in call_kwargs["context_tags"]
         assert "phase:execution" in call_kwargs["context_tags"]
 
-    def test_auto_generates_context_tags(
+    def test_auto_generates_semantic_context_tags(
         self,
         runner_with_global_store: JobRunner,
         mock_global_store: MagicMock,
     ) -> None:
-        """Test that context tags are auto-generated if not provided."""
+        """Test that semantic context tags (not positional) are auto-generated.
+
+        F-009/F-144 fix: the old code generated positional tags (sheet:N, job:X)
+        that had zero overlap with stored semantic tags. Now generates semantic
+        tags (success:first_attempt, retry:effective, etc.) that match the
+        stored tag namespace.
+        """
         runner_with_global_store._query_relevant_patterns(
             job_id="test-job",
             sheet_num=5,
         )
 
-        # Should auto-generate sheet and job tags
+        # Should auto-generate semantic tags, NOT positional tags
         call_kwargs = mock_global_store.get_patterns.call_args.kwargs
         assert "context_tags" in call_kwargs
         tags = call_kwargs["context_tags"]
-        assert any("sheet:5" in str(t) for t in tags)
-        assert any("job:test-job" in str(t) for t in tags)
+        # Semantic tags present
+        assert "success:first_attempt" in tags
+        assert "retry:effective" in tags
+        # Positional tags absent (this was the F-009 root cause)
+        assert not any("sheet:5" in str(t) for t in tags)
+        assert not any("job:test-job" in str(t) for t in tags)
 
     def test_tracks_exploration_vs_exploitation(
         self,
