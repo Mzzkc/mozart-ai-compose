@@ -245,6 +245,13 @@ Movement 3 — IN PROGRESS (2026-04-04).
 - **Product assessment:** README now matches the actual CLI. Narrative from README → getting-started → hello.yaml → examples is coherent. All 38 examples validate clean. mypy clean, ruff clean.
 - **F-330/F-331/F-332 filed and resolved.**
 
+### Movement 3 Progress (Compass — Second Pass)
+- **F-333 RESOLVED (P1):** README manual install missing `[daemon]` extra. Line 90 `pip install -e "."` → `pip install -e ".[daemon]"`. Newcomers following manual path hit import error at Quick Start step 3.
+- **F-334 RESOLVED (P2):** hello.yaml cost estimate "~$0.50" wrong by 10-30x. Changed to "varies by instrument and model."
+- **Demo direction brief:** Written at `movement-3/compass-demo-direction.md`. Key findings: (1) Lovable demo blocked on baton, 4-5 movements away. (2) Wordware comparison demos have ZERO blockers — buildable today with legacy runner. (3) hello.yaml is demo-ready, missing only packaging. (4) Cost fiction (F-461) prevents honest cost comparisons in any demo.
+- **Product surface audit (second pass):** All 38 examples validate. No hardcoded paths. Docs accurate post-M3 changes by Guide/Newcomer/Codex. Narrative coherent from README → getting-started → hello.yaml → examples.
+- **Quality:** mypy clean, ruff clean.
+
 ### Movement 3 Progress (Tempo — Cadence Analysis)
 - **Eighth cadence analysis COMPLETE:** Full retrospective across 36 commits, 23 committers, 30 reports, 9.5-hour wave (04:58–14:15).
 - **Three-phase pattern confirmed intrinsic (3rd consecutive):** Build (50%, 18 commits, 04:58–08:53) → Verify (36%, 13 commits, 09:15–12:47) → Review (14%, 5 commits, 12:54–14:15). Same proportions as M2. Self-organizing, uninstructed.
@@ -395,6 +402,13 @@ The product surface, however, is genuinely ready for newcomers. Newcomer's four 
 The orchestra's first full building movement. Thirty-two musicians, 42 commits, zero merge conflicts. Three natural rhythms: build wave (infrastructure creation), convergence wave (5 musicians self-organizing around F-104 without coordination), verification wave (4 independent testing methodologies finding bugs the others missed). The instrument plugin system shipped end-to-end. The baton's terminal guard pattern was completed across all 19 status transitions. The credential scanner was wired at the single architectural bottleneck.
 
 The mateship model matured — Harper's mass pickups resolved the uncommitted work anti-pattern (36+ files down to 12). The finding->fix pipeline became the orchestra's strongest institutional mechanism. The movement ended with quality gates green, three major blockers resolved (F-104, conductor-clone, F-103), and a clear critical path: Step 29 -> use_baton -> Demo. The organizational geometry tension — 32 parallel workers, 1 serial need — defined the work ahead.
+
+### Movement 3 Progress (Guide — Second Pass)
+- **M3 feature documentation verified:** All 7 M3 features confirmed documented by Codex. clear-rate-limits (cli-reference, getting-started, daemon-guide), stop safety guard (cli-reference:1555-1576), stagger_delay_ms (score-writing-guide:402, configuration-reference:519), rate limit auto-resume (daemon-guide:385-387), prompt assembly (daemon-guide:390), instrument column in status (cli-reference:335), restart options (cli-reference).
+- **Stale counts fixed:** Example counts 38→37 (getting-started.md, index.md). Baton test counts 1,130+→1,350+ (daemon-guide.md, limitations.md).
+- **4 missing README examples added:** docs-generator.yaml, agent-spike.yaml, observability-demo.yaml, phase3-wiring.yaml added to Software Development table.
+- **All 37 scores validate clean.** Zero regressions from M2.
+- **Quality:** mypy clean, ruff clean.
 
 ### Earlier Movements (M0-M3)
 M0 stabilized foundations (learning store, critical bugs, dead code). M1 shipped instrument plugin system and sheet-first architecture. M2 built baton core (events, timer wheel, state, dispatch, retry, rate limits, BackendPool) plus conductor-clone. M3 delivered UX polish, M4 data models, observability, production bug fixes. Canyon's step 28 analysis became Foundation's blueprint. The BatonAdapter (775+ lines, 64 TDD tests) wired 7 of 8 surfaces.

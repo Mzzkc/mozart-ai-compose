@@ -87,8 +87,10 @@ git clone https://github.com/Mzzkc/mozart-ai-compose.git
 cd mozart-ai-compose
 python -m venv .venv
 source .venv/bin/activate
-pip install -e "."
+pip install -e ".[daemon]"
 ```
+
+> **Note:** The `[daemon]` extra installs conductor dependencies (psutil, watchfiles) required for score execution. Without it, `mozart start` will fail.
 
 ### Verify Installation
 
@@ -405,6 +407,10 @@ Mozart includes examples demonstrating various use cases:
 | [issue-fixer.yaml](examples/issue-fixer.yaml) | GitHub issue fixing |
 | [issue-solver.yaml](examples/issue-solver.yaml) | Roadmap-driven, dependency-aware issue solver |
 | [score-composer.yaml](examples/score-composer.yaml) | AI-assisted Mozart score authoring |
+| [docs-generator.yaml](examples/docs-generator.yaml) | 14-stage documentation overhaul with gap analysis and verification |
+| [agent-spike.yaml](examples/agent-spike.yaml) | Task tool feasibility testing for agent integration |
+| [observability-demo.yaml](examples/observability-demo.yaml) | Logging, error tracking, and diagnostics demo |
+| [phase3-wiring.yaml](examples/phase3-wiring.yaml) | Scheduler and rate coordinator wiring into the daemon |
 | [cross-sheet-test.yaml](examples/cross-sheet-test.yaml) | Demonstrates cross-sheet context passing |
 | [prelude-cadenza-example.yaml](examples/prelude-cadenza-example.yaml) | Prelude and cadenza context injection |
 

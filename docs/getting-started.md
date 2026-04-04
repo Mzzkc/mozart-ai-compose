@@ -439,7 +439,7 @@ mozart dashboard --port 3000
 - [Configuration Reference](configuration-reference.md) — Every config field documented
 
 **Explore examples:**
-- [Examples](../examples/) — 38 working configurations across software, research, writing, and planning
+- [Examples](../examples/) — 37 score configurations across software, research, writing, and planning
 - [Mozart Score Playspace](https://github.com/Mzzkc/mozart-score-playspace) — Creative showcase with real output: philosophy, worldbuilding, education, and more
 
 **Go deeper:**

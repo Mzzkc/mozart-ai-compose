@@ -374,7 +374,7 @@ See the [CLI Reference](cli-reference.md#conductor-clones) for full details.
 
 The baton (`daemon/baton/`) is Mozart's next-generation execution engine, replacing
 the monolithic sequential runner with event-driven per-sheet dispatch. It is fully
-built and tested (1,130+ tests) but not yet activated as the default execution path.
+built and tested (1,350+ tests) but not yet activated as the default execution path.
 
 Key capabilities:
 - **Event-driven dispatch** — sheets dispatch when their dependencies are met and their
