@@ -170,17 +170,26 @@ Movement 2 — COMPLETE (verified 2026-04-04).
 - **F-152 (P0, #155):** Unsupported instrument kind causes infinite silent dispatch loop. Most dangerous operational bug.
 - **F-156 (P2):** Silent re-pause after resume when cost limit exceeded. Correct behavior, no user feedback.
 
+### Movement 3 Progress (Atlas)
+- **Sixth strategic alignment assessment:** Comprehensive analysis of M3 against product thesis. 19 commits from 11 musicians. 10 critical findings resolved. 150/197 tasks complete (76%).
+- **STATUS.md updated:** M2 data → M3. Tests: 10,400+. Source: 97,377 lines. Test files: 306. Baton Phase 1 ready. F-009 resolved. Milestones current.
+- **Strategic phase transition identified:** Infrastructure deficit → activation debt. The orchestra has shifted from "build more" to "test what's built."
+- **Risk register updated:** Demo escalated to sole CRITICAL-existential. Baton improved from CRITICAL-blocked to CRITICAL-ready. Participation narrowing flagged as HIGH (natural, not crisis).
+- **Recommendation:** Run baton with --conductor-clone (Phase 1). Assign demo with deadline. Accept narrowing as geometry following work.
+
 ## Coordination Notes (Active)
-- **CRITICAL PATH:** Enable use_baton (fix F-145 + timeout) -> test -> fix -> demo -> ship. ALL SERIAL. D-015 assigns Foundation/Canyon.
-- **F-009/F-144 (P0):** RESOLVED (movement 3, Maverick). Semantic tag generation replaces positional tags. instrument_name wired into queries. D-014 complete.
-- **DEMO (P0):** Lovable + Wordware at zero for 6+ movements. D-016/D-017 assign Guide/Codex.
-- **Finding ID collisions:** 5+ incidents. Weaver proposed range-based allocation. D-018 assigns Bedrock.
-- **Structural tension:** Orchestra self-selects for parallel building. Critical path requires serial depth. Assign ONE musician full-time to activation path.
-- **M3 Recommendations (Tempo):** Multi-cycle execution. Explicit demo assignment. F-144 fix as P0. Cap findings growth.
+- **CRITICAL PATH (UPDATED M3):** Test baton [--conductor-clone] → flip default → demo → release. All 3 baton blockers resolved (F-145, F-152, F-158). Foundation/Canyon assigned (D-015). Phase 1 ready.
+- **F-009/F-144 (P0):** RESOLVED (movement 3, Maverick/Foundation). Semantic tag generation replaces positional tags. instrument_name wired into queries. D-014 complete. Effectiveness scores need real executions to diverge from 0.5000.
+- **F-152 (P0, #155):** RESOLVED (movement 3, Canyon). Dispatch-time guard with E505 failure posting. 5 TDD tests.
+- **F-158 (P1):** RESOLVED (movement 3, Canyon). PromptRenderer wired into register_job/recover_job. Full 9-layer prompt assembly.
+- **DEMO (P0 — EXISTENTIAL):** Lovable + Wordware at zero for 7+ movements. D-016/D-017 assign Guide/Codex. No progress. Needs deadline or direct composer action.
+- **Finding ID collisions:** RESOLVED (D-018, Bedrock). Range-based allocation system deployed. FINDING_RANGES.md allocated per-musician.
+- **Structural tension (RESOLVED):** Participation narrowed naturally (28/32 → 13/32). Geometry following work from parallel infrastructure to serial activation. This is correct.
+- **GitHub issues awaiting verification:** #155, #154, #153, #139, #94, #98/#131 — all have M3 fix commits. Need Prism/Axiom review.
 
 ## Top Risks
-1. **F-009/F-144 (RESOLVED):** Tag namespace mismatch fixed (Maverick M3). Semantic tags now match stored tag format. Intelligence layer can start learning. Effectiveness scores will differentiate over future executions.
-2. **F-152 (P0, #155):** Infinite silent dispatch loop on unsupported instrument. Blocks multi-instrument.
+1. **Demo at zero (CRITICAL — EXISTENTIAL).** 7+ movements, no progress. Product invisible. No amount of engineering closes a visibility gap. D-016/D-017 assigned but ineffective.
+2. **Baton untested live (CRITICAL — READY).** All blockers resolved. 1,130+ tests. Phase 1 ready for --conductor-clone testing. Distance: "ready" → "proven."
 3. **F-107 (P0):** No standardized instrument profile verification against live APIs.
 4. **Demo work (P0):** Neither Lovable nor Wordware demos started. Product invisible. 6+ movements stalled.
 5. **Baton activation (HIGH):** All code complete. 1,120+ tests. Never run a real sheet. F-145 + timeout needed.
