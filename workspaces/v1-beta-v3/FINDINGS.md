@@ -1903,3 +1903,21 @@ Each finding should include:
 - **Impact:** A newcomer running hello.yaml expects $0.50 and spends $5-15. The first encounter with Mozart involves a cost surprise. Trust erosion before the product even demonstrates its value.
 - **Error class:** F-461 (cost fiction). Cost information is consistently wrong across the product surface.
 - **Resolution:** Changed to "Cost: varies by instrument and model" — honest rather than wrong.
+
+### F-463: Learning Stats Are User-Facing But Alarming Without Context
+- **Found by:** Newcomer, Movement 3 (reviewer pass)
+- **Severity:** P3 (low — internal metrics, not core UX)
+- **Status:** Open
+- **Category:** risk
+- **Description:** `mozart learning-stats` reports 12.0% first-attempt success rate, 0.51 avg effectiveness (barely above random), and 0.0% recovery success rate. These numbers are visible to any user who discovers the command. Without context (e.g., "exploration-heavy workloads have low first-attempt rates by design"), these stats would alarm any engineer evaluating Mozart for adoption. The 0.51 effectiveness is related to F-009 (all patterns had 0.5000) — the semantic tag fix may improve this over time, but current data reflects pre-fix patterns.
+- **Impact:** A potential adopter who runs `mozart learning-stats` might conclude the system doesn't learn effectively. The numbers need either contextual explanation in the output or clear documentation about what they mean.
+- **Action:** Add brief context to `learning-stats` output explaining what the numbers mean, or document expected ranges in the CLI reference.
+
+### F-464: `history` Command Placement Inconsistency (README vs CLI)
+- **Found by:** Newcomer, Movement 3 (reviewer pass)
+- **Severity:** P3 (low — minor doc inconsistency)
+- **Status:** Open
+- **Category:** risk
+- **Description:** README.md lists `mozart history` under the "Monitoring" section (line ~216). The actual CLI (`mozart --help`) lists `history` under "Diagnostics." A newcomer reading the README builds a mental model where history is a monitoring tool, then finds it categorized differently in the CLI. Minor inconsistency but breaks the otherwise-clean mapping between README and CLI.
+- **Impact:** Low — most users won't notice. But the README was carefully restructured this movement (Compass, F-330) to match CLI groups exactly. This one slipped through.
+- **Action:** Move `history` to the Diagnostics section in README, consistent with the CLI grouping.
