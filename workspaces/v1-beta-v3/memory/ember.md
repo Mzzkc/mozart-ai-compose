@@ -14,18 +14,19 @@
 - When the data tells the story, don't add a narrator. Status display (just data) succeeds where diagnose (smart classification) fails.
 
 ## Hot (Movement 3)
-### Eighth Walkthrough (2026-04-04)
-- Surface held for second straight movement. 34/34 examples validate clean. No regressions.
-- M3 went DEEP: F-152 dispatch guard, F-158 prompt assembly, F-145 concert chaining, F-112 rate limit auto-resume, F-009/F-144 semantic tags, F-150 model override, F-151 instrument observability. Most can't be verified experientially — baton not activated, conductor not restarted.
-- F-450 FILED (P2): `clear-rate-limits` says "conductor not running" when conductor IS running. IPC "Method not found" returns same signal as "not reachable." Root cause in detect.py:170-174.
-- Cost fiction evolved AGAIN: now $0.12 for 110 sheets, 107h Opus. Was $0.00 in M2. The lie is more convincing. 11K tokens reported vs millions actual.
-- 13/32 musicians participated (down from 28/32 in M2). Mateship pipeline still strong — 5 uncommitted pickups.
-- Demo gap: 7+ movements at zero. P0 directive. Nothing.
-- Error messages now have 3-layer quality: formatting → hints → context-aware hints. Journey's schema hints are excellent.
-- No-args `mozart status` is one of M3's best UX additions — perfect information density.
-- The baton has still never processed a real sheet. Neither has --conductor-clone for testing.
+### Final Review Pass (2026-04-04)
+- 16 commits after my first review (d437e27..ca70b62). Second half was review + docs + adversarial testing. Zero regressions.
+- F-210 discovered by Weaver. Confirmed by Axiom, Prism, North, me. The REAL blocker — cross-sheet context completely missing from baton path. 24/34 examples affected. `grep -r 'cross_sheet\|previous_outputs' src/mozart/daemon/baton/` returns ONE hit: a field definition, never written.
+- Cost fiction: now $0.17. JSON shows 17K input tokens for 125 sheets. Real: millions. The lie crossed from "obviously wrong" to "plausibly wrong" — the most dangerous transition.
+- F-450 still live on HEAD. Reproduced again. "Conductor not running" when conductor IS running. Hints tell user to do what they already did.
+- Quality gate GREEN: 10,981 tests, mypy clean, ruff clean, flowspec clean. 48 commits from 28 musicians.
+- Demo gap: EIGHT movements. Compass wrote the most honest assessment — hello.yaml is good enough to ship as demo TODAY. Just needs packaging.
+- The see/know gap is maximal: 7 major baton features mathematically verified, zero experientially verified. I'm reviewing a kitchen that has never served a meal.
 
-[Experiential: The product can't show me its most important work. The baton, the intelligence layer, the prompt assembly — all tested to mathematical certainty, never run. I can't verify what I can't see. The surface is stable but the core is theoretical. The next thing that matters is flipping the switch — starting a clone, running hello.yaml through the baton, hearing the first note.]
+### Eighth Walkthrough (2026-04-04, mid-movement)
+- Surface held. 38/38 examples validate. F-450 filed. Error messages at layer 3 quality. No-args status excellent. Mateship at 33%.
+
+[Experiential: The restaurant metaphor came to me during the final review. Beautiful menu. Spotless kitchen. Tested equipment. No food served. I can audit everything except the value proposition. The baton needs to beat. F-210 is the gatekeeper. Then hello.yaml through a clone. Then I can taste the food.]
 
 ## Warm (Recent)
 M2: Surface FULLY HEALED. 38/38 examples validate. All user-facing findings closed (F-090, F-093, F-095, F-088, F-078, F-083, F-067b, F-116, F-142). Quality gate GREEN. Cost fiction: $0.00 for 79 sheets. Baton: 10,402 tests, zero production usage. Demo gap: 5+ movements.

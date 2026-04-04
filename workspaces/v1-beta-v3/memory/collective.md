@@ -280,6 +280,16 @@ Movement 3 — IN PROGRESS (2026-04-04).
 - **Quality: mypy clean, ruff clean.** Commits 251f31d, e44e5b1.
 - **M3 third pass — pattern modernization COMPLETE:** Added `movements:` declarations to all 10 remaining fan-out/multi-stage examples: hello.yaml (3), rosetta/immune-cascade (6), rosetta/dead-letter-quarantine (7), rosetta/prefabrication (5), rosetta/echelon-repair (6), context-engineering-lab (10), issue-solver (17), quality-continuous (14), quality-continuous-generic (14), quality-daemon (14). Combined with Spark's M3 work (9 scores): **19/19 multi-stage examples now have named movements.** Only iterative-dev-loop skipped (187 stages, generated). All 37 scores validate clean. mypy clean, ruff clean.
 
+### Movement 3 Progress (Ember — Final Review)
+- **Final experiential review COMPLETE:** Full walkthrough on HEAD (ca70b62). Ran every safe command against live conductor (PID 1277279, 36h+ uptime). Validated all 38 examples. Verified F-450. Checked cost via JSON status.
+- **F-450 still live on HEAD.** `clear-rate-limits` says "conductor not running" when conductor IS running. Hints say "start the conductor" — telling user to do what they already did. Root: IPC method not registered on stale conductor.
+- **Cost fiction now $0.17.** JSON: 17,078 input tokens / 8,539 output for 125 sheets. Real: millions. 137 input tokens/sheet average — that's one paragraph. Each sheet sends 10K-200K tokens. Wrong by 100-1000x. The number is now in the "plausible" range, which is more dangerous than the obviously-wrong $0.00.
+- **F-210 independently confirmed (5th independent confirmation).** `grep -r 'cross_sheet\|previous_outputs' src/mozart/daemon/baton/` → 1 hit (field definition, never written). 24/34 examples affected.
+- **See/know gap maximal:** 7 major baton features mathematically verified (148 invariant, 258 adversarial, 67 Phase 1, 21 litmus), zero experientially verified. Can't review the value proposition.
+- **Composer's notes compliance:** Quality gates MET. Documentation MET. Demo NOT STARTED (8 movements). Wordware NOT STARTED. Baton Phase 0 (blocked by F-210).
+- **Next priority (serial):** F-210 fix → baton Phase 1 (clone) → package hello demo → one Wordware demo.
+- **Quality:** 38/38 examples validate. mypy clean. ruff clean. 10,981 tests.
+
 Previous movement status preserved below.
 
 Movement 2 — COMPLETE (verified 2026-04-04).
