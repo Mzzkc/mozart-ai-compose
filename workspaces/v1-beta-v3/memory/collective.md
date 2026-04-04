@@ -130,6 +130,19 @@ Movement 3 — IN PROGRESS (2026-04-04).
 - **GitHub issues ready for reviewer verification:** #155, #154, #153, #139, #94, #98/#131 — all M3 fixes committed, awaiting Prism/Axiom closure.
 - **Open risks:** Demo at zero (7+ movements). Baton never tested live. Participation at 13/32 (down from M2's 28/32). Cost fiction persists.
 
+### Movement 3 Progress (Litmus)
+- **M3 intelligence validation COMPLETE:** 21 new litmus tests in 7 categories (25-31). 95 total litmus tests across all cycles. Validates ALL major M3 intelligence-layer fixes: F-009/F-144 semantic tags, F-158 prompt renderer wiring, F-152 dispatch guard, F-112 rate limit auto-resume, F-150 model override, F-145 concert chaining, F-160 wait cap.
+- **Key validations:** (1) Semantic tags have ≥2 overlap with stored pattern namespace (positional had zero). (2) PromptRenderer output is >2x raw template with patterns+specs+validations. (3) All 3 dispatch failure paths send E505 events. (4) Rate limit auto-resume timer schedules correctly. (5) Model overrides reach the backend. (6) has_completed_sheets wired through baton→manager.
+- **Quality:** mypy clean, ruff clean, 95/95 litmus tests pass.
+
+### Movement 3 Progress (Oracle — Data Analysis)
+- **Full M3 state assessment:** Report at `movement-3/oracle.md`. 97,353 source lines, 10,581 tests collected, 305 test files, 23 M3 commits from 14 musicians, 30% mateship rate (highest ever).
+- **Learning store FIRST DIFFERENTIATION:** Avg effectiveness shifted from 0.5000 → 0.5088. Range: 0.0276–0.9999. Validated tier: 238 (+31% from M2). 5 patterns quarantined. Five-tier distribution emerging: degraded (5), cold-start (26,409), warm (3,130), emerging (30), validated (213). F-009/F-144 fix is the ignition key — pipeline selection gate now open.
+- **P0 audit:** 84% resolution rate (16/19). Remaining 3 gated on baton activation. 10 open P1s, 5 resolve with baton activation.
+- **Predictive model:** Validated tier projected to reach ~350 by M4, ~500+ by M5, self-sustaining by M6 — contingent on baton activation and execution volume.
+- **Critical path warning:** Baton Phase 1 testing, demo work, F-097 timeout config — all serial, all zero progress. Seven+ movements of deferral. This is the defining risk.
+- **Quality: mypy clean, ruff clean, examples 33/34 (iterative-dev-loop-config.yaml is a generator config, expected).**
+
 Previous movement status preserved below.
 
 Movement 2 — COMPLETE (verified 2026-04-04).
@@ -169,6 +182,15 @@ Movement 2 — COMPLETE (verified 2026-04-04).
 - **F-148 (P3):** Finding ID collision systemic — 5+ incidents.
 - **F-152 (P0, #155):** Unsupported instrument kind causes infinite silent dispatch loop. Most dangerous operational bug.
 - **F-156 (P2):** Silent re-pause after resume when cost limit exceeded. Correct behavior, no user feedback.
+
+### Movement 3 Progress (Sentinel — Security Audit)
+- **Full M3 security audit COMPLETE:** 24 commits, 13 musicians, 144 files audited. Zero new critical findings. Zero new shell execution paths. Zero new credential data paths bypassing redaction.
+- **Warden's M3 safety audit independently verified:** All 9 areas confirmed. Zero disagreements. Dual-layer rate limit defense, parameterized SQL, create_subprocess_exec patterns all verified.
+- **Credential redaction intact:** All 7 points verified (musician.py:129,165,557,584,585 + checkpoint.py:567,568). Three data paths through musician all protected.
+- **Shell execution paths unchanged:** All 4 protected paths confirmed (validation engine, skip_when_command, hooks run_command, hooks run_script). Zero new paths.
+- **Open findings unchanged:** F-021 (sandbox, P2, acceptable v1), F-022 (CSP, P2, LOCALHOST_ONLY), F-137 (pygments CVE P3, pin needed). F-107 process gap.
+- **Security culture observation:** Safe patterns (create_subprocess_exec, parameterized SQL, Pydantic bounds) are now default in new code without prompting. Defense in depth is organizational — two independent scanners (Sentinel + Warden).
+- **Quality:** mypy clean, ruff clean.
 
 ### Movement 3 Progress (Atlas)
 - **Sixth strategic alignment assessment:** Comprehensive analysis of M3 against product thesis. 19 commits from 11 musicians. 10 critical findings resolved. 150/197 tasks complete (76%).

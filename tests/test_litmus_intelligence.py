@@ -32,6 +32,24 @@ Test categories:
     actually prevent the production bugs?
 15. Clone config isolation — does build_clone_config produce truly
     isolated state DB paths? (F-132)
+16-24. (M2 additions: cost limit wiring, state mapping totality, instrument
+    alias resolution, validation with aliases, success outcome after restart,
+    parallel exception preservation, failure propagation, baton event stubs,
+    credential redaction defense-in-depth)
+25. Semantic context tags — F-009/F-144: do semantic tags overlap with stored
+    pattern namespace? (positional tags had ZERO overlap → 91% waste)
+26. Prompt renderer wiring — F-158: does the baton create a PromptRenderer
+    when prompt_config is provided? Is the rendered prompt richer?
+27. Dispatch guard — F-152: do all three dispatch failure paths send E505
+    events to the baton? (missing = infinite dispatch loop)
+28. Rate limit auto-resume — F-112: does rate limit hit schedule a timer?
+    Does the timer clear WAITING sheets back to PENDING?
+29. Model override wiring — F-150: does apply_overrides actually change
+    the model the backend uses?
+30. Concert chaining completeness — F-145: does has_completed_sheets detect
+    when baton sheets complete new work?
+31. Rate limit wait cap — F-160: does the system cap astronomical wait
+    durations instead of honoring adversarial 114-year timers?
 
 Every test in this file answers: "Is the system smarter WITH this than WITHOUT?"
 """
@@ -2468,4 +2486,703 @@ class TestCredentialRedactionDefenseInDepth:
 
         assert found_classify_redaction, (
             "redact_credentials must be applied to _classify_error output (F-136)"
+        )
+
+
+# =============================================================================
+# 25. SEMANTIC CONTEXT TAGS — F-009/F-144 FIX EFFECTIVENESS
+# =============================================================================
+
+
+class TestSemanticContextTagEffectiveness:
+    """Does the F-009/F-144 fix actually produce tags that MATCH stored patterns?
+
+    The root cause: query tags (sheet:N, job:X) lived in a different namespace
+    from storage tags (validation:TYPE, retry:effective). 91% of 28K+ patterns
+    were never applied. The fix generates semantic tags that match the stored
+    namespace.
+
+    The litmus: given a JobConfig with validation rules, do the generated tags
+    overlap with the kinds of tags that patterns are stored with?
+    """
+
+    def test_semantic_tags_match_stored_validation_namespace(self) -> None:
+        """Tags from build_semantic_context_tags contain validation:TYPE
+        entries that match the pattern storage format."""
+        from mozart.core.config.job import JobConfig, PromptConfig, ValidationRule
+        from mozart.execution.runner.patterns import build_semantic_context_tags
+
+        config = JobConfig(
+            name="tag-test",
+            sheet={"size": 1, "total_items": 3},
+            prompt=PromptConfig(template="test"),
+            validations=[
+                ValidationRule(type="file_exists", path="{workspace}/out.py"),
+                ValidationRule(type="command_succeeds", command="echo ok"),
+            ],
+        )
+
+        tags = build_semantic_context_tags(config)
+
+        # Tags must match the format used by pattern storage
+        # (learning/patterns.py:411 — context_tags=[f"validation:{vtype}"])
+        assert "validation:file_exists" in tags, (
+            "Semantic tags must contain validation:file_exists for a config "
+            "with file_exists validation rules"
+        )
+        assert "validation:command_succeeds" in tags
+
+    def test_semantic_tags_include_broad_categories(self) -> None:
+        """Tags include broad categories (success, retry, completion) that
+        match patterns discovered from any execution context."""
+        from mozart.core.config.job import JobConfig, PromptConfig
+        from mozart.execution.runner.patterns import build_semantic_context_tags
+
+        config = JobConfig(
+            name="broad-tag-test",
+            sheet={"size": 1, "total_items": 1},
+            prompt=PromptConfig(template="test"),
+        )
+
+        tags = build_semantic_context_tags(config)
+
+        # These broad tags match patterns.py:514, :445, :483
+        assert "success:first_attempt" in tags, (
+            "Tags must include success:first_attempt — matches patterns that "
+            "worked on first try"
+        )
+        assert "retry:effective" in tags
+        assert "completion:used" in tags
+
+    def test_old_positional_tags_are_gone(self) -> None:
+        """The old positional tags (sheet:N, job:X) that caused F-009 no longer
+        appear in semantic tag output."""
+        from mozart.core.config.job import JobConfig, PromptConfig
+        from mozart.execution.runner.patterns import build_semantic_context_tags
+
+        config = JobConfig(
+            name="positional-tag-test",
+            sheet={"size": 1, "total_items": 5},
+            prompt=PromptConfig(template="test"),
+        )
+
+        tags = build_semantic_context_tags(config)
+
+        # Positional tags caused the 91% non-application rate
+        for tag in tags:
+            assert not tag.startswith("sheet:"), (
+                f"Positional tag '{tag}' must not appear — this is the F-009 root cause"
+            )
+            assert not tag.startswith("job:"), (
+                f"Positional tag '{tag}' must not appear — this is the F-009 root cause"
+            )
+
+    def test_semantic_tags_enable_pattern_query_overlap(self) -> None:
+        """When querying get_patterns() with semantic tags, the tag filtering
+        has a non-empty intersection with realistic stored tags.
+
+        The A/B comparison: positional tags would have ZERO overlap with stored
+        tags. Semantic tags should have >0 overlap.
+        """
+        from mozart.core.config.job import JobConfig, PromptConfig, ValidationRule
+        from mozart.execution.runner.patterns import build_semantic_context_tags
+
+        config = JobConfig(
+            name="overlap-test",
+            sheet={"size": 1, "total_items": 3},
+            prompt=PromptConfig(template="test"),
+            validations=[
+                ValidationRule(type="file_exists", path="{workspace}/x.py"),
+            ],
+        )
+
+        query_tags = build_semantic_context_tags(config)
+
+        # Simulate stored pattern tags (the actual format used by patterns.py)
+        stored_tags = [
+            "validation:file_exists",
+            "validation:command_succeeds",
+            "success:first_attempt",
+            "retry:effective",
+            "error_code:E001",
+        ]
+
+        overlap = set(query_tags) & set(stored_tags)
+        assert len(overlap) >= 2, (
+            f"Semantic tags must overlap with stored pattern tags. "
+            f"Query: {query_tags}, Stored: {stored_tags}, Overlap: {overlap}. "
+            f"The old positional tags had ZERO overlap — this must be > 0."
+        )
+
+
+# =============================================================================
+# 26. PROMPT RENDERER WIRING — F-158 FIX EFFECTIVENESS
+# =============================================================================
+
+
+class TestPromptRendererWiring:
+    """Does the baton actually CREATE a PromptRenderer when prompt_config is provided?
+
+    F-158: Without PromptRenderer, baton musicians get raw templates instead of
+    the full 9-layer prompt assembly. This verifies the wiring — that register_job
+    creates a renderer, and that the renderer produces prompts RICHER than what
+    the raw template alone would give.
+    """
+
+    def test_register_job_with_prompt_config_creates_renderer(self) -> None:
+        """Passing prompt_config to register_job creates a PromptRenderer."""
+        from mozart.core.config.job import PromptConfig
+        from mozart.core.sheet import Sheet
+        from mozart.daemon.baton.adapter import BatonAdapter
+
+        adapter = BatonAdapter(max_concurrent_sheets=10)
+
+        sheet = Sheet(
+            num=1,
+            movement=1,
+            voice=None,
+            voice_count=1,
+            workspace=Path("/tmp/test"),
+            prompt_template="Do the work",
+            instrument_name="claude-cli",
+        )
+        prompt_config = PromptConfig(template="Do the work", variables={})
+
+        adapter.register_job(
+            "test-job",
+            [sheet],
+            {},
+            prompt_config=prompt_config,
+            parallel_enabled=False,
+        )
+
+        # The renderer should exist for this job
+        assert "test-job" in adapter._job_renderers, (
+            "register_job with prompt_config must create a PromptRenderer. "
+            "Without this, F-158 means baton musicians get raw templates."
+        )
+
+    def test_register_job_without_prompt_config_has_no_renderer(self) -> None:
+        """Without prompt_config, no PromptRenderer is created (pre-F-158 behavior)."""
+        from mozart.core.sheet import Sheet
+        from mozart.daemon.baton.adapter import BatonAdapter
+
+        adapter = BatonAdapter(max_concurrent_sheets=10)
+
+        sheet = Sheet(
+            num=1,
+            movement=1,
+            voice=None,
+            voice_count=1,
+            workspace=Path("/tmp/test"),
+            prompt_template="Do the work",
+            instrument_name="claude-cli",
+        )
+
+        adapter.register_job("test-job", [sheet], {})
+
+        # No renderer — raw templates only
+        assert "test-job" not in adapter._job_renderers, (
+            "Without prompt_config, no renderer should be created"
+        )
+
+    def test_prompt_renderer_produces_richer_output_than_raw_template(self) -> None:
+        """The PromptRenderer's output must be substantially richer than
+        the raw template string alone.
+
+        This is the core litmus for F-158: does the prompt assembly pipeline
+        make agent prompts MORE EFFECTIVE?
+        """
+        from mozart.core.config.job import PromptConfig, ValidationRule
+        from mozart.core.config.spec import SpecFragment
+        from mozart.core.sheet import Sheet
+        from mozart.daemon.baton.prompt import PromptRenderer
+        from mozart.daemon.baton.state import AttemptContext, AttemptMode
+
+        raw_template = "Build the authentication module"
+
+        renderer = PromptRenderer(
+            prompt_config=PromptConfig(template=raw_template, variables={}),
+            total_sheets=5,
+            total_stages=2,
+            parallel_enabled=True,
+        )
+
+        sheet = Sheet(
+            num=1,
+            movement=1,
+            voice=None,
+            voice_count=1,
+            workspace=Path("/tmp/ws"),
+            prompt_template=raw_template,
+            instrument_name="claude-cli",
+            validations=[
+                ValidationRule(type="file_exists", path="{workspace}/auth.py"),
+            ],
+        )
+
+        context = AttemptContext(
+            attempt_number=1,
+            mode=AttemptMode.NORMAL,
+        )
+
+        result = renderer.render(
+            sheet,
+            context,
+            patterns=["Always hash passwords with bcrypt"],
+            spec_fragments=[
+                SpecFragment(
+                    name="conventions",
+                    tags=["code"],
+                    kind="text",
+                    content="All I/O is async. Use asyncio.",
+                ),
+            ],
+        )
+
+        # Rendered prompt must be >2x the raw template
+        assert len(result.prompt) > len(raw_template) * 2, (
+            f"Rendered prompt ({len(result.prompt)} chars) must be >2x "
+            f"raw template ({len(raw_template)} chars). "
+            f"F-158 means the full pipeline runs, not just the raw template."
+        )
+        # Must contain actionable content from all layers
+        assert "bcrypt" in result.prompt, "Learned patterns must appear"
+        assert "asyncio" in result.prompt, "Spec fragments must appear"
+        assert "file_exists" in result.prompt or "auth.py" in result.prompt, (
+            "Validation requirements must appear"
+        )
+        # Preamble must exist and have positional identity
+        assert result.preamble, "Preamble must be non-empty"
+        assert "sheet 1" in result.preamble.lower() or "1 of 5" in result.preamble.lower(), (
+            "Preamble must contain positional identity"
+        )
+
+
+# =============================================================================
+# 27. DISPATCH GUARD — F-152 FIX EFFECTIVENESS
+# =============================================================================
+
+
+class TestDispatchGuardEffectiveness:
+    """Does the F-152 dispatch guard actually prevent infinite loops?
+
+    Before the fix: unsupported instrument kind causes backend.acquire()
+    to raise NotImplementedError. The sheet stays in READY, gets re-dispatched
+    every cycle, looping infinitely. Most dangerous operational bug.
+
+    The litmus: when _dispatch_callback encounters any failure, does it send
+    a failure event to the baton instead of leaving the sheet stranded?
+    """
+
+    def test_dispatch_failure_sends_e505_to_baton(self) -> None:
+        """The _send_dispatch_failure method posts a SheetAttemptResult
+        with E505 error classification to the baton inbox."""
+        from mozart.daemon.baton.adapter import BatonAdapter
+        from mozart.daemon.baton.events import SheetAttemptResult
+
+        adapter = BatonAdapter(max_concurrent_sheets=10)
+
+        adapter._send_dispatch_failure(
+            "job-1", 1, "unsupported-instrument",
+            "NotImplementedError: instrument kind 'http' not supported",
+        )
+
+        # Must post a failure event to the baton's inbox
+        inbox = adapter._baton.inbox
+        assert not inbox.empty(), (
+            "Dispatch failure must send event to baton inbox"
+        )
+        event = inbox.get_nowait()
+        assert isinstance(event, SheetAttemptResult), (
+            f"Event must be SheetAttemptResult, got {type(event)}"
+        )
+        assert event.error_classification == "E505", (
+            f"Error classification must be E505, got {event.error_classification}"
+        )
+        assert event.execution_success is False
+
+    def test_all_three_dispatch_failure_paths_are_guarded(self) -> None:
+        """Every early-return path in _dispatch_callback sends a failure event.
+
+        There are 3 early-return paths:
+        1. sheet not found
+        2. no backend pool
+        3. backend acquire exception
+
+        All three must call _send_dispatch_failure. Without this, ANY of them
+        would cause infinite dispatch loops.
+        """
+        source = Path("src/mozart/daemon/baton/adapter.py").read_text()
+
+        # Find _dispatch_callback
+        start = source.find("async def _dispatch_callback(")
+        assert start > 0, "_dispatch_callback must exist"
+
+        # Find the next method (def or class at the same indent level)
+        remaining = source[start:]
+        lines = remaining.split("\n")
+        end_idx = len(lines)
+        for i, line in enumerate(lines[1:], 1):
+            # Look for the next method at the same indent level
+            if (line.strip().startswith("async def ") or
+                line.strip().startswith("def ")) and not line.startswith(" " * 12):
+                end_idx = i
+                break
+
+        method_body = "\n".join(lines[:end_idx])
+
+        # Count _send_dispatch_failure calls
+        failure_calls = method_body.count("_send_dispatch_failure")
+        assert failure_calls >= 3, (
+            f"_dispatch_callback must call _send_dispatch_failure at least 3 times "
+            f"(one per early-return path). Found {failure_calls} calls. "
+            f"Missing calls = infinite dispatch loop potential."
+        )
+
+
+# =============================================================================
+# 28. RATE LIMIT AUTO-RESUME — F-112 FIX EFFECTIVENESS
+# =============================================================================
+
+
+class TestRateLimitAutoResumeEffectiveness:
+    """Does the rate limit auto-resume actually schedule a timer that clears?
+
+    Before F-112: WAITING sheets stayed blocked forever unless manually cleared
+    via `mozart clear-rate-limits`. The timer event, handler, and wheel all
+    existed — only the trigger was missing.
+
+    The litmus: when a rate limit hit is processed, does the baton schedule
+    a timer that will eventually clear it? And when the timer fires, do
+    WAITING sheets move back to PENDING?
+    """
+
+    def test_rate_limit_hit_schedules_expiry_timer(self) -> None:
+        """_handle_rate_limit_hit schedules a RateLimitExpired event."""
+        from unittest.mock import MagicMock
+
+        from mozart.daemon.baton.core import BatonCore
+        from mozart.daemon.baton.events import RateLimitHit
+
+        baton = BatonCore.__new__(BatonCore)
+        baton._instruments = {
+            "claude-cli": MagicMock(rate_limited=False, rate_limit_expires_at=None),
+        }
+        baton._jobs = {}
+        baton._state_dirty = False
+        baton._timer = MagicMock(spec=["schedule"])
+
+        event = RateLimitHit(
+            instrument="claude-cli",
+            wait_seconds=120.0,
+            job_id="job-1",
+            sheet_num=1,
+        )
+
+        baton._handle_rate_limit_hit(event)
+
+        # Timer must be scheduled
+        baton._timer.schedule.assert_called_once()
+        call_args = baton._timer.schedule.call_args
+        assert call_args[0][0] == 120.0, (
+            f"Timer delay must match wait_seconds. Got {call_args[0][0]}"
+        )
+        expiry_event = call_args[0][1]
+        assert expiry_event.instrument == "claude-cli"
+
+    def test_rate_limit_expired_moves_waiting_to_pending(self) -> None:
+        """When RateLimitExpired fires, WAITING sheets on that instrument
+        move back to PENDING — enabling dispatch to resume."""
+        from unittest.mock import MagicMock
+
+        from mozart.daemon.baton.core import BatonCore
+        from mozart.daemon.baton.events import RateLimitExpired
+        from mozart.daemon.baton.state import BatonSheetStatus
+
+        baton = BatonCore.__new__(BatonCore)
+        baton._instruments = {
+            "claude-cli": MagicMock(rate_limited=True, rate_limit_expires_at=100.0),
+            "gemini-cli": MagicMock(rate_limited=False, rate_limit_expires_at=None),
+        }
+
+        # Two sheets: one waiting on claude-cli, one waiting on gemini-cli
+        claude_sheet = MagicMock(
+            status=BatonSheetStatus.WAITING,
+            instrument_name="claude-cli",
+        )
+        gemini_sheet = MagicMock(
+            status=BatonSheetStatus.WAITING,
+            instrument_name="gemini-cli",
+        )
+        job = MagicMock(sheets={1: claude_sheet, 2: gemini_sheet})
+        baton._jobs = {"job-1": job}
+        baton._state_dirty = False
+
+        baton._handle_rate_limit_expired(RateLimitExpired(instrument="claude-cli"))
+
+        # Claude sheet should move to PENDING
+        assert claude_sheet.status == BatonSheetStatus.PENDING, (
+            "WAITING sheet on cleared instrument must return to PENDING"
+        )
+        # Gemini sheet should stay WAITING (different instrument)
+        assert gemini_sheet.status == BatonSheetStatus.WAITING, (
+            "WAITING sheet on unrelated instrument must NOT change"
+        )
+
+    def test_without_timer_no_auto_resume(self) -> None:
+        """If timer is None (no timer wheel), rate limit hit still works
+        but does NOT schedule auto-resume — manual clear is required.
+
+        This tests the graceful degradation path.
+        """
+        from unittest.mock import MagicMock
+
+        from mozart.daemon.baton.core import BatonCore
+        from mozart.daemon.baton.events import RateLimitHit
+
+        baton = BatonCore.__new__(BatonCore)
+        baton._instruments = {
+            "claude-cli": MagicMock(rate_limited=False, rate_limit_expires_at=None),
+        }
+        baton._jobs = {}
+        baton._state_dirty = False
+        baton._timer = None  # No timer wheel
+
+        event = RateLimitHit(
+            instrument="claude-cli",
+            wait_seconds=60.0,
+            job_id="job-1",
+            sheet_num=1,
+        )
+
+        # Should not raise — graceful degradation
+        baton._handle_rate_limit_hit(event)
+
+        # Instrument should still be marked rate limited
+        assert baton._instruments["claude-cli"].rate_limited is True
+
+
+# =============================================================================
+# 29. MODEL OVERRIDE WIRING — F-150 FIX EFFECTIVENESS
+# =============================================================================
+
+
+class TestModelOverrideEffectiveness:
+    """Does the model override actually reach the backend?
+
+    F-150: instrument_config.model was silently ignored at dispatch time.
+    Scores saying "use opus for this sheet" would silently run with the
+    default model. The fix wires apply_overrides/clear_overrides through
+    the PluginCliBackend + BackendPool.
+
+    The litmus: apply_overrides with {model: X} actually changes what
+    model the backend uses, and clear_overrides restores the original.
+    """
+
+    def test_apply_overrides_changes_model(self) -> None:
+        """PluginCliBackend.apply_overrides replaces the active model."""
+        from unittest.mock import MagicMock
+
+        from mozart.execution.instruments.cli_backend import PluginCliBackend
+
+        profile = MagicMock()
+        profile.display_name = "test-instrument"
+        profile.default_model = "default-model"
+        profile.cli = MagicMock()
+        profile.cli.command = MagicMock()
+        profile.cli.command.base_command = "test-cmd"
+
+        backend = PluginCliBackend.__new__(PluginCliBackend)
+        backend._profile = profile
+        backend._model = "default-model"
+        backend._saved_model = None
+        backend._has_overrides = False
+
+        backend.apply_overrides({"model": "opus-4"})
+
+        assert backend._model == "opus-4", (
+            f"Model must be overridden to opus-4, got {backend._model}. "
+            f"F-150: model override was silently ignored before this fix."
+        )
+        assert backend._has_overrides is True
+        assert backend._saved_model == "default-model"
+
+    def test_clear_overrides_restores_original_model(self) -> None:
+        """After clear_overrides, the original model is restored."""
+        from unittest.mock import MagicMock
+
+        from mozart.execution.instruments.cli_backend import PluginCliBackend
+
+        profile = MagicMock()
+        profile.display_name = "test"
+        profile.default_model = "default-model"
+
+        backend = PluginCliBackend.__new__(PluginCliBackend)
+        backend._profile = profile
+        backend._model = "default-model"
+        backend._saved_model = None
+        backend._has_overrides = False
+
+        backend.apply_overrides({"model": "opus-4"})
+        assert backend._model == "opus-4"
+
+        backend.clear_overrides()
+        assert backend._model == "default-model", (
+            "Model must be restored after clear_overrides"
+        )
+        assert backend._has_overrides is False
+
+    def test_empty_overrides_are_noop(self) -> None:
+        """Passing empty overrides doesn't corrupt model state."""
+        from unittest.mock import MagicMock
+
+        from mozart.execution.instruments.cli_backend import PluginCliBackend
+
+        backend = PluginCliBackend.__new__(PluginCliBackend)
+        backend._profile = MagicMock()
+        backend._model = "default-model"
+        backend._saved_model = None
+        backend._has_overrides = False
+
+        backend.apply_overrides({})
+
+        assert backend._model == "default-model"
+        assert backend._has_overrides is False
+
+
+# =============================================================================
+# 30. CONCERT CHAINING COMPLETENESS — F-145 FIX EFFECTIVENESS
+# =============================================================================
+
+
+class TestConcertChainingEffectiveness:
+    """Does the baton path correctly detect completed_new_work for concerts?
+
+    F-145: The baton path was missing the completed_new_work flag used by
+    concert chaining to prevent zero-work loops. Without it, concert scores
+    under use_baton would chain forever even when no sheet completed new work.
+
+    The litmus: has_completed_sheets returns True when sheets complete,
+    False when they all fail, and the manager wires this into
+    meta.completed_new_work.
+    """
+
+    def test_has_completed_sheets_with_completions(self) -> None:
+        """Returns True when at least one sheet reached COMPLETED."""
+        from unittest.mock import MagicMock
+
+        from mozart.daemon.baton.adapter import BatonAdapter
+        from mozart.daemon.baton.state import BatonSheetStatus
+
+        adapter = BatonAdapter(max_concurrent_sheets=10)
+
+        # Simulate registered job state by injecting into the baton's _jobs
+        completed_sheet = MagicMock(status=BatonSheetStatus.COMPLETED)
+        failed_sheet = MagicMock(status=BatonSheetStatus.FAILED)
+        job_state = MagicMock(sheets={1: completed_sheet, 2: failed_sheet})
+        adapter._baton._jobs = {"job-1": job_state}
+
+        assert adapter.has_completed_sheets("job-1") is True, (
+            "has_completed_sheets must return True when ANY sheet completed"
+        )
+
+    def test_has_completed_sheets_all_failed(self) -> None:
+        """Returns False when all sheets failed — no new work was done."""
+        from unittest.mock import MagicMock
+
+        from mozart.daemon.baton.adapter import BatonAdapter
+        from mozart.daemon.baton.state import BatonSheetStatus
+
+        adapter = BatonAdapter(max_concurrent_sheets=10)
+
+        failed1 = MagicMock(status=BatonSheetStatus.FAILED)
+        failed2 = MagicMock(status=BatonSheetStatus.FAILED)
+        job_state = MagicMock(sheets={1: failed1, 2: failed2})
+        adapter._baton._jobs = {"job-1": job_state}
+
+        assert adapter.has_completed_sheets("job-1") is False, (
+            "has_completed_sheets must return False when no sheets completed. "
+            "Concert chaining must not loop on zero-work."
+        )
+
+    def test_manager_wires_completed_new_work_from_baton(self) -> None:
+        """The manager code path sets meta.completed_new_work from
+        adapter.has_completed_sheets().
+
+        Structural verification: the manager.py code path references both
+        has_completed_sheets and completed_new_work in the baton path.
+        """
+        source = Path("src/mozart/daemon/manager.py").read_text()
+
+        # The baton execution path must wire completed_new_work
+        assert "has_completed_sheets" in source, (
+            "manager.py must call has_completed_sheets (F-145)"
+        )
+        assert "completed_new_work" in source, (
+            "manager.py must set completed_new_work flag (F-145)"
+        )
+
+        # Both must appear within the baton code path (near _run_via_baton)
+        baton_section = source[source.find("_run_via_baton"):]
+        assert "has_completed_sheets" in baton_section, (
+            "has_completed_sheets must be in the baton code path, not just "
+            "anywhere in manager.py"
+        )
+
+
+# =============================================================================
+# 31. RATE LIMIT WAIT CAP — F-160 FIX EFFECTIVENESS
+# =============================================================================
+
+
+class TestRateLimitWaitCapEffectiveness:
+    """Does the rate limit wait cap prevent adversarial timer durations?
+
+    F-160: parse_reset_time() had no ceiling. An adversarial API response
+    saying "resets in 999999 hours" would create a 114-YEAR timer blocking
+    the instrument forever. The fix adds a 24-hour maximum.
+
+    The litmus: does the system cap astronomical wait times instead of
+    honoring them blindly?
+    """
+
+    def test_wait_cap_exists_in_constants(self) -> None:
+        """RESET_TIME_MAXIMUM_WAIT_SECONDS is defined and reasonable."""
+        from mozart.core.constants import RESET_TIME_MAXIMUM_WAIT_SECONDS
+
+        assert RESET_TIME_MAXIMUM_WAIT_SECONDS <= 86400.0, (
+            f"Wait cap must be ≤24h (86400s), got {RESET_TIME_MAXIMUM_WAIT_SECONDS}. "
+            f"Anything longer is indistinguishable from 'broken'."
+        )
+        assert RESET_TIME_MAXIMUM_WAIT_SECONDS > 0, (
+            "Wait cap must be positive"
+        )
+
+    def test_clamp_wait_reduces_astronomical_values(self) -> None:
+        """_clamp_wait (or equivalent) reduces values above the cap."""
+        from mozart.core.errors.classifier import ErrorClassifier
+
+        classifier = ErrorClassifier.__new__(ErrorClassifier)
+
+        # Simulate astronomical wait
+        clamped = classifier._clamp_wait(999999.0)
+        from mozart.core.constants import RESET_TIME_MAXIMUM_WAIT_SECONDS
+
+        assert clamped <= RESET_TIME_MAXIMUM_WAIT_SECONDS, (
+            f"999999s must be clamped to ≤{RESET_TIME_MAXIMUM_WAIT_SECONDS}s, "
+            f"got {clamped}. F-160: adversarial 114-year timers must be prevented."
+        )
+
+    def test_reasonable_waits_are_not_clamped(self) -> None:
+        """Normal wait times (within min-max range) pass through unclamped."""
+        from mozart.core.errors.classifier import ErrorClassifier
+
+        classifier = ErrorClassifier.__new__(ErrorClassifier)
+
+        # Use a value within the [MINIMUM, MAXIMUM] range
+        # MINIMUM is 300s, so 600s should pass through untouched
+        result = classifier._clamp_wait(600.0)
+        assert result == 600.0, (
+            f"Reasonable wait (600s, within range) should not be modified, got {result}"
         )
