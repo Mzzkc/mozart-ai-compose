@@ -278,6 +278,9 @@ def _schema_error_hints(error_msg: str) -> list[str]:
     """
     msg_lower = error_msg.lower()
 
+    if "extra_forbidden" in msg_lower:
+        return _unknown_field_hints(error_msg)
+
     if "promptconfig" in msg_lower and "prompt" in msg_lower:
         return [
             "The 'prompt' field must be a mapping, not a string.",
@@ -300,6 +303,54 @@ def _schema_error_hints(error_msg: str) -> list[str]:
         "Ensure your score has at minimum: name, sheet, and prompt sections.",
         "See: docs/score-writing-guide.md",
     ]
+
+
+# Known field names at the top level that users might confuse
+_KNOWN_TYPOS: dict[str, str] = {
+    "retries": "retry",
+    "paralel": "parallel",
+    "parralel": "parallel",
+    "parrallel": "parallel",
+    "backend_type": "instrument (or backend.type)",
+    "max_retries": "retry.max_retries",
+    "timeout": "stale_detection.idle_timeout_seconds",
+    "preamble": "prompt.template (preamble is set automatically by Mozart)",
+    "task": "prompt.template",
+    "stager_delay_ms": "parallel.stagger_delay_ms",
+    "stagger_delay": "parallel.stagger_delay_ms",
+}
+
+
+def _unknown_field_hints(error_msg: str) -> list[str]:
+    """Extract unknown field names from extra_forbidden errors and provide
+    targeted guidance."""
+    import re
+
+    # Extract field names from Pydantic error format:
+    # "field_name\n  Extra inputs are not permitted"
+    unknown_fields = re.findall(
+        r"^(\w[\w.]*)\n\s+Extra inputs are not permitted",
+        error_msg,
+        re.MULTILINE,
+    )
+
+    if not unknown_fields:
+        return [
+            "Your score contains field(s) that Mozart doesn't recognize.",
+            "Check for typos in field names.",
+            "See: docs/score-writing-guide.md for valid fields.",
+        ]
+
+    hints: list[str] = []
+    for field in unknown_fields:
+        suggestion = _KNOWN_TYPOS.get(field)
+        if suggestion:
+            hints.append(f"Unknown field '{field}' — did you mean '{suggestion}'?")
+        else:
+            hints.append(f"Unknown field '{field}' — this is not a valid score field.")
+
+    hints.append("See: docs/score-writing-guide.md for the complete field reference.")
+    return hints
 
 
 # =============================================================================

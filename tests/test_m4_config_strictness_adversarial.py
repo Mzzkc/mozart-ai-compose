@@ -75,31 +75,31 @@ class TestJobConfigRejectsUnknownFields:
 
     def test_unknown_top_level_field_rejected(self) -> None:
         """A field that doesn't exist in JobConfig must raise ValidationError."""
-        with pytest.raises(ValidationError, match="extra_inputs"):
+        with pytest.raises(ValidationError, match="extra_forbidden"):
             JobConfig(
                 name="test",
                 sheet=SheetConfig(size=1, total_items=1),
-                prompt=PromptConfig(preamble="test", task="test"),
+                prompt=PromptConfig(template="test prompt"),
                 bogus_field_that_doesnt_exist=True,
             )
 
     def test_instrument_fallbacks_rejected_until_implemented(self) -> None:
         """instrument_fallbacks is not yet a field — must not silently pass."""
-        with pytest.raises(ValidationError, match="extra_inputs"):
+        with pytest.raises(ValidationError, match="extra_forbidden"):
             JobConfig(
                 name="test",
                 sheet=SheetConfig(size=1, total_items=1),
-                prompt=PromptConfig(preamble="test", task="test"),
+                prompt=PromptConfig(template="test prompt"),
                 instrument_fallbacks=["gemini-cli"],
             )
 
     def test_typo_in_field_name_rejected(self) -> None:
         """Common typo: 'retries' instead of 'retry'. Must not pass."""
-        with pytest.raises(ValidationError, match="extra_inputs"):
+        with pytest.raises(ValidationError, match="extra_forbidden"):
             JobConfig(
                 name="test",
                 sheet=SheetConfig(size=1, total_items=1),
-                prompt=PromptConfig(preamble="test", task="test"),
+                prompt=PromptConfig(template="test prompt"),
                 retries=RetryConfig(),  # Wrong name
             )
 
@@ -109,7 +109,7 @@ class TestJobConfigRejectsUnknownFields:
             JobConfig(
                 name="test",
                 sheet=SheetConfig(size=1, total_items=1),
-                prompt=PromptConfig(preamble="test", task="test"),
+                prompt=PromptConfig(template="test prompt"),
                 bogus_a=1,
                 bogus_b=2,
             )
@@ -123,12 +123,12 @@ class TestSheetConfigRejectsUnknownFields:
     sheet-level features are silently ignored."""
 
     def test_unknown_sheet_field_rejected(self) -> None:
-        with pytest.raises(ValidationError, match="extra_inputs"):
+        with pytest.raises(ValidationError, match="extra_forbidden"):
             SheetConfig(size=5, total_items=5, unknown_sheet_option=True)
 
     def test_timeout_typo_rejected(self) -> None:
         """'timeout' is not a SheetConfig field (it's stale_detection.idle_timeout_seconds)."""
-        with pytest.raises(ValidationError, match="extra_inputs"):
+        with pytest.raises(ValidationError, match="extra_forbidden"):
             SheetConfig(size=5, total_items=5, timeout=300)
 
 
@@ -162,7 +162,7 @@ class TestNestedConfigModelsRejectUnknownFields:
     def test_execution_models_reject_unknown(
         self, model_cls: type, kwargs: dict
     ) -> None:
-        with pytest.raises(ValidationError, match="extra_inputs"):
+        with pytest.raises(ValidationError, match="extra_forbidden"):
             model_cls(**kwargs)
 
     @pytest.mark.parametrize(
@@ -185,7 +185,7 @@ class TestNestedConfigModelsRejectUnknownFields:
     def test_learning_models_reject_unknown(
         self, model_cls: type, kwargs: dict
     ) -> None:
-        with pytest.raises(ValidationError, match="extra_inputs"):
+        with pytest.raises(ValidationError, match="extra_forbidden"):
             model_cls(**kwargs)
 
     @pytest.mark.parametrize(
@@ -210,7 +210,7 @@ class TestNestedConfigModelsRejectUnknownFields:
     def test_backend_models_reject_unknown(
         self, model_cls: type, kwargs: dict
     ) -> None:
-        with pytest.raises(ValidationError, match="extra_inputs"):
+        with pytest.raises(ValidationError, match="extra_forbidden"):
             model_cls(**kwargs)
 
     @pytest.mark.parametrize(
@@ -230,7 +230,7 @@ class TestNestedConfigModelsRejectUnknownFields:
     def test_orchestration_models_reject_unknown(
         self, model_cls: type, kwargs: dict
     ) -> None:
-        with pytest.raises(ValidationError, match="extra_inputs"):
+        with pytest.raises(ValidationError, match="extra_forbidden"):
             model_cls(**kwargs)
 
     @pytest.mark.parametrize(
@@ -247,31 +247,31 @@ class TestNestedConfigModelsRejectUnknownFields:
     def test_workspace_models_reject_unknown(
         self, model_cls: type, kwargs: dict
     ) -> None:
-        with pytest.raises(ValidationError, match="extra_inputs"):
+        with pytest.raises(ValidationError, match="extra_forbidden"):
             model_cls(**kwargs)
 
     def test_spec_fragment_rejects_unknown(self) -> None:
-        with pytest.raises(ValidationError, match="extra_inputs"):
+        with pytest.raises(ValidationError, match="extra_forbidden"):
             SpecFragment(name="test", content="test content", bogus=1)
 
     def test_spec_corpus_config_rejects_unknown(self) -> None:
-        with pytest.raises(ValidationError, match="extra_inputs"):
+        with pytest.raises(ValidationError, match="extra_forbidden"):
             SpecCorpusConfig(bogus=1)
 
     def test_prompt_config_rejects_unknown(self) -> None:
-        with pytest.raises(ValidationError, match="extra_inputs"):
-            PromptConfig(preamble="test", task="test", bogus=1)
+        with pytest.raises(ValidationError, match="extra_forbidden"):
+            PromptConfig(template="test prompt", bogus=1)
 
     def test_injection_item_rejects_unknown(self) -> None:
-        with pytest.raises(ValidationError, match="extra_inputs"):
-            InjectionItem(content="test", bogus=1)
+        with pytest.raises(ValidationError, match="extra_forbidden"):
+            InjectionItem(file="test.md", as_="context", bogus=1)
 
     def test_instrument_def_rejects_unknown(self) -> None:
-        with pytest.raises(ValidationError, match="extra_inputs"):
+        with pytest.raises(ValidationError, match="extra_forbidden"):
             InstrumentDef(profile="claude-cli", bogus=1)
 
     def test_movement_def_rejects_unknown(self) -> None:
-        with pytest.raises(ValidationError, match="extra_inputs"):
+        with pytest.raises(ValidationError, match="extra_forbidden"):
             MovementDef(bogus=1)
 
 
@@ -289,13 +289,12 @@ sheet:
   size: 5
   total_items: 5
 prompt:
-  preamble: Test
-  task: Do something
+  template: "Do something"
 retries:
   max_attempts: 5
 """
         data = _yaml.safe_load(score_yaml)
-        with pytest.raises(ValidationError, match="extra_inputs"):
+        with pytest.raises(ValidationError, match="extra_forbidden"):
             JobConfig(**data)
 
     def test_yaml_nested_typo_fails(self) -> None:
@@ -309,13 +308,12 @@ sheet:
   size: 5
   total_items: 5
 prompt:
-  preamble: Test
-  task: Do something
+  template: "Do something"
 retry:
   max_attemps: 5
 """
         data = _yaml.safe_load(score_yaml)
-        with pytest.raises(ValidationError, match="extra_inputs"):
+        with pytest.raises(ValidationError, match="extra_forbidden"):
             JobConfig(**data)
 
 
