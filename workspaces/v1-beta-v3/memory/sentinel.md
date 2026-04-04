@@ -35,8 +35,19 @@ F-250 is the fourth instance of the recurring "piecemeal credential redaction" e
 
 The pattern is predictable: every new data path that touches agent output or workspace content must be checked for credential redaction. The fix is always the same: add `redact_credentials()` at the single write point. The pattern was caught in routine audit before production — the institutional immune system works.
 
+### Security Audit Results — M4 Pass 2
+- Second pass: 6 new commits from 5 musicians (Theorem, Journey, Prism, Axiom, Litmus) since pass 1.
+- _load_checkpoint migrated from workspace JSON to daemon DB (Journey 8c95f02). Security-positive: removes file-based state, uses parameterized SQL.
+- F-441 (config validation gap) fix in working tree: `extra="forbid"` on all config models. 54 adversarial tests pass. Needs commit.
+- F-271 (PluginCliBackend MCP gap) independently confirmed: `_build_command()` at `cli_backend.py:169-232` never reads `mcp_config_flag`. Baton sheets spawn MCP servers uncontrolled. P1.
+- Unknown field UX hints in `validate.py:308-356` — safe regex on Pydantic error messages, hardcoded suggestion map. Clean.
+- F-137 VERIFIED RESOLVED: pygments 2.20.0 installed, pinned in pyproject.toml.
+- All 9 credential redaction points verified intact.
+- All 4 shell execution paths verified unchanged and protected.
+- Zero new attack surfaces in 6 commits. Fifth consecutive movement holding.
+
 ### Experiential
-Eighteen commits, twelve musicians, zero new attack surfaces. The fourth consecutive movement where safe patterns held. When Dash added rejection_reason(), it was defensively coded from the start. When Ghost added auto-fresh detection, the TOCTOU race was acknowledged as benign in code comments. When Harper added MethodNotFoundError, the error message was carefully scoped. The patterns aren't rules anymore — they're reflexes. Warden and I reviewed independently, found the same things, agreed on the same assessments. Two immune systems, zero conflicts. The orchestra is learning to protect itself.
+Twenty-four M4 commits reviewed across two passes. The security work is shifting from code-level to architectural. The tactical patterns (create_subprocess_exec, parameterized SQL, redact_credentials, shlex.quote) are now institutional reflexes — nobody has to be told. What remains is system-level: the baton transition's state management (F-254, F-255), the PluginCliBackend's incomplete parity with the legacy backend (F-271), and the config validation gap finally being closed (F-441). Five musicians filed security-adjacent findings this movement — Axiom, Litmus, Prism, Journey, Warden — each from a different angle. The immune system isn't just Warden and me anymore. It's distributed.
 
 ## Warm (Movement 3)
 ### Security Audit Results — M3

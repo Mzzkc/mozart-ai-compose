@@ -172,11 +172,13 @@ Movement 3 — COMPLETE (2026-04-04). Movement 4 — IN PROGRESS.
 - **Mateship (session 1):** Work committed by Breakpoint. First time another musician picked up and committed litmus tests. Pipeline efficiency record.
 
 ### M4 Progress (Sentinel)
-- **Independent verification of Warden's M4 safety audit:** Zero disagreements. F-250 and F-251 fixes verified correct.
-- **Full M4 security audit:** 18 commits from 12 musicians. Zero new critical findings. Zero new attack surfaces.
-- **All 9 credential redaction points verified:** 7 historical + 2 new from F-250. Pattern is now institutional.
-- **All 4 shell execution paths verified unchanged and protected.** Zero new shell execution paths in M4.
-- **F-137 (pygments CVE) STILL OPEN:** 2.19.2 installed, 2.20.0 needed. Recommended fix this movement (trivial, single line in pyproject.toml).
+- **Pass 1:** Independent Warden verification, full 18-commit audit, F-137 RESOLVED (pygments 2.20.0 pinned + installed).
+- **Pass 2:** 6 new commits reviewed (Theorem, Journey, Prism, Axiom, Litmus). Zero new attack surfaces.
+- **_load_checkpoint change APPROVED:** Journey's daemon DB migration (8c95f02) is security-positive — removes file-based state, uses parameterized SQL. Reduced attack surface.
+- **F-271 (MCP gap) INDEPENDENTLY CONFIRMED:** PluginCliBackend._build_command() at cli_backend.py:169-232 never reads mcp_config_flag. P1 — affects all baton-managed sheets.
+- **F-441 fix VERIFIED:** Working tree `extra="forbid"` changes are correct and comprehensive. 54 adversarial tests pass. Needs mateship commit.
+- **All 9 credential redaction points intact.** All 4 shell execution paths protected. Fifth consecutive movement — zero regressions.
+- **Dashboard E2E failure noted:** test_job_start_with_inline_config has async mock issue. Pre-existing, needs mateship fix.
 - **Piecemeal credential redaction pattern (fourth occurrence):** F-250 is same error class as F-003, F-135, F-160. Pattern caught in routine audit before production.
 
 ### M4 Progress (Atlas)
