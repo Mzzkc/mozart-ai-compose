@@ -116,8 +116,8 @@ class PromptRenderer:
         Returns:
             RenderedPrompt with fully rendered prompt and preamble.
         """
-        # Layer 1: Build SheetContext from Sheet entity
-        context = self._build_context(sheet)
+        # Layer 1: Build SheetContext from Sheet entity (F-210: includes cross-sheet)
+        context = self._build_context(sheet, attempt_context)
 
         # Layer 2-3: Resolve prelude/cadenza injections into the context
         self._resolve_injections(context, sheet)
@@ -143,18 +143,29 @@ class PromptRenderer:
 
         return RenderedPrompt(prompt=prompt, preamble=preamble)
 
-    def _build_context(self, sheet: Sheet) -> SheetContext:
+    def _build_context(
+        self,
+        sheet: Sheet,
+        attempt_context: AttemptContext | None = None,
+    ) -> SheetContext:
         """Build SheetContext from a Sheet entity.
 
         Populates fan-out metadata (movement/voice) from the Sheet's
         own fields rather than querying config.sheet.get_fan_out_metadata().
         The Sheet already has these values resolved by build_sheets().
 
+        F-210: When attempt_context is provided, populates cross-sheet
+        context (previous_outputs and previous_files) from the context.
+        This bridges the baton's AttemptContext to the template's
+        SheetContext, enabling {{ previous_outputs }} and {{ previous_files }}
+        in templates.
+
         Args:
             sheet: The Sheet entity.
+            attempt_context: Optional attempt context with cross-sheet data.
 
         Returns:
-            SheetContext with identity, workspace, and fan-out metadata.
+            SheetContext with identity, workspace, fan-out, and cross-sheet metadata.
         """
         # Item range defaults: for non-batch scores, start == end == sheet_num
         start_item = sheet.num
@@ -175,6 +186,11 @@ class PromptRenderer:
         context.total_stages = (
             self._total_stages if self._total_stages > 0 else self._total_sheets
         )
+
+        # F-210: Cross-sheet context from AttemptContext
+        if attempt_context is not None:
+            context.previous_outputs = dict(attempt_context.previous_outputs)
+            context.previous_files = dict(attempt_context.previous_files)
 
         return context
 

@@ -1814,6 +1814,7 @@ class JobManager:
             self_healing_enabled=request.self_healing,
             prompt_config=config.prompt,
             parallel_enabled=config.parallel.enabled,
+            cross_sheet=config.cross_sheet,  # F-210
         )
 
         # F-151: Populate instrument_name on live SheetStates for observability.
@@ -1958,6 +1959,7 @@ class JobManager:
             max_retries=max_retries,
             prompt_config=config.prompt,
             parallel_enabled=config.parallel.enabled,
+            cross_sheet=config.cross_sheet,  # F-210
         )
 
         try:

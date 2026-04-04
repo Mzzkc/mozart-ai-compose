@@ -160,7 +160,11 @@ class AttemptContext:
 
     previous_outputs: dict[int, str] = field(default_factory=dict)
     """Stdout outputs from completed sheets. Keys are sheet numbers (1-indexed).
-    Populated by the adapter from CheckpointState for cross-sheet context."""
+    Populated by the adapter from completed sheet attempt results."""
+
+    previous_files: dict[str, str] = field(default_factory=dict)
+    """File contents captured via capture_files patterns. Keys are file paths.
+    Populated by the adapter from workspace files matching CrossSheetConfig patterns."""
 
 
 # =============================================================================

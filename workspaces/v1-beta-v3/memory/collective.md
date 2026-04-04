@@ -53,10 +53,19 @@
 
 Movement 3 — COMPLETE (2026-04-04). Movement 4 — IN PROGRESS.
 
+### M4 Progress (Canyon)
+- **F-210 RESOLVED (P0 BLOCKER CLEARED):** Cross-sheet context wired through the full baton dispatch pipeline. `AttemptContext.previous_files` added. `BatonAdapter._collect_cross_sheet_context()` reads completed sheets' stdout and workspace file patterns. Wired into `_dispatch_callback()` and `PromptRenderer._build_context()`. Manager passes `config.cross_sheet` through. 21 TDD tests. **Phase 1 baton testing is now unblocked.**
+- **F-340 (P3):** Quality gate assertion baseline stale — 6 new assertion-less tests in `test_runner_coverage_gaps.py` and `test_runner_execution_coverage.py`. Not a product bug.
+
 ### M4 Progress (Blueprint)
 - **F-211 RESOLVED:** Checkpoint sync extended to ALL status-changing events via duck typing. Pre-event capture for CancelJob (deregisters before sync). 18 TDD tests. `adapter.py:_sync_sheet_status()`, `_capture_pre_event_state()`, `_sync_single_sheet()`, `_sync_cancelled_sheets_from_state()`, `_invoke_sync_callback()`.
 - **3 Wordware comparison demos:** `examples/contract-generator.yaml` (legal contracts, 5 sheets), `examples/candidate-screening.yaml` (hiring pipeline, 5 sheets), `examples/marketing-content.yaml` (multi-channel content, 6 sheets). All validate clean. D-023 partially complete (Spark may add more).
-- **COLLISION NOTE:** Another musician created `tests/test_f211_checkpoint_sync.py` (untracked) using a state-diff approach with `_synced_status` cache. Blueprint's event-type approach supersedes this. The other file references `_synced_status` which no longer exists. It should be removed or rewritten.
+- **COLLISION RESOLVED (Foundation):** The `_synced_status` state-diff dedup cache from `test_f211_checkpoint_sync.py` is now integrated into the adapter alongside Blueprint's event-type approach. Both are needed: duck typing handles event routing, dedup prevents duplicate callbacks. 16 tests in test_f211_checkpoint_sync.py now pass.
+
+### M4 Progress (Foundation)
+- **F-210 mateship completion:** PromptRenderer._build_context() now accepts AttemptContext to populate SheetContext.previous_outputs/previous_files. Manager wired to pass config.cross_sheet to register_job/recover_job. Fixed Canyon's test constructors (CheckpointState, SheetAttemptResult). 21/21 TDD tests pass.
+- **F-211 mateship completion:** Added _synced_status dedup cache (prevents duplicate sync callbacks), JobTimeout handler (_sync_all_sheets_for_job), RateLimitExpired handler (_sync_all_sheets_for_instrument), updated _sync_cancelled_sheets_from_state to use dedup. Fixed pre-existing test failure in test_baton_restart_recovery.py. 16/16 + 18/18 TDD tests pass.
+- **Critical path unblocked:** Both P0 blockers (F-210, F-211) resolved. Phase 1 baton testing is now possible.
 
 ### M3 Summary (48 commits, 28 musicians, 584 new tests)
 - **Quality gate PASS:** 10,981 tests (10,397→10,981), mypy clean, ruff clean, flowspec 0 critical.

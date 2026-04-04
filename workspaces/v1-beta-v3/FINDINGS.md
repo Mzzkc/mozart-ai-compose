@@ -1806,18 +1806,25 @@ Each finding should include:
 ### F-210: Baton Path Missing Cross-Sheet Context (previous_outputs/previous_files)
 - **Found by:** Weaver, Movement 3
 - **Severity:** P1 (high — blocks baton activation for any score with sequential dependencies)
-- **Status:** Open
+- **Status:** Resolved (movement 4, Canyon + Foundation)
 - **Category:** architecture
 - **Description:** The legacy runner populates `SheetContext.previous_outputs` and `SheetContext.previous_files` via `_populate_cross_sheet_context()` in `src/mozart/execution/runner/context.py:171-221`. This gives each sheet access to previous sheets' stdout output and captured files. The baton's PromptRenderer (`src/mozart/daemon/baton/prompt.py`) and musician `_build_prompt()` (`src/mozart/daemon/baton/musician.py:208-288`) have zero awareness of cross-sheet context. The `SheetExecutionState` at `src/mozart/daemon/baton/state.py:161-163` declares `previous_outputs: dict[int, str]` but it is never populated by the adapter or any dispatch code.
 - **Impact:** 24 of 34 example scores use `cross_sheet: auto_capture_stdout: true`. Any score where sheet N references `{{ previous_outputs }}` or depends on seeing what sheet N-1 produced will render templates with empty cross-sheet context under the baton. This produces functionally different (worse) prompts compared to the legacy runner. **This is the most significant functional gap between baton and legacy paths.**
-- **Action:** Before baton Phase 1 testing, wire cross-sheet context population into the adapter's dispatch path. After each sheet completes, capture its stdout_tail and make it available to subsequent sheets' template rendering. The baton should either: (1) populate `SheetExecutionState.previous_outputs` from CheckpointState after each sheet completion, or (2) pass cross-sheet context to PromptRenderer at render time.
+- **Resolution:** Wired cross-sheet context through the full baton dispatch pipeline:
+  1. Added `previous_files` field to `AttemptContext` (state.py) — captures workspace file patterns
+  2. Added `cross_sheet` parameter to `BatonAdapter.register_job()` and `recover_job()` — stores `CrossSheetConfig` per job
+  3. Added `BatonAdapter._collect_cross_sheet_context()` — reads completed sheets' stdout from baton state, reads workspace files from `capture_files` patterns. Respects `lookback_sheets`, `max_output_chars`, truncation rules. Matches legacy runner behavior.
+  4. Wired into `_dispatch_callback()` — populates `AttemptContext.previous_outputs` and `previous_files` before spawning musician
+  5. Updated `PromptRenderer._build_context()` to copy cross-sheet data from `AttemptContext` to `SheetContext`
+  6. Wired `config.cross_sheet` from manager to adapter in both `_run_via_baton` and `_resume_via_baton`
+  21 TDD tests in `tests/test_f210_cross_sheet_baton.py`. mypy clean, ruff clean.
 - **Error class:** Feature gap — baton path was built to replace the runner but does not replicate its cross-sheet context pipeline. Not a bug in existing code — a missing integration surface.
 
 ### F-211: Baton Checkpoint Sync Missing for 4 Event Types
 - **Found by:** Weaver, Movement 3
 - **Severity:** P2 (medium — escalation and cancel scenarios, not core execution path)
-- **Status:** Resolved (movement 4, Blueprint)
-- **Resolution:** Extended `_sync_sheet_status()` with duck typing for all single-sheet events, pre-event capture for CancelJob (job deregistered before sync), and direct state scan for non-graceful ShutdownRequested. 18 TDD tests in `test_f211_checkpoint_sync_gaps.py`.
+- **Status:** Resolved (movement 4, Canyon + Foundation)
+- **Resolution:** Canyon M4: duck-typed _sync_sheet_status for all single-sheet events, pre-event capture for CancelJob, direct state scan for ShutdownRequested. 16+18 TDD tests. Foundation M4: state-diff dedup cache (_synced_status dict), explicit JobTimeout handler (_sync_all_sheets_for_job), RateLimitExpired handler (_sync_all_sheets_for_instrument), fixed _sync_cancelled_sheets_from_state to use dedup, fixed pre-existing test failure in test_baton_restart_recovery.py. Total: 6 event types covered (was 2).
 - **Category:** architecture
 - **Description:** `_sync_sheet_status()` in `src/mozart/daemon/baton/adapter.py:1109-1148` only syncs checkpoint for `SheetAttemptResult` and `SheetSkipped` events. Axiom identified (F-440 notes) and Weaver confirmed: EscalationResolved (core.py:1081-1090, 4 terminal paths), EscalationTimeout (core.py:1104-1132, FAILED + propagation), CancelJob (core.py:1159-1170, all sheets → CANCELLED), and ShutdownRequested (core.py:1172-1184, all → CANCELLED) are NOT synced. On restart after any of these events, checkpoint shows stale state and sheets are resurrected.
 - **Impact:** Escalation decisions lost on restart (sheet re-escalates). Cancel commands reversed on restart (sheets resume). Shutdown cancellations reversed (work re-executed). F-440's register_job re-propagation covers the failure cascade gap but not these 4 event types.
@@ -1941,3 +1948,13 @@ Each finding should include:
 **Description:** F-460 (M3) fixed command descriptions from "job" to "score" but did not rename the Typer argument parameter from `job_id` to `score_id`. The Typer argument name controls the usage line display. Result: every command shows `Usage: mozart <cmd> [OPTIONS] JOB_ID` in the first line, then says "Score ID to..." in the help text below it. The inconsistency is in the same help output. Affected commands: `resume`, `pause`, `cancel`, `status`, `errors`, `diagnose`, `history`, `recover`, `modify` (9 commands). Internal variables (`_JOB_ID_PATTERN`, `_JOB_ID_MAX_LENGTH`, `validate_job_id`) at `_shared.py:421-450` also use the old terminology.
 **Impact:** A newcomer who reads the usage line sees "JOB_ID" and thinks "jobs." Then the help text says "Score ID." The music metaphor — which is load-bearing per composer directive — leaks in the most visible place. Note: this is an E-002 escalation trigger (changing CLI command interface) per the constraint spec.
 **Action:** Rename `job_id` parameter to `score_id` across all 9 command files, plus `validate_job_id()` → `validate_score_id()`, `_JOB_ID_PATTERN` → `_SCORE_ID_PATTERN`, etc. in `_shared.py`. Requires composer approval per E-002.
+
+### F-340: Quality Gate Assertion Baseline Stale (+6 Assertion-Less Tests)
+- **Found by:** Canyon, Movement 4
+- **Severity:** P3 (low — meta-test, not product bug)
+- **Status:** Open
+- **Category:** pattern
+- **Description:** `test_quality_gate.py::test_all_tests_have_assertions` fails because `ASSERTION_LESS_TEST_BASELINE` is 116 but 122 test functions lack assertions. The 6 new offenders are in `test_runner_coverage_gaps.py` (3) and `test_runner_execution_coverage.py` (2) — all appear to be recently added tests that call functions without asserting on the result.
+- **Impact:** The quality gate meta-test blocks the full `pytest tests/ -x` pass. No product impact.
+- **Action:** Either (a) bump the baseline to 122 (quick fix), or (b) add assertions to the 6 offending tests (correct fix). Option (b) is preferred — the tests should verify something.
+- **Error class:** Baseline drift — quality gate baseline not updated when new tests were added.
