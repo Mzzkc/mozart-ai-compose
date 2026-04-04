@@ -133,7 +133,7 @@ class TestManagerResumeNoReload:
         mgr._live_states = {}
         # Use real resume_job method
         mgr.resume_job = JobManager.resume_job.__get__(mgr, JobManager)
-        mgr._on_task_done = MagicMock()
+        mgr._on_task_done = MagicMock(spec=lambda job_id, task: None)
         return mgr
 
     @pytest.mark.asyncio
@@ -358,3 +358,36 @@ class TestCostLimitResetOnReload:
             "cost_limits should not be in changed sections when unchanged"
         assert state.cost_limit_reached is True, \
             "cost_limit_reached should remain True when cost_limits unchanged"
+
+
+# ---------------------------------------------------------------------------
+# 5. Baton resume path: no_reload forwarded (#98 baton fix)
+# ---------------------------------------------------------------------------
+
+
+class TestBatonResumeNoReload:
+    """_resume_via_baton must accept and respect no_reload parameter."""
+
+    def test_resume_via_baton_accepts_no_reload(self) -> None:
+        """_resume_via_baton must have no_reload parameter."""
+        import inspect
+
+        from mozart.daemon.manager import JobManager
+
+        sig = inspect.signature(JobManager._resume_via_baton)
+        assert "no_reload" in sig.parameters, (
+            "_resume_via_baton must accept no_reload (fix for #98)"
+        )
+
+    def test_resume_job_task_forwards_no_reload_to_baton(self) -> None:
+        """_resume_job_task routes no_reload to _resume_via_baton."""
+        import ast
+
+        source_file = Path(__file__).parent.parent / "src" / "mozart" / "daemon" / "manager.py"
+        source = source_file.read_text()
+
+        # The call to _resume_via_baton inside _resume_job_task must include
+        # no_reload as a keyword argument
+        assert "no_reload=no_reload" in source, (
+            "_resume_job_task must forward no_reload to _resume_via_baton"
+        )

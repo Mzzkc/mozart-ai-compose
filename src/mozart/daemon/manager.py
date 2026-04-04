@@ -1855,6 +1855,7 @@ class JobManager:
         self,
         job_id: str,
         workspace: Path,
+        no_reload: bool = False,
     ) -> DaemonJobStatus:
         """Resume a job through the baton adapter using checkpoint recovery.
 
@@ -1865,6 +1866,8 @@ class JobManager:
         Args:
             job_id: Conductor job ID.
             workspace: Job workspace directory.
+            no_reload: When True, use config from checkpoint snapshot
+                instead of reloading from disk (fix for #98).
 
         Returns:
             DaemonJobStatus reflecting the job's outcome.
@@ -1889,18 +1892,34 @@ class JobManager:
             )
             return DaemonJobStatus.FAILED
 
-        # Load config
-        try:
-            config = JobConfig.from_yaml(meta.config_path)
-            if workspace != config.workspace:
-                config = config.model_copy(update={"workspace": workspace})
-        except (ValueError, OSError) as exc:
-            _logger.error(
-                "baton.resume.config_load_failed",
-                job_id=job_id,
-                error=str(exc),
-            )
-            return DaemonJobStatus.FAILED
+        # Load config — respect no_reload flag (#98)
+        config: JobConfig | None = None
+        if no_reload and checkpoint.config_snapshot:
+            try:
+                config = JobConfig.model_validate(checkpoint.config_snapshot)
+                if workspace != config.workspace:
+                    config = config.model_copy(update={"workspace": workspace})
+            except (ValueError, TypeError) as exc:
+                _logger.warning(
+                    "baton.resume.snapshot_invalid",
+                    job_id=job_id,
+                    error=str(exc),
+                    msg="Falling back to disk reload",
+                )
+                config = None
+
+        if config is None:
+            try:
+                config = JobConfig.from_yaml(meta.config_path)
+                if workspace != config.workspace:
+                    config = config.model_copy(update={"workspace": workspace})
+            except (ValueError, OSError) as exc:
+                _logger.error(
+                    "baton.resume.config_load_failed",
+                    job_id=job_id,
+                    error=str(exc),
+                )
+                return DaemonJobStatus.FAILED
 
         # Build sheets and dependencies
         sheets = build_sheets(config)
@@ -2005,7 +2024,9 @@ class JobManager:
         async def _execute() -> DaemonJobStatus:
             # Step 29: Route through baton when enabled
             if self._baton_adapter is not None:
-                return await self._resume_via_baton(job_id, workspace)
+                return await self._resume_via_baton(
+                    job_id, workspace, no_reload=no_reload,
+                )
 
             meta = self._job_meta.get(job_id)
             summary = await self._checked_service.resume_job(

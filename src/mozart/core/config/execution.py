@@ -386,6 +386,15 @@ class ParallelConfig(BaseModel):
         "NOTE: Not yet implemented — this field is accepted but not enforced. "
         "Cost checks currently use global total regardless of this setting.",
     )
+    stagger_delay_ms: int = Field(
+        default=0,
+        ge=0,
+        le=5000,
+        description="Delay in milliseconds between launching parallel sheets. "
+        "Reduces rate limit surge when many sheets hit the same API. "
+        "0 means no stagger (all sheets launch simultaneously). "
+        "Recommended: 100-200ms for rate-limit-sensitive instruments.",
+    )
 
     @model_validator(mode="after")
     def _reject_unimplemented_overrides(self) -> ParallelConfig:

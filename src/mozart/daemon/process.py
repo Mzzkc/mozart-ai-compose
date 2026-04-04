@@ -119,13 +119,49 @@ def start_conductor(
     asyncio.run(daemon.run())
 
 
+def _check_running_jobs(
+    socket_path: Path | None = None,
+) -> dict[str, Any] | None:
+    """Probe the conductor via IPC for running job count.
+
+    Returns a dict with ``running_jobs`` and ``job_ids``, or None
+    if the IPC call fails (conductor unresponsive).
+    """
+    from mozart.daemon.detect import _resolve_socket_path
+    from mozart.daemon.ipc.client import DaemonClient
+
+    resolved = _resolve_socket_path(socket_path)
+
+    async def _probe() -> dict[str, Any] | None:
+        try:
+            client = DaemonClient(resolved, timeout=5.0)
+            ready = await client.readiness()
+            running = ready.get("running_jobs", 0)
+            return {
+                "running_jobs": running,
+                "job_ids": ready.get("job_ids", []),
+            }
+        except Exception:
+            return None
+
+    try:
+        return asyncio.run(_probe())
+    except Exception:
+        return None
+
+
 def stop_conductor(
     pid_file: Path | None = None,
     force: bool = False,
+    socket_path: Path | None = None,
 ) -> None:
     """Stop the running Mozart conductor (daemon) process.
 
     Called by ``mozart stop`` via ``cli/commands/conductor.py``.
+
+    When jobs are actively running and ``--force`` is not set, warns
+    the user and asks for confirmation before proceeding (#94).
+    Force mode (``--force``) skips the safety check entirely.
     """
     resolved_pid_file = pid_file or DaemonConfig().pid_file
     pid = _read_pid(resolved_pid_file)
@@ -133,6 +169,20 @@ def stop_conductor(
         typer.echo("Mozart conductor is not running")
         resolved_pid_file.unlink(missing_ok=True)
         raise typer.Exit(1)
+
+    # Safety guard: check for running jobs unless --force (#94)
+    if not force:
+        running_info = _check_running_jobs(socket_path)
+        if running_info is not None and running_info["running_jobs"] > 0:
+            count = running_info["running_jobs"]
+            typer.echo(
+                f"⚠ Warning: {count} job(s) currently running. "
+                "Stopping the conductor will orphan active agents and "
+                "may corrupt job state.",
+            )
+            if not typer.confirm("Proceed with stop?", default=False):
+                typer.echo("Aborted.")
+                raise typer.Exit(1)
 
     sig = signal.SIGKILL if force else signal.SIGTERM
     os.kill(pid, sig)

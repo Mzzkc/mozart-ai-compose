@@ -125,6 +125,7 @@ class ParallelExecutionConfig:
     max_concurrent: int = 3
     fail_fast: bool = True
     budget_per_sheet: float | None = None
+    stagger_delay_ms: int = 0
 
 
 class _LockingStateBackend:
@@ -291,11 +292,14 @@ class ParallelExecutor:
         lock = self.runner._state_lock
         self.runner.state_backend = _LockingStateBackend(original_backend, lock)  # type: ignore[assignment]
 
+        stagger_seconds = self.config.stagger_delay_ms / 1000.0
         tasks: dict[int, asyncio.Task[None]] = {}
         try:
             # Use TaskGroup for structured concurrency (Python 3.11+)
             async with asyncio.TaskGroup() as tg:
-                for sheet_num in batch:
+                for i, sheet_num in enumerate(batch):
+                    if i > 0 and stagger_seconds > 0:
+                        await asyncio.sleep(stagger_seconds)
                     task = tg.create_task(
                         self._execute_single_sheet(sheet_num, state),
                         name=f"sheet-{sheet_num}",

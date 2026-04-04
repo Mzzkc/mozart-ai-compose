@@ -333,12 +333,14 @@ class JobRunnerBase:
                 enabled=True,
                 max_concurrent=config.parallel.max_concurrent,
                 fail_fast=config.parallel.fail_fast,
+                stagger_delay_ms=config.parallel.stagger_delay_ms,
             )
             self._parallel_executor = ParallelExecutor(self, parallel_config)  # type: ignore[arg-type]
             self._logger.info(
                 "parallel.initialized",
                 max_concurrent=config.parallel.max_concurrent,
                 fail_fast=config.parallel.fail_fast,
+                stagger_delay_ms=config.parallel.stagger_delay_ms,
             )
 
         # Spec corpus loading (Phase 1: Spec Corpus Pipeline)
