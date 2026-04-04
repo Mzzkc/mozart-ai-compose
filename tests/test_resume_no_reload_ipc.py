@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -46,11 +46,6 @@ class TestCliResumeNoReloadParam:
                 "mozart.daemon.detect.try_daemon_route",
                 side_effect=fake_daemon_route,
             ),
-            patch(
-                "mozart.cli.commands.resume.await_early_failure",
-                new_callable=AsyncMock,
-                return_value={"status": "running"},
-            ),
             patch("mozart.cli.commands.resume.configure_global_logging"),
         ):
             from mozart.cli.commands.resume import _resume_job
@@ -85,11 +80,6 @@ class TestCliResumeNoReloadParam:
             patch(
                 "mozart.daemon.detect.try_daemon_route",
                 side_effect=fake_daemon_route,
-            ),
-            patch(
-                "mozart.cli.commands.resume.await_early_failure",
-                new_callable=AsyncMock,
-                return_value={"status": "running"},
             ),
             patch("mozart.cli.commands.resume.configure_global_logging"),
         ):

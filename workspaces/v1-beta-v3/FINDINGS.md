@@ -1795,13 +1795,14 @@ Each finding should include:
 ### F-450: IPC "Method Not Found" Misreported as "Conductor Not Running"
 - **Found by:** Ember, Movement 3
 - **Severity:** P2 (medium — misleading error for every new IPC method added to a stale conductor)
-- **Status:** Open
+- **Status:** Resolved (movement 4, Harper)
 - **Category:** bug
 - **Description:** `try_daemon_route()` at `src/mozart/daemon/detect.py:170-174` catches `DaemonError` (which includes "Method not found: daemon.clear_rate_limits") and returns `(False, None)` — the same signal as "daemon not reachable." The function already tracks `daemon_confirmed_running` at line 110 and uses it to differentiate TimeoutError (lines 113-122). But the DaemonError handler at line 170 ignores this flag, treating "method not found on a running daemon" identically to "daemon not reachable."
 - **Reproducer:** Start conductor from M2 code. Upgrade CLI to M3 code (with clear-rate-limits). Run `mozart clear-rate-limits`. Get: "Error: Mozart conductor is not running" while `mozart conductor-status` confirms it IS running.
 - **Impact:** Trust-destroying inconsistency. User is told to start the conductor when it is already running. Broader: any CLI command added after a long-running conductor (or after a CLI upgrade without daemon restart) will give the same misleading error. Users upgrading Mozart without restarting their conductor will hit this for every new IPC method.
 - **Action:** In the DaemonError catch at detect.py:170-174, check `daemon_confirmed_running`. If True, raise a descriptive DaemonError ("Conductor is running but does not support method X — restart the conductor to load new features") instead of returning `(False, None)`.
 - **Error class:** Signal collapse — two distinct error states (not reachable vs. unsupported method) mapped to the same return value. Same pattern as the TimeoutError handler, which was already fixed.
+- **Resolution:** Added `MethodNotFoundError(DaemonError)` to exception hierarchy. Mapped METHOD_NOT_FOUND (-32601) in `_CODE_EXCEPTION_MAP`. `try_daemon_route()` now re-raises MethodNotFoundError with user-friendly message including restart guidance. `run.py` catches DaemonError to prevent raw propagation. 15 TDD tests in `test_f450_method_not_found.py`. Updated 2 existing tests (`test_daemon_cli_detection.py`, `test_daemon_ipc_client.py`).
 
 ### F-210: Baton Path Missing Cross-Sheet Context (previous_outputs/previous_files)
 - **Found by:** Weaver, Movement 3
@@ -1862,7 +1863,7 @@ Each finding should include:
 ### F-462: F-450 Confirmed — clear-rate-limits Reports Conductor Not Running When It Is
 - **Found by:** Newcomer, Movement 3 (confirming Ember M3 F-450)
 - **Severity:** P2 (medium — new IPC methods fail misleadingly on stale conductors)
-- **Status:** Open (F-450 already filed by Ember)
+- **Status:** Resolved (movement 4, Harper — see F-450)
 - **Category:** bug
 - **Description:** Ran `mozart clear-rate-limits` while conductor is confirmed running (PID 1277279, `conductor-status` shows RUNNING, `status` shows active scores). Got: "Error: Mozart conductor is not running." Root cause at `detect.py:170-174`: `try_daemon_route()` conflates "IPC method not found" with "conductor not reachable." The production conductor predates the `clear-rate-limits` IPC method — it runs older code. Any new IPC method added by M3 musicians will hit this pattern on stale conductors.
 - **Action:** Already tracked as F-450. Cross-referencing for independent confirmation.
@@ -1982,11 +1983,11 @@ Each finding should include:
 ### F-181: Uncommitted F-450 Fix in Working Tree
 - **Found by:** Circuit, Movement 4
 - **Severity:** P2 (medium — mateship pickup needed)
-- **Status:** Open
+- **Status:** Resolved (movement 4, Harper — committed with additional CLI hardening)
 - **Category:** pattern
 - **Description:** F-450 fix (IPC `MethodNotFoundError` differentiation) is fully implemented but uncommitted. Changes across `detect.py`, `exceptions.py`, `ipc/errors.py`, plus `tests/test_f450_method_not_found.py` (14 tests). Tests pass individually. The pre-existing test `test_returns_false_on_unknown_method` was renamed to `test_raises_on_unknown_method` in the working tree.
 - **Impact:** The fix works in the working tree but will be lost if anyone runs `git checkout .`.
-- **Action:** Another musician should commit this with attribution to the original author.
+- **Resolution:** Harper picked up and committed with additional improvements: wrapped MethodNotFoundError message with restart guidance, added DaemonError catch in run.py, fixed _MockMixin for pause-during-retry compatibility, total 15 TDD tests.
 
 ### F-182: Uncommitted Resume Improvements (#93, #103, #122) in Working Tree
 - **Found by:** Circuit, Movement 4
@@ -1996,3 +1997,12 @@ Each finding should include:
 - **Description:** Three resume improvements are implemented but uncommitted: (1) `_should_auto_fresh()` in `manager.py` auto-detects changed score files for #103, (2) resume output clarity in `resume.py` showing previous status/error for #122, (3) `await_early_failure` removal from resume path for #122. Also includes `run.py` changes (auto-fresh info display). Plus `test_pause_during_retry.py`, `test_resume_output_clarity.py`, `test_stale_completed_detection.py` (new test files).
 - **Impact:** Resume UX improvements lost if working tree reset.
 - **Action:** Another musician should review and commit with proper attribution.
+
+### F-190: CLI Commands Without DaemonError Catch May Show Raw Tracebacks on MethodNotFoundError
+- **Found by:** Harper, Movement 4
+- **Severity:** P3 (low — requires CLI/conductor version mismatch)
+- **Status:** Partially resolved (run.py hardened, others pending)
+- **Category:** risk
+- **Description:** Of ~15 CLI commands that call `try_daemon_route()`, only `cancel`, `pause`, `rate_limits`, and now `run` catch `DaemonError`. Others (`status`, `diagnose`, `recover`) catch only `JobSubmissionError`. If a stale conductor returns METHOD_NOT_FOUND for one of these commands, the user would see a raw `MethodNotFoundError` traceback instead of a friendly error message. Note: `status.py` has a generic `except Exception` catch that handles this, so only `diagnose.py` and `recover.py` are truly exposed.
+- **Impact:** Poor UX on version mismatch. Low likelihood in practice — requires running a stale conductor after code changes.
+- **Action:** Add `MethodNotFoundError` or `DaemonError` to remaining command catch patterns in `diagnose.py` and `recover.py`. Low priority.

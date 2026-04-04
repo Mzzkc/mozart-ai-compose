@@ -232,19 +232,12 @@ class TestResumeRoutesThruConductor:
 
     def test_resume_succeeds_via_conductor(self):
         """Resume command works when conductor accepts."""
-        with (
-            patch(
-                "mozart.daemon.detect.try_daemon_route",
-                new_callable=AsyncMock,
-                return_value=(
-                    True,
-                    {"job_id": "test-job", "status": "accepted", "message": "Queued"},
-                ),
-            ),
-            patch(
-                "mozart.cli.commands.resume.await_early_failure",
-                new_callable=AsyncMock,
-                return_value=None,
+        with patch(
+            "mozart.daemon.detect.try_daemon_route",
+            new_callable=AsyncMock,
+            return_value=(
+                True,
+                {"job_id": "test-job", "status": "accepted", "message": "Queued"},
             ),
         ):
             result = runner.invoke(app, ["resume", "test-job"])

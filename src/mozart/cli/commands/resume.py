@@ -37,7 +37,6 @@ from ..helpers import (
     _find_job_state_direct as require_job_state,
 )
 from ..helpers import (
-    await_early_failure,
     configure_global_logging,
     is_quiet,
     require_conductor,
@@ -328,21 +327,13 @@ async def _resume_job(
             status = result.get("status", "unknown")
             message = result.get("message", "")
             if status == "accepted":
-                # Poll briefly to catch early failures
-                job_id_result = result.get("job_id", job_id)
-                early = await await_early_failure(job_id_result)
-                early_status = early.get("status", "") if isinstance(early, dict) else ""
-                if early_status in ("failed", "cancelled"):
-                    err = early.get("error_message", "") if isinstance(early, dict) else ""
-                    msg = f"Score failed after resume: {job_id_result}"
-                    if err:
-                        msg += f" — {err}"
-                    output_error(
-                        msg,
-                        hints=[f"Run 'mozart diagnose {job_id_result}' for details."],
-                    )
-                    raise typer.Exit(1)
-
+                # Note: we intentionally skip await_early_failure() here.
+                # Unlike fresh runs, resumes start from a terminal state
+                # (FAILED/PAUSED/CANCELLED). The early failure poll races
+                # with the conductor's status transition and catches the
+                # *previous* terminal state, misreporting it as a new
+                # failure (#122). The conductor already validated the job
+                # is resumable before accepting.
                 console.print(
                     f"[green]Resume accepted for score '[cyan]{job_id}[/cyan]'.[/green]"
                 )
@@ -428,14 +419,33 @@ async def _resume_job_direct(ctx: ResumeContext) -> None:
             console.print("[green]Score is already fully completed.[/green]")
             return
 
-    # Display resume info
-    console.print(Panel(
-        f"[bold]{config.name}[/bold]\n"
-        f"Status: {found_state.status.value}\n"
-        f"Progress: {found_state.last_completed_sheet}/{found_state.total_sheets} sheets\n"
-        f"Resuming from sheet: {resume_sheet}",
-        title="Resume Score",
-    ))
+    # Display resume info with clear separation between previous state
+    # and the new resume attempt (#122 — clarity on resume with config reload)
+    previous_status = found_state.status.value
+    previous_error = found_state.error_message
+
+    panel_lines = [
+        f"[bold]{config.name}[/bold]",
+        f"Previous status: [yellow]{previous_status}[/yellow]",
+    ]
+    if previous_error:
+        # Truncate long error messages for the panel
+        max_len = 120
+        error_display = (
+            previous_error[:max_len] + "..."
+            if len(previous_error) > max_len
+            else previous_error
+        )
+        panel_lines.append(f"Previous error: [dim]{error_display}[/dim]")
+    panel_lines.extend([
+        f"Progress: {found_state.last_completed_sheet}/{found_state.total_sheets} sheets completed",
+        "",
+        f"[green]Resuming from sheet {resume_sheet}[/green]",
+    ])
+    if config_was_reloaded:
+        panel_lines.append("[cyan]Config reloaded from disk[/cyan]")
+
+    console.print(Panel("\n".join(panel_lines), title="Resume Score"))
 
     # Reset job status to RUNNING for resume
     found_state.status = JobStatus.RUNNING

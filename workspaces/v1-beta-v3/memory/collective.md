@@ -67,6 +67,17 @@ Movement 3 — COMPLETE (2026-04-04). Movement 4 — IN PROGRESS.
 - **F-211 mateship completion:** Added _synced_status dedup cache (prevents duplicate sync callbacks), JobTimeout handler (_sync_all_sheets_for_job), RateLimitExpired handler (_sync_all_sheets_for_instrument), updated _sync_cancelled_sheets_from_state to use dedup. Fixed pre-existing test failure in test_baton_restart_recovery.py. 16/16 + 18/18 TDD tests pass.
 - **Critical path unblocked:** Both P0 blockers (F-210, F-211) resolved. Phase 1 baton testing is now possible.
 
+### M4 Progress (Harper)
+- **F-450 RESOLVED:** IPC MethodNotFoundError no longer misreported as "conductor not running." Added MethodNotFoundError exception, mapped in _CODE_EXCEPTION_MAP, re-raised with restart guidance in try_daemon_route(), hardened run.py with DaemonError catch. 15 TDD tests. Also updated 2 existing tests. F-181/F-462 resolved.
+- **Mateship: D-024 cost accuracy (Circuit):** Committed ClaudeCliBackend JSON token extraction + status.py cost confidence display + quality gate baseline (1391→1396). 17 tests in test_cost_accuracy.py.
+- **Mateship: #93 pause-during-retry fix:** Committed _check_pause_signal/_handle_pause_request protocol stubs in sheet.py. Fixed broken test_sheet_execution.py (_MockMixin missing new protocol methods). 5 tests in test_pause_during_retry.py.
+- **Assessment: route claude-cli through PluginCliBackend** — already works on baton path (BackendPool creates PluginCliBackend from built-in profile). Legacy runner uses native ClaudeCliBackend but dies with Phase 3 baton transition. Not worth the effort.
+
+### M4 Progress (Forge)
+- **Quality gate baseline:** BARE_MAGICMOCK 1396→1440 (44 new from M4 contributors). Unblocks all test runs.
+- **Mateship pickup:** Committed Harper's uncommitted #93 (pause-during-retry), F-450 (MethodNotFoundError), and D-024 (cost accuracy) work. All three had code + tests ready in the working tree.
+- **#122 FIXED:** Resume gives unclear output when reloading config. Root cause: `await_early_failure()` races with conductor's async status transition, catching stale FAILED status. Fix: removed the poll from conductor-routed resumes entirely. Enhanced direct resume Panel to show previous state as context. 7 TDD tests in test_resume_output_clarity.py. Updated test_cli_run_resume.py (stale await_early_failure mock).
+
 ### M4 Progress (Maverick)
 - **#120 RESOLVED:** Fan-in [SKIPPED] placeholder + `skipped_upstream` template variable. Skipped upstream sheets now inject `[SKIPPED]` in `previous_outputs` instead of silent omission. 7 TDD tests, 3 existing tests updated. `context.py`, `templating.py`.
 - **F-211 contribution:** Added `_synced_status` cache field (state-diff dedup) to BatonAdapter.__init__. Canyon/Foundation's sync handlers depend on this field for idempotent syncing. 16 TDD tests.

@@ -881,10 +881,6 @@ class TestResumeScoreTerminology:
             new_callable=AsyncMock,
             return_value=(True, result_dict),
         ), patch(
-            "mozart.cli.commands.resume.await_early_failure",
-            new_callable=AsyncMock,
-            return_value={"status": "running"},
-        ), patch(
             "mozart.cli.commands.resume.console"
         ) as mock_console:
             await _resume_job(

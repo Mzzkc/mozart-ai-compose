@@ -202,7 +202,11 @@ This is the highest priority task. You are running inside a live conductor. You 
 - [x] [Warden] Quality gate baseline fix: BARE_MAGICMOCK 1230→1234 (priority: P2) [source: mateship pickup, F-350] — 4 new bare MagicMock from test_stale_state_feedback.py and test_top_error_ux.py.
 - [x] [Warden] M3 safety audit: model override, clear-rate-limits, auto-resume timer, PID cleanup, stagger validation, semantic tags, credential redaction (priority: P2) [source: movement 3 safety review] — 9 areas audited, 1 gap found (F-160), rest clean. Detailed findings in movement-3/warden.md.
 - [x] [Maverick] Fix #120: Fan-in [SKIPPED] placeholder + skipped_upstream template var. #128 already fixed in 919125e. #119 still open. (priority: P1) [source: roadmap step 49]
-- [ ] Resume improvements (#93, #103, #122) (priority: P1) [source: roadmap step 50]
+- [x] [Harper] Fix F-450: IPC MethodNotFoundError misreported as "conductor not running" (priority: P2) [source: F-450, F-181, F-462] — Added MethodNotFoundError(DaemonError) exception. Mapped METHOD_NOT_FOUND (-32601) in _CODE_EXCEPTION_MAP. try_daemon_route() re-raises with restart guidance. run.py catches DaemonError. Fixed _MockMixin for #93 pause-during-retry. 15 TDD tests in test_f450_method_not_found.py. Updated test_daemon_cli_detection.py + test_daemon_ipc_client.py.
+- [x] [Harper] Mateship: commit D-024 cost accuracy fixes (Circuit) — ClaudeCliBackend JSON token extraction, status cost confidence display, quality gate baseline update (1391→1396). 17 tests in test_cost_accuracy.py.
+- [x] [Harper] Mateship: commit #93 pause-during-retry fix + fix broken test_sheet_execution — _check_pause_signal + _handle_pause_request protocol stubs in sheet.py, _MockMixin updated. 5 tests in test_pause_during_retry.py.
+- [x] [Forge] Mateship: commit Harper's uncommitted #93, F-450, and D-024 work. Quality gate baseline update (1396→1440). Fix #122: skip await_early_failure for conductor-routed resumes + enhanced direct resume panel. Updated test_cli_run_resume.py to remove stale await_early_failure patch. 7 TDD tests in test_resume_output_clarity.py. (priority: P1) [source: mateship, M4]
+- [ ] Resume improvements (#93, #103, #122) (priority: P1) [source: roadmap step 50] — #93 fixed (pause during retry, Harper+Forge mateship). #122 fixed (Forge M4: skip early failure poll for conductor-routed resumes + enhanced direct resume panel with previous state context, 7 TDD tests). #103 still open.
 - [ ] Remaining critical bug fixes (priority: P1) [source: roadmap step 51]
 
 ---
