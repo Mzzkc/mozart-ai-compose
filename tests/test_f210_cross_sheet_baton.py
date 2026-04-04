@@ -347,8 +347,8 @@ class TestCollectCrossSheetContext:
         assert outputs[1].startswith("A" * 20)
         assert "truncated" in outputs[1]
 
-    def test_skipped_sheets_excluded(self) -> None:
-        """Skipped sheets have no stdout_tail → excluded from outputs."""
+    def test_skipped_sheets_get_placeholder(self) -> None:
+        """Skipped sheets inject [SKIPPED] placeholder (#120 parity, F-251)."""
         config = CrossSheetConfig(
             auto_capture_stdout=True, lookback_sheets=0
         )
@@ -364,7 +364,7 @@ class TestCollectCrossSheetContext:
 
         outputs, _ = adapter._collect_cross_sheet_context("job-1", 3)
         assert 1 in outputs
-        assert 2 not in outputs  # skipped, no stdout
+        assert outputs[2] == "[SKIPPED]"  # F-251: explicit placeholder
 
     def test_failed_sheets_excluded(self) -> None:
         """Failed sheets without successful stdout are excluded."""

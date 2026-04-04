@@ -725,7 +725,16 @@ class BatonAdapter:
                     prev_state = job_state.sheets.get(prev_num)
                     if prev_state is None:
                         continue
-                    # Only collect from completed sheets with stdout
+
+                    # F-251: Inject [SKIPPED] placeholder for skipped
+                    # upstream sheets (#120 parity with legacy runner).
+                    # Fan-in prompts see explicit gaps instead of silent
+                    # omissions.
+                    if prev_state.status == BatonSheetStatus.SKIPPED:
+                        previous_outputs[prev_num] = "[SKIPPED]"
+                        continue
+
+                    # Only collect stdout from completed sheets
                     if prev_state.status != BatonSheetStatus.COMPLETED:
                         continue
                     # Get stdout from the last successful attempt
@@ -764,6 +773,17 @@ class BatonAdapter:
                             if path.is_file():
                                 try:
                                     content = path.read_text(encoding="utf-8")
+                                    # F-250: Redact credentials BEFORE
+                                    # truncation. Workspace files may contain
+                                    # API keys written by agents — redact
+                                    # before injecting into prompts.
+                                    from mozart.utils.credential_scanner import (
+                                        redact_credentials,
+                                    )
+
+                                    content = (
+                                        redact_credentials(content) or content
+                                    )
                                     if len(content) > max_chars:
                                         content = (
                                             content[:max_chars]
