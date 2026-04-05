@@ -104,6 +104,13 @@ Movement 5 — IN PROGRESS (2026-04-05).
 - **Adversarial test update:** Converted test_instrument_fallbacks_rejected_until_implemented from "prove field doesn't exist" to "prove field works" — the field now exists.
 - **Meditation written:** meditations/harper.md
 
+### M5 Progress (Ghost)
+- **F-311 RESOLVED:** Fixed deterministic test failure in test_unknown_field_ux_journeys.py. `instrument_fallbacks` was added as a real field by Harper, making the "unknown field rejection" test obsolete. Updated to use `instrument_priorities` (genuinely non-existent).
+- **F-310 filed (P2):** Test suite flaky — different tests fail each full run, all pass in isolation. Cross-test state leakage across 11,400+ tests. Timing-dependent async tests degrade under 500s runtime.
+- **F-472 verified resolved:** D-027 complete (Canyon). `use_baton` defaults to `True`. Test passes.
+- **Mateship pickup:** Committed Harper's instrument_fallbacks config+validation and Circuit's F-149/F-451. Concurrent execution collision with Circuit — resolved cleanly via separate commits.
+- **Meditation written:** meditations/ghost.md
+
 ### M5 Progress (Forge)
 - **F-190 RESOLVED:** DaemonError catch added to diagnose.py (errors/diagnose/history) + recover.py. 4 locations fixed. 7 TDD tests in test_f190_daemon_error_catch.py.
 - **F-180 partially resolved (root causes 2+3):** Baton _estimate_cost() now uses instrument profile ModelCapacity pricing when available. Adapter resolves pricing from BackendPool registry. Falls back to hardcoded rates. 6 TDD tests in test_f180_cost_pricing.py.
