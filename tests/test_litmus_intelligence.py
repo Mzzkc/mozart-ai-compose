@@ -3574,10 +3574,11 @@ class TestBackpressureRejectionIntelligence:
 
         reason = controller.rejection_reason()
 
-        assert reason == "rate_limit", (
-            "F-110: Rate limits with healthy memory MUST return 'rate_limit', "
-            "not 'resource'. This distinction lets the CLI queue jobs as "
-            "PENDING instead of rejecting them outright."
+        assert reason is None, (
+            "F-149: Rate limits with healthy memory MUST return None "
+            "(no rejection). Rate limits are per-instrument and handled "
+            "at the sheet dispatch level. Jobs targeting non-rate-limited "
+            "instruments should not be blocked."
         )
 
     def test_high_memory_returns_resource_reason(self) -> None:

@@ -534,11 +534,16 @@ class TestRateCoordinatorPublicAPI:
             assert controller.current_level() == PressureLevel.HIGH
 
     @pytest.mark.asyncio
-    async def test_public_api_limit_blocks_job_submission(
+    async def test_public_api_limit_does_not_block_job_submission(
         self, controller: BackpressureController,
         coordinator: RateLimitCoordinator,
     ):
-        """Rate limit via public API causes should_accept_job() to return False."""
+        """Rate limit via public API does NOT block job submission (F-149).
+
+        Rate limits are per-instrument — they should not block jobs
+        targeting different instruments. Job-level gating only considers
+        resource pressure (memory, processes).
+        """
         with patch.object(
             ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
         ), patch.object(
@@ -553,8 +558,8 @@ class TestRateCoordinatorPublicAPI:
                 sheet_num=2,
             )
 
-            # HIGH pressure → reject new jobs
-            assert controller.should_accept_job() is False
+            # F-149: rate limits don't block job submission
+            assert controller.should_accept_job() is True
 
 
 # ─── P013: Rate Limit Expiry Transitions ───────────────────────────────
@@ -597,11 +602,16 @@ class TestRateLimitExpiryTransitions:
             assert controller.current_level() == PressureLevel.NONE
 
     @pytest.mark.asyncio
-    async def test_job_accepted_after_limit_expires(
+    async def test_job_accepted_during_and_after_limit(
         self, controller: BackpressureController,
         coordinator: RateLimitCoordinator,
     ):
-        """Job submission resumes after rate limit expires."""
+        """Job submission accepted during AND after rate limit (F-149).
+
+        Rate limits no longer block job submission — only resource
+        pressure does. Jobs are accepted immediately, and per-instrument
+        rate limiting is handled at the sheet dispatch level.
+        """
         with patch.object(
             ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
         ), patch.object(
@@ -614,10 +624,12 @@ class TestRateLimitExpiryTransitions:
                 sheet_num=1,
             )
 
-            assert controller.should_accept_job() is False
+            # F-149: accepted even during rate limit
+            assert controller.should_accept_job() is True
 
             await asyncio.sleep(0.03)
 
+            # Still accepted after limit expires
             assert controller.should_accept_job() is True
 
 
@@ -685,11 +697,16 @@ class TestRateLimitedRejection:
             assert controller.current_level() == expected_level
 
     @pytest.mark.asyncio
-    async def test_rate_limit_rejection_blocks_job_not_sheet(
+    async def test_rate_limit_delays_sheets_but_accepts_jobs(
         self, controller: BackpressureController,
         coordinator: RateLimitCoordinator,
     ):
-        """At HIGH (rate-limited), sheets are allowed but new jobs are rejected."""
+        """At HIGH (rate-limited), sheets are delayed and jobs are accepted (F-149).
+
+        Rate limits affect sheet dispatch (delay via current_level() → HIGH)
+        but do NOT block job submissions. This allows jobs targeting
+        non-rate-limited instruments to proceed immediately.
+        """
         with patch.object(
             ResourceMonitor, "_get_memory_usage_mb", return_value=100.0,
         ), patch.object(
@@ -702,12 +719,12 @@ class TestRateLimitedRejection:
                 sheet_num=1,
             )
 
-            # Sheets allowed (with delay)
+            # Sheets allowed (with delay) — sheet-level dispatch
             allowed, _ = await controller.can_start_sheet()
             assert allowed is True
 
-            # Jobs rejected
-            assert controller.should_accept_job() is False
+            # F-149: Jobs accepted — rate limits don't block submissions
+            assert controller.should_accept_job() is True
 
 
 # ─── P012: Combined Memory + Rate Limit Conditions ──────────────────

@@ -51,10 +51,14 @@ class TestRejectionReason:
         ctrl = self._make_controller()
         assert ctrl.rejection_reason() is None
 
-    def test_rate_limit_only_returns_rate_limit(self) -> None:
-        """Rate limit active + resources healthy -> 'rate_limit'."""
+    def test_rate_limit_only_returns_none(self) -> None:
+        """Rate limit active + resources healthy -> None (F-149).
+
+        Rate limits alone no longer cause rejection. Per-instrument rate
+        limits are handled at the sheet dispatch level.
+        """
         ctrl = self._make_controller(rate_limited=True)
-        assert ctrl.rejection_reason() == "rate_limit"
+        assert ctrl.rejection_reason() is None
 
     def test_high_memory_returns_resource(self) -> None:
         """High memory (>85%) without rate limits -> 'resource'."""
@@ -71,10 +75,13 @@ class TestRejectionReason:
         ctrl = self._make_controller(accepting_work=False, rate_limited=True)
         assert ctrl.rejection_reason() == "resource"
 
-    def test_rate_limit_with_moderate_memory_returns_rate_limit(self) -> None:
-        """Rate limit + moderate memory (< 85%) -> 'rate_limit'."""
+    def test_rate_limit_with_moderate_memory_returns_none(self) -> None:
+        """Rate limit + moderate memory (< 85%) -> None (F-149).
+
+        Rate limits no longer contribute to job rejection.
+        """
         ctrl = self._make_controller(memory_pct=0.60, rate_limited=True)
-        assert ctrl.rejection_reason() == "rate_limit"
+        assert ctrl.rejection_reason() is None
 
     def test_high_memory_with_rate_limit_returns_resource(self) -> None:
         """High memory (>85%) + rate limit -> 'resource' (memory is the danger)."""
@@ -110,49 +117,21 @@ class TestSubmitJobPending:
         }
 
     @pytest.mark.asyncio
-    async def test_rate_limit_returns_pending_not_rejected(
+    async def test_rate_limit_does_not_reject_or_pend(
         self,
         manager_mocks: dict[str, MagicMock | BackpressureController],
         tmp_path: Path,
     ) -> None:
-        """When rate limits are the only pressure, job is accepted as pending."""
-        from mozart.daemon.manager import JobManager
-        from mozart.daemon.types import JobRequest
+        """F-149: Rate limits alone no longer cause PENDING or rejection.
 
-        config_file = tmp_path / "test.yaml"
-        config_file.write_text(
-            "name: test-job\nworkspace: ../workspaces/test\ninstrument: claude-code\n"
-            "sheet:\n  size: 1\nprompt:\n  template: 'hello'\n"
-        )
-
-        with patch.object(JobManager, "__init__", lambda self, *a, **kw: None):
-            mgr = JobManager.__new__(JobManager)
-            mgr._backpressure = manager_mocks["backpressure"]
-            mgr._shutting_down = False
-            mgr._pending_jobs = {}
-            mgr._job_meta = {}
-            mgr._jobs = {}
-            mgr._id_gen_lock = asyncio.Lock()
-            mgr._registry = AsyncMock()
-            mgr._registry.get_job = AsyncMock(return_value=None)
-            mgr._config = MagicMock()
-            mgr._config.max_concurrent_jobs = 5
-            mgr._rate_coordinator = manager_mocks["coordinator"]
-            # _get_job_id needs dedup tracking
-            mgr._config_name_to_conductor_id = {}
-
-            request = JobRequest(
-                config_path=config_file,
-                fresh=False,
-                self_healing=False,
-                self_healing_auto_confirm=False,
-            )
-
-            response = await mgr.submit_job(request)
-            assert response.status == "pending"
-            assert response.message is not None
-            assert "rate limit" in response.message.lower()
-            assert response.job_id != ""
+        When rate limits are the only pressure, should_accept_job()
+        returns True and the job proceeds through normal submission.
+        Per-instrument rate limiting is handled at the sheet dispatch level.
+        """
+        backpressure = manager_mocks["backpressure"]
+        # Verify backpressure accepts the job despite active rate limits
+        assert backpressure.should_accept_job() is True  # type: ignore[union-attr]
+        assert backpressure.rejection_reason() is None  # type: ignore[union-attr]
 
     @pytest.mark.asyncio
     async def test_resource_pressure_still_rejects(self, tmp_path: Path) -> None:

@@ -593,16 +593,13 @@ class JobManager:
             )
 
         if not self._backpressure.should_accept_job():
-            # Distinguish rate-limit-only pressure from resource pressure.
-            # Rate limits: queue as PENDING (job starts when limits clear).
-            # Resource pressure: reject outright (system can't handle more).
-            reason = self._backpressure.rejection_reason()
-            if reason == "rate_limit":
-                return await self._queue_pending_job(request)
+            # F-149: should_accept_job() only rejects for resource pressure
+            # (memory/processes). Rate limits are per-instrument and handled
+            # at the sheet dispatch level — they don't block job submission.
             return JobResponse(
                 job_id="",
                 status="rejected",
-                message="System under high pressure — try again later",
+                message="System under high resource pressure — try again later",
             )
 
         job_id = self._get_job_id(request.config_path.stem)

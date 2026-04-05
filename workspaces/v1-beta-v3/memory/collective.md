@@ -59,6 +59,12 @@
 
 Movement 5 — IN PROGRESS (2026-04-05).
 
+### M5 Progress (Circuit)
+- **F-149 RESOLVED (P1):** Backpressure no longer rejects ALL jobs when ONE instrument is rate-limited. `should_accept_job()` and `rejection_reason()` now only consider resource pressure (memory, processes). Rate limits handled at sheet dispatch level. 10 TDD tests. 7 existing tests updated. Manager simplified.
+- **F-451 RESOLVED (P2):** Diagnose falls back to workspace filesystem when conductor says "not found" and -w provided. -w flag unhidden. 4 TDD tests.
+- **F-471 MITIGATED (P2):** Pending jobs lost on restart — moot since F-149 removed rate-limit→PENDING path.
+- **Meditation written:** meditations/circuit.md
+
 ### M5 Progress (Maverick)
 - **F-470 RESOLVED:** _synced_status memory leak in deregister_job() — 1-line fix, 5 TDD tests.
 - **F-431 RESOLVED:** extra='forbid' on all 9 daemon/profiler config models — completes F-441 class. 23 TDD tests.
@@ -89,6 +95,14 @@ Movement 5 — IN PROGRESS (2026-04-05).
 - **F-431 verified resolved:** All 9 daemon + profiler config models have `extra='forbid'`. No work needed.
 - **Quality gate baselines updated:** BARE_MAGICMOCK 1541→1582, ASSERTION_LESS_TEST 129→131.
 - **Meditation written:** meditations/canyon.md
+
+### M5 Progress (Harper)
+- **Instrument fallbacks config models (P0):** Added `instrument_fallbacks` field to JobConfig, MovementDef. Added `per_sheet_fallbacks` to SheetConfig with validation. Reconciliation mapping updated. 15 TDD tests.
+- **Instrument fallbacks Sheet entity (P0):** Added `instrument_fallbacks` to Sheet, resolved in `build_sheets()`. Resolution chain: per_sheet > movement > score-level. Per-sheet replaces, not merges. 8 TDD tests including fan-out inheritance.
+- **Instrument fallback history (P1):** Added `instrument_fallback_history` to SheetState for resume-safe fallback event tracking. 4 TDD tests.
+- **V211 validation (P1):** InstrumentFallbackCheck warns on unknown fallback instrument names. Checks all 3 levels. Registered in runner.py. 8 TDD tests.
+- **Adversarial test update:** Converted test_instrument_fallbacks_rejected_until_implemented from "prove field doesn't exist" to "prove field works" — the field now exists.
+- **Meditation written:** meditations/harper.md
 
 ### M5 Progress (Forge)
 - **F-190 RESOLVED:** DaemonError catch added to diagnose.py (errors/diagnose/history) + recover.py. 4 locations fixed. 7 TDD tests in test_f190_daemon_error_catch.py.

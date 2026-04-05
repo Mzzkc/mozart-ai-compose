@@ -955,8 +955,12 @@ class TestRejectionReasonEdgeCases:
         bp = BackpressureController(monitor, rate)
         assert bp.rejection_reason() is None
 
-    def test_rate_limit_only_returns_rate_limit(self) -> None:
-        """Low memory but active rate limits → 'rate_limit'."""
+    def test_rate_limit_only_returns_none(self) -> None:
+        """Low memory but active rate limits → None (F-149).
+
+        Rate limits alone no longer cause rejection. Per-instrument
+        rate limits are handled at the sheet dispatch level.
+        """
         from mozart.daemon.backpressure import BackpressureController
 
         monitor = MagicMock()
@@ -969,7 +973,7 @@ class TestRejectionReasonEdgeCases:
         rate.active_limits = {"claude": 30.0}
 
         bp = BackpressureController(monitor, rate)
-        assert bp.rejection_reason() == "rate_limit"
+        assert bp.rejection_reason() is None
 
     def test_high_memory_returns_resource_even_with_rate_limits(self) -> None:
         """Memory > 85% → 'resource' even if rate limits are also active."""

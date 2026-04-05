@@ -163,16 +163,36 @@ class BackpressureController:
     def should_accept_job(self) -> bool:
         """Whether to accept new job submissions.
 
-        Returns ``False`` at HIGH or CRITICAL pressure to prevent
-        further resource consumption.
+        Returns ``False`` only under high **resource** pressure (memory
+        or process count).  Rate limits do NOT cause job rejection —
+        they are per-instrument and handled at the sheet dispatch level
+        by the baton and scheduler (F-149).
+
+        This prevents a rate limit on instrument A from blocking jobs
+        that target instrument B.
         """
-        level = self.current_level()
-        if level in (PressureLevel.HIGH, PressureLevel.CRITICAL):
+        current_mem = self._monitor.current_memory_mb()
+        if current_mem is None or self._monitor.is_degraded:
             _logger.info(
                 "backpressure.job_rejected",
-                level=level.value,
+                level="critical",
+                reason="resource",
             )
             return False
+
+        max_mem = max(self._monitor.max_memory_mb, 1)
+        memory_pct = current_mem / max_mem
+        accepting_work = self._monitor.is_accepting_work()
+
+        if memory_pct > 0.85 or not accepting_work:
+            _logger.info(
+                "backpressure.job_rejected",
+                level="high",
+                reason="resource",
+                memory_pct=round(memory_pct, 2),
+            )
+            return False
+
         return True
 
     def rejection_reason(self) -> str | None:
@@ -180,13 +200,12 @@ class BackpressureController:
 
         Returns:
             ``None`` if the system would accept the job.
-            ``"rate_limit"`` if the only pressure source is active rate limits
-            (memory and processes are healthy).
             ``"resource"`` if memory or process pressure is the cause.
 
-        This lets callers distinguish between rate-limit rejections
-        (where the job can be queued as PENDING) and resource rejections
-        (where accepting more work would be dangerous).
+        Rate limits alone no longer cause rejection (F-149).  They are
+        per-instrument concerns handled at the sheet dispatch level.
+        This prevents a rate limit on one instrument from blocking jobs
+        targeting different instruments.
         """
         current_mem = self._monitor.current_memory_mb()
         if current_mem is None or self._monitor.is_degraded:
@@ -204,11 +223,7 @@ class BackpressureController:
         if memory_pct > 0.85:
             return "resource"
 
-        # Rate limits active but memory is fine — rate limit only
-        if self._rate_coordinator.active_limits:
-            return "rate_limit"
-
-        # No pressure
+        # No pressure — rate limits handled at sheet dispatch level
         return None
 
     # ─── Resource-aware scheduling hints ──────────────────────────

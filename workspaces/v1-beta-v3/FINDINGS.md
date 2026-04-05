@@ -1643,7 +1643,8 @@ Each finding should include:
 ### F-149: Backpressure Rejects ALL New Jobs When ANY Single Instrument Is Rate-Limited
 - **Found by:** Composer + automated monitor, 2026-04-02
 - **Severity:** P1 (high — blocks unrelated work across all instruments)
-- **Status:** Open
+- **Status:** Resolved (movement 5, Circuit)
+- **Resolution:** `should_accept_job()` and `rejection_reason()` now only consider resource pressure (memory, processes). Rate limits are per-instrument and handled at the sheet dispatch level by the baton and scheduler. `current_level()` unchanged — sheet-level dispatch still uses rate limit info for pacing. 10 TDD tests in `test_f149_cross_instrument_rejection.py`. 3 existing tests updated in `test_daemon_backpressure.py`, 2 in `test_rate_limit_pending.py`, 1 in `test_m4_adversarial_breakpoint.py`, 1 in `test_litmus_intelligence.py`. Manager simplified — rate_limit→PENDING path removed since jobs go straight through.
 - **Description:** `BackpressureController.current_level()` at `backpressure.py:121` escalates to `PressureLevel.HIGH` when `self._rate_coordinator.active_limits` is non-empty. HIGH causes `should_accept_job()` to reject ALL new submissions. The check is global — it does not consider which instrument the new job would use. A `gemini-cli` job was rejected because `claude-code` had an active rate limit from a previous quota exhaustion. The rate limit was stale (account was switched, sheet 79 was executing successfully on the new account) but the coordinator retained the original expiry timestamp (April 3, 5pm CEST).
 - **Impact:** (1) A rate limit on one instrument blocks ALL instruments. (2) Stale rate limits from resolved conditions (account switch, quota reset) persist until their original expiry. (3) No way to clear a rate limit when successful execution proves the instrument is available. The conductor becomes unusable for any work until the longest rate limit expires.
 - **Related:** F-110 (backpressure rejects during rate limits — should queue). Issue #141 (baton should pause, not kill on rate limits). Rate coordinator has no "clear on success" path.
@@ -2194,7 +2195,8 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
 ### F-451: Diagnose Can't Find Completed Jobs That Status Can Find
 - **Found by:** Ember, Movement 4
 - **Severity:** P2 (medium — UX inconsistency between commands)
-- **Status:** Open
+- **Status:** Resolved (movement 5, Circuit)
+- **Resolution:** When conductor returns JobSubmissionError (job not in registry) and -w workspace is provided, diagnose now falls back to filesystem search instead of immediately exiting. The -w flag is now visible (not hidden). Error hints mention -w when workspace not provided. 4 TDD tests in `test_f451_diagnose_workspace_fallback.py`.
 - **Category:** UX
 - **Description:** `mozart diagnose hello` returns "Score not found" even though `mozart status hello -w <workspace>` successfully shows full COMPLETED status. `diagnose` doesn't support `-w` (workspace) flag and only queries the conductor's registry. After a conductor restart, completed jobs may not be in the registry.
 - **Impact:** Users can see a score's status (with -w) but can't diagnose it. The natural debugging path (`status` → see problem → `diagnose`) breaks when the conductor doesn't know about the job.
@@ -2263,7 +2265,8 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
 ### F-471: Pending Jobs Lost on Daemon Restart
 - **Found by:** Adversary, Movement 4
 - **Severity:** P2 (medium — architectural gap, not a code bug)
-- **Status:** Open
+- **Status:** Mitigated (movement 5, Circuit — via F-149)
+- **Resolution note:** F-149 fix removed the rate-limit→PENDING path from `submit_job()`. Rate limits no longer cause PENDING queueing — jobs go straight through and per-instrument rate limiting is handled at the sheet dispatch level. The PENDING infrastructure still exists for future use (resource-pressure queueing) but the primary trigger (rate limits) is gone.
 - **Category:** architecture
 - **Description:** `JobManager._pending_jobs` at `src/mozart/daemon/manager.py:156` is a plain `dict[str, JobRequest]` stored only in memory. Jobs queued as PENDING during rate limit backpressure (via `_queue_pending_job` at line ~815) have their `JobRequest` objects stored here. If the daemon restarts while jobs are PENDING, the `_pending_jobs` dict is lost (starts empty in `__init__`). The persistent `JobRegistry` records the job as `DaemonJobStatus.PENDING`, but the recovery path (`_recover_baton_orphans` at line ~519) only processes PAUSED jobs, not PENDING ones. The `_start_pending_jobs` method only processes the in-memory dict.
 - **Impact:** After daemon restart, PENDING jobs appear in `mozart list` as PENDING but will never start. The user must manually `mozart cancel` and resubmit. This gap is more severe during rate limit storms where multiple jobs could be queued.
@@ -2281,8 +2284,31 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
 ### F-472: Pre-existing test expects use_baton default=True (D-027 not yet completed)
 - **Found by:** Foundation, Movement 5
 - **Severity:** P3 (low — test maintenance, not a product bug)
-- **Status:** Open
+- **Status:** Resolved (movement 5, Canyon — D-027 completed)
 - **Category:** pattern
 - **Finding:** `tests/test_baton_adapter.py::TestUseBatonFeatureFlag::test_daemon_config_has_use_baton_field` asserts `config.use_baton is True`, but `DaemonConfig.use_baton` still defaults to `False`. The test was written in anticipation of D-027 (flip baton default) which hasn't been completed yet. Test fails deterministically on every run.
 - **Impact:** Quality gate false failure. Pre-existing — not caused by M5 changes.
-- **Action:** D-027 (Canyon) will flip the default, at which point this test becomes a regression guard.
+- **Resolution:** D-027 complete (Canyon M5). `DaemonConfig.use_baton` now defaults to `True`. Test passes. Verified by Ghost M5.
+
+### F-310: Test suite flaky — different tests fail on each full run (all pass in isolation)
+- **Found by:** Ghost, Movement 5
+- **Severity:** P2 (medium — undermines quality gate reliability)
+- **Status:** Open
+- **Category:** reliability
+- **Finding:** Running `pytest tests/ -x` produces different failures each run. Observed failing tests across 4 consecutive runs:
+  1. `test_f255_2_live_states.py::test_live_state_has_sheet_entries`
+  2. `test_f255_2_live_states.py::test_run_via_baton_creates_live_state`
+  3. `test_unknown_field_ux_journeys.py::test_instrument_fallbacks_not_silently_ignored` (FIXED — deterministic, see F-311)
+  4. `test_daemon_backpressure.py::TestRateLimitExpiryTransitions::test_job_accepted_during_and_after_limit`
+  All flaky tests pass when run in isolation. Pattern suggests cross-test state leakage: shared event loops, singleton state, or timing-dependent assertions that degrade under suite-wide resource contention (~500s runtime, 11,400+ tests).
+- **Impact:** Quality gate can fail spuriously, masking real failures behind flaky noise.
+- **Action:** (1) Audit tests with `asyncio.sleep(<small_value>)` for timing sensitivity. (2) Consider `--randomly-seed` for ordering dependency detection. (3) Run suite without `-x` to measure total flaky count per run.
+
+### F-311: test_unknown_field_ux_journeys outdated after instrument_fallbacks field added
+- **Found by:** Ghost, Movement 5
+- **Severity:** P2 (medium — deterministic test failure)
+- **Status:** Resolved (movement 5, Ghost)
+- **Category:** bug
+- **Finding:** `test_instrument_fallbacks_not_silently_ignored` expected `JobConfig(**score)` to raise for unknown field `instrument_fallbacks`, but `instrument_fallbacks` was added as a real field on `JobConfig` at `src/mozart/core/config/job.py:684`. Test failed deterministically.
+- **Impact:** Full test suite fails on every run.
+- **Resolution:** Updated test to use `instrument_priorities` (genuinely non-existent field). Test renamed to `test_instrument_priorities_not_silently_ignored`. All 21 tests pass.

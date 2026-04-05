@@ -232,6 +232,9 @@ This is the highest priority task. You are running inside a live conductor. You 
 - [x] [Forge] Fix F-180 root cause 2+3: Wire instrument profile pricing into baton cost estimation (priority: P2) [source: F-180, M5] — _estimate_cost() now accepts cost_per_1k_input/output from InstrumentProfile.ModelCapacity. Adapter resolves pricing from BackendPool registry. Falls back to hardcoded Claude Sonnet rates when no profile available. 6 TDD tests in test_f180_cost_pricing.py.
 - [x] [Forge] Mateship: Fix Foundation's test_f255_2_live_states.py asyncio deprecation (priority: P2) [source: mateship, M5] — Replaced asyncio.get_event_loop().run_until_complete() with asyncio.new_event_loop() pattern in 2 locations. Also fixed same pattern in test_baton_invariants.py.
 - [x] [Forge] Write meditation to meditations/forge.md (priority: P1) [source: composer directive, M5]
+- [x] [Circuit] Fix F-149: Backpressure cross-instrument rejection (priority: P1) [source: F-149, M5] — should_accept_job() and rejection_reason() now only consider resource pressure (memory/processes). Rate limits handled at sheet dispatch level. 10 TDD tests in test_f149_cross_instrument_rejection.py. 7 existing tests updated across 4 files. Manager rate_limit→PENDING path removed. F-471 mitigated.
+- [x] [Circuit] Fix F-451: Diagnose workspace fallback (priority: P2) [source: F-451, M5] — diagnose falls back to filesystem when conductor returns "not found" and -w provided. -w flag unhidden. Hints mention -w. 4 TDD tests in test_f451_diagnose_workspace_fallback.py.
+- [x] [Circuit] Write meditation to meditations/circuit.md (priority: P1) [source: composer directive, M5]
 - [ ] Remaining critical bug fixes (priority: P1) [source: roadmap step 51]
 
 ---
@@ -347,14 +350,14 @@ See FINDINGS.md F-097 through F-102 for full context.
 
 Spec: `docs/plans/2026-04-04-instrument-fallbacks-spec.md`
 
-- [ ] Add `instrument_fallbacks` field to SheetConfig, MovementDef, JobConfig (priority: P0) [source: instrument fallbacks spec]
-- [ ] Add `instrument_fallbacks` to Sheet entity, resolve in `build_sheets()` (priority: P0) [source: instrument fallbacks spec]
+- [x] [Harper] Add `instrument_fallbacks` field to SheetConfig, MovementDef, JobConfig (priority: P0) [source: instrument fallbacks spec] — Added instrument_fallbacks (list[str], default=[]) to JobConfig, MovementDef. Added per_sheet_fallbacks (dict[int, list[str]], default={}) to SheetConfig with validate_per_sheet_fallbacks validator. Reconciliation mapping updated. 15 TDD tests.
+- [x] [Harper] Add `instrument_fallbacks` to Sheet entity, resolve in `build_sheets()` (priority: P0) [source: instrument fallbacks spec] — Added instrument_fallbacks field to Sheet. Resolution in build_sheets(): per_sheet > movement > score-level. Per-sheet replaces (not merges). 8 TDD tests including fan-out inheritance.
 - [ ] Add `InstrumentFallback` BatonEvent type (priority: P0) [source: instrument fallbacks spec]
 - [ ] Implement availability check: `check_instrument_available()` (priority: P0) [source: instrument fallbacks spec]
 - [ ] Implement baton dispatch fallback logic — immediate for unavailable, after retry exhaustion for rate limits (priority: P0) [source: instrument fallbacks spec]
 - [ ] Add BatonSheetState fields: `fallback_chain`, `current_instrument_index`, `fallback_attempts` (priority: P0) [source: instrument fallbacks spec]
-- [ ] Add `instrument_fallback_history` to SheetState/CheckpointState (priority: P1) [source: instrument fallbacks spec]
-- [ ] Add V211 validation: warn on unknown fallback instrument names (priority: P1) [source: instrument fallbacks spec]
+- [x] [Harper] Add `instrument_fallback_history` to SheetState/CheckpointState (priority: P1) [source: instrument fallbacks spec] — Added instrument_fallback_history (list[dict[str, str]], default=[]) to SheetState. Records from/to/reason/timestamp. Survives JSON serialization roundtrip. 4 TDD tests.
+- [x] [Harper] Add V211 validation: warn on unknown fallback instrument names (priority: P1) [source: instrument fallbacks spec] — InstrumentFallbackCheck class in validation/checks/config.py. Checks score-level, movement-level, and per-sheet fallback names against loaded profiles + score aliases. WARNING severity (same as V210). Registered in runner.py. 8 TDD tests.
 - [ ] Add fallback indicator to `mozart status` display (priority: P1) [source: instrument fallbacks spec]
 - [ ] INFO-level logging for all fallback events (priority: P1) [source: instrument fallbacks spec]
 - [ ] TDD tests: config parsing, resolution chain, baton dispatch, fan-out inheritance, checkpoint persistence (priority: P0) [source: instrument fallbacks spec]
