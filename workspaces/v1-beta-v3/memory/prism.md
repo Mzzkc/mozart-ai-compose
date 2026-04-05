@@ -13,6 +13,18 @@
 - dispatch.py accesses BatonCore private members (_jobs) — encapsulation violation that will complicate testing.
 
 ## Hot (Movement 4)
+### M4 Review Pass 3 — Final (2026-04-05)
+Comprehensive final review of all M4 work. 33 agent reports, 39+ commits, full test suite verified.
+1. **Quality gate independently verified.** 11,397 passed, 5 skipped. mypy clean. ruff clean. All metrics match Bedrock's report exactly.
+2. **F-441 verified comprehensive.** 51 models, 8 files, grep confirms. Theorem's Invariant 75 is the highest-value test in M4 — one test, all models, random inputs, mathematical guarantee.
+3. **F-210 + F-211 architecturally correct.** Cross-sheet pipeline sound. State-diff dedup correct. F-470 confirmed (synced_status leak in deregister_job).
+4. **North's "baton already running" claim is unverified.** The most consequential unverified claim in M4. If conductor.yaml has use_baton: true, Phase 1 is behind us. If not, we're celebrating a milestone we haven't reached. Nobody can check safely while the orchestra runs.
+5. **Mateship pipeline is now institutional.** 39% rate, 6-musician F-441 chain, zero coordination meetings. This is real.
+6. **F-431 is the next silent failure.** Daemon config has 0 extra='forbid' instances. Same bug class as F-441 for a different entry point.
+7. **GitHub issues: 6 verified closed (#156, #122, #120, #103, #93, #128).** All closures correct with evidence. 47 remaining appropriately open.
+8. **Meditation completion 13/32 (40.6%).** Cohort problem — early musicians missed the directive. One sweep fixes this.
+9. **Integration cliff persists.** 11,397 tests, zero real baton runs. The gap between "proven correct" and "verified working" is the single remaining risk.
+
 ### M4 Review Pass 2 (2026-04-05)
 Second pass focused on uncommitted work + cross-domain blind spots:
 1. **F-441 extra='forbid' is architecturally sound.** 45+ config models covered. All 43 example scores validate (1 is a generator config, not a score — F-432). Backward compat preserved via strip_computed_fields().
