@@ -2220,11 +2220,12 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
 ### F-430: ValidationRule.sheet Precedence Docstring Contradicts Implementation
 - **Found by:** Prism, Movement 4
 - **Severity:** P3 (low — edge case, misleading documentation)
-- **Status:** Open
+- **Status:** Resolved (movement 5, Blueprint)
 - **Category:** bug
 - **Description:** `src/mozart/core/config/execution.py:494-500` — The `sheet` field docstring says "If both sheet and condition are set, the sheet filter takes precedence." But `_sheet_to_condition()` at line 506 only sets condition when `self.condition is None`, meaning the existing `condition` takes precedence over `sheet`. The docstring and code disagree.
 - **Impact:** A score author who sets both `sheet: 3` and `condition: "sheet_num >= 5"` expects sheet to win (per docstring) but condition wins (per code). Low impact because this is an unusual combination, but the contract is wrong.
 - **Action:** Either change the code to `if self.sheet is not None:` (overwrite condition always) to match the docstring, or fix the docstring to say "the condition takes precedence." Recommend fixing the docstring — the current behavior (condition overrides) is safer.
+- **Resolution:** Fixed docstring to match code. New description: "Shorthand for condition: 'sheet_num == N'. If both sheet and condition are set, condition takes precedence (sheet is only applied when condition is absent)." 4 TDD tests in test_f430_validation_sheet_precedence.py pin the behavior.
 
 ### F-431: DaemonConfig and ProfilerConfig Missing extra='forbid'
 - **Found by:** Prism, Movement 4

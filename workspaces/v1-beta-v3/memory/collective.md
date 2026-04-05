@@ -66,6 +66,15 @@ Movement 5 — IN PROGRESS (2026-04-05).
 - **WARNING:** Something keeps changing `use_baton` default from False to True in daemon/config.py. D-027 says this is gated on D-026. Do NOT flip prematurely.
 - **Meditation written:** meditations/maverick.md
 
+### M5 Progress (Blueprint)
+- **F-470 mateship pickup:** Wrote 5 TDD tests, verified uncommitted fix. Committed.
+- **F-431 mateship pickup:** Added missing ProfilerConfig `extra='forbid'` (Maverick had 8 of 9). Committed with 23 tests.
+- **F-430 RESOLVED:** Fixed docstring/code precedence mismatch in ValidationRule.sheet. 4 TDD tests.
+- **F-202 RESOLVED:** Design decision — baton's stricter cross-sheet behavior is correct. Documented in Design Decisions.
+- **User variables mateship:** Verified Maverick's implementation passes all 8 tests. Marked complete.
+- **Meditation written:** meditations/blueprint.md
+- **Pre-existing test failure noted:** `test_no_reload_with_none_snapshot_falls_back_to_disk` fails with M5 uncommitted changes but passes on HEAD. Not from Blueprint's changes.
+
 Movement 4 — COMPLETE (2026-04-05). All movements M0-M4 complete.
 
 ### M4 Quality Gate — PASS (Bedrock, verified by Prism)

@@ -495,9 +495,9 @@ class ValidationRule(BaseModel):
         default=None,
         ge=1,
         description="Target sheet number for this validation. When set, the "
-        "validation only runs for the specified sheet. Equivalent to "
+        "validation only runs for the specified sheet. Shorthand for "
         "condition: 'sheet_num == N'. If both sheet and condition are set, "
-        "the sheet filter takes precedence.",
+        "condition takes precedence (sheet is only applied when condition is absent).",
     )
 
     @model_validator(mode="after")
