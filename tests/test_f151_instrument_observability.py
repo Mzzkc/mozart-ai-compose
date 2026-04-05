@@ -56,6 +56,10 @@ class TestBatonPathInstrumentPopulation:
         After build_sheets() produces Sheet entities (with resolved instrument
         names) and register_job() is called, the live SheetStates should have
         their instrument_name fields populated.
+
+        F-255.2: _run_via_baton now creates the initial CheckpointState in
+        _live_states with instrument_names set from Sheet entities at creation
+        time — no longer a post-register fixup.
         """
         from mozart.daemon.manager import JobManager
 
@@ -65,29 +69,27 @@ class TestBatonPathInstrumentPopulation:
         manager._baton_adapter.has_completed_sheets = MagicMock(return_value=True)
         manager._baton_adapter.publish_job_event = AsyncMock()
 
-        # Create a live state with sheets that have no instrument_name
-        live_state = MagicMock()
-        sheet_1 = SheetState(sheet_num=1)
-        sheet_2 = SheetState(sheet_num=2)
-        live_state.sheets = {1: sheet_1, 2: sheet_2}
-
-        manager._live_states = {"test-job": live_state}
+        manager._live_states = {}
         manager._job_meta = {"test-job": MagicMock(completed_new_work=False)}
 
         # Mock build_sheets to return Sheet entities with instrument names
         mock_sheet_1 = MagicMock()
         mock_sheet_1.num = 1
         mock_sheet_1.instrument_name = "claude-code"
+        mock_sheet_1.movement = 1
         mock_sheet_2 = MagicMock()
         mock_sheet_2.num = 2
         mock_sheet_2.instrument_name = "gemini-cli"
+        mock_sheet_2.movement = 1
 
         mock_config = MagicMock()
+        mock_config.name = "test-score"
         mock_config.retry.max_retries = 3
         mock_config.cost_limits.enabled = False
         mock_config.cost_limits.max_cost_per_job = None
         mock_config.backend.type = "claude_cli"
         mock_config.parallel.enabled = False
+        mock_config.cross_sheet = None
 
         mock_request = MagicMock()
         mock_request.self_healing = False
@@ -98,13 +100,16 @@ class TestBatonPathInstrumentPopulation:
                     manager, "test-job", mock_config, mock_request,
                 )
 
-        # Verify instrument_name was populated on live SheetStates
-        assert sheet_1.instrument_name == "claude-code"
-        assert sheet_2.instrument_name == "gemini-cli"
+        # F-255.2: live state is now created by _run_via_baton
+        live = manager._live_states["test-job"]
+        assert live.sheets[1].instrument_name == "claude-code"
+        assert live.sheets[2].instrument_name == "gemini-cli"
 
     @pytest.mark.asyncio
-    async def test_run_via_baton_doesnt_overwrite_existing_instrument(self) -> None:
-        """If a SheetState already has instrument_name set, don't overwrite it."""
+    async def test_run_via_baton_instrument_from_sheet_entity(self) -> None:
+        """F-255.2: instrument_name comes from the Sheet entity, not a pre-existing
+        live state. The live state is created fresh with instrument_name set from
+        the Sheet entities at creation time."""
         from mozart.daemon.manager import JobManager
 
         manager = MagicMock(spec=JobManager)
@@ -113,24 +118,22 @@ class TestBatonPathInstrumentPopulation:
         manager._baton_adapter.has_completed_sheets = MagicMock(return_value=True)
         manager._baton_adapter.publish_job_event = AsyncMock()
 
-        # Sheet already has an instrument_name
-        sheet_1 = SheetState(sheet_num=1, instrument_name="existing-instrument")
-        live_state = MagicMock()
-        live_state.sheets = {1: sheet_1}
-
-        manager._live_states = {"test-job": live_state}
+        manager._live_states = {}
         manager._job_meta = {"test-job": MagicMock(completed_new_work=False)}
 
         mock_sheet = MagicMock()
         mock_sheet.num = 1
-        mock_sheet.instrument_name = "new-instrument"
+        mock_sheet.instrument_name = "gemini-cli"
+        mock_sheet.movement = 1
 
         mock_config = MagicMock()
+        mock_config.name = "test-score"
         mock_config.retry.max_retries = 3
         mock_config.cost_limits.enabled = False
         mock_config.cost_limits.max_cost_per_job = None
         mock_config.backend.type = "claude_cli"
         mock_config.parallel.enabled = False
+        mock_config.cross_sheet = None
 
         mock_request = MagicMock()
         mock_request.self_healing = False
@@ -141,8 +144,9 @@ class TestBatonPathInstrumentPopulation:
                     manager, "test-job", mock_config, mock_request,
                 )
 
-        # Existing instrument_name should NOT be overwritten
-        assert sheet_1.instrument_name == "existing-instrument"
+        # instrument_name comes from the Sheet entity
+        live = manager._live_states["test-job"]
+        assert live.sheets[1].instrument_name == "gemini-cli"
 
 
 class TestCheckpointInstrumentPersistence:

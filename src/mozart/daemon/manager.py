@@ -19,7 +19,7 @@ from typing import Any
 import yaml
 
 import mozart
-from mozart.core.checkpoint import CheckpointState
+from mozart.core.checkpoint import CheckpointState, SheetState
 from mozart.core.logging import get_logger
 from mozart.daemon.backpressure import BackpressureController
 from mozart.daemon.config import DaemonConfig
@@ -2014,6 +2014,29 @@ class JobManager:
             "instrument": config.backend.type,
         })
 
+        # F-255.2: Create initial CheckpointState in _live_states BEFORE
+        # registering with the baton. Without this, _on_baton_state_sync
+        # returns early (no live state to update) and get_job_status()
+        # shows "Full status unavailable" for baton-managed jobs.
+        from mozart.core.checkpoint import JobStatus as CPJobStatus
+
+        initial_sheets: dict[int, SheetState] = {}
+        for sheet in sheets:
+            initial_sheets[sheet.num] = SheetState(
+                sheet_num=sheet.num,
+                instrument_name=sheet.instrument_name,  # F-151
+            )
+        initial_state = CheckpointState(
+            job_id=job_id,
+            job_name=config.name,
+            total_sheets=len(sheets),
+            status=CPJobStatus.RUNNING,
+            sheets=initial_sheets,
+            instruments_used=list({s.instrument_name for s in sheets if s.instrument_name}),
+            total_movements=max((s.movement for s in sheets), default=None),
+        )
+        self._live_states[job_id] = initial_state
+
         # Register job with the baton
         # F-158: Pass prompt_config and parallel_enabled so the adapter
         # creates a PromptRenderer for the full 9-layer prompt assembly.
@@ -2031,16 +2054,6 @@ class JobManager:
             parallel_enabled=config.parallel.enabled,
             cross_sheet=config.cross_sheet,  # F-210
         )
-
-        # F-151: Populate instrument_name on live SheetStates for observability.
-        # Sheet entities from build_sheets() carry resolved instrument names;
-        # the checkpoint SheetStates start with instrument_name=None.
-        live = self._live_states.get(job_id)
-        if live:
-            for sheet in sheets:
-                sheet_state = live.sheets.get(sheet.num)
-                if sheet_state is not None and sheet_state.instrument_name is None:
-                    sheet_state.instrument_name = sheet.instrument_name
 
         try:
             # Wait for the baton to complete all sheets
@@ -2162,6 +2175,10 @@ class JobManager:
             job_id, "job.resuming",
             {"sheet_count": len(sheets)},
         )
+
+        # F-255.2: Populate _live_states with recovered checkpoint so
+        # status display and state_sync_callback work during resumed execution.
+        self._live_states[job_id] = checkpoint
 
         # Recover job with checkpoint state
         # F-158: Pass prompt_config and parallel_enabled (same as _run_via_baton)

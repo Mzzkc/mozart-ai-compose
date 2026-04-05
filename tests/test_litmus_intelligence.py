@@ -3908,12 +3908,12 @@ class TestPluginCliBackendMcpGap:
             "This is the field that SHOULD control MCP behavior."
         )
 
-    def test_build_command_ignores_mcp_config_flag(self) -> None:
-        """PluginCliBackend._build_command does NOT use mcp_config_flag.
+    def test_build_command_uses_mcp_disable_args(self) -> None:
+        """F-271 FIXED: PluginCliBackend injects mcp_disable_args.
 
-        This test documents the F-255.3 gap: the field exists but the command
-        builder never references it. When this test starts FAILING, it means
-        someone fixed the MCP gap — update the test to verify the fix works.
+        Previously: mcp_config_flag existed but _build_command ignored it.
+        Now: mcp_disable_args provides profile-driven MCP disabling —
+        each instrument defines its own disable mechanism.
         """
         from mozart.core.config.instruments import (
             CliCommand,
@@ -3932,6 +3932,11 @@ class TestPluginCliBackendMcpGap:
                     executable="claude",
                     auto_approve_flag="--dangerously-skip-permissions",
                     mcp_config_flag="--mcp-config",
+                    mcp_disable_args=[
+                        "--strict-mcp-config",
+                        "--mcp-config",
+                        '{"mcpServers":{}}',
+                    ],
                 ),
                 output=CliOutputConfig(format="json"),
             ),
@@ -3940,13 +3945,17 @@ class TestPluginCliBackendMcpGap:
         backend = PluginCliBackend(profile)
         cmd = backend._build_command("test prompt", timeout_seconds=None)
 
-        # F-255.3 GAP: mcp_config_flag is NOT used in _build_command.
-        # When this assertion FAILS, someone has fixed the gap.
-        has_mcp_args = any("mcp-config" in arg for arg in cmd)
-        assert not has_mcp_args, (
-            "F-255.3 GAP FIXED! PluginCliBackend now uses mcp_config_flag. "
-            "Update this test to verify the fix produces correct MCP args "
-            "(--strict-mcp-config --mcp-config '{\"mcpServers\":{}}')."
+        # F-271 FIXED (Canyon, M5): PluginCliBackend injects
+        # mcp_disable_args from the profile.
+        assert "--strict-mcp-config" in cmd, (
+            "F-271: PluginCliBackend must inject mcp_disable_args"
+        )
+        assert "--mcp-config" in cmd, (
+            "F-271: PluginCliBackend must inject mcp_disable_args"
+        )
+        mcp_idx = cmd.index("--mcp-config")
+        assert cmd[mcp_idx + 1] == '{"mcpServers":{}}', (
+            "F-271: empty MCP config must disable all servers"
         )
 
     def test_legacy_backend_disables_mcp_by_default(self) -> None:

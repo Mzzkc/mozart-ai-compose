@@ -226,6 +226,12 @@ class PluginCliBackend(Backend):
         else:
             args.append(full_prompt)
 
+        # MCP disabling (F-271): inject profile-defined args to disable
+        # MCP servers and prevent child process explosion. Each instrument
+        # specifies its own disable mechanism in mcp_disable_args.
+        if cmd.mcp_disable_args:
+            args.extend(cmd.mcp_disable_args)
+
         # Extra flags (always last)
         args.extend(cmd.extra_flags)
 

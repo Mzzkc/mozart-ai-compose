@@ -66,6 +66,13 @@ Movement 5 — IN PROGRESS (2026-04-05).
 - **WARNING:** Something keeps changing `use_baton` default from False to True in daemon/config.py. D-027 says this is gated on D-026. Do NOT flip prematurely.
 - **Meditation written:** meditations/maverick.md
 
+### M5 Progress (Foundation, D-026)
+- **F-271 RESOLVED:** PluginCliBackend MCP process explosion — profile-driven `mcp_disable_args` on CliCommand. Claude-code profile updated. 7 TDD tests. Litmus test updated.
+- **F-255.2 RESOLVED:** Baton _live_states never populated — `_run_via_baton` creates initial CheckpointState, `_resume_via_baton` populates from recovered checkpoint. F-151 instrument_name now set at creation time. 7 TDD tests.
+- **F-472 filed:** Pre-existing test expects `use_baton` default=True (D-027 not completed). Quality gate false failure.
+- **D-026 COMPLETE.** Both assigned findings resolved. ~50 lines of fix code, 14 TDD tests.
+- **Meditation written:** meditations/foundation.md
+
 ### M5 Progress (Blueprint)
 - **F-470 mateship pickup:** Wrote 5 TDD tests, verified uncommitted fix. Committed.
 - **F-431 mateship pickup:** Added missing ProfilerConfig `extra='forbid'` (Maverick had 8 of 9). Committed with 23 tests.

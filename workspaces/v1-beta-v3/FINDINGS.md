@@ -2096,8 +2096,8 @@ Each finding should include:
 - **Description:** First production run of the baton (enabling `use_baton: true` on the conductor) revealed a cascade of gaps that prevent production use. These were discovered by running the v3 orchestra (150/706 completed sheets) through the baton after manual state migration. The task at TASKS.md line 282 ("Enable use_baton after F-210 fixed") was unblocked when F-210 was resolved in movement 4, but nobody tested end-to-end with real production data.
 - **Gaps found (in order of discovery):**
   1. **`_load_checkpoint` reads workspace JSON, not daemon DB** (manager.py:2211-2244). The daemon's registry already has `checkpoint_json` with full state. The baton's resume path looks for `{workspace}/{job_id}.json` — a flat file that doesn't exist. The registry has `load_checkpoint()` ready to use. **Partial fix applied this session:** changed `_load_checkpoint` to read from `self._registry.load_checkpoint()`. Needs review.
-  2. **Baton adapter doesn't publish to `_live_states`** — the legacy runner calls `_on_state_published()` on every checkpoint save, populating `_live_states` dict which `get_job_status()` reads. The baton adapter has no equivalent callback. Result: `mozart status <job>` shows "Full status unavailable" for baton-managed jobs.
-  3. **PluginCliBackend doesn't disable MCP** — the legacy `ClaudeCLIBackend` has `disable_mcp: True` default, passing `--strict-mcp-config --mcp-config '{"mcpServers":{}}'`. The `PluginCliBackend` (used by baton via instrument profiles) has zero MCP handling. Result: 4 musicians spawn ~80 child processes (MCP servers, docker containers) instead of ~8. Potential deadlocks per legacy backend comments.
+  2. **Baton adapter doesn't publish to `_live_states`** — the legacy runner calls `_on_state_published()` on every checkpoint save, populating `_live_states` dict which `get_job_status()` reads. The baton adapter has no equivalent callback. Result: `mozart status <job>` shows "Full status unavailable" for baton-managed jobs. **FIXED (Foundation, M5):** `_run_via_baton` now creates initial CheckpointState in `_live_states` before `register_job()`. `_resume_via_baton` populates `_live_states` with recovered checkpoint. `_on_baton_state_sync` callback can now update sheet statuses. 7 TDD tests in `test_foundation_m5_f255_live_states.py`.
+  3. **PluginCliBackend doesn't disable MCP** — the legacy `ClaudeCLIBackend` has `disable_mcp: True` default, passing `--strict-mcp-config --mcp-config '{"mcpServers":{}}'`. The `PluginCliBackend` (used by baton via instrument profiles) has zero MCP handling. Result: 4 musicians spawn ~80 child processes (MCP servers, docker containers) instead of ~8. Potential deadlocks per legacy backend comments. **FIXED (Foundation, M5):** See F-271. Profile-driven `mcp_disable_args` on CliCommand.
   4. **Three state stores disagree** — daemon registry (FAILED), workspace SQLite (RUNNING), workspace JSON (doesn't exist). The daemon DB should be the ONLY source of truth. Workspace files are artifacts, not state.
   5. **`mozart list` and `mozart status` read different sources** — list reads registry (FAILED), status reads workspace or live_states (RUNNING). Three answers from three sources.
 - **What was done this session:**
@@ -2181,13 +2181,14 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
 ### F-271: PluginCliBackend ignores mcp_config_flag — MCP process explosion
 - **Found by:** Litmus, Movement 4 (litmus test 39, validating F-255.3)
 - **Severity:** P1 (high — production impact: 80 child processes instead of 8)
-- **Status:** Open
+- **Status:** Resolved (movement 5, Foundation)
 - **Category:** bug
 - **Finding:** `PluginCliBackend._build_command()` at `src/mozart/execution/instruments/cli_backend.py:169-232` does NOT reference `mcp_config_flag` from the instrument profile. The field EXISTS on `CliCommand` (`instruments.py:161-164`), is SET in the claude-code profile (`builtins/claude-code.yaml:78`), but is NEVER USED in command construction. The legacy `ClaudeCliBackend` has `disable_mcp=True` which adds `--strict-mcp-config --mcp-config '{"mcpServers":{}}'`. The baton uses `PluginCliBackend`, so baton-managed sheets spawn MCP servers (docker containers, child processes) that the legacy runner prevents. F-255.3 documented this in production: 80 child processes instead of 8.
 - **Impact:** Production MCP process explosion. Potential deadlocks per legacy backend comments. Affects ALL baton-managed sheets using claude-code instrument.
 - **Action:** Add MCP disabling to `_build_command()`: when `mcp_config_flag` is set and no MCP servers are requested, add `--strict-mcp-config --mcp-config '{"mcpServers":{}}'`. Litmus test 39 documents the gap — when fixed, the test assertion should be inverted.
 - **Evidence:** Litmus test `TestPluginCliBackendMcpGap::test_build_command_ignores_mcp_config_flag` proves the gap exists. Legacy backend inspection via `TestPluginCliBackendMcpGap::test_legacy_backend_disables_mcp_by_default` confirms the protection exists in the old path but not the new.
 - **Related:** F-255.3 (production discovery), F-105 (instrument schema expansion)
+- **Resolution:** Profile-driven approach via `CliCommand.mcp_disable_args` list field. `_build_command()` injects these args when non-empty. Claude-code profile updated with `["--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']`. Litmus test updated to verify fix holds. 7 TDD tests in `test_foundation_m5_f271_mcp.py`.
 
 ### F-451: Diagnose Can't Find Completed Jobs That Status Can Find
 - **Found by:** Ember, Movement 4
@@ -2275,3 +2276,12 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
 - **Description:** Error hint at `src/mozart/cli/commands/validate.py:295` told users "Add a 'sheet' section with total_sheets, total_items, and size." But `total_sheets` is a computed property derived from `total_items` and `size` — it is NOT a configurable field. After F-441 (`extra='forbid'`), a user following this hint would get a secondary validation error: "Extra inputs are not permitted" for `total_sheets`.
 - **Impact:** Misleading error guidance that compounds confusion for newcomers. The user tries to fix one error by following the hint, and gets a new error from the "fix."
 - **Resolution:** Changed hint to "Add a 'sheet' section with total_items and size." — references only actual configurable fields.
+
+### F-472: Pre-existing test expects use_baton default=True (D-027 not yet completed)
+- **Found by:** Foundation, Movement 5
+- **Severity:** P3 (low — test maintenance, not a product bug)
+- **Status:** Open
+- **Category:** pattern
+- **Finding:** `tests/test_baton_adapter.py::TestUseBatonFeatureFlag::test_daemon_config_has_use_baton_field` asserts `config.use_baton is True`, but `DaemonConfig.use_baton` still defaults to `False`. The test was written in anticipation of D-027 (flip baton default) which hasn't been completed yet. Test fails deterministically on every run.
+- **Impact:** Quality gate false failure. Pre-existing — not caused by M5 changes.
+- **Action:** D-027 (Canyon) will flip the default, at which point this test becomes a regression guard.

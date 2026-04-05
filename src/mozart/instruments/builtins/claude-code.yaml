@@ -76,6 +76,13 @@ cli:
     system_prompt_flag: "--system-prompt"
     allowed_tools_flag: "--allowedTools"
     mcp_config_flag: "--mcp-config"
+    # Disable MCP servers by default to prevent child process explosion (F-271).
+    # --strict-mcp-config means "only use servers from --mcp-config";
+    # passing empty config disables all MCP servers.
+    mcp_disable_args:
+      - "--strict-mcp-config"
+      - "--mcp-config"
+      - '{"mcpServers":{}}'
   output:
     format: json
     result_path: "result"

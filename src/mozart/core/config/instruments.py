@@ -170,6 +170,12 @@ class CliCommand(BaseModel):
         default=None,
         description="Flag for MCP server configuration",
     )
+    mcp_disable_args: list[str] = Field(
+        default_factory=list,
+        description="CLI args to inject for disabling MCP servers when no MCP "
+        "config is requested. Profile-driven — e.g. claude-code uses "
+        "['--strict-mcp-config', '--mcp-config', '{\"mcpServers\":{}}'].",
+    )
     timeout_flag: str | None = Field(
         default=None,
         description="Flag for per-execution timeout",
