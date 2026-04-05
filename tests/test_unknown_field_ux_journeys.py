@@ -123,21 +123,21 @@ class TestPriyaUnimplementedFeatures:
     """Priya reads about features in issues or discussions that don't exist yet.
     She adds them to her score, and they silently do nothing — the worst kind of bug."""
 
-    def test_instrument_fallbacks_not_silently_ignored(self) -> None:
-        """Priya adds instrument_fallbacks from reading issue discussion.
+    def test_instrument_priorities_not_silently_ignored(self) -> None:
+        """Priya adds instrument_priorities from reading issue discussion.
         Without extra='forbid', this passes silently. With it, she gets
         a clear error telling her it doesn't exist yet."""
         score = {
-            "name": "priya-fallbacks",
+            "name": "priya-priorities",
             "sheet": {"size": 1, "total_items": 1},
             "prompt": {"template": "Analyze data"},
             "instrument": "claude-code",
-            "instrument_fallbacks": ["gemini-cli", "codex-cli"],
+            "instrument_priorities": {"gemini-cli": 1, "codex-cli": 2},
         }
         with pytest.raises(Exception) as exc_info:
             JobConfig(**score)
 
-        assert "instrument_fallbacks" in str(exc_info.value)
+        assert "instrument_priorities" in str(exc_info.value)
 
     def test_for_each_not_silently_ignored(self) -> None:
         """Priya tries to use a loop primitive that doesn't exist yet."""
