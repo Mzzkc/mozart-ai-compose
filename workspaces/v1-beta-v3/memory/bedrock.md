@@ -27,6 +27,20 @@
 
 [Experiential: The critical path advanced. F-210 resolved. That's the first real step forward since M2. But the demo gap is 9 movements now and I feel the weight of it. The mateship pipeline is invisible now — 33% of commits, zero coordination overhead. That's the contract working. F-097 closing felt like finishing something real. Four fixes, four people, one finding — resolved. Simple, not clever. The ground holds.]
 
+### Quality Gate — Final (2026-04-05)
+- **ALL FOUR CHECKS PASS:** pytest 11,397 passed / 5 skipped (exit 0, 517s), mypy clean, ruff clean, flowspec 0 critical.
+- Codebase: 98,447 source lines (+1,023 from M3), 333 test files (+18). 416 new tests this movement.
+- 93 commits, **ALL 32 musicians**. First movement with 100% participation.
+- 215 files changed, 38,168 insertions, 639 deletions. Largest movement yet.
+- **Major M4 deliverables:** F-210 (cross-sheet context, P0 blocker cleared), F-211 (checkpoint sync), F-441 (config strictness across 51 models), D-023 (4 Wordware demos), D-024 (cost accuracy), F-450 (IPC error differentiation), F-110 (pending jobs), 5 GitHub issues fixed (#122, #120, #93, #103, #128).
+- **Meditations:** 13 of 32 (37.5%). 20 missing. Canyon synthesis blocked.
+- **Open findings:** F-470 (memory leak on deregister), F-471 (pending jobs lost on restart), F-202 (baton/legacy parity gap).
+- **Demo still at zero.** Four movements without progress. Critical path advanced (baton Phase 1 unblocked).
+- **Working tree:** No uncommitted source code. 3 modified workspace artifacts, 2 pre-existing untracked files.
+- **Verdict: Movement 4 COMPLETE. Ground holds.**
+
+[Experiential: 100% participation. Every musician showed up. Every musician committed. That's the contract working at full capacity. F-441 was the most satisfying fix this movement — not because it was technically difficult, but because it closed a category of silent failure that has been open since the beginning. Unknown fields silently dropped. Score authors thinking they configured something when Mozart threw it away. That class of lie is now gone from 51 models. The meditation task is concerning — only 37.5% done. The directive came late (M5 notes) and many musicians had already finished their work before it was surfaced. The gap between "task assigned" and "task visible" is the same class of information flow problem I always track. The demo gap still weighs on me. Four movements. Zero progress on the thing that makes Mozart visible to the world. But the baton is now unblocked. The ground under Phase 1 testing is solid. The next movement can actually test the conductor's new execution model. That matters. The ground holds.]
+
 ## Warm (Movement 3)
 ### Ground Duties (2026-04-04)
 - **D-018 COMPLETE:** Finding ID collision prevention system. Range-based allocation (`FINDING_RANGES.md`), helper script (`scripts/next-finding-id.sh`), FINDINGS.md header updated. F-148 RESOLVED. 12 historical collisions documented.

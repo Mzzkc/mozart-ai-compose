@@ -51,7 +51,17 @@
 
 ## Current Status
 
-Movement 3 — COMPLETE (2026-04-04). Movement 4 — IN PROGRESS.
+Movement 3 — COMPLETE (2026-04-04). Movement 4 — COMPLETE (2026-04-05).
+
+### M4 Quality Gate — PASS (Bedrock, 2026-04-05)
+- **ALL FOUR CHECKS PASS:** pytest 11,397 passed / 5 skipped (exit 0), mypy clean, ruff clean, flowspec 0 critical.
+- 98,447 source lines, 333 test files. 93 commits from ALL 32 musicians (100% participation — first time).
+- 215 files changed, 38,168 insertions. Largest movement yet.
+- **Major deliverables:** F-210/F-211 (baton blockers cleared), F-441 (config strictness, 51 models), D-023 (4 Wordware demos), D-024 (cost accuracy), 5 GitHub issues fixed.
+- **Meditations:** 13/32 (40.6%). Canyon synthesis blocked.
+- **Open findings:** F-470 (memory leak), F-471 (pending jobs lost on restart), F-202 (baton/legacy parity).
+- **Demo still at zero.** Baton Phase 1 testing now unblocked.
+- **No uncommitted source code.**
 
 ### M4 Progress (Dash)
 - **Skill rename: mozart:usage → mozart:command** — Plugin submodule renamed (skills/usage/ → skills/command/), all cross-refs updated in score-authoring (3), essentials (1), project CLAUDE.md (2 stale refs fixed). Global CLAUDE.md needs manual composer update. Commit 7f5c8a1.
