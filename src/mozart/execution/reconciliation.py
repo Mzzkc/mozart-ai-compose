@@ -83,6 +83,8 @@ CONFIG_STATE_MAPPING: dict[str, list[str]] = {
     # M4: Multi-instrument support — runner reconstructs sheets from these
     "instruments": [],
     "movements": [],
+    # M5: Instrument fallbacks — resolved at sheet construction, no checkpoint state
+    "instrument_fallbacks": [],
 }
 
 

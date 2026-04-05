@@ -369,6 +369,14 @@ class SheetState(BaseModel):
         description="History of errors encountered during sheet execution (max 10)",
     )
 
+    # Instrument fallback history (M5: per-sheet instrument fallbacks)
+    instrument_fallback_history: list[dict[str, str]] = Field(
+        default_factory=list,
+        description="Records each instrument fallback event: "
+        "{from: str, to: str, reason: str, timestamp: str}. "
+        "Persisted for resume support and post-execution analysis.",
+    )
+
     # Pattern feedback loop tracking (v9 evolution: Pattern Feedback Loop Closure)
     applied_patterns: list[AppliedPatternDict] = Field(
         default_factory=list,

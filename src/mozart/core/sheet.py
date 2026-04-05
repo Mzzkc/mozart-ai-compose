@@ -88,6 +88,12 @@ class Sheet(BaseModel):
         default_factory=dict,
         description="Instrument-specific overrides (model, timeout, etc.)",
     )
+    instrument_fallbacks: list[str] = Field(
+        default_factory=list,
+        description="Resolved fallback instrument chain for this sheet. "
+        "Tried in order when the primary instrument is unavailable or "
+        "rate-limited to exhaustion.",
+    )
 
     # --- Prompt ---
     prompt_template: str | None = Field(
@@ -297,6 +303,16 @@ def build_sheets(config: JobConfig) -> list[Sheet]:
         # Score-level validations apply to all sheets
         validations = list(config.validations)
 
+        # --- Instrument Fallbacks ---
+        # Resolution: per_sheet > movement > score-level
+        # Per-sheet replaces (does not merge) inherited chain.
+        if sheet_num in config.sheet.per_sheet_fallbacks:
+            fallbacks = list(config.sheet.per_sheet_fallbacks[sheet_num])
+        elif movement in config.movements and config.movements[movement].instrument_fallbacks:
+            fallbacks = list(config.movements[movement].instrument_fallbacks)
+        else:
+            fallbacks = list(config.instrument_fallbacks)
+
         sheets.append(
             Sheet(
                 num=sheet_num,
@@ -307,6 +323,7 @@ def build_sheets(config: JobConfig) -> list[Sheet]:
                 workspace=config.workspace,
                 instrument_name=instrument_name,
                 instrument_config=instrument_config,
+                instrument_fallbacks=fallbacks,
                 prompt_template=prompt_template,
                 template_file=template_file,
                 variables=variables,

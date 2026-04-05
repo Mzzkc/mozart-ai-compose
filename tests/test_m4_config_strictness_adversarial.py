@@ -83,15 +83,15 @@ class TestJobConfigRejectsUnknownFields:
                 bogus_field_that_doesnt_exist=True,
             )
 
-    def test_instrument_fallbacks_rejected_until_implemented(self) -> None:
-        """instrument_fallbacks is not yet a field — must not silently pass."""
-        with pytest.raises(ValidationError, match="extra_forbidden"):
-            JobConfig(
-                name="test",
-                sheet=SheetConfig(size=1, total_items=1),
-                prompt=PromptConfig(template="test prompt"),
-                instrument_fallbacks=["gemini-cli"],
-            )
+    def test_instrument_fallbacks_accepted_as_valid_field(self) -> None:
+        """instrument_fallbacks is now a first-class field (M5)."""
+        config = JobConfig(
+            name="test",
+            sheet=SheetConfig(size=1, total_items=1),
+            prompt=PromptConfig(template="test prompt"),
+            instrument_fallbacks=["gemini-cli"],
+        )
+        assert config.instrument_fallbacks == ["gemini-cli"]
 
     def test_typo_in_field_name_rejected(self) -> None:
         """Common typo: 'retries' instead of 'retry'. Must not pass."""

@@ -590,3 +590,112 @@ class InstrumentNameCheck:
                 "location": location,
             },
         )
+
+
+class InstrumentFallbackCheck:
+    """Check that instrument_fallbacks references resolve to known profiles (V211).
+
+    Warns when a fallback instrument name doesn't match any loaded instrument
+    profile or score-level instrument alias. Same severity as V210 — the
+    conductor may have instruments the validator doesn't know about.
+
+    Checks:
+    - Score-level ``instrument_fallbacks``
+    - ``movements.N.instrument_fallbacks`` per-movement fallbacks
+    - ``sheet.per_sheet_fallbacks`` per-sheet fallback overrides
+    """
+
+    @property
+    def check_id(self) -> str:
+        return "V211"
+
+    @property
+    def severity(self) -> ValidationSeverity:
+        return ValidationSeverity.WARNING
+
+    @property
+    def description(self) -> str:
+        return "Checks instrument fallback names resolve to known profiles"
+
+    def check(
+        self,
+        config: JobConfig,
+        config_path: Path,
+        raw_yaml: str,
+    ) -> list[ValidationIssue]:
+        """Check all instrument fallback references against the loaded profile registry."""
+        try:
+            from mozart.instruments.loader import load_all_profiles
+
+            known = set(load_all_profiles().keys())
+        except Exception:
+            _logger.debug("V211: could not load instrument profiles, skipping check")
+            return []
+
+        if not known:
+            return []
+
+        # Score-level instrument aliases are valid fallback targets
+        score_instruments = set(config.instruments.keys())
+        all_valid = known | score_instruments
+
+        issues: list[ValidationIssue] = []
+
+        # 1. Score-level instrument_fallbacks
+        for name in config.instrument_fallbacks:
+            if name not in all_valid:
+                issues.append(self._make_issue(
+                    name,
+                    "score-level instrument_fallbacks",
+                    find_line_in_yaml(raw_yaml, name),
+                    all_valid,
+                ))
+
+        # 2. Movement-level instrument_fallbacks
+        for mov_num, mov_def in config.movements.items():
+            for name in mov_def.instrument_fallbacks:
+                if name not in all_valid:
+                    issues.append(self._make_issue(
+                        name,
+                        f"movement {mov_num} instrument_fallbacks",
+                        find_line_in_yaml(raw_yaml, name),
+                        all_valid,
+                    ))
+
+        # 3. Per-sheet fallbacks
+        for sheet_num, fallback_list in config.sheet.per_sheet_fallbacks.items():
+            for name in fallback_list:
+                if name not in all_valid:
+                    issues.append(self._make_issue(
+                        name,
+                        f"sheet {sheet_num} per_sheet_fallbacks",
+                        find_line_in_yaml(raw_yaml, name),
+                        all_valid,
+                    ))
+
+        return issues
+
+    def _make_issue(
+        self,
+        name: str,
+        location: str,
+        line: int | None,
+        known: set[str],
+    ) -> ValidationIssue:
+        """Create a ValidationIssue for an unknown fallback instrument name."""
+        available = sorted(known)
+        suggestion = (
+            f"Available instruments: {', '.join(available)}. "
+            f"Run 'mozart instruments list' to see all instruments."
+        )
+        return ValidationIssue(
+            check_id=self.check_id,
+            severity=self.severity,
+            message=f"Unknown {location}: '{name}' not found in instrument registry",
+            line=line,
+            suggestion=suggestion,
+            metadata={
+                "instrument_name": name,
+                "location": location,
+            },
+        )

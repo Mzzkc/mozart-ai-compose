@@ -162,6 +162,11 @@ class MovementDef(BaseModel):
         description="Number of parallel voices in this movement. "
         "Shorthand for fan_out: {N: voices}.",
     )
+    instrument_fallbacks: list[str] = Field(
+        default_factory=list,
+        description="Default fallback chain for sheets in this movement. "
+        "Overrides score-level instrument_fallbacks for sheets in this movement.",
+    )
 
 
 class SheetConfig(BaseModel):
@@ -309,6 +314,18 @@ class SheetConfig(BaseModel):
         ),
     )
 
+    # Per-sheet fallback chains (M5: instrument fallbacks)
+    per_sheet_fallbacks: dict[int, list[str]] = Field(
+        default_factory=dict,
+        description=(
+            "Per-sheet instrument fallback overrides. "
+            "Map of sheet_num -> list of fallback instrument names. "
+            "Replaces (does not merge with) inherited fallback chains. "
+            "An empty list explicitly disables fallbacks for that sheet. "
+            "Example: {3: ['gemini-cli', 'ollama'], 5: []}"
+        ),
+    )
+
     # Batch instrument assignment (M4: convenience for large scores)
     instrument_map: dict[str, list[int]] = Field(
         default_factory=dict,
@@ -349,6 +366,20 @@ class SheetConfig(BaseModel):
                 raise ValueError(
                     f"Per-sheet instrument name for sheet {sheet_num} "
                     f"must not be empty"
+                )
+        return v
+
+    @field_validator("per_sheet_fallbacks")
+    @classmethod
+    def validate_per_sheet_fallbacks(
+        cls, v: dict[int, list[str]],
+    ) -> dict[int, list[str]]:
+        """Validate per-sheet fallback chain keys are positive integers."""
+        for sheet_num in v:
+            if not isinstance(sheet_num, int) or sheet_num < 1:
+                raise ValueError(
+                    f"Per-sheet fallback key must be a positive integer, "
+                    f"got {sheet_num}"
                 )
         return v
 
@@ -649,6 +680,12 @@ class JobConfig(BaseModel):
         description="Score-level overrides for the resolved instrument's defaults. "
         "Flat key-value pairs: {model: gemini-2.5-flash, timeout_seconds: 600}. "
         "Only meaningful when instrument: is set.",
+    )
+    instrument_fallbacks: list[str] = Field(
+        default_factory=list,
+        description="Score-level default fallback instrument chain. "
+        "Tried in order when the primary instrument is unavailable or rate-limited "
+        "to exhaustion. Each entry is an instrument name (profile or score alias).",
     )
 
     # Score-level named instrument definitions (M4: multi-instrument support)
