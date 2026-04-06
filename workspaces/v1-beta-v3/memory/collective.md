@@ -64,6 +64,10 @@ Movement 5 — IN PROGRESS (2026-04-05).
 - **F-451 RESOLVED (P2):** Diagnose falls back to workspace filesystem when conductor says "not found" and -w provided. -w flag unhidden. 4 TDD tests.
 - **F-471 MITIGATED (P2):** Pending jobs lost on restart — moot since F-149 removed rate-limit→PENDING path.
 - **Meditation written:** meditations/circuit.md
+- **Instrument fallback observability (P1):** InstrumentFallback events now emitted to EventBus via core._fallback_events + adapter._publish_fallback_events(). 11 TDD tests.
+- **Fallback status display (P1):** format_instrument_with_fallback() shows "(was X: reason)" in status. 5 TDD tests.
+- **Adversarial fallback tests (P1):** 15 tests covering empty chain, full chain walk, duplicates, reason distinction, serialization, edge cases.
+- **TASKS.md:** All fallback spec tasks now complete. Commit 0a43895.
 
 ### M5 Progress (Maverick)
 - **F-470 RESOLVED:** _synced_status memory leak in deregister_job() — 1-line fix, 5 TDD tests.
@@ -118,6 +122,9 @@ Movement 5 — IN PROGRESS (2026-04-05).
 - **F-190 RESOLVED:** DaemonError catch added to diagnose.py (errors/diagnose/history) + recover.py. 4 locations fixed. 7 TDD tests in test_f190_daemon_error_catch.py.
 - **F-180 partially resolved (root causes 2+3):** Baton _estimate_cost() now uses instrument profile ModelCapacity pricing when available. Adapter resolves pricing from BackendPool registry. Falls back to hardcoded rates. 6 TDD tests in test_f180_cost_pricing.py.
 - **Mateship: Foundation's test_f255_2_live_states.py fixed.** Replaced deprecated asyncio.get_event_loop() with asyncio.new_event_loop() pattern (2 locations). Same fix in test_baton_invariants.py.
+- **F-105 partial: Stdin prompt delivery for PluginCliBackend.** Added prompt_via_stdin, stdin_sentinel, start_new_session fields to CliCommand. Modified _build_command() and execute() to support stdin pipe delivery and process group isolation. Updated claude-code.yaml profile. 18 TDD tests in test_plugin_cli_stdin.py. Remaining for F-105: route actual claude-cli jobs through PluginCliBackend instead of native ClaudeCliBackend.
+- **Mypy fix:** to_observer_event() in events.py return type changed from dict[str, Any] to ObserverEvent.
+- **Quality gate baseline:** BARE_MAGICMOCK updated to 1625.
 - **Pre-existing test failure noted:** test_litmus_intelligence.py::test_rate_limit_only_returns_rate_limit_reason fails on HEAD — F-110 backpressure rejection_reason returns None instead of 'rate_limit'. Not from any M5 changes.
 - **Meditation written:** meditations/forge.md
 

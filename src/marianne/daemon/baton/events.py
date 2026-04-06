@@ -33,6 +33,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from marianne.daemon.types import ObserverEvent
+
 # =============================================================================
 # Musician Events — sheet execution results
 # =============================================================================
@@ -443,7 +445,7 @@ BatonEvent = (
 # =============================================================================
 
 
-def to_observer_event(event: BatonEvent) -> dict[str, Any]:
+def to_observer_event(event: BatonEvent) -> ObserverEvent:
     """Convert a BatonEvent to the ObserverEvent TypedDict format.
 
     The baton publishes events to the EventBus so that the dashboard,

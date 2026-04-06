@@ -198,6 +198,32 @@ class CliCommand(BaseModel):
         "Values can reference os.environ via ${VAR} syntax.",
     )
 
+    # Prompt delivery mode — stdin vs CLI arg
+    prompt_via_stdin: bool = Field(
+        default=False,
+        description="When True, pass the prompt via subprocess stdin instead of "
+        "as a CLI argument. This avoids ARG_MAX limits on large prompts. "
+        "When a stdin_sentinel is also set, the sentinel replaces the prompt "
+        "in the CLI args (e.g. '-p -' for Claude Code). When no sentinel is "
+        "set, the prompt flag and prompt are omitted from args entirely.",
+    )
+    stdin_sentinel: str | None = Field(
+        default=None,
+        description="Value to use in place of the prompt in CLI args when "
+        "prompt_via_stdin is True. For example, Claude Code uses '-' as a "
+        "sentinel with '-p -' to indicate 'read prompt from stdin'. "
+        "Only meaningful when prompt_via_stdin is True.",
+    )
+
+    # Process isolation
+    start_new_session: bool = Field(
+        default=False,
+        description="When True, start the subprocess in a new process group "
+        "(start_new_session=True). This isolates the instrument's child "
+        "processes (e.g. MCP servers) so they can be cleanly killed as a "
+        "group on timeout, rather than leaving orphaned children.",
+    )
+
     # Credential filtering — declare which env vars the instrument needs
     required_env: list[str] | None = Field(
         default=None,

@@ -235,6 +235,9 @@ This is the highest priority task. You are running inside a live conductor. You 
 - [x] [Circuit] Fix F-149: Backpressure cross-instrument rejection (priority: P1) [source: F-149, M5] — should_accept_job() and rejection_reason() now only consider resource pressure (memory/processes). Rate limits handled at sheet dispatch level. 10 TDD tests in test_f149_cross_instrument_rejection.py. 7 existing tests updated across 4 files. Manager rate_limit→PENDING path removed. F-471 mitigated.
 - [x] [Circuit] Fix F-451: Diagnose workspace fallback (priority: P2) [source: F-451, M5] — diagnose falls back to filesystem when conductor returns "not found" and -w provided. -w flag unhidden. Hints mention -w. 4 TDD tests in test_f451_diagnose_workspace_fallback.py.
 - [x] [Circuit] Write meditation to meditations/circuit.md (priority: P1) [source: composer directive, M5]
+- [x] [Forge] Fix mypy error in adapter.py:1351 — to_observer_event return type dict[str, Any] → ObserverEvent (priority: P2) [source: mypy strict, M5] — Fixed return type annotation on to_observer_event() in events.py. Added import of ObserverEvent from types.py. mypy clean.
+- [x] [Forge] Fix quality gate BARE_MAGICMOCK baseline drift (priority: P2) [source: mateship, M5] — Updated baseline from 1613 to 1625 (new tests from M5 work).
+- [x] [Forge] F-105 partial: Add stdin prompt delivery + process group isolation to PluginCliBackend (priority: P1) [source: F-105, M5] — Added prompt_via_stdin, stdin_sentinel, start_new_session fields to CliCommand. Modified _build_command() to use sentinel when stdin mode active. Modified execute() to write prompt to stdin PIPE and pass start_new_session. Updated claude-code.yaml profile with prompt_via_stdin: true, stdin_sentinel: "-", start_new_session: true. 18 TDD tests in test_plugin_cli_stdin.py.
 - [ ] Remaining critical bug fixes (priority: P1) [source: roadmap step 51]
 
 ---

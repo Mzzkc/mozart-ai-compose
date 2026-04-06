@@ -226,13 +226,23 @@ class PluginCliBackend(Backend):
             args.append(cmd.working_dir_flag)
             args.append(str(self._working_directory))
 
-        # Prompt — either via flag or as positional
-        full_prompt = self._build_prompt(prompt)
-        if cmd.prompt_flag:
-            args.append(cmd.prompt_flag)
-            args.append(full_prompt)
+        # Prompt delivery — stdin mode or CLI arg
+        if cmd.prompt_via_stdin:
+            # Prompt will be written to subprocess stdin in execute().
+            # If a sentinel is configured, include the flag + sentinel in args
+            # (e.g. '-p -' for Claude Code's stdin mode).
+            if cmd.stdin_sentinel is not None and cmd.prompt_flag:
+                args.append(cmd.prompt_flag)
+                args.append(cmd.stdin_sentinel)
+            # Otherwise, omit the prompt from args entirely — the CLI
+            # reads from stdin by default.
         else:
-            args.append(full_prompt)
+            full_prompt = self._build_prompt(prompt)
+            if cmd.prompt_flag:
+                args.append(cmd.prompt_flag)
+                args.append(full_prompt)
+            else:
+                args.append(full_prompt)
 
         # MCP disabling (F-271): inject profile-defined args to disable
         # MCP servers and prevent child process explosion. Each instrument
@@ -569,6 +579,7 @@ class PluginCliBackend(Backend):
         effective_timeout = timeout_seconds or self._profile.default_timeout_seconds
         cmd = self._build_command(prompt, timeout_seconds=effective_timeout)
         env = self._build_env()
+        use_stdin = self._cli.command.prompt_via_stdin
 
         _logger.info(
             "plugin_cli_execute_start",
@@ -576,6 +587,7 @@ class PluginCliBackend(Backend):
             executable=cmd[0],
             prompt_length=len(prompt),
             timeout=effective_timeout,
+            stdin_mode=use_stdin,
         )
 
         start_time = time.monotonic()
@@ -588,15 +600,28 @@ class PluginCliBackend(Backend):
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
+                stdin=asyncio.subprocess.PIPE if use_stdin else None,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(self._working_directory) if self._working_directory else None,
                 env=env,
+                start_new_session=self._cli.command.start_new_session,
             )
 
             # Track PID for orphan detection by the daemon's pgroup manager
             if self._on_process_spawned and proc.pid is not None:
                 self._on_process_spawned(proc.pid)
+
+            # When using stdin mode, write the assembled prompt to the
+            # subprocess stdin and close it to signal EOF. This must
+            # happen before communicate() — if the subprocess waits for
+            # stdin EOF before producing output, reading stdout first
+            # would deadlock.
+            if use_stdin and proc.stdin is not None:
+                full_prompt = self._build_prompt(prompt)
+                proc.stdin.write(full_prompt.encode("utf-8"))
+                await proc.stdin.drain()
+                proc.stdin.close()
 
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(

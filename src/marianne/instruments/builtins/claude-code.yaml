@@ -55,6 +55,14 @@ cli:
   command:
     executable: claude
     prompt_flag: "-p"
+    # Deliver prompt via stdin (-p - sentinel) to avoid ARG_MAX limits
+    # on large prompts. This matches the native ClaudeCliBackend behavior
+    # and is required for production-length agent prompts (F-105).
+    prompt_via_stdin: true
+    stdin_sentinel: "-"
+    # Start subprocess in its own process group so MCP/LSP child processes
+    # can be cleanly killed as a group on timeout (F-105, Claude Code #1935).
+    start_new_session: true
     # Credential filtering: only pass Anthropic auth env vars to Claude subprocess.
     # Prevents OPENAI_API_KEY, GOOGLE_API_KEY, etc. from leaking to Anthropic's CLI.
     required_env:
