@@ -124,3 +124,91 @@ class TestSafeKillpgGuardSignalTypes:
             result = _safe_killpg(1, sig, context="test")
         assert result is False
         mock_killpg.assert_not_called()
+
+
+class TestCallSiteStructuralAudit:
+    """Structural tests: verify no raw os.killpg calls bypass the guard.
+
+    These tests read the source code to catch regressions where someone
+    adds a new os.killpg() call without routing through _safe_killpg.
+    Added by Ghost (M5 correctness review, F-490).
+    """
+
+    def test_no_raw_os_killpg_outside_guard(self) -> None:
+        """All os.killpg calls in claude_cli.py must go through _safe_killpg."""
+        import inspect
+        import re
+
+        from marianne.backends import claude_cli
+
+        source = inspect.getsource(claude_cli)
+
+        raw_calls: list[tuple[int, str]] = []
+        in_safe_killpg = False
+        for i, line in enumerate(source.split("\n"), 1):
+            stripped = line.strip()
+            if "def _safe_killpg" in stripped:
+                in_safe_killpg = True
+            elif stripped.startswith("def ") and in_safe_killpg:
+                in_safe_killpg = False
+
+            if in_safe_killpg:
+                continue
+
+            if re.search(r"\bos\.killpg\b", stripped):
+                raw_calls.append((i, stripped))
+
+        assert raw_calls == [], (
+            f"Found raw os.killpg calls outside _safe_killpg: {raw_calls}. "
+            f"All os.killpg calls must go through _safe_killpg (F-490)."
+        )
+
+    def test_exactly_six_call_sites(self) -> None:
+        """Exactly 6 _safe_killpg call sites exist (not counting the def).
+
+        If you add or remove a call site, update this count.
+        Call sites (as of M5):
+          1. timeout_escalation (line ~401)
+          2. kill_orphaned_process (line ~606)
+          3. await_exit_graceful (line ~925)
+          4. await_exit_force (line ~934)
+          5. cancel_graceful (line ~1004)
+          6. cancel_force (line ~1012)
+        """
+        import inspect
+
+        from marianne.backends import claude_cli
+
+        source = inspect.getsource(claude_cli)
+
+        # Count _safe_killpg( occurrences, subtract 1 for the definition
+        call_count = source.count("_safe_killpg(") - 1
+        assert call_count == 6, (
+            f"Expected 6 _safe_killpg call sites, found {call_count}. "
+            f"If you added a call, update this count. If you removed one, "
+            f"verify the cleanup path still kills orphans correctly."
+        )
+
+    def test_all_call_sites_have_context(self) -> None:
+        """Every _safe_killpg call must include a context= kwarg for logging."""
+        import inspect
+
+        from marianne.backends import claude_cli
+
+        source = inspect.getsource(claude_cli)
+        lines = source.split("\n")
+
+        # Find lines containing _safe_killpg( that are call sites (not def)
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if "_safe_killpg(" in stripped and "def _safe_killpg" not in stripped:
+                # Gather the full call: scan forward until balanced parens
+                block = stripped
+                for j in range(i + 1, min(i + 10, len(lines))):
+                    block += " " + lines[j].strip()
+                    if block.count("(") <= block.count(")"):
+                        break
+                assert "context=" in block, (
+                    f"_safe_killpg call at line {i + 1} missing context= kwarg: "
+                    f"{block!r}. Every call site must identify itself for log tracing."
+                )
