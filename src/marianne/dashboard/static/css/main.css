@@ -1,0 +1,74 @@
+/* Mozart Dashboard — Custom CSS */
+/* Tailwind handles 95% of styling. This file covers custom properties and edge cases. */
+
+:root {
+    --color-primary: #1a6bff;
+    --color-primary-light: #4d8fff;
+    --color-primary-dark: #0050e6;
+    --color-success: #10b981;
+    --color-warning: #f59e0b;
+    --color-danger: #ef4444;
+    --color-info: #3b82f6;
+}
+
+.dark {
+    --color-primary: #4d8fff;
+    --color-primary-light: #85b5ff;
+    --color-primary-dark: #1a6bff;
+}
+
+/* Alpine.js cloak — hide elements until Alpine initializes */
+[x-cloak] {
+    display: none !important;
+}
+
+/* htmx loading indicator */
+.htmx-indicator {
+    opacity: 0;
+    transition: opacity 200ms ease-in;
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+    opacity: 1;
+}
+
+/* Smooth transitions for htmx swaps */
+.htmx-swapping {
+    opacity: 0.5;
+    transition: opacity 100ms ease-out;
+}
+
+.htmx-settling {
+    opacity: 1;
+    transition: opacity 200ms ease-in;
+}
+
+/* Status dot pulse animation */
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.animate-pulse-dot {
+    animation: pulse-dot 2s ease-in-out infinite;
+}
+
+/* Scrollbar styling for dark mode */
+.dark ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.dark ::-webkit-scrollbar-track {
+    background: #1f2937;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+    background: #4b5563;
+    border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+    background: #6b7280;
+}

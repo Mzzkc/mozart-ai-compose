@@ -14,14 +14,15 @@ These tests verify the fixes hold:
 """
 
 import asyncio
+import os
 import signal
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from mozart.backends.claude_cli import ClaudeCliBackend
-from mozart.core.checkpoint import SheetState
+from marianne.backends.claude_cli import ClaudeCliBackend
+from marianne.core.checkpoint import SheetState
 
 
 
@@ -77,13 +78,20 @@ class TestCancelledErrorTriggersCleanup:
         async def _raise_cancelled(*args, **kwargs):
             raise asyncio.CancelledError()
 
+        # F-490 guard: getpgid(0) must return the real own-pgroup so the guard
+        # sees that our fake target pgid (12345) is NOT the caller's own pgroup.
+        real_own_pgid = os.getpgid(0)
+        assert real_own_pgid != 12345, "test assumption: own pgid != fake pgid"
         with (
             patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)),
             patch.object(backend, "_build_command", return_value=["claude", "-p", "test"]),
             patch.object(backend, "_prepare_log_files"),
             patch.object(backend, "_stream_with_progress", side_effect=_raise_cancelled),
             patch("os.killpg") as mock_killpg,
-            patch("os.getpgid", return_value=12345),
+            patch(
+                "os.getpgid",
+                side_effect=lambda pid: real_own_pgid if pid == 0 else 12345,
+            ),
         ):
             with pytest.raises(asyncio.CancelledError):
                 await backend._execute_impl("test prompt")
@@ -153,10 +161,17 @@ class TestStreamCancelledErrorReapsZombie:
         async def _cancel_gather(*args, **kwargs):
             raise asyncio.CancelledError()
 
+        # F-490 guard: getpgid(0) must return the real own-pgroup so the guard
+        # sees that proc.pid's pgid is NOT the caller's own pgroup.
+        real_own_pgid = os.getpgid(0)
+        assert real_own_pgid != proc.pid, "test assumption: own pgid != proc.pid"
         with (
             patch("asyncio.wait_for", side_effect=_cancel_gather),
             patch("os.killpg") as mock_killpg,
-            patch("os.getpgid", return_value=proc.pid),
+            patch(
+                "os.getpgid",
+                side_effect=lambda pid: real_own_pgid if pid == 0 else proc.pid,
+            ),
         ):
             with pytest.raises(asyncio.CancelledError):
                 await backend._stream_with_progress(
@@ -255,7 +270,7 @@ class TestParallelCancellationNoCrash:
     @pytest.fixture
     def parallel_runner(self):
         """Create a mock runner for parallel execution testing."""
-        from mozart.state.base import StateBackend
+        from marianne.state.base import StateBackend
 
         runner = MagicMock(spec=["_state_lock", "state_backend", "dependency_dag",
                                    "_execute_sheet_with_recovery"])
@@ -270,9 +285,9 @@ class TestParallelCancellationNoCrash:
         self, parallel_runner,
     ) -> None:
         """One sheet dying with SIGABRT should not crash the parallel executor."""
-        from mozart.core.checkpoint import CheckpointState, SheetStatus
-        from mozart.execution.dag import DependencyDAG
-        from mozart.execution.parallel import ParallelExecutionConfig, ParallelExecutor
+        from marianne.core.checkpoint import CheckpointState, SheetStatus
+        from marianne.execution.dag import DependencyDAG
+        from marianne.execution.parallel import ParallelExecutionConfig, ParallelExecutor
 
         dag = DependencyDAG.from_dependencies(total_sheets=3, dependencies=None)
         parallel_runner.dependency_dag = dag
@@ -306,9 +321,9 @@ class TestParallelCancellationNoCrash:
         self, parallel_runner,
     ) -> None:
         """Multiple sheets failing at the same time should not cause crashes."""
-        from mozart.core.checkpoint import CheckpointState, SheetStatus
-        from mozart.execution.dag import DependencyDAG
-        from mozart.execution.parallel import ParallelExecutionConfig, ParallelExecutor
+        from marianne.core.checkpoint import CheckpointState, SheetStatus
+        from marianne.execution.dag import DependencyDAG
+        from marianne.execution.parallel import ParallelExecutionConfig, ParallelExecutor
 
         dag = DependencyDAG.from_dependencies(total_sheets=4, dependencies=None)
         parallel_runner.dependency_dag = dag
@@ -348,7 +363,7 @@ class TestFindJobStateBackendErrors:
     @pytest.mark.asyncio
     async def test_sqlite_error_falls_back_to_json(self, tmp_path: Path) -> None:
         """SQLite backend error should not prevent JSON fallback from working."""
-        from mozart.cli.helpers import _find_job_state_fs as find_job_state
+        from marianne.cli.helpers import _find_job_state_fs as find_job_state
 
         workspace = tmp_path / "workspace"
         workspace.mkdir()
@@ -382,7 +397,7 @@ class TestFindJobStateBackendErrors:
     @pytest.mark.asyncio
     async def test_all_backends_error_returns_none(self, tmp_path: Path) -> None:
         """When all backends fail, find_job_state returns (None, None)."""
-        from mozart.cli.helpers import _find_job_state_fs as find_job_state
+        from marianne.cli.helpers import _find_job_state_fs as find_job_state
 
         workspace = tmp_path / "workspace"
         workspace.mkdir()
@@ -396,8 +411,8 @@ class TestFindJobStateBackendErrors:
     @pytest.mark.asyncio
     async def test_backend_exception_logged_not_raised(self, tmp_path: Path) -> None:
         """Backend exceptions should be caught and logged, not propagated."""
-        from mozart.cli.helpers import _find_job_state_fs as find_job_state
-        from mozart.state import JsonStateBackend
+        from marianne.cli.helpers import _find_job_state_fs as find_job_state
+        from marianne.state import JsonStateBackend
 
         workspace = tmp_path / "workspace"
         workspace.mkdir()
@@ -428,8 +443,8 @@ class TestLoggerKeywordArgs:
         import structlog
         from structlog.types import EventDict, WrappedLogger
 
-        from mozart.cli.helpers import _find_job_state_fs as find_job_state
-        from mozart.state import JsonStateBackend
+        from marianne.cli.helpers import _find_job_state_fs as find_job_state
+        from marianne.state import JsonStateBackend
 
         captured_logs: list[dict] = []
 

@@ -1,0 +1,45 @@
+# Simple Task Template
+# Perfect for quick one-off tasks or getting started with Mozart
+
+name: simple-task
+workspace: ./workspace
+
+backend:
+  type: claude_cli
+  model: haiku  # Fast and cost-effective for simple tasks
+
+sheet:
+  total_sheets: 1
+  timeout_seconds: 300  # 5 minutes
+
+  template: |
+    You are helping complete a simple task.
+
+    Task: {{ task_description }}
+
+    {% if context %}
+    Context:
+    {{ context }}
+    {% endif %}
+
+    Please complete this task step by step:
+    1. Understand the requirements
+    2. Plan your approach
+    3. Execute the solution
+    4. Verify the results
+
+    Provide a clear summary of what was accomplished.
+
+validations:
+  - name: task_completed
+    type: file_exists
+    path: "{{ workspace }}/result.txt"
+    description: "Task results documented"
+
+notifications:
+  - type: webhook
+    url: "{{ notification_url | default('https://httpbin.org/post') }}"
+    on: [completed, failed]
+    template: |
+      Task "{{ name }}" {{ status }}.
+      {% if status == "completed" %}✅{% else %}❌{% endif %} {{ task_description }}

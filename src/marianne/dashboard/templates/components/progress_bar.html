@@ -1,0 +1,26 @@
+{#
+  Reusable progress bar component.
+  Usage: {% from "components/progress_bar.html" import progress_bar %}
+         {{ progress_bar(75.0) }}
+         {{ progress_bar(job.progress_percent, status=job.status.value) }}
+         {{ progress_bar(50, size="md") }}
+#}
+
+{% macro progress_bar(percent, status="running", size="sm") %}
+{%- set size_classes = {
+    "xs": "h-1",
+    "sm": "h-1.5",
+    "md": "h-2",
+    "lg": "h-3",
+} -%}
+{%- set color = {
+    "failed": "bg-red-500",
+    "completed": "bg-green-500",
+    "paused": "bg-yellow-500",
+    "cancelled": "bg-gray-400",
+} -%}
+<div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full {{ size_classes.get(size, size_classes.sm) }}">
+    <div class="{{ color.get(status, 'bg-mozart-500') }} {{ size_classes.get(size, size_classes.sm) }} rounded-full transition-all duration-300"
+         style="width: {{ percent }}%"></div>
+</div>
+{% endmacro %}

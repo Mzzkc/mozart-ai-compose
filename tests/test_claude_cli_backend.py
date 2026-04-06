@@ -17,8 +17,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from mozart.backends.base import ExecutionResult
-from mozart.backends.claude_cli import ClaudeCliBackend
+from marianne.backends.base import ExecutionResult
+from marianne.backends.claude_cli import ClaudeCliBackend
 
 
 # ─── Fixtures ──────────────────────────────────────────────────────────
@@ -520,7 +520,16 @@ class TestKillOrphanedProcess:
     @pytest.mark.asyncio
     async def test_kills_process_group_and_process(self, backend: ClaudeCliBackend):
         proc = _make_mock_process(returncode=None)
-        with patch("os.killpg") as mock_killpg, patch("os.getpgid", return_value=12345):
+        # F-490 guard: getpgid(0) must return the real own-pgroup so the guard
+        # does NOT conclude that the target (12345) is our own pgroup.
+        import os
+        real_own_pgid = os.getpgid(0)
+        assert real_own_pgid != 12345, "test assumption: own pgid != fake pgid"
+        with patch("os.killpg") as mock_killpg, \
+                patch(
+                    "os.getpgid",
+                    side_effect=lambda pid: real_own_pgid if pid == 0 else 12345,
+                ):
             await backend._kill_orphaned_process(proc, RuntimeError("test"))
         mock_killpg.assert_called_once_with(12345, signal.SIGKILL)
         proc.kill.assert_called_once()
@@ -712,8 +721,16 @@ class TestAwaitProcessExit:
             return 0
 
         proc.wait = timeout_then_exit
+        # F-490 guard: getpgid(0) must return the real own-pgroup so the guard
+        # does NOT conclude that 9999 is our own pgroup.
+        import os
+        real_own_pgid = os.getpgid(0)
+        assert real_own_pgid != 9999, "test assumption: own pgid != fake pgid"
         with patch("os.killpg") as mock_killpg, \
-             patch("os.getpgid", return_value=9999):
+                patch(
+                    "os.getpgid",
+                    side_effect=lambda pid: real_own_pgid if pid == 0 else 9999,
+                ):
             await backend._await_process_exit(proc)
         # SIGTERM fails (timeout), escalates to SIGKILL on process group.
         assert mock_killpg.call_count == 2

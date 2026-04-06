@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Jobs — Mozart{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Page header -->
+    <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Jobs</h1>
+        <a href="/editor"
+           class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md bg-mozart-500 text-white hover:bg-mozart-600 transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+            </svg>
+            New Score
+        </a>
+    </div>
+
+    <!-- Filter bar -->
+    <div x-data="{ status: '' }" class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+        <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <!-- Status filter -->
+            <div class="flex items-center gap-2">
+                <label for="status-filter" class="text-xs font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap">Status:</label>
+                <select id="status-filter"
+                        x-model="status"
+                        @change="htmx.ajax('GET', '/jobs/list' + (status ? '?status=' + status : ''), {target: '#jobs-list-container', swap: 'innerHTML'})"
+                        class="block w-full sm:w-auto text-sm rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-mozart-500 focus:border-mozart-500 py-1.5 px-2">
+                    <option value="">All statuses</option>
+                    <option value="running">Running</option>
+                    <option value="completed">Completed</option>
+                    <option value="failed">Failed</option>
+                    <option value="paused">Paused</option>
+                    <option value="cancelled">Cancelled</option>
+                    <option value="pending">Pending</option>
+                </select>
+            </div>
+
+            <!-- Refresh indicator -->
+            <div class="hidden sm:flex items-center gap-1.5 text-xs text-gray-400 dark:text-gray-500 ml-auto">
+                <span class="htmx-indicator" id="jobs-loading">
+                    <svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                    </svg>
+                </span>
+                Auto-refreshes every 10s
+            </div>
+        </div>
+    </div>
+
+    <!-- Jobs list (htmx-loaded, auto-refresh every 10s) -->
+    <div id="jobs-list-container"
+         hx-get="/jobs/list"
+         hx-trigger="load, every 10s"
+         hx-swap="innerHTML"
+         hx-indicator="#jobs-loading">
+        <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-8 text-center">
+            <div class="text-sm text-gray-500 dark:text-gray-400 animate-pulse">Loading jobs...</div>
+        </div>
+    </div>
+</div>
+{% endblock %}

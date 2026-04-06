@@ -2437,3 +2437,94 @@ Add V212 validation check with "did you mean X?" suggestions for common typos (`
   The cleanup chain: Mozart kills agent PGID → playwright-mcp (node) dies → Playwright exit handler kills Chrome → all Chrome children terminate. This works because Playwright registers its own cleanup, not because Mozart manages Chrome's PGID.
 
 - **Implication:** No Mozart-side fix needed for Chrome cleanup. However, any MCP server that spawns child processes WITHOUT registering an exit handler would leak in the same way as F-484.
+
+### F-487: `reap_orphaned_backends()` Kills All User Processes — WSL2 VM Crash
+- **Found by:** Composer, crash investigation (2026-04-06)
+- **Severity:** P0 (critical — kills user's entire WSL2 session, 9 observed crashes)
+- **Status:** Resolved — system-wide scan disabled in `pgroup.py`
+- **Category:** bug
+
+- **Finding:** The F-481 rewrite of `reap_orphaned_backends()` removed cmdline pattern filtering (`_ORPHAN_CMDLINE_PATTERNS`) and replaced it with ancestry-only detection (`ppid in {0, 1}`). Without filtering, the function kills EVERY user-owned process parented by init/systemd — including `systemd --user`, terminal emulators, dbus-daemon, and other session infrastructure. On WSL2, killing the user's systemd instance cascades into `systemd-poweroff.service` and shuts down the entire VM (exit code 9, all terminals dead). Same unscoped kill existed in `cleanup_orphans()` (killed any daemon-tree child not directly parented by the daemon when dead backends existed) and `_reap_orphans_proc()` (/proc fallback).
+- **Trigger:** Any tracked backend PID found dead during a monitor cycle (every 15s). This occurs via race window between process exit and `_on_process_exited` callback, or on any timeout/error/cancellation path where `_on_process_exited` is never called. Observed 9 times — reproducible at sheet completion.
+- **Resolution:** All three kill paths disabled. `reap_orphaned_backends()` is a no-op that drains dead PIDs from the tracking set without acting on them. `cleanup_orphans()` only reaps zombies. `_reap_orphans_proc()` returns empty. Orphaned MCP/LSP servers accumulate but don't crash the system.
+- **Permanent fix:** Per-job PID tracking in the conductor DB (see composer-notes.yaml "PROCESS CLEANUP SIMPLIFICATION"). Eliminates the in-memory tracking set, the ancestry probing, and the system-wide scan entirely.
+
+### F-488: Profiler Database Unbounded Growth — 551 MB with No Retention Enforcement
+- **Found by:** Composer, crash investigation (2026-04-06)
+- **Severity:** P2 (medium — disk waste, potential performance impact on profiler queries)
+- **Status:** Open
+- **Category:** operations
+
+- **Finding:** `~/.mozart/monitor.db` has grown to 551 MB containing 518,017 snapshots and 1,720,196 process metric rows spanning 42 days (2026-02-23 to 2026-04-06). `MonitorStorage.cleanup()` exists and accepts a `RetentionConfig`, but it is never called on a schedule. The profiler collector writes snapshots every 5 seconds but has no cleanup loop. At ~1,200 snapshots/hour with ~3 process metrics per snapshot, the database grows by ~13 MB/day indefinitely.
+- **Action:** Wire `cleanup()` into the profiler collector's periodic loop (e.g., once per hour). Default retention: 24h full resolution snapshots, 7d events. Also consider `VACUUM` after large deletes to reclaim space.
+
+### F-489: README and Docs Outdated, Misaligned with Project Identity
+- **Found by:** Composer (2026-04-06)
+- **Severity:** P1 (high — first thing users and investors see)
+- **Status:** Open
+- **Category:** documentation, identity
+
+- **Finding:** Multiple problems across README.md and docs/:
+
+  **Install is outdated:** README install instructions don't reflect current state (marianne rename, dependencies, conductor-first workflow).
+
+  **Architecture description is wrong:** README presents architecture as runner-first with daemon as optional. The conductor IS the execution authority — daemon-first is the only supported mode. `mozart run` routes through the conductor. The architecture section needs to reflect this.
+
+  **Daemon terminology inconsistent:** Mix of "daemon" and "conductor" across docs. The conductor IS the daemon. Terminology should be consistent.
+
+  **`hello.yaml` problems:** The example score is not using defaults (forces users to specify things that should be implicit). It attempts creative writing (literature generation) which is misaligned with the project's identity and values. Marianne's position: replace non-creative knowledge work — managers, coders, admins, commerce. Creative work CAN be replaced by AI, but Marianne will never provide scores for that. The project exists to help artists, not replace them. This is load-bearing identity, aligned with the live site's punk ethos.
+
+  **`hello.yaml` needs two versions:**
+  1. A minimal baton-testing version that uses fewer tokens (internal, for development)
+  2. A clean user-facing version that demonstrates replacing non-creative work (what new users see in examples/)
+
+  **Docs don't match the site:** The live site at mozart-orchestra-live has a specific voice and identity (dark, punk, "fear of god into capitalists"). The docs are generic technical writing that doesn't match. After the rename to Marianne and before public push, docs need to carry the same energy.
+
+- **Action:**
+  1. Overhaul README.md — daemon-first architecture, correct install, consistent terminology, identity-aligned examples
+  2. Split hello.yaml into internal baton-test score and user-facing example
+  3. Replace creative-work example with non-creative knowledge work (contract generation, code review, report synthesis, admin automation — things that SHOULD be automated)
+  4. Audit all docs/ for daemon-first consistency and site voice alignment
+  5. This is gated on the Marianne rename completing
+
+### F-490: `os.killpg()` in `claude_cli.py` Can Nuke Entire User Session — WSL2 VM Crash (Real Cause)
+- **Found by:** Composer, crash investigation session 3 (2026-04-06)
+- **Severity:** P0 (critical — kills user's entire WSL2 session; supersedes F-487 as the actual root cause of the "exit code 00000009" crashes)
+- **Status:** Guard in place (patch landed in marianne + mozart trees, three-agent review pending — see TASKS.md "Defensive Process-Cleanup Review")
+- **Category:** bug, defensive-coding
+
+- **⚠️ TAKEAWAY — Defensive coding around process control is NECESSARY AND CRITICAL. This pattern MUST be extended to other code.** The fix is a five-line guard function. The lesson is much larger: Mozart has been shipping unguarded `os.killpg()`, `os.kill()`, and related syscalls throughout the codebase, trusting that the pgid/pid argument is valid at the moment of the syscall. That assumption is wrong in at least four ways — PID recycling after reap, mocks in tests, getpgid race windows, and direct pid=1 sentinels. Any of those four routes through `os.killpg(pgid, SIGKILL)` compiles kernel-side to `kill(-1, SIGKILL)` and kills the entire user session. There are almost certainly other places in the codebase that have the same blast-radius vulnerability in other syscall families. Every `os.kill*`, `os.killpg*`, `os.getpgid*`, `process.kill*`, every raw signal delivery, every file-descriptor close on a recycled fd, every `unshare`/`mount`/`setuid` call — any code that hands a value to the kernel without validating its blast radius — is a future F-490 waiting to reproduce. **The guard pattern used here (refuse if target <= 1, refuse if target == own, log on refusal, return bool) is the baseline. Apply it everywhere this class of risk exists.**
+
+- **Finding:** F-487 disabled `reap_orphaned_backends()` in `pgroup.py` but the WSL2 "all terminals killed with code 9" crashes kept happening. A fresh instrumented trace run under `strace -f -e trace=process,signal,%network,desc` captured the actual mechanism. Final syscall in `/home/emzi/mozart-strace.log` before system teardown:
+
+  ```
+  16776 08:12:16.570659 kill(-1, SIGKILL <unfinished ...>
+  ```
+
+  PID 16776 is `python -m pytest tests/ -q --tb=line --ignore=tests/test_check_instrument_available.py`. The log line immediately before the kill is `executing_command args_count=8 command=/usr/bin/claude component=backend.claude_cli prompt_length=11` — a test invoking Mozart's real `claude_cli` backend with a minimal prompt.
+
+  `kill(-1, SIGKILL)` is the kernel-level translation of `os.killpg(1, signal.SIGKILL)`. `claude_cli.py` has **four** `os.killpg(pgid, SIGKILL)` sites — lines 355, 560, 884, 962 — all of which compute `pgid = os.getpgid(process.pid)` or similar. If `process.pid == 1` (mock, stub, reaped-and-recycled PID, or any other edge case), then `os.getpgid(1) == 1` → `os.killpg(1, SIGKILL)` → kernel `kill(-1, SIGKILL)` → "send SIGKILL to every process this UID can signal except init." That kills `systemd --user`, every bash shell in every WSL terminal, and cascades into `user@1000.service: Main process exited, code=killed, status=9/KILL` — the exact signature of the user-reported crashes.
+
+  The bug is present in all four sites with the same pattern. Because pytest must coexist with the live daemon during development, any test that touches the real backend path is enough to trigger it.
+
+  F-487's pgroup fix was necessary but did not address this second, distinct unscoped-kill path. Both bugs had the same symptom; neither alone explains the full crash history.
+
+- **Sites:** `src/marianne/backends/claude_cli.py`
+  - Line 355: `_handle_execution_timeout` — timeout → SIGKILL escalation
+  - Line 560: `_kill_orphaned_process` — exception → cleanup
+  - Line 884: `_await_process_exit` — post-wait escalation
+  - Line 962: `_stream_with_progress` cancellation handler
+
+- **Trigger:** Any code path that reaches a `killpg` site with a `process` object whose `.pid` is 0, 1, or a PID whose process group happens to equal 1 or the daemon's own process group. Observed trigger: pytest running backend tests while the live daemon is running in the same user session.
+
+- **Action:**
+  1. ✅ **Done** — `_safe_killpg(pgid, sig, *, context)` helper added to `src/marianne/backends/claude_cli.py` (live runtime) and `src/mozart/backends/claude_cli.py` (tracked dual tree). Refuses when `pgid <= 1` or `pgid == os.getpgid(0)`, logs `killpg_guard_refused` at warning level with `reason`, `pgid`, `signal`, `context`, returns bool.
+  2. ✅ **Done** — all six `os.killpg` sites in `claude_cli.py` routed through `_safe_killpg` in both trees (sites at 355 timeout_escalation, 560 kill_orphaned_process, 875/884 await_exit_graceful/force, 954/962 cancel_graceful/force).
+  3. ✅ **Verified** — runtime smoke test confirmed all four guard conditions block correctly (`pgid=1`, `pgid=0`, `pgid=-1`, `pgid=own_pgid`).
+  4. **Pending — three-agent review** (see TASKS.md "Defensive Process-Cleanup Review"):
+     - Agent 1: Correctness review of the guard itself + write regression test `tests/test_safe_killpg_guard.py`.
+     - Agent 2: Coverage review — grep the entire codebase for sibling bugs in `os.kill*`, `os.killpg*`, `os.getpgid*`, `process.kill*`, other backends (`anthropic_api.py`, `plugin_cli.py`, `ollama.py`, `json_backend.py`), and `pgroup.py:154/339` (verify `_is_leader` guard is sufficient under inline/pytest execution).
+     - Agent 3: Pattern-extension review — codify defensive process-control patterns as a project-wide convention at `workspaces/v1-beta-v3/movement-5/process-control-defensive-patterns.md`, feed into `.mozart/spec/constraints.yaml` as a new MUST, and identify other syscall families where "trust the value, call the syscall" has the same blast radius.
+  5. **Not yet done** — identify the specific test that passed `pid=1` (or the equivalent) into the backend cleanup path. The guard makes this non-critical for session safety but it's worth knowing which test triggered the strace evidence at 08:12:16.
+
+- **Related:** F-487 (pgroup.py unscoped kill — sibling bug, different code path, same symptom). F-482 (`_await_process_exit` PID-recycle SIGKILL — same function as site 3, reinforces that the whole cleanup family needs auditing).
